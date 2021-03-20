@@ -1,10 +1,10 @@
 use std::borrow::Cow;
 
-use crate::schema::{AnyView, View};
+use crate::schema::{view, View};
 
-pub trait Collection {
+pub trait Collection: Send + Sync {
     fn name(&self) -> Cow<'static, str>;
-    fn add_views(&self, views: &mut CollectionViews<Self>)
+    fn define_views(&self, views: &mut Views<Self>)
     where
         Self: Sized;
 
@@ -17,11 +17,11 @@ pub trait Collection {
 }
 
 #[derive(Default)]
-pub struct CollectionViews<C> {
-    views: Vec<Box<dyn AnyView<C>>>,
+pub struct Views<C> {
+    views: Vec<Box<dyn view::Serialized<C>>>,
 }
 
-impl<C> CollectionViews<C> {
+impl<C> Views<C> {
     pub fn push<V: View<C> + 'static>(&mut self, view: V) {
         self.views.push(view.boxed());
     }

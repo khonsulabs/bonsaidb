@@ -1,4 +1,4 @@
-mod collection;
+pub mod collection;
 mod database;
 mod document;
 mod revision;

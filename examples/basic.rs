@@ -1,15 +1,21 @@
 use std::borrow::Cow;
 
-use pliantdb::schema::{
-    Collection, CollectionViews, Database, DatabaseCollections, Document, MapResult, View,
+use pliantdb::{
+    connection::Connection,
+    schema::{Collection, Collections, Database, Document, MapResult, View, Views},
+    storage::Storage,
 };
 use serde::{Deserialize, Serialize};
 
 struct Basic;
 
 impl Database for Basic {
-    fn add_collections(collections: &mut DatabaseCollections) {
-        collections.push(TodoCollection);
+    fn name(&self) -> Cow<'static, str> {
+        Cow::from("basic")
+    }
+
+    fn define_collections(&self, collections: &mut Collections) {
+        collections.push(Todos);
     }
 }
 
@@ -19,21 +25,21 @@ struct Todo<'a> {
     pub task: &'a str,
 }
 
-struct TodoCollection;
+struct Todos;
 
-impl Collection for TodoCollection {
+impl Collection for Todos {
     fn name(&self) -> Cow<'static, str> {
         Cow::from("todos")
     }
 
-    fn add_views(&self, views: &mut CollectionViews<Self>) {
+    fn define_views(&self, views: &mut Views<Self>) {
         views.push(IncompleteTodos);
     }
 }
 
 struct IncompleteTodos;
 
-impl View<TodoCollection> for IncompleteTodos {
+impl View<Todos> for IncompleteTodos {
     type MapKey = ();
     type MapValue = ();
     type Reduce = ();
@@ -42,7 +48,7 @@ impl View<TodoCollection> for IncompleteTodos {
         Cow::from("uncompleted-todos")
     }
 
-    fn map<'d>(&self, document: &'d Document<TodoCollection>) -> MapResult<'d> {
+    fn map<'d>(&self, document: &'d Document<Todos>) -> MapResult<'d> {
         let todo: Todo<'d> = document.contents::<Todo>()?;
         if todo.completed {
             Ok(Some(document.emit_nothing()))
@@ -52,4 +58,25 @@ impl View<TodoCollection> for IncompleteTodos {
     }
 }
 
-fn main() {}
+#[tokio::main]
+async fn main() -> Result<(), pliantdb::connection::Error> {
+    let db = Storage::open_local("test", Basic)?;
+
+    let doc = db
+        .collection::<Todos>()?
+        .push(&Todo {
+            completed: false,
+            task: "Test Task",
+        })
+        .await?;
+
+    let doc = db
+        .collection::<Todos>()?
+        .get(&doc.id)
+        .await?
+        .expect("couldn't retrieve stored item");
+
+    println!("Inserted task with id {}", doc.id);
+
+    Ok(())
+}

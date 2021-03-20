@@ -3,17 +3,17 @@ use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::Document;
+use crate::schema::{view, Document};
 
 #[derive(thiserror::Error, Debug)]
-pub enum ViewError {
+pub enum Error {
     #[error("error deserializing document {0}")]
     SerializationError(#[from] serde_cbor::Error),
     #[error("reduce is unimplemented")]
     ReduceUnimplemented,
 }
 
-pub type MapResult<'d, K = (), V = ()> = Result<Option<Map<'d, K, V>>, ViewError>;
+pub type MapResult<'d, K = (), V = ()> = Result<Option<Map<'d, K, V>>, Error>;
 
 pub trait View<C> {
     type MapKey: Serialize + for<'de> Deserialize<'de>;
@@ -29,11 +29,11 @@ pub trait View<C> {
         &self,
         mappings: &[Map<'_, Self::MapKey, Self::MapValue>],
         rereduce: bool,
-    ) -> Result<Self::Reduce, ViewError> {
-        Err(ViewError::ReduceUnimplemented)
+    ) -> Result<Self::Reduce, Error> {
+        Err(Error::ReduceUnimplemented)
     }
 
-    fn boxed(self) -> Box<dyn AnyView<C>>
+    fn boxed(self) -> Box<dyn view::Serialized<C>>
     where
         Self: Sized + 'static,
     {
@@ -76,12 +76,12 @@ pub struct SerializedMap {
     pub value: serde_cbor::Value,
 }
 
-pub trait AnyView<C> {
+pub trait Serialized<C> {
     fn name(&self) -> Cow<'static, str>;
-    fn map(&self, document: &Document<C>) -> Result<Option<SerializedMap>, ViewError>;
+    fn map(&self, document: &Document<C>) -> Result<Option<SerializedMap>, Error>;
 }
 
-impl<C, T> AnyView<C> for T
+impl<C, T> Serialized<C> for T
 where
     T: View<C>,
 {
@@ -89,7 +89,7 @@ where
         View::<C>::name(self)
     }
 
-    fn map(&self, document: &Document<C>) -> Result<Option<SerializedMap>, ViewError> {
+    fn map(&self, document: &Document<C>) -> Result<Option<SerializedMap>, Error> {
         let map = View::<C>::map(self, document)?;
 
         match map {
