@@ -13,7 +13,7 @@ pub enum Error {
     ReduceUnimplemented,
 }
 
-pub type MapResult<'d, K = (), V = ()> = Result<Option<Map<'d, K, V>>, Error>;
+pub type MapResult<K = (), V = ()> = Result<Option<Map<K, V>>, Error>;
 
 pub trait View<C> {
     type MapKey: Serialize + for<'de> Deserialize<'de>;
@@ -22,12 +22,12 @@ pub trait View<C> {
 
     fn name(&self) -> Cow<'static, str>;
 
-    fn map<'d>(&self, document: &'d Document<C>) -> MapResult<'d, Self::MapKey, Self::MapValue>;
+    fn map(&self, document: &Document<C>) -> MapResult<Self::MapKey, Self::MapValue>;
 
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[Map<'_, Self::MapKey, Self::MapValue>],
+        mappings: &[Map<Self::MapKey, Self::MapValue>],
         rereduce: bool,
     ) -> Result<Self::Reduce, Error> {
         Err(Error::ReduceUnimplemented)
@@ -46,9 +46,12 @@ pub enum SerializableValue<'a, T: Serialize> {
     Borrowed(&'a T),
 }
 
-impl<'a> Into<SerializableValue<'a, ()>> for () {
-    fn into(self) -> SerializableValue<'a, Self> {
-        SerializableValue::Owned(())
+impl<'a, T> From<&'a T> for SerializableValue<'a, T>
+where
+    T: Serialize,
+{
+    fn from(other: &'a T) -> SerializableValue<'a, T> {
+        SerializableValue::Borrowed(other)
     }
 }
 
@@ -64,10 +67,10 @@ where
     }
 }
 
-pub struct Map<'a, K: Serialize = (), V: Serialize = ()> {
+pub struct Map<K: Serialize = (), V: Serialize = ()> {
     pub source: Uuid,
-    pub key: SerializableValue<'a, K>,
-    pub value: SerializableValue<'a, V>,
+    pub key: K,
+    pub value: V,
 }
 
 pub struct SerializedMap {
@@ -95,8 +98,8 @@ where
         match map {
             Some(map) => Ok(Some(SerializedMap {
                 source: map.source,
-                key: serde_cbor::value::to_value(map.key.as_ref())?,
-                value: serde_cbor::value::to_value(map.value.as_ref())?,
+                key: serde_cbor::value::to_value(&map.key)?,
+                value: serde_cbor::value::to_value(&map.value)?,
             })),
             None => Ok(None),
         }

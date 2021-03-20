@@ -4,6 +4,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::schema::{self, Document};
+use async_trait::async_trait;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -13,24 +14,29 @@ pub enum Error {
     CollectionNotFound,
 }
 
+#[async_trait]
 pub trait Connection: Send + Sync {
-    fn collection<C: schema::Collection + 'static>(&self) -> Result<Collection<'_, Self, C>, Error>
+    fn collection<C: schema::Collection + Clone + 'static>(
+        &self,
+    ) -> Result<Collection<'_, Self, C>, Error>
     where
         Self: Sized;
+
+    async fn save<C: schema::Collection>(&self, doc: &Document<C>) -> Result<(), Error>;
 }
 
 pub struct Collection<'a, Cn, Cl> {
     connection: &'a Cn,
-    collection: &'a dyn schema::Collection,
+    collection: &'a Cl,
     _phantom: PhantomData<Cl>, // allows for extension traits to be written for collections of specific types
 }
 
 impl<'a, Cn, Cl> Collection<'a, Cn, Cl>
 where
     Cn: Connection,
-    Cl: schema::Collection,
+    Cl: schema::Collection + Clone,
 {
-    pub fn new(connection: &'a Cn, collection: &'a dyn schema::Collection) -> Self {
+    pub fn new(connection: &'a Cn, collection: &'a Cl) -> Self {
         Self {
             connection,
             collection,
@@ -38,8 +44,10 @@ where
         }
     }
 
-    pub async fn push<S: Serialize + Sync>(&self, item: &S) -> Result<Document<Cl>, Error> {
-        todo!()
+    pub async fn push<S: Serialize + Sync>(&self, item: &S) -> Result<Document<Cl>, crate::Error> {
+        let doc = Document::new(item, self.collection.clone())?;
+        self.connection.save(&doc).await?;
+        Ok(doc)
     }
 
     pub async fn get(&self, id: &Uuid) -> Result<Option<Document<Cl>>, Error> {

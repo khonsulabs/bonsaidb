@@ -15,3 +15,7 @@ anyhow = "1"
 sled = "0.34"
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
+sha2 = "0.9"
+
+[dev-dependencies]
+hex-literal = "0.3"

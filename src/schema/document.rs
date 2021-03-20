@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::schema::{Map, Revision, SerializableValue};
+use crate::schema::{Map, Revision};
+
+use super::Collection;
 
 pub struct Document<C> {
     pub id: Uuid,
@@ -10,42 +12,55 @@ pub struct Document<C> {
     pub contents: Vec<u8>,
 }
 
-impl<C> Document<C> {
+impl<C> Document<C>
+where
+    C: Collection + Clone,
+{
+    pub fn new<S: Serialize>(contents: &S, collection: C) -> Result<Self, serde_cbor::Error> {
+        let contents = serde_cbor::to_vec(contents)?;
+        let revision = Revision::new(&contents);
+        Ok(Self {
+            id: Uuid::new_v4(),
+            collection: Some(collection),
+            revision,
+            contents,
+        })
+    }
+
     pub fn contents<'a, D: Deserialize<'a>>(&'a self) -> Result<D, serde_cbor::Error> {
         serde_cbor::from_slice(&self.contents)
     }
 
-    pub fn set_contents<S: Serialize>(&mut self, contents: &S) -> Result<(), serde_cbor::Error> {
-        self.contents = serde_cbor::to_vec(contents)?;
-        Ok(())
+    pub fn update_with<S: Serialize>(
+        &self,
+        contents: &S,
+    ) -> Result<Option<Self>, serde_cbor::Error> {
+        let contents = serde_cbor::to_vec(contents)?;
+        Ok(self.revision.next_revision(&contents).map(|revision| Self {
+            id: self.id,
+            revision,
+            collection: self.collection.clone(),
+            contents,
+        }))
     }
 
-    pub fn emit_nothing(&self) -> Map<'static, (), ()> {
+    pub fn emit_nothing(&self) -> Map<(), ()> {
         self.emit_with((), ())
     }
 
-    pub fn emit<'a, K: Into<SerializableValue<'a, Key>>, Key: Serialize>(
-        &self,
-        key: K,
-    ) -> Map<'a, Key, ()> {
+    pub fn emit<Key: Serialize>(&self, key: Key) -> Map<Key, ()> {
         self.emit_with(key, ())
     }
 
-    pub fn emit_with<
-        'a,
-        K: Into<SerializableValue<'a, Key>>,
-        V: Into<SerializableValue<'a, Value>>,
-        Key: Serialize,
-        Value: Serialize,
-    >(
+    pub fn emit_with<Key: Serialize, Value: Serialize>(
         &self,
-        key: K,
-        value: V,
-    ) -> Map<'a, Key, Value> {
+        key: Key,
+        value: Value,
+    ) -> Map<Key, Value> {
         Map {
             source: self.id,
-            key: key.into(),
-            value: value.into(),
+            key,
+            value,
         }
     }
 }
