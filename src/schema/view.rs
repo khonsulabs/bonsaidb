@@ -1,9 +1,11 @@
 use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::schema::Document;
+
+mod map;
+pub use map::{Map, ToEndianBytes};
 
 /// errors that arise when interacting with views
 #[derive(thiserror::Error, Debug)]
@@ -18,15 +20,15 @@ pub enum Error {
 }
 
 /// a type alias for the result of `View::map()`
-pub type MapResult<K = (), V = ()> = Result<Option<Map<K, V>>, Error>;
+pub type MapResult<'k, K = (), V = ()> = Result<Option<Map<'k, K, V>>, Error>;
 
 /// a map/reduce powered indexing and aggregation schema
 ///
 /// inspired by [`CouchDB`'s view system](https://docs.couchdb.org/en/stable/ddocs/views/index.html)
 // TODO write our own view docs
-pub trait View<C> {
+pub trait View<'k, C> {
     /// the key for this view
-    type MapKey: Serialize + for<'de> Deserialize<'de>;
+    type MapKey: ToEndianBytes<'k> + 'static;
 
     /// an associated type that can be stored with each entry in the view
     type MapValue: Serialize + for<'de> Deserialize<'de>;
@@ -47,7 +49,7 @@ pub trait View<C> {
     /// the map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document.
-    fn map(document: &Document<'_, C>) -> MapResult<Self::MapKey, Self::MapValue>;
+    fn map(document: &Document<'_, C>) -> MapResult<'k, Self::MapKey, Self::MapValue>;
 
     /// the reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -56,7 +58,7 @@ pub trait View<C> {
     /// for the design this implementation will be inspired by
     #[allow(unused_variables)]
     fn reduce(
-        mappings: &[Map<Self::MapKey, Self::MapValue>],
+        mappings: &[Map<'k, Self::MapKey, Self::MapValue>],
         rereduce: bool,
     ) -> Result<Self::Reduce, Error> {
         Err(Error::ReduceUnimplemented)
@@ -94,52 +96,27 @@ where
     }
 }
 
-/// a structure representing a document's entry in a View's mappings
-#[derive(PartialEq, Debug)]
-pub struct Map<K: Serialize = (), V: Serialize = ()> {
-    /// the id of the document that emitted this entry
-    pub source: Uuid,
-
-    /// the key used to index the View
-    pub key: K,
-
-    /// an associated value stored in the view
-    pub value: V,
-}
-
-/// a structure representing a document's entry in a View's mappings, serialized and ready to store
-pub(crate) struct SerializedMap {
-    /// the id of the document that emitted this entry
-    pub source: Uuid,
-
-    /// the key used to index the View
-    // TODO change this to bytes
-    pub key: serde_cbor::Value,
-
-    /// an associated value stored in the view
-    pub value: serde_cbor::Value,
-}
-
 pub(crate) trait Serialized<C> {
     fn name() -> Cow<'static, str>;
-    fn map(document: &Document<'_, C>) -> Result<Option<SerializedMap>, Error>;
+    fn map(document: &Document<'_, C>) -> Result<Option<map::Serialized>, Error>;
 }
 
-impl<C, T> Serialized<C> for T
+impl<'k, C, T> Serialized<C> for T
 where
-    T: View<C>,
+    T: View<'k, C>,
+    <T as View<'k, C>>::MapKey: 'static,
 {
     fn name() -> Cow<'static, str> {
         Self::name()
     }
 
-    fn map(document: &Document<'_, C>) -> Result<Option<SerializedMap>, Error> {
+    fn map(document: &Document<'_, C>) -> Result<Option<map::Serialized>, Error> {
         let map = Self::map(document)?;
 
         match map {
-            Some(map) => Ok(Some(SerializedMap {
+            Some(map) => Ok(Some(map::Serialized {
                 source: map.source,
-                key: serde_cbor::value::to_value(&map.key)?,
+                key: map.key.to_endian_bytes(),
                 value: serde_cbor::value::to_value(&map.value)?,
             })),
             None => Ok(None),

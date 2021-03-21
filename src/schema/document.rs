@@ -5,6 +5,8 @@ use uuid::Uuid;
 
 use crate::schema::{Collection, Map, Revision};
 
+use super::ToEndianBytes;
+
 /// a struct representing a document in the database
 pub struct Document<'a, C> {
     /// the id of the Document. Unique across the collection `C`
@@ -54,34 +56,30 @@ where
 
     /// create a `Map` result with an empty key and value
     #[must_use]
-    pub fn emit(&self) -> Map<(), ()> {
+    pub fn emit(&self) -> Map<'static, (), ()> {
         self.emit_key_and_value((), ())
     }
 
     /// create a `Map` result with a `key` and an empty value
     #[must_use]
-    pub fn emit_key<Key: Serialize>(&self, key: Key) -> Map<Key, ()> {
+    pub fn emit_key<'k, Key: ToEndianBytes<'k>>(&self, key: Key) -> Map<'k, Key, ()> {
         self.emit_key_and_value(key, ())
     }
 
     /// create a `Map` result with `value` and an empty key
     #[must_use]
-    pub fn emit_value<Value: Serialize>(&self, value: Value) -> Map<(), Value> {
+    pub fn emit_value<Value: Serialize>(&self, value: Value) -> Map<'static, (), Value> {
         self.emit_key_and_value((), value)
     }
 
     /// create a `Map` result with a `key` and `value`
     #[must_use]
-    pub fn emit_key_and_value<Key: Serialize, Value: Serialize>(
+    pub fn emit_key_and_value<'k, Key: ToEndianBytes<'k>, Value: Serialize>(
         &self,
         key: Key,
         value: Value,
-    ) -> Map<Key, Value> {
-        Map {
-            source: self.id,
-            key,
-            value,
-        }
+    ) -> Map<'k, Key, Value> {
+        Map::new(self.id, key, value)
     }
 }
 
@@ -124,41 +122,13 @@ mod tests {
     fn emissions() -> Result<(), Error> {
         let doc = Document::<BasicCollection>::new(&Basic { parent_id: None })?;
 
-        assert_eq!(
-            doc.emit(),
-            Map {
-                source: doc.id,
-                key: (),
-                value: ()
-            }
-        );
+        assert_eq!(doc.emit(), Map::new(doc.id, (), ()));
 
-        assert_eq!(
-            doc.emit_key(1),
-            Map {
-                source: doc.id,
-                key: 1,
-                value: ()
-            }
-        );
+        assert_eq!(doc.emit_key(1), Map::new(doc.id, 1, ()));
 
-        assert_eq!(
-            doc.emit_value(1),
-            Map {
-                source: doc.id,
-                key: (),
-                value: 1
-            }
-        );
+        assert_eq!(doc.emit_value(1), Map::new(doc.id, (), 1));
 
-        assert_eq!(
-            doc.emit_key_and_value(1, 2),
-            Map {
-                source: doc.id,
-                key: 1,
-                value: 2
-            }
-        );
+        assert_eq!(doc.emit_key_and_value(1, 2), Map::new(doc.id, 1, 2));
 
         Ok(())
     }

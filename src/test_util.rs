@@ -20,7 +20,7 @@ impl Collection for BasicCollection {
 
 pub struct BasicCount;
 
-impl View<BasicCollection> for BasicCount {
+impl<'k> View<'k, BasicCollection> for BasicCount {
     type MapKey = ();
     type MapValue = usize;
     type Reduce = usize;
@@ -35,12 +35,12 @@ impl View<BasicCollection> for BasicCount {
 
     fn map(
         document: &crate::schema::Document<'_, BasicCollection>,
-    ) -> MapResult<Self::MapKey, Self::MapValue> {
+    ) -> MapResult<'k, Self::MapKey, Self::MapValue> {
         Ok(Some(document.emit_key_and_value((), 1)))
     }
 
     fn reduce(
-        mappings: &[Map<Self::MapKey, Self::MapValue>],
+        mappings: &[Map<'k, Self::MapKey, Self::MapValue>],
         _rereduce: bool,
     ) -> Result<Self::Reduce, view::Error> {
         Ok(mappings.iter().map(|map| map.value).sum())

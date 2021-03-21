@@ -37,7 +37,7 @@ impl Collection for Todos {
 
 struct TodosByParent;
 
-impl View<Todos> for TodosByParent {
+impl<'k> View<'k, Todos> for TodosByParent {
     type MapKey = Option<Uuid>;
     type MapValue = ();
     type Reduce = ();
@@ -50,7 +50,7 @@ impl View<Todos> for TodosByParent {
         Cow::from("todos-by-parent")
     }
 
-    fn map(document: &Document<Todos>) -> MapResult<Option<Uuid>> {
+    fn map(document: &Document<Todos>) -> MapResult<'k, Option<Uuid>> {
         let todo = document.contents::<Todo>()?;
         Ok(Some(document.emit_key(todo.parent_id)))
     }
