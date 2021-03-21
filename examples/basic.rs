@@ -42,6 +42,10 @@ impl View<Todos> for TodosByParent {
     type MapValue = ();
     type Reduce = ();
 
+    fn version() -> usize {
+        0
+    }
+
     fn name() -> Cow<'static, str> {
         Cow::from("todos-by-parent")
     }

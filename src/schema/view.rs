@@ -38,7 +38,8 @@ pub trait View<C> {
     // TODO: Don't use serialize here, use something that converts to bytes
     type Reduce: for<'de> Deserialize<'de>;
 
-    /// TODO need versioning
+    /// the version of the view. Changing this value will cause indexes to be rebuilt.
+    fn version() -> usize;
 
     /// the name of the view. Must be unique per collection.
     fn name() -> Cow<'static, str>;

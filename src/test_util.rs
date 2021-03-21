@@ -25,6 +25,10 @@ impl View<BasicCollection> for BasicCount {
     type MapValue = usize;
     type Reduce = usize;
 
+    fn version() -> usize {
+        0
+    }
+
     fn name() -> Cow<'static, str> {
         Cow::from("count")
     }
