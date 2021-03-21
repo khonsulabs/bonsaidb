@@ -20,19 +20,21 @@ pub enum Error {
 
 /// a trait that defines all interactions with a `Database`, regardless of whether it is local or remote
 #[async_trait]
-pub trait Connection: Send + Sync {
+pub trait Connection<'a>: Send + Sync {
     /// access a collection for the connected `Database`
-    fn collection<C: schema::Collection + 'static>(&self) -> Result<Collection<'_, Self, C>, Error>
+    fn collection<C: schema::Collection + 'static>(
+        &'a self,
+    ) -> Result<Collection<'a, Self, C>, Error>
     where
         Self: Sized;
 
     /// insert a newly created document into the connected `Database` for the collection `C`
-    async fn insert<C: schema::Collection>(&self, doc: &Document<C>) -> Result<(), Error>;
+    async fn insert<C: schema::Collection>(&self, doc: &Document<'a, C>) -> Result<(), Error>;
 
     /// update an existing document in the connected `Database` for the
     /// collection `C`. Upon success, `doc.revision` will be updated with the
     /// new revision.
-    async fn update<C: schema::Collection>(&self, doc: &mut Document<C>) -> Result<(), Error>;
+    async fn update<C: schema::Collection>(&self, doc: &mut Document<'a, C>) -> Result<(), Error>;
 }
 
 /// a struct used to interact with a collection over a `Connection`
@@ -43,7 +45,7 @@ pub struct Collection<'a, Cn, Cl> {
 
 impl<'a, Cn, Cl> Collection<'a, Cn, Cl>
 where
-    Cn: Connection,
+    Cn: Connection<'a>,
     Cl: schema::Collection,
 {
     pub(crate) fn new(connection: &'a Cn) -> Self {
@@ -54,14 +56,17 @@ where
     }
 
     /// add a new `Document<Cl>` with the contents `item`
-    pub async fn push<S: Serialize + Sync>(&self, item: &S) -> Result<Document<Cl>, crate::Error> {
+    pub async fn push<S: Serialize + Sync>(
+        &self,
+        item: &S,
+    ) -> Result<Document<'static, Cl>, crate::Error> {
         let doc = Document::new(item)?;
         self.connection.insert(&doc).await?;
         Ok(doc)
     }
 
     /// retrieve a `Document<Cl>` with `id` from the connection
-    pub async fn get(&self, id: &Uuid) -> Result<Option<Document<Cl>>, Error> {
+    pub async fn get(&self, id: &Uuid) -> Result<Option<Document<'_, Cl>>, Error> {
         todo!()
     }
 }

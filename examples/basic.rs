@@ -55,9 +55,8 @@ impl View<Todos> for TodosByParent {
 #[tokio::main]
 async fn main() -> Result<(), pliantdb::Error> {
     let db = Storage::<Basic>::open_local("test")?;
-
-    let doc = db
-        .collection::<Todos>()?
+    let todos = db.collection::<Todos>()?;
+    let doc = todos
         .push(&Todo {
             completed: false,
             task: "Test Task",
@@ -65,8 +64,7 @@ async fn main() -> Result<(), pliantdb::Error> {
         })
         .await?;
 
-    let doc = db
-        .collection::<Todos>()?
+    let doc = todos
         .get(&doc.id)
         .await?
         .expect("couldn't retrieve stored item");

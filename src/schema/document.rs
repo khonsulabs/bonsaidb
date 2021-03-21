@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{borrow::Cow, marker::PhantomData};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -6,26 +6,25 @@ use uuid::Uuid;
 use crate::schema::{Collection, Map, Revision};
 
 /// a struct representing a document in the database
-pub struct Document<C> {
+pub struct Document<'a, C> {
     /// the id of the Document. Unique across the collection `C`
     pub id: Uuid,
     /// the revision of the stored document.
     pub revision: Revision,
 
     /// the serialized bytes of the stored item
-    // TODO this should be a Cow to allow deserialization without copying
-    pub contents: Vec<u8>,
+    pub contents: Cow<'a, [u8]>,
 
     _collection: PhantomData<C>,
 }
 
-impl<C> Document<C>
+impl<'a, C> Document<'a, C>
 where
     C: Collection,
 {
     /// create a new document with serialized bytes from `contents`
     pub fn new<S: Serialize>(contents: &S) -> Result<Self, serde_cbor::Error> {
-        let contents = serde_cbor::to_vec(contents)?;
+        let contents = Cow::from(serde_cbor::to_vec(contents)?);
         let revision = Revision::new(&contents);
         Ok(Self {
             id: Uuid::new_v4(),
@@ -36,7 +35,7 @@ where
     }
 
     /// retrieves `contents` through deserialization into the type `D`
-    pub fn contents<'a, D: Deserialize<'a>>(&'a self) -> Result<D, serde_cbor::Error> {
+    pub fn contents<D: Deserialize<'a>>(&'a self) -> Result<D, serde_cbor::Error> {
         serde_cbor::from_slice(&self.contents)
     }
 
@@ -44,7 +43,7 @@ where
         &self,
         contents: &S,
     ) -> Result<Option<Self>, serde_cbor::Error> {
-        let contents = serde_cbor::to_vec(contents)?;
+        let contents = Cow::from(serde_cbor::to_vec(contents)?);
         Ok(self.revision.next_revision(&contents).map(|revision| Self {
             id: self.id,
             revision,
@@ -108,13 +107,10 @@ mod tests {
         let db = Storage::<BasicCollection>::open_local(path)?;
 
         let original_value = Basic { parent_id: None };
-        let doc = db
-            .collection::<BasicCollection>()?
-            .push(&original_value)
-            .await?;
+        let collection = db.collection::<BasicCollection>()?;
+        let doc = collection.push(&original_value).await?;
 
-        let doc = db
-            .collection::<BasicCollection>()?
+        let doc = collection
             .get(&doc.id)
             .await?
             .expect("couldn't retrieve stored item");

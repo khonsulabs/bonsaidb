@@ -30,7 +30,7 @@ impl View<BasicCollection> for BasicCount {
     }
 
     fn map(
-        document: &crate::schema::Document<BasicCollection>,
+        document: &crate::schema::Document<'_, BasicCollection>,
     ) -> MapResult<Self::MapKey, Self::MapValue> {
         Ok(Some(document.emit_key_and_value((), 1)))
     }

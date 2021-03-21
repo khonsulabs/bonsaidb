@@ -32,11 +32,13 @@ where
 }
 
 #[async_trait]
-impl<DB> Connection for Storage<DB>
+impl<'a, DB> Connection<'a> for Storage<DB>
 where
     DB: Database,
 {
-    fn collection<C: schema::Collection + 'static>(&self) -> Result<Collection<'_, Self, C>, Error>
+    fn collection<C: schema::Collection + 'static>(
+        &'a self,
+    ) -> Result<Collection<'a, Self, C>, Error>
     where
         Self: Sized,
     {
@@ -47,13 +49,16 @@ where
         }
     }
 
-    async fn insert<C: schema::Collection>(&self, doc: &schema::Document<C>) -> Result<(), Error> {
+    async fn insert<C: schema::Collection>(
+        &self,
+        doc: &schema::Document<'a, C>,
+    ) -> Result<(), Error> {
         todo!()
     }
 
     async fn update<C: schema::Collection>(
         &self,
-        doc: &mut schema::Document<C>,
+        doc: &mut schema::Document<'a, C>,
     ) -> Result<(), Error> {
         todo!()
     }

@@ -46,7 +46,7 @@ pub trait View<C> {
     /// the map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document.
-    fn map(document: &Document<C>) -> MapResult<Self::MapKey, Self::MapValue>;
+    fn map(document: &Document<'_, C>) -> MapResult<Self::MapKey, Self::MapValue>;
 
     /// the reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -121,7 +121,7 @@ pub(crate) struct SerializedMap {
 
 pub(crate) trait Serialized<C> {
     fn name() -> Cow<'static, str>;
-    fn map(document: &Document<C>) -> Result<Option<SerializedMap>, Error>;
+    fn map(document: &Document<'_, C>) -> Result<Option<SerializedMap>, Error>;
 }
 
 impl<C, T> Serialized<C> for T
@@ -132,7 +132,7 @@ where
         Self::name()
     }
 
-    fn map(document: &Document<C>) -> Result<Option<SerializedMap>, Error> {
+    fn map(document: &Document<'_, C>) -> Result<Option<SerializedMap>, Error> {
         let map = Self::map(document)?;
 
         match map {
