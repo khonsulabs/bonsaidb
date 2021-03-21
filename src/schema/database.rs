@@ -28,12 +28,21 @@ impl Schema {
         C::define_views(self)
     }
 
-    pub fn define_view<V: View<C> + 'static, C: Collection + 'static>(&mut self) {
+    pub fn define_view<V: View<C> + 'static, C: Collection>(&mut self) {
         self.views.insert(TypeId::of::<V>(), V::name());
     }
 
     #[must_use]
     pub fn contains<C: Collection + 'static>(&self) -> bool {
         self.collections.contains_key(&TypeId::of::<C>())
+    }
+}
+
+impl<T> Database for T
+where
+    T: Collection + 'static,
+{
+    fn define_collections(collections: &mut Schema) {
+        collections.define_collection::<Self>();
     }
 }

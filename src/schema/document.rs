@@ -3,9 +3,7 @@ use std::marker::PhantomData;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::schema::{Map, Revision};
-
-use super::Collection;
+use crate::schema::{Collection, Map, Revision};
 
 pub struct Document<C> {
     pub id: Uuid,
@@ -67,5 +65,78 @@ where
             key,
             value,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        connection::Connection,
+        schema::Map,
+        storage::Storage,
+        test_util::{Basic, BasicCollection},
+        Error,
+    };
+
+    use super::Document;
+
+    #[tokio::test]
+    #[ignore] // TODO make this test work
+    async fn store_retrieve() -> Result<(), Error> {
+        let path = std::env::temp_dir().join("store_retrieve_tests.pliantdb");
+        if path.exists() {
+            std::fs::remove_dir_all(&path).unwrap();
+        }
+        let db = Storage::<BasicCollection>::open_local(path)?;
+
+        let original_value = Basic { parent_id: None };
+        let doc = db
+            .collection::<BasicCollection>()?
+            .push(&original_value)
+            .await?;
+
+        let doc = db
+            .collection::<BasicCollection>()?
+            .get(&doc.id)
+            .await?
+            .expect("couldn't retrieve stored item");
+
+        assert_eq!(original_value, doc.contents::<Basic>()?);
+
+        Ok(())
+    }
+
+    #[test]
+    fn emissions() -> Result<(), Error> {
+        let doc = Document::<BasicCollection>::new(&Basic { parent_id: None })?;
+
+        assert_eq!(
+            doc.emit_nothing(),
+            Map {
+                source: doc.id,
+                key: (),
+                value: ()
+            }
+        );
+
+        assert_eq!(
+            doc.emit(1),
+            Map {
+                source: doc.id,
+                key: 1,
+                value: ()
+            }
+        );
+
+        assert_eq!(
+            doc.emit_with(1, 2),
+            Map {
+                source: doc.id,
+                key: 1,
+                value: 2
+            }
+        );
+
+        Ok(())
     }
 }

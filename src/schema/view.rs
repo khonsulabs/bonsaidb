@@ -59,6 +59,7 @@ where
     }
 }
 
+#[derive(PartialEq, Debug)]
 pub struct Map<K: Serialize = (), V: Serialize = ()> {
     pub source: Uuid,
     pub key: K,

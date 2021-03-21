@@ -32,3 +32,6 @@ impl From<sled::Error> for Error {
         Self::Connection(connection::Error::from(err))
     }
 }
+
+#[cfg(test)]
+mod test_util;
