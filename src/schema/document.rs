@@ -5,10 +5,17 @@ use uuid::Uuid;
 
 use crate::schema::{Collection, Map, Revision};
 
+/// a struct representing a document in the database
 pub struct Document<C> {
+    /// the id of the Document. Unique across the collection `C`
     pub id: Uuid,
+    /// the revision of the stored document.
     pub revision: Revision,
+
+    /// the serialized bytes of the stored item
+    // TODO this should be a Cow to allow deserialization without copying
     pub contents: Vec<u8>,
+
     _collection: PhantomData<C>,
 }
 
@@ -16,6 +23,7 @@ impl<C> Document<C>
 where
     C: Collection,
 {
+    /// create a new document with serialized bytes from `contents`
     pub fn new<S: Serialize>(contents: &S) -> Result<Self, serde_cbor::Error> {
         let contents = serde_cbor::to_vec(contents)?;
         let revision = Revision::new(&contents);
@@ -27,11 +35,12 @@ where
         })
     }
 
+    /// retrieves `contents` through deserialization into the type `D`
     pub fn contents<'a, D: Deserialize<'a>>(&'a self) -> Result<D, serde_cbor::Error> {
         serde_cbor::from_slice(&self.contents)
     }
 
-    pub fn update_with<S: Serialize>(
+    pub(crate) fn update_with<S: Serialize>(
         &self,
         contents: &S,
     ) -> Result<Option<Self>, serde_cbor::Error> {
@@ -44,18 +53,27 @@ where
         }))
     }
 
+    /// create a `Map` result with an empty key and value
     #[must_use]
-    pub fn emit_nothing(&self) -> Map<(), ()> {
-        self.emit_with((), ())
+    pub fn emit(&self) -> Map<(), ()> {
+        self.emit_key_and_value((), ())
     }
 
+    /// create a `Map` result with a `key` and an empty value
     #[must_use]
-    pub fn emit<Key: Serialize>(&self, key: Key) -> Map<Key, ()> {
-        self.emit_with(key, ())
+    pub fn emit_key<Key: Serialize>(&self, key: Key) -> Map<Key, ()> {
+        self.emit_key_and_value(key, ())
     }
 
+    /// create a `Map` result with `value` and an empty key
     #[must_use]
-    pub fn emit_with<Key: Serialize, Value: Serialize>(
+    pub fn emit_value<Value: Serialize>(&self, value: Value) -> Map<(), Value> {
+        self.emit_key_and_value((), value)
+    }
+
+    /// create a `Map` result with a `key` and `value`
+    #[must_use]
+    pub fn emit_key_and_value<Key: Serialize, Value: Serialize>(
         &self,
         key: Key,
         value: Value,
@@ -111,7 +129,7 @@ mod tests {
         let doc = Document::<BasicCollection>::new(&Basic { parent_id: None })?;
 
         assert_eq!(
-            doc.emit_nothing(),
+            doc.emit(),
             Map {
                 source: doc.id,
                 key: (),
@@ -120,7 +138,7 @@ mod tests {
         );
 
         assert_eq!(
-            doc.emit(1),
+            doc.emit_key(1),
             Map {
                 source: doc.id,
                 key: 1,
@@ -129,7 +147,16 @@ mod tests {
         );
 
         assert_eq!(
-            doc.emit_with(1, 2),
+            doc.emit_value(1),
+            Map {
+                source: doc.id,
+                key: (),
+                value: 1
+            }
+        );
+
+        assert_eq!(
+            doc.emit_key_and_value(1, 2),
             Map {
                 source: doc.id,
                 key: 1,

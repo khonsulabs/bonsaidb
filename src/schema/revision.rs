@@ -1,12 +1,16 @@
 use sha2::{Digest, Sha256};
 
+/// a struct containing information about a `Document`'s revision history
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Revision {
+    /// The current revision id of the document. This value is sequentially incremented on each document update.
     pub id: usize,
+    /// The SHA256 digest of the bytes contained within the `Document`.
     pub sha256: [u8; 32],
 }
 
 impl Revision {
+    /// creates the first revision for a document with the SHA256 digest of the passed bytes
     #[must_use]
     pub fn new(contents: &[u8]) -> Self {
         Self {
@@ -15,6 +19,11 @@ impl Revision {
         }
     }
 
+    /// creates the next revision in sequence with an updated digest. If the digest doesn't change, None is returned.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` overflows
     #[must_use]
     pub fn next_revision(&self, new_contents: &[u8]) -> Option<Self> {
         let sha256 = digest(new_contents);

@@ -39,6 +39,24 @@ jobs:
       - name: Run default features unit tests
         run: |
           cargo test
+  docs:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v2
+      - name: Generate Docs
+        run: |
+          cargo doc --no-deps --all-features
+
+      - name: Deploy Docs
+        uses: JamesIves/github-pages-deploy-action@releases/v4
+        with:
+          branch: gh-pages
+          folder: target/doc/
+          git-config-name: kl-botsu
+          git-config-email: botsu@khonsulabs.com
+          target-folder: /
+          clean: true
 
   coverage:
     runs-on: ubuntu-latest

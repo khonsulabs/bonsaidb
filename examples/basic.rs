@@ -48,7 +48,7 @@ impl View<Todos> for TodosByParent {
 
     fn map(document: &Document<Todos>) -> MapResult<Option<Uuid>> {
         let todo = document.contents::<Todo>()?;
-        Ok(Some(document.emit(todo.parent_id)))
+        Ok(Some(document.emit_key(todo.parent_id)))
     }
 }
 
