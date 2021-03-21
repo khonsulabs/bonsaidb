@@ -79,5 +79,5 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
           CARGO_INCREMENTAL: 0
-          RUSTFLAGS: "-Zinstrument-coverage" # TODO: https://github.com/alexcrichton/proc-macro2/issues/218
+          RUSTFLAGS: "-Zinstrument-coverage -Copt-level=0 -Clink-dead-code"
           RUSTDOCFLAGS: "-Cpanic=abort"
