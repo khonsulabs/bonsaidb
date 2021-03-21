@@ -52,8 +52,6 @@ impl View<Todos> for TodosByParent {
     }
 }
 
-// mydatabase.collection::<Todos>().view::<TodosByParent>().fetch(&None, &None) -> Vec<Document<Todos>>
-
 #[tokio::main]
 async fn main() -> Result<(), pliantdb::Error> {
     let db = Storage::<Basic>::open_local("test")?;

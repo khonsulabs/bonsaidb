@@ -1,3 +1,5 @@
+//! pliantdb (name not set in stone) is a programmable document database inspired by `CouchDB` written in Rust.
+
 #![forbid(unsafe_code)]
 #![warn(
     // TODO clippy::cargo,
@@ -15,14 +17,21 @@
     clippy::option_if_let_else,
 )]
 
+/// types for interacting with a database
 pub mod connection;
+/// types for defining database schema
 pub mod schema;
+/// types for interacting with a local, file-based database
 pub mod storage;
 
+/// an enumeration of errors that this crate can produce
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// an error that occurred while interacting with a `Connection`
     #[error("error on connection: {0}")]
     Connection(#[from] connection::Error),
+
+    /// an error from serializing or deserializing from a `Document`
     #[error("error serializing: {0}")]
     Serialization(#[from] serde_cbor::Error),
 }

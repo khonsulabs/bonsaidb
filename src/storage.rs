@@ -6,25 +6,22 @@ use crate::{
     schema::{self, Database, Schema},
 };
 
+/// a local, file-based database
 #[derive(Clone)]
 pub struct Storage<DB> {
     sled: sled::Db,
     collections: Arc<Schema>,
     _schema: PhantomData<DB>,
-    // views: Arc<Views>,
 }
 
 impl<DB> Storage<DB>
 where
     DB: Database,
 {
+    /// opens a local file as a pliantdb
     pub fn open_local<P: AsRef<Path>>(path: P) -> Result<Self, sled::Error> {
         let mut collections = Schema::default();
         DB::define_collections(&mut collections);
-        // let views = Views::default();
-        // for collection in collections.collections.values() {
-        //     // TODO Collect the views from the collections, which will allow us to expose storage.view::<Type>() directly without needing to navigate the Collection first
-        // }
 
         sled::open(path).map(|sled| Self {
             sled,
@@ -50,7 +47,7 @@ where
         }
     }
 
-    async fn save<C: schema::Collection>(&self, doc: &schema::Document<C>) -> Result<(), Error> {
+    async fn insert<C: schema::Collection>(&self, doc: &schema::Document<C>) -> Result<(), Error> {
         todo!()
     }
 
