@@ -79,5 +79,5 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
           CARGO_INCREMENTAL: 0
-          RUSTFLAGS: "-Zinstrument-coverage -Copt-level=0 -Clink-dead-code"
+          RUSTFLAGS: "-Zinstrument-coverage"
           RUSTDOCFLAGS: "-Cpanic=abort"
