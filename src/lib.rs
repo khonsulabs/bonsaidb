@@ -2,7 +2,7 @@
 
 #![forbid(unsafe_code)]
 #![warn(
-    // TODO clippy::cargo,
+    clippy::cargo,
     missing_docs,
     // clippy::missing_docs_in_private_items,
     clippy::nursery,
