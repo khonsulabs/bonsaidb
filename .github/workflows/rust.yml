@@ -74,13 +74,10 @@ jobs:
         run: |
           cargo +nightly test
 
-          zip -0 ccov.zip `find . \( -name "pliantdb*.gc*" \) -print`;
-          rm -rf target
-
-          ./grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore "/*" --ignore "/target" -o lcov.info;
+          ./grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing -o lcov.info;
           bash <(curl -s https://codecov.io/bash) -f lcov.info;
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
           CARGO_INCREMENTAL: 0
-          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests" # TODO: https://github.com/alexcrichton/proc-macro2/issues/218
+          RUSTFLAGS: "-Zinstrument-coverage" # TODO: https://github.com/alexcrichton/proc-macro2/issues/218
           RUSTDOCFLAGS: "-Cpanic=abort"
