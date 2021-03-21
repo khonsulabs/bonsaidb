@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use pliantdb::{
     connection::Connection,
-    schema::{Collection, Collections, Database, Document, MapResult, View, Views},
+    schema::{collection, Collection, Database, Document, MapResult, Schema, View},
     storage::Storage,
 };
 use serde::{Deserialize, Serialize};
@@ -11,12 +11,8 @@ use uuid::Uuid;
 struct Basic;
 
 impl Database for Basic {
-    fn name(&self) -> Cow<'static, str> {
-        Cow::from("basic") // TODO name shouldn't be on Database
-    }
-
-    fn define_collections(&self, collections: &mut Collections) {
-        collections.push(Todos);
+    fn define_collections(collections: &mut Schema) {
+        collections.define_collection::<Todos>();
     }
 }
 
@@ -27,16 +23,15 @@ struct Todo<'a> {
     pub parent_id: Option<Uuid>,
 }
 
-#[derive(Clone)]
 struct Todos;
 
 impl Collection for Todos {
-    fn name(&self) -> Cow<'static, str> {
-        Cow::from("todos")
+    fn id() -> collection::Id {
+        collection::Id::from("todos")
     }
 
-    fn define_views(&self, views: &mut Views<Self>) {
-        views.push(TodosByParent);
+    fn define_views(schema: &mut Schema) {
+        schema.define_view::<TodosByParent, _>();
     }
 }
 
@@ -47,11 +42,11 @@ impl View<Todos> for TodosByParent {
     type MapValue = ();
     type Reduce = ();
 
-    fn name(&self) -> Cow<'static, str> {
+    fn name() -> Cow<'static, str> {
         Cow::from("todos-by-parent")
     }
 
-    fn map(&self, document: &Document<Todos>) -> MapResult<Option<Uuid>> {
+    fn map(document: &Document<Todos>) -> MapResult<Option<Uuid>> {
         let todo = document.contents::<Todo>()?;
         Ok(Some(document.emit(todo.parent_id)))
     }
@@ -61,7 +56,7 @@ impl View<Todos> for TodosByParent {
 
 #[tokio::main]
 async fn main() -> Result<(), pliantdb::Error> {
-    let db = Storage::open_local("test", Basic)?;
+    let db = Storage::<Basic>::open_local("test")?;
 
     let doc = db
         .collection::<Todos>()?

@@ -4,11 +4,12 @@ use std::{
     collections::HashMap,
 };
 
-use crate::schema::Collection;
+use crate::schema::collection::{self, Collection};
+
+use super::View;
 
 pub trait Database: Send + Sync {
-    fn name(&self) -> Cow<'static, str>;
-    fn define_collections(&self, collections: &mut Collections);
+    fn define_collections(collections: &mut Schema);
 }
 
 trait ThreadsafeAny: Any + Send + Sync {}
@@ -16,20 +17,23 @@ trait ThreadsafeAny: Any + Send + Sync {}
 impl<T> ThreadsafeAny for T where T: Any + Send + Sync {}
 
 #[derive(Default)]
-pub struct Collections {
-    collections: HashMap<TypeId, Box<dyn ThreadsafeAny>>,
+pub struct Schema {
+    collections: HashMap<TypeId, collection::Id>,
+    views: HashMap<TypeId, Cow<'static, str>>,
 }
 
-impl Collections {
-    pub fn push<C: Collection + 'static>(&mut self, collection: C) {
-        self.collections
-            .insert(collection.type_id(), Box::new(collection));
+impl Schema {
+    pub fn define_collection<C: Collection + 'static>(&mut self) {
+        self.collections.insert(TypeId::of::<C>(), C::id());
+        C::define_views(self)
+    }
+
+    pub fn define_view<V: View<C> + 'static, C: Collection + 'static>(&mut self) {
+        self.views.insert(TypeId::of::<V>(), V::name());
     }
 
     #[must_use]
-    pub fn get<C: Collection + 'static>(&self) -> Option<&'_ C> {
-        self.collections
-            .get(&TypeId::of::<C>())
-            .map(|collection| Any::downcast_ref(collection).unwrap())
+    pub fn contains<C: Collection + 'static>(&self) -> bool {
+        self.collections.contains_key(&TypeId::of::<C>())
     }
 }

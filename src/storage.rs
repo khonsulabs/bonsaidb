@@ -1,16 +1,16 @@
 use async_trait::async_trait;
-use std::{path::Path, sync::Arc};
+use std::{marker::PhantomData, path::Path, sync::Arc};
 
 use crate::{
     connection::{Collection, Connection, Error},
-    schema::{self, Collections, Database},
+    schema::{self, Database, Schema},
 };
 
 #[derive(Clone)]
 pub struct Storage<DB> {
     sled: sled::Db,
-    schema: DB,
-    collections: Arc<Collections>,
+    collections: Arc<Schema>,
+    _schema: PhantomData<DB>,
     // views: Arc<Views>,
 }
 
@@ -18,9 +18,9 @@ impl<DB> Storage<DB>
 where
     DB: Database,
 {
-    pub fn open_local<P: AsRef<Path>>(path: P, schema: DB) -> Result<Self, sled::Error> {
-        let mut collections = Collections::default();
-        schema.define_collections(&mut collections);
+    pub fn open_local<P: AsRef<Path>>(path: P) -> Result<Self, sled::Error> {
+        let mut collections = Schema::default();
+        DB::define_collections(&mut collections);
         // let views = Views::default();
         // for collection in collections.collections.values() {
         //     // TODO Collect the views from the collections, which will allow us to expose storage.view::<Type>() directly without needing to navigate the Collection first
@@ -28,8 +28,8 @@ where
 
         sled::open(path).map(|sled| Self {
             sled,
-            schema,
             collections: Arc::new(collections),
+            _schema: PhantomData::default(),
         })
     }
 }
@@ -39,19 +39,25 @@ impl<DB> Connection for Storage<DB>
 where
     DB: Database,
 {
-    fn collection<C: schema::Collection + Clone + 'static>(
-        &self,
-    ) -> Result<Collection<'_, Self, C>, Error>
+    fn collection<C: schema::Collection + 'static>(&self) -> Result<Collection<'_, Self, C>, Error>
     where
         Self: Sized,
     {
-        match self.collections.get::<C>() {
-            Some(collection) => Ok(Collection::new(self, collection)),
-            None => Err(Error::CollectionNotFound),
+        if self.collections.contains::<C>() {
+            Ok(Collection::new(self))
+        } else {
+            Err(Error::CollectionNotFound)
         }
     }
 
     async fn save<C: schema::Collection>(&self, doc: &schema::Document<C>) -> Result<(), Error> {
+        todo!()
+    }
+
+    async fn update<C: schema::Collection>(
+        &self,
+        doc: &mut schema::Document<C>,
+    ) -> Result<(), Error> {
         todo!()
     }
 }

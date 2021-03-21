@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::schema::{view, Document};
+use crate::schema::Document;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -20,24 +20,16 @@ pub trait View<C> {
     type MapValue: Serialize + for<'de> Deserialize<'de>;
     type Reduce: for<'de> Deserialize<'de>;
 
-    fn name(&self) -> Cow<'static, str>;
+    fn name() -> Cow<'static, str>;
 
-    fn map(&self, document: &Document<C>) -> MapResult<Self::MapKey, Self::MapValue>;
+    fn map(document: &Document<C>) -> MapResult<Self::MapKey, Self::MapValue>;
 
     #[allow(unused_variables)]
     fn reduce(
-        &self,
         mappings: &[Map<Self::MapKey, Self::MapValue>],
         rereduce: bool,
     ) -> Result<Self::Reduce, Error> {
         Err(Error::ReduceUnimplemented)
-    }
-
-    fn boxed(self) -> Box<dyn view::Serialized<C>>
-    where
-        Self: Sized + 'static,
-    {
-        Box::new(self)
     }
 }
 
@@ -80,20 +72,20 @@ pub struct SerializedMap {
 }
 
 pub trait Serialized<C> {
-    fn name(&self) -> Cow<'static, str>;
-    fn map(&self, document: &Document<C>) -> Result<Option<SerializedMap>, Error>;
+    fn name() -> Cow<'static, str>;
+    fn map(document: &Document<C>) -> Result<Option<SerializedMap>, Error>;
 }
 
 impl<C, T> Serialized<C> for T
 where
     T: View<C>,
 {
-    fn name(&self) -> Cow<'static, str> {
-        View::<C>::name(self)
+    fn name() -> Cow<'static, str> {
+        Self::name()
     }
 
-    fn map(&self, document: &Document<C>) -> Result<Option<SerializedMap>, Error> {
-        let map = View::<C>::map(self, document)?;
+    fn map(document: &Document<C>) -> Result<Option<SerializedMap>, Error> {
+        let map = Self::map(document)?;
 
         match map {
             Some(map) => Ok(Some(SerializedMap {
