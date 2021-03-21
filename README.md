@@ -1,6 +1,6 @@
 # PliantDB
 
-[![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/pliantdb/Tests/main)](https://github.com/khonsulabs/pliantdb/actions?query=workflow:Tests) [![codecov](https://codecov.io/gh/khonsulabs/pliantdb/branch/main/graph/badge.svg)](https://codecov.io/gh/khonsulabs/pliantdb)
+[![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/pliantdb/Tests/main)](https://github.com/khonsulabs/pliantdb/actions?query=workflow:Tests) [![codecov](https://codecov.io/gh/khonsulabs/pliantdb/branch/main/graph/badge.svg)](https://codecov.io/gh/khonsulabs/pliantdb) [![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://khonsulabs.github.io/pliantdb/main/pliantdb/)
 
 PliantDB aims to be a [Rust](https://rust-lang.org)-written document database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies.
 

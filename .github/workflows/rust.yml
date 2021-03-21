@@ -39,6 +39,7 @@ jobs:
       - name: Run default features unit tests
         run: |
           cargo test
+
   docs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
@@ -55,7 +56,7 @@ jobs:
           folder: target/doc/
           git-config-name: kl-botsu
           git-config-email: botsu@khonsulabs.com
-          target-folder: /
+          target-folder: /main/
           clean: true
 
   coverage:
