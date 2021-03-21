@@ -1,0 +1,67 @@
+name: Tests
+
+on: [push]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v1
+      - name: Cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.cargo/bin/cargo-audit
+          key: cargo-audit
+      - name: Install cargo-audit
+        run: cargo -v install cargo-audit
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ matrix.branch }}
+      - name: Audit
+        run: |
+          cargo audit -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Run clippy
+        run: |
+          cargo clippy
+
+      - name: Run default features unit tests
+        run: |
+          cargo test
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install code coverage requirements
+        run: |
+          rustup component add llvm-tools-preview
+          rustup install nightly
+          curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
+
+      - name: Run code coverage
+        run: |
+          cargo +nightly test
+
+          zip -0 ccov.zip `find . \( -name "pliantdb*.gc*" \) -print`;
+          rm -rf target
+
+          ./grcov ccov.zip -s . -t lcov --llvm --branch --ignore-not-existing --ignore "/*" --ignore "/target" -o lcov.info;
+          bash <(curl -s https://codecov.io/bash) -f lcov.info;
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          CARGO_INCREMENTAL: 0
+          RUSTFLAGS: "-Zprofile -Ccodegen-units=1 -Copt-level=0 -Clink-dead-code -Coverflow-checks=off -Zpanic_abort_tests" # TODO: https://github.com/alexcrichton/proc-macro2/issues/218
+          RUSTDOCFLAGS: "-Cpanic=abort"
