@@ -27,18 +27,16 @@ pub type MapResult<'k, K = (), V = ()> = Result<Option<Map<'k, K, V>>, Error>;
 /// inspired by [`CouchDB`'s view system](https://docs.couchdb.org/en/stable/ddocs/views/index.html)
 // TODO write our own view docs
 pub trait View<'k, C> {
-    /// the key for this view
+    /// the key for this view. If you're using ranged queries, this type must be
+    /// meaningfully sortable when converted to bytes. Additionally, the
+    /// conversion process to bytes must be done using a consistent endianness.
     type MapKey: ToEndianBytes<'k> + 'static;
 
     /// an associated type that can be stored with each entry in the view
     type MapValue: Serialize + for<'de> Deserialize<'de>;
 
-    /// when implementing reduce(), this is the returned type. If you're using
-    /// ranged queries, this type must be meaningfully sortable when converted
-    /// to bytes. Additionally, the conversion process to bytes must be done
-    /// using a consistent endianness.
-    // TODO: Don't use serialize here, use something that converts to bytes
-    type Reduce: for<'de> Deserialize<'de>;
+    /// when implementing reduce(), this is the returned type
+    type Reduce: Serialize + for<'de> Deserialize<'de>;
 
     /// the version of the view. Changing this value will cause indexes to be rebuilt.
     fn version() -> usize;

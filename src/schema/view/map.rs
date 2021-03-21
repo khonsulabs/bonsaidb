@@ -37,7 +37,6 @@ pub struct Serialized {
     pub source: Uuid,
 
     /// the key used to index the View
-    // TODO change this to bytes
     pub key: IVec,
 
     /// an associated value stored in the view
