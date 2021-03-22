@@ -17,13 +17,13 @@ impl Collection for BasicCollection {
     }
 
     fn define_views(schema: &mut Schema) {
-        schema.define_view::<BasicCount, Self>();
+        schema.define_view::<BasicCount>();
     }
 }
 
 pub struct BasicCount;
 
-impl<'k> View<'k, BasicCollection> for BasicCount {
+impl<'k> View<'k> for BasicCount {
     type MapKey = ();
     type MapValue = usize;
     type Reduce = usize;
@@ -36,9 +36,7 @@ impl<'k> View<'k, BasicCollection> for BasicCount {
         Cow::from("count")
     }
 
-    fn map(
-        document: &Document<'_, BasicCollection>,
-    ) -> MapResult<'k, Self::MapKey, Self::MapValue> {
+    fn map(document: &Document<'_>) -> MapResult<'k, Self::MapKey, Self::MapValue> {
         Ok(Some(document.emit_key_and_value((), 1)))
     }
 

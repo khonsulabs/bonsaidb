@@ -34,7 +34,7 @@ impl Schema {
     }
 
     /// adds the view `V`
-    pub fn define_view<'k, V: View<'k, C> + 'static, C: Collection>(&mut self) {
+    pub fn define_view<'k, V: View<'k> + 'static>(&mut self) {
         self.views.insert(TypeId::of::<V>(), V::name());
     }
 

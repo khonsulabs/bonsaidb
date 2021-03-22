@@ -1,9 +1,9 @@
-use std::{borrow::Cow, marker::PhantomData};
+use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::schema::{map, Collection, Map};
+use crate::schema::{collection, map, Map};
 
 mod revision;
 pub use revision::Revision;
@@ -20,34 +20,40 @@ pub struct Header {
 
 /// a struct representing a document in the database
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Document<'a, C> {
+pub struct Document<'a> {
+    /// the `Id` of the `Collection` this document belongs to
+    pub collection: collection::Id,
+
     /// the header of the document, which contains the id and `Revision`
     pub header: Cow<'a, Header>,
 
     /// the serialized bytes of the stored item
     #[serde(borrow)]
     pub contents: Cow<'a, [u8]>,
-
-    #[serde(skip)]
-    _collection: PhantomData<C>,
 }
 
-impl<'a, C> Document<'a, C>
-where
-    C: Collection,
-{
-    /// create a new document with serialized bytes from `contents`
-    pub fn new<S: Serialize>(contents: &S) -> Result<Self, serde_cbor::Error> {
-        let contents = Cow::from(serde_cbor::to_vec(contents)?);
+impl<'a> Document<'a> {
+    /// create a new document with `contents`
+    #[must_use]
+    pub fn new(contents: Cow<'a, [u8]>, collection: collection::Id) -> Self {
         let revision = Revision::new(&contents);
-        Ok(Self {
+        Self {
             header: Cow::Owned(Header {
                 id: Uuid::new_v4(),
                 revision,
             }),
             contents,
-            _collection: PhantomData::default(),
-        })
+            collection,
+        }
+    }
+
+    /// create a new document with serialized bytes from `contents`
+    pub fn with_contents<S: Serialize>(
+        contents: &S,
+        collection: collection::Id,
+    ) -> Result<Self, serde_cbor::Error> {
+        let contents = Cow::from(serde_cbor::to_vec(contents)?);
+        Ok(Self::new(contents, collection))
     }
 
     /// retrieves `contents` through deserialization into the type `D`
@@ -65,9 +71,12 @@ where
             .revision
             .next_revision(&contents)
             .map(|revision| Self {
-                header: self.header.clone(),
+                header: Cow::Owned(Header {
+                    id: self.header.id,
+                    revision,
+                }),
                 contents,
-                _collection: PhantomData::default(),
+                collection: self.collection.clone(),
             }))
     }
 
@@ -98,6 +107,16 @@ where
     ) -> Map<'k, Key, Value> {
         Map::new(self.header.id, key, value)
     }
+
+    /// clone the document's data so that it's no longer borrowed in the original lifetime `'a`
+    #[must_use]
+    pub fn to_owned(&self) -> Document<'static> {
+        Document::<'static> {
+            collection: self.collection.clone(),
+            header: Cow::Owned(self.header.as_ref().clone()),
+            contents: Cow::Owned(self.contents.as_ref().to_vec()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -105,14 +124,13 @@ mod tests {
     use super::Document;
     use crate::{
         connection::Connection,
-        schema::Map,
+        schema::{Collection, Map},
         storage::Storage,
         test_util::{Basic, BasicCollection},
         Error,
     };
 
     #[tokio::test]
-    #[ignore] // TODO make this test work
     async fn store_retrieve() -> Result<(), Error> {
         let path = std::env::temp_dir().join("store_retrieve_tests.pliantdb");
         if path.exists() {
@@ -122,10 +140,10 @@ mod tests {
 
         let original_value = Basic { parent_id: None };
         let collection = db.collection::<BasicCollection>()?;
-        let doc = collection.push(&original_value).await?;
+        let header = collection.push(&original_value).await?;
 
         let doc = collection
-            .get(&doc.id)
+            .get(header.id)
             .await?
             .expect("couldn't retrieve stored item");
 
@@ -136,7 +154,7 @@ mod tests {
 
     #[test]
     fn emissions() -> Result<(), Error> {
-        let doc = Document::<BasicCollection>::new(&Basic { parent_id: None })?;
+        let doc = Document::with_contents(&Basic { parent_id: None }, BasicCollection::id())?;
 
         assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));
 

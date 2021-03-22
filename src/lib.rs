@@ -31,18 +31,30 @@ pub mod transaction;
 /// an enumeration of errors that this crate can produce
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    /// an error that occurred while interacting with a `Connection`
-    #[error("error on connection: {0}")]
-    Connection(#[from] connection::Error),
-
     /// an error from serializing or deserializing from a `Document`
-    #[error("error serializing: {0}")]
-    Serialization(#[from] serde_cbor::Error),
+    #[error("error working with storage: {0}")]
+    Storage(#[from] storage::Error),
+
+    /// an attempt to use a `Collection` with a `Database` that it wasn't defined within
+    #[error("attempted to access a collection not registered with this schema")]
+    CollectionNotFound,
 }
 
 impl From<sled::Error> for Error {
     fn from(err: sled::Error) -> Self {
-        Self::Connection(connection::Error::from(err))
+        Self::Storage(storage::Error::from(err))
+    }
+}
+
+impl From<serde_cbor::Error> for Error {
+    fn from(err: serde_cbor::Error) -> Self {
+        Self::Storage(storage::Error::from(err))
+    }
+}
+
+impl From<bincode::Error> for Error {
+    fn from(err: bincode::Error) -> Self {
+        Self::Storage(storage::Error::from(err))
     }
 }
 

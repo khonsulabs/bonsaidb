@@ -6,20 +6,10 @@ use uuid::Uuid;
 
 use crate::{
     document::{Document, Header},
-    schema,
+    schema::{self},
+    transaction::{OperationResult, Transaction},
+    Error,
 };
-
-/// an enumeration of errors that are `Connection`-related
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    /// an error occurred interacting with the file-storage layer
-    #[error("error from storage {0}")]
-    Storage(#[from] sled::Error),
-
-    /// an attempt to use a `Collection` with a `Database` that it wasn't defined within
-    #[error("attempted to access a collection not registered with this schema")]
-    CollectionNotFound,
-}
 
 /// a trait that defines all interactions with a `Database`, regardless of whether it is local or remote
 #[async_trait]
@@ -37,7 +27,20 @@ pub trait Connection<'a>: Send + Sync {
     /// update an existing document in the connected `Database` for the
     /// collection `C`. Upon success, `doc.revision` will be updated with the
     /// new revision.
-    async fn update<C: schema::Collection>(&self, doc: &mut Document<'a, C>) -> Result<(), Error>;
+    async fn update(&self, doc: &mut Document<'a>) -> Result<(), Error>;
+
+    /// retrieve a stored document from collection `C` identified by `id`
+    async fn get<C: schema::Collection>(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<Document<'static>>, Error>;
+
+    /// apply a transaction to the database. If any operation in the transaction
+    /// fails, none of the operations will be applied to the database.
+    async fn apply_transaction(
+        &self,
+        transaction: Transaction<'static>,
+    ) -> Result<Vec<OperationResult>, Error>;
 }
 
 /// a struct used to interact with a collection over a `Connection`
@@ -65,7 +68,7 @@ where
     }
 
     /// retrieve a `Document<Cl>` with `id` from the connection
-    pub async fn get(&self, id: &Uuid) -> Result<Option<Document<'_, Cl>>, Error> {
-        todo!()
+    pub async fn get(&self, id: Uuid) -> Result<Option<Document<'static>>, Error> {
+        self.connection.get::<Cl>(id).await
     }
 }

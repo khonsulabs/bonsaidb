@@ -3,19 +3,11 @@ use std::borrow::Cow;
 use pliantdb::{
     connection::Connection,
     document::Document,
-    schema::{collection, Collection, Database, MapResult, Schema, View},
+    schema::{collection, Collection, MapResult, Schema, View},
     storage::Storage,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
-struct Basic;
-
-impl Database for Basic {
-    fn define_collections(collections: &mut Schema) {
-        collections.define_collection::<Todos>();
-    }
-}
 
 #[derive(Serialize, Deserialize)]
 struct Todo<'a> {
@@ -24,21 +16,19 @@ struct Todo<'a> {
     pub parent_id: Option<Uuid>,
 }
 
-struct Todos;
-
-impl Collection for Todos {
+impl<'a> Collection for Todo<'a> {
     fn id() -> collection::Id {
         collection::Id::from("todos")
     }
 
     fn define_views(schema: &mut Schema) {
-        schema.define_view::<TodosByParent, _>();
+        schema.define_view::<TodosByParent>();
     }
 }
 
 struct TodosByParent;
 
-impl<'k> View<'k, Todos> for TodosByParent {
+impl<'k> View<'k> for TodosByParent {
     type MapKey = Option<Uuid>;
     type MapValue = ();
     type Reduce = ();
@@ -51,7 +41,7 @@ impl<'k> View<'k, Todos> for TodosByParent {
         Cow::from("todos-by-parent")
     }
 
-    fn map(document: &Document<Todos>) -> MapResult<'k, Option<Uuid>> {
+    fn map(document: &Document<'_>) -> MapResult<'k, Option<Uuid>> {
         let todo = document.contents::<Todo>()?;
         Ok(Some(document.emit_key(todo.parent_id)))
     }
@@ -59,9 +49,9 @@ impl<'k> View<'k, Todos> for TodosByParent {
 
 #[tokio::main]
 async fn main() -> Result<(), pliantdb::Error> {
-    let db = Storage::<Basic>::open_local("test")?;
-    let todos = db.collection::<Todos>()?;
-    let doc = todos
+    let db = Storage::<Todo>::open_local("basic.pliantdb")?;
+    let todos = db.collection::<Todo>()?;
+    let header = todos
         .push(&Todo {
             completed: false,
             task: "Test Task",
@@ -70,13 +60,13 @@ async fn main() -> Result<(), pliantdb::Error> {
         .await?;
 
     let doc = todos
-        .get(&doc.id)
+        .get(header.id)
         .await?
         .expect("couldn't retrieve stored item");
 
     let todo = doc.contents::<Todo>()?;
 
-    println!("Inserted task '{}' with id {}", todo.task, doc.header.id);
+    println!("Inserted todo '{}' with id {}", todo.task, header.id);
 
     Ok(())
 }

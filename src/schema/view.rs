@@ -27,7 +27,7 @@ pub type MapResult<'k, K = (), V = ()> = Result<Option<Map<'k, K, V>>, Error>;
 ///
 /// inspired by [`CouchDB`'s view system](https://docs.couchdb.org/en/stable/ddocs/views/index.html)
 // TODO write our own view docs
-pub trait View<'k, C> {
+pub trait View<'k> {
     /// the key for this view. If you're using ranged queries, this type must be
     /// meaningfully sortable when converted to bytes. Additionally, the
     /// conversion process to bytes must be done using a consistent endianness.
@@ -48,7 +48,7 @@ pub trait View<'k, C> {
     /// the map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document.
-    fn map(document: &Document<'_, C>) -> MapResult<'k, Self::MapKey, Self::MapValue>;
+    fn map(document: &Document<'_>) -> MapResult<'k, Self::MapKey, Self::MapValue>;
 
     /// the reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -95,21 +95,21 @@ where
     }
 }
 
-pub(crate) trait Serialized<'k, C> {
+pub(crate) trait Serialized<'k> {
     fn name() -> Cow<'static, str>;
-    fn map(document: &Document<'_, C>) -> Result<Option<map::Serialized<'k>>, Error>;
+    fn map(document: &Document<'_>) -> Result<Option<map::Serialized<'k>>, Error>;
 }
 
-impl<'k, C, T> Serialized<'k, C> for T
+impl<'k, T> Serialized<'k> for T
 where
-    T: View<'k, C>,
-    <T as View<'k, C>>::MapKey: 'static,
+    T: View<'k>,
+    <T as View<'k>>::MapKey: 'static,
 {
     fn name() -> Cow<'static, str> {
         Self::name()
     }
 
-    fn map(document: &Document<'_, C>) -> Result<Option<map::Serialized<'k>>, Error> {
+    fn map(document: &Document<'_>) -> Result<Option<map::Serialized<'k>>, Error> {
         let map = Self::map(document)?;
 
         match map {
