@@ -1,0 +1,8 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        # grcov coverage isn't particularly accurate, but we should trend upward
+        # over time
+        threshold: 10%
