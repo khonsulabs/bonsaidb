@@ -1,7 +1,6 @@
 use std::{borrow::Cow, convert::TryInto, marker::PhantomData};
 
-use serde::Serialize;
-use sled::IVec;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// a structure representing a document's entry in a View's mappings
@@ -32,66 +31,58 @@ impl<'k, K: Key<'k>, V: Serialize> Map<'k, K, V> {
 }
 
 /// a structure representing a document's entry in a View's mappings, serialized and ready to store
-pub struct Serialized {
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Serialized<'k> {
     /// the id of the document that emitted this entry
     pub source: Uuid,
 
     /// the key used to index the View
-    pub key: IVec,
+    #[serde(borrow)]
+    pub key: Cow<'k, [u8]>,
 
     /// an associated value stored in the view
     pub value: serde_cbor::Value,
 }
 
 /// a trait that enables a type to convert itself to a consistent endianness. Expected to be consistent with the implementation of `FromEndianBytes`.
-pub trait Key<'a> {
+pub trait Key<'k> {
     /// convert `self` into an `IVec` containing bytes ordered in a consistent, cross-platform manner
-    fn to_endian_bytes(&self) -> IVec;
+    fn into_endian_bytes(self) -> Cow<'k, [u8]>;
     /// convert a slice of bytes into `Self` by interpretting `bytes` in a consistent, cross-platform manner
-    fn from_endian_bytes(bytes: &'a [u8]) -> Self;
+    fn from_endian_bytes(bytes: &'k [u8]) -> Self;
 }
 
-impl<'a> Key<'a> for Cow<'a, [u8]> {
-    fn to_endian_bytes(&self) -> IVec {
-        IVec::from(self.as_ref())
+impl<'k> Key<'k> for Cow<'k, [u8]> {
+    fn into_endian_bytes(self) -> Cow<'k, [u8]> {
+        self
     }
 
-    fn from_endian_bytes(bytes: &'a [u8]) -> Self {
+    fn from_endian_bytes(bytes: &'k [u8]) -> Self {
         Cow::from(bytes)
     }
 }
 
-impl<'a> Key<'a> for IVec {
-    fn to_endian_bytes(&self) -> IVec {
-        self.clone()
+impl<'k> Key<'k> for () {
+    fn into_endian_bytes(self) -> Cow<'k, [u8]> {
+        Cow::default()
     }
 
-    fn from_endian_bytes(bytes: &'a [u8]) -> Self {
-        Self::from(bytes)
-    }
+    fn from_endian_bytes(_: &'k [u8]) -> Self {}
 }
 
-impl<'a> Key<'a> for () {
-    fn to_endian_bytes(&self) -> IVec {
-        IVec::default()
+impl<'k> Key<'k> for Uuid {
+    fn into_endian_bytes(self) -> Cow<'k, [u8]> {
+        Cow::from(self.as_u128().to_be_bytes().to_vec())
     }
 
-    fn from_endian_bytes(_: &'a [u8]) -> Self {}
-}
-
-impl<'a> Key<'a> for Uuid {
-    fn to_endian_bytes(&self) -> IVec {
-        IVec::from(&self.as_u128().to_be_bytes())
-    }
-
-    fn from_endian_bytes(bytes: &'a [u8]) -> Self {
+    fn from_endian_bytes(bytes: &'k [u8]) -> Self {
         Self::from_u128(u128::from_be_bytes(bytes.try_into().unwrap()))
     }
 }
 
-impl<'a, T> Key<'a> for Option<T>
+impl<'k, T> Key<'k> for Option<T>
 where
-    T: Key<'a>,
+    T: Key<'k>,
 {
     /// # Panics
     ///
@@ -99,17 +90,16 @@ where
     // TODO consider removing this panic limitation by adding a single byte to
     // each key (at the end preferrably) so that we can distinguish between None
     // and a 0-byte type
-    fn to_endian_bytes(&self) -> IVec {
-        self.as_ref()
-            .map(|contents| {
-                let contents = contents.to_endian_bytes();
-                assert!(!contents.is_empty());
-                contents
-            })
-            .unwrap_or_default()
+    fn into_endian_bytes(self) -> Cow<'k, [u8]> {
+        self.map(|contents| {
+            let contents = contents.into_endian_bytes();
+            assert!(!contents.is_empty());
+            contents
+        })
+        .unwrap_or_default()
     }
 
-    fn from_endian_bytes(bytes: &'a [u8]) -> Self {
+    fn from_endian_bytes(bytes: &'k [u8]) -> Self {
         if bytes.is_empty() {
             None
         } else {
@@ -120,12 +110,12 @@ where
 
 macro_rules! impl_key_for_primitive {
     ($type:ident) => {
-        impl<'a> Key<'a> for $type {
-            fn to_endian_bytes(&self) -> IVec {
-                IVec::from(&$type::to_be_bytes(*self))
+        impl<'k> Key<'k> for $type {
+            fn into_endian_bytes(self) -> Cow<'k, [u8]> {
+                Cow::from(self.to_be_bytes().to_vec())
             }
 
-            fn from_endian_bytes(bytes: &'a [u8]) -> Self {
+            fn from_endian_bytes(bytes: &'k [u8]) -> Self {
                 $type::from_be_bytes(bytes.try_into().unwrap())
             }
         }
@@ -150,15 +140,15 @@ fn primitive_key_encoding_tests() {
         ($type:ident) => {
             assert_eq!(
                 &$type::MAX.to_be_bytes(),
-                $type::MAX.to_endian_bytes().as_ref()
+                $type::MAX.into_endian_bytes().as_ref()
             );
             assert_eq!(
                 $type::MAX,
-                $type::from_endian_bytes(&$type::MAX.to_endian_bytes())
+                $type::from_endian_bytes(&$type::MAX.into_endian_bytes())
             );
             assert_eq!(
                 $type::MIN,
-                $type::from_endian_bytes(&$type::MIN.to_endian_bytes())
+                $type::from_endian_bytes(&$type::MIN.into_endian_bytes())
             );
         };
     }
@@ -177,17 +167,17 @@ fn primitive_key_encoding_tests() {
 
 #[test]
 fn optional_key_encoding_tests() {
-    assert!(Option::<i8>::None.to_endian_bytes().is_empty());
+    assert!(Option::<i8>::None.into_endian_bytes().is_empty());
     assert_eq!(
         Some(1_i8),
-        Option::from_endian_bytes(&Some(1_i8).to_endian_bytes())
+        Option::from_endian_bytes(&Some(1_i8).into_endian_bytes())
     );
 }
 
 #[test]
 #[allow(clippy::unit_cmp)] // this is more of a compilation test
 fn unit_key_encoding_tests() {
-    assert!(().to_endian_bytes().is_empty());
+    assert!(().into_endian_bytes().is_empty());
     assert_eq!((), <() as Key>::from_endian_bytes(&[]));
 }
 
@@ -195,8 +185,8 @@ fn unit_key_encoding_tests() {
 fn vec_key_encoding_tests() {
     const ORIGINAL_VALUE: &[u8] = b"pliantdb";
     let vec = Cow::<'_, [u8]>::from(ORIGINAL_VALUE);
-    assert_eq!(vec, Cow::from_endian_bytes(&vec.to_endian_bytes()));
-
-    let vec = IVec::from(ORIGINAL_VALUE);
-    assert_eq!(vec, IVec::from_endian_bytes(&vec.to_endian_bytes()));
+    assert_eq!(
+        vec.clone(),
+        Cow::from_endian_bytes(&vec.into_endian_bytes())
+    );
 }

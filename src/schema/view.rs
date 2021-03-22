@@ -95,12 +95,12 @@ where
     }
 }
 
-pub(crate) trait Serialized<C> {
+pub(crate) trait Serialized<'k, C> {
     fn name() -> Cow<'static, str>;
-    fn map(document: &Document<'_, C>) -> Result<Option<map::Serialized>, Error>;
+    fn map(document: &Document<'_, C>) -> Result<Option<map::Serialized<'k>>, Error>;
 }
 
-impl<'k, C, T> Serialized<C> for T
+impl<'k, C, T> Serialized<'k, C> for T
 where
     T: View<'k, C>,
     <T as View<'k, C>>::MapKey: 'static,
@@ -109,13 +109,13 @@ where
         Self::name()
     }
 
-    fn map(document: &Document<'_, C>) -> Result<Option<map::Serialized>, Error> {
+    fn map(document: &Document<'_, C>) -> Result<Option<map::Serialized<'k>>, Error> {
         let map = Self::map(document)?;
 
         match map {
             Some(map) => Ok(Some(map::Serialized {
                 source: map.source,
-                key: map.key.to_endian_bytes(),
+                key: map.key.into_endian_bytes(),
                 value: serde_cbor::value::to_value(&map.value)?,
             })),
             None => Ok(None),
