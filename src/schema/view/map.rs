@@ -93,9 +93,19 @@ impl<'a, T> Key<'a> for Option<T>
 where
     T: Key<'a>,
 {
+    /// # Panics
+    ///
+    /// panics if `T::to_endian_bytes` returns an empty `IVec`
+    // TODO consider removing this panic limitation by adding a single byte to
+    // each key (at the end preferrably) so that we can distinguish between None
+    // and a 0-byte type
     fn to_endian_bytes(&self) -> IVec {
         self.as_ref()
-            .map(|contents| contents.to_endian_bytes())
+            .map(|contents| {
+                let contents = contents.to_endian_bytes();
+                assert!(!contents.is_empty());
+                contents
+            })
             .unwrap_or_default()
     }
 
@@ -132,3 +142,61 @@ impl_key_for_primitive!(i64);
 impl_key_for_primitive!(u64);
 impl_key_for_primitive!(i128);
 impl_key_for_primitive!(u128);
+
+#[test]
+#[allow(clippy::cognitive_complexity)] // I disagree - @ecton
+fn primitive_key_encoding_tests() {
+    macro_rules! test_primitive_extremes {
+        ($type:ident) => {
+            assert_eq!(
+                &$type::MAX.to_be_bytes(),
+                $type::MAX.to_endian_bytes().as_ref()
+            );
+            assert_eq!(
+                $type::MAX,
+                $type::from_endian_bytes(&$type::MAX.to_endian_bytes())
+            );
+            assert_eq!(
+                $type::MIN,
+                $type::from_endian_bytes(&$type::MIN.to_endian_bytes())
+            );
+        };
+    }
+
+    test_primitive_extremes!(i8);
+    test_primitive_extremes!(u8);
+    test_primitive_extremes!(i16);
+    test_primitive_extremes!(u16);
+    test_primitive_extremes!(i32);
+    test_primitive_extremes!(u32);
+    test_primitive_extremes!(i64);
+    test_primitive_extremes!(u64);
+    test_primitive_extremes!(i128);
+    test_primitive_extremes!(u128);
+}
+
+#[test]
+fn optional_key_encoding_tests() {
+    assert!(Option::<i8>::None.to_endian_bytes().is_empty());
+    assert_eq!(
+        Some(1_i8),
+        Option::from_endian_bytes(&Some(1_i8).to_endian_bytes())
+    );
+}
+
+#[test]
+#[allow(clippy::unit_cmp)] // this is more of a compilation test
+fn unit_key_encoding_tests() {
+    assert!(().to_endian_bytes().is_empty());
+    assert_eq!((), <() as Key>::from_endian_bytes(&[]));
+}
+
+#[test]
+fn vec_key_encoding_tests() {
+    const ORIGINAL_VALUE: &[u8] = b"pliantdb";
+    let vec = Cow::<'_, [u8]>::from(ORIGINAL_VALUE);
+    assert_eq!(vec, Cow::from_endian_bytes(&vec.to_endian_bytes()));
+
+    let vec = IVec::from(ORIGINAL_VALUE);
+    assert_eq!(vec, IVec::from_endian_bytes(&vec.to_endian_bytes()));
+}
