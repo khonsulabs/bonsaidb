@@ -1,10 +1,12 @@
 use std::borrow::Cow;
 
 use crate::schema::Schema;
+use serde::{Deserialize, Serialize};
 
 /// a unique collection id. Choose collection names that aren't likely to
 /// conflict with others, so that if someone mixes collections from multiple
 /// authors in a single database.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Id(pub Cow<'static, str>);
 
 impl From<&'static str> for Id {

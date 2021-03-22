@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::schema::Document;
 
-mod map;
-pub use map::{Map, ToEndianBytes};
+/// types for defining a `Map` within a `View`
+pub mod map;
+pub use map::{Key, Map};
 
 /// errors that arise when interacting with views
 #[derive(thiserror::Error, Debug)]
@@ -30,7 +31,7 @@ pub trait View<'k, C> {
     /// the key for this view. If you're using ranged queries, this type must be
     /// meaningfully sortable when converted to bytes. Additionally, the
     /// conversion process to bytes must be done using a consistent endianness.
-    type MapKey: ToEndianBytes<'k> + 'static;
+    type MapKey: Key<'k> + 'static;
 
     /// an associated type that can be stored with each entry in the view
     type MapValue: Serialize + for<'de> Deserialize<'de>;

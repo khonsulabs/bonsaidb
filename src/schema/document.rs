@@ -3,20 +3,22 @@ use std::{borrow::Cow, marker::PhantomData};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::schema::{Collection, Map, Revision};
-
-use super::ToEndianBytes;
+use crate::schema::{map, Collection, Map, Revision};
 
 /// a struct representing a document in the database
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Document<'a, C> {
     /// the id of the Document. Unique across the collection `C`
     pub id: Uuid,
+
     /// the revision of the stored document.
     pub revision: Revision,
 
     /// the serialized bytes of the stored item
+    #[serde(borrow)]
     pub contents: Cow<'a, [u8]>,
 
+    #[serde(skip)]
     _collection: PhantomData<C>,
 }
 
@@ -62,7 +64,7 @@ where
 
     /// create a `Map` result with a `key` and an empty value
     #[must_use]
-    pub fn emit_key<'k, Key: ToEndianBytes<'k>>(&self, key: Key) -> Map<'k, Key, ()> {
+    pub fn emit_key<'k, Key: map::Key<'k>>(&self, key: Key) -> Map<'k, Key, ()> {
         self.emit_key_and_value(key, ())
     }
 
@@ -74,7 +76,7 @@ where
 
     /// create a `Map` result with a `key` and `value`
     #[must_use]
-    pub fn emit_key_and_value<'k, Key: ToEndianBytes<'k>, Value: Serialize>(
+    pub fn emit_key_and_value<'k, Key: map::Key<'k>, Value: Serialize>(
         &self,
         key: Key,
         value: Value,

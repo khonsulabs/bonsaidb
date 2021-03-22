@@ -13,6 +13,8 @@ The high-level goals for this project are:
 * Run in a multi-database and networked mode with TLS enabled by default.
 * Easily set up read-replicas between multiple servers.
 * Easily run a highly-available quorum-based cluster across at least 3 servers
+* Expose a Publish/Subscribe eventing system
+* Expose a Job queue and scheduling system -- a la [Sidekiq](https://sidekiq.org/) or [SQS](https://aws.amazon.com/sqs/)
 
 ## Why write another database?
 

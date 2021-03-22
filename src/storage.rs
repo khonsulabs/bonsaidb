@@ -53,6 +53,19 @@ where
         &self,
         doc: &schema::Document<'a, C>,
     ) -> Result<(), Error> {
+        // We need these things to occur:
+        // * Create a "transaction" that contains the save statement.
+        // * Execute the transaction
+        //   * The transaction will get its own sequential ID, and be stored in
+        //     its own tree -- this is the primary mechanism of replication.
+        //   * Transactions are database-wide, not specific to a collection.
+        //     This particular method only operates on a single collection, but
+        //     in the future APIs that support creating transactions across
+        //     collections should be supported.
+        //   * Transactions need to have a record of the document ids that were
+        //     modified. Read-replicas will be synchronizing these transaction
+        //     records and can create a list of documents they need to
+        //     synchronize.
         todo!()
     }
 

@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 /// a structure representing a document's entry in a View's mappings
 #[derive(PartialEq, Debug)]
-pub struct Map<'k, K: ToEndianBytes<'k> = (), V: Serialize = ()> {
+pub struct Map<'k, K: Key<'k> = (), V: Serialize = ()> {
     /// the id of the document that emitted this entry
     pub source: Uuid,
 
@@ -19,7 +19,7 @@ pub struct Map<'k, K: ToEndianBytes<'k> = (), V: Serialize = ()> {
     _phantom: PhantomData<&'k K>,
 }
 
-impl<'k, K: ToEndianBytes<'k>, V: Serialize> Map<'k, K, V> {
+impl<'k, K: Key<'k>, V: Serialize> Map<'k, K, V> {
     /// creates a new Map entry for the document with id `source`
     pub fn new(source: Uuid, key: K, value: V) -> Self {
         Self {
@@ -44,14 +44,14 @@ pub struct Serialized {
 }
 
 /// a trait that enables a type to convert itself to a consistent endianness. Expected to be consistent with the implementation of `FromEndianBytes`.
-pub trait ToEndianBytes<'a> {
+pub trait Key<'a> {
     /// convert `self` into an `IVec` containing bytes ordered in a consistent, cross-platform manner
     fn to_endian_bytes(&self) -> IVec;
     /// convert a slice of bytes into `Self` by interpretting `bytes` in a consistent, cross-platform manner
     fn from_endian_bytes(bytes: &'a [u8]) -> Self;
 }
 
-impl<'a> ToEndianBytes<'a> for Cow<'a, [u8]> {
+impl<'a> Key<'a> for Cow<'a, [u8]> {
     fn to_endian_bytes(&self) -> IVec {
         IVec::from(self.as_ref())
     }
@@ -61,7 +61,7 @@ impl<'a> ToEndianBytes<'a> for Cow<'a, [u8]> {
     }
 }
 
-impl<'a> ToEndianBytes<'a> for IVec {
+impl<'a> Key<'a> for IVec {
     fn to_endian_bytes(&self) -> IVec {
         self.clone()
     }
@@ -71,7 +71,7 @@ impl<'a> ToEndianBytes<'a> for IVec {
     }
 }
 
-impl<'a> ToEndianBytes<'a> for () {
+impl<'a> Key<'a> for () {
     fn to_endian_bytes(&self) -> IVec {
         IVec::default()
     }
@@ -79,7 +79,7 @@ impl<'a> ToEndianBytes<'a> for () {
     fn from_endian_bytes(_: &'a [u8]) -> Self {}
 }
 
-impl<'a> ToEndianBytes<'a> for Uuid {
+impl<'a> Key<'a> for Uuid {
     fn to_endian_bytes(&self) -> IVec {
         IVec::from(&self.as_u128().to_be_bytes())
     }
@@ -89,9 +89,9 @@ impl<'a> ToEndianBytes<'a> for Uuid {
     }
 }
 
-impl<'a, T> ToEndianBytes<'a> for Option<T>
+impl<'a, T> Key<'a> for Option<T>
 where
-    T: ToEndianBytes<'a>,
+    T: Key<'a>,
 {
     fn to_endian_bytes(&self) -> IVec {
         self.as_ref()
@@ -108,9 +108,9 @@ where
     }
 }
 
-macro_rules! impl_mapkey_for_primitive {
+macro_rules! impl_key_for_primitive {
     ($type:ident) => {
-        impl<'a> ToEndianBytes<'a> for $type {
+        impl<'a> Key<'a> for $type {
             fn to_endian_bytes(&self) -> IVec {
                 IVec::from(&$type::to_be_bytes(*self))
             }
@@ -122,13 +122,13 @@ macro_rules! impl_mapkey_for_primitive {
     };
 }
 
-impl_mapkey_for_primitive!(i8);
-impl_mapkey_for_primitive!(u8);
-impl_mapkey_for_primitive!(i16);
-impl_mapkey_for_primitive!(u16);
-impl_mapkey_for_primitive!(i32);
-impl_mapkey_for_primitive!(u32);
-impl_mapkey_for_primitive!(i64);
-impl_mapkey_for_primitive!(u64);
-impl_mapkey_for_primitive!(i128);
-impl_mapkey_for_primitive!(u128);
+impl_key_for_primitive!(i8);
+impl_key_for_primitive!(u8);
+impl_key_for_primitive!(i16);
+impl_key_for_primitive!(u16);
+impl_key_for_primitive!(i32);
+impl_key_for_primitive!(u32);
+impl_key_for_primitive!(i64);
+impl_key_for_primitive!(u64);
+impl_key_for_primitive!(i128);
+impl_key_for_primitive!(u128);
