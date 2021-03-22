@@ -1,9 +1,9 @@
 use std::borrow::Cow;
 
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{collection, Revision};
-use serde::{Deserialize, Serialize};
+use crate::{document::Revision, schema::collection};
 
 /// a list of operations to execute as a single unit. If any operation fails,
 /// all changes are aborted. Reads that happen while the transaction is in

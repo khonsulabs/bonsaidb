@@ -2,7 +2,8 @@ use std::borrow::Cow;
 
 use pliantdb::{
     connection::Connection,
-    schema::{collection, Collection, Database, Document, MapResult, Schema, View},
+    document::Document,
+    schema::{collection, Collection, Database, MapResult, Schema, View},
     storage::Storage,
 };
 use serde::{Deserialize, Serialize};

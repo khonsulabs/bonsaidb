@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
-use crate::schema::Document;
+use crate::document::Document;
 
 /// types for defining a `Map` within a `View`
 pub mod map;

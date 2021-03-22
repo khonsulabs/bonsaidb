@@ -4,9 +4,8 @@ use std::{
     collections::HashMap,
 };
 
-use crate::schema::collection::{self, Collection};
-
 use super::View;
+use crate::schema::collection::{self, Collection};
 
 /// a trait that defines a group of collections that are stored into a single database
 pub trait Database: Send + Sync {

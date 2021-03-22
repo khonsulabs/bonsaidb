@@ -3,7 +3,10 @@ use std::{borrow::Cow, marker::PhantomData};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::schema::{map, Collection, Map, Revision};
+use crate::schema::{map, Collection, Map};
+
+mod revision;
+pub use revision::Revision;
 
 /// the header of a `Document`
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -99,6 +102,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::Document;
     use crate::{
         connection::Connection,
         schema::Map,
@@ -106,8 +110,6 @@ mod tests {
         test_util::{Basic, BasicCollection},
         Error,
     };
-
-    use super::Document;
 
     #[tokio::test]
     #[ignore] // TODO make this test work

@@ -1,7 +1,8 @@
 use std::borrow::Cow;
 
-use crate::schema::Schema;
 use serde::{Deserialize, Serialize};
+
+use crate::schema::Schema;
 
 /// a unique collection id. Choose collection names that aren't likely to
 /// conflict with others, so that if someone mixes collections from multiple

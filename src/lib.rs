@@ -19,10 +19,14 @@
 
 /// types for interacting with a database
 pub mod connection;
+/// types for interacting with `Document`s
+pub mod document;
 /// types for defining database schema
 pub mod schema;
 /// types for interacting with a local, file-based database
 pub mod storage;
+/// types for executing transactions
+pub mod transaction;
 
 /// an enumeration of errors that this crate can produce
 #[derive(thiserror::Error, Debug)]

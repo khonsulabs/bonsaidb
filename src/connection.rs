@@ -1,10 +1,13 @@
 use std::marker::PhantomData;
 
+use async_trait::async_trait;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::schema::{self, Document, Header};
-use async_trait::async_trait;
+use crate::{
+    document::{Document, Header},
+    schema,
+};
 
 /// an enumeration of errors that are `Connection`-related
 #[derive(thiserror::Error, Debug)]

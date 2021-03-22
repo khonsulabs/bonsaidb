@@ -1,10 +1,13 @@
 use std::borrow::Cow;
 
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use view::Map;
 
-use crate::schema::{collection, view, Collection, MapResult, View};
-use serde::{Deserialize, Serialize};
+use crate::{
+    document::Document,
+    schema::{collection, view, Collection, MapResult, Schema, View},
+};
 
 pub struct BasicCollection;
 
@@ -13,7 +16,7 @@ impl Collection for BasicCollection {
         collection::Id::from("tests.basic")
     }
 
-    fn define_views(schema: &mut crate::schema::Schema) {
+    fn define_views(schema: &mut Schema) {
         schema.define_view::<BasicCount, Self>();
     }
 }
@@ -34,7 +37,7 @@ impl<'k> View<'k, BasicCollection> for BasicCount {
     }
 
     fn map(
-        document: &crate::schema::Document<'_, BasicCollection>,
+        document: &Document<'_, BasicCollection>,
     ) -> MapResult<'k, Self::MapKey, Self::MapValue> {
         Ok(Some(document.emit_key_and_value((), 1)))
     }

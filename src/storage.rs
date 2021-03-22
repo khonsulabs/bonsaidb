@@ -1,10 +1,12 @@
-use async_trait::async_trait;
-use schema::{Command, Operation, Transaction};
 use std::{borrow::Cow, marker::PhantomData, path::Path, sync::Arc};
+
+use async_trait::async_trait;
 
 use crate::{
     connection::{Collection, Connection, Error},
-    schema::{self, Database, Header, Schema},
+    document::{Document, Header},
+    schema::{self, Database, Schema},
+    transaction::{Command, Operation, Transaction},
 };
 
 /// a local, file-based database
@@ -76,10 +78,7 @@ where
         todo!()
     }
 
-    async fn update<C: schema::Collection>(
-        &self,
-        doc: &mut schema::Document<'a, C>,
-    ) -> Result<(), Error> {
+    async fn update<C: schema::Collection>(&self, doc: &mut Document<'a, C>) -> Result<(), Error> {
         todo!()
     }
 }
