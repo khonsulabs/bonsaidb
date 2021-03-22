@@ -6,7 +6,7 @@ use view::Map;
 
 use crate::{
     document::Document,
-    schema::{collection, view, Collection, MapResult, Schema, View},
+    schema::{collection, view, Collection, Database, MapResult, Schema, View},
 };
 
 pub struct BasicCollection;
@@ -53,4 +53,12 @@ impl<'k> View<'k, BasicCollection> for BasicCount {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Basic {
     pub parent_id: Option<Uuid>,
+}
+
+pub struct BasicDatabase;
+
+impl Database for BasicDatabase {
+    fn define_collections(schema: &mut Schema) {
+        schema.define_collection::<BasicCollection>();
+    }
 }

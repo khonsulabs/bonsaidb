@@ -7,7 +7,7 @@ use crate::schema::Schema;
 /// a unique collection id. Choose collection names that aren't likely to
 /// conflict with others, so that if someone mixes collections from multiple
 /// authors in a single database.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Id(pub Cow<'static, str>);
 
 impl From<&'static str> for Id {

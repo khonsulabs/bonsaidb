@@ -4,8 +4,10 @@ use std::{
     collections::HashMap,
 };
 
-use super::View;
-use crate::schema::collection::{self, Collection};
+use crate::schema::{
+    collection::{self, Collection},
+    View,
+};
 
 /// a trait that defines a group of collections that are stored into a single database
 pub trait Database: Send + Sync {
@@ -50,4 +52,22 @@ where
     fn define_collections(collections: &mut Schema) {
         collections.define_collection::<Self>();
     }
+}
+
+#[test]
+fn schema_tests() {
+    use crate::test_util::{BasicCollection, BasicCount, BasicDatabase};
+    let mut schema = Schema::default();
+    BasicDatabase::define_collections(&mut schema);
+
+    assert_eq!(schema.collections.len(), 1);
+    assert_eq!(
+        schema.collections[&TypeId::of::<BasicCollection>()],
+        BasicCollection::id()
+    );
+    assert_eq!(schema.views.len(), 1);
+    assert_eq!(
+        schema.views[&TypeId::of::<BasicCount>()],
+        BasicCount::name()
+    );
 }
