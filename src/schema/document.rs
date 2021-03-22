@@ -5,14 +5,21 @@ use uuid::Uuid;
 
 use crate::schema::{map, Collection, Map, Revision};
 
-/// a struct representing a document in the database
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Document<'a, C> {
+/// the header of a `Document`
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Header {
     /// the id of the Document. Unique across the collection `C`
     pub id: Uuid,
 
     /// the revision of the stored document.
     pub revision: Revision,
+}
+
+/// a struct representing a document in the database
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Document<'a, C> {
+    /// the header of the document, which contains the id and `Revision`
+    pub header: Cow<'a, Header>,
 
     /// the serialized bytes of the stored item
     #[serde(borrow)]
@@ -31,8 +38,10 @@ where
         let contents = Cow::from(serde_cbor::to_vec(contents)?);
         let revision = Revision::new(&contents);
         Ok(Self {
-            id: Uuid::new_v4(),
-            revision,
+            header: Cow::Owned(Header {
+                id: Uuid::new_v4(),
+                revision,
+            }),
             contents,
             _collection: PhantomData::default(),
         })
@@ -48,12 +57,15 @@ where
         contents: &S,
     ) -> Result<Option<Self>, serde_cbor::Error> {
         let contents = Cow::from(serde_cbor::to_vec(contents)?);
-        Ok(self.revision.next_revision(&contents).map(|revision| Self {
-            id: self.id,
-            revision,
-            contents,
-            _collection: PhantomData::default(),
-        }))
+        Ok(self
+            .header
+            .revision
+            .next_revision(&contents)
+            .map(|revision| Self {
+                header: self.header.clone(),
+                contents,
+                _collection: PhantomData::default(),
+            }))
     }
 
     /// create a `Map` result with an empty key and value
@@ -81,7 +93,7 @@ where
         key: Key,
         value: Value,
     ) -> Map<'k, Key, Value> {
-        Map::new(self.id, key, value)
+        Map::new(self.header.id, key, value)
     }
 }
 
@@ -124,13 +136,13 @@ mod tests {
     fn emissions() -> Result<(), Error> {
         let doc = Document::<BasicCollection>::new(&Basic { parent_id: None })?;
 
-        assert_eq!(doc.emit(), Map::new(doc.id, (), ()));
+        assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));
 
-        assert_eq!(doc.emit_key(1), Map::new(doc.id, 1, ()));
+        assert_eq!(doc.emit_key(1), Map::new(doc.header.id, 1, ()));
 
-        assert_eq!(doc.emit_value(1), Map::new(doc.id, (), 1));
+        assert_eq!(doc.emit_value(1), Map::new(doc.header.id, (), 1));
 
-        assert_eq!(doc.emit_key_and_value(1, 2), Map::new(doc.id, 1, 2));
+        assert_eq!(doc.emit_key_and_value(1, 2), Map::new(doc.header.id, 1, 2));
 
         Ok(())
     }

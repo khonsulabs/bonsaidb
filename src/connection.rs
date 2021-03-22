@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::schema::{self, Document};
+use crate::schema::{self, Document, Header};
 use async_trait::async_trait;
 
 /// an enumeration of errors that are `Connection`-related
@@ -29,7 +29,7 @@ pub trait Connection<'a>: Send + Sync {
         Self: Sized;
 
     /// insert a newly created document into the connected `Database` for the collection `C`
-    async fn insert<C: schema::Collection>(&self, doc: &Document<'a, C>) -> Result<(), Error>;
+    async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error>;
 
     /// update an existing document in the connected `Database` for the
     /// collection `C`. Upon success, `doc.revision` will be updated with the
@@ -56,13 +56,9 @@ where
     }
 
     /// add a new `Document<Cl>` with the contents `item`
-    pub async fn push<S: Serialize + Sync>(
-        &self,
-        item: &S,
-    ) -> Result<Document<'static, Cl>, crate::Error> {
-        let doc = Document::new(item)?;
-        self.connection.insert(&doc).await?;
-        Ok(doc)
+    pub async fn push<S: Serialize + Sync>(&self, item: &S) -> Result<Header, crate::Error> {
+        let contents = serde_cbor::to_vec(item)?;
+        Ok(self.connection.insert::<Cl>(contents).await?)
     }
 
     /// retrieve a `Document<Cl>` with `id` from the connection

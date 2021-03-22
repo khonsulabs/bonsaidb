@@ -75,7 +75,7 @@ async fn main() -> Result<(), pliantdb::Error> {
 
     let todo = doc.contents::<Todo>()?;
 
-    println!("Inserted task '{}' with id {}", todo.task, doc.id);
+    println!("Inserted task '{}' with id {}", todo.task, doc.header.id);
 
     Ok(())
 }

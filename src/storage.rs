@@ -1,9 +1,10 @@
 use async_trait::async_trait;
-use std::{marker::PhantomData, path::Path, sync::Arc};
+use schema::{Command, Operation, Transaction};
+use std::{borrow::Cow, marker::PhantomData, path::Path, sync::Arc};
 
 use crate::{
     connection::{Collection, Connection, Error},
-    schema::{self, Database, Schema},
+    schema::{self, Database, Header, Schema},
 };
 
 /// a local, file-based database
@@ -49,10 +50,15 @@ where
         }
     }
 
-    async fn insert<C: schema::Collection>(
-        &self,
-        doc: &schema::Document<'a, C>,
-    ) -> Result<(), Error> {
+    async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error> {
+        let mut tx = Transaction::default();
+        tx.push(Operation {
+            collection: C::id(),
+            command: Command::Insert {
+                contents: Cow::from(contents),
+            },
+        });
+
         // We need these things to occur:
         // * Create a "transaction" that contains the save statement.
         // * Execute the transaction
