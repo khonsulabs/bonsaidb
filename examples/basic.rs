@@ -1,72 +1,55 @@
-use std::borrow::Cow;
+use std::time::SystemTime;
 
 use pliantdb::{
     connection::Connection,
-    document::Document,
-    schema::{collection, Collection, MapResult, Schema, View},
+    schema::{collection, Collection, Schema},
     storage::Storage,
 };
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
-struct Todo<'a> {
-    pub completed: bool,
-    pub task: &'a str,
-    pub parent_id: Option<Uuid>,
+struct Message {
+    pub timestamp: SystemTime,
+    pub contents: String,
 }
 
-impl<'a> Collection for Todo<'a> {
+impl Collection for Message {
     fn id() -> collection::Id {
-        collection::Id::from("todos")
+        collection::Id::from("messages")
     }
 
-    fn define_views(schema: &mut Schema) {
-        schema.define_view::<TodosByParent>();
-    }
-}
-
-struct TodosByParent;
-
-impl<'k> View<'k> for TodosByParent {
-    type MapKey = Option<Uuid>;
-    type MapValue = ();
-    type Reduce = ();
-
-    fn version() -> usize {
-        0
-    }
-
-    fn name() -> Cow<'static, str> {
-        Cow::from("todos-by-parent")
-    }
-
-    fn map(document: &Document<'_>) -> MapResult<'k, Option<Uuid>> {
-        let todo = document.contents::<Todo>()?;
-        Ok(Some(document.emit_key(todo.parent_id)))
-    }
+    fn define_views(_schema: &mut Schema) {}
 }
 
 #[tokio::main]
 async fn main() -> Result<(), pliantdb::Error> {
-    let db = Storage::<Todo>::open_local("basic.pliantdb")?;
-    let todos = db.collection::<Todo>()?;
-    let header = todos
-        .push(&Todo {
-            completed: false,
-            task: "Test Task",
-            parent_id: None,
+    let db = Storage::<Message>::open_local("basic.pliantdb")?;
+    let messages = db.collection::<Message>()?;
+
+    // Insert a new `Message` into the collection. The `push()` method used
+    // below is made available through the `Connection` trait. While this
+    // example is connecting to a locally-stored database, with `PliantDB` all
+    // database access is made through this single trait so that your code
+    // doesn't need to change if you migrate from a local database to a remote
+    // database -- just change how you establish your connection.
+    let new_doc_info = messages
+        .push(&Message {
+            contents: String::from("Hello, World!"),
+            timestamp: SystemTime::now(),
         })
         .await?;
 
-    let doc = todos
-        .get(header.id)
+    // Retrieve the message using the id returned from the previous call
+    let message = messages
+        .get(new_doc_info.id)
         .await?
-        .expect("couldn't retrieve stored item");
+        .expect("couldn't retrieve stored item")
+        .contents::<Message>()?;
 
-    let todo = doc.contents::<Todo>()?;
-
-    println!("Inserted todo '{}' with id {}", todo.task, header.id);
+    println!(
+        "Inserted message '{}' with id {}",
+        message.contents, new_doc_info.id
+    );
 
     Ok(())
 }
