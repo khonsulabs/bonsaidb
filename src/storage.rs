@@ -371,6 +371,10 @@ mod tests {
             .await?;
         assert_eq!(transactions.len(), LIST_TRANSACTIONS_MAX_RESULTS);
 
+        // Test requesting 0 items
+        let transactions = db.list_executed_transactions(None, Some(0)).await?;
+        assert!(transactions.is_empty());
+
         // Test doing a loop fetching until we get no more results
         let mut transactions = Vec::new();
         let mut starting_id = None;
