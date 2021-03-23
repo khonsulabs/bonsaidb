@@ -28,9 +28,7 @@ pub type MapResult<'k, K = (), V = ()> = Result<Option<Map<'k, K, V>>, Error>;
 /// inspired by [`CouchDB`'s view system](https://docs.couchdb.org/en/stable/ddocs/views/index.html)
 // TODO write our own view docs
 pub trait View<'k> {
-    /// the key for this view. If you're using ranged queries, this type must be
-    /// meaningfully sortable when converted to bytes. Additionally, the
-    /// conversion process to bytes must be done using a consistent endianness.
+    /// the key for this view.
     type MapKey: Key<'k> + 'static;
 
     /// an associated type that can be stored with each entry in the view
@@ -115,7 +113,7 @@ where
         match map {
             Some(map) => Ok(Some(map::Serialized {
                 source: map.source,
-                key: map.key.into_endian_bytes(),
+                key: map.key.into_big_endian_bytes(),
                 value: serde_cbor::value::to_value(&map.value)?,
             })),
             None => Ok(None),
