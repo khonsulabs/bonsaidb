@@ -121,89 +121,28 @@ impl<'a> Document<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::Document;
+#[test]
+fn emissions_tests() -> Result<(), crate::Error> {
     use crate::{
-        connection::Connection,
         schema::{Collection, Map},
-        storage::Storage,
         test_util::{Basic, BasicCollection},
-        Error,
     };
 
-    #[tokio::test]
-    async fn store_retrieve_update() -> Result<(), Error> {
-        let path = std::env::temp_dir().join("store_retrieve_tests.pliantdb");
-        if path.exists() {
-            std::fs::remove_dir_all(&path).unwrap();
-        }
-        let db = Storage::<BasicCollection>::open_local(path)?;
-
-        let original_value = Basic {
-            value: String::from("initial_value"),
+    let doc = Document::with_contents(
+        &Basic {
+            value: String::default(),
             parent_id: None,
-        };
-        let collection = db.collection::<BasicCollection>()?;
-        let header = collection.push(&original_value).await?;
+        },
+        BasicCollection::id(),
+    )?;
 
-        let mut doc = collection
-            .get(header.id)
-            .await?
-            .expect("couldn't retrieve stored item");
-        let mut value = doc.contents::<Basic>()?;
-        assert_eq!(original_value, value);
-        let old_revision = doc.header.revision.clone();
+    assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));
 
-        // Update the value
-        value.value = String::from("updated_value");
-        doc.set_contents(&value)?;
-        db.update(&mut doc).await?;
+    assert_eq!(doc.emit_key(1), Map::new(doc.header.id, 1, ()));
 
-        // update should cause the revision to be changed
-        assert_ne!(doc.header.revision, old_revision);
+    assert_eq!(doc.emit_value(1), Map::new(doc.header.id, (), 1));
 
-        // Check the value in the database to ensure it has the new document
-        let doc = collection
-            .get(header.id)
-            .await?
-            .expect("couldn't retrieve stored item");
-        assert_eq!(doc.contents::<Basic>()?, value);
+    assert_eq!(doc.emit_key_and_value(1, 2), Map::new(doc.header.id, 1, 2));
 
-        // These operations should have created two transactions with one change each
-        let transactions = db.list_executed_transactions(None, None).await?;
-        assert_eq!(transactions.len(), 2);
-        assert!(transactions[0].id < transactions[1].id);
-        for transaction in transactions {
-            assert_eq!(transaction.changed_documents.len(), 1);
-            assert_eq!(
-                transaction.changed_documents[0].collection,
-                BasicCollection::id()
-            );
-            assert_eq!(transaction.changed_documents[0].id, header.id);
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn emissions() -> Result<(), Error> {
-        let doc = Document::with_contents(
-            &Basic {
-                value: String::default(),
-                parent_id: None,
-            },
-            BasicCollection::id(),
-        )?;
-
-        assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));
-
-        assert_eq!(doc.emit_key(1), Map::new(doc.header.id, 1, ()));
-
-        assert_eq!(doc.emit_value(1), Map::new(doc.header.id, (), 1));
-
-        assert_eq!(doc.emit_key_and_value(1, 2), Map::new(doc.header.id, 1, 2));
-
-        Ok(())
-    }
+    Ok(())
 }

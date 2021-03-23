@@ -1,4 +1,7 @@
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -59,5 +62,31 @@ pub struct BasicDatabase;
 impl Database for BasicDatabase {
     fn define_collections(schema: &mut Schema) {
         schema.define_collection::<BasicCollection>();
+    }
+}
+
+pub struct TestDirectory(pub PathBuf);
+
+impl TestDirectory {
+    pub fn new<S: AsRef<Path>>(name: S) -> Self {
+        let path = std::env::temp_dir().join(name);
+        if path.exists() {
+            std::fs::remove_dir_all(&path).expect("error clearing temporary directory");
+        }
+        Self(path)
+    }
+}
+
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        if let Err(err) = std::fs::remove_dir_all(&self.0) {
+            eprintln!("Failed to clean up temporary folder: {:?}", err);
+        }
+    }
+}
+
+impl AsRef<Path> for TestDirectory {
+    fn as_ref(&self) -> &Path {
+        &self.0
     }
 }
