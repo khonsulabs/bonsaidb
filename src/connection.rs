@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::{
     document::{Document, Header},
     schema::{self},
-    transaction::{OperationResult, Transaction},
+    transaction::{self, OperationResult, Transaction},
     Error,
 };
 
@@ -41,6 +41,17 @@ pub trait Connection<'a>: Send + Sync {
         &self,
         transaction: Transaction<'static>,
     ) -> Result<Vec<OperationResult>, Error>;
+
+    /// list executed transactions from this database. By default, a maximum of
+    /// 1000 entries will be returned, but that limit can be overridden by
+    /// setting `result_limit`. A hard limit of 100,000 results will be
+    /// returned. To begin listing after another known `transaction_id`, pass
+    /// `transaction_id + 1` into `starting_id`.
+    async fn list_executed_transactions(
+        &self,
+        starting_id: Option<u64>,
+        result_limit: Option<u64>,
+    ) -> Result<Vec<transaction::Executed<'static>>, Error>;
 }
 
 /// a struct used to interact with a collection over a `Connection`

@@ -1,9 +1,10 @@
+use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
+
 use async_trait::async_trait;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError, TransactionalTree},
     Transactional,
 };
-use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
 use uuid::Uuid;
 
 use crate::{
@@ -176,6 +177,38 @@ where
             Ok(Some(bincode::deserialize::<Document<'_>>(&vec)?.to_owned()))
         } else {
             Ok(None)
+        }
+    }
+
+    async fn list_executed_transactions(
+        &self,
+        starting_id: Option<u64>,
+        result_limit: Option<u64>,
+    ) -> Result<Vec<transaction::Executed<'static>>, crate::Error> {
+        let result_limit = result_limit.unwrap_or(100).max(1000); // TODO what is a good max result set?
+        if result_limit > 0 {
+            let tree = self.sled.open_tree(TRANSACTION_TREE_NAME)?;
+            let iter = if let Some(starting_id) = starting_id {
+                tree.range(starting_id.to_be_bytes()..=u64::MAX.to_be_bytes())
+            } else {
+                tree.iter()
+            };
+
+            #[allow(clippy::cast_possible_truncation)] // this value is limited above
+            let mut results = Vec::with_capacity(result_limit as usize);
+            for row in iter {
+                let (_, vec) = row?;
+                results.push(bincode::deserialize::<transaction::Executed<'_>>(&vec)?.to_owned());
+
+                if results.len() as u64 >= result_limit {
+                    break;
+                }
+            }
+            Ok(results)
+        } else {
+            // A request was made to return an empty result? This should probably be
+            // an error, but technically this is a correct response.
+            Ok(Vec::default())
         }
     }
 }

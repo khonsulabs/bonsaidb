@@ -77,6 +77,17 @@ pub struct Executed<'a> {
     pub changed_documents: Cow<'a, [ChangedDocument]>,
 }
 
+impl<'a> Executed<'a> {
+    /// convert this structure to be free of borrows
+    #[must_use]
+    pub fn to_owned(&self) -> Executed<'static> {
+        Executed {
+            id: self.id,
+            changed_documents: self.changed_documents.iter().cloned().collect(),
+        }
+    }
+}
+
 /// a record of a changed
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChangedDocument {

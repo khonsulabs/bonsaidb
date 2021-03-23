@@ -170,6 +170,19 @@ mod tests {
             .expect("couldn't retrieve stored item");
         assert_eq!(doc.contents::<Basic>()?, value);
 
+        // These operations should have created two transactions with one change each
+        let transactions = db.list_executed_transactions(None, None).await?;
+        assert_eq!(transactions.len(), 2);
+        assert!(transactions[0].id < transactions[1].id);
+        for transaction in transactions {
+            assert_eq!(transaction.changed_documents.len(), 1);
+            assert_eq!(
+                transaction.changed_documents[0].collection,
+                BasicCollection::id()
+            );
+            assert_eq!(transaction.changed_documents[0].id, header.id);
+        }
+
         Ok(())
     }
 
