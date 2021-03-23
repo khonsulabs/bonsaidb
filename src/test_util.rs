@@ -50,6 +50,7 @@ impl<'k> View<'k> for BasicCount {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Basic {
+    pub value: String,
     pub parent_id: Option<Uuid>,
 }
 

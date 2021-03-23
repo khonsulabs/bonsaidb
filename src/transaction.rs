@@ -3,10 +3,7 @@ use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{
-    document::{Header, Revision},
-    schema::collection,
-};
+use crate::{document::Header, schema::collection};
 
 /// a list of operations to execute as a single unit. If any operation fails,
 /// all changes are aborted. Reads that happen while the transaction is in
@@ -42,15 +39,10 @@ pub enum Command<'a> {
         #[serde(borrow)]
         contents: Cow<'a, [u8]>,
     },
-    /// update an existing `Document` identified by `id`. `revision` must match the currently stored revision on the `Document`. If it does not, the command fill fail with a `Conflict` error.
-    // TODO once we have a conflict error, update the docs
+    /// update an existing `Document` identified by `id`. `revision` must match the currently stored revision on the `Document`. If it does not, the command fill fail with a `DocumentConflict` error.
     Update {
-        /// the id of the `Document`
-        id: Uuid,
-
-        /// the current `Revision` of the `Document`
-        #[serde(borrow)]
-        revision: Cow<'a, Revision>,
+        /// the current header of the `Document`
+        header: Cow<'a, Header>,
 
         /// the new contents to store within the `Document`
         #[serde(borrow)]

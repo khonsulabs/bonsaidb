@@ -17,6 +17,9 @@
     clippy::option_if_let_else,
 )]
 
+use schema::collection;
+use uuid::Uuid;
+
 /// types for interacting with a database
 pub mod connection;
 /// types for interacting with `Document`s
@@ -38,6 +41,15 @@ pub enum Error {
     /// an attempt to use a `Collection` with a `Database` that it wasn't defined within
     #[error("attempted to access a collection not registered with this schema")]
     CollectionNotFound,
+
+    // TODO consider moving these to something like a document::Error
+    /// an attempt to update a document that doesn't exist
+    #[error("the requested document id {1} from collection {0} was not found")]
+    DocumentNotFound(collection::Id, Uuid),
+
+    /// when updating a document, if a situation is detected where the contents have changed on the server since the `Revision` provided, a Conflict error will be returned.
+    #[error("a conflict was detected while updating document id {1} from collection {0}")]
+    DocumentConflict(collection::Id, Uuid),
 }
 
 impl From<sled::Error> for Error {

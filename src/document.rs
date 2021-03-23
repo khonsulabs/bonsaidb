@@ -9,7 +9,7 @@ mod revision;
 pub use revision::Revision;
 
 /// the header of a `Document`
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Header {
     /// the id of the Document. Unique across the collection `C`
     pub id: Uuid,
@@ -25,6 +25,7 @@ pub struct Document<'a> {
     pub collection: collection::Id,
 
     /// the header of the document, which contains the id and `Revision`
+    #[serde(borrow)]
     pub header: Cow<'a, Header>,
 
     /// the serialized bytes of the stored item
@@ -61,13 +62,14 @@ impl<'a> Document<'a> {
         serde_cbor::from_slice(&self.contents)
     }
 
-    pub(crate) fn update_with<S: Serialize>(
-        &self,
-        contents: &S,
-    ) -> Result<Option<Self>, serde_cbor::Error> {
-        let contents = Cow::from(serde_cbor::to_vec(contents)?);
-        Ok(self
-            .header
+    /// serializes and stores `contents` into this document
+    pub fn set_contents<S: Serialize>(&mut self, contents: &S) -> Result<(), serde_cbor::Error> {
+        self.contents = Cow::from(serde_cbor::to_vec(contents)?);
+        Ok(())
+    }
+
+    pub(crate) fn create_new_revision(&self, contents: Cow<'a, [u8]>) -> Option<Self> {
+        self.header
             .revision
             .next_revision(&contents)
             .map(|revision| Self {
@@ -77,7 +79,7 @@ impl<'a> Document<'a> {
                 }),
                 contents,
                 collection: self.collection.clone(),
-            }))
+            })
     }
 
     /// create a `Map` result with an empty key and value
@@ -131,30 +133,55 @@ mod tests {
     };
 
     #[tokio::test]
-    async fn store_retrieve() -> Result<(), Error> {
+    async fn store_retrieve_update() -> Result<(), Error> {
         let path = std::env::temp_dir().join("store_retrieve_tests.pliantdb");
         if path.exists() {
             std::fs::remove_dir_all(&path).unwrap();
         }
         let db = Storage::<BasicCollection>::open_local(path)?;
 
-        let original_value = Basic { parent_id: None };
+        let original_value = Basic {
+            value: String::from("initial_value"),
+            parent_id: None,
+        };
         let collection = db.collection::<BasicCollection>()?;
         let header = collection.push(&original_value).await?;
 
+        let mut doc = collection
+            .get(header.id)
+            .await?
+            .expect("couldn't retrieve stored item");
+        let mut value = doc.contents::<Basic>()?;
+        assert_eq!(original_value, value);
+        let old_revision = doc.header.revision.clone();
+
+        // Update the value
+        value.value = String::from("updated_value");
+        doc.set_contents(&value)?;
+        db.update(&mut doc).await?;
+
+        // update should cause the revision to be changed
+        assert_ne!(doc.header.revision, old_revision);
+
+        // Check the value in the database to ensure it has the new document
         let doc = collection
             .get(header.id)
             .await?
             .expect("couldn't retrieve stored item");
-
-        assert_eq!(original_value, doc.contents::<Basic>()?);
+        assert_eq!(doc.contents::<Basic>()?, value);
 
         Ok(())
     }
 
     #[test]
     fn emissions() -> Result<(), Error> {
-        let doc = Document::with_contents(&Basic { parent_id: None }, BasicCollection::id())?;
+        let doc = Document::with_contents(
+            &Basic {
+                value: String::default(),
+                parent_id: None,
+            },
+            BasicCollection::id(),
+        )?;
 
         assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));
 

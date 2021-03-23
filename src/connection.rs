@@ -27,7 +27,7 @@ pub trait Connection<'a>: Send + Sync {
     /// update an existing document in the connected `Database` for the
     /// collection `C`. Upon success, `doc.revision` will be updated with the
     /// new revision.
-    async fn update(&self, doc: &mut Document<'a>) -> Result<(), Error>;
+    async fn update(&self, doc: &mut Document<'_>) -> Result<(), Error>;
 
     /// retrieve a stored document from collection `C` identified by `id`
     async fn get<C: schema::Collection>(
@@ -65,6 +65,11 @@ where
     pub async fn push<S: Serialize + Sync>(&self, item: &S) -> Result<Header, crate::Error> {
         let contents = serde_cbor::to_vec(item)?;
         Ok(self.connection.insert::<Cl>(contents).await?)
+    }
+
+    /// add a new `Document<Cl>` with the contents `item`
+    pub async fn update(&self, doc: &mut Document<'_>) -> Result<(), crate::Error> {
+        Ok(self.connection.update(doc).await?)
     }
 
     /// retrieve a `Document<Cl>` with `id` from the connection

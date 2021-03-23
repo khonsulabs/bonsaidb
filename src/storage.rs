@@ -91,8 +91,24 @@ where
         }
     }
 
-    async fn update(&self, _doc: &mut Document<'a>) -> Result<(), crate::Error> {
-        todo!()
+    async fn update(&self, doc: &mut Document<'_>) -> Result<(), crate::Error> {
+        let mut tx = Transaction::default();
+        tx.push(Operation {
+            collection: doc.collection.clone(),
+            command: Command::Update {
+                header: Cow::Owned(doc.header.as_ref().clone()),
+                contents: Cow::Owned(doc.contents.to_vec()),
+            },
+        });
+        let results = self.apply_transaction(tx).await?;
+        if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
+            doc.header = Cow::Owned(header.clone());
+            Ok(())
+        } else {
+            unreachable!(
+                "apply_transaction on a single update should yield a single DocumentUpdated entry"
+            )
+        }
     }
 
     async fn apply_transaction(
@@ -169,12 +185,13 @@ fn execute_operation(
     trees: &[TransactionalTree],
     tree_index_map: &HashMap<String, usize>,
 ) -> Result<OperationResult, ConflictableTransactionError<crate::Error>> {
+    let tree = &trees[tree_index_map[&document_tree_name(&operation.collection)]];
     match &operation.command {
         Command::Insert { contents } => {
             let doc = Document::new(Cow::Borrowed(contents), operation.collection.clone());
+            save_doc(tree, &doc)?;
             let serialized: Vec<u8> = bincode::serialize(&doc)
                 .map_err(|err| ConflictableTransactionError::Abort(crate::Error::from(err)))?;
-            let tree = &trees[tree_index_map[&document_tree_name(&operation.collection)]];
             tree.insert(doc.header.id.as_bytes(), serialized)?;
 
             Ok(OperationResult::DocumentUpdated {
@@ -182,10 +199,49 @@ fn execute_operation(
                 header: doc.header.as_ref().clone(),
             })
         }
-        Command::Update { .. } => {
-            todo!()
+        Command::Update { header, contents } => {
+            if let Some(vec) = tree.get(&header.id.as_bytes())? {
+                let doc = bincode::deserialize::<Document<'_>>(&vec)
+                    .map_err(|err| ConflictableTransactionError::Abort(crate::Error::from(err)))?;
+                if &doc.header == header {
+                    if let Some(updated_doc) = doc.create_new_revision(contents.clone()) {
+                        save_doc(tree, &updated_doc)?;
+                        Ok(OperationResult::DocumentUpdated {
+                            collection: operation.collection.clone(),
+                            header: updated_doc.header.as_ref().clone(),
+                        })
+                    } else {
+                        // If no new revision was made, it means an attempt to
+                        // save a document with the same contents was made.
+                        // We'll return a success but not actually give a new
+                        // version
+                        Ok(OperationResult::DocumentUpdated {
+                            collection: operation.collection.clone(),
+                            header: doc.header.as_ref().clone(),
+                        })
+                    }
+                } else {
+                    Err(ConflictableTransactionError::Abort(
+                        crate::Error::DocumentConflict(operation.collection.clone(), header.id),
+                    ))
+                }
+            } else {
+                Err(ConflictableTransactionError::Abort(
+                    crate::Error::DocumentNotFound(operation.collection.clone(), header.id),
+                ))
+            }
         }
     }
+}
+
+fn save_doc(
+    tree: &TransactionalTree,
+    doc: &Document<'_>,
+) -> Result<(), ConflictableTransactionError<crate::Error>> {
+    let serialized: Vec<u8> = bincode::serialize(doc)
+        .map_err(|err| ConflictableTransactionError::Abort(crate::Error::from(err)))?;
+    tree.insert(doc.header.id.as_bytes(), serialized)?;
+    Ok(())
 }
 
 #[derive(Default)]
