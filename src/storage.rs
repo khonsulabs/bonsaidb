@@ -14,6 +14,11 @@ use crate::{
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
 
+/// the maximum number of results allowed to be returned from `list_executed_transactions`
+pub const LIST_TRANSACTIONS_MAX_RESULTS: usize = 1000;
+/// if no `result_limit` is specified, this value is the limit used by default
+pub const LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT: usize = 100;
+
 /// a local, file-based database
 #[derive(Clone)]
 pub struct Storage<DB> {
@@ -183,9 +188,11 @@ where
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<u64>,
+        result_limit: Option<usize>,
     ) -> Result<Vec<transaction::Executed<'static>>, crate::Error> {
-        let result_limit = result_limit.unwrap_or(100).max(1000); // TODO what is a good max result set?
+        let result_limit = result_limit
+            .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
+            .min(LIST_TRANSACTIONS_MAX_RESULTS);
         if result_limit > 0 {
             let tree = self.sled.open_tree(TRANSACTION_TREE_NAME)?;
             let iter = if let Some(starting_id) = starting_id {
@@ -195,12 +202,12 @@ where
             };
 
             #[allow(clippy::cast_possible_truncation)] // this value is limited above
-            let mut results = Vec::with_capacity(result_limit as usize);
+            let mut results = Vec::with_capacity(result_limit);
             for row in iter {
                 let (_, vec) = row?;
                 results.push(bincode::deserialize::<transaction::Executed<'_>>(&vec)?.to_owned());
 
-                if results.len() as u64 >= result_limit {
+                if results.len() >= result_limit {
                     break;
                 }
             }
@@ -325,4 +332,63 @@ pub enum Error {
     /// an error occurred serializing the contents of a `Document` or results of a `View`
     #[error("error while serializing: {0}")]
     Serialization(#[from] serde_cbor::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        connection::Connection,
+        storage::Storage,
+        test_util::{Basic, BasicCollection},
+        Error,
+    };
+
+    #[tokio::test]
+    async fn list_transactions() -> Result<(), Error> {
+        let path = std::env::temp_dir().join("list_transactions.pliantdb");
+        if path.exists() {
+            std::fs::remove_dir_all(&path).unwrap();
+        }
+        let db = Storage::<BasicCollection>::open_local(path)?;
+        let collection = db.collection::<BasicCollection>()?;
+
+        // create LIST_TRANSACTIONS_MAX_RESULTS + 1 items, giving us just enough
+        // transactions to test the edge cases of `list_transactions`
+        futures::future::join_all(
+            (0..=(LIST_TRANSACTIONS_MAX_RESULTS))
+                .map(|_| async { collection.push(&Basic::default()).await }),
+        )
+        .await;
+
+        // Test defaults
+        let transactions = db.list_executed_transactions(None, None).await?;
+        assert_eq!(transactions.len(), LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT);
+
+        // Test max results limit
+        let transactions = db
+            .list_executed_transactions(None, Some(LIST_TRANSACTIONS_MAX_RESULTS + 1))
+            .await?;
+        assert_eq!(transactions.len(), LIST_TRANSACTIONS_MAX_RESULTS);
+
+        // Test doing a loop fetching until we get no more results
+        let mut transactions = Vec::new();
+        let mut starting_id = None;
+        loop {
+            let chunk = db
+                .list_executed_transactions(starting_id, Some(100))
+                .await?;
+            if chunk.is_empty() {
+                break;
+            }
+
+            let max_id = chunk.last().map(|tx| tx.id).unwrap();
+            starting_id = Some(max_id + 1);
+            transactions.extend(chunk);
+        }
+
+        assert_eq!(transactions.len(), LIST_TRANSACTIONS_MAX_RESULTS + 1);
+
+        Ok(())
+    }
 }

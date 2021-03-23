@@ -50,7 +50,7 @@ pub trait Connection<'a>: Send + Sync {
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<u64>,
+        result_limit: Option<usize>,
     ) -> Result<Vec<transaction::Executed<'static>>, Error>;
 }
 
