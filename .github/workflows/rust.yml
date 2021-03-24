@@ -79,8 +79,20 @@ jobs:
 
           ./grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing -o lcov.info;
           bash <(curl -s https://codecov.io/bash) -f lcov.info;
+          ./grcov . --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing -o coverage/;
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
           CARGO_INCREMENTAL: 0
           RUSTFLAGS: "-Zinstrument-coverage"
           RUSTDOCFLAGS: "-Cpanic=abort"
+
+      - name: Deploy Docs
+        if: github.ref == 'refs/heads/main'
+        uses: JamesIves/github-pages-deploy-action@releases/v4
+        with:
+          branch: gh-pages
+          folder: coverage/
+          git-config-name: kl-botsu
+          git-config-email: botsu@khonsulabs.com
+          target-folder: /coverage/
+          clean: true
