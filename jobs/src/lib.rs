@@ -1,9 +1,7 @@
-//! Local storage backend for `PliantDB`.
-
 #![forbid(unsafe_code)]
 #![warn(
     clippy::cargo,
-    missing_docs,
+    // TODO missing_docs, 
     // clippy::missing_docs_in_private_items,
     clippy::nursery,
     clippy::pedantic,
@@ -17,16 +15,8 @@
     clippy::option_if_let_else,
 )]
 
-mod error;
-mod open_trees;
-mod storage;
-#[doc(inline)]
-pub use pliantdb_core as core;
+pub mod manager;
+pub mod task;
+mod traits;
 
-pub use self::{
-    error::Error,
-    storage::{Storage, LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-};
-
-#[cfg(test)]
-mod tests;
+pub use self::traits::{Job, Keyed, Service};
