@@ -1,4 +1,4 @@
-//! pliantdb is a programmable document database inspired by `CouchDB` written in Rust.
+//! A programmable document database inspired by `CouchDB` written in Rust.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -17,5 +17,9 @@
     clippy::option_if_let_else,
 )]
 
+#[doc(inline)]
 pub use pliantdb_core as core;
+
+#[cfg(feature = "local")]
+#[doc(inline)]
 pub use pliantdb_local as local;

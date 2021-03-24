@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::schema::Schema;
 
-/// a unique collection id. Choose collection names that aren't likely to
+/// A unique collection id. Choose collection names that aren't likely to
 /// conflict with others, so that if someone mixes collections from multiple
 /// authors in a single database.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -28,11 +28,11 @@ impl Display for Id {
     }
 }
 
-/// a namespaced collection of `Document<Self>` items and views
+/// A namespaced collection of `Document<Self>` items and views.
 pub trait Collection: Send + Sync {
-    /// the `Id` of this collection
+    /// The `Id` of this collection.
     fn id() -> Id;
 
-    /// implementors define all of their `View`s in `schema`
+    /// Defines all `View`s in this collection in `schema`.
     fn define_views(schema: &mut Schema);
 }

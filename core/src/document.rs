@@ -8,33 +8,33 @@ use crate::schema::{collection, map, Map};
 mod revision;
 pub use revision::Revision;
 
-/// the header of a `Document`
+/// The header of a `Document`.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Header {
-    /// the id of the Document. Unique across the collection `C`
+    /// The id of the Document. Unique across the collection `C`
     pub id: Uuid,
 
-    /// the revision of the stored document.
+    /// The revision of the stored document.
     pub revision: Revision,
 }
 
-/// a struct representing a document in the database
+/// Contains a serialized document in the database.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Document<'a> {
-    /// the `Id` of the `Collection` this document belongs to
+    /// The `Id` of the `Collection` this document belongs to.
     pub collection: collection::Id,
 
-    /// the header of the document, which contains the id and `Revision`
+    /// The header of the document, which contains the id and `Revision`.
     #[serde(borrow)]
     pub header: Cow<'a, Header>,
 
-    /// the serialized bytes of the stored item
+    /// The serialized bytes of the stored item.
     #[serde(borrow)]
     pub contents: Cow<'a, [u8]>,
 }
 
 impl<'a> Document<'a> {
-    /// create a new document with `contents`
+    /// Creates a new document with `contents`.
     #[must_use]
     pub fn new(contents: Cow<'a, [u8]>, collection: collection::Id) -> Self {
         let revision = Revision::new(&contents);
@@ -48,7 +48,7 @@ impl<'a> Document<'a> {
         }
     }
 
-    /// create a new document with serialized bytes from `contents`
+    /// Creates a new document with serialized bytes from `contents`.
     pub fn with_contents<S: Serialize>(
         contents: &S,
         collection: collection::Id,
@@ -57,21 +57,22 @@ impl<'a> Document<'a> {
         Ok(Self::new(contents, collection))
     }
 
-    /// retrieves `contents` through deserialization into the type `D`
+    /// Retrieves `contents` through deserialization into the type `D`.
     pub fn contents<D: Deserialize<'a>>(&'a self) -> Result<D, serde_cbor::Error> {
         serde_cbor::from_slice(&self.contents)
     }
 
-    /// serializes and stores `contents` into this document
+    /// Serializes and stores `contents` into this document.
     pub fn set_contents<S: Serialize>(&mut self, contents: &S) -> Result<(), serde_cbor::Error> {
         self.contents = Cow::from(serde_cbor::to_vec(contents)?);
         Ok(())
     }
 
-    /// create a new revision. **WARNING:** This normally should not be used
-    /// outside of implementing a backend for `PliantDB`. To update a document,
-    /// use `set_contents()` and send the document with the existing `Revision`
-    /// information.
+    /// Creates a new revision.
+    ///
+    /// **WARNING: This normally should not be used** outside of implementing a
+    /// backend for `PliantDB`. To update a document, use `set_contents()` and
+    /// send the document with the existing `Revision` information.
     #[must_use]
     pub fn create_new_revision(&self, contents: Cow<'a, [u8]>) -> Option<Self> {
         self.header
@@ -87,25 +88,25 @@ impl<'a> Document<'a> {
             })
     }
 
-    /// create a `Map` result with an empty key and value
+    /// Creates a `Map` result with an empty key and value.
     #[must_use]
     pub fn emit(&self) -> Map<'static, (), ()> {
         self.emit_key_and_value((), ())
     }
 
-    /// create a `Map` result with a `key` and an empty value
+    /// Creates a `Map` result with a `key` and an empty value.
     #[must_use]
     pub fn emit_key<'k, Key: map::Key<'k>>(&self, key: Key) -> Map<'k, Key, ()> {
         self.emit_key_and_value(key, ())
     }
 
-    /// create a `Map` result with `value` and an empty key
+    /// Creates a `Map` result with `value` and an empty key.
     #[must_use]
     pub fn emit_value<Value: Serialize>(&self, value: Value) -> Map<'static, (), Value> {
         self.emit_key_and_value((), value)
     }
 
-    /// create a `Map` result with a `key` and `value`
+    /// Creates a `Map` result with a `key` and `value`.
     #[must_use]
     pub fn emit_key_and_value<'k, Key: map::Key<'k>, Value: Serialize>(
         &self,
@@ -115,7 +116,7 @@ impl<'a> Document<'a> {
         Map::new(self.header.id, key, value)
     }
 
-    /// clone the document's data so that it's no longer borrowed in the original lifetime `'a`
+    /// Clone the document's data so that it's no longer borrowed in the original lifetime `'a`.
     #[must_use]
     pub fn to_owned(&self) -> Document<'static> {
         Document::<'static> {

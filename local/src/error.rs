@@ -1,15 +1,15 @@
-/// errors that can occur from interacting with storage
+/// Errors that can occur from interacting with storage.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    /// an error occurred interacting with `sled`
+    /// An error occurred interacting with `sled`.
     #[error("error from storage: {0}")]
     Sled(#[from] sled::Error),
 
-    /// an error occurred serializing the underlying database structures
+    /// An error occurred serializing the underlying database structures.
     #[error("error while serializing internal structures: {0}")]
     InternalSerialization(#[from] bincode::Error),
 
-    /// an error occurred serializing the contents of a `Document` or results of a `View`
+    /// An error occurred serializing the contents of a `Document` or results of a `View`.
     #[error("error while serializing: {0}")]
     Serialization(#[from] serde_cbor::Error),
 }

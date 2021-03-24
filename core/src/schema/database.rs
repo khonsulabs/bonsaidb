@@ -9,9 +9,9 @@ use crate::schema::{
     View,
 };
 
-/// a trait that defines a group of collections that are stored into a single database
+/// Defines a group of collections that are stored into a single database.
 pub trait Database: Send + Sync {
-    /// implementors must define their `Collection`s in `schema`
+    /// Defines the `Collection`s into `schema`
     fn define_collections(schema: &mut Schema);
 }
 
@@ -19,7 +19,7 @@ trait ThreadsafeAny: Any + Send + Sync {}
 
 impl<T> ThreadsafeAny for T where T: Any + Send + Sync {}
 
-/// a collection of defined collections and views
+/// A collection of defined collections and views.
 #[derive(Default)]
 pub struct Schema {
     collections: HashMap<TypeId, collection::Id>,
@@ -27,18 +27,18 @@ pub struct Schema {
 }
 
 impl Schema {
-    /// adds the collection `C` and its views
+    /// Adds the collection `C` and its views.
     pub fn define_collection<C: Collection + 'static>(&mut self) {
         self.collections.insert(TypeId::of::<C>(), C::id());
         C::define_views(self)
     }
 
-    /// adds the view `V`
+    /// Adds the view `V`.
     pub fn define_view<'k, V: View<'k> + 'static>(&mut self) {
         self.views.insert(TypeId::of::<V>(), V::name());
     }
 
-    /// returns true if this schema contains the collection `C`
+    /// Returns `true` if this schema contains the collection `C`.
     #[must_use]
     pub fn contains<C: Collection + 'static>(&self) -> bool {
         self.collections.contains_key(&TypeId::of::<C>())

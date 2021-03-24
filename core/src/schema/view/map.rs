@@ -3,23 +3,23 @@ use std::{borrow::Cow, convert::TryInto, marker::PhantomData};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// a structure representing a document's entry in a View's mappings
+/// A document's entry in a View's mappings.
 #[derive(PartialEq, Debug)]
 pub struct Map<'k, K: Key<'k> = (), V: Serialize = ()> {
-    /// the id of the document that emitted this entry
+    /// The id of the document that emitted this entry.
     pub source: Uuid,
 
-    /// the key used to index the View
+    /// The key used to index the View.
     pub key: K,
 
-    /// an associated value stored in the view
+    /// An associated value stored in the view.
     pub value: V,
 
     _phantom: PhantomData<&'k K>,
 }
 
 impl<'k, K: Key<'k>, V: Serialize> Map<'k, K, V> {
-    /// creates a new Map entry for the document with id `source`
+    /// Creates a new Map entry for the document with id `source`.
     pub fn new(source: Uuid, key: K, value: V) -> Self {
         Self {
             source,
@@ -30,25 +30,26 @@ impl<'k, K: Key<'k>, V: Serialize> Map<'k, K, V> {
     }
 }
 
-/// a structure representing a document's entry in a View's mappings, serialized and ready to store
+/// Represents a document's entry in a View's mappings, serialized and ready to store.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Serialized<'k> {
-    /// the id of the document that emitted this entry
+    /// The id of the document that emitted this entry.
     pub source: Uuid,
 
-    /// the key used to index the View
+    /// The key used to index the View.
     #[serde(borrow)]
     pub key: Cow<'k, [u8]>,
 
-    /// an associated value stored in the view
+    /// An associated value stored in the view.
     pub value: serde_cbor::Value,
 }
 
-/// a trait that enables a type to convert itself to a big-endian/network byte order.
+/// A trait that enables a type to convert itself to a big-endian/network byte order.
 pub trait Key<'k> {
-    /// convert `self` into an `IVec` containing bytes ordered in big-endian/network byte order
+    /// Convert `self` into an `IVec` containing bytes ordered in big-endian/network byte order.
     fn into_big_endian_bytes(self) -> Cow<'k, [u8]>;
-    /// convert a slice of bytes into `Self` by interpretting `bytes` in big-endian/network byte order
+
+    /// Convert a slice of bytes into `Self` by interpretting `bytes` in big-endian/network byte order.
     fn from_big_endian_bytes(bytes: &'k [u8]) -> Self;
 }
 
@@ -86,7 +87,7 @@ where
 {
     /// # Panics
     ///
-    /// panics if `T::into_big_endian_bytes` returns an empty `IVec`
+    /// Panics if `T::into_big_endian_bytes` returns an empty `IVec`.
     // TODO consider removing this panic limitation by adding a single byte to
     // each key (at the end preferrably) so that we can distinguish between None
     // and a 0-byte type

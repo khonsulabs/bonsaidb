@@ -15,12 +15,12 @@ use uuid::Uuid;
 
 use crate::{error::ResultExt as _, open_trees::OpenTrees, Error};
 
-/// the maximum number of results allowed to be returned from `list_executed_transactions`
+/// The maximum number of results allowed to be returned from `list_executed_transactions`.
 pub const LIST_TRANSACTIONS_MAX_RESULTS: usize = 1000;
-/// if no `result_limit` is specified, this value is the limit used by default
+/// If no `result_limit` is specified, this value is the limit used by default.
 pub const LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT: usize = 100;
 
-/// a local, file-based database
+/// A local, file-based database.
 #[derive(Clone)]
 pub struct Storage<DB> {
     sled: sled::Db,
@@ -32,7 +32,7 @@ impl<DB> Storage<DB>
 where
     DB: Database,
 {
-    /// opens a local file as a pliantdb
+    /// Opens a local file as a pliantdb.
     pub fn open_local<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         let mut collections = Schema::default();
         DB::define_collections(&mut collections);
@@ -69,20 +69,6 @@ where
         &self,
         contents: Vec<u8>,
     ) -> Result<Header, pliantdb_core::Error> {
-        // We need these things to occur:
-        // * [x] Create a "transaction" that contains the save statement.
-        // * [ ] Execute the transaction
-        //   * [ ] The transaction will get its own sequential ID, and be stored in
-        //     its own tree -- this is the primary mechanism of replication.
-        //   * [x] Transactions are database-wide, not specific to a collection.
-        //     This particular method only operates on a single collection, but
-        //     in the future APIs that support creating transactions across
-        //     collections should be supported.
-        //   * [x] Transactions need to have a record of the document ids that were
-        //     modified. Read-replicas will be synchronizing these transaction
-        //     records and can create a list of documents they need to
-        //     synchronize.
-        //  * [ ] return the newly created Header
         let mut tx = Transaction::default();
         tx.push(Operation {
             collection: C::id(),

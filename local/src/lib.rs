@@ -1,4 +1,4 @@
-//! local storage backend for `PliantDB`
+//! Local storage backend for `PliantDB`.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -24,6 +24,8 @@ pub use self::{
     error::Error,
     storage::{Storage, LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
 };
+#[doc(inline)]
+pub use pliantdb_core as core;
 
 #[cfg(test)]
 mod tests;

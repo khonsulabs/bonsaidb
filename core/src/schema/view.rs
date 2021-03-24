@@ -4,51 +4,55 @@ use serde::{Deserialize, Serialize};
 
 use crate::document::Document;
 
-/// types for defining a `Map` within a `View`
+/// Types for defining a `Map` within a `View`.
 pub mod map;
 pub use map::{Key, Map};
 
-/// errors that arise when interacting with views
+/// Errors that arise when interacting with views.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    /// an error occurred while serializing or deserializing
+    /// An error occurred while serializing or deserializing.
     #[error("error deserializing document {0}")]
     SerializationError(#[from] serde_cbor::Error),
 
-    /// returned when
+    /// Returned when the reduce() function is unimplemented.
     #[error("reduce is unimplemented")]
     ReduceUnimplemented,
 }
 
-/// a type alias for the result of `View::map()`
+/// A type alias for the result of `View::map()`.
 pub type MapResult<'k, K = (), V = ()> = Result<Option<Map<'k, K, V>>, Error>;
 
-/// a map/reduce powered indexing and aggregation schema
+/// A map/reduce powered indexing and aggregation schema.
 ///
-/// inspired by [`CouchDB`'s view system](https://docs.couchdb.org/en/stable/ddocs/views/index.html)
+/// Inspired by [`CouchDB`'s view
+/// system](https://docs.couchdb.org/en/stable/ddocs/views/index.html)
+///
+/// This implementation is under active development, our own docs explaining our
+/// implementation will be written as things are solidified.
 // TODO write our own view docs
 pub trait View<'k> {
-    /// the key for this view.
+    /// The key for this view.
     type MapKey: Key<'k> + 'static;
 
-    /// an associated type that can be stored with each entry in the view
+    /// An associated type that can be stored with each entry in the view.
     type MapValue: Serialize + for<'de> Deserialize<'de>;
 
-    /// when implementing reduce(), this is the returned type
+    /// When implementing reduce(), this is the returned type.
     type Reduce: Serialize + for<'de> Deserialize<'de>;
 
-    /// the version of the view. Changing this value will cause indexes to be rebuilt.
+    /// The version of the view. Changing this value will cause indexes to be rebuilt.
     fn version() -> usize;
 
-    /// the name of the view. Must be unique per collection.
+    /// The name of the view. Must be unique per collection.
     fn name() -> Cow<'static, str>;
 
-    /// the map function for this view. This function is responsible for
+    /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document.
     fn map(document: &Document<'_>) -> MapResult<'k, Self::MapKey, Self::MapValue>;
 
-    /// the reduce function for this view. If `Err(Error::ReduceUnimplemented)`
+    /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
     /// error. See [`CouchDB`'s Reduce/Rereduce
     /// documentation](https://docs.couchdb.org/en/stable/ddocs/views/intro.html#reduce-rereduce)
@@ -62,7 +66,7 @@ pub trait View<'k> {
     }
 }
 
-/// an enum representing either an owned value or a borrowed value. Functionally
+/// Represents either an owned value or a borrowed value. Functionally
 /// equivalent to `std::borrow::Cow` except this type doesn't require the
 /// wrapped type to implement `Clone`.
 pub enum SerializableValue<'a, T: Serialize> {
