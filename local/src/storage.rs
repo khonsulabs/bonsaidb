@@ -4,14 +4,13 @@ use async_trait::async_trait;
 use pliantdb_core::{
     connection::{Collection, Connection},
     document::{Document, Header},
-    schema::{self, collection, Database, Schema},
+    schema::{self, collection, Database, Key, Schema},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError, TransactionalTree},
     Transactional,
 };
-use uuid::Uuid;
 
 use crate::{error::ResultExt as _, open_trees::OpenTrees, Error};
 
@@ -171,13 +170,13 @@ where
 
     async fn get<C: schema::Collection>(
         &self,
-        id: Uuid,
+        id: u64,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
         let tree = self
             .sled
             .open_tree(document_tree_name(&C::id()))
             .map_err_to_core()?;
-        if let Some(vec) = tree.get(id.as_bytes()).map_err_to_core()? {
+        if let Some(vec) = tree.get(id.into_big_endian_bytes()).map_err_to_core()? {
             Ok(Some(
                 bincode::deserialize::<Document<'_>>(&vec)
                     .map_err_to_core()?
@@ -238,12 +237,16 @@ fn execute_operation(
     let tree = &trees[tree_index_map[&document_tree_name(&operation.collection)]];
     match &operation.command {
         Command::Insert { contents } => {
-            let doc = Document::new(Cow::Borrowed(contents), operation.collection.clone());
+            let doc = Document::new(
+                tree.generate_id()?,
+                Cow::Borrowed(contents),
+                operation.collection.clone(),
+            );
             save_doc(tree, &doc)?;
             let serialized: Vec<u8> = bincode::serialize(&doc)
                 .map_err_to_core()
                 .map_err(ConflictableTransactionError::Abort)?;
-            tree.insert(doc.header.id.as_bytes(), serialized)?;
+            tree.insert(doc.header.id.into_big_endian_bytes().as_ref(), serialized)?;
 
             Ok(OperationResult::DocumentUpdated {
                 collection: operation.collection.clone(),
@@ -251,7 +254,7 @@ fn execute_operation(
             })
         }
         Command::Update { header, contents } => {
-            if let Some(vec) = tree.get(&header.id.as_bytes())? {
+            if let Some(vec) = tree.get(&header.id.into_big_endian_bytes())? {
                 let doc = bincode::deserialize::<Document<'_>>(&vec)
                     .map_err_to_core()
                     .map_err(ConflictableTransactionError::Abort)?;
@@ -296,7 +299,7 @@ fn save_doc(
     let serialized: Vec<u8> = bincode::serialize(doc)
         .map_err_to_core()
         .map_err(ConflictableTransactionError::Abort)?;
-    tree.insert(doc.header.id.as_bytes(), serialized)?;
+    tree.insert(doc.header.id.into_big_endian_bytes().as_ref(), serialized)?;
     Ok(())
 }
 

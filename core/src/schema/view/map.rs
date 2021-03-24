@@ -1,13 +1,12 @@
 use std::{borrow::Cow, convert::TryInto, marker::PhantomData};
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// A document's entry in a View's mappings.
 #[derive(PartialEq, Debug)]
 pub struct Map<'k, K: Key<'k> = (), V: Serialize = ()> {
     /// The id of the document that emitted this entry.
-    pub source: Uuid,
+    pub source: u64,
 
     /// The key used to index the View.
     pub key: K,
@@ -20,7 +19,7 @@ pub struct Map<'k, K: Key<'k> = (), V: Serialize = ()> {
 
 impl<'k, K: Key<'k>, V: Serialize> Map<'k, K, V> {
     /// Creates a new Map entry for the document with id `source`.
-    pub fn new(source: Uuid, key: K, value: V) -> Self {
+    pub fn new(source: u64, key: K, value: V) -> Self {
         Self {
             source,
             key,
@@ -34,7 +33,7 @@ impl<'k, K: Key<'k>, V: Serialize> Map<'k, K, V> {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Serialized<'k> {
     /// The id of the document that emitted this entry.
-    pub source: Uuid,
+    pub source: u64,
 
     /// The key used to index the View.
     #[serde(borrow)]
@@ -71,13 +70,14 @@ impl<'k> Key<'k> for () {
     fn from_big_endian_bytes(_: &'k [u8]) -> Self {}
 }
 
-impl<'k> Key<'k> for Uuid {
+#[cfg(feature = "uuid")]
+impl<'k> Key<'k> for uuid::Uuid {
     fn into_big_endian_bytes(self) -> Cow<'k, [u8]> {
-        Cow::from(self.as_u128().to_be_bytes().to_vec())
+        self.as_u128().into_big_endian_bytes()
     }
 
     fn from_big_endian_bytes(bytes: &'k [u8]) -> Self {
-        Self::from_u128(u128::from_be_bytes(bytes.try_into().unwrap()))
+        Self::from_bytes(bytes.try_into().unwrap())
     }
 }
 

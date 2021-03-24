@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use serde::Serialize;
-use uuid::Uuid;
 
 use crate::{
     document::{Document, Header},
@@ -30,10 +29,8 @@ pub trait Connection<'a>: Send + Sync {
     async fn update(&self, doc: &mut Document<'_>) -> Result<(), Error>;
 
     /// Retrieves a stored document from collection `C` identified by `id`.
-    async fn get<C: schema::Collection>(
-        &self,
-        id: Uuid,
-    ) -> Result<Option<Document<'static>>, Error>;
+    async fn get<C: schema::Collection>(&self, id: u64)
+        -> Result<Option<Document<'static>>, Error>;
 
     /// Applies a transaction to the database. If any operation in the transaction
     /// fails, none of the operations will be applied to the database.
@@ -85,7 +82,7 @@ where
     }
 
     /// Retrieves a `Document<Cl>` with `id` from the connection.
-    pub async fn get(&self, id: Uuid) -> Result<Option<Document<'static>>, Error> {
+    pub async fn get(&self, id: u64) -> Result<Option<Document<'static>>, Error> {
         self.connection.get::<Cl>(id).await
     }
 }

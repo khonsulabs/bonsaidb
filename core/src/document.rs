@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::schema::{collection, map, Map};
 
@@ -12,7 +11,7 @@ pub use revision::Revision;
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Header {
     /// The id of the Document. Unique across the collection `C`
-    pub id: Uuid,
+    pub id: u64,
 
     /// The revision of the stored document.
     pub revision: Revision,
@@ -36,13 +35,10 @@ pub struct Document<'a> {
 impl<'a> Document<'a> {
     /// Creates a new document with `contents`.
     #[must_use]
-    pub fn new(contents: Cow<'a, [u8]>, collection: collection::Id) -> Self {
+    pub fn new(id: u64, contents: Cow<'a, [u8]>, collection: collection::Id) -> Self {
         let revision = Revision::new(&contents);
         Self {
-            header: Cow::Owned(Header {
-                id: Uuid::new_v4(),
-                revision,
-            }),
+            header: Cow::Owned(Header { id, revision }),
             contents,
             collection,
         }
@@ -50,11 +46,12 @@ impl<'a> Document<'a> {
 
     /// Creates a new document with serialized bytes from `contents`.
     pub fn with_contents<S: Serialize>(
+        id: u64,
         contents: &S,
         collection: collection::Id,
     ) -> Result<Self, serde_cbor::Error> {
         let contents = Cow::from(serde_cbor::to_vec(contents)?);
-        Ok(Self::new(contents, collection))
+        Ok(Self::new(id, contents, collection))
     }
 
     /// Retrieves `contents` through deserialization into the type `D`.
@@ -135,6 +132,7 @@ fn emissions_tests() -> Result<(), crate::Error> {
     };
 
     let doc = Document::with_contents(
+        1,
         &Basic {
             value: String::default(),
             parent_id: None,

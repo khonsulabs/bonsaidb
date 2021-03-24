@@ -7,7 +7,6 @@ use pliantdb_core::{
     Error,
 };
 use storage::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS};
-use uuid::Uuid;
 
 use super::*;
 use crate::Storage;
@@ -68,11 +67,7 @@ async fn not_found() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("not-found");
     let db = Storage::<BasicCollection>::open_local(path)?;
 
-    assert!(db
-        .collection::<BasicCollection>()?
-        .get(Uuid::new_v4())
-        .await?
-        .is_none());
+    assert!(db.collection::<BasicCollection>()?.get(1).await?.is_none());
 
     Ok(())
 }

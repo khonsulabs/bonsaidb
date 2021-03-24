@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::{document::Header, schema::collection};
 
@@ -99,5 +98,5 @@ pub struct ChangedDocument {
     pub collection: collection::Id,
 
     /// The id of the changed `Document`.
-    pub id: Uuid,
+    pub id: u64,
 }

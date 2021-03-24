@@ -4,7 +4,6 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use view::Map;
 
 use crate::{
@@ -54,7 +53,7 @@ impl<'k> View<'k> for BasicCount {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
 pub struct Basic {
     pub value: String,
-    pub parent_id: Option<Uuid>,
+    pub parent_id: Option<u64>,
 }
 
 pub struct BasicDatabase;

@@ -27,7 +27,6 @@ pub mod schema;
 pub mod transaction;
 
 use schema::collection;
-use uuid::Uuid;
 
 /// an enumeration of errors that this crate can produce
 #[derive(thiserror::Error, Debug)]
@@ -43,11 +42,11 @@ pub enum Error {
     // TODO consider moving these to something like a document::Error
     /// An attempt to update a document that doesn't exist.
     #[error("the requested document id {1} from collection {0} was not found")]
-    DocumentNotFound(collection::Id, Uuid),
+    DocumentNotFound(collection::Id, u64),
 
     /// When updating a document, if a situation is detected where the contents have changed on the server since the `Revision` provided, a Conflict error will be returned.
     #[error("a conflict was detected while updating document id {1} from collection {0}")]
-    DocumentConflict(collection::Id, Uuid),
+    DocumentConflict(collection::Id, u64),
 }
 
 impl From<serde_cbor::Error> for Error {
