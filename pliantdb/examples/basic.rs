@@ -1,9 +1,9 @@
 use std::time::SystemTime;
 
-use pliantdb::{
+use pliantdb::storage::Storage;
+use pliantdb_core::{
     connection::Connection,
     schema::{collection, Collection, Schema},
-    storage::Storage,
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +22,7 @@ impl Collection for Message {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), pliantdb::Error> {
+async fn main() -> Result<(), anyhow::Error> {
     let db = Storage::<Message>::open_local("basic.pliantdb")?;
     let messages = db.collection::<Message>()?;
 

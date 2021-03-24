@@ -7,7 +7,7 @@ use sled::{
 };
 use uuid::Uuid;
 
-use crate::{
+use pliantdb_core::{
     connection::{Collection, Connection},
     document::{Document, Header},
     schema::{self, collection, Database, Schema},
@@ -32,15 +32,17 @@ where
     DB: Database,
 {
     /// opens a local file as a pliantdb
-    pub fn open_local<P: AsRef<Path>>(path: P) -> Result<Self, sled::Error> {
+    pub fn open_local<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
         let mut collections = Schema::default();
         DB::define_collections(&mut collections);
 
-        sled::open(path).map(|sled| Self {
-            sled,
-            collections: Arc::new(collections),
-            _schema: PhantomData::default(),
-        })
+        sled::open(path)
+            .map(|sled| Self {
+                sled,
+                collections: Arc::new(collections),
+                _schema: PhantomData::default(),
+            })
+            .map_err(Error::from)
     }
 }
 
@@ -51,21 +53,21 @@ where
 {
     fn collection<C: schema::Collection + 'static>(
         &'a self,
-    ) -> Result<Collection<'a, Self, C>, crate::Error>
+    ) -> Result<Collection<'a, Self, C>, pliantdb_core::Error>
     where
         Self: Sized,
     {
         if self.collections.contains::<C>() {
             Ok(Collection::new(self))
         } else {
-            Err(crate::Error::CollectionNotFound)
+            Err(pliantdb_core::Error::CollectionNotFound)
         }
     }
 
     async fn insert<C: schema::Collection>(
         &self,
         contents: Vec<u8>,
-    ) -> Result<Header, crate::Error> {
+    ) -> Result<Header, pliantdb_core::Error> {
         // We need these things to occur:
         // * [x] Create a "transaction" that contains the save statement.
         // * [ ] Execute the transaction
@@ -97,7 +99,7 @@ where
         }
     }
 
-    async fn update(&self, doc: &mut Document<'_>) -> Result<(), crate::Error> {
+    async fn update(&self, doc: &mut Document<'_>) -> Result<(), pliantdb_core::Error> {
         let mut tx = Transaction::default();
         tx.push(Operation {
             collection: doc.collection.clone(),
@@ -120,15 +122,19 @@ where
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
-    ) -> Result<Vec<OperationResult>, crate::Error> {
+    ) -> Result<Vec<OperationResult>, pliantdb_core::Error> {
         let sled = self.sled.clone();
         tokio::task::spawn_blocking(move || {
             let mut open_trees = OpenTrees::default();
-            open_trees.open_tree(&sled, TRANSACTION_TREE_NAME)?;
+            open_trees
+                .open_tree(&sled, TRANSACTION_TREE_NAME)
+                .map_err_to_core()?;
             for op in &transaction.operations {
                 match &op.command {
                     Command::Update { .. } | Command::Insert { .. } => {
-                        open_trees.open_trees_for_document_change(&sled, &op.collection)?;
+                        open_trees
+                            .open_trees_for_document_change(&sled, &op.collection)
+                            .map_err_to_core()?;
                     }
                 }
             }
@@ -156,7 +162,8 @@ where
                     changed_documents: Cow::from(changed_documents),
                 };
                 let serialized: Vec<u8> = bincode::serialize(&executed)
-                    .map_err(|err| ConflictableTransactionError::Abort(crate::Error::from(err)))?;
+                    .map_err_to_core()
+                    .map_err(ConflictableTransactionError::Abort)?;
                 tree.insert(&executed.id.to_be_bytes(), serialized)?;
 
                 trees.iter().for_each(TransactionalTree::flush);
@@ -165,7 +172,9 @@ where
                 Ok(results) => Ok(results),
                 Err(err) => match err {
                     TransactionError::Abort(err) => Err(err),
-                    TransactionError::Storage(err) => Err(crate::Error::from(err)),
+                    TransactionError::Storage(err) => {
+                        Err(pliantdb_core::Error::Storage(err.to_string()))
+                    }
                 },
             }
         })
@@ -176,10 +185,17 @@ where
     async fn get<C: schema::Collection>(
         &self,
         id: Uuid,
-    ) -> Result<Option<Document<'static>>, crate::Error> {
-        let tree = self.sled.open_tree(document_tree_name(&C::id()))?;
-        if let Some(vec) = tree.get(id.as_bytes())? {
-            Ok(Some(bincode::deserialize::<Document<'_>>(&vec)?.to_owned()))
+    ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
+        let tree = self
+            .sled
+            .open_tree(document_tree_name(&C::id()))
+            .map_err_to_core()?;
+        if let Some(vec) = tree.get(id.as_bytes()).map_err_to_core()? {
+            Ok(Some(
+                bincode::deserialize::<Document<'_>>(&vec)
+                    .map_err_to_core()?
+                    .to_owned(),
+            ))
         } else {
             Ok(None)
         }
@@ -189,12 +205,15 @@ where
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<transaction::Executed<'static>>, crate::Error> {
+    ) -> Result<Vec<transaction::Executed<'static>>, pliantdb_core::Error> {
         let result_limit = result_limit
             .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
             .min(LIST_TRANSACTIONS_MAX_RESULTS);
         if result_limit > 0 {
-            let tree = self.sled.open_tree(TRANSACTION_TREE_NAME)?;
+            let tree = self
+                .sled
+                .open_tree(TRANSACTION_TREE_NAME)
+                .map_err_to_core()?;
             let iter = if let Some(starting_id) = starting_id {
                 tree.range(starting_id.to_be_bytes()..=u64::MAX.to_be_bytes())
             } else {
@@ -204,8 +223,12 @@ where
             #[allow(clippy::cast_possible_truncation)] // this value is limited above
             let mut results = Vec::with_capacity(result_limit);
             for row in iter {
-                let (_, vec) = row?;
-                results.push(bincode::deserialize::<transaction::Executed<'_>>(&vec)?.to_owned());
+                let (_, vec) = row.map_err_to_core()?;
+                results.push(
+                    bincode::deserialize::<transaction::Executed<'_>>(&vec)
+                        .map_err_to_core()?
+                        .to_owned(),
+                );
 
                 if results.len() >= result_limit {
                     break;
@@ -224,14 +247,15 @@ fn execute_operation(
     operation: &Operation<'_>,
     trees: &[TransactionalTree],
     tree_index_map: &HashMap<String, usize>,
-) -> Result<OperationResult, ConflictableTransactionError<crate::Error>> {
+) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
     let tree = &trees[tree_index_map[&document_tree_name(&operation.collection)]];
     match &operation.command {
         Command::Insert { contents } => {
             let doc = Document::new(Cow::Borrowed(contents), operation.collection.clone());
             save_doc(tree, &doc)?;
             let serialized: Vec<u8> = bincode::serialize(&doc)
-                .map_err(|err| ConflictableTransactionError::Abort(crate::Error::from(err)))?;
+                .map_err_to_core()
+                .map_err(ConflictableTransactionError::Abort)?;
             tree.insert(doc.header.id.as_bytes(), serialized)?;
 
             Ok(OperationResult::DocumentUpdated {
@@ -242,7 +266,8 @@ fn execute_operation(
         Command::Update { header, contents } => {
             if let Some(vec) = tree.get(&header.id.as_bytes())? {
                 let doc = bincode::deserialize::<Document<'_>>(&vec)
-                    .map_err(|err| ConflictableTransactionError::Abort(crate::Error::from(err)))?;
+                    .map_err_to_core()
+                    .map_err(ConflictableTransactionError::Abort)?;
                 if &doc.header == header {
                     if let Some(updated_doc) = doc.create_new_revision(contents.clone()) {
                         save_doc(tree, &updated_doc)?;
@@ -262,12 +287,15 @@ fn execute_operation(
                     }
                 } else {
                     Err(ConflictableTransactionError::Abort(
-                        crate::Error::DocumentConflict(operation.collection.clone(), header.id),
+                        pliantdb_core::Error::DocumentConflict(
+                            operation.collection.clone(),
+                            header.id,
+                        ),
                     ))
                 }
             } else {
                 Err(ConflictableTransactionError::Abort(
-                    crate::Error::DocumentNotFound(operation.collection.clone(), header.id),
+                    pliantdb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
                 ))
             }
         }
@@ -277,9 +305,10 @@ fn execute_operation(
 fn save_doc(
     tree: &TransactionalTree,
     doc: &Document<'_>,
-) -> Result<(), ConflictableTransactionError<crate::Error>> {
+) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
     let serialized: Vec<u8> = bincode::serialize(doc)
-        .map_err(|err| ConflictableTransactionError::Abort(crate::Error::from(err)))?;
+        .map_err_to_core()
+        .map_err(ConflictableTransactionError::Abort)?;
     tree.insert(doc.header.id.as_bytes(), serialized)?;
     Ok(())
 }
@@ -334,19 +363,25 @@ pub enum Error {
     Serialization(#[from] serde_cbor::Error),
 }
 
+impl Into<pliantdb_core::Error> for Error {
+    fn into(self) -> pliantdb_core::Error {
+        pliantdb_core::Error::Storage(self.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
+    use crate::storage::Storage;
+    use pliantdb_core::{
         connection::Connection,
         schema::Collection,
-        storage::Storage,
         test_util::{Basic, BasicCollection, TestDirectory},
         Error,
     };
 
     #[tokio::test]
-    async fn store_retrieve_update() -> Result<(), Error> {
+    async fn store_retrieve_update() -> Result<(), anyhow::Error> {
         let path = TestDirectory::new("store-retrieve-update");
         let db = Storage::<BasicCollection>::open_local(path)?;
 
@@ -397,7 +432,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn not_found() -> Result<(), Error> {
+    async fn not_found() -> Result<(), anyhow::Error> {
         let path = TestDirectory::new("not-found");
         let db = Storage::<BasicCollection>::open_local(path)?;
 
@@ -411,7 +446,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn conflict() -> Result<(), Error> {
+    async fn conflict() -> Result<(), anyhow::Error> {
         let path = TestDirectory::new("conflict");
         let db = Storage::<BasicCollection>::open_local(path)?;
 
@@ -443,14 +478,14 @@ mod tests {
                 assert_eq!(collection, BasicCollection::id());
                 assert_eq!(id, doc.header.id);
             }
-            other => return Err(other),
+            other => return Err(anyhow::Error::from(other)),
         }
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn no_update() -> Result<(), Error> {
+    async fn no_update() -> Result<(), anyhow::Error> {
         let path = TestDirectory::new("no-update");
         let db = Storage::<BasicCollection>::open_local(path)?;
 
@@ -473,7 +508,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_transactions() -> Result<(), Error> {
+    async fn list_transactions() -> Result<(), anyhow::Error> {
         let path = TestDirectory::new("list-transactions");
         let db = Storage::<BasicCollection>::open_local(path)?;
         let collection = db.collection::<BasicCollection>()?;
@@ -519,5 +554,21 @@ mod tests {
         assert_eq!(transactions.len(), LIST_TRANSACTIONS_MAX_RESULTS + 1);
 
         Ok(())
+    }
+}
+
+trait ResultExt {
+    type Output;
+    fn map_err_to_core(self) -> Result<Self::Output, pliantdb_core::Error>;
+}
+
+impl<T, E> ResultExt for Result<T, E>
+where
+    E: Into<Error>,
+{
+    type Output = T;
+
+    fn map_err_to_core(self) -> Result<Self::Output, pliantdb_core::Error> {
+        self.map_err(|err| pliantdb_core::Error::Storage(err.into().to_string()))
     }
 }

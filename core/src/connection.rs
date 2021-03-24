@@ -65,7 +65,8 @@ where
     Cn: Connection<'a>,
     Cl: schema::Collection,
 {
-    pub(crate) fn new(connection: &'a Cn) -> Self {
+    /// create a new instance using `connection`
+    pub fn new(connection: &'a Cn) -> Self {
         Self {
             connection,
             _phantom: PhantomData::default(),

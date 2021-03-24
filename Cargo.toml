@@ -1,3 +1,3 @@
 [workspace]
 
-members = ["pliantdb"]
+members = ["pliantdb", "core"]
