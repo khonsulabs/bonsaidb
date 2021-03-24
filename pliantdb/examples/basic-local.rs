@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use pliantdb::storage::Storage;
+use pliantdb::local::Storage;
 use pliantdb_core::{
     connection::Connection,
     schema::{collection, Collection, Schema},
