@@ -72,7 +72,7 @@ jobs:
 
       - name: Run code coverage
         run: |
-          cargo +nightly test
+          LLVM_PROFILE_FILE="%m.profraw" cargo +nightly test
 
           ./grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing -o lcov.info;
           bash <(curl -s https://codecov.io/bash) -f lcov.info;
