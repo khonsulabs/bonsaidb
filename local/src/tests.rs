@@ -1,7 +1,6 @@
-use std::borrow::Cow;
-
 use pliantdb_core::{
     connection::Connection,
+    document::Document,
     schema::Collection,
     test_util::{Basic, BasicCollection, TestDirectory},
     Error,
@@ -73,42 +72,19 @@ async fn not_found() -> Result<(), anyhow::Error> {
 }
 
 #[tokio::test]
-async fn conflict() -> Result<(), anyhow::Error> {
-    let path = TestDirectory::new("conflict");
+async fn bad_update() -> Result<(), anyhow::Error> {
+    let path = TestDirectory::new("bad_update");
     let db = Storage::<BasicCollection>::open_local(path)?;
 
-    let original_value = Basic {
-        value: String::from("initial_value"),
-        parent_id: None,
-    };
-    let collection = db.collection::<BasicCollection>()?;
-    let header = collection.push(&original_value).await?;
-
-    let mut doc = collection
-        .get(header.id)
-        .await?
-        .expect("couldn't retrieve stored item");
-    let mut value = doc.contents::<Basic>()?;
-    value.value = String::from("updated_value");
-    doc.set_contents(&value)?;
-    db.update(&mut doc).await?;
-
-    // To generate a conflict, let's try to do the same update again by
-    // reverting the header
-    doc.header = Cow::Owned(header);
-    match db
-        .update(&mut doc)
-        .await
-        .expect_err("conflict should have generated an error")
-    {
-        Error::DocumentConflict(collection, id) => {
+    let mut doc = Document::with_contents(1, &Basic::default(), BasicCollection::id())?;
+    match db.update(&mut doc).await {
+        Err(Error::DocumentNotFound(collection, id)) => {
             assert_eq!(collection, BasicCollection::id());
-            assert_eq!(id, doc.header.id);
+            assert_eq!(id, 1);
+            Ok(())
         }
-        other => return Err(anyhow::Error::from(other)),
+        other => panic!("expected DocumentNotFound from update but got: {:?}", other),
     }
-
-    Ok(())
 }
 
 #[tokio::test]

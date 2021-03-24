@@ -35,3 +35,16 @@ where
         self.map_err(|err| pliantdb_core::Error::Storage(err.into().to_string()))
     }
 }
+
+#[test]
+fn test_converting_error() {
+    use serde::ser::Error as _;
+    let err: pliantdb_core::Error =
+        Error::Serialization(serde_cbor::Error::custom("mymessage")).into();
+    match err {
+        pliantdb_core::Error::Storage(storage_error) => {
+            assert!(storage_error.contains("mymessage"))
+        }
+        _ => unreachable!(),
+    }
+}

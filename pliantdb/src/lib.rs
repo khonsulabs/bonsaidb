@@ -19,7 +19,6 @@
 
 #[doc(inline)]
 pub use pliantdb_core as core;
-
 #[cfg(feature = "local")]
 #[doc(inline)]
 pub use pliantdb_local as local;

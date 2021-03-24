@@ -36,3 +36,9 @@ pub trait Collection: Send + Sync {
     /// Defines all `View`s in this collection in `schema`.
     fn define_views(schema: &mut Schema);
 }
+
+#[test]
+fn test_id_conversions() {
+    assert_eq!(Id::from("a").to_string(), "a");
+    assert_eq!(Id::from(String::from("a")).to_string(), "a");
+}

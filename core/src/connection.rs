@@ -76,11 +76,6 @@ where
         Ok(self.connection.insert::<Cl>(contents).await?)
     }
 
-    /// Adds a new `Document<Cl>` with the contents `item`.
-    pub async fn update(&self, doc: &mut Document<'_>) -> Result<(), crate::Error> {
-        Ok(self.connection.update(doc).await?)
-    }
-
     /// Retrieves a `Document<Cl>` with `id` from the connection.
     pub async fn get(&self, id: u64) -> Result<Option<Document<'static>>, Error> {
         self.connection.get::<Cl>(id).await
