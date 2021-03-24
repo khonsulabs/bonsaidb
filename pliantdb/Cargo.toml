@@ -1,0 +1,26 @@
+[package]
+name = "pliantdb"
+version = "0.1.0-dev-0"
+authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
+edition = "2018"
+description = "a programmable document database inspired by CouchDB"
+repository = "https://github.com/khonsulabs/pliantdb"
+license = "MIT OR Apache-2.0"
+keywords = ["document-database", "database"]
+categories = ["database-implementations", "database"]
+
+[dependencies]
+uuid = { version = "0.8", features = ["v4", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_cbor = "0.11"
+bincode = "1.3"
+thiserror = "1"
+anyhow = "1"
+sled = "0.34"
+async-trait = "0.1"
+tokio = { version = "1", features = ["full"] }
+sha2 = "0.9"
+
+[dev-dependencies]
+hex-literal = "0.3"
+futures = "0.3"
