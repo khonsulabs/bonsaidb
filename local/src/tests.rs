@@ -1,12 +1,11 @@
-use std::borrow::Cow;
-
 use pliantdb_core::{
     connection::Connection,
     document::Document,
     schema::Collection,
-    test_util::{Basic, BasicCollection, TestDirectory},
+    test_util::{Basic, BasicByParentId, BasicCollection, TestDirectory},
     Error,
 };
+use std::borrow::Cow;
 use storage::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS};
 
 use super::*;
@@ -196,6 +195,53 @@ async fn list_transactions() -> Result<(), anyhow::Error> {
     }
 
     assert_eq!(transactions.len(), LIST_TRANSACTIONS_MAX_RESULTS + 1);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "API not finished"]
+async fn view_query() -> anyhow::Result<()> {
+    let path = TestDirectory::new("list-transactions");
+    let db = Storage::<BasicCollection>::open_local(path)?;
+    let collection = db.collection::<BasicCollection>()?;
+    let a = collection
+        .push(&Basic {
+            value: String::from("A"),
+            parent_id: None,
+        })
+        .await?;
+    let b = collection
+        .push(&Basic {
+            value: String::from("B"),
+            parent_id: None,
+        })
+        .await?;
+    collection
+        .push(&Basic {
+            value: String::from("A.1"),
+            parent_id: Some(a.id),
+        })
+        .await?;
+    collection
+        .push(&Basic {
+            value: String::from("B.1"),
+            parent_id: Some(b.id),
+        })
+        .await?;
+    collection
+        .push(&Basic {
+            value: String::from("B.2"),
+            parent_id: Some(b.id),
+        })
+        .await?;
+
+    let a_children = db
+        .view::<BasicByParentId>()
+        .with_key(Some(a.id))
+        .query()
+        .await?;
+    assert_eq!(a_children.len(), 2);
 
     Ok(())
 }

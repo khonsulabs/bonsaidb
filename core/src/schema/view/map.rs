@@ -44,7 +44,7 @@ pub struct Serialized<'k> {
 }
 
 /// A trait that enables a type to convert itself to a big-endian/network byte order.
-pub trait Key<'k>: Send + Sync {
+pub trait Key<'k>: Clone + Send + Sync {
     /// Convert `self` into an `IVec` containing bytes ordered in big-endian/network byte order.
     fn into_big_endian_bytes(self) -> Cow<'k, [u8]>;
 

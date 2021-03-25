@@ -49,6 +49,33 @@ impl<'k> View<'k> for BasicCount {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
+pub struct BasicByParentId;
+
+impl<'k> View<'k> for BasicByParentId {
+    type MapKey = Option<u64>;
+    type MapValue = usize;
+    type Reduce = usize;
+
+    fn version() -> usize {
+        0
+    }
+
+    fn name() -> Cow<'static, str> {
+        Cow::from("by-parent-id")
+    }
+
+    fn map(document: &Document<'_>) -> MapResult<'k, Self::MapKey, Self::MapValue> {
+        let contents = document.contents::<Basic>()?;
+        Ok(Some(document.emit_key_and_value(contents.parent_id, 1)))
+    }
+
+    fn reduce(
+        mappings: &[Map<'k, Self::MapKey, Self::MapValue>],
+        _rereduce: bool,
+    ) -> Result<Self::Reduce, view::Error> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
 pub struct Basic {

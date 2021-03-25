@@ -34,7 +34,7 @@ pub trait Connection<'a>: Send + Sync {
 
     /// Initializes [`ViewQuery`] for [`schema::View`] `V`.
     #[must_use]
-    async fn view<'k, V: schema::View<'k>>(&'a self) -> View<'a, 'k, Self, V>
+    fn view<'k, V: schema::View<'k>>(&'a self) -> View<'a, 'k, Self, V>
     where
         Self: Sized,
     {
@@ -105,7 +105,7 @@ where
 pub struct View<'a, 'k, Cn, V: schema::View<'k>> {
     connection: &'a Cn,
     /// Key filtering criteria.
-    pub key: Option<QueryKey<'k, V::MapKey>>,
+    pub key: Option<QueryKey<V::MapKey>>,
 }
 
 impl<'a, 'k, Cn, V> View<'a, 'k, Cn, V>
@@ -122,7 +122,7 @@ where
 
     /// Filters for entries in the view with `key`.
     #[must_use]
-    pub fn with_key(mut self, key: &'k V::MapKey) -> Self {
+    pub fn with_key(mut self, key: V::MapKey) -> Self {
         self.key = Some(QueryKey::Matches(key));
         self
     }
@@ -134,13 +134,13 @@ where
 }
 
 /// Filters a [`View`] by key.
-pub enum QueryKey<'k, K> {
+pub enum QueryKey<K> {
     /// Matches all entries with the key provided.
-    Matches(&'k K),
+    Matches(K),
 
     /// Matches all entires with keys in the range provided.
-    Range(Range<&'k K>),
+    Range(Range<K>),
 
     /// Matches all entries that have keys that are included in the set provided.
-    Multiple(&'k [K]),
+    Multiple(Vec<K>),
 }
