@@ -2,9 +2,9 @@ use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sy
 
 use async_trait::async_trait;
 use pliantdb_core::{
-    connection::{Collection, Connection},
+    connection::{Collection, Connection, View},
     document::{Document, Header},
-    schema::{self, collection, Database, Key, Schema},
+    schema::{self, collection, map, Database, Key, Schema},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
 use sled::{
@@ -226,6 +226,17 @@ where
             // an error, but technically this is a correct response.
             Ok(Vec::default())
         }
+    }
+
+    #[must_use]
+    async fn query<'k, V: schema::View<'k>>(
+        &self,
+        query: View<'a, 'k, Self, V>,
+    ) -> Result<Vec<map::Serialized<'static>>, pliantdb_core::Error>
+    where
+        Self: Sized,
+    {
+        todo!()
     }
 }
 
