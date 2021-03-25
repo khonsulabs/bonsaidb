@@ -1,4 +1,7 @@
-use std::{borrow::Cow, fmt::Display};
+use std::{
+    borrow::Cow,
+    fmt::{Debug, Display},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -7,7 +10,7 @@ use crate::schema::Schema;
 /// A unique collection id. Choose collection names that aren't likely to
 /// conflict with others, so that if someone mixes collections from multiple
 /// authors in a single database.
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 pub struct Id(pub Cow<'static, str>);
 
 impl From<&'static str> for Id {
@@ -24,12 +27,12 @@ impl From<String> for Id {
 
 impl Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        Display::fmt(&self.0, f)
     }
 }
 
 /// A namespaced collection of `Document<Self>` items and views.
-pub trait Collection: Send + Sync {
+pub trait Collection: Debug + Send + Sync {
     /// The `Id` of this collection.
     fn id() -> Id;
 

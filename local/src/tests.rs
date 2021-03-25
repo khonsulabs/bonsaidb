@@ -11,10 +11,10 @@ use storage::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESU
 use super::*;
 use crate::Storage;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn store_retrieve_update() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("store-retrieve-update");
-    let db = Storage::<BasicCollection>::open_local(path)?;
+    let db = Storage::<BasicCollection>::open_local(path).await?;
 
     let original_value = Basic {
         value: String::from("initial_value"),
@@ -62,20 +62,20 @@ async fn store_retrieve_update() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn not_found() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("not-found");
-    let db = Storage::<BasicCollection>::open_local(path)?;
+    let db = Storage::<BasicCollection>::open_local(path).await?;
 
     assert!(db.collection::<BasicCollection>()?.get(1).await?.is_none());
 
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn conflict() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("conflict");
-    let db = Storage::<BasicCollection>::open_local(path)?;
+    let db = Storage::<BasicCollection>::open_local(path).await?;
 
     let original_value = Basic {
         value: String::from("initial_value"),
@@ -111,10 +111,10 @@ async fn conflict() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn bad_update() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("bad_update");
-    let db = Storage::<BasicCollection>::open_local(path)?;
+    let db = Storage::<BasicCollection>::open_local(path).await?;
 
     let mut doc = Document::with_contents(1, &Basic::default(), BasicCollection::id())?;
     match db.update(&mut doc).await {
@@ -127,10 +127,10 @@ async fn bad_update() -> Result<(), anyhow::Error> {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn no_update() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("no-update");
-    let db = Storage::<BasicCollection>::open_local(path)?;
+    let db = Storage::<BasicCollection>::open_local(path).await?;
 
     let original_value = Basic {
         value: String::from("initial_value"),
@@ -150,10 +150,10 @@ async fn no_update() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn list_transactions() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("list-transactions");
-    let db = Storage::<BasicCollection>::open_local(path)?;
+    let db = Storage::<BasicCollection>::open_local(path).await?;
     let collection = db.collection::<BasicCollection>()?;
 
     // create LIST_TRANSACTIONS_MAX_RESULTS + 1 items, giving us just enough
@@ -199,11 +199,11 @@ async fn list_transactions() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[ignore = "API not finished"]
 async fn view_query() -> anyhow::Result<()> {
     let path = TestDirectory::new("list-transactions");
-    let db = Storage::<BasicCollection>::open_local(path)?;
+    let db = Storage::<BasicCollection>::open_local(path).await?;
     let collection = db.collection::<BasicCollection>()?;
     let a = collection
         .push(&Basic {
@@ -241,7 +241,14 @@ async fn view_query() -> anyhow::Result<()> {
         .with_key(Some(a.id))
         .query()
         .await?;
-    assert_eq!(a_children.len(), 2);
+    assert_eq!(a_children.len(), 1);
+
+    let b_children = db
+        .view::<BasicByParentId>()
+        .with_key(Some(b.id))
+        .query()
+        .await?;
+    assert_eq!(b_children.len(), 2);
 
     Ok(())
 }

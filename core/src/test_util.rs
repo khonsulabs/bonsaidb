@@ -11,6 +11,7 @@ use crate::{
     schema::{collection, view, Collection, Database, MapResult, Schema, View},
 };
 
+#[derive(Debug)]
 pub struct BasicCollection;
 
 impl Collection for BasicCollection {
@@ -83,6 +84,7 @@ pub struct Basic {
     pub parent_id: Option<u64>,
 }
 
+#[derive(Debug)]
 pub struct BasicDatabase;
 
 impl Database for BasicDatabase {

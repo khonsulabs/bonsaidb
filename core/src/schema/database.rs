@@ -2,6 +2,7 @@ use std::{
     any::{Any, TypeId},
     borrow::Cow,
     collections::HashMap,
+    fmt::Debug,
 };
 
 use crate::schema::{
@@ -10,7 +11,7 @@ use crate::schema::{
 };
 
 /// Defines a group of collections that are stored into a single database.
-pub trait Database: Send + Sync {
+pub trait Database: Send + Sync + Debug + 'static {
     /// Defines the `Collection`s into `schema`
     fn define_collections(schema: &mut Schema);
 }
@@ -20,7 +21,7 @@ trait ThreadsafeAny: Any + Send + Sync {}
 impl<T> ThreadsafeAny for T where T: Any + Send + Sync {}
 
 /// A collection of defined collections and views.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Schema {
     collections: HashMap<TypeId, collection::Id>,
     views: HashMap<TypeId, Cow<'static, str>>,

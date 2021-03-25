@@ -93,7 +93,7 @@ impl<'a> Document<'a> {
 
     /// Creates a `Map` result with a `key` and an empty value.
     #[must_use]
-    pub fn emit_key<'k, Key: map::Key<'k>>(&self, key: Key) -> Map<'k, Key, ()> {
+    pub fn emit_key<'k, Key: map::Key>(&self, key: Key) -> Map<'k, Key, ()> {
         self.emit_key_and_value(key, ())
     }
 
@@ -105,7 +105,7 @@ impl<'a> Document<'a> {
 
     /// Creates a `Map` result with a `key` and `value`.
     #[must_use]
-    pub fn emit_key_and_value<'k, Key: map::Key<'k>, Value: Serialize>(
+    pub fn emit_key_and_value<'k, Key: map::Key, Value: Serialize>(
         &self,
         key: Key,
         value: Value,

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::{Job, Keyed};
 use async_trait::async_trait;
 
@@ -16,8 +18,8 @@ impl Job for TestJob {
 }
 
 impl Keyed<usize> for TestJob {
-    fn key(&self) -> &'_ usize {
-        &self.0
+    fn key(&self) -> Cow<'_, usize> {
+        Cow::Borrowed(&self.0)
     }
 }
 

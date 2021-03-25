@@ -20,6 +20,8 @@
 mod error;
 mod open_trees;
 mod storage;
+mod views;
+
 #[doc(inline)]
 pub use pliantdb_core as core;
 

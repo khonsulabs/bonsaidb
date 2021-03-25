@@ -33,7 +33,7 @@ pub type MapResult<'k, K = (), V = ()> = Result<Option<Map<'k, K, V>>, Error>;
 // TODO write our own view docs
 pub trait View<'k> {
     /// The key for this view.
-    type MapKey: Key<'k> + 'static;
+    type MapKey: Key + 'static;
 
     /// An associated type that can be stored with each entry in the view.
     type MapValue: Serialize + for<'de> Deserialize<'de>;
@@ -117,7 +117,7 @@ where
         match map {
             Some(map) => Ok(Some(map::Serialized {
                 source: map.source,
-                key: map.key.into_big_endian_bytes(),
+                key: Cow::Owned(map.key.as_big_endian_bytes().to_vec()),
                 value: serde_cbor::value::to_value(&map.value)?,
             })),
             None => Ok(None),

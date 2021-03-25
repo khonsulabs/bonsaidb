@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// A document's entry in a View's mappings.
 #[derive(PartialEq, Debug)]
-pub struct Map<'k, K: Key<'k> = (), V: Serialize = ()> {
+pub struct Map<'k, K: Key = (), V: Serialize = ()> {
     /// The id of the document that emitted this entry.
     pub source: u64,
 
@@ -17,7 +17,7 @@ pub struct Map<'k, K: Key<'k> = (), V: Serialize = ()> {
     _phantom: PhantomData<&'k K>,
 }
 
-impl<'k, K: Key<'k>, V: Serialize> Map<'k, K, V> {
+impl<'k, K: Key, V: Serialize> Map<'k, K, V> {
     /// Creates a new Map entry for the document with id `source`.
     pub fn new(source: u64, key: K, value: V) -> Self {
         Self {
@@ -44,46 +44,46 @@ pub struct Serialized<'k> {
 }
 
 /// A trait that enables a type to convert itself to a big-endian/network byte order.
-pub trait Key<'k>: Clone + Send + Sync {
+pub trait Key: Clone + Send + Sync {
     /// Convert `self` into an `IVec` containing bytes ordered in big-endian/network byte order.
-    fn into_big_endian_bytes(self) -> Cow<'k, [u8]>;
+    fn as_big_endian_bytes(&self) -> Cow<'_, [u8]>;
 
     /// Convert a slice of bytes into `Self` by interpretting `bytes` in big-endian/network byte order.
-    fn from_big_endian_bytes(bytes: &'k [u8]) -> Self;
+    fn from_big_endian_bytes(bytes: &[u8]) -> Self;
 }
 
-impl<'k> Key<'k> for Cow<'k, [u8]> {
-    fn into_big_endian_bytes(self) -> Cow<'k, [u8]> {
-        self
+impl<'k> Key for Cow<'k, [u8]> {
+    fn as_big_endian_bytes(&self) -> Cow<'k, [u8]> {
+        self.clone()
     }
 
-    fn from_big_endian_bytes(bytes: &'k [u8]) -> Self {
-        Cow::from(bytes)
+    fn from_big_endian_bytes(bytes: &[u8]) -> Self {
+        Cow::Owned(bytes.to_vec())
     }
 }
 
-impl<'k> Key<'k> for () {
-    fn into_big_endian_bytes(self) -> Cow<'k, [u8]> {
+impl Key for () {
+    fn as_big_endian_bytes(&self) -> Cow<'_, [u8]> {
         Cow::default()
     }
 
-    fn from_big_endian_bytes(_: &'k [u8]) -> Self {}
+    fn from_big_endian_bytes(_: &[u8]) -> Self {}
 }
 
 #[cfg(feature = "uuid")]
-impl<'k> Key<'k> for uuid::Uuid {
-    fn into_big_endian_bytes(self) -> Cow<'k, [u8]> {
-        self.as_u128().into_big_endian_bytes()
+impl<'k> Key for uuid::Uuid {
+    fn as_big_endian_bytes(&self) -> Cow<'_, [u8]> {
+        Cow::Borrowed(self.as_bytes())
     }
 
-    fn from_big_endian_bytes(bytes: &'k [u8]) -> Self {
+    fn from_big_endian_bytes(bytes: &[u8]) -> Self {
         Self::from_bytes(bytes.try_into().unwrap())
     }
 }
 
-impl<'k, T> Key<'k> for Option<T>
+impl<'k, T> Key for Option<T>
 where
-    T: Key<'k>,
+    T: Key,
 {
     /// # Panics
     ///
@@ -91,16 +91,17 @@ where
     // TODO consider removing this panic limitation by adding a single byte to
     // each key (at the end preferrably) so that we can distinguish between None
     // and a 0-byte type
-    fn into_big_endian_bytes(self) -> Cow<'k, [u8]> {
-        self.map(|contents| {
-            let contents = contents.into_big_endian_bytes();
-            assert!(!contents.is_empty());
-            contents
-        })
-        .unwrap_or_default()
+    fn as_big_endian_bytes(&self) -> Cow<'_, [u8]> {
+        self.as_ref()
+            .map(|contents| {
+                let contents = contents.as_big_endian_bytes();
+                assert!(!contents.is_empty());
+                contents
+            })
+            .unwrap_or_default()
     }
 
-    fn from_big_endian_bytes(bytes: &'k [u8]) -> Self {
+    fn from_big_endian_bytes(bytes: &[u8]) -> Self {
         if bytes.is_empty() {
             None
         } else {
@@ -111,12 +112,12 @@ where
 
 macro_rules! impl_key_for_primitive {
     ($type:ident) => {
-        impl<'k> Key<'k> for $type {
-            fn into_big_endian_bytes(self) -> Cow<'k, [u8]> {
+        impl Key for $type {
+            fn as_big_endian_bytes(&self) -> Cow<'_, [u8]> {
                 Cow::from(self.to_be_bytes().to_vec())
             }
 
-            fn from_big_endian_bytes(bytes: &'k [u8]) -> Self {
+            fn from_big_endian_bytes(bytes: &[u8]) -> Self {
                 $type::from_be_bytes(bytes.try_into().unwrap())
             }
         }
@@ -141,15 +142,15 @@ fn primitive_key_encoding_tests() {
         ($type:ident) => {
             assert_eq!(
                 &$type::MAX.to_be_bytes(),
-                $type::MAX.into_big_endian_bytes().as_ref()
+                $type::MAX.as_big_endian_bytes().as_ref()
             );
             assert_eq!(
                 $type::MAX,
-                $type::from_big_endian_bytes(&$type::MAX.into_big_endian_bytes())
+                $type::from_big_endian_bytes(&$type::MAX.as_big_endian_bytes())
             );
             assert_eq!(
                 $type::MIN,
-                $type::from_big_endian_bytes(&$type::MIN.into_big_endian_bytes())
+                $type::from_big_endian_bytes(&$type::MIN.as_big_endian_bytes())
             );
         };
     }
@@ -168,17 +169,17 @@ fn primitive_key_encoding_tests() {
 
 #[test]
 fn optional_key_encoding_tests() {
-    assert!(Option::<i8>::None.into_big_endian_bytes().is_empty());
+    assert!(Option::<i8>::None.as_big_endian_bytes().is_empty());
     assert_eq!(
         Some(1_i8),
-        Option::from_big_endian_bytes(&Some(1_i8).into_big_endian_bytes())
+        Option::from_big_endian_bytes(&Some(1_i8).as_big_endian_bytes())
     );
 }
 
 #[test]
 #[allow(clippy::unit_cmp)] // this is more of a compilation test
 fn unit_key_encoding_tests() {
-    assert!(().into_big_endian_bytes().is_empty());
+    assert!(().as_big_endian_bytes().is_empty());
     assert_eq!((), <() as Key>::from_big_endian_bytes(&[]));
 }
 
@@ -188,6 +189,6 @@ fn vec_key_encoding_tests() {
     let vec = Cow::<'_, [u8]>::from(ORIGINAL_VALUE);
     assert_eq!(
         vec.clone(),
-        Cow::from_big_endian_bytes(&vec.into_big_endian_bytes())
+        Cow::from_big_endian_bytes(&vec.as_big_endian_bytes())
     );
 }

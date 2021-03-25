@@ -20,9 +20,9 @@ pub const LIST_TRANSACTIONS_MAX_RESULTS: usize = 1000;
 pub const LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT: usize = 100;
 
 /// A local, file-based database.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Storage<DB> {
-    sled: sled::Db,
+    pub(crate) sled: sled::Db,
     collections: Arc<Schema>,
     _schema: PhantomData<DB>,
 }
@@ -32,17 +32,22 @@ where
     DB: Database,
 {
     /// Opens a local file as a pliantdb.
-    pub fn open_local<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        let mut collections = Schema::default();
-        DB::define_collections(&mut collections);
+    pub async fn open_local<P: AsRef<Path> + Send>(path: P) -> Result<Self, Error> {
+        let owned_path = path.as_ref().to_owned();
+        tokio::task::spawn_blocking(move || {
+            let mut collections = Schema::default();
+            DB::define_collections(&mut collections);
 
-        sled::open(path)
-            .map(|sled| Self {
-                sled,
-                collections: Arc::new(collections),
-                _schema: PhantomData::default(),
-            })
-            .map_err(Error::from)
+            sled::open(owned_path)
+                .map(|sled| Self {
+                    sled,
+                    collections: Arc::new(collections),
+                    _schema: PhantomData::default(),
+                })
+                .map_err(Error::from)
+        })
+        .await
+        .unwrap()
     }
 }
 
@@ -172,19 +177,21 @@ where
         &self,
         id: u64,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
-        let tree = self
-            .sled
-            .open_tree(document_tree_name(&C::id()))
-            .map_err_to_core()?;
-        if let Some(vec) = tree.get(id.into_big_endian_bytes()).map_err_to_core()? {
-            Ok(Some(
-                bincode::deserialize::<Document<'_>>(&vec)
-                    .map_err_to_core()?
-                    .to_owned(),
-            ))
-        } else {
-            Ok(None)
-        }
+        tokio::task::block_in_place(|| {
+            let tree = self
+                .sled
+                .open_tree(document_tree_name(&C::id()))
+                .map_err_to_core()?;
+            if let Some(vec) = tree.get(id.as_big_endian_bytes()).map_err_to_core()? {
+                Ok(Some(
+                    bincode::deserialize::<Document<'_>>(&vec)
+                        .map_err_to_core()?
+                        .to_owned(),
+                ))
+            } else {
+                Ok(None)
+            }
+        })
     }
 
     async fn list_executed_transactions(
@@ -196,31 +203,33 @@ where
             .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
             .min(LIST_TRANSACTIONS_MAX_RESULTS);
         if result_limit > 0 {
-            let tree = self
-                .sled
-                .open_tree(TRANSACTION_TREE_NAME)
-                .map_err_to_core()?;
-            let iter = if let Some(starting_id) = starting_id {
-                tree.range(starting_id.to_be_bytes()..=u64::MAX.to_be_bytes())
-            } else {
-                tree.iter()
-            };
+            tokio::task::block_in_place(|| {
+                let tree = self
+                    .sled
+                    .open_tree(TRANSACTION_TREE_NAME)
+                    .map_err_to_core()?;
+                let iter = if let Some(starting_id) = starting_id {
+                    tree.range(starting_id.to_be_bytes()..=u64::MAX.to_be_bytes())
+                } else {
+                    tree.iter()
+                };
 
-            #[allow(clippy::cast_possible_truncation)] // this value is limited above
-            let mut results = Vec::with_capacity(result_limit);
-            for row in iter {
-                let (_, vec) = row.map_err_to_core()?;
-                results.push(
-                    bincode::deserialize::<transaction::Executed<'_>>(&vec)
-                        .map_err_to_core()?
-                        .to_owned(),
-                );
+                #[allow(clippy::cast_possible_truncation)] // this value is limited above
+                let mut results = Vec::with_capacity(result_limit);
+                for row in iter {
+                    let (_, vec) = row.map_err_to_core()?;
+                    results.push(
+                        bincode::deserialize::<transaction::Executed<'_>>(&vec)
+                            .map_err_to_core()?
+                            .to_owned(),
+                    );
 
-                if results.len() >= result_limit {
-                    break;
+                    if results.len() >= result_limit {
+                        break;
+                    }
                 }
-            }
-            Ok(results)
+                Ok(results)
+            })
         } else {
             // A request was made to return an empty result? This should probably be
             // an error, but technically this is a correct response.
@@ -236,6 +245,8 @@ where
     where
         Self: Sized,
     {
+        // block to make sure that the view has been scanned
+        // scan the view and note any objects that need to be recached.
         todo!()
     }
 }
@@ -257,7 +268,7 @@ fn execute_operation(
             let serialized: Vec<u8> = bincode::serialize(&doc)
                 .map_err_to_core()
                 .map_err(ConflictableTransactionError::Abort)?;
-            tree.insert(doc.header.id.into_big_endian_bytes().as_ref(), serialized)?;
+            tree.insert(doc.header.id.as_big_endian_bytes().as_ref(), serialized)?;
 
             Ok(OperationResult::DocumentUpdated {
                 collection: operation.collection.clone(),
@@ -265,7 +276,7 @@ fn execute_operation(
             })
         }
         Command::Update { header, contents } => {
-            if let Some(vec) = tree.get(&header.id.into_big_endian_bytes())? {
+            if let Some(vec) = tree.get(&header.id.as_big_endian_bytes())? {
                 let doc = bincode::deserialize::<Document<'_>>(&vec)
                     .map_err_to_core()
                     .map_err(ConflictableTransactionError::Abort)?;
@@ -310,7 +321,7 @@ fn save_doc(
     let serialized: Vec<u8> = bincode::serialize(doc)
         .map_err_to_core()
         .map_err(ConflictableTransactionError::Abort)?;
-    tree.insert(doc.header.id.into_big_endian_bytes().as_ref(), serialized)?;
+    tree.insert(doc.header.id.as_big_endian_bytes().as_ref(), serialized)?;
     Ok(())
 }
 
