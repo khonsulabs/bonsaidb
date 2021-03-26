@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Debug};
+use std::fmt::Debug;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -26,7 +26,7 @@ pub trait Keyed<Key>: Job
 where
     Key: Clone + std::hash::Hash + Eq + Send + Sync + Debug + 'static,
 {
-    fn key(&self) -> Cow<'_, Key>;
+    fn key(&self) -> Key;
 }
 
 #[async_trait]

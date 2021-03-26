@@ -7,12 +7,15 @@ use sled::{IVec, Tree};
 
 use crate::{storage::document_tree_name, Storage};
 
-use super::{view_document_map_tree_name, view_invalidated_docs_tree_name};
+use super::{
+    mapper::{Map, Mapper},
+    view_document_map_tree_name, view_invalidated_docs_tree_name, Task,
+};
 
 #[derive(Debug)]
 pub struct IntegrityScanner<DB> {
-    storage: Storage<DB>,
-    scan: IntegrityScan,
+    pub storage: Storage<DB>,
+    pub scan: IntegrityScan,
 }
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
@@ -57,6 +60,8 @@ where
                 .cloned()
                 .collect::<HashSet<_>>();
 
+            // TODO scan for existing view entries that are not up to the current view's version
+
             if !missing_entries.is_empty() {
                 // Add all missing entries to the invalidated list. The view
                 // mapping job will update them on the next pass.
@@ -82,7 +87,21 @@ where
         .await??;
 
         if needs_update {
-            todo!("Spawn a view map job")
+            println!("needs update after integrity scan");
+            let job = self
+                .storage
+                .tasks
+                .jobs
+                .lookup_or_enqueue(Mapper {
+                    storage: self.storage.clone(),
+                    map: Map {
+                        collection: self.scan.collection.clone(),
+                        view_name: self.scan.view_name.clone(),
+                    },
+                })
+                .await;
+            let updated_to_transaction = job.receive().await.unwrap();
+            println!("Updated to transaction: {:?}", updated_to_transaction);
         }
 
         Ok(())
@@ -100,12 +119,12 @@ fn tree_keys<K: Key + Hash + Eq + Clone>(tree: &Tree) -> Result<HashSet<K>, sled
     Ok(ids)
 }
 
-impl<DB> Keyed<IntegrityScan> for IntegrityScanner<DB>
+impl<DB> Keyed<Task> for IntegrityScanner<DB>
 where
     DB: Database,
 {
-    fn key(&self) -> Cow<'_, IntegrityScan> {
-        Cow::Borrowed(&self.scan)
+    fn key(&self) -> Task {
+        Task::IntegrityScan(self.scan.clone())
     }
 }
 

@@ -200,7 +200,6 @@ async fn list_transactions() -> Result<(), anyhow::Error> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "API not finished"]
 async fn view_query() -> anyhow::Result<()> {
     let path = TestDirectory::new("list-transactions");
     let db = Storage::<BasicCollection>::open_local(path).await?;

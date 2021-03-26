@@ -15,7 +15,7 @@ pub(crate) use managed_job::ManagedJob;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Manager<Key = ()> {
     pub(crate) jobs: Arc<RwLock<jobs::Jobs<Key>>>,
 }
@@ -27,6 +27,14 @@ where
     fn default() -> Self {
         Self {
             jobs: Arc::new(RwLock::new(jobs::Jobs::new())),
+        }
+    }
+}
+
+impl<Key> Clone for Manager<Key> {
+    fn clone(&self) -> Self {
+        Self {
+            jobs: self.jobs.clone(),
         }
     }
 }

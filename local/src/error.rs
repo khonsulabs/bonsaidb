@@ -12,6 +12,10 @@ pub enum Error {
     /// An error occurred serializing the contents of a `Document` or results of a `View`.
     #[error("error while serializing: {0}")]
     Serialization(#[from] serde_cbor::Error),
+
+    /// An internal error occurred while waiting for a message.
+    #[error("error while waiting for a message: {0}")]
+    InternalCommunication(#[from] flume::RecvError),
 }
 
 impl Into<pliantdb_core::Error> for Error {

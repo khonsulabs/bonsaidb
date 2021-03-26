@@ -82,10 +82,10 @@ where
         job: J,
         manager: Manager<Key>,
     ) -> Handle<<J as Job>::Output, Key> {
-        if let Some(&id) = self.keyed_jobs.get(job.key().as_ref()) {
+        let key = job.key();
+        if let Some(&id) = self.keyed_jobs.get(&key) {
             self.create_new_task_handle(id, manager)
         } else {
-            let key = job.key().as_ref().clone();
             let handle = self.enqueue(job, Some(key.clone()), manager);
             self.keyed_jobs.insert(key, handle.id);
             handle

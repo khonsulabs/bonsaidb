@@ -11,16 +11,14 @@ use crate::{
     schema::{collection, view, Collection, Database, MapResult, Schema, View},
 };
 
-#[derive(Debug)]
-pub struct BasicCollection;
-
-impl Collection for BasicCollection {
+impl Collection for Basic {
     fn id() -> collection::Id {
         collection::Id::from("tests.basic")
     }
 
     fn define_views(schema: &mut Schema) {
         schema.define_view(BasicCount);
+        schema.define_view(BasicByParentId);
     }
 }
 
@@ -28,6 +26,7 @@ impl Collection for BasicCollection {
 pub struct BasicCount;
 
 impl View for BasicCount {
+    type Collection = Basic;
     type MapKey = ();
     type MapValue = usize;
     type Reduce = usize;
@@ -57,6 +56,7 @@ impl View for BasicCount {
 pub struct BasicByParentId;
 
 impl View for BasicByParentId {
+    type Collection = Basic;
     type MapKey = Option<u64>;
     type MapValue = usize;
     type Reduce = usize;
@@ -94,7 +94,7 @@ pub struct BasicDatabase;
 
 impl Database for BasicDatabase {
     fn define_collections(schema: &mut Schema) {
-        schema.define_collection::<BasicCollection>();
+        schema.define_collection::<Basic>();
     }
 }
 

@@ -2,7 +2,7 @@ use std::{borrow::Cow, fmt::Debug};
 
 use serde::{Deserialize, Serialize};
 
-use crate::document::Document;
+use crate::{document::Document, schema::Collection};
 
 /// Types for defining a `Map` within a `View`.
 pub mod map;
@@ -31,7 +31,10 @@ pub type MapResult<K = (), V = ()> = Result<Option<Map<K, V>>, Error>;
 /// This implementation is under active development, our own docs explaining our
 /// implementation will be written as things are solidified.
 // TODO write our own view docs
-pub trait View: Send + Sync + Debug {
+pub trait View: Send + Sync + Debug + 'static {
+    /// The collection this view belongs to
+    type Collection: Collection;
+
     /// The key for this view.
     type MapKey: Key + 'static;
 
@@ -128,7 +131,7 @@ where
             Some(map) => Ok(Some(map::Serialized {
                 source: map.source,
                 key: map.key.as_big_endian_bytes().to_vec(),
-                value: serde_cbor::value::to_value(&map.value)?,
+                value: serde_cbor::to_vec(&map.value)?,
             })),
             None => Ok(None),
         }

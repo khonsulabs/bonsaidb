@@ -1,6 +1,4 @@
-use std::borrow::Cow;
-
-use pliantdb_core::schema::{collection, map};
+use pliantdb_core::schema::collection;
 
 use self::{integrity_scanner::IntegrityScan, mapper::Map};
 use serde::{Deserialize, Serialize};
@@ -14,7 +12,7 @@ pub struct ViewEntry {
 #[derive(Serialize, Deserialize)]
 pub struct EntryMapping {
     pub source: u64,
-    pub value: serde_cbor::Value,
+    pub value: Vec<u8>,
 }
 
 pub mod integrity_scanner;
@@ -37,7 +35,8 @@ pub fn view_omitted_docs_tree_name(collection: &collection::Id, view_name: &str)
     format!("{}::{}::omitted", collection.0, view_name)
 }
 
-pub enum Task<'a> {
-    IntegrityScan(Cow<'a, IntegrityScan>),
-    ViewMap(Cow<'a, Map>),
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub enum Task {
+    IntegrityScan(IntegrityScan),
+    ViewMap(Map),
 }

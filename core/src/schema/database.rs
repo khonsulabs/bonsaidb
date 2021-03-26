@@ -58,6 +58,12 @@ impl Schema {
             .and_then(|type_id| self.views.get(type_id))
             .map(AsRef::as_ref)
     }
+
+    /// Returns `true` if this schema contains the collection `C`.
+    #[must_use]
+    pub fn view<V: View + 'static>(&self) -> Option<&'_ dyn view::Serialized> {
+        self.views.get(&TypeId::of::<V>()).map(AsRef::as_ref)
+    }
 }
 
 impl<T> Database for T

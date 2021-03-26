@@ -20,6 +20,7 @@
 mod error;
 mod open_trees;
 mod storage;
+mod tasks;
 mod views;
 
 #[doc(inline)]

@@ -32,7 +32,7 @@ pub struct Serialized {
     pub key: Vec<u8>,
 
     /// An associated value stored in the view.
-    pub value: serde_cbor::Value,
+    pub value: Vec<u8>,
 }
 
 /// A trait that enables a type to convert itself to a big-endian/network byte order.

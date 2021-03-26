@@ -2,17 +2,24 @@ use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sy
 
 use async_trait::async_trait;
 use pliantdb_core::{
-    connection::{Collection, Connection, View},
+    connection::{Collection, Connection, QueryKey, View},
     document::{Document, Header},
     schema::{self, collection, map, Database, Key, Schema},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
+use pliantdb_jobs::manager::Manager;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError, TransactionalTree},
-    Transactional,
+    IVec, Transactional, Tree,
 };
 
-use crate::{error::ResultExt as _, open_trees::OpenTrees, Error};
+use crate::{
+    error::ResultExt as _,
+    open_trees::OpenTrees,
+    tasks::TaskManager,
+    views::{view_entries_tree_name, ViewEntry},
+    Error,
+};
 
 /// The maximum number of results allowed to be returned from `list_executed_transactions`.
 pub const LIST_TRANSACTIONS_MAX_RESULTS: usize = 1000;
@@ -24,6 +31,7 @@ pub const LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT: usize = 100;
 pub struct Storage<DB> {
     pub(crate) sled: sled::Db,
     pub(crate) schema: Arc<Schema>,
+    pub(crate) tasks: TaskManager,
     _schema: PhantomData<DB>,
 }
 
@@ -32,6 +40,7 @@ impl<DB> Clone for Storage<DB> {
         Self {
             sled: self.sled.clone(),
             schema: self.schema.clone(),
+            tasks: self.tasks.clone(),
             _schema: PhantomData::default(),
         }
     }
@@ -44,6 +53,12 @@ where
     /// Opens a local file as a pliantdb.
     pub async fn open_local<P: AsRef<Path> + Send>(path: P) -> Result<Self, Error> {
         let owned_path = path.as_ref().to_owned();
+
+        let manager = Manager::default();
+        manager.spawn_worker(); // TODO this should be configurable
+        manager.spawn_worker();
+        let tasks = TaskManager::new(manager);
+
         tokio::task::spawn_blocking(move || {
             let mut collections = Schema::default();
             DB::define_collections(&mut collections);
@@ -52,6 +67,7 @@ where
                 .map(|sled| Self {
                     sled,
                     schema: Arc::new(collections),
+                    tasks,
                     _schema: PhantomData::default(),
                 })
                 .map_err(Error::from)
@@ -267,9 +283,60 @@ where
     where
         Self: Sized,
     {
-        // block to make sure that the view has been scanned
-        // scan the view and note any objects that need to be recached.
-        todo!()
+        let collection_id = <V::Collection as schema::Collection>::id();
+        let view = self.schema.view::<V>().unwrap();
+        self.tasks
+            .update_view_if_needed(collection_id.clone(), view, self)
+            .await
+            .map_err_to_core()?;
+
+        let view_entries = self
+            .sled
+            .open_tree(view_entries_tree_name(&collection_id, view.name().as_ref()))
+            .map_err(Error::Sled)
+            .map_err_to_core()?;
+
+        let iterator = create_view_iterator(&view_entries, &query.key);
+        let entries = iterator
+            .collect::<Result<Vec<_>, sled::Error>>()
+            .map_err(Error::Sled)
+            .map_err_to_core()?;
+
+        let mut results = Vec::new();
+        for (key, entry) in entries {
+            let entry = bincode::deserialize::<ViewEntry>(&entry)
+                .map_err(Error::InternalSerialization)
+                .map_err_to_core()?;
+
+            for entry in entry.mappings {
+                results.push(map::Serialized {
+                    source: entry.source,
+                    key: key.to_vec(),
+                    value: entry.value,
+                });
+            }
+        }
+
+        Ok(results)
+    }
+}
+
+fn create_view_iterator<K: Key>(
+    view_entries: &Tree,
+    key: &Option<QueryKey<K>>,
+) -> Box<dyn Iterator<Item = Result<(IVec, IVec), sled::Error>>> {
+    if let Some(key) = key {
+        match key {
+            QueryKey::Matches(key) => {
+                let key = key.as_big_endian_bytes();
+                let range_end = key.clone();
+                Box::new(view_entries.range(key..=range_end))
+            }
+            QueryKey::Range(_) => todo!(),
+            QueryKey::Multiple(_) => todo!(),
+        }
+    } else {
+        Box::new(view_entries.iter())
     }
 }
 
