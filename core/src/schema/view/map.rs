@@ -1,10 +1,10 @@
-use std::{borrow::Cow, convert::TryInto, marker::PhantomData};
+use std::{borrow::Cow, convert::TryInto};
 
 use serde::{Deserialize, Serialize};
 
 /// A document's entry in a View's mappings.
 #[derive(PartialEq, Debug)]
-pub struct Map<'k, K: Key = (), V: Serialize = ()> {
+pub struct Map<K: Key = (), V: Serialize = ()> {
     /// The id of the document that emitted this entry.
     pub source: u64,
 
@@ -13,31 +13,23 @@ pub struct Map<'k, K: Key = (), V: Serialize = ()> {
 
     /// An associated value stored in the view.
     pub value: V,
-
-    _phantom: PhantomData<&'k K>,
 }
 
-impl<'k, K: Key, V: Serialize> Map<'k, K, V> {
+impl<K: Key, V: Serialize> Map<K, V> {
     /// Creates a new Map entry for the document with id `source`.
     pub fn new(source: u64, key: K, value: V) -> Self {
-        Self {
-            source,
-            key,
-            value,
-            _phantom: PhantomData::default(),
-        }
+        Self { source, key, value }
     }
 }
 
 /// Represents a document's entry in a View's mappings, serialized and ready to store.
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Serialized<'k> {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Serialized {
     /// The id of the document that emitted this entry.
     pub source: u64,
 
     /// The key used to index the View.
-    #[serde(borrow)]
-    pub key: Cow<'k, [u8]>,
+    pub key: Vec<u8>,
 
     /// An associated value stored in the view.
     pub value: serde_cbor::Value,

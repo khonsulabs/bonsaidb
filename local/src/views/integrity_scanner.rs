@@ -5,9 +5,9 @@ use pliantdb_core::schema::{collection, Database, Key};
 use pliantdb_jobs::{Job, Keyed};
 use sled::{IVec, Tree};
 
-use crate::Storage;
+use crate::{storage::document_tree_name, Storage};
 
-use super::{view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name};
+use super::{view_document_map_tree_name, view_invalidated_docs_tree_name};
 
 #[derive(Debug)]
 pub struct IntegrityScanner<DB> {
@@ -30,10 +30,10 @@ where
     type Output = ();
 
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
-        let documents = self.storage.sled.open_tree(view_entries_tree_name(
-            &self.scan.collection,
-            &self.scan.view_name,
-        ))?;
+        let documents = self
+            .storage
+            .sled
+            .open_tree(document_tree_name(&self.scan.collection))?;
 
         let document_map = self.storage.sled.open_tree(view_document_map_tree_name(
             &self.scan.collection,

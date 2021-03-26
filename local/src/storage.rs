@@ -20,11 +20,21 @@ pub const LIST_TRANSACTIONS_MAX_RESULTS: usize = 1000;
 pub const LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT: usize = 100;
 
 /// A local, file-based database.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Storage<DB> {
     pub(crate) sled: sled::Db,
-    collections: Arc<Schema>,
+    pub(crate) schema: Arc<Schema>,
     _schema: PhantomData<DB>,
+}
+
+impl<DB> Clone for Storage<DB> {
+    fn clone(&self) -> Self {
+        Self {
+            sled: self.sled.clone(),
+            schema: self.schema.clone(),
+            _schema: PhantomData::default(),
+        }
+    }
 }
 
 impl<DB> Storage<DB>
@@ -41,13 +51,25 @@ where
             sled::open(owned_path)
                 .map(|sled| Self {
                     sled,
-                    collections: Arc::new(collections),
+                    schema: Arc::new(collections),
                     _schema: PhantomData::default(),
                 })
                 .map_err(Error::from)
         })
         .await
         .unwrap()
+    }
+
+    /// Fetches the last transaction id that has been committed, if any.
+    pub async fn last_transaction_id(&self) -> Result<Option<u64>, Error> {
+        tokio::task::block_in_place(|| {
+            let tree = self.sled.open_tree(TRANSACTION_TREE_NAME)?;
+            if let Some((key, _)) = tree.last()? {
+                Ok(Some(u64::from_big_endian_bytes(&key)))
+            } else {
+                Ok(None)
+            }
+        })
     }
 }
 
@@ -62,7 +84,7 @@ where
     where
         Self: Sized,
     {
-        if self.collections.contains::<C>() {
+        if self.schema.contains::<C>() {
             Ok(Collection::new(self))
         } else {
             Err(pliantdb_core::Error::CollectionNotFound)
@@ -238,10 +260,10 @@ where
     }
 
     #[must_use]
-    async fn query<'k, V: schema::View<'k>>(
+    async fn query<'k, V: schema::View>(
         &self,
-        query: View<'a, 'k, Self, V>,
-    ) -> Result<Vec<map::Serialized<'static>>, pliantdb_core::Error>
+        query: View<'a, Self, V>,
+    ) -> Result<Vec<map::Serialized>, pliantdb_core::Error>
     where
         Self: Sized,
     {

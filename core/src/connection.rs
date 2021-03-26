@@ -34,7 +34,7 @@ pub trait Connection<'a>: Send + Sync {
 
     /// Initializes [`ViewQuery`] for [`schema::View`] `V`.
     #[must_use]
-    fn view<'k, V: schema::View<'k>>(&'a self) -> View<'a, 'k, Self, V>
+    fn view<V: schema::View>(&'a self) -> View<'a, Self, V>
     where
         Self: Sized,
     {
@@ -43,10 +43,10 @@ pub trait Connection<'a>: Send + Sync {
 
     /// Initializes [`ViewQuery`] for [`schema::View`] `V`.
     #[must_use]
-    async fn query<'k, V: schema::View<'k>>(
+    async fn query<'k, V: schema::View>(
         &self,
-        query: View<'a, 'k, Self, V>,
-    ) -> Result<Vec<map::Serialized<'static>>, Error>
+        query: View<'a, Self, V>,
+    ) -> Result<Vec<map::Serialized>, Error>
     where
         Self: Sized;
 
@@ -102,15 +102,15 @@ where
 }
 
 /// Parameters to query a `schema::View`.
-pub struct View<'a, 'k, Cn, V: schema::View<'k>> {
+pub struct View<'a, Cn, V: schema::View> {
     connection: &'a Cn,
     /// Key filtering criteria.
     pub key: Option<QueryKey<V::MapKey>>,
 }
 
-impl<'a, 'k, Cn, V> View<'a, 'k, Cn, V>
+impl<'a, Cn, V> View<'a, Cn, V>
 where
-    V: schema::View<'k>,
+    V: schema::View,
     Cn: Connection<'a>,
 {
     fn new(connection: &'a Cn) -> Self {
@@ -128,7 +128,7 @@ where
     }
 
     /// Executes the query and retrieves the results.
-    pub async fn query(self) -> Result<Vec<map::Serialized<'static>>, Error> {
+    pub async fn query(self) -> Result<Vec<map::Serialized>, Error> {
         self.connection.query(self).await
     }
 }
