@@ -77,16 +77,13 @@ where
 
 #[test]
 fn schema_tests() {
-    use crate::test_util::{BasicCollection, BasicCount, BasicDatabase};
+    use crate::test_util::{Basic, BasicCount, BasicDatabase};
     let mut schema = Schema::default();
     BasicDatabase::define_collections(&mut schema);
 
     assert_eq!(schema.collections.len(), 1);
-    assert_eq!(
-        schema.collections[&TypeId::of::<BasicCollection>()],
-        BasicCollection::id()
-    );
-    assert_eq!(schema.views.len(), 1);
+    assert_eq!(schema.collections[&TypeId::of::<Basic>()], Basic::id());
+    assert_eq!(schema.views.len(), 2);
     assert_eq!(
         schema.views[&TypeId::of::<BasicCount>()].name(),
         BasicCount.name()

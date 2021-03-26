@@ -128,7 +128,7 @@ impl<'a> Document<'a> {
 fn emissions_tests() -> Result<(), crate::Error> {
     use crate::{
         schema::{Collection, Map},
-        test_util::{Basic, BasicCollection},
+        test_util::Basic,
     };
 
     let doc = Document::with_contents(
@@ -137,7 +137,7 @@ fn emissions_tests() -> Result<(), crate::Error> {
             value: String::default(),
             parent_id: None,
         },
-        BasicCollection::id(),
+        Basic::id(),
     )?;
 
     assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));

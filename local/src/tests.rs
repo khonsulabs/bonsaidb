@@ -2,7 +2,7 @@ use pliantdb_core::{
     connection::Connection,
     document::Document,
     schema::Collection,
-    test_util::{Basic, BasicByParentId, BasicCollection, TestDirectory},
+    test_util::{Basic, BasicByParentId, TestDirectory},
     Error,
 };
 use std::borrow::Cow;
@@ -14,13 +14,13 @@ use crate::Storage;
 #[tokio::test(flavor = "multi_thread")]
 async fn store_retrieve_update() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("store-retrieve-update");
-    let db = Storage::<BasicCollection>::open_local(path).await?;
+    let db = Storage::<Basic>::open_local(path).await?;
 
     let original_value = Basic {
         value: String::from("initial_value"),
         parent_id: None,
     };
-    let collection = db.collection::<BasicCollection>()?;
+    let collection = db.collection::<Basic>()?;
     let header = collection.push(&original_value).await?;
 
     let mut doc = collection
@@ -52,10 +52,7 @@ async fn store_retrieve_update() -> Result<(), anyhow::Error> {
     assert!(transactions[0].id < transactions[1].id);
     for transaction in transactions {
         assert_eq!(transaction.changed_documents.len(), 1);
-        assert_eq!(
-            transaction.changed_documents[0].collection,
-            BasicCollection::id()
-        );
+        assert_eq!(transaction.changed_documents[0].collection, Basic::id());
         assert_eq!(transaction.changed_documents[0].id, header.id);
     }
 
@@ -65,9 +62,9 @@ async fn store_retrieve_update() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn not_found() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("not-found");
-    let db = Storage::<BasicCollection>::open_local(path).await?;
+    let db = Storage::<Basic>::open_local(path).await?;
 
-    assert!(db.collection::<BasicCollection>()?.get(1).await?.is_none());
+    assert!(db.collection::<Basic>()?.get(1).await?.is_none());
 
     Ok(())
 }
@@ -75,13 +72,13 @@ async fn not_found() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn conflict() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("conflict");
-    let db = Storage::<BasicCollection>::open_local(path).await?;
+    let db = Storage::<Basic>::open_local(path).await?;
 
     let original_value = Basic {
         value: String::from("initial_value"),
         parent_id: None,
     };
-    let collection = db.collection::<BasicCollection>()?;
+    let collection = db.collection::<Basic>()?;
     let header = collection.push(&original_value).await?;
 
     let mut doc = collection
@@ -102,7 +99,7 @@ async fn conflict() -> Result<(), anyhow::Error> {
         .expect_err("conflict should have generated an error")
     {
         Error::DocumentConflict(collection, id) => {
-            assert_eq!(collection, BasicCollection::id());
+            assert_eq!(collection, Basic::id());
             assert_eq!(id, doc.header.id);
         }
         other => return Err(anyhow::Error::from(other)),
@@ -114,12 +111,12 @@ async fn conflict() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn bad_update() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("bad_update");
-    let db = Storage::<BasicCollection>::open_local(path).await?;
+    let db = Storage::<Basic>::open_local(path).await?;
 
-    let mut doc = Document::with_contents(1, &Basic::default(), BasicCollection::id())?;
+    let mut doc = Document::with_contents(1, &Basic::default(), Basic::id())?;
     match db.update(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
-            assert_eq!(collection, BasicCollection::id());
+            assert_eq!(collection, Basic::id());
             assert_eq!(id, 1);
             Ok(())
         }
@@ -130,13 +127,13 @@ async fn bad_update() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn no_update() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("no-update");
-    let db = Storage::<BasicCollection>::open_local(path).await?;
+    let db = Storage::<Basic>::open_local(path).await?;
 
     let original_value = Basic {
         value: String::from("initial_value"),
         parent_id: None,
     };
-    let collection = db.collection::<BasicCollection>()?;
+    let collection = db.collection::<Basic>()?;
     let header = collection.push(&original_value).await?;
 
     let mut doc = collection
@@ -153,8 +150,8 @@ async fn no_update() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn list_transactions() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("list-transactions");
-    let db = Storage::<BasicCollection>::open_local(path).await?;
-    let collection = db.collection::<BasicCollection>()?;
+    let db = Storage::<Basic>::open_local(path).await?;
+    let collection = db.collection::<Basic>()?;
 
     // create LIST_TRANSACTIONS_MAX_RESULTS + 1 items, giving us just enough
     // transactions to test the edge cases of `list_transactions`
@@ -202,8 +199,8 @@ async fn list_transactions() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn view_query() -> anyhow::Result<()> {
     let path = TestDirectory::new("list-transactions");
-    let db = Storage::<BasicCollection>::open_local(path).await?;
-    let collection = db.collection::<BasicCollection>()?;
+    let db = Storage::<Basic>::open_local(path).await?;
+    let collection = db.collection::<Basic>()?;
     let a = collection
         .push(&Basic {
             value: String::from("A"),
