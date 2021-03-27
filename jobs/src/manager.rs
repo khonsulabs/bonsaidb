@@ -15,6 +15,7 @@ pub(crate) use managed_job::ManagedJob;
 #[cfg(test)]
 mod tests;
 
+/// A background jobs manager.
 #[derive(Debug)]
 pub struct Manager<Key = ()> {
     pub(crate) jobs: Arc<RwLock<jobs::Jobs<Key>>>,
@@ -43,11 +44,17 @@ impl<Key> Manager<Key>
 where
     Key: Clone + std::hash::Hash + Eq + Send + Sync + Debug + 'static,
 {
+    /// Pushes a `job` into the queue. Pushing the same job definition twice
+    /// will yield two tasks in the queue.
     pub async fn enqueue<J: Job + 'static>(&self, job: J) -> Handle<J::Output, Key> {
         let mut jobs = self.jobs.write().await;
         jobs.enqueue(job, None, self.clone())
     }
 
+    /// Uses [`Keyed::key`] to ensure no other job with the same `key` is
+    /// currently running. If another job is already running that matches, a
+    /// clone of that [`Handle`] will be returned. When the job finishes, all
+    /// [`Handle`] clones will be notified with a copy of the result.
     pub async fn lookup_or_enqueue<J: Keyed<Key>>(
         &self,
         job: J,
@@ -56,7 +63,7 @@ where
         jobs.lookup_or_enqueue(job, self.clone())
     }
 
-    pub async fn job_completed<T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static>(
+    async fn job_completed<T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static>(
         &self,
         id: Id,
         key: Option<&Key>,
@@ -66,6 +73,8 @@ where
         jobs.job_completed(id, key, result).await
     }
 
+    /// Spawns a worker. In general, you shouldn't need to call this function
+    /// directly.
     pub fn spawn_worker(&self) {
         let manager = self.clone();
         tokio::spawn(async move { manager.execute_jobs().await });

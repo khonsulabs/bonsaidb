@@ -1,7 +1,9 @@
+//! Aysnc jobs management for `PliantDB`.
+
 #![forbid(unsafe_code)]
 #![warn(
     clippy::cargo,
-    // TODO missing_docs, 
+    missing_docs, 
     // clippy::missing_docs_in_private_items,
     clippy::nursery,
     clippy::pedantic,
@@ -15,8 +17,10 @@
     clippy::option_if_let_else,
 )]
 
+/// Types related to the job [`Manager`].
 pub mod manager;
+/// Types related to defining [`Job`]s.
 pub mod task;
 mod traits;
 
-pub use self::traits::{Job, Keyed, Service};
+pub use self::traits::{Job, Keyed};
