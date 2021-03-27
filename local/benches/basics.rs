@@ -38,9 +38,9 @@ fn criterion_benchmark(c: &mut Criterion) {
     // First set of benchmarks tests inserting documents
     let mut group = c.benchmark_group("save_documents");
     for size in [KB, 2 * KB, 8 * KB, 32 * KB, KB * KB].iter() {
-        let path = TestDirectory::new("benches-basics");
+        let path = TestDirectory::new(format!("benches-basics-{}.pliantdb", size));
         let db = runtime
-            .block_on(Storage::open_local(path, &Configuration::default()))
+            .block_on(Storage::open_local(&path, &Configuration::default()))
             .unwrap();
         let mut data = Vec::with_capacity(*size);
         data.resize_with(*size, || 7u8);

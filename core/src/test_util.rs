@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    io::ErrorKind,
     path::{Path, PathBuf},
 };
 
@@ -173,7 +174,9 @@ impl TestDirectory {
 impl Drop for TestDirectory {
     fn drop(&mut self) {
         if let Err(err) = std::fs::remove_dir_all(&self.0) {
-            eprintln!("Failed to clean up temporary folder: {:?}", err);
+            if err.kind() != ErrorKind::NotFound {
+                eprintln!("Failed to clean up temporary folder: {:?}", err);
+            }
         }
     }
 }
