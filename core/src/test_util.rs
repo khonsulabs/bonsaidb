@@ -194,3 +194,14 @@ impl Collection for BasicCollectionWithNoViews {
 
     fn define_views(_schema: &mut Schema) {}
 }
+
+#[derive(Debug)]
+pub struct UnassociatedCollection;
+
+impl Collection for UnassociatedCollection {
+    fn id() -> collection::Id {
+        collection::Id::from("unassociated")
+    }
+
+    fn define_views(_schema: &mut Schema) {}
+}

@@ -4,7 +4,7 @@ use pliantdb_core::{
     connection::Connection,
     document::Document,
     schema::Collection,
-    test_util::{Basic, BasicByCategory, BasicByParentId, TestDirectory},
+    test_util::{Basic, BasicByCategory, BasicByParentId, TestDirectory, UnassociatedCollection},
     Error,
 };
 use storage::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS};
@@ -245,6 +245,18 @@ async fn view_query() -> anyhow::Result<()> {
 
     let items_with_categories = db.view::<BasicByCategory>().query().await?;
     assert_eq!(items_with_categories.len(), 3);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unassociated_collection() -> Result<(), anyhow::Error> {
+    let path = TestDirectory::new("unassociated-collection");
+    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    assert!(matches!(
+        db.collection::<UnassociatedCollection>(),
+        Err(pliantdb_core::Error::CollectionNotFound)
+    ));
 
     Ok(())
 }
