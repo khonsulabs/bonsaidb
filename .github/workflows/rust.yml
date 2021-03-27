@@ -83,7 +83,7 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
           CARGO_INCREMENTAL: 0
-          RUSTFLAGS: "-Zinstrument-coverage -Cinline-threshold=0"
+          RUSTFLAGS: "-Zinstrument-coverage"
           RUSTDOCFLAGS: "-Cpanic=abort"
 
       - name: Deploy Docs
