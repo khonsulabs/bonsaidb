@@ -6,17 +6,16 @@ use pliantdb_core::{
     schema::{collection, map, Database},
 };
 use pliantdb_jobs::{Job, Keyed};
-
-use crate::{storage::document_tree_name, Storage};
+use sled::{
+    transaction::{ConflictableTransactionError, TransactionError, TransactionalTree},
+    IVec, Transactional, Tree,
+};
 
 use super::{
     view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
     view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
 };
-use sled::{
-    transaction::{ConflictableTransactionError, TransactionalTree},
-    IVec, Transactional, Tree,
-};
+use crate::{storage::document_tree_name, Storage};
 
 #[derive(Debug)]
 pub struct Mapper<DB> {
@@ -135,8 +134,8 @@ fn map_view<DB: Database>(
                 },
             )
             .map_err(|err| match err {
-                sled::transaction::TransactionError::Abort(err) => err,
-                sled::transaction::TransactionError::Storage(err) => anyhow::Error::from(err),
+                TransactionError::Abort(err) => err,
+                TransactionError::Storage(err) => anyhow::Error::from(err),
             })?;
     }
 
@@ -160,8 +159,8 @@ impl<'a, DB: Database> DocumentRequest<'a, DB> {
         self.invalidated_entries.remove(self.document_id)?;
 
         let document = self.documents.get(self.document_id)?.unwrap();
-        let document = bincode::deserialize::<Document<'_>>(&document)
-            .map_err(|err| ConflictableTransactionError::Abort(anyhow::Error::from(err)))?;
+        let document =
+            bincode::deserialize::<Document<'_>>(&document).map_to_transaction_error()?;
 
         // Call the schema map function
         let view = self
@@ -169,9 +168,7 @@ impl<'a, DB: Database> DocumentRequest<'a, DB> {
             .schema
             .view_by_name(&self.map_request.view_name)
             .unwrap();
-        let map_result = view
-            .map(&document)
-            .map_err(|err| ConflictableTransactionError::Abort(anyhow::Error::from(err)))?;
+        let map_result = view.map(&document).map_to_transaction_error()?;
 
         if let Some(map::Serialized { source, key, value }) = map_result {
             self.omitted_entries.remove(self.document_id)?;
@@ -186,9 +183,7 @@ impl<'a, DB: Database> DocumentRequest<'a, DB> {
                 .document_map
                 .insert(
                     self.document_id,
-                    bincode::serialize(&keys).map_err(|err| {
-                        ConflictableTransactionError::Abort(anyhow::Error::from(err))
-                    })?,
+                    bincode::serialize(&keys).map_to_transaction_error()?,
                 )?
                 .is_none()); // TODO need to implement updating an existing document's entries -- have to remove the entries for the old key it used to have
 
@@ -198,7 +193,7 @@ impl<'a, DB: Database> DocumentRequest<'a, DB> {
             // ViewEntry for the key given
             let view_entry = if let Some(existing_entry) = self.view_entries.get(&key)? {
                 let mut entry = bincode::deserialize::<ViewEntry>(&existing_entry)
-                    .map_err(|err| ConflictableTransactionError::Abort(anyhow::Error::from(err)))?;
+                    .map_to_transaction_error()?;
 
                 // attempt to update an existing
                 // entry for this document, if
@@ -227,8 +222,7 @@ impl<'a, DB: Database> DocumentRequest<'a, DB> {
             };
             self.view_entries.insert(
                 key,
-                bincode::serialize(&view_entry)
-                    .map_err(|err| ConflictableTransactionError::Abort(anyhow::Error::from(err)))?,
+                bincode::serialize(&view_entry).map_to_transaction_error()?,
             )?;
         } else {
             // When no entry is emitted, the document map is emptied and a note is made in omitted_entries
@@ -247,5 +241,15 @@ where
 {
     fn key(&self) -> Task {
         Task::ViewMap(self.map.clone())
+    }
+}
+
+trait ToTransactionResult<T, E> {
+    fn map_to_transaction_error<RE: From<E>>(self) -> Result<T, ConflictableTransactionError<RE>>;
+}
+
+impl<T, E> ToTransactionResult<T, E> for Result<T, E> {
+    fn map_to_transaction_error<RE: From<E>>(self) -> Result<T, ConflictableTransactionError<RE>> {
+        self.map_err(|err| ConflictableTransactionError::Abort(RE::from(err)))
     }
 }

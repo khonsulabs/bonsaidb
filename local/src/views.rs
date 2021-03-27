@@ -1,7 +1,7 @@
 use pliantdb_core::schema::collection;
+use serde::{Deserialize, Serialize};
 
 use self::{integrity_scanner::IntegrityScan, mapper::Map};
-use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewEntry {

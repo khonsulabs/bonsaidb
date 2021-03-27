@@ -11,6 +11,34 @@ use crate::{
     schema::{collection, view, Collection, Database, MapResult, Schema, View},
 };
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
+pub struct Basic {
+    pub value: String,
+    pub category: Option<String>,
+    pub parent_id: Option<u64>,
+}
+
+impl Basic {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self {
+            value: value.into(),
+            category: None,
+            parent_id: None,
+        }
+    }
+
+    pub fn with_category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
+    }
+
+    #[must_use]
+    pub const fn with_parent_id(mut self, parent_id: u64) -> Self {
+        self.parent_id = Some(parent_id);
+        self
+    }
+}
+
 impl Collection for Basic {
     fn id() -> collection::Id {
         collection::Id::from("tests.basic")
@@ -19,6 +47,7 @@ impl Collection for Basic {
     fn define_views(schema: &mut Schema) {
         schema.define_view(BasicCount);
         schema.define_view(BasicByParentId);
+        schema.define_view(BasicByCategory)
     }
 }
 
@@ -83,10 +112,41 @@ impl View for BasicByParentId {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
-pub struct Basic {
-    pub value: String,
-    pub parent_id: Option<u64>,
+#[derive(Debug)]
+pub struct BasicByCategory;
+
+impl View for BasicByCategory {
+    type Collection = Basic;
+    type MapKey = String;
+    type MapValue = usize;
+    type Reduce = usize;
+
+    fn version(&self) -> usize {
+        0
+    }
+
+    fn name(&self) -> Cow<'static, str> {
+        Cow::from("by-category")
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::MapKey, Self::MapValue> {
+        let contents = document.contents::<Basic>()?;
+        if let Some(category) = &contents.category {
+            Ok(Some(
+                document.emit_key_and_value(category.to_lowercase(), 1),
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[Map<Self::MapKey, Self::MapValue>],
+        _rereduce: bool,
+    ) -> Result<Self::Reduce, view::Error> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
 }
 
 #[derive(Debug)]

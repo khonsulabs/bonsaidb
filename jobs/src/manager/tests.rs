@@ -1,11 +1,10 @@
-use flume::TryRecvError;
-use serde::{Deserialize, Serialize};
-use std::{fmt::Debug, hash::Hash, time::Duration};
+use std::{fmt::Debug, hash::Hash};
 
-use crate::{Job, Keyed};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use super::Manager;
+use crate::{Job, Keyed};
 
 #[derive(Debug)]
 struct Echo<T>(T);

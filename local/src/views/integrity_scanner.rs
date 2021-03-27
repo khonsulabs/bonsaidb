@@ -5,12 +5,11 @@ use pliantdb_core::schema::{collection, Database, Key};
 use pliantdb_jobs::{Job, Keyed};
 use sled::{IVec, Tree};
 
-use crate::{storage::document_tree_name, Storage};
-
 use super::{
     mapper::{Map, Mapper},
     view_document_map_tree_name, view_invalidated_docs_tree_name, Task,
 };
+use crate::{storage::document_tree_name, Storage};
 
 #[derive(Debug)]
 pub struct IntegrityScanner<DB> {

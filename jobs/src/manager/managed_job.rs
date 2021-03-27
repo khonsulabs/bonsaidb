@@ -1,6 +1,8 @@
-use crate::{manager::Manager, task::Id, traits::Executable, Job};
-use async_trait::async_trait;
 use std::fmt::Debug;
+
+use async_trait::async_trait;
+
+use crate::{manager::Manager, task::Id, traits::Executable, Job};
 
 #[derive(Debug)]
 pub struct ManagedJob<J, Key> {

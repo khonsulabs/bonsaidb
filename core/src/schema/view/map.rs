@@ -54,6 +54,16 @@ impl<'k> Key for Cow<'k, [u8]> {
     }
 }
 
+impl Key for String {
+    fn as_big_endian_bytes(&self) -> Cow<'_, [u8]> {
+        Cow::Borrowed(self.as_bytes())
+    }
+
+    fn from_big_endian_bytes(bytes: &[u8]) -> Self {
+        Self::from_utf8(bytes.to_vec()).unwrap() // TODO this should be able to propogate an error
+    }
+}
+
 impl Key for () {
     fn as_big_endian_bytes(&self) -> Cow<'_, [u8]> {
         Cow::default()

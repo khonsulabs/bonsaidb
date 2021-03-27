@@ -1,11 +1,12 @@
+use std::borrow::Cow;
+
 use pliantdb_core::{
     connection::Connection,
     document::Document,
     schema::Collection,
-    test_util::{Basic, BasicByParentId, TestDirectory},
+    test_util::{Basic, BasicByCategory, BasicByParentId, TestDirectory},
     Error,
 };
-use std::borrow::Cow;
 use storage::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS};
 
 use super::*;
@@ -16,10 +17,7 @@ async fn store_retrieve_update() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("store-retrieve-update");
     let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
 
-    let original_value = Basic {
-        value: String::from("initial_value"),
-        parent_id: None,
-    };
+    let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>()?;
     let header = collection.push(&original_value).await?;
 
@@ -74,10 +72,7 @@ async fn conflict() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("conflict");
     let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
 
-    let original_value = Basic {
-        value: String::from("initial_value"),
-        parent_id: None,
-    };
+    let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>()?;
     let header = collection.push(&original_value).await?;
 
@@ -129,10 +124,7 @@ async fn no_update() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("no-update");
     let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
 
-    let original_value = Basic {
-        value: String::from("initial_value"),
-        parent_id: None,
-    };
+    let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>()?;
     let header = collection.push(&original_value).await?;
 
@@ -201,35 +193,20 @@ async fn view_query() -> anyhow::Result<()> {
     let path = TestDirectory::new("view-query");
     let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
     let collection = db.collection::<Basic>()?;
-    let a = collection
-        .push(&Basic {
-            value: String::from("A"),
-            parent_id: None,
-        })
-        .await?;
-    let b = collection
-        .push(&Basic {
-            value: String::from("B"),
-            parent_id: None,
-        })
+    let a = collection.push(&Basic::new("A")).await?;
+    let b = collection.push(&Basic::new("B")).await?;
+    collection
+        .push(
+            &Basic::new("A.1")
+                .with_parent_id(a.id)
+                .with_category("Alpha"),
+        )
         .await?;
     collection
-        .push(&Basic {
-            value: String::from("A.1"),
-            parent_id: Some(a.id),
-        })
+        .push(&Basic::new("B.1").with_parent_id(b.id).with_category("Beta"))
         .await?;
     collection
-        .push(&Basic {
-            value: String::from("B.1"),
-            parent_id: Some(b.id),
-        })
-        .await?;
-    collection
-        .push(&Basic {
-            value: String::from("B.2"),
-            parent_id: Some(b.id),
-        })
+        .push(&Basic::new("B.2").with_parent_id(b.id).with_category("beta"))
         .await?;
 
     let a_children = db
@@ -245,6 +222,9 @@ async fn view_query() -> anyhow::Result<()> {
         .query()
         .await?;
     assert_eq!(b_children.len(), 2);
+
+    let items_with_categories = db.view::<BasicByCategory>().query().await?;
+    assert_eq!(items_with_categories.len(), 3);
 
     Ok(())
 }

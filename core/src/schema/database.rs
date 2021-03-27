@@ -6,10 +6,8 @@ use std::{
 
 use crate::schema::{
     collection::{self, Collection},
-    View,
+    view, View,
 };
-
-use super::view;
 
 /// Defines a group of collections that are stored into a single database.
 pub trait Database: Send + Sync + Debug + 'static {
@@ -88,7 +86,7 @@ fn schema_tests() {
 
     assert_eq!(schema.collections.len(), 1);
     assert_eq!(schema.collections[&TypeId::of::<Basic>()], Basic::id());
-    assert_eq!(schema.views.len(), 2);
+    assert_eq!(schema.views.len(), 3);
     assert_eq!(
         schema.views[&TypeId::of::<BasicCount>()].name(),
         BasicCount.name()

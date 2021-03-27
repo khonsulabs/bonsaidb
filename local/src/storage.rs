@@ -296,7 +296,10 @@ where
         Self: Sized,
     {
         let View { key, .. } = query;
-        let view = self.schema.view::<V>().unwrap();
+        let view = self
+            .schema
+            .view::<V>()
+            .expect("query made with view that isn't registered with this database");
         self.tasks
             .update_view_if_needed(view, self)
             .await
