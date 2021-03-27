@@ -127,6 +127,20 @@ where
         self
     }
 
+    /// Filters for entries in the view with `keys`.
+    #[must_use]
+    pub fn with_keys(mut self, keys: Vec<V::MapKey>) -> Self {
+        self.key = Some(QueryKey::Multiple(keys));
+        self
+    }
+
+    /// Filters for entries in the view with `keys`.
+    #[must_use]
+    pub fn with_key_range(mut self, range: Range<V::MapKey>) -> Self {
+        self.key = Some(QueryKey::Range(range));
+        self
+    }
+
     /// Executes the query and retrieves the results.
     pub async fn query(self) -> Result<Vec<map::Serialized>, Error> {
         self.connection.query(self).await

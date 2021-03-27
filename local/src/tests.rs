@@ -64,6 +64,8 @@ async fn not_found() -> Result<(), anyhow::Error> {
 
     assert!(db.collection::<Basic>()?.get(1).await?.is_none());
 
+    assert!(db.last_transaction_id().await?.is_none());
+
     Ok(())
 }
 
@@ -222,6 +224,24 @@ async fn view_query() -> anyhow::Result<()> {
         .query()
         .await?;
     assert_eq!(b_children.len(), 2);
+
+    let a_and_b_children = db
+        .view::<BasicByParentId>()
+        .with_keys(vec![Some(a.id), Some(b.id)])
+        .query()
+        .await?;
+    assert_eq!(a_and_b_children.len(), 3);
+
+    let has_parent = db
+        .view::<BasicByParentId>()
+        // TODO range is tough because there's no single structure that works
+        // here. RangeBounds is a trait. We'll need to use something else, but
+        // my quick search doesn't find a serde-compatible library already
+        // written. This should be an inclusive range
+        .with_key_range(Some(0)..Some(u64::MAX))
+        .query()
+        .await?;
+    assert_eq!(has_parent.len(), 3);
 
     let items_with_categories = db.view::<BasicByCategory>().query().await?;
     assert_eq!(items_with_categories.len(), 3);

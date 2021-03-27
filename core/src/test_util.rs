@@ -183,3 +183,14 @@ impl AsRef<Path> for TestDirectory {
         &self.0
     }
 }
+
+#[derive(Debug)]
+pub struct BasicCollectionWithNoViews;
+
+impl Collection for BasicCollectionWithNoViews {
+    fn id() -> collection::Id {
+        Basic::id()
+    }
+
+    fn define_views(_schema: &mut Schema) {}
+}
