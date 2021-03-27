@@ -104,6 +104,14 @@ where
             job.receive().await.unwrap();
         }
 
+        self.storage
+            .tasks
+            .mark_integrity_check_complete(
+                self.scan.collection.clone(),
+                self.scan.view_name.clone(),
+            )
+            .await;
+
         Ok(())
     }
 }

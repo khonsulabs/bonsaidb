@@ -75,7 +75,7 @@ where
         let map_request = self.map.clone();
 
         tokio::task::spawn_blocking(move || {
-            dbg!(map_view(
+            map_view(
                 &invalidated_entries,
                 &document_map,
                 &documents,
@@ -83,7 +83,7 @@ where
                 &view_entries,
                 &storage,
                 &map_request,
-            ))
+            )
         })
         .await??;
 

@@ -111,4 +111,15 @@ impl TaskManager {
 
         Ok(None)
     }
+
+    pub async fn mark_integrity_check_complete(
+        &self,
+        collection: collection::Id,
+        view_name: Cow<'static, str>,
+    ) {
+        let mut statuses = self.statuses.write().await;
+        statuses
+            .completed_integrity_checks
+            .insert((collection, view_name));
+    }
 }
