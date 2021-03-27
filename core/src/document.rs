@@ -87,29 +87,29 @@ impl<'a> Document<'a> {
 
     /// Creates a `Map` result with an empty key and value.
     #[must_use]
-    pub fn emit(&self) -> Map<'static, (), ()> {
+    pub fn emit(&self) -> Map<(), ()> {
         self.emit_key_and_value((), ())
     }
 
     /// Creates a `Map` result with a `key` and an empty value.
     #[must_use]
-    pub fn emit_key<'k, Key: map::Key<'k>>(&self, key: Key) -> Map<'k, Key, ()> {
+    pub fn emit_key<Key: map::Key>(&self, key: Key) -> Map<Key, ()> {
         self.emit_key_and_value(key, ())
     }
 
     /// Creates a `Map` result with `value` and an empty key.
     #[must_use]
-    pub fn emit_value<Value: Serialize>(&self, value: Value) -> Map<'static, (), Value> {
+    pub fn emit_value<Value: Serialize>(&self, value: Value) -> Map<(), Value> {
         self.emit_key_and_value((), value)
     }
 
     /// Creates a `Map` result with a `key` and `value`.
     #[must_use]
-    pub fn emit_key_and_value<'k, Key: map::Key<'k>, Value: Serialize>(
+    pub fn emit_key_and_value<Key: map::Key, Value: Serialize>(
         &self,
         key: Key,
         value: Value,
-    ) -> Map<'k, Key, Value> {
+    ) -> Map<Key, Value> {
         Map::new(self.header.id, key, value)
     }
 
@@ -128,17 +128,10 @@ impl<'a> Document<'a> {
 fn emissions_tests() -> Result<(), crate::Error> {
     use crate::{
         schema::{Collection, Map},
-        test_util::{Basic, BasicCollection},
+        test_util::Basic,
     };
 
-    let doc = Document::with_contents(
-        1,
-        &Basic {
-            value: String::default(),
-            parent_id: None,
-        },
-        BasicCollection::id(),
-    )?;
+    let doc = Document::with_contents(1, &Basic::default(), Basic::id())?;
 
     assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));
 

@@ -1,16 +1,16 @@
 use std::{
     any::{Any, TypeId},
-    borrow::Cow,
     collections::HashMap,
+    fmt::Debug,
 };
 
 use crate::schema::{
     collection::{self, Collection},
-    View,
+    view, View,
 };
 
 /// Defines a group of collections that are stored into a single database.
-pub trait Database: Send + Sync {
+pub trait Database: Send + Sync + Debug + 'static {
     /// Defines the `Collection`s into `schema`
     fn define_collections(schema: &mut Schema);
 }
@@ -20,10 +20,11 @@ trait ThreadsafeAny: Any + Send + Sync {}
 impl<T> ThreadsafeAny for T where T: Any + Send + Sync {}
 
 /// A collection of defined collections and views.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Schema {
     collections: HashMap<TypeId, collection::Id>,
-    views: HashMap<TypeId, Cow<'static, str>>,
+    views: HashMap<TypeId, Box<dyn view::Serialized>>,
+    views_by_name: HashMap<String, TypeId>,
 }
 
 impl Schema {
@@ -34,14 +35,37 @@ impl Schema {
     }
 
     /// Adds the view `V`.
-    pub fn define_view<'k, V: View<'k> + 'static>(&mut self) {
-        self.views.insert(TypeId::of::<V>(), V::name());
+    pub fn define_view<V: View + 'static>(&mut self, view: V) {
+        let name = view.name();
+        self.views.insert(TypeId::of::<V>(), Box::new(view));
+        self.views_by_name
+            .insert(name.to_string(), TypeId::of::<V>());
     }
 
     /// Returns `true` if this schema contains the collection `C`.
     #[must_use]
     pub fn contains<C: Collection + 'static>(&self) -> bool {
         self.collections.contains_key(&TypeId::of::<C>())
+    }
+
+    /// Looks up a [`view::Serialized`] by name.
+    #[must_use]
+    pub fn view_by_name(&self, name: &str) -> Option<&'_ dyn view::Serialized> {
+        self.views_by_name
+            .get(name)
+            .and_then(|type_id| self.views.get(type_id))
+            .map(AsRef::as_ref)
+    }
+
+    /// Looks up a [`view::Serialized`] through the the type `V`.
+    #[must_use]
+    pub fn view<V: View + 'static>(&self) -> Option<&'_ dyn view::Serialized> {
+        self.views.get(&TypeId::of::<V>()).map(AsRef::as_ref)
+    }
+
+    /// Iterates over all registered views.
+    pub fn views(&self) -> impl Iterator<Item = &'_ dyn view::Serialized> {
+        self.views.values().map(AsRef::as_ref)
     }
 }
 
@@ -56,18 +80,15 @@ where
 
 #[test]
 fn schema_tests() {
-    use crate::test_util::{BasicCollection, BasicCount, BasicDatabase};
+    use crate::test_util::{Basic, BasicCount, BasicDatabase};
     let mut schema = Schema::default();
     BasicDatabase::define_collections(&mut schema);
 
     assert_eq!(schema.collections.len(), 1);
+    assert_eq!(schema.collections[&TypeId::of::<Basic>()], Basic::id());
+    assert_eq!(schema.views.len(), 3);
     assert_eq!(
-        schema.collections[&TypeId::of::<BasicCollection>()],
-        BasicCollection::id()
-    );
-    assert_eq!(schema.views.len(), 1);
-    assert_eq!(
-        schema.views[&TypeId::of::<BasicCount>()],
-        BasicCount::name()
+        schema.views[&TypeId::of::<BasicCount>()].name(),
+        BasicCount.name()
     );
 }

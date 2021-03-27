@@ -6,10 +6,10 @@ use pliantdb_core::{
     schema::{collection, Collection, Schema},
     test_util::TestDirectory,
 };
-use pliantdb_local::Storage;
+use pliantdb_local::{Configuration, Storage};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct ResizableDocument<'a> {
     #[serde(borrow)]
     data: Cow<'a, [u8]>,
@@ -38,8 +38,10 @@ fn criterion_benchmark(c: &mut Criterion) {
     // First set of benchmarks tests inserting documents
     let mut group = c.benchmark_group("save_documents");
     for size in [KB, 2 * KB, 8 * KB, 32 * KB, KB * KB].iter() {
-        let path = TestDirectory::new("benches-basics");
-        let db = Storage::open_local(path).unwrap();
+        let path = TestDirectory::new(format!("benches-basics-{}.pliantdb", size));
+        let db = runtime
+            .block_on(Storage::open_local(&path, &Configuration::default()))
+            .unwrap();
         let mut data = Vec::with_capacity(*size);
         data.resize_with(*size, || 7u8);
         let doc = Arc::new(ResizableDocument {

@@ -2,17 +2,24 @@ use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sy
 
 use async_trait::async_trait;
 use pliantdb_core::{
-    connection::{Collection, Connection},
+    connection::{Collection, Connection, QueryKey, View},
     document::{Document, Header},
-    schema::{self, collection, Database, Key, Schema},
+    schema::{self, collection, map, view, Database, Key, Schema},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
+use pliantdb_jobs::manager::Manager;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError, TransactionalTree},
-    Transactional,
+    IVec, Transactional, Tree,
 };
 
-use crate::{error::ResultExt as _, open_trees::OpenTrees, Error};
+use crate::{
+    error::ResultExt as _,
+    open_trees::OpenTrees,
+    tasks::TaskManager,
+    views::{view_entries_tree_name, ViewEntry},
+    Configuration, Error,
+};
 
 /// The maximum number of results allowed to be returned from `list_executed_transactions`.
 pub const LIST_TRANSACTIONS_MAX_RESULTS: usize = 1000;
@@ -20,11 +27,23 @@ pub const LIST_TRANSACTIONS_MAX_RESULTS: usize = 1000;
 pub const LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT: usize = 100;
 
 /// A local, file-based database.
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct Storage<DB> {
-    sled: sled::Db,
-    collections: Arc<Schema>,
+    pub(crate) sled: sled::Db,
+    pub(crate) schema: Arc<Schema>,
+    pub(crate) tasks: TaskManager,
     _schema: PhantomData<DB>,
+}
+
+impl<DB> Clone for Storage<DB> {
+    fn clone(&self) -> Self {
+        Self {
+            sled: self.sled.clone(),
+            schema: self.schema.clone(),
+            tasks: self.tasks.clone(),
+            _schema: PhantomData::default(),
+        }
+    }
 }
 
 impl<DB> Storage<DB>
@@ -32,17 +51,55 @@ where
     DB: Database,
 {
     /// Opens a local file as a pliantdb.
-    pub fn open_local<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        let mut collections = Schema::default();
-        DB::define_collections(&mut collections);
+    pub async fn open_local<P: AsRef<Path> + Send>(
+        path: P,
+        configuration: &Configuration,
+    ) -> Result<Self, Error> {
+        let owned_path = path.as_ref().to_owned();
 
-        sled::open(path)
-            .map(|sled| Self {
-                sled,
-                collections: Arc::new(collections),
-                _schema: PhantomData::default(),
-            })
-            .map_err(Error::from)
+        let manager = Manager::default();
+        for _ in 0..configuration.workers.worker_count {
+            manager.spawn_worker();
+        }
+        let tasks = TaskManager::new(manager);
+
+        let storage = tokio::task::spawn_blocking(move || {
+            let mut collections = Schema::default();
+            DB::define_collections(&mut collections);
+
+            sled::open(owned_path)
+                .map(|sled| Self {
+                    sled,
+                    schema: Arc::new(collections),
+                    tasks,
+                    _schema: PhantomData::default(),
+                })
+                .map_err(Error::from)
+        })
+        .await
+        .unwrap()?;
+
+        if configuration.views.check_integrity_on_open {
+            for view in storage.schema.views() {
+                storage.tasks.spawn_integrity_check(view, &storage).await?;
+            }
+        }
+
+        Ok(storage)
+    }
+
+    /// Fetches the last transaction id that has been committed, if any.
+    pub async fn last_transaction_id(&self) -> Result<Option<u64>, Error> {
+        tokio::task::block_in_place(|| {
+            let tree = self.sled.open_tree(TRANSACTION_TREE_NAME)?;
+            if let Some((key, _)) = tree.last()? {
+                Ok(Some(
+                    u64::from_big_endian_bytes(&key).map_err(view::Error::KeySerialization)?,
+                ))
+            } else {
+                Ok(None)
+            }
+        })
     }
 }
 
@@ -57,7 +114,7 @@ where
     where
         Self: Sized,
     {
-        if self.collections.contains::<C>() {
+        if self.schema.contains::<C>() {
             Ok(Collection::new(self))
         } else {
             Err(pliantdb_core::Error::CollectionNotFound)
@@ -172,19 +229,28 @@ where
         &self,
         id: u64,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
-        let tree = self
-            .sled
-            .open_tree(document_tree_name(&C::id()))
-            .map_err_to_core()?;
-        if let Some(vec) = tree.get(id.into_big_endian_bytes()).map_err_to_core()? {
-            Ok(Some(
-                bincode::deserialize::<Document<'_>>(&vec)
-                    .map_err_to_core()?
-                    .to_owned(),
-            ))
-        } else {
-            Ok(None)
-        }
+        tokio::task::block_in_place(|| {
+            let tree = self
+                .sled
+                .open_tree(document_tree_name(&C::id()))
+                .map_err_to_core()?;
+            if let Some(vec) = tree
+                .get(
+                    id.as_big_endian_bytes()
+                        .map_err(view::Error::KeySerialization)
+                        .map_err_to_core()?,
+                )
+                .map_err_to_core()?
+            {
+                Ok(Some(
+                    bincode::deserialize::<Document<'_>>(&vec)
+                        .map_err_to_core()?
+                        .to_owned(),
+                ))
+            } else {
+                Ok(None)
+            }
+        })
     }
 
     async fn list_executed_transactions(
@@ -196,36 +262,138 @@ where
             .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
             .min(LIST_TRANSACTIONS_MAX_RESULTS);
         if result_limit > 0 {
-            let tree = self
-                .sled
-                .open_tree(TRANSACTION_TREE_NAME)
-                .map_err_to_core()?;
-            let iter = if let Some(starting_id) = starting_id {
-                tree.range(starting_id.to_be_bytes()..=u64::MAX.to_be_bytes())
-            } else {
-                tree.iter()
-            };
+            tokio::task::block_in_place(|| {
+                let tree = self
+                    .sled
+                    .open_tree(TRANSACTION_TREE_NAME)
+                    .map_err_to_core()?;
+                let iter = if let Some(starting_id) = starting_id {
+                    tree.range(starting_id.to_be_bytes()..=u64::MAX.to_be_bytes())
+                } else {
+                    tree.iter()
+                };
 
-            #[allow(clippy::cast_possible_truncation)] // this value is limited above
-            let mut results = Vec::with_capacity(result_limit);
-            for row in iter {
-                let (_, vec) = row.map_err_to_core()?;
-                results.push(
-                    bincode::deserialize::<transaction::Executed<'_>>(&vec)
-                        .map_err_to_core()?
-                        .to_owned(),
-                );
+                #[allow(clippy::cast_possible_truncation)] // this value is limited above
+                let mut results = Vec::with_capacity(result_limit);
+                for row in iter {
+                    let (_, vec) = row.map_err_to_core()?;
+                    results.push(
+                        bincode::deserialize::<transaction::Executed<'_>>(&vec)
+                            .map_err_to_core()?
+                            .to_owned(),
+                    );
 
-                if results.len() >= result_limit {
-                    break;
+                    if results.len() >= result_limit {
+                        break;
+                    }
                 }
-            }
-            Ok(results)
+                Ok(results)
+            })
         } else {
             // A request was made to return an empty result? This should probably be
             // an error, but technically this is a correct response.
             Ok(Vec::default())
         }
+    }
+
+    #[must_use]
+    async fn query<'k, V: schema::View>(
+        &self,
+        query: View<'a, Self, V>,
+    ) -> Result<Vec<map::Serialized>, pliantdb_core::Error>
+    where
+        Self: Sized,
+    {
+        let View { key, .. } = query;
+        let view = self
+            .schema
+            .view::<V>()
+            .expect("query made with view that isn't registered with this database");
+        self.tasks
+            .update_view_if_needed(view, self)
+            .await
+            .map_err_to_core()?;
+
+        let view_entries = self
+            .sled
+            .open_tree(view_entries_tree_name(
+                &view.collection(),
+                view.name().as_ref(),
+            ))
+            .map_err(Error::Sled)
+            .map_err_to_core()?;
+
+        let iterator = create_view_iterator(&view_entries, key).map_err_to_core()?;
+        let entries = iterator
+            .collect::<Result<Vec<_>, sled::Error>>()
+            .map_err(Error::Sled)
+            .map_err_to_core()?;
+
+        let mut results = Vec::new();
+        for (key, entry) in entries {
+            let entry = bincode::deserialize::<ViewEntry>(&entry)
+                .map_err(Error::InternalSerialization)
+                .map_err_to_core()?;
+
+            for entry in entry.mappings {
+                results.push(map::Serialized {
+                    source: entry.source,
+                    key: key.to_vec(),
+                    value: entry.value,
+                });
+            }
+        }
+
+        Ok(results)
+    }
+}
+
+type ViewIterator<'a> = Box<dyn Iterator<Item = Result<(IVec, IVec), sled::Error>> + 'a>;
+
+fn create_view_iterator<'a, K: Key + 'a>(
+    view_entries: &'a Tree,
+    key: Option<QueryKey<K>>,
+) -> Result<ViewIterator<'a>, view::Error> {
+    if let Some(key) = key {
+        match key {
+            QueryKey::Range(range) => {
+                let start = range
+                    .start
+                    .as_big_endian_bytes()
+                    .map_err(view::Error::KeySerialization)?;
+                let end = range
+                    .end
+                    .as_big_endian_bytes()
+                    .map_err(view::Error::KeySerialization)?;
+                Ok(Box::new(view_entries.range(start..end)))
+            }
+            QueryKey::Matches(key) => {
+                let key = key
+                    .as_big_endian_bytes()
+                    .map_err(view::Error::KeySerialization)?;
+                let range_end = key.clone();
+                Ok(Box::new(view_entries.range(key..=range_end)))
+            }
+            QueryKey::Multiple(list) => {
+                let list = list
+                    .into_iter()
+                    .map(|key| {
+                        key.as_big_endian_bytes()
+                            .map(|bytes| bytes.to_vec())
+                            .map_err(view::Error::KeySerialization)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let iterators = list.into_iter().flat_map(move |key| {
+                    let range_end = key.clone();
+                    view_entries.range(key..=range_end)
+                });
+
+                Ok(Box::new(iterators))
+            }
+        }
+    } else {
+        Ok(Box::new(view_entries.iter()))
     }
 }
 
@@ -246,7 +414,10 @@ fn execute_operation(
             let serialized: Vec<u8> = bincode::serialize(&doc)
                 .map_err_to_core()
                 .map_err(ConflictableTransactionError::Abort)?;
-            tree.insert(doc.header.id.into_big_endian_bytes().as_ref(), serialized)?;
+            tree.insert(
+                doc.header.id.as_big_endian_bytes().unwrap().as_ref(),
+                serialized,
+            )?;
 
             Ok(OperationResult::DocumentUpdated {
                 collection: operation.collection.clone(),
@@ -254,7 +425,7 @@ fn execute_operation(
             })
         }
         Command::Update { header, contents } => {
-            if let Some(vec) = tree.get(&header.id.into_big_endian_bytes())? {
+            if let Some(vec) = tree.get(&header.id.as_big_endian_bytes().unwrap())? {
                 let doc = bincode::deserialize::<Document<'_>>(&vec)
                     .map_err_to_core()
                     .map_err(ConflictableTransactionError::Abort)?;
@@ -299,7 +470,10 @@ fn save_doc(
     let serialized: Vec<u8> = bincode::serialize(doc)
         .map_err_to_core()
         .map_err(ConflictableTransactionError::Abort)?;
-    tree.insert(doc.header.id.into_big_endian_bytes().as_ref(), serialized)?;
+    tree.insert(
+        doc.header.id.as_big_endian_bytes().unwrap().as_ref(),
+        serialized,
+    )?;
     Ok(())
 }
 

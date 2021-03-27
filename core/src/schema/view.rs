@@ -1,19 +1,25 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt::Debug};
 
 use serde::{Deserialize, Serialize};
 
-use crate::document::Document;
+use crate::{document::Document, schema::Collection};
 
 /// Types for defining a `Map` within a `View`.
 pub mod map;
 pub use map::{Key, Map};
+
+use super::collection;
 
 /// Errors that arise when interacting with views.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// An error occurred while serializing or deserializing.
     #[error("error deserializing document {0}")]
-    SerializationError(#[from] serde_cbor::Error),
+    Serialization(#[from] serde_cbor::Error),
+
+    /// An error occurred while serializing or deserializing keys emitted in a view.
+    #[error("error serializing view keys {0}")]
+    KeySerialization(anyhow::Error),
 
     /// Returned when the reduce() function is unimplemented.
     #[error("reduce is unimplemented")]
@@ -21,7 +27,7 @@ pub enum Error {
 }
 
 /// A type alias for the result of `View::map()`.
-pub type MapResult<'k, K = (), V = ()> = Result<Option<Map<'k, K, V>>, Error>;
+pub type MapResult<K = (), V = ()> = Result<Option<Map<K, V>>, Error>;
 
 /// A map/reduce powered indexing and aggregation schema.
 ///
@@ -31,9 +37,12 @@ pub type MapResult<'k, K = (), V = ()> = Result<Option<Map<'k, K, V>>, Error>;
 /// This implementation is under active development, our own docs explaining our
 /// implementation will be written as things are solidified.
 // TODO write our own view docs
-pub trait View<'k> {
+pub trait View: Send + Sync + Debug + 'static {
+    /// The collection this view belongs to
+    type Collection: Collection;
+
     /// The key for this view.
-    type MapKey: Key<'k> + 'static;
+    type MapKey: Key + 'static;
 
     /// An associated type that can be stored with each entry in the view.
     type MapValue: Serialize + for<'de> Deserialize<'de>;
@@ -42,15 +51,15 @@ pub trait View<'k> {
     type Reduce: Serialize + for<'de> Deserialize<'de>;
 
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
-    fn version() -> usize;
+    fn version(&self) -> usize;
 
     /// The name of the view. Must be unique per collection.
-    fn name() -> Cow<'static, str>;
+    fn name(&self) -> Cow<'static, str>;
 
     /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document.
-    fn map(document: &Document<'_>) -> MapResult<'k, Self::MapKey, Self::MapValue>;
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::MapKey, Self::MapValue>;
 
     /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -59,7 +68,8 @@ pub trait View<'k> {
     /// for the design this implementation will be inspired by
     #[allow(unused_variables)]
     fn reduce(
-        mappings: &[Map<'k, Self::MapKey, Self::MapValue>],
+        &self,
+        mappings: &[Map<Self::MapKey, Self::MapValue>],
         rereduce: bool,
     ) -> Result<Self::Reduce, Error> {
         Err(Error::ReduceUnimplemented)
@@ -97,28 +107,47 @@ where
     }
 }
 
-pub(crate) trait Serialized<'k> {
-    fn name() -> Cow<'static, str>;
-    fn map(document: &Document<'_>) -> Result<Option<map::Serialized<'k>>, Error>;
+/// Wraps a [`View`] with serialization to erase the associated types
+pub trait Serialized: Send + Sync + Debug {
+    /// Wraps [`View::collection`]
+    fn collection(&self) -> collection::Id;
+    /// Wraps [`View::version`]
+    fn version(&self) -> usize;
+    /// Wraps [`View::name`]
+    fn name(&self) -> Cow<'static, str>;
+    /// Wraps [`View::map`]
+    fn map(&self, document: &Document<'_>) -> Result<Option<map::Serialized>, Error>;
 }
 
-impl<'k, T> Serialized<'k> for T
+impl<T> Serialized for T
 where
-    T: View<'k>,
-    <T as View<'k>>::MapKey: 'static,
+    T: View,
+    <T as View>::MapKey: 'static,
 {
-    fn name() -> Cow<'static, str> {
-        Self::name()
+    fn collection(&self) -> collection::Id {
+        <<Self as View>::Collection as Collection>::id()
     }
 
-    fn map(document: &Document<'_>) -> Result<Option<map::Serialized<'k>>, Error> {
-        let map = Self::map(document)?;
+    fn version(&self) -> usize {
+        self.version()
+    }
+
+    fn name(&self) -> Cow<'static, str> {
+        self.name()
+    }
+
+    fn map(&self, document: &Document<'_>) -> Result<Option<map::Serialized>, Error> {
+        let map = self.map(document)?;
 
         match map {
             Some(map) => Ok(Some(map::Serialized {
                 source: map.source,
-                key: map.key.into_big_endian_bytes(),
-                value: serde_cbor::value::to_value(&map.value)?,
+                key: map
+                    .key
+                    .as_big_endian_bytes()
+                    .map_err(Error::KeySerialization)?
+                    .to_vec(),
+                value: serde_cbor::to_vec(&map.value)?,
             })),
             None => Ok(None),
         }

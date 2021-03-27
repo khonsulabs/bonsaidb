@@ -1,4 +1,4 @@
-//! Local storage backend for `PliantDB`.
+//! Aysnc jobs management for `PliantDB`.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -17,22 +17,10 @@
     clippy::option_if_let_else,
 )]
 
-/// Configuration options.
-pub mod config;
-mod error;
-mod open_trees;
-mod storage;
-mod tasks;
-mod views;
+/// Types related to the job [`Manager`].
+pub mod manager;
+/// Types related to defining [`Job`]s.
+pub mod task;
+mod traits;
 
-#[doc(inline)]
-pub use pliantdb_core as core;
-
-pub use self::{
-    config::Configuration,
-    error::Error,
-    storage::{Storage, LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-};
-
-#[cfg(test)]
-mod tests;
+pub use self::traits::{Job, Keyed};
