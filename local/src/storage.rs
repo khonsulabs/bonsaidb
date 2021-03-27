@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use pliantdb_core::{
     connection::{Collection, Connection, QueryKey, View},
     document::{Document, Header},
-    schema::{self, collection, map, Database, Key, Schema},
+    schema::{self, collection, map, view, Database, Key, Schema},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
 use pliantdb_jobs::manager::Manager;
@@ -93,7 +93,9 @@ where
         tokio::task::block_in_place(|| {
             let tree = self.sled.open_tree(TRANSACTION_TREE_NAME)?;
             if let Some((key, _)) = tree.last()? {
-                Ok(Some(u64::from_big_endian_bytes(&key)))
+                Ok(Some(
+                    u64::from_big_endian_bytes(&key).map_err(view::Error::KeySerialization)?,
+                ))
             } else {
                 Ok(None)
             }
@@ -232,7 +234,14 @@ where
                 .sled
                 .open_tree(document_tree_name(&C::id()))
                 .map_err_to_core()?;
-            if let Some(vec) = tree.get(id.as_big_endian_bytes()).map_err_to_core()? {
+            if let Some(vec) = tree
+                .get(
+                    id.as_big_endian_bytes()
+                        .map_err(view::Error::KeySerialization)
+                        .map_err_to_core()?,
+                )
+                .map_err_to_core()?
+            {
                 Ok(Some(
                     bincode::deserialize::<Document<'_>>(&vec)
                         .map_err_to_core()?
@@ -314,7 +323,7 @@ where
             .map_err(Error::Sled)
             .map_err_to_core()?;
 
-        let iterator = create_view_iterator(&view_entries, key);
+        let iterator = create_view_iterator(&view_entries, key).map_err_to_core()?;
         let entries = iterator
             .collect::<Result<Vec<_>, sled::Error>>()
             .map_err(Error::Sled)
@@ -339,28 +348,52 @@ where
     }
 }
 
+type ViewIterator<'a> = Box<dyn Iterator<Item = Result<(IVec, IVec), sled::Error>> + 'a>;
+
 fn create_view_iterator<'a, K: Key + 'a>(
     view_entries: &'a Tree,
     key: Option<QueryKey<K>>,
-) -> Box<dyn Iterator<Item = Result<(IVec, IVec), sled::Error>> + 'a> {
+) -> Result<ViewIterator<'a>, view::Error> {
     if let Some(key) = key {
         match key {
             QueryKey::Range(range) => {
-                let start = range.start.as_big_endian_bytes();
-                let end = range.end.as_big_endian_bytes();
-                Box::new(view_entries.range(start..end))
+                let start = range
+                    .start
+                    .as_big_endian_bytes()
+                    .map_err(view::Error::KeySerialization)?;
+                let end = range
+                    .end
+                    .as_big_endian_bytes()
+                    .map_err(view::Error::KeySerialization)?;
+                Ok(Box::new(view_entries.range(start..end)))
             }
             QueryKey::Matches(key) => {
-                let key = key.as_big_endian_bytes();
+                let key = key
+                    .as_big_endian_bytes()
+                    .map_err(view::Error::KeySerialization)?;
                 let range_end = key.clone();
-                Box::new(view_entries.range(key..=range_end))
+                Ok(Box::new(view_entries.range(key..=range_end)))
             }
-            QueryKey::Multiple(list) => Box::new(list.into_iter().flat_map(move |key| {
-                create_view_iterator(view_entries, Some(QueryKey::Matches(key)))
-            })),
+            QueryKey::Multiple(list) => {
+                let list = list
+                    .into_iter()
+                    .map(|key| {
+                        key.as_big_endian_bytes()
+                            .map(|bytes| bytes.to_vec())
+                            .map_err(view::Error::KeySerialization)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let iterators = list.into_iter().flat_map(move |key| {
+                    let range_end = key.clone();
+                    view_entries.range(key..=range_end)
+                });
+
+                Ok(Box::new(iterators))
+            }
         }
     } else {
-        Box::new(view_entries.iter())
+        Ok(Box::new(view_entries.iter()))
     }
 }
 
@@ -381,7 +414,10 @@ fn execute_operation(
             let serialized: Vec<u8> = bincode::serialize(&doc)
                 .map_err_to_core()
                 .map_err(ConflictableTransactionError::Abort)?;
-            tree.insert(doc.header.id.as_big_endian_bytes().as_ref(), serialized)?;
+            tree.insert(
+                doc.header.id.as_big_endian_bytes().unwrap().as_ref(),
+                serialized,
+            )?;
 
             Ok(OperationResult::DocumentUpdated {
                 collection: operation.collection.clone(),
@@ -389,7 +425,7 @@ fn execute_operation(
             })
         }
         Command::Update { header, contents } => {
-            if let Some(vec) = tree.get(&header.id.as_big_endian_bytes())? {
+            if let Some(vec) = tree.get(&header.id.as_big_endian_bytes().unwrap())? {
                 let doc = bincode::deserialize::<Document<'_>>(&vec)
                     .map_err_to_core()
                     .map_err(ConflictableTransactionError::Abort)?;
@@ -434,7 +470,10 @@ fn save_doc(
     let serialized: Vec<u8> = bincode::serialize(doc)
         .map_err_to_core()
         .map_err(ConflictableTransactionError::Abort)?;
-    tree.insert(doc.header.id.as_big_endian_bytes().as_ref(), serialized)?;
+    tree.insert(
+        doc.header.id.as_big_endian_bytes().unwrap().as_ref(),
+        serialized,
+    )?;
     Ok(())
 }
 

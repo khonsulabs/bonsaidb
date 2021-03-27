@@ -15,7 +15,11 @@ use super::collection;
 pub enum Error {
     /// An error occurred while serializing or deserializing.
     #[error("error deserializing document {0}")]
-    SerializationError(#[from] serde_cbor::Error),
+    Serialization(#[from] serde_cbor::Error),
+
+    /// An error occurred while serializing or deserializing keys emitted in a view.
+    #[error("error serializing view keys {0}")]
+    KeySerialization(anyhow::Error),
 
     /// Returned when the reduce() function is unimplemented.
     #[error("reduce is unimplemented")]
@@ -138,7 +142,11 @@ where
         match map {
             Some(map) => Ok(Some(map::Serialized {
                 source: map.source,
-                key: map.key.as_big_endian_bytes().to_vec(),
+                key: map
+                    .key
+                    .as_big_endian_bytes()
+                    .map_err(Error::KeySerialization)?
+                    .to_vec(),
                 value: serde_cbor::to_vec(&map.value)?,
             })),
             None => Ok(None),

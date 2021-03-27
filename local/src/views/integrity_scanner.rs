@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::HashSet, hash::Hash};
 
 use async_trait::async_trait;
-use pliantdb_core::schema::{collection, Database, Key};
+use pliantdb_core::schema::{collection, view, Database, Key};
 use pliantdb_jobs::{Job, Keyed};
 use sled::{IVec, Tree};
 
@@ -67,7 +67,10 @@ where
                 invalidated_entries
                     .transaction::<_, _, anyhow::Error>(|tree| {
                         for id in &missing_entries {
-                            tree.insert(id.as_big_endian_bytes().as_ref(), IVec::default())?;
+                            tree.insert(
+                                id.as_big_endian_bytes().unwrap().as_ref(),
+                                IVec::default(),
+                            )?;
                         }
                         Ok(())
                     })
@@ -105,11 +108,11 @@ where
     }
 }
 
-fn tree_keys<K: Key + Hash + Eq + Clone>(tree: &Tree) -> Result<HashSet<K>, sled::Error> {
+fn tree_keys<K: Key + Hash + Eq + Clone>(tree: &Tree) -> Result<HashSet<K>, anyhow::Error> {
     let mut ids = HashSet::new();
     for result in tree.iter() {
         let (key, _) = result?;
-        let key = K::from_big_endian_bytes(&key);
+        let key = K::from_big_endian_bytes(&key).map_err(view::Error::KeySerialization)?;
         ids.insert(key);
     }
 

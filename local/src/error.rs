@@ -1,3 +1,5 @@
+use pliantdb_core::schema::view;
+
 /// Errors that can occur from interacting with storage.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -16,6 +18,10 @@ pub enum Error {
     /// An internal error occurred while waiting for a message.
     #[error("error while waiting for a message: {0}")]
     InternalCommunication(#[from] flume::RecvError),
+
+    /// An internal error occurred while waiting for a message.
+    #[error("error while waiting for a message: {0}")]
+    View(#[from] view::Error),
 }
 
 impl Into<pliantdb_core::Error> for Error {
