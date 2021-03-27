@@ -17,6 +17,8 @@
     clippy::option_if_let_else,
 )]
 
+/// Configuration options.
+pub mod config;
 mod error;
 mod open_trees;
 mod storage;
@@ -27,6 +29,7 @@ mod views;
 pub use pliantdb_core as core;
 
 pub use self::{
+    config::Configuration,
     error::Error,
     storage::{Storage, LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
 };

@@ -50,7 +50,7 @@ impl Schema {
         self.collections.contains_key(&TypeId::of::<C>())
     }
 
-    /// Returns `true` if this schema contains the collection `C`.
+    /// Looks up a [`view::Serialized`] by name.
     #[must_use]
     pub fn view_by_name(&self, name: &str) -> Option<&'_ dyn view::Serialized> {
         self.views_by_name
@@ -59,10 +59,15 @@ impl Schema {
             .map(AsRef::as_ref)
     }
 
-    /// Returns `true` if this schema contains the collection `C`.
+    /// Looks up a [`view::Serialized`] through the the type `V`.
     #[must_use]
     pub fn view<V: View + 'static>(&self) -> Option<&'_ dyn view::Serialized> {
         self.views.get(&TypeId::of::<V>()).map(AsRef::as_ref)
+    }
+
+    /// Iterates over all registered views.
+    pub fn views(&self) -> impl Iterator<Item = &'_ dyn view::Serialized> {
+        self.views.values().map(AsRef::as_ref)
     }
 }
 

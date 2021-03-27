@@ -5,6 +5,7 @@ use pliantdb_core::{
     connection::Connection,
     schema::{collection, Collection, Schema},
 };
+use pliantdb_local::Configuration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,7 +24,7 @@ impl Collection for Message {
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    let db = Storage::<Message>::open_local("basic.pliantdb").await?;
+    let db = Storage::<Message>::open_local("basic.pliantdb", &Configuration::default()).await?;
     let messages = db.collection::<Message>()?;
 
     // Insert a new `Message` into the collection. The `push()` method used

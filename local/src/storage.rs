@@ -18,7 +18,7 @@ use crate::{
     open_trees::OpenTrees,
     tasks::TaskManager,
     views::{view_entries_tree_name, ViewEntry},
-    Error,
+    Configuration, Error,
 };
 
 /// The maximum number of results allowed to be returned from `list_executed_transactions`.
@@ -51,15 +51,19 @@ where
     DB: Database,
 {
     /// Opens a local file as a pliantdb.
-    pub async fn open_local<P: AsRef<Path> + Send>(path: P) -> Result<Self, Error> {
+    pub async fn open_local<P: AsRef<Path> + Send>(
+        path: P,
+        configuration: &Configuration,
+    ) -> Result<Self, Error> {
         let owned_path = path.as_ref().to_owned();
 
         let manager = Manager::default();
-        manager.spawn_worker(); // TODO this should be configurable
-        manager.spawn_worker();
+        for _ in 0..configuration.workers.worker_count {
+            manager.spawn_worker();
+        }
         let tasks = TaskManager::new(manager);
 
-        tokio::task::spawn_blocking(move || {
+        let storage = tokio::task::spawn_blocking(move || {
             let mut collections = Schema::default();
             DB::define_collections(&mut collections);
 
@@ -73,7 +77,15 @@ where
                 .map_err(Error::from)
         })
         .await
-        .unwrap()
+        .unwrap()?;
+
+        if configuration.views.check_integrity_on_open {
+            for view in storage.schema.views() {
+                storage.tasks.spawn_integrity_check(view, &storage).await?;
+            }
+        }
+
+        Ok(storage)
     }
 
     /// Fetches the last transaction id that has been committed, if any.
@@ -283,20 +295,23 @@ where
     where
         Self: Sized,
     {
-        let collection_id = <V::Collection as schema::Collection>::id();
+        let View { key, .. } = query;
         let view = self.schema.view::<V>().unwrap();
         self.tasks
-            .update_view_if_needed(collection_id.clone(), view, self)
+            .update_view_if_needed(view, self)
             .await
             .map_err_to_core()?;
 
         let view_entries = self
             .sled
-            .open_tree(view_entries_tree_name(&collection_id, view.name().as_ref()))
+            .open_tree(view_entries_tree_name(
+                &view.collection(),
+                view.name().as_ref(),
+            ))
             .map_err(Error::Sled)
             .map_err_to_core()?;
 
-        let iterator = create_view_iterator(&view_entries, &query.key);
+        let iterator = create_view_iterator(&view_entries, key);
         let entries = iterator
             .collect::<Result<Vec<_>, sled::Error>>()
             .map_err(Error::Sled)
@@ -321,19 +336,25 @@ where
     }
 }
 
-fn create_view_iterator<K: Key>(
-    view_entries: &Tree,
-    key: &Option<QueryKey<K>>,
-) -> Box<dyn Iterator<Item = Result<(IVec, IVec), sled::Error>>> {
+fn create_view_iterator<'a, K: Key + 'a>(
+    view_entries: &'a Tree,
+    key: Option<QueryKey<K>>,
+) -> Box<dyn Iterator<Item = Result<(IVec, IVec), sled::Error>> + 'a> {
     if let Some(key) = key {
         match key {
+            QueryKey::Range(range) => {
+                let start = range.start.as_big_endian_bytes();
+                let end = range.end.as_big_endian_bytes();
+                Box::new(view_entries.range(start..end))
+            }
             QueryKey::Matches(key) => {
                 let key = key.as_big_endian_bytes();
                 let range_end = key.clone();
                 Box::new(view_entries.range(key..=range_end))
             }
-            QueryKey::Range(_) => todo!(),
-            QueryKey::Multiple(_) => todo!(),
+            QueryKey::Multiple(list) => Box::new(list.into_iter().flat_map(move |key| {
+                create_view_iterator(view_entries, Some(QueryKey::Matches(key)))
+            })),
         }
     } else {
         Box::new(view_entries.iter())

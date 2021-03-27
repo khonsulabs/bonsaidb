@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::HashSet, sync::Arc};
 
 use pliantdb_core::schema::{collection, view, Database};
-use pliantdb_jobs::manager::Manager;
+use pliantdb_jobs::{manager::Manager, task::Handle};
 use tokio::sync::RwLock;
 
 use crate::{
@@ -34,32 +34,17 @@ impl TaskManager {
 
     pub async fn update_view_if_needed<DB: Database>(
         &self,
-        collection: collection::Id,
         view: &dyn view::Serialized,
         storage: &Storage<DB>,
     ) -> Result<(), crate::Error> {
         let view_name = view.name();
-        if !self
-            .view_integrity_checked(collection.clone(), view_name.clone())
-            .await
-        {
-            let job = self
-                .jobs
-                .lookup_or_enqueue(IntegrityScanner {
-                    storage: storage.clone(),
-                    scan: IntegrityScan {
-                        view_version: view.version(),
-                        collection: collection.clone(),
-                        view_name: view_name.clone(),
-                    },
-                })
-                .await;
+        if let Some(job) = self.spawn_integrity_check(view, storage).await? {
             job.receive().await.unwrap();
         }
 
         let needs_reindex = tokio::task::block_in_place(|| {
             let invalidated_docs = storage.sled.open_tree(view_invalidated_docs_tree_name(
-                &collection,
+                &view.collection(),
                 view_name.as_ref(),
             ));
             invalidated_docs.iter().next().is_some()
@@ -73,7 +58,7 @@ impl TaskManager {
                     .lookup_or_enqueue(Mapper {
                         storage: storage.clone(),
                         map: Map {
-                            collection: collection.clone(),
+                            collection: view.collection(),
                             view_name: view_name.clone(),
                         },
                     })
@@ -98,5 +83,32 @@ impl TaskManager {
         statuses
             .completed_integrity_checks
             .contains(&(collection.clone(), view_name))
+    }
+
+    pub async fn spawn_integrity_check<DB: Database>(
+        &self,
+        view: &dyn view::Serialized,
+        storage: &Storage<DB>,
+    ) -> Result<Option<Handle<(), Task>>, crate::Error> {
+        let view_name = view.name();
+        if !self
+            .view_integrity_checked(view.collection(), view_name.clone())
+            .await
+        {
+            let job = self
+                .jobs
+                .lookup_or_enqueue(IntegrityScanner {
+                    storage: storage.clone(),
+                    scan: IntegrityScan {
+                        view_version: view.version(),
+                        collection: view.collection(),
+                        view_name: view_name.clone(),
+                    },
+                })
+                .await;
+            return Ok(Some(job));
+        }
+
+        Ok(None)
     }
 }

@@ -87,7 +87,6 @@ where
         .await??;
 
         if needs_update {
-            println!("needs update after integrity scan");
             let job = self
                 .storage
                 .tasks
@@ -100,8 +99,7 @@ where
                     },
                 })
                 .await;
-            let updated_to_transaction = job.receive().await.unwrap();
-            println!("Updated to transaction: {:?}", updated_to_transaction);
+            job.receive().await.unwrap();
         }
 
         Ok(())

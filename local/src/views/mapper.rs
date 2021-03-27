@@ -88,7 +88,6 @@ where
         })
         .await??;
 
-        println!("Returning");
         Ok(transaction_id)
     }
 }

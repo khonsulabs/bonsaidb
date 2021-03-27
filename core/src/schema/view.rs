@@ -8,6 +8,8 @@ use crate::{document::Document, schema::Collection};
 pub mod map;
 pub use map::{Key, Map};
 
+use super::collection;
+
 /// Errors that arise when interacting with views.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -103,6 +105,8 @@ where
 
 /// Wraps a [`View`] with serialization to erase the associated types
 pub trait Serialized: Send + Sync + Debug {
+    /// Wraps [`View::collection`]
+    fn collection(&self) -> collection::Id;
     /// Wraps [`View::version`]
     fn version(&self) -> usize;
     /// Wraps [`View::name`]
@@ -116,6 +120,10 @@ where
     T: View,
     <T as View>::MapKey: 'static,
 {
+    fn collection(&self) -> collection::Id {
+        <<Self as View>::Collection as Collection>::id()
+    }
+
     fn version(&self) -> usize {
         self.version()
     }
