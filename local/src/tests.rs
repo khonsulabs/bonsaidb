@@ -345,16 +345,20 @@ async fn view_access_policies() -> anyhow::Result<()> {
         .await?;
     assert_eq!(a_children.len(), 0);
 
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    // Waiting on background jobs can be unreliable in a CI environment
+    for _ in 0..10 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
 
-    // Now, the view should contain the entry.
-    let a_children = db
-        .view::<BasicByParentId>()
-        .with_key(Some(a.id))
-        .with_access_policy(AccessPolicy::NoUpdate)
-        .query()
-        .await?;
-    assert_eq!(a_children.len(), 1);
-
-    Ok(())
+        // Now, the view should contain the entry.
+        let a_children = db
+            .view::<BasicByParentId>()
+            .with_key(Some(a.id))
+            .with_access_policy(AccessPolicy::NoUpdate)
+            .query()
+            .await?;
+        if a_children.len() == 1 {
+            return Ok(());
+        }
+    }
+    panic!("view never updated")
 }
