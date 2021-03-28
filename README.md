@@ -1,11 +1,15 @@
 # PliantDB
 
+![PliantDB is considered experimental and unsupported](https://img.shields.io/badge/status-experimental-blueviolet)
+[![crate version](https://img.shields.io/crates/v/pliantdb.svg)](https://crates.io/crates/pliantdb)
 [![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/pliantdb/Tests/main)](https://github.com/khonsulabs/pliantdb/actions?query=workflow:Tests)
 [![codecov](https://codecov.io/gh/khonsulabs/pliantdb/branch/main/graph/badge.svg)](https://codecov.io/gh/khonsulabs/pliantdb)
 [![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://khonsulabs.github.io/pliantdb/main/pliantdb/)
 [![HTML Coverage Report for `main` branch](https://img.shields.io/badge/coverage-report-informational)](https://khonsulabs.github.io/pliantdb/coverage/)
 
 PliantDB aims to be a [Rust](https://rust-lang.org)-written document database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies.
+
+## Project Goals
 
 The high-level goals for this project are:
 
@@ -19,17 +23,85 @@ The high-level goals for this project are:
 - Expose a Publish/Subscribe eventing system
 - Expose a Job queue and scheduling system -- a la [Sidekiq](https://sidekiq.org/) or [SQS](https://aws.amazon.com/sqs/)
 
+## ⚠️ Status of this project
+
+**You should not attempt to use this software in anything except for experiments.** This project is under active development (![GitHub commit activity](https://img.shields.io/github/commit-activity/m/khonsulabs/pliantdb)), but at the point of writing this README, the project is too early to be used.
+
+If you're interested in chatting about this project or potentially wanting to contribute, come chat with us on Discord: [![Discord](https://img.shields.io/discord/578968877866811403)](https://discord.khonsulabs.com/).
+
+## Example
+
+Check out [./pliantdb/examples](./pliantdb/examples) for examples. To get an idea of how it works, this is a simple schema:
+
+```rust
+// From pliantdb/examples/view-examples.rs
+#[derive(Debug, Serialize, Deserialize)]
+struct Shape {
+    pub sides: u32,
+}
+
+impl Collection for Shape {
+    fn id() -> collection::Id {
+        collection::Id::from("shapes")
+    }
+
+    fn define_views(schema: &mut Schema) {
+        schema.define_view(ShapesByNumberOfSides);
+    }
+}
+
+#[derive(Debug)]
+struct ShapesByNumberOfSides;
+
+impl View for ShapesByNumberOfSides {
+    type Collection = Shape;
+
+    type MapKey = u32;
+
+    type MapValue = ();
+
+    type Reduce = ();
+
+    fn version(&self) -> usize {
+        1
+    }
+
+    fn name(&self) -> Cow<'static, str> {
+        Cow::from("by-sides")
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::MapKey> {
+        let shape = document.contents::<Shape>()?;
+        Ok(Some(document.emit_key(shape.sides as u32)))
+    }
+}
+```
+
+After you have your collection(s) defined, you can open up a database and query it:
+
+```rust
+let db =
+    Storage::<Shape>::open_local("view-examples.pliantdb", &Configuration::default()).await?;
+
+// Insert a new document into the Shape collection.
+db.collection::<Shape>()?.push(&Shape::new(3)).await?;
+
+// Query the Number of Sides View to see how many documents have 3 sides.
+println!(
+    "Number of triangles: {}",
+    db.view::<ShapesByNumberOfSides>()
+        .with_key(3)
+        .query()
+        .await?
+        .len()
+);
+```
+
 ## Why write another database?
 
 - Deploying highly-available databases is hard (and often expensive). It doesn't need to be.
 - We are passionate Rustaceans and are striving for an ideal of supporting a 100% Rust-based deployment ecosystem for newly written software.
 - Specifically for the founding author [@ecton](https://github.com/ecton), the idea for this design dates back to thoughts of fun side-projects while running my last business which was built atop CouchDB. Working on this project is fulfilling a long-time desire of his.
-
-## Status of this project
-
-This project is hopefully still under active development (![GitHub commit activity](https://img.shields.io/github/commit-activity/m/khonsulabs/pliantdb)), but at the point of writing this README, the project is too early to be used. Unless this README has been updated otherwise, you should not attempt to use this software in anything except for experiments.
-
-If you're interested in chatting about this project or potentially wanting to contribute, come chat with us on Discord: [![Discord](https://img.shields.io/discord/578968877866811403)](https://discord.khonsulabs.com/).
 
 ## Open-source Licenses
 

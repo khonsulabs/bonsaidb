@@ -1,3 +1,29 @@
+// This is not a benchmark that is meant to be taken seriously at this time. It
+// was written purely to help test an in-development async runtime that this
+// database will benefit from.
+//
+// The problems with the current speed of this database hinge on how
+// ACID-compliant you wnat your data writes to be. As of writing this, there are
+// no configuration options to change this, but eventually you will have control
+// over whether to flush after every write or to flush periodically. Flushing
+// periodically will drastically improve speed, but it potentially will lead to
+// lost transactions.
+//
+// When operating `PliantDB` in a local or single-server mode, we must recommend
+// flushing on each write -- the default configuration. Comparatively speaking,
+// this will hurt performance in many benchmarks, including this one below. The
+// purpose of this benchmark is to help test the blocking nature of sled within
+// an async interface when properly marking each interaction with sled as
+// blocking to the async runtime.
+//
+// Once clustering is available, it will be recommended to have enough
+// redundancy in your architecture to allow running the cluster with periodic
+// flushing enabled. Because the quorum will self-correct when an individual
+// node loses data, as long as you design with enough redundancy in your
+// cluster, the risk of data loss goes down drastically.
+//
+// TODO Some of this explanation eventually should be moved somewhere more useful
+
 use std::{borrow::Cow, sync::Arc};
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
