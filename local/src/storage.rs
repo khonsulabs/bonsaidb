@@ -3,7 +3,7 @@ use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sy
 use async_trait::async_trait;
 use itertools::Itertools;
 use pliantdb_core::{
-    connection::{Collection, Connection, QueryKey, View},
+    connection::{AccessPolicy, Collection, Connection, QueryKey, View},
     document::{Document, Header},
     schema::{self, collection, map, view, Database, Key, Schema},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
@@ -339,10 +339,13 @@ where
             .schema
             .view::<V>()
             .expect("query made with view that isn't registered with this database");
-        self.tasks
-            .update_view_if_needed(view, self)
-            .await
-            .map_err_to_core()?;
+
+        if matches!(query.access_policy, AccessPolicy::UpdateBefore) {
+            self.tasks
+                .update_view_if_needed(view, self)
+                .await
+                .map_err_to_core()?;
+        }
 
         let view_entries = self
             .sled
@@ -353,25 +356,38 @@ where
             .map_err(Error::Sled)
             .map_err_to_core()?;
 
-        let iterator = create_view_iterator(&view_entries, key).map_err_to_core()?;
-        let entries = iterator
-            .collect::<Result<Vec<_>, sled::Error>>()
-            .map_err(Error::Sled)
-            .map_err_to_core()?;
-
         let mut results = Vec::new();
-        for (key, entry) in entries {
-            let entry = bincode::deserialize::<ViewEntry>(&entry)
-                .map_err(Error::InternalSerialization)
+        {
+            let iterator = create_view_iterator(&view_entries, key).map_err_to_core()?;
+            let entries = iterator
+                .collect::<Result<Vec<_>, sled::Error>>()
+                .map_err(Error::Sled)
                 .map_err_to_core()?;
 
-            for entry in entry.mappings {
-                results.push(map::Serialized {
-                    source: entry.source,
-                    key: key.to_vec(),
-                    value: entry.value,
-                });
+            for (key, entry) in entries {
+                let entry = bincode::deserialize::<ViewEntry>(&entry)
+                    .map_err(Error::InternalSerialization)
+                    .map_err_to_core()?;
+
+                for entry in entry.mappings {
+                    results.push(map::Serialized {
+                        source: entry.source,
+                        key: key.to_vec(),
+                        value: entry.value,
+                    });
+                }
             }
+        }
+
+        if matches!(query.access_policy, AccessPolicy::UpdateAfter) {
+            let storage = self.clone();
+            tokio::task::spawn(async move {
+                let view = storage
+                    .schema
+                    .view::<V>()
+                    .expect("query made with view that isn't registered with this database");
+                storage.tasks.update_view_if_needed(view, &storage).await
+            });
         }
 
         Ok(results)

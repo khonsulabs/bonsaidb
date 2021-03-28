@@ -104,8 +104,12 @@ where
 /// Parameters to query a `schema::View`.
 pub struct View<'a, Cn, V: schema::View> {
     connection: &'a Cn,
+
     /// Key filtering criteria.
     pub key: Option<QueryKey<V::MapKey>>,
+
+    /// The view's data access policy. The default value is [`AccessPolicy::UpdateBefore`].
+    pub access_policy: AccessPolicy,
 }
 
 impl<'a, Cn, V> View<'a, Cn, V>
@@ -117,6 +121,7 @@ where
         Self {
             connection,
             key: None,
+            access_policy: AccessPolicy::UpdateBefore,
         }
     }
 
@@ -134,10 +139,16 @@ where
         self
     }
 
-    /// Filters for entries in the view with `keys`.
+    /// Filters for entries in the view with the range `keys`.
     #[must_use]
     pub fn with_key_range(mut self, range: Range<V::MapKey>) -> Self {
         self.key = Some(QueryKey::Range(range));
+        self
+    }
+
+    /// Sets the access policy for queries.
+    pub fn with_access_policy(mut self, policy: AccessPolicy) -> Self {
+        self.access_policy = policy;
         self
     }
 
@@ -157,4 +168,24 @@ pub enum QueryKey<K> {
 
     /// Matches all entries that have keys that are included in the set provided.
     Multiple(Vec<K>),
+}
+
+/// Changes how the view's outdated data will be treated.
+pub enum AccessPolicy {
+    /// Update any changed documents before returning a response.
+    UpdateBefore,
+
+    /// Return the results, which may be out-of-date, and start an update job in
+    /// the background. This pattern is useful when you want to ensure you
+    /// provide consistent response times while ensuring the database is
+    /// updating in the background.
+    UpdateAfter,
+
+    /// Returns the restuls, which may be out-of-date, and do not start any
+    /// background jobs. This mode is useful if you're using a view as a cache
+    /// and have a background process that is responsible for controlling when
+    /// data is refreshed and updated. While the default `UpdateBefore`
+    /// shouldn't have much overhead, this option removes all overhead related
+    /// to view updating from the query.
+    NoUpdate,
 }

@@ -1,7 +1,7 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, time::Duration};
 
 use pliantdb_core::{
-    connection::Connection,
+    connection::{AccessPolicy, Connection},
     document::Document,
     schema::Collection,
     test_util::{Basic, BasicByCategory, BasicByParentId, TestDirectory, UnassociatedCollection},
@@ -304,6 +304,57 @@ async fn view_update() -> anyhow::Result<()> {
         .query()
         .await?;
     assert_eq!(a_children.len(), 0);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn view_access_policies() -> anyhow::Result<()> {
+    let path = TestDirectory::new("view-access-policies");
+    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let collection = db.collection::<Basic>()?;
+    let a = collection.push(&Basic::new("A")).await?;
+
+    // Test inserting a record that should match the view, but ask for it to be
+    // NoUpdate. Verify we get no matches.
+    collection
+        .push(
+            &Basic::new("A.1")
+                .with_parent_id(a.id)
+                .with_category("Alpha"),
+        )
+        .await?;
+
+    let a_children = db
+        .view::<BasicByParentId>()
+        .with_key(Some(a.id))
+        .with_access_policy(AccessPolicy::NoUpdate)
+        .query()
+        .await?;
+    assert_eq!(a_children.len(), 0);
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    // Verify the view still have no value, but this time ask for it to be
+    // updated after returning
+    let a_children = db
+        .view::<BasicByParentId>()
+        .with_key(Some(a.id))
+        .with_access_policy(AccessPolicy::UpdateAfter)
+        .query()
+        .await?;
+    assert_eq!(a_children.len(), 0);
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    // Now, the view should contain the entry.
+    let a_children = db
+        .view::<BasicByParentId>()
+        .with_key(Some(a.id))
+        .with_access_policy(AccessPolicy::NoUpdate)
+        .query()
+        .await?;
+    assert_eq!(a_children.len(), 1);
 
     Ok(())
 }
