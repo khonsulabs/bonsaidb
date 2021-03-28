@@ -87,6 +87,15 @@ where
         })
         .await??;
 
+        self.storage
+            .tasks
+            .mark_view_updated(
+                self.map.collection.clone(),
+                self.map.view_name.clone(),
+                transaction_id,
+            )
+            .await;
+
         Ok(transaction_id)
     }
 }

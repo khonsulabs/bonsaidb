@@ -1,4 +1,8 @@
-use std::{borrow::Cow, collections::HashSet, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use pliantdb_core::schema::{collection, view, Database};
 use pliantdb_jobs::{manager::Manager, task::Handle};
@@ -8,7 +12,7 @@ use crate::{
     views::{
         integrity_scanner::{IntegrityScan, IntegrityScanner},
         mapper::{Map, Mapper},
-        view_invalidated_docs_tree_name, Task,
+        Task,
     },
     Storage,
 };
@@ -22,6 +26,7 @@ pub struct TaskManager {
 #[derive(Default, Debug)]
 pub struct Statuses {
     completed_integrity_checks: HashSet<(collection::Id, Cow<'static, str>)>,
+    view_update_last_status: HashMap<(collection::Id, Cow<'static, str>), u64>,
 }
 
 impl TaskManager {
@@ -42,30 +47,40 @@ impl TaskManager {
             job.receive().await.unwrap();
         }
 
-        let needs_reindex = tokio::task::block_in_place(|| {
-            let invalidated_docs = storage.sled.open_tree(view_invalidated_docs_tree_name(
-                &view.collection(),
-                view_name.as_ref(),
-            ));
-            invalidated_docs.iter().next().is_some()
-        });
+        // If there is no transaction id, there is no data, so the view is "up-to-date"
+        if let Some(current_transaction_id) = storage.last_transaction_id().await? {
+            let needs_reindex = {
+                // When views finish updating, they store the last transaction_id
+                // they mapped. If that value is current, we don't need to go
+                // through the jobs system at all.
+                let statuses = self.statuses.read().await;
+                if let Some(last_transaction_indexed) = statuses
+                    .view_update_last_status
+                    .get(&(view.collection(), view.name()))
+                {
+                    last_transaction_indexed < &current_transaction_id
+                } else {
+                    true
+                }
+            };
 
-        if needs_reindex {
-            let wait_for_transaction = storage.last_transaction_id().await?.unwrap();
-            loop {
-                let job = self
-                    .jobs
-                    .lookup_or_enqueue(Mapper {
-                        storage: storage.clone(),
-                        map: Map {
-                            collection: view.collection(),
-                            view_name: view_name.clone(),
-                        },
-                    })
-                    .await;
-                if let Ok(id) = job.receive().await?.as_ref() {
-                    if wait_for_transaction <= *id {
-                        break;
+            if needs_reindex {
+                let wait_for_transaction = current_transaction_id;
+                loop {
+                    let job = self
+                        .jobs
+                        .lookup_or_enqueue(Mapper {
+                            storage: storage.clone(),
+                            map: Map {
+                                collection: view.collection(),
+                                view_name: view_name.clone(),
+                            },
+                        })
+                        .await;
+                    if let Ok(id) = job.receive().await?.as_ref() {
+                        if wait_for_transaction <= *id {
+                            break;
+                        }
                     }
                 }
             }
@@ -121,5 +136,17 @@ impl TaskManager {
         statuses
             .completed_integrity_checks
             .insert((collection, view_name));
+    }
+
+    pub async fn mark_view_updated(
+        &self,
+        collection: collection::Id,
+        view_name: Cow<'static, str>,
+        transaction_id: u64,
+    ) {
+        let mut statuses = self.statuses.write().await;
+        statuses
+            .view_update_last_status
+            .insert((collection, view_name), transaction_id);
     }
 }
