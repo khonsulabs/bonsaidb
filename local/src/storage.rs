@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use pliantdb_core::{
     connection::{AccessPolicy, Collection, Connection, QueryKey, View},
-    document::{Document, Header},
+    document::Document,
     schema::{self, collection, map, view, Database, Key, Schema},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
@@ -126,47 +126,6 @@ where
         }
     }
 
-    async fn insert<C: schema::Collection>(
-        &self,
-        contents: Vec<u8>,
-    ) -> Result<Header, pliantdb_core::Error> {
-        let mut tx = Transaction::default();
-        tx.push(Operation {
-            collection: C::id(),
-            command: Command::Insert {
-                contents: Cow::from(contents),
-            },
-        });
-        let results = self.apply_transaction(tx).await?;
-        if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
-            Ok(header.clone())
-        } else {
-            unreachable!(
-                "apply_transaction on a single insert should yield a single DocumentUpdated entry"
-            )
-        }
-    }
-
-    async fn update(&self, doc: &mut Document<'_>) -> Result<(), pliantdb_core::Error> {
-        let mut tx = Transaction::default();
-        tx.push(Operation {
-            collection: doc.collection.clone(),
-            command: Command::Update {
-                header: Cow::Owned(doc.header.as_ref().clone()),
-                contents: Cow::Owned(doc.contents.to_vec()),
-            },
-        });
-        let results = self.apply_transaction(tx).await?;
-        if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
-            doc.header = Cow::Owned(header.clone());
-            Ok(())
-        } else {
-            unreachable!(
-                "apply_transaction on a single update should yield a single DocumentUpdated entry"
-            )
-        }
-    }
-
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
@@ -180,7 +139,7 @@ where
                 .map_err_to_core()?;
             for op in &transaction.operations {
                 match &op.command {
-                    Command::Update { .. } | Command::Insert { .. } => {
+                    Command::Update { .. } | Command::Insert { .. } | Command::Delete { .. } => {
                         open_trees
                             .open_trees_for_document_change(&sled, &op.collection, &schema)
                             .map_err_to_core()?;
@@ -194,13 +153,22 @@ where
                 for op in &transaction.operations {
                     let result = execute_operation(op, trees, &open_trees.trees_index_by_name)?;
 
-                    if let OperationResult::DocumentUpdated { header, collection } = &result {
-                        changed_documents.push(ChangedDocument {
-                            collection: collection.clone(),
-                            id: header.id,
-                        });
+                    match &result {
+                        OperationResult::DocumentUpdated { header, collection } => {
+                            changed_documents.push(ChangedDocument {
+                                collection: collection.clone(),
+                                id: header.id,
+                                deleted: false,
+                            });
+                        }
+                        OperationResult::DocumentDeleted { id, collection } => changed_documents
+                            .push(ChangedDocument {
+                                collection: collection.clone(),
+                                id: *id,
+                                deleted: true,
+                            }),
+                        OperationResult::Success => {}
                     }
-
                     results.push(result);
                 }
 
@@ -492,6 +460,32 @@ fn execute_operation(
                             header: doc.header.as_ref().clone(),
                         })
                     }
+                } else {
+                    Err(ConflictableTransactionError::Abort(
+                        pliantdb_core::Error::DocumentConflict(
+                            operation.collection.clone(),
+                            header.id,
+                        ),
+                    ))
+                }
+            } else {
+                Err(ConflictableTransactionError::Abort(
+                    pliantdb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
+                ))
+            }
+        }
+        Command::Delete { header } => {
+            let document_id = header.id.as_big_endian_bytes().unwrap();
+            if let Some(vec) = tree.get(&document_id)? {
+                let doc = bincode::deserialize::<Document<'_>>(&vec)
+                    .map_err_to_core()
+                    .map_err(ConflictableTransactionError::Abort)?;
+                if &doc.header == header {
+                    tree.remove(document_id.as_ref())?;
+                    Ok(OperationResult::DocumentDeleted {
+                        collection: operation.collection.clone(),
+                        id: header.id,
+                    })
                 } else {
                     Err(ConflictableTransactionError::Abort(
                         pliantdb_core::Error::DocumentConflict(

@@ -51,6 +51,14 @@ pub enum Command<'a> {
         #[serde(borrow)]
         contents: Cow<'a, [u8]>,
     },
+
+    /// Delete an existing `Document` identified by `id`. `revision` must match
+    /// the currently stored revision on the `Document`. If it does not, the
+    /// command fill fail with a `DocumentConflict` error.
+    Delete {
+        /// The current header of the `Document`.
+        header: Cow<'a, Header>,
+    },
 }
 
 /// Information about the result of each `Operation` in a transaction.
@@ -66,6 +74,15 @@ pub enum OperationResult {
 
         /// The header of the updated `Document`.
         header: Header,
+    },
+
+    /// A `Document` was deleted.
+    DocumentDeleted {
+        /// The id of the `Collection` of the deleted `Document`.
+        collection: collection::Id,
+
+        /// The id of the deleted `Document`.
+        id: u64,
     },
 }
 
@@ -99,4 +116,7 @@ pub struct ChangedDocument {
 
     /// The id of the changed `Document`.
     pub id: u64,
+
+    /// If the `Document` has been deleted, this will be `true`.
+    pub deleted: bool,
 }

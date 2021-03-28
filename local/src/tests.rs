@@ -16,7 +16,7 @@ use super::*;
 use crate::Storage;
 
 #[tokio::test(flavor = "multi_thread")]
-async fn store_retrieve_update() -> Result<(), anyhow::Error> {
+async fn store_retrieve_update_delete() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("store-retrieve-update");
     let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
 
@@ -51,11 +51,24 @@ async fn store_retrieve_update() -> Result<(), anyhow::Error> {
     let transactions = db.list_executed_transactions(None, None).await?;
     assert_eq!(transactions.len(), 2);
     assert!(transactions[0].id < transactions[1].id);
-    for transaction in transactions {
+    for transaction in &transactions {
         assert_eq!(transaction.changed_documents.len(), 1);
         assert_eq!(transaction.changed_documents[0].collection, Basic::id());
         assert_eq!(transaction.changed_documents[0].id, header.id);
+        assert_eq!(transaction.changed_documents[0].deleted, false);
     }
+
+    db.delete(&doc).await?;
+    assert!(collection.get(header.id).await?.is_none());
+    let transactions = db
+        .list_executed_transactions(Some(transactions.last().as_ref().unwrap().id + 1), None)
+        .await?;
+    assert_eq!(transactions.len(), 1);
+    let transaction = transactions.first().unwrap();
+    assert_eq!(transaction.changed_documents.len(), 1);
+    assert_eq!(transaction.changed_documents[0].collection, Basic::id());
+    assert_eq!(transaction.changed_documents[0].id, header.id);
+    assert_eq!(transaction.changed_documents[0].deleted, true);
 
     Ok(())
 }
@@ -307,6 +320,12 @@ async fn view_update() -> anyhow::Result<()> {
         .query()
         .await?;
     assert_eq!(a_children.len(), 0);
+
+    // Test deleting a record and ensuring it goes away
+    db.delete(&doc).await?;
+
+    let all_entries = db.view::<BasicByParentId>().query().await?;
+    assert_eq!(all_entries.len(), 1);
 
     Ok(())
 }

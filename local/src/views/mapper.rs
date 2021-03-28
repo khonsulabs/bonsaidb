@@ -167,17 +167,22 @@ impl<'a, DB: Database> DocumentRequest<'a, DB> {
     fn map(&self) -> Result<(), ConflictableTransactionError<anyhow::Error>> {
         self.invalidated_entries.remove(self.document_id)?;
 
-        let document = self.documents.get(self.document_id)?.unwrap();
-        let document =
-            bincode::deserialize::<Document<'_>>(&document).map_to_transaction_error()?;
-
-        // Call the schema map function
         let view = self
             .storage
             .schema
             .view_by_name(&self.map_request.view_name)
             .unwrap();
-        let map_result = view.map(&document).map_to_transaction_error()?;
+
+        let (doc_still_exists, map_result) =
+            if let Some(document) = self.documents.get(self.document_id)? {
+                let document =
+                    bincode::deserialize::<Document<'_>>(&document).map_to_transaction_error()?;
+
+                // Call the schema map function
+                (true, view.map(&document).map_to_transaction_error()?)
+            } else {
+                (false, None)
+            };
 
         if let Some(map::Serialized { source, key, value }) = map_result {
             self.omitted_entries.remove(self.document_id)?;
@@ -187,34 +192,17 @@ impl<'a, DB: Database> DocumentRequest<'a, DB> {
             // document returned. Currently we only support
             // single emits, so it's going to be a
             // single-entry vec for now.
-            let keys = vec![Cow::Borrowed(&key)];
+            let keys: Vec<Cow<'_, [u8]>> = vec![Cow::Borrowed(&key)];
             if let Some(existing_map) = self.document_map.insert(
                 self.document_id,
                 bincode::serialize(&keys).map_to_transaction_error()?,
             )? {
-                let existing_keys = bincode::deserialize::<Vec<Cow<'_, [u8]>>>(&existing_map)
-                    .map_to_transaction_error()?;
-                if keys == existing_keys {
-                    // No change
-                    return Ok(());
-                }
-
-                assert_eq!(
-                    existing_keys.len(),
-                    1,
-                    "need to add support for multi-emitted keys"
-                );
-                // Remove the old key
-                if let Some(existing_entry) = self.view_entries.get(&existing_keys[0])? {
-                    let mut entry = bincode::deserialize::<ViewEntry>(&existing_entry)
-                        .map_to_transaction_error()?;
-                    let document_id = u64::from_big_endian_bytes(self.document_id).unwrap();
-                    entry.mappings.retain(|m| m.source != document_id);
-                    self.view_entries.insert(
-                        existing_keys[0].as_ref(),
-                        bincode::serialize(&entry).map_to_transaction_error()?,
-                    )?;
-                }
+                remove_existing_view_entries_for_keys(
+                    self.document_id,
+                    &keys,
+                    &existing_map,
+                    self.view_entries,
+                )?;
             }
 
             let entry_mapping = EntryMapping { source, value };
@@ -256,9 +244,19 @@ impl<'a, DB: Database> DocumentRequest<'a, DB> {
             )?;
         } else {
             // When no entry is emitted, the document map is emptied and a note is made in omitted_entries
-            self.document_map.remove(self.document_id)?;
-            self.omitted_entries
-                .insert(self.document_id, IVec::default())?;
+            if let Some(existing_map) = self.document_map.remove(self.document_id)? {
+                remove_existing_view_entries_for_keys(
+                    self.document_id,
+                    &[],
+                    &existing_map,
+                    self.view_entries,
+                )?;
+            }
+
+            if doc_still_exists {
+                self.omitted_entries
+                    .insert(self.document_id, IVec::default())?;
+            }
         }
 
         Ok(())
@@ -282,4 +280,36 @@ impl<T, E> ToTransactionResult<T, E> for Result<T, E> {
     fn map_to_transaction_error<RE: From<E>>(self) -> Result<T, ConflictableTransactionError<RE>> {
         self.map_err(|err| ConflictableTransactionError::Abort(RE::from(err)))
     }
+}
+
+fn remove_existing_view_entries_for_keys(
+    document_id: &[u8],
+    keys: &[Cow<'_, [u8]>],
+    existing_map: &[u8],
+    view_entries: &TransactionalTree,
+) -> Result<(), ConflictableTransactionError<anyhow::Error>> {
+    let existing_keys =
+        bincode::deserialize::<Vec<Cow<'_, [u8]>>>(existing_map).map_to_transaction_error()?;
+    if existing_keys == keys {
+        // No change
+        return Ok(());
+    }
+
+    assert_eq!(
+        existing_keys.len(),
+        1,
+        "need to add support for multi-emitted keys"
+    );
+    // Remove the old key
+    if let Some(existing_entry) = view_entries.get(&existing_keys[0])? {
+        let mut entry =
+            bincode::deserialize::<ViewEntry>(&existing_entry).map_to_transaction_error()?;
+        let document_id = u64::from_big_endian_bytes(document_id).unwrap();
+        entry.mappings.retain(|m| m.source != document_id);
+        view_entries.insert(
+            existing_keys[0].as_ref(),
+            bincode::serialize(&entry).map_to_transaction_error()?,
+        )?;
+    }
+    Ok(())
 }

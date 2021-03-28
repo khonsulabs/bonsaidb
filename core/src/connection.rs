@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, ops::Range};
+use std::{borrow::Cow, marker::PhantomData, ops::Range};
 
 use async_trait::async_trait;
 use serde::Serialize;
@@ -6,7 +6,7 @@ use serde::Serialize;
 use crate::{
     document::{Document, Header},
     schema::{self, map},
-    transaction::{self, OperationResult, Transaction},
+    transaction::{self, Command, Operation, OperationResult, Transaction},
     Error,
 };
 
@@ -21,16 +21,69 @@ pub trait Connection<'a>: Send + Sync {
         Self: Sized;
 
     /// Inserts a newly created document into the connected [`schema::Database`] for the [`Collection`] `C`.
-    async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error>;
+    async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error> {
+        let mut tx = Transaction::default();
+        tx.push(Operation {
+            collection: C::id(),
+            command: Command::Insert {
+                contents: Cow::from(contents),
+            },
+        });
+        let results = self.apply_transaction(tx).await?;
+        if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
+            Ok(header.clone())
+        } else {
+            unreachable!(
+                "apply_transaction on a single insert should yield a single DocumentUpdated entry"
+            )
+        }
+    }
 
     /// Updates an existing document in the connected [`schema::Database`] for the
     /// [`Collection`] `C`. Upon success, `doc.revision` will be updated with
     /// the new revision.
-    async fn update(&self, doc: &mut Document<'_>) -> Result<(), Error>;
+    async fn update(&self, doc: &mut Document<'_>) -> Result<(), Error> {
+        let mut tx = Transaction::default();
+        tx.push(Operation {
+            collection: doc.collection.clone(),
+            command: Command::Update {
+                header: Cow::Owned(doc.header.as_ref().clone()),
+                contents: Cow::Owned(doc.contents.to_vec()),
+            },
+        });
+        let results = self.apply_transaction(tx).await?;
+        if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
+            doc.header = Cow::Owned(header.clone());
+            Ok(())
+        } else {
+            unreachable!(
+                "apply_transaction on a single update should yield a single DocumentUpdated entry"
+            )
+        }
+    }
 
     /// Retrieves a stored document from [`Collection`] `C` identified by `id`.
     async fn get<C: schema::Collection>(&self, id: u64)
         -> Result<Option<Document<'static>>, Error>;
+
+    /// Removes a `Document` from the database.
+    async fn delete(&self, doc: &Document<'_>) -> Result<(), Error> {
+        let mut tx = Transaction::default();
+        tx.push(Operation {
+            collection: doc.collection.clone(),
+            command: Command::Delete {
+                header: Cow::Owned(doc.header.as_ref().clone()),
+            },
+        });
+        let results = self.apply_transaction(tx).await?;
+        if let OperationResult::DocumentDeleted { .. } = &results[0] {
+            Ok(())
+        } else {
+            unreachable!(
+                "apply_transaction on a single update should yield a single DocumentUpdated entry"
+            )
+        }
+    }
 
     /// Initializes [`ViewQuery`] for [`schema::View`] `V`.
     #[must_use]
