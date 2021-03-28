@@ -6,7 +6,7 @@ use std::{
 
 use crate::schema::{
     collection::{self, Collection},
-    view, View,
+    view, Serialized, View,
 };
 
 /// Defines a group of collections that are stored into a single database.
@@ -25,6 +25,7 @@ pub struct Schema {
     collections: HashMap<TypeId, collection::Id>,
     views: HashMap<TypeId, Box<dyn view::Serialized>>,
     views_by_name: HashMap<String, TypeId>,
+    views_by_collection: HashMap<collection::Id, Vec<TypeId>>,
 }
 
 impl Schema {
@@ -37,9 +38,15 @@ impl Schema {
     /// Adds the view `V`.
     pub fn define_view<V: View + 'static>(&mut self, view: V) {
         let name = view.name();
+        let collection = view.collection();
         self.views.insert(TypeId::of::<V>(), Box::new(view));
         self.views_by_name
             .insert(name.to_string(), TypeId::of::<V>());
+        let views = self
+            .views_by_collection
+            .entry(collection)
+            .or_insert_with(Vec::new);
+        views.push(TypeId::of::<V>());
     }
 
     /// Returns `true` if this schema contains the collection `C`.
@@ -67,6 +74,20 @@ impl Schema {
     pub fn views(&self) -> impl Iterator<Item = &'_ dyn view::Serialized> {
         self.views.values().map(AsRef::as_ref)
     }
+
+    /// Iterates over all views that belong to `collection`.
+    #[must_use]
+    pub fn views_in_collection(
+        &self,
+        collection: &collection::Id,
+    ) -> Option<Vec<&'_ dyn view::Serialized>> {
+        self.views_by_collection.get(collection).map(|view_ids| {
+            view_ids
+                .iter()
+                .filter_map(|id| self.views.get(id).map(AsRef::as_ref))
+                .collect()
+        })
+    }
 }
 
 impl<T> Database for T
@@ -89,6 +110,6 @@ fn schema_tests() {
     assert_eq!(schema.views.len(), 3);
     assert_eq!(
         schema.views[&TypeId::of::<BasicCount>()].name(),
-        BasicCount.name()
+        View::name(&BasicCount)
     );
 }

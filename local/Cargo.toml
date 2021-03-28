@@ -22,6 +22,7 @@ bincode = "1.3"
 anyhow = "1"
 pliantdb-jobs = { path = "../jobs" }
 flume = "0.10"
+itertools = "0.10"
 
 [dev-dependencies]
 pliantdb-core = { path = "../core", features = ["test-util"] }

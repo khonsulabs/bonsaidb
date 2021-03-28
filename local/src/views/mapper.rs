@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use async_trait::async_trait;
 use pliantdb_core::{
     document::Document,
-    schema::{collection, map, Database},
+    schema::{collection, map, Database, Key},
 };
 use pliantdb_jobs::{Job, Keyed};
 use sled::{
@@ -179,13 +179,34 @@ impl<'a, DB: Database> DocumentRequest<'a, DB> {
             // single emits, so it's going to be a
             // single-entry vec for now.
             let keys = vec![Cow::Borrowed(&key)];
-            assert!(self
-                .document_map
-                .insert(
-                    self.document_id,
-                    bincode::serialize(&keys).map_to_transaction_error()?,
-                )?
-                .is_none()); // TODO need to implement updating an existing document's entries -- have to remove the entries for the old key it used to have
+            if let Some(existing_map) = self.document_map.insert(
+                self.document_id,
+                bincode::serialize(&keys).map_to_transaction_error()?,
+            )? {
+                let existing_keys = bincode::deserialize::<Vec<Cow<'_, [u8]>>>(&existing_map)
+                    .map_to_transaction_error()?;
+                if keys == existing_keys {
+                    // No change
+                    return Ok(());
+                }
+
+                assert_eq!(
+                    existing_keys.len(),
+                    1,
+                    "need to add support for multi-emitted keys"
+                );
+                // Remove the old key
+                if let Some(existing_entry) = self.view_entries.get(&existing_keys[0])? {
+                    let mut entry = bincode::deserialize::<ViewEntry>(&existing_entry)
+                        .map_to_transaction_error()?;
+                    let document_id = u64::from_big_endian_bytes(self.document_id).unwrap();
+                    entry.mappings.retain(|m| m.source != document_id);
+                    self.view_entries.insert(
+                        existing_keys[0].as_ref(),
+                        bincode::serialize(&entry).map_to_transaction_error()?,
+                    )?;
+                }
+            }
 
             let entry_mapping = EntryMapping { source, value };
 

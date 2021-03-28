@@ -260,3 +260,50 @@ async fn unassociated_collection() -> Result<(), anyhow::Error> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn view_update() -> anyhow::Result<()> {
+    let path = TestDirectory::new("view-update");
+    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let collection = db.collection::<Basic>()?;
+    let a = collection.push(&Basic::new("A")).await?;
+
+    let a_children = db
+        .view::<BasicByParentId>()
+        .with_key(Some(a.id))
+        .query()
+        .await?;
+    assert_eq!(a_children.len(), 0);
+
+    // Test inserting a new record and the view being made available
+    let a_child = collection
+        .push(
+            &Basic::new("A.1")
+                .with_parent_id(a.id)
+                .with_category("Alpha"),
+        )
+        .await?;
+
+    let a_children = db
+        .view::<BasicByParentId>()
+        .with_key(Some(a.id))
+        .query()
+        .await?;
+    assert_eq!(a_children.len(), 1);
+
+    // Test updating the record and the view being updated appropriately
+    let mut doc = db.collection::<Basic>()?.get(a_child.id).await?.unwrap();
+    let mut basic = doc.contents::<Basic>()?;
+    basic.parent_id = None;
+    doc.set_contents(&basic)?;
+    db.update(&mut doc).await?;
+
+    let a_children = db
+        .view::<BasicByParentId>()
+        .with_key(Some(a.id))
+        .query()
+        .await?;
+    assert_eq!(a_children.len(), 0);
+
+    Ok(())
+}

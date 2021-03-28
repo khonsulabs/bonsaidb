@@ -1,6 +1,7 @@
 use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
 
 use async_trait::async_trait;
+use itertools::Itertools;
 use pliantdb_core::{
     connection::{Collection, Connection, QueryKey, View},
     document::{Document, Header},
@@ -17,7 +18,7 @@ use crate::{
     error::ResultExt as _,
     open_trees::OpenTrees,
     tasks::TaskManager,
-    views::{view_entries_tree_name, ViewEntry},
+    views::{view_entries_tree_name, view_invalidated_docs_tree_name, ViewEntry},
     Configuration, Error,
 };
 
@@ -167,6 +168,7 @@ where
         transaction: Transaction<'static>,
     ) -> Result<Vec<OperationResult>, pliantdb_core::Error> {
         let sled = self.sled.clone();
+        let schema = self.schema.clone();
         tokio::task::spawn_blocking(move || {
             let mut open_trees = OpenTrees::default();
             open_trees
@@ -176,7 +178,7 @@ where
                 match &op.command {
                     Command::Update { .. } | Command::Insert { .. } => {
                         open_trees
-                            .open_trees_for_document_change(&sled, &op.collection)
+                            .open_trees_for_document_change(&sled, &op.collection, &schema)
                             .map_err_to_core()?;
                     }
                 }
@@ -196,6 +198,30 @@ where
                     }
 
                     results.push(result);
+                }
+
+                // Insert invalidations for each record changed
+                for (collection, changed_documents) in &changed_documents
+                    .iter()
+                    .group_by(|doc| doc.collection.clone())
+                {
+                    if let Some(views) = schema.views_in_collection(&collection) {
+                        let changed_documents = changed_documents.collect::<Vec<_>>();
+                        for view in views {
+                            let view_name = view.name();
+                            for changed_document in &changed_documents {
+                                let invalidated_docs = &trees[open_trees.trees_index_by_name
+                                    [&view_invalidated_docs_tree_name(
+                                        &collection,
+                                        view_name.as_ref(),
+                                    )]];
+                                invalidated_docs.insert(
+                                    changed_document.id.as_big_endian_bytes().unwrap().as_ref(),
+                                    IVec::default(),
+                                )?;
+                            }
+                        }
+                    }
                 }
 
                 // Save a record of the transaction we just completed.
