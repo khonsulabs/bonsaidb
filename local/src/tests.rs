@@ -413,6 +413,7 @@ async fn integrity_checks() -> anyhow::Result<()> {
         )
         .await?;
         for _ in 0_u8..10 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
             if db
                 .view::<BasicByParentId>()
                 .with_access_policy(AccessPolicy::NoUpdate)
