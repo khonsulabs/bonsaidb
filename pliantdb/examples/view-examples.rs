@@ -42,7 +42,7 @@ impl View for ShapesByNumberOfSides {
 
     type Reduce = ();
 
-    fn version(&self) -> usize {
+    fn version(&self) -> u64 {
         1
     }
 

@@ -61,7 +61,7 @@ impl View for BasicCount {
     type MapValue = usize;
     type Reduce = usize;
 
-    fn version(&self) -> usize {
+    fn version(&self) -> u64 {
         0
     }
 
@@ -91,8 +91,8 @@ impl View for BasicByParentId {
     type MapValue = usize;
     type Reduce = usize;
 
-    fn version(&self) -> usize {
-        0
+    fn version(&self) -> u64 {
+        1
     }
 
     fn name(&self) -> Cow<'static, str> {
@@ -122,7 +122,7 @@ impl View for BasicByCategory {
     type MapValue = usize;
     type Reduce = usize;
 
-    fn version(&self) -> usize {
+    fn version(&self) -> u64 {
         0
     }
 
@@ -147,6 +147,28 @@ impl View for BasicByCategory {
         _rereduce: bool,
     ) -> Result<Self::Reduce, view::Error> {
         Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
+#[derive(Debug)]
+pub struct BasicByBrokenParentId;
+
+impl View for BasicByBrokenParentId {
+    type Collection = Basic;
+    type MapKey = ();
+    type MapValue = ();
+    type Reduce = ();
+
+    fn version(&self) -> u64 {
+        0
+    }
+
+    fn name(&self) -> Cow<'static, str> {
+        Cow::from("by-parent-id")
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::MapKey, Self::MapValue> {
+        Ok(Some(document.emit()))
     }
 }
 
@@ -196,6 +218,19 @@ impl Collection for BasicCollectionWithNoViews {
     }
 
     fn define_views(_schema: &mut Schema) {}
+}
+
+#[derive(Debug)]
+pub struct BasicCollectionWithOnlyBrokenParentId;
+
+impl Collection for BasicCollectionWithOnlyBrokenParentId {
+    fn id() -> collection::Id {
+        Basic::id()
+    }
+
+    fn define_views(schema: &mut Schema) {
+        schema.define_view(BasicByBrokenParentId);
+    }
 }
 
 #[derive(Debug)]

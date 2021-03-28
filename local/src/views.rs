@@ -5,7 +5,7 @@ use self::{integrity_scanner::IntegrityScan, mapper::Map};
 
 #[derive(Serialize, Deserialize)]
 pub struct ViewEntry {
-    pub view_version: usize,
+    pub view_version: u64,
     pub mappings: Vec<EntryMapping>,
 }
 
@@ -33,6 +33,10 @@ pub fn view_invalidated_docs_tree_name(collection: &collection::Id, view_name: &
 
 pub fn view_omitted_docs_tree_name(collection: &collection::Id, view_name: &str) -> String {
     format!("{}::{}::omitted", collection.0, view_name)
+}
+
+pub fn view_versions(collection: &collection::Id) -> String {
+    format!("{}::view-versions", collection.0)
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]

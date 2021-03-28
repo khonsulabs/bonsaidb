@@ -4,7 +4,10 @@ use pliantdb_core::{
     connection::{AccessPolicy, Connection},
     document::Document,
     schema::Collection,
-    test_util::{Basic, BasicByCategory, BasicByParentId, TestDirectory, UnassociatedCollection},
+    test_util::{
+        Basic, BasicByBrokenParentId, BasicByCategory, BasicByParentId, BasicCollectionWithNoViews,
+        BasicCollectionWithOnlyBrokenParentId, TestDirectory, UnassociatedCollection,
+    },
     Error,
 };
 use storage::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS};
@@ -15,7 +18,7 @@ use crate::Storage;
 #[tokio::test(flavor = "multi_thread")]
 async fn store_retrieve_update() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("store-retrieve-update");
-    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
 
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>()?;
@@ -60,7 +63,7 @@ async fn store_retrieve_update() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn not_found() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("not-found");
-    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
 
     assert!(db.collection::<Basic>()?.get(1).await?.is_none());
 
@@ -72,7 +75,7 @@ async fn not_found() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn conflict() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("conflict");
-    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
 
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>()?;
@@ -108,7 +111,7 @@ async fn conflict() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn bad_update() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("bad_update");
-    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
 
     let mut doc = Document::with_contents(1, &Basic::default(), Basic::id())?;
     match db.update(&mut doc).await {
@@ -124,7 +127,7 @@ async fn bad_update() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn no_update() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("no-update");
-    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
 
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>()?;
@@ -144,7 +147,7 @@ async fn no_update() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn list_transactions() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("list-transactions");
-    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
     let collection = db.collection::<Basic>()?;
 
     // create LIST_TRANSACTIONS_MAX_RESULTS + 1 items, giving us just enough
@@ -193,7 +196,7 @@ async fn list_transactions() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn view_query() -> anyhow::Result<()> {
     let path = TestDirectory::new("view-query");
-    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
     let collection = db.collection::<Basic>()?;
     let a = collection.push(&Basic::new("A")).await?;
     let b = collection.push(&Basic::new("B")).await?;
@@ -252,7 +255,7 @@ async fn view_query() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn unassociated_collection() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("unassociated-collection");
-    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
     assert!(matches!(
         db.collection::<UnassociatedCollection>(),
         Err(pliantdb_core::Error::CollectionNotFound)
@@ -264,7 +267,7 @@ async fn unassociated_collection() -> Result<(), anyhow::Error> {
 #[tokio::test(flavor = "multi_thread")]
 async fn view_update() -> anyhow::Result<()> {
     let path = TestDirectory::new("view-update");
-    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
     let collection = db.collection::<Basic>()?;
     let a = collection.push(&Basic::new("A")).await?;
 
@@ -311,7 +314,7 @@ async fn view_update() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn view_access_policies() -> anyhow::Result<()> {
     let path = TestDirectory::new("view-access-policies");
-    let db = Storage::<Basic>::open_local(path, &Configuration::default()).await?;
+    let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
     let collection = db.collection::<Basic>()?;
     let a = collection.push(&Basic::new("A")).await?;
 
@@ -361,4 +364,68 @@ async fn view_access_policies() -> anyhow::Result<()> {
         }
     }
     panic!("view never updated")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn integrity_checks() -> anyhow::Result<()> {
+    let path = TestDirectory::new("integrity-checks");
+    // Add a doc with no views installed
+    {
+        let db =
+            Storage::<BasicCollectionWithNoViews>::open_local(&path, &Configuration::default())
+                .await?;
+        let collection = db.collection::<BasicCollectionWithNoViews>()?;
+        collection.push(&Basic::default().with_parent_id(1)).await?;
+    }
+    // Connect with a new view
+    {
+        let db = Storage::<BasicCollectionWithOnlyBrokenParentId>::open_local(
+            &path,
+            &Configuration::default(),
+        )
+        .await?;
+        // Give the integrity scanner time to run if it were to run (it shouldn't in this configuration).
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // NoUpdate should return data without the validation checker having run.
+        assert_eq!(
+            db.view::<BasicByBrokenParentId>()
+                .with_access_policy(AccessPolicy::NoUpdate)
+                .query()
+                .await?
+                .len(),
+            0
+        );
+
+        // Regular query should show the correct data
+        assert_eq!(db.view::<BasicByBrokenParentId>().query().await?.len(), 1);
+    }
+    // Connect with a fixed view, and wait for the integrity scanner to work
+    {
+        let db = Storage::<Basic>::open_local(
+            &path,
+            &Configuration {
+                views: config::Views {
+                    check_integrity_on_open: true,
+                },
+                ..Configuration::default()
+            },
+        )
+        .await?;
+        for _ in 0_u8..10 {
+            if db
+                .view::<BasicByParentId>()
+                .with_access_policy(AccessPolicy::NoUpdate)
+                .with_key(Some(1))
+                .query()
+                .await?
+                .len()
+                == 1
+            {
+                return Ok(());
+            }
+        }
+
+        panic!("Integrity checker didn't run in the allocated time")
+    }
 }

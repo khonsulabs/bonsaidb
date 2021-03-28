@@ -51,7 +51,7 @@ pub trait View: Send + Sync + Debug + 'static {
     type Reduce: Serialize + for<'de> Deserialize<'de>;
 
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
-    fn version(&self) -> usize;
+    fn version(&self) -> u64;
 
     /// The name of the view. Must be unique per collection.
     fn name(&self) -> Cow<'static, str>;
@@ -112,7 +112,7 @@ pub trait Serialized: Send + Sync + Debug {
     /// Wraps [`View::collection`]
     fn collection(&self) -> collection::Id;
     /// Wraps [`View::version`]
-    fn version(&self) -> usize;
+    fn version(&self) -> u64;
     /// Wraps [`View::name`]
     fn name(&self) -> Cow<'static, str>;
     /// Wraps [`View::map`]
@@ -128,7 +128,7 @@ where
         <<Self as View>::Collection as Collection>::id()
     }
 
-    fn version(&self) -> usize {
+    fn version(&self) -> u64 {
         self.version()
     }
 
