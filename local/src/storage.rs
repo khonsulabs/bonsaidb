@@ -52,6 +52,10 @@ where
     DB: Database,
 {
     /// Opens a local file as a pliantdb.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `tokio::task::spawn_blocking` fails
     pub async fn open_local<P: AsRef<Path> + Send>(
         path: P,
         configuration: &Configuration,

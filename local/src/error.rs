@@ -24,9 +24,9 @@ pub enum Error {
     View(#[from] view::Error),
 }
 
-impl Into<pliantdb_core::Error> for Error {
-    fn into(self) -> pliantdb_core::Error {
-        pliantdb_core::Error::Storage(self.to_string())
+impl From<Error> for pliantdb_core::Error {
+    fn from(err: Error) -> Self {
+        Self::Storage(err.to_string())
     }
 }
 
