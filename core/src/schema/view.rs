@@ -42,13 +42,10 @@ pub trait View: Send + Sync + Debug + 'static {
     type Collection: Collection;
 
     /// The key for this view.
-    type MapKey: Key + 'static;
+    type Key: Key + 'static;
 
     /// An associated type that can be stored with each entry in the view.
-    type MapValue: Serialize + for<'de> Deserialize<'de>;
-
-    /// When implementing reduce(), this is the returned type.
-    type Reduce: Serialize + for<'de> Deserialize<'de>;
+    type Value: Serialize + for<'de> Deserialize<'de>;
 
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
     fn version(&self) -> u64;
@@ -59,7 +56,7 @@ pub trait View: Send + Sync + Debug + 'static {
     /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document.
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::MapKey, Self::MapValue>;
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value>;
 
     /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -69,9 +66,9 @@ pub trait View: Send + Sync + Debug + 'static {
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[Map<Self::MapKey, Self::MapValue>],
+        mappings: &[Map<Self::Key, Self::Value>],
         rereduce: bool,
-    ) -> Result<Self::Reduce, Error> {
+    ) -> Result<Self::Value, Error> {
         Err(Error::ReduceUnimplemented)
     }
 }
@@ -122,7 +119,7 @@ pub trait Serialized: Send + Sync + Debug {
 impl<T> Serialized for T
 where
     T: View,
-    <T as View>::MapKey: 'static,
+    <T as View>::Key: 'static,
 {
     fn collection(&self) -> collection::Id {
         <<Self as View>::Collection as Collection>::id()

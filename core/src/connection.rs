@@ -159,7 +159,7 @@ pub struct View<'a, Cn, V: schema::View> {
     connection: &'a Cn,
 
     /// Key filtering criteria.
-    pub key: Option<QueryKey<V::MapKey>>,
+    pub key: Option<QueryKey<V::Key>>,
 
     /// The view's data access policy. The default value is [`AccessPolicy::UpdateBefore`].
     pub access_policy: AccessPolicy,
@@ -180,21 +180,21 @@ where
 
     /// Filters for entries in the view with `key`.
     #[must_use]
-    pub fn with_key(mut self, key: V::MapKey) -> Self {
+    pub fn with_key(mut self, key: V::Key) -> Self {
         self.key = Some(QueryKey::Matches(key));
         self
     }
 
     /// Filters for entries in the view with `keys`.
     #[must_use]
-    pub fn with_keys(mut self, keys: Vec<V::MapKey>) -> Self {
+    pub fn with_keys(mut self, keys: Vec<V::Key>) -> Self {
         self.key = Some(QueryKey::Multiple(keys));
         self
     }
 
     /// Filters for entries in the view with the range `keys`.
     #[must_use]
-    pub fn with_key_range(mut self, range: Range<V::MapKey>) -> Self {
+    pub fn with_key_range(mut self, range: Range<V::Key>) -> Self {
         self.key = Some(QueryKey::Range(range));
         self
     }

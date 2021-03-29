@@ -57,9 +57,8 @@ pub struct BasicCount;
 
 impl View for BasicCount {
     type Collection = Basic;
-    type MapKey = ();
-    type MapValue = usize;
-    type Reduce = usize;
+    type Key = ();
+    type Value = usize;
 
     fn version(&self) -> u64 {
         0
@@ -69,15 +68,15 @@ impl View for BasicCount {
         Cow::from("count")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::MapKey, Self::MapValue> {
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         Ok(Some(document.emit_key_and_value((), 1)))
     }
 
     fn reduce(
         &self,
-        mappings: &[Map<Self::MapKey, Self::MapValue>],
+        mappings: &[Map<Self::Key, Self::Value>],
         _rereduce: bool,
-    ) -> Result<Self::Reduce, view::Error> {
+    ) -> Result<Self::Value, view::Error> {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
@@ -87,9 +86,8 @@ pub struct BasicByParentId;
 
 impl View for BasicByParentId {
     type Collection = Basic;
-    type MapKey = Option<u64>;
-    type MapValue = usize;
-    type Reduce = usize;
+    type Key = Option<u64>;
+    type Value = usize;
 
     fn version(&self) -> u64 {
         1
@@ -99,16 +97,16 @@ impl View for BasicByParentId {
         Cow::from("by-parent-id")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::MapKey, Self::MapValue> {
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<Basic>()?;
         Ok(Some(document.emit_key_and_value(contents.parent_id, 1)))
     }
 
     fn reduce(
         &self,
-        mappings: &[Map<Self::MapKey, Self::MapValue>],
+        mappings: &[Map<Self::Key, Self::Value>],
         _rereduce: bool,
-    ) -> Result<Self::Reduce, view::Error> {
+    ) -> Result<Self::Value, view::Error> {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
@@ -118,9 +116,8 @@ pub struct BasicByCategory;
 
 impl View for BasicByCategory {
     type Collection = Basic;
-    type MapKey = String;
-    type MapValue = usize;
-    type Reduce = usize;
+    type Key = String;
+    type Value = usize;
 
     fn version(&self) -> u64 {
         0
@@ -130,7 +127,7 @@ impl View for BasicByCategory {
         Cow::from("by-category")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::MapKey, Self::MapValue> {
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<Basic>()?;
         if let Some(category) = &contents.category {
             Ok(Some(
@@ -143,9 +140,9 @@ impl View for BasicByCategory {
 
     fn reduce(
         &self,
-        mappings: &[Map<Self::MapKey, Self::MapValue>],
+        mappings: &[Map<Self::Key, Self::Value>],
         _rereduce: bool,
-    ) -> Result<Self::Reduce, view::Error> {
+    ) -> Result<Self::Value, view::Error> {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
@@ -155,9 +152,8 @@ pub struct BasicByBrokenParentId;
 
 impl View for BasicByBrokenParentId {
     type Collection = Basic;
-    type MapKey = ();
-    type MapValue = ();
-    type Reduce = ();
+    type Key = ();
+    type Value = ();
 
     fn version(&self) -> u64 {
         0
@@ -167,7 +163,7 @@ impl View for BasicByBrokenParentId {
         Cow::from("by-parent-id")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::MapKey, Self::MapValue> {
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         Ok(Some(document.emit()))
     }
 }

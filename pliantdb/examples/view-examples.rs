@@ -36,11 +36,9 @@ struct ShapesByNumberOfSides;
 impl View for ShapesByNumberOfSides {
     type Collection = Shape;
 
-    type MapKey = u32;
+    type Key = u32;
 
-    type MapValue = ();
-
-    type Reduce = ();
+    type Value = ();
 
     fn version(&self) -> u64 {
         1
@@ -50,7 +48,7 @@ impl View for ShapesByNumberOfSides {
         Cow::from("by-color")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::MapKey> {
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key> {
         let shape = document.contents::<Shape>()?;
         Ok(Some(document.emit_key(shape.sides as u32)))
     }
