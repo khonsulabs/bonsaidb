@@ -5,7 +5,7 @@ use itertools::Itertools;
 use pliantdb_core::{
     connection::{AccessPolicy, Collection, Connection, QueryKey, View},
     document::Document,
-    schema::{self, collection, view, Database, Key, Map, Schema},
+    schema::{self, collection, map::MappedDocument, view, Database, Key, Map, Schema},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
 use pliantdb_jobs::manager::Manager;
@@ -313,6 +313,37 @@ where
         })
     }
 
+    async fn get_multiple<C: schema::Collection>(
+        &self,
+        ids: &[u64],
+    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
+        tokio::task::block_in_place(|| {
+            let tree = self
+                .sled
+                .open_tree(document_tree_name(&C::id()))
+                .map_err_to_core()?;
+            let mut found_docs = Vec::new();
+            for id in ids {
+                if let Some(vec) = tree
+                    .get(
+                        id.as_big_endian_bytes()
+                            .map_err(view::Error::KeySerialization)
+                            .map_err_to_core()?,
+                    )
+                    .map_err_to_core()?
+                {
+                    found_docs.push(
+                        bincode::deserialize::<Document<'_>>(&vec)
+                            .map_err_to_core()?
+                            .to_owned(),
+                    );
+                }
+            }
+
+            Ok(found_docs)
+        })
+    }
+
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
@@ -385,6 +416,38 @@ where
         .await?;
 
         Ok(results)
+    }
+
+    async fn query_with_docs<'k, V: schema::View>(
+        &self,
+        query: View<'a, Self, V>,
+    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, pliantdb_core::Error>
+    where
+        Self: Sized,
+    {
+        let results = self.query(query).await?;
+
+        let mut documents = self
+            .get_multiple::<V::Collection>(&results.iter().map(|m| m.source).collect::<Vec<_>>())
+            .await?
+            .into_iter()
+            .map(|doc| (doc.header.id, doc))
+            .collect::<HashMap<_, _>>();
+
+        Ok(results
+            .into_iter()
+            .filter_map(|map| {
+                if let Some(document) = documents.remove(&map.source) {
+                    Some(MappedDocument {
+                        key: map.key,
+                        value: map.value,
+                        document,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect())
     }
 
     async fn reduce<'k, V: schema::View>(

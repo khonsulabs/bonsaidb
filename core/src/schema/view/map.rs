@@ -2,11 +2,26 @@ use std::{borrow::Cow, convert::TryInto};
 
 use serde::{Deserialize, Serialize};
 
+use crate::document::Document;
+
 /// A document's entry in a View's mappings.
 #[derive(PartialEq, Debug)]
 pub struct Map<K: Key = (), V: Serialize = ()> {
     /// The id of the document that emitted this entry.
     pub source: u64,
+
+    /// The key used to index the View.
+    pub key: K,
+
+    /// An associated value stored in the view.
+    pub value: V,
+}
+
+/// A document's entry in a View's mappings.
+#[derive(Debug)]
+pub struct MappedDocument<K: Key = (), V: Serialize = ()> {
+    /// The id of the document that emitted this entry.
+    pub document: Document<'static>,
 
     /// The key used to index the View.
     pub key: K,

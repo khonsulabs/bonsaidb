@@ -158,6 +158,39 @@ async fn no_update() -> Result<(), anyhow::Error> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn get_multiple() -> Result<(), anyhow::Error> {
+    let path = TestDirectory::new("get-multiple");
+    let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
+
+    let collection = db.collection::<Basic>()?;
+    let doc1_value = Basic::new("initial_value");
+    let doc1 = collection.push(&doc1_value).await?;
+
+    let doc2_value = Basic::new("second_value");
+    let doc2 = collection.push(&doc2_value).await?;
+
+    let docs = db.get_multiple::<Basic>(&[doc1.id, doc2.id]).await?;
+    assert_eq!(docs.len(), 2);
+
+    // The order of get_multiple isn't guaranteed, so these two checks are done
+    // with iterators instead of direct indexing
+    let doc1 = docs
+        .iter()
+        .find(|doc| doc.header.id == doc1.id)
+        .expect("Couldn't find doc1");
+    let doc1 = doc1.contents::<Basic>()?;
+    assert_eq!(doc1.value, doc1_value.value);
+    let doc2 = docs
+        .iter()
+        .find(|doc| doc.header.id == doc2.id)
+        .expect("Couldn't find doc2");
+    let doc2 = doc2.contents::<Basic>()?;
+    assert_eq!(doc2.value, doc2_value.value);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn list_transactions() -> Result<(), anyhow::Error> {
     let path = TestDirectory::new("list-transactions");
     let db = Storage::<Basic>::open_local(&path, &Configuration::default()).await?;
@@ -213,7 +246,7 @@ async fn view_query() -> anyhow::Result<()> {
     let collection = db.collection::<Basic>()?;
     let a = collection.push(&Basic::new("A")).await?;
     let b = collection.push(&Basic::new("B")).await?;
-    collection
+    let a_child = collection
         .push(
             &Basic::new("A.1")
                 .with_parent_id(a.id)
@@ -233,6 +266,14 @@ async fn view_query() -> anyhow::Result<()> {
         .query()
         .await?;
     assert_eq!(a_children.len(), 1);
+
+    let a_children = db
+        .view::<BasicByParentId>()
+        .with_key(Some(a.id))
+        .query_with_docs()
+        .await?;
+    assert_eq!(a_children.len(), 1);
+    assert_eq!(a_children[0].document.header.id, a_child.id);
 
     let b_children = db
         .view::<BasicByParentId>()

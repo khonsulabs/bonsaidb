@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::{
     document::{Document, Header},
-    schema::{self, view},
+    schema::{self, map::MappedDocument, Map},
     transaction::{self, Command, Operation, OperationResult, Transaction},
     Error,
 };
@@ -66,6 +66,13 @@ pub trait Connection<'a>: Send + Sync {
     async fn get<C: schema::Collection>(&self, id: u64)
         -> Result<Option<Document<'static>>, Error>;
 
+    /// Retrieves all documents matching `ids`. Documents that are not found
+    /// are not returned, but no error will be generated.
+    async fn get_multiple<C: schema::Collection>(
+        &self,
+        ids: &[u64],
+    ) -> Result<Vec<Document<'static>>, Error>;
+
     /// Removes a `Document` from the database.
     async fn delete(&self, doc: &Document<'_>) -> Result<(), Error> {
         let mut tx = Transaction::default();
@@ -99,7 +106,16 @@ pub trait Connection<'a>: Send + Sync {
     async fn query<'k, V: schema::View>(
         &self,
         query: View<'a, Self, V>,
-    ) -> Result<Vec<view::Map<V::Key, V::Value>>, Error>
+    ) -> Result<Vec<Map<V::Key, V::Value>>, Error>
+    where
+        Self: Sized;
+
+    /// Queries for view entries matching [`ViewQuery`].
+    #[must_use]
+    async fn query_with_docs<'k, V: schema::View>(
+        &self,
+        query: View<'a, Self, V>,
+    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error>
     where
         Self: Sized;
 
@@ -215,8 +231,13 @@ where
     }
 
     /// Executes the query and retrieves the results.
-    pub async fn query(self) -> Result<Vec<view::Map<V::Key, V::Value>>, Error> {
+    pub async fn query(self) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
         self.connection.query(self).await
+    }
+
+    /// Executes the query and retrieves the results with the associated `Document`s.
+    pub async fn query_with_docs(self) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error> {
+        self.connection.query_with_docs(self).await
     }
 
     /// Executes a reduce over the results of the query

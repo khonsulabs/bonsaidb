@@ -89,9 +89,24 @@ async fn main() -> Result<(), anyhow::Error> {
         .query()
         .await?;
     println!("Number of triangles: {} (expected 3)", triangles.len());
+
     // What is returned is a list of entries containing the document id
     // (source), the key of the entry, and the value of the entry:
     println!("Triangles: {:#?}", triangles);
+
+    // If you want the associated documents, use query_with_docs:
+    for entry in db
+        .view::<ShapesByNumberOfSides>()
+        .with_key(3)
+        .query_with_docs()
+        .await?
+    {
+        let shape = entry.document.contents::<Shape>()?;
+        println!(
+            "Shape ID {} has {} sides",
+            entry.document.header.id, shape.sides
+        );
+    }
 
     // The reduce() function takes the "values" emitted during the map()
     // function, and reduces a list down to a single value. In this example, the
