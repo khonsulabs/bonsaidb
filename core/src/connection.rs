@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::{
     document::{Document, Header},
-    schema::{self, map},
+    schema::{self, view},
     transaction::{self, Command, Operation, OperationResult, Transaction},
     Error,
 };
@@ -99,7 +99,7 @@ pub trait Connection<'a>: Send + Sync {
     async fn query<'k, V: schema::View>(
         &self,
         query: View<'a, Self, V>,
-    ) -> Result<Vec<map::Serialized>, Error>
+    ) -> Result<Vec<view::Map<V::Key, V::Value>>, Error>
     where
         Self: Sized;
 
@@ -215,7 +215,7 @@ where
     }
 
     /// Executes the query and retrieves the results.
-    pub async fn query(self) -> Result<Vec<map::Serialized>, Error> {
+    pub async fn query(self) -> Result<Vec<view::Map<V::Key, V::Value>>, Error> {
         self.connection.query(self).await
     }
 

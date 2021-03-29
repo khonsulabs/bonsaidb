@@ -5,7 +5,7 @@ use itertools::Itertools;
 use pliantdb_core::{
     connection::{AccessPolicy, Collection, Connection, QueryKey, View},
     document::Document,
-    schema::{self, collection, map, view, Database, Key, Schema},
+    schema::{self, collection, view, Database, Key, Map, Schema},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
 use pliantdb_jobs::manager::Manager;
@@ -109,7 +109,7 @@ where
 
     async fn for_each_view_entry<
         V: schema::View,
-        F: FnMut(IVec, ViewEntry) -> Result<(), Error> + Send + Sync,
+        F: FnMut(IVec, ViewEntry) -> Result<(), pliantdb_core::Error> + Send + Sync,
     >(
         &self,
         key: Option<QueryKey<V::Key>>,
@@ -360,7 +360,7 @@ where
     async fn query<'k, V: schema::View>(
         &self,
         query: View<'a, Self, V>,
-    ) -> Result<Vec<map::Serialized>, pliantdb_core::Error>
+    ) -> Result<Vec<view::Map<V::Key, V::Value>>, pliantdb_core::Error>
     where
         Self: Sized,
     {
@@ -370,11 +370,14 @@ where
 
         let mut results = Vec::new();
         self.for_each_view_entry::<V, _>(key, access_policy, |key, entry| {
+            let key = <V::Key as Key>::from_big_endian_bytes(&key)
+                .map_err(view::Error::KeySerialization)
+                .map_err(Error::from)?;
             for entry in entry.mappings {
-                results.push(map::Serialized {
+                results.push(Map {
                     source: entry.source,
-                    key: key.to_vec(),
-                    value: entry.value,
+                    key: key.clone(),
+                    value: serde_cbor::from_slice(&entry.value).map_err(Error::Serialization)?,
                 });
             }
             Ok(())

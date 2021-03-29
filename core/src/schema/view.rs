@@ -46,7 +46,7 @@ pub trait View: Send + Sync + Debug + 'static {
     type Key: Key + 'static;
 
     /// An associated type that can be stored with each entry in the view.
-    type Value: Serialize + for<'de> Deserialize<'de>;
+    type Value: Serialize + for<'de> Deserialize<'de> + Send + Sync;
 
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
     fn version(&self) -> u64;
