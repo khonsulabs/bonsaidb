@@ -4,7 +4,7 @@ use pliantdb::local::Storage;
 use pliantdb_core::{
     connection::Connection,
     document::Document,
-    schema::{collection, Collection, MapResult, Schema, View},
+    schema::{collection, map::MappedValue, view, Collection, MapResult, Schema, View},
 };
 use pliantdb_local::Configuration;
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ impl View for ShapesByNumberOfSides {
 
     type Key = u32;
 
-    type Value = ();
+    type Value = usize;
 
     fn version(&self) -> u64 {
         1
@@ -48,9 +48,17 @@ impl View for ShapesByNumberOfSides {
         Cow::from("by-color")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key> {
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let shape = document.contents::<Shape>()?;
-        Ok(Some(document.emit_key(shape.sides as u32)))
+        Ok(Some(document.emit_key_and_value(shape.sides as u32, 1)))
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[MappedValue<Self::Key, Self::Value>],
+        _rereduce: bool,
+    ) -> Result<Self::Value, view::Error> {
+        Ok(mappings.iter().map(|m| m.value).sum())
     }
 }
 
@@ -75,23 +83,29 @@ async fn main() -> Result<(), anyhow::Error> {
     shapes.push(&Shape::new(4)).await?;
 
     // At this point, our database should have 3 triangles:
-    println!(
-        "Number of triangles: {} (expected 3)",
-        db.view::<ShapesByNumberOfSides>()
-            .with_key(3)
-            .query()
-            .await?
-            .len()
-    );
+    let triangles = db
+        .view::<ShapesByNumberOfSides>()
+        .with_key(3)
+        .query()
+        .await?;
+    println!("Number of triangles: {} (expected 3)", triangles.len());
+    // What is returned is a list of entries containing the document id
+    // (source), the key of the entry, and the value of the entry:
+    println!("Triangles: {:#?}", triangles);
 
-    // And, we should have 2 quads:
+    // The reduce() function takes the "values" emitted during the map()
+    // function, and reduces a list down to a single value. In this example, the
+    // reduce function is acting as a count. So, if you want to query for the
+    // number of shapes, we don't need to fetch all the records, we can just
+    // retrieve the result of the calculation directly.
+    //
+    // So, here we're using reduce() to count the number of shapes with 4 sides.
     println!(
         "Number of quads: {} (expected 2)",
         db.view::<ShapesByNumberOfSides>()
             .with_key(4)
-            .query()
+            .reduce()
             .await?
-            .len()
     );
 
     // Or, 5 shapes that are triangles or quads
@@ -99,9 +113,8 @@ async fn main() -> Result<(), anyhow::Error> {
         "Number of quads and triangles: {} (expected 5)",
         db.view::<ShapesByNumberOfSides>()
             .with_keys(vec![3, 4])
-            .query()
+            .reduce()
             .await?
-            .len()
     );
 
     // And, 10 shapes that have more than 10 sides
@@ -109,9 +122,8 @@ async fn main() -> Result<(), anyhow::Error> {
         "Number of shapes with more than 10 sides: {} (expected 10)",
         db.view::<ShapesByNumberOfSides>()
             .with_key_range(11..u32::MAX)
-            .query()
+            .reduce()
             .await?
-            .len()
     );
 
     Ok(())
