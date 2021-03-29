@@ -5,7 +5,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use view::Map;
+use view::map::MappedValue;
 
 use crate::{
     document::Document,
@@ -74,7 +74,7 @@ impl View for BasicCount {
 
     fn reduce(
         &self,
-        mappings: &[Map<Self::Key, Self::Value>],
+        mappings: &[MappedValue<Self::Key, Self::Value>],
         _rereduce: bool,
     ) -> Result<Self::Value, view::Error> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -104,7 +104,7 @@ impl View for BasicByParentId {
 
     fn reduce(
         &self,
-        mappings: &[Map<Self::Key, Self::Value>],
+        mappings: &[MappedValue<Self::Key, Self::Value>],
         _rereduce: bool,
     ) -> Result<Self::Value, view::Error> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -140,7 +140,7 @@ impl View for BasicByCategory {
 
     fn reduce(
         &self,
-        mappings: &[Map<Self::Key, Self::Value>],
+        mappings: &[MappedValue<Self::Key, Self::Value>],
         _rereduce: bool,
     ) -> Result<Self::Value, view::Error> {
         Ok(mappings.iter().map(|map| map.value).sum())

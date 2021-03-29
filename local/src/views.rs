@@ -7,6 +7,7 @@ use self::{integrity_scanner::IntegrityScan, mapper::Map};
 pub struct ViewEntry {
     pub view_version: u64,
     pub mappings: Vec<EntryMapping>,
+    pub reduced_value: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize)]

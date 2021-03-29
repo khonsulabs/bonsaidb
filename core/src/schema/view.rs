@@ -8,6 +8,7 @@ use crate::{document::Document, schema::Collection};
 pub mod map;
 pub use map::{Key, Map};
 
+use self::map::MappedValue;
 use super::collection;
 
 /// Errors that arise when interacting with views.
@@ -66,7 +67,7 @@ pub trait View: Send + Sync + Debug + 'static {
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[Map<Self::Key, Self::Value>],
+        mappings: &[MappedValue<Self::Key, Self::Value>],
         rereduce: bool,
     ) -> Result<Self::Value, Error> {
         Err(Error::ReduceUnimplemented)
@@ -114,8 +115,11 @@ pub trait Serialized: Send + Sync + Debug {
     fn name(&self) -> Cow<'static, str>;
     /// Wraps [`View::map`]
     fn map(&self, document: &Document<'_>) -> Result<Option<map::Serialized>, Error>;
+    /// Wraps [`View::reduce`]
+    fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error>;
 }
 
+#[allow(clippy::use_self)] // Using Self here instead of T inside of reduce() breaks compilation. The alternative is much more verbose and harder to read.
 impl<T> Serialized for T
 where
     T: View,
@@ -148,5 +152,28 @@ where
             })),
             None => Ok(None),
         }
+    }
+
+    fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error> {
+        let mappings = mappings
+            .iter()
+            .map(
+                |(key, value)| match <T::Key as Key>::from_big_endian_bytes(key) {
+                    Ok(key) => match serde_cbor::from_slice::<T::Value>(value) {
+                        Ok(value) => Ok(MappedValue { key, value }),
+                        Err(err) => Err(Error::from(err)),
+                    },
+                    Err(err) => Err(Error::KeySerialization(err)),
+                },
+            )
+            .collect::<Result<Vec<_>, Error>>()?;
+
+        let reduced_value = match self.reduce(&mappings, rereduce) {
+            Ok(value) => value,
+            Err(Error::ReduceUnimplemented) => return Ok(Vec::new()),
+            Err(other) => return Err(other),
+        };
+
+        serde_cbor::to_vec(&reduced_value).map_err(Error::from)
     }
 }

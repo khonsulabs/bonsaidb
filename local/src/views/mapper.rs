@@ -231,11 +231,33 @@ impl<'a, DB: Database> DocumentRequest<'a, DB> {
                     entry.mappings.push(entry_mapping);
                 }
 
+                // There was a choice to be made here of whether to call
+                // reduce()  with all of the existing values, or call it with
+                // rereduce=true passing only the new value and the old stored
+                // value. In this implementation, it's technically less
+                // efficient, but we can guarantee that every value has only
+                // been reduced once, and potentially re-reduced a single-time.
+                // If we constantly try to update the value to optimize the size
+                // of `mappings`, the fear is that the value computed may lose
+                // precision in some contexts over time. Thus, the decision was
+                // made to always call reduce() with all the mappings within a
+                // single ViewEntry.
+                let mappings = entry
+                    .mappings
+                    .iter()
+                    .map(|m| (key.as_slice(), m.value.as_slice()))
+                    .collect::<Vec<_>>();
+                entry.reduced_value = view.reduce(&mappings, false).map_to_transaction_error()?;
+
                 entry
             } else {
+                let reduced_value = view
+                    .reduce(&[(&key, &entry_mapping.value)], false)
+                    .map_to_transaction_error()?;
                 ViewEntry {
                     view_version: view.version(),
                     mappings: vec![entry_mapping],
+                    reduced_value,
                 }
             };
             self.view_entries.insert(
