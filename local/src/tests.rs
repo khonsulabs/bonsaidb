@@ -290,6 +290,14 @@ async fn view_update() -> anyhow::Result<()> {
         .query()
         .await?;
     assert_eq!(a_children.len(), 0);
+    // The reduce function of `BasicByParentId` acts as a "count" of records.
+    assert_eq!(
+        db.view::<BasicByParentId>()
+            .with_key(Some(a.id))
+            .reduce()
+            .await?,
+        0
+    );
 
     // Test inserting a new record and the view being made available
     let a_child = collection
@@ -306,6 +314,13 @@ async fn view_update() -> anyhow::Result<()> {
         .query()
         .await?;
     assert_eq!(a_children.len(), 1);
+    assert_eq!(
+        db.view::<BasicByParentId>()
+            .with_key(Some(a.id))
+            .reduce()
+            .await?,
+        1
+    );
 
     // Test updating the record and the view being updated appropriately
     let mut doc = db.collection::<Basic>()?.get(a_child.id).await?.unwrap();
@@ -320,6 +335,14 @@ async fn view_update() -> anyhow::Result<()> {
         .query()
         .await?;
     assert_eq!(a_children.len(), 0);
+    assert_eq!(
+        db.view::<BasicByParentId>()
+            .with_key(Some(a.id))
+            .reduce()
+            .await?,
+        0
+    );
+    assert_eq!(db.view::<BasicByParentId>().reduce().await?, 2);
 
     // Test deleting a record and ensuring it goes away
     db.delete(&doc).await?;

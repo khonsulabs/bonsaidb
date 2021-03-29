@@ -77,9 +77,14 @@ impl TaskManager {
                             },
                         })
                         .await;
-                    if let Ok(id) = job.receive().await?.as_ref() {
-                        if wait_for_transaction <= *id {
-                            break;
+                    match job.receive().await?.as_ref() {
+                        Ok(id) => {
+                            if wait_for_transaction <= *id {
+                                break;
+                            }
+                        }
+                        Err(err) => {
+                            return Err(crate::Error::Other(anyhow::Error::msg(err.to_string())))
                         }
                     }
                 }

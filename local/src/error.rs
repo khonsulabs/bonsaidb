@@ -22,6 +22,10 @@ pub enum Error {
     /// An internal error occurred while waiting for a message.
     #[error("error while waiting for a message: {0}")]
     View(#[from] view::Error),
+
+    /// An internal error occurred while waiting for a message.
+    #[error("an unexpected error occurred: {0}")]
+    Other(#[from] anyhow::Error),
 }
 
 impl From<Error> for pliantdb_core::Error {

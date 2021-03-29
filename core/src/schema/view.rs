@@ -8,6 +8,7 @@ use crate::{document::Document, schema::Collection};
 pub mod map;
 pub use map::{Key, Map};
 
+use self::map::MappedValue;
 use super::collection;
 
 /// Errors that arise when interacting with views.
@@ -42,13 +43,10 @@ pub trait View: Send + Sync + Debug + 'static {
     type Collection: Collection;
 
     /// The key for this view.
-    type MapKey: Key + 'static;
+    type Key: Key + 'static;
 
     /// An associated type that can be stored with each entry in the view.
-    type MapValue: Serialize + for<'de> Deserialize<'de>;
-
-    /// When implementing reduce(), this is the returned type.
-    type Reduce: Serialize + for<'de> Deserialize<'de>;
+    type Value: Serialize + for<'de> Deserialize<'de>;
 
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
     fn version(&self) -> u64;
@@ -59,7 +57,7 @@ pub trait View: Send + Sync + Debug + 'static {
     /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document.
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::MapKey, Self::MapValue>;
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value>;
 
     /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -69,9 +67,9 @@ pub trait View: Send + Sync + Debug + 'static {
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[Map<Self::MapKey, Self::MapValue>],
+        mappings: &[MappedValue<Self::Key, Self::Value>],
         rereduce: bool,
-    ) -> Result<Self::Reduce, Error> {
+    ) -> Result<Self::Value, Error> {
         Err(Error::ReduceUnimplemented)
     }
 }
@@ -117,12 +115,15 @@ pub trait Serialized: Send + Sync + Debug {
     fn name(&self) -> Cow<'static, str>;
     /// Wraps [`View::map`]
     fn map(&self, document: &Document<'_>) -> Result<Option<map::Serialized>, Error>;
+    /// Wraps [`View::reduce`]
+    fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error>;
 }
 
+#[allow(clippy::use_self)] // Using Self here instead of T inside of reduce() breaks compilation. The alternative is much more verbose and harder to read.
 impl<T> Serialized for T
 where
     T: View,
-    <T as View>::MapKey: 'static,
+    <T as View>::Key: 'static,
 {
     fn collection(&self) -> collection::Id {
         <<Self as View>::Collection as Collection>::id()
@@ -151,5 +152,28 @@ where
             })),
             None => Ok(None),
         }
+    }
+
+    fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error> {
+        let mappings = mappings
+            .iter()
+            .map(
+                |(key, value)| match <T::Key as Key>::from_big_endian_bytes(key) {
+                    Ok(key) => match serde_cbor::from_slice::<T::Value>(value) {
+                        Ok(value) => Ok(MappedValue { key, value }),
+                        Err(err) => Err(Error::from(err)),
+                    },
+                    Err(err) => Err(Error::KeySerialization(err)),
+                },
+            )
+            .collect::<Result<Vec<_>, Error>>()?;
+
+        let reduced_value = match self.reduce(&mappings, rereduce) {
+            Ok(value) => value,
+            Err(Error::ReduceUnimplemented) => return Ok(Vec::new()),
+            Err(other) => return Err(other),
+        };
+
+        serde_cbor::to_vec(&reduced_value).map_err(Error::from)
     }
 }
