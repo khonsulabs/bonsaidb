@@ -94,12 +94,21 @@ pub trait Connection<'a>: Send + Sync {
         View::new(self)
     }
 
-    /// Initializes [`ViewQuery`] for [`schema::View`] `V`.
+    /// Queries for view entries matching [`ViewQuery`].
     #[must_use]
     async fn query<'k, V: schema::View>(
         &self,
         query: View<'a, Self, V>,
     ) -> Result<Vec<map::Serialized>, Error>
+    where
+        Self: Sized;
+
+    /// Reduces the view entries matching [`ViewQuery`].
+    #[must_use]
+    async fn reduce<'k, V: schema::View>(
+        &self,
+        query: View<'a, Self, V>,
+    ) -> Result<V::Value, Error>
     where
         Self: Sized;
 
@@ -208,6 +217,11 @@ where
     /// Executes the query and retrieves the results.
     pub async fn query(self) -> Result<Vec<map::Serialized>, Error> {
         self.connection.query(self).await
+    }
+
+    /// Executes a reduce over the results of the query
+    pub async fn reduce(self) -> Result<V::Value, Error> {
+        self.connection.reduce(self).await
     }
 }
 

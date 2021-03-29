@@ -106,6 +106,68 @@ where
             }
         })
     }
+
+    async fn for_each_view_entry<
+        V: schema::View,
+        F: FnMut(IVec, ViewEntry) -> Result<(), Error> + Send + Sync,
+    >(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+        mut callback: F,
+    ) -> Result<(), pliantdb_core::Error>
+    where
+        Self: Sized,
+    {
+        let view = self
+            .schema
+            .view::<V>()
+            .expect("query made with view that isn't registered with this database");
+
+        if matches!(access_policy, AccessPolicy::UpdateBefore) {
+            self.tasks
+                .update_view_if_needed(view, self)
+                .await
+                .map_err_to_core()?;
+        }
+
+        let view_entries = self
+            .sled
+            .open_tree(view_entries_tree_name(
+                &view.collection(),
+                view.name().as_ref(),
+            ))
+            .map_err(Error::Sled)
+            .map_err_to_core()?;
+
+        {
+            let iterator = create_view_iterator(&view_entries, key).map_err_to_core()?;
+            let entries = iterator
+                .collect::<Result<Vec<_>, sled::Error>>()
+                .map_err(Error::Sled)
+                .map_err_to_core()?;
+
+            for (key, entry) in entries {
+                let entry = bincode::deserialize::<ViewEntry>(&entry)
+                    .map_err(Error::InternalSerialization)
+                    .map_err_to_core()?;
+                callback(key, entry)?;
+            }
+        }
+
+        if matches!(access_policy, AccessPolicy::UpdateAfter) {
+            let storage = self.clone();
+            tokio::task::spawn(async move {
+                let view = storage
+                    .schema
+                    .view::<V>()
+                    .expect("query made with view that isn't registered with this database");
+                storage.tasks.update_view_if_needed(view, &storage).await
+            });
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -302,63 +364,68 @@ where
     where
         Self: Sized,
     {
-        let View { key, .. } = query;
+        let View {
+            key, access_policy, ..
+        } = query;
+
+        let mut results = Vec::new();
+        self.for_each_view_entry::<V, _>(key, access_policy, |key, entry| {
+            for entry in entry.mappings {
+                results.push(map::Serialized {
+                    source: entry.source,
+                    key: key.to_vec(),
+                    value: entry.value,
+                });
+            }
+            Ok(())
+        })
+        .await?;
+
+        Ok(results)
+    }
+
+    async fn reduce<'k, V: schema::View>(
+        &self,
+        query: View<'a, Self, V>,
+    ) -> Result<V::Value, pliantdb_core::Error>
+    where
+        Self: Sized,
+    {
+        let View {
+            key, access_policy, ..
+        } = query;
+
+        let mut mappings = Vec::new();
+        self.for_each_view_entry::<V, _>(key, access_policy, |key, entry| {
+            mappings.push((key, entry.reduced_value));
+            Ok(())
+        })
+        .await?;
+
         let view = self
             .schema
             .view::<V>()
             .expect("query made with view that isn't registered with this database");
 
-        if matches!(query.access_policy, AccessPolicy::UpdateBefore) {
-            self.tasks
-                .update_view_if_needed(view, self)
-                .await
-                .map_err_to_core()?;
-        }
-
-        let view_entries = self
-            .sled
-            .open_tree(view_entries_tree_name(
-                &view.collection(),
-                view.name().as_ref(),
-            ))
-            .map_err(Error::Sled)
+        // An unfortunate side effect of interacting with the view over a
+        // typeless interface is that we're getting a serialized version back.
+        // This is wasteful. We should be able to use Any to get a full
+        // reference to the view here so that we can call reduce directly.
+        let result = view
+            .reduce(
+                &mappings
+                    .iter()
+                    .map(|(key, value)| (key.as_ref(), value.as_ref()))
+                    .collect::<Vec<_>>(),
+                true,
+            )
+            .map_err(Error::View)
+            .map_err_to_core()?;
+        let value = serde_cbor::from_slice(&result)
+            .map_err(Error::Serialization)
             .map_err_to_core()?;
 
-        let mut results = Vec::new();
-        {
-            let iterator = create_view_iterator(&view_entries, key).map_err_to_core()?;
-            let entries = iterator
-                .collect::<Result<Vec<_>, sled::Error>>()
-                .map_err(Error::Sled)
-                .map_err_to_core()?;
-
-            for (key, entry) in entries {
-                let entry = bincode::deserialize::<ViewEntry>(&entry)
-                    .map_err(Error::InternalSerialization)
-                    .map_err_to_core()?;
-
-                for entry in entry.mappings {
-                    results.push(map::Serialized {
-                        source: entry.source,
-                        key: key.to_vec(),
-                        value: entry.value,
-                    });
-                }
-            }
-        }
-
-        if matches!(query.access_policy, AccessPolicy::UpdateAfter) {
-            let storage = self.clone();
-            tokio::task::spawn(async move {
-                let view = storage
-                    .schema
-                    .view::<V>()
-                    .expect("query made with view that isn't registered with this database");
-                storage.tasks.update_view_if_needed(view, &storage).await
-            });
-        }
-
-        Ok(results)
+        Ok(value)
     }
 }
 
