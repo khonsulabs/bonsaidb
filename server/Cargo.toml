@@ -1,9 +1,9 @@
 [package]
-name = "pliantdb-jobs"
+name = "pliantdb-server"
 version = "0.1.0-dev-1"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
-description = "Aysnc jobs management for PliantDB."
+description = "Database server for PliantDB."
 repository = "https://github.com/khonsulabs/pliantdb"
 license = "MIT OR Apache-2.0"
 keywords = ["document-database", "database"]
@@ -11,9 +11,5 @@ categories = ["database-implementations"]
 readme = "../README.md"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-async-trait = "0.1"
-flume = "0.10"
-futures = "0.3"
-tokio = { version = "1", features = ["full"] }
-anyhow = "1"
+pliantdb-protocol = { path = "../protocol", version = "0.1.0-dev-1" }
+pliantdb-local = { path = "../local", version = "0.1.0-dev-1" }

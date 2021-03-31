@@ -1,6 +1,6 @@
 [package]
 name = "pliantdb"
-version = "0.1.0-dev-0"
+version = "0.1.0-dev-1"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
 description = "a programmable document database inspired by CouchDB"
@@ -26,8 +26,8 @@ local = ["pliantdb-local"]
 cli = ["full", "anyhow", "tokio", "structopt", "pliantdb-local/cli"]
 
 [dependencies]
-pliantdb-core = { path = "../core", version = "0.1.0-dev-0" }
-pliantdb-local = { path = "../local", version = "0.1.0-dev-0", optional = true }
+pliantdb-core = { path = "../core", version = "0.1.0-dev-1" }
+pliantdb-local = { path = "../local", version = "0.1.0-dev-1", optional = true }
 
 tokio = { version = "1", features = ["full"], optional = true }
 structopt = { version = "0.3", optional = true }
