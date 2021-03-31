@@ -5,7 +5,7 @@ use itertools::Itertools;
 use pliantdb_core::{
     connection::{AccessPolicy, Collection, Connection, QueryKey, View},
     document::Document,
-    schema::{self, collection, map::MappedDocument, view, Database, Key, Map, Schema},
+    schema::{self, collection, map::MappedDocument, view, Key, Map, Schema, Schematic},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
 use pliantdb_jobs::manager::Manager;
@@ -31,7 +31,7 @@ pub const LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT: usize = 100;
 #[derive(Debug)]
 pub struct Storage<DB> {
     pub(crate) sled: sled::Db,
-    pub(crate) schema: Arc<Schema>,
+    pub(crate) schema: Arc<Schematic>,
     pub(crate) tasks: TaskManager,
     _schema: PhantomData<DB>,
 }
@@ -49,7 +49,7 @@ impl<DB> Clone for Storage<DB> {
 
 impl<DB> Storage<DB>
 where
-    DB: Database,
+    DB: Schema,
 {
     /// Opens a local file as a pliantdb.
     ///
@@ -69,7 +69,7 @@ where
         let tasks = TaskManager::new(manager);
 
         let storage = tokio::task::spawn_blocking(move || {
-            let mut collections = Schema::default();
+            let mut collections = Schematic::default();
             DB::define_collections(&mut collections);
 
             sled::open(owned_path)
@@ -173,7 +173,7 @@ where
 #[async_trait]
 impl<'a, DB> Connection<'a> for Storage<DB>
 where
-    DB: Database,
+    DB: Schema,
 {
     fn collection<C: schema::Collection + 'static>(
         &'a self,

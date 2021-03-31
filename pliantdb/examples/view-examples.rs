@@ -4,7 +4,7 @@ use pliantdb::local::Storage;
 use pliantdb_core::{
     connection::Connection,
     document::Document,
-    schema::{collection, map::MappedValue, view, Collection, MapResult, Schema, View},
+    schema::{collection, map::MappedValue, view, Collection, MapResult, Schematic, View},
 };
 use pliantdb_local::Configuration;
 use serde::{Deserialize, Serialize};
@@ -25,7 +25,7 @@ impl Collection for Shape {
         collection::Id::from("shapes")
     }
 
-    fn define_views(schema: &mut Schema) {
+    fn define_views(schema: &mut Schematic) {
         schema.define_view(ShapesByNumberOfSides);
     }
 }

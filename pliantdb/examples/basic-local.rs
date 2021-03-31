@@ -3,7 +3,7 @@ use std::time::SystemTime;
 use pliantdb::local::Storage;
 use pliantdb_core::{
     connection::Connection,
-    schema::{collection, Collection, Schema},
+    schema::{collection, Collection, Schematic},
 };
 use pliantdb_local::Configuration;
 use serde::{Deserialize, Serialize};
@@ -19,7 +19,7 @@ impl Collection for Message {
         collection::Id::from("messages")
     }
 
-    fn define_views(_schema: &mut Schema) {}
+    fn define_views(_schema: &mut Schematic) {}
 }
 
 #[tokio::main]

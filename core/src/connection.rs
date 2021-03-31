@@ -10,17 +10,17 @@ use crate::{
     Error,
 };
 
-/// Defines all interactions with a [`schema::Database`], regardless of whether it is local or remote.
+/// Defines all interactions with a [`schema::Schema`], regardless of whether it is local or remote.
 #[async_trait]
 pub trait Connection<'a>: Send + Sync {
-    /// Accesses a collection for the connected [`schema::Database`].
+    /// Accesses a collection for the connected [`schema::Schema`].
     fn collection<C: schema::Collection + 'static>(
         &'a self,
     ) -> Result<Collection<'a, Self, C>, Error>
     where
         Self: Sized;
 
-    /// Inserts a newly created document into the connected [`schema::Database`] for the [`Collection`] `C`.
+    /// Inserts a newly created document into the connected [`schema::Schema`] for the [`Collection`] `C`.
     async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error> {
         let mut tx = Transaction::default();
         tx.push(Operation {
@@ -39,7 +39,7 @@ pub trait Connection<'a>: Send + Sync {
         }
     }
 
-    /// Updates an existing document in the connected [`schema::Database`] for the
+    /// Updates an existing document in the connected [`schema::Schema`] for the
     /// [`Collection`] `C`. Upon success, `doc.revision` will be updated with
     /// the new revision.
     async fn update(&self, doc: &mut Document<'_>) -> Result<(), Error> {
@@ -128,15 +128,15 @@ pub trait Connection<'a>: Send + Sync {
     where
         Self: Sized;
 
-    /// Applies a [`Transaction`] to the [`schema::Database`]. If any operation in the
+    /// Applies a [`Transaction`] to the [`schema::Schema`]. If any operation in the
     /// [`Transaction`] fails, none of the operations will be applied to the
-    /// [`schema::Database`].
+    /// [`schema::Schema`].
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
     ) -> Result<Vec<OperationResult>, Error>;
 
-    /// Lists executed [`Transaction`]s from this [`schema::Database`]. By default, a maximum of
+    /// Lists executed [`Transaction`]s from this [`schema::Schema`]. By default, a maximum of
     /// 1000 entries will be returned, but that limit can be overridden by
     /// setting `result_limit`. A hard limit of 100,000 results will be
     /// returned. To begin listing after another known `transaction_id`, pass

@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use pliantdb_core::schema::{collection, view, Database};
+use pliantdb_core::schema::{collection, view, Schema};
 use pliantdb_jobs::{manager::Manager, task::Handle};
 use tokio::sync::RwLock;
 
@@ -37,7 +37,7 @@ impl TaskManager {
         }
     }
 
-    pub async fn update_view_if_needed<DB: Database>(
+    pub async fn update_view_if_needed<DB: Schema>(
         &self,
         view: &dyn view::Serialized,
         storage: &Storage<DB>,
@@ -105,7 +105,7 @@ impl TaskManager {
             .contains(&(collection.clone(), view_name))
     }
 
-    pub async fn spawn_integrity_check<DB: Database>(
+    pub async fn spawn_integrity_check<DB: Schema>(
         &self,
         view: &dyn view::Serialized,
         storage: &Storage<DB>,

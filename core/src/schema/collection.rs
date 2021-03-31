@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::schema::Schema;
+use crate::schema::Schematic;
 
 /// A unique collection id. Choose collection names that aren't likely to
 /// conflict with others, so that if someone mixes collections from multiple
@@ -37,7 +37,7 @@ pub trait Collection: Debug + Send + Sync {
     fn id() -> Id;
 
     /// Defines all `View`s in this collection in `schema`.
-    fn define_views(schema: &mut Schema);
+    fn define_views(schema: &mut Schematic);
 }
 
 #[test]

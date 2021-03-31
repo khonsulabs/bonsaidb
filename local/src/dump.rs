@@ -25,10 +25,6 @@ use std::{
     str::FromStr,
 };
 
-use crate::{
-    config::Configuration,
-    storage::{document_tree_name, Storage},
-};
 use flume::Receiver;
 use pliantdb_core::{
     document::{Document, Header, Revision},
@@ -38,6 +34,11 @@ use structopt::StructOpt;
 use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncWriteExt},
+};
+
+use crate::{
+    config::Configuration,
+    storage::{document_tree_name, Storage},
 };
 
 /// The command line interface for `pliantdb-dump`.

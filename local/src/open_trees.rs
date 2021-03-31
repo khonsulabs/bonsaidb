@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use pliantdb_core::schema::{collection, Schema};
+use pliantdb_core::schema::{collection, Schematic};
 
 use crate::{storage::document_tree_name, views::view_invalidated_docs_tree_name};
 
@@ -27,7 +27,7 @@ impl OpenTrees {
         &mut self,
         sled: &sled::Db,
         collection: &collection::Id,
-        schema: &Schema,
+        schema: &Schematic,
     ) -> Result<(), sled::Error> {
         self.open_tree(sled, &document_tree_name(collection))?;
 

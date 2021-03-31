@@ -29,7 +29,7 @@ use std::{borrow::Cow, sync::Arc};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use pliantdb_core::{
     connection::Connection,
-    schema::{collection, Collection, Schema},
+    schema::{collection, Collection, Schematic},
     test_util::TestDirectory,
 };
 use pliantdb_local::{Configuration, Storage};
@@ -46,7 +46,7 @@ impl<'a> Collection for ResizableDocument<'a> {
         collection::Id::from("resizable-docs")
     }
 
-    fn define_views(_schema: &mut Schema) {}
+    fn define_views(_schema: &mut Schematic) {}
 }
 
 async fn save_document(doc: &ResizableDocument<'_>, db: &Storage<ResizableDocument<'static>>) {

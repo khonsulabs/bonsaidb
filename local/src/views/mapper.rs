@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use async_trait::async_trait;
 use pliantdb_core::{
     document::Document,
-    schema::{collection, map, view, Database, Key},
+    schema::{collection, map, view, Key, Schema},
 };
 use pliantdb_jobs::{Job, Keyed};
 use sled::{
@@ -32,7 +32,7 @@ pub struct Map {
 #[async_trait]
 impl<DB> Job for Mapper<DB>
 where
-    DB: Database,
+    DB: Schema,
 {
     type Output = u64;
 
@@ -100,7 +100,7 @@ where
     }
 }
 
-fn map_view<DB: Database>(
+fn map_view<DB: Schema>(
     invalidated_entries: &Tree,
     document_map: &Tree,
     documents: &Tree,
@@ -163,7 +163,7 @@ struct DocumentRequest<'a, DB> {
     storage: &'a Storage<DB>,
 }
 
-impl<'a, DB: Database> DocumentRequest<'a, DB> {
+impl<'a, DB: Schema> DocumentRequest<'a, DB> {
     fn map(&self) -> Result<(), ConflictableTransactionError<anyhow::Error>> {
         self.invalidated_entries.remove(self.document_id)?;
 
@@ -289,7 +289,7 @@ impl<'a, DB: Database> DocumentRequest<'a, DB> {
 
 impl<DB> Keyed<Task> for Mapper<DB>
 where
-    DB: Database,
+    DB: Schema,
 {
     fn key(&self) -> Task {
         Task::ViewMap(self.map.clone())

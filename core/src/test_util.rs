@@ -9,7 +9,7 @@ use view::map::MappedValue;
 
 use crate::{
     document::Document,
-    schema::{collection, view, Collection, Database, MapResult, Schema, View},
+    schema::{collection, view, Collection, MapResult, Schema, Schematic, View},
 };
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
@@ -45,7 +45,7 @@ impl Collection for Basic {
         collection::Id::from("tests.basic")
     }
 
-    fn define_views(schema: &mut Schema) {
+    fn define_views(schema: &mut Schematic) {
         schema.define_view(BasicCount);
         schema.define_view(BasicByParentId);
         schema.define_view(BasicByCategory)
@@ -169,10 +169,10 @@ impl View for BasicByBrokenParentId {
 }
 
 #[derive(Debug)]
-pub struct BasicDatabase;
+pub struct BasicSchema;
 
-impl Database for BasicDatabase {
-    fn define_collections(schema: &mut Schema) {
+impl Schema for BasicSchema {
+    fn define_collections(schema: &mut Schematic) {
         schema.define_collection::<Basic>();
     }
 }
@@ -213,7 +213,7 @@ impl Collection for BasicCollectionWithNoViews {
         Basic::id()
     }
 
-    fn define_views(_schema: &mut Schema) {}
+    fn define_views(_schema: &mut Schematic) {}
 }
 
 #[derive(Debug)]
@@ -224,7 +224,7 @@ impl Collection for BasicCollectionWithOnlyBrokenParentId {
         Basic::id()
     }
 
-    fn define_views(schema: &mut Schema) {
+    fn define_views(schema: &mut Schematic) {
         schema.define_view(BasicByBrokenParentId);
     }
 }
@@ -237,5 +237,5 @@ impl Collection for UnassociatedCollection {
         collection::Id::from("unassociated")
     }
 
-    fn define_views(_schema: &mut Schema) {}
+    fn define_views(_schema: &mut Schematic) {}
 }

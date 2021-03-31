@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::HashSet, hash::Hash};
 
 use async_trait::async_trait;
-use pliantdb_core::schema::{collection, view, Database, Key};
+use pliantdb_core::schema::{collection, view, Key, Schema};
 use pliantdb_jobs::{Job, Keyed};
 use sled::{IVec, Transactional, Tree};
 
@@ -27,7 +27,7 @@ pub struct IntegrityScan {
 #[async_trait]
 impl<DB> Job for IntegrityScanner<DB>
 where
-    DB: Database,
+    DB: Schema,
 {
     type Output = ();
 
@@ -155,7 +155,7 @@ fn tree_keys<K: Key + Hash + Eq + Clone>(tree: &Tree) -> Result<HashSet<K>, anyh
 
 impl<DB> Keyed<Task> for IntegrityScanner<DB>
 where
-    DB: Database,
+    DB: Schema,
 {
     fn key(&self) -> Task {
         Task::IntegrityScan(self.scan.clone())
