@@ -92,7 +92,7 @@ pub trait Connection<'a>: Send + Sync {
         }
     }
 
-    /// Initializes [`ViewQuery`] for [`schema::View`] `V`.
+    /// Initializes [`View`] for [`schema::View`] `V`.
     #[must_use]
     fn view<V: schema::View>(&'a self) -> View<'a, Self, V>
     where
@@ -101,7 +101,7 @@ pub trait Connection<'a>: Send + Sync {
         View::new(self)
     }
 
-    /// Queries for view entries matching [`ViewQuery`].
+    /// Queries for view entries matching [`View`].
     #[must_use]
     async fn query<'k, V: schema::View>(
         &self,
@@ -110,7 +110,7 @@ pub trait Connection<'a>: Send + Sync {
     where
         Self: Sized;
 
-    /// Queries for view entries matching [`ViewQuery`].
+    /// Queries for view entries matching [`View`].
     #[must_use]
     async fn query_with_docs<'k, V: schema::View>(
         &self,
@@ -119,7 +119,7 @@ pub trait Connection<'a>: Send + Sync {
     where
         Self: Sized;
 
-    /// Reduces the view entries matching [`ViewQuery`].
+    /// Reduces the view entries matching [`View`].
     #[must_use]
     async fn reduce<'k, V: schema::View>(
         &self,

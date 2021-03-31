@@ -1,4 +1,4 @@
-/// Configuration options for [`Storage`].
+/// Configuration options for [`Storage`](crate::storage::Storage).
 #[derive(Default, Debug)]
 pub struct Configuration {
     /// Configuration options related to background tasks.

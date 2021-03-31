@@ -107,7 +107,7 @@ where
 
 /// Wraps a [`View`] with serialization to erase the associated types
 pub trait Serialized: Send + Sync + Debug {
-    /// Wraps [`View::collection`]
+    /// Wraps returing [`<View::Collection as Collection>::id()`](crate::schema::Collection::id)
     fn collection(&self) -> collection::Id;
     /// Wraps [`View::version`]
     fn version(&self) -> u64;

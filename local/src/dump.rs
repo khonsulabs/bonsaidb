@@ -1,5 +1,22 @@
 //! Local database tool to dump and load databases into plain an easy-to-consume
 //! filesystem structure.
+//!
+//! This tool is provided to ensure you always have a way to get your data
+//! backed up in a format that's easily consumable. This tool also provides a
+//! safety mechanism allowing a path of migrating across underlying storage
+//! layer changes that might have no other migration path.
+//!
+//! To back up an existing local database:
+//!
+//! ```sh
+//! pliantdb-dump <database_path> dump
+//! ```
+//!
+//! To restore a backup:
+//!
+//! ```sh
+//! pliantdb-dump <database_path> load <backup_location>
+//! ```
 
 #![forbid(unsafe_code)]
 #![warn(

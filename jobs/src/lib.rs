@@ -17,7 +17,7 @@
     clippy::option_if_let_else,
 )]
 
-/// Types related to the job [`Manager`].
+/// Types related to the job [`Manager`](manager::Manager).
 pub mod manager;
 /// Types related to defining [`Job`]s.
 pub mod task;
