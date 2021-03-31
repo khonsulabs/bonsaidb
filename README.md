@@ -7,17 +7,17 @@
 [![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://khonsulabs.github.io/pliantdb/main/pliantdb/)
 [![HTML Coverage Report for `main` branch](https://img.shields.io/badge/coverage-report-informational)](https://khonsulabs.github.io/pliantdb/coverage/)
 
-PliantDB aims to be a [Rust](https://rust-lang.org)-written document database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies.
+PliantDB aims to be a [Rust](https://rust-lang.org)-written, ACID-compliant, document-database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies.
 
 ## Project Goals
 
 The high-level goals for this project are:
 
-- Be able to a document-based database's schema using Rust types.
-- Run within your Rust binary, simplifying basic deployments.
+- ☑️ Be able to a document-based database's schema using Rust types.
+- ☑️ Run within your Rust binary, simplifying basic deployments.
+- ☑️ Run as a local-only file-based database with no networking involved.
 - Run stand-alone, allowing more complex deployments and scaling your app separately from scaling the database.
-- Run in a single-database, local-only mode with no networking involved.
-- Run in a multi-database and networked mode with TLS enabled by default.
+- Run in a multi-database, networked mode with TLS enabled by default.
 - Easily set up read-replicas between multiple servers.
 - Easily run a highly-available quorum-based cluster across at least 3 servers
 - Expose a Publish/Subscribe eventing system
@@ -100,6 +100,22 @@ println!(
 - Deploying highly-available databases is hard (and often expensive). It doesn't need to be.
 - We are passionate Rustaceans and are striving for an ideal of supporting a 100% Rust-based deployment ecosystem for newly written software.
 - Specifically for the founding author [@ecton](https://github.com/ecton), the idea for this design dates back to thoughts of fun side-projects while running my last business which was built atop CouchDB. Working on this project is fulfilling a long-time desire of his.
+
+## Backups
+
+### Exporting and restoring databases with direct access
+
+If you have a local `PliantDB` database, you can use the `local-backup` command to save and load backups:
+
+```sh
+pliantdb local-backup <database-path> save
+```
+
+```sh
+pliantdb local-backup <destination-database-path> load <backup-path>
+```
+
+The format of this export should be easy to work with if you're either transitioning from PliantDB to another solution or needing to do complicated disaster recovery work. It is [described here](https://khonsulabs.github.io/pliantdb/main/pliantdb/local/backup/enum.Command.html#variant.Save).
 
 ## Open-source Licenses
 
