@@ -1,4 +1,4 @@
-//! Local database tool to dump and load databases into plain an easy-to-consume
+//! Local database tool to save and load databases into plain an easy-to-consume
 //! filesystem structure.
 //!
 //! This tool is provided to ensure you always have a way to get your data
@@ -9,13 +9,13 @@
 //! To back up an existing local database:
 //!
 //! ```sh
-//! pliantdb-dump <database_path> dump
+//! pliantdb local-backup <database_path> save
 //! ```
 //!
 //! To restore a backup:
 //!
 //! ```sh
-//! pliantdb-dump <database_path> load <backup_location>
+//! pliantdb local-backup <database_path> load <backup_location>
 //! ```
 
 use std::{
@@ -41,7 +41,7 @@ use crate::{
     storage::{document_tree_name, Storage},
 };
 
-/// The command line interface for `pliantdb-dump`.
+/// The command line interface for `pliantdb local-backup`.
 #[derive(StructOpt, Debug)]
 pub struct Cli {
     /// The path to the database you wish to operate on.
@@ -55,7 +55,7 @@ pub struct Cli {
 /// The command to execute.
 #[derive(StructOpt, Debug)]
 pub enum Command {
-    /// Dumps all of the data into a straightforward file structure.
+    /// Exports all of the data into a straightforward file structure.
     ///
     /// This command will create a single folder within `output_directory` named
     /// `output_name`. Within that folder, one subfolder will be created for
@@ -69,22 +69,22 @@ pub enum Command {
     /// This format should make it easy to migrate data as well as back it up
     /// using many traditional methods, and should be considered the official
     /// way to do a full export of a database without using the API.
-    Dump {
+    Save {
         /// The directory to export the data within. The process will create a
         /// subfolder using `output_name`. If omitted, the export is performed
         /// next to the source database.
         output_directory: Option<PathBuf>,
 
         /// The name of the folder to export the data to. If not specified, the
-        /// ".dump" is appended to the source database's name and used.
+        /// ".backup" is appended to the source database's name and used.
         output_name: Option<String>,
     },
 
-    /// Loads all of the data from a previously dumped database. Any documents
-    /// with the same IDs will be overwritten by the documents in this database.
+    /// Loads all of the data from a previously saved backup. Any documents
+    /// with the same IDs will be overwritten by the documents in this backup.
     Load {
-        /// The path to the previously dumped database.
-        dumped_database: PathBuf,
+        /// The path to the previously saved backup.
+        backup: PathBuf,
     },
 }
 
@@ -92,18 +92,18 @@ impl Command {
     /// Executes the command.
     pub async fn execute(&self, database_path: PathBuf) -> anyhow::Result<()> {
         match self {
-            Self::Dump {
+            Self::Save {
                 output_directory,
                 output_name,
             } => {
-                self.dump(database_path, output_directory, output_name)
+                self.save(database_path, output_directory, output_name)
                     .await
             }
-            Self::Load { dumped_database } => self.load(&database_path, dumped_database).await,
+            Self::Load { backup } => self.load(&database_path, backup).await,
         }
     }
 
-    async fn dump(
+    async fn save(
         &self,
         database_path: PathBuf,
         output_directory: &Option<PathBuf>,
@@ -124,16 +124,16 @@ impl Command {
             PathBuf::from_str(&output_name)?
         } else {
             let mut name = database_path.file_name().unwrap().to_owned();
-            name.push(&OsString::from(".dump"));
+            name.push(&OsString::from(".backup"));
             PathBuf::from(name)
         };
-        let dump_directory = output_directory.join(output_name);
+        let backup_directory = output_directory.join(output_name);
 
         // use a channel to split receiving documents to save them and writing
         // to disk. We're using a bounded channel to limit RAM usage, since
         // reading will likely be much faster than writing.
         let (sender, receiver) = flume::bounded(100);
-        let document_writer = tokio::spawn(write_documents(receiver, dump_directory));
+        let document_writer = tokio::spawn(write_documents(receiver, backup_directory));
         tokio::task::block_in_place::<_, anyhow::Result<()>>(|| {
             for collection_tree in db
                 .sled
@@ -157,13 +157,13 @@ impl Command {
         document_writer.await?
     }
 
-    async fn load(&self, database_path: &Path, dumped_database: &Path) -> anyhow::Result<()> {
+    async fn load(&self, database_path: &Path, backup: &Path) -> anyhow::Result<()> {
         let db = Storage::<()>::open_local(database_path, &Configuration::default()).await?;
         let (sender, receiver) = flume::bounded(100);
 
         let document_restorer = tokio::task::spawn_blocking(|| restore_documents(receiver, db));
 
-        let mut collections = tokio::fs::read_dir(&dumped_database).await?;
+        let mut collections = tokio::fs::read_dir(&backup).await?;
         while let Some(collection_folder) = collections.next_entry().await? {
             let collection_folder = collection_folder.path();
             let collection = collection_folder
@@ -211,14 +211,14 @@ impl Command {
 
 async fn write_documents(
     receiver: Receiver<Document<'static>>,
-    dump_directory: PathBuf,
+    backup: PathBuf,
 ) -> anyhow::Result<()> {
-    if !dump_directory.exists() {
-        tokio::fs::create_dir(&dump_directory).await?;
+    if !backup.exists() {
+        tokio::fs::create_dir(&backup).await?;
     }
 
     while let Ok(document) = receiver.recv_async().await {
-        let collection_directory = dump_directory.join(document.collection.0.as_ref());
+        let collection_directory = backup.join(document.collection.0.as_ref());
         if !collection_directory.exists() {
             tokio::fs::create_dir(&collection_directory).await?;
         }
@@ -259,7 +259,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn backup_restore() -> anyhow::Result<()> {
-        let backup_destination = TestDirectory::new("backup-restore.pliantdb.dump");
+        let backup_destination = TestDirectory::new("backup-restore.pliantdb.backup");
 
         // First, create a database that we'll be restoring. `TestDirectory`
         // will automatically erase the database when it drops out of scope,
@@ -274,7 +274,7 @@ mod tests {
                 .await?;
             drop(db);
 
-            Command::Dump {
+            Command::Save {
                 output_directory: None,
                 output_name: Some(
                     backup_destination
@@ -291,10 +291,10 @@ mod tests {
             test_doc
         };
 
-        // `backup_destination` now contains a dump of the database, time to try loading it:
+        // `backup_destination` now contains an export of the database, time to try loading it:
         let database_directory = TestDirectory::new("backup-restore.pliantdb");
         Command::Load {
-            dumped_database: backup_destination.0.clone(),
+            backup: backup_destination.0.clone(),
         }
         .execute(database_directory.0.clone())
         .await?;

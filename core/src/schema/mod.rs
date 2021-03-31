@@ -14,7 +14,7 @@ pub trait Schema: Send + Sync + Debug + 'static {
     fn define_collections(schema: &mut Schematic);
 }
 
-/// This trait is only useful for tools like `pliantdb-dump`. There is no
+/// This trait is only useful for tools like `pliantdb local-backup`. There is no
 /// real-world use case of connecting to a Database with no schema.
 impl Schema for () {
     fn define_collections(_schema: &mut Schematic) {}

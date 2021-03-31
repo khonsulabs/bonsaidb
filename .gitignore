@@ -2,7 +2,7 @@
 Cargo.lock
 .vscode
 *.pliantdb
-*.pliantdb.dump
+*.pliantdb.backup
 *.profraw
 *.profdata
 coverage/

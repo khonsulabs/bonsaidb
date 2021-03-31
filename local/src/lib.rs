@@ -34,9 +34,8 @@ pub use self::{
     storage::{Storage, LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
 };
 
-/// The `pliantdb-dump` command line tool.
 #[cfg(feature = "cli")]
-pub mod dump;
+pub mod backup;
 
 #[cfg(test)]
 mod tests;

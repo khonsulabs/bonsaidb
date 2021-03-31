@@ -12,11 +12,6 @@ readme = "../README.md"
 
 [lib]
 
-[[bin]]
-name = "pliantdb-dump"
-path = "src/pliantdb_dump.rs"
-required-features = ["cli"]
-
 [features]
 default = ["cli"]
 cli = ["structopt"]
