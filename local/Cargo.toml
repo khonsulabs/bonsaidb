@@ -14,7 +14,7 @@ readme = "../README.md"
 
 [[bin]]
 name = "pliantdb-dump"
-path = "src/dump.rs"
+path = "src/pliantdb_dump.rs"
 required-features = ["cli"]
 
 [features]

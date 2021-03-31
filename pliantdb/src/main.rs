@@ -1,4 +1,6 @@
 //! A programmable document database inspired by `CouchDB` written in Rust.
+//!
+//! The `pliantdb` executable
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -17,10 +19,11 @@
     clippy::option_if_let_else,
 )]
 
-#[doc(inline)]
-pub use pliantdb_core as core;
-#[cfg(feature = "local")]
-#[doc(inline)]
-pub use pliantdb_local as local;
-#[cfg(feature = "cli")]
-pub mod cli;
+mod cli;
+
+use structopt::StructOpt;
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let command = cli::Command::from_args();
+    command.execute().await
+}

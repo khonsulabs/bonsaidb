@@ -9,7 +9,7 @@ use super::{
     mapper::{Map, Mapper},
     view_document_map_tree_name, view_invalidated_docs_tree_name, view_versions, Task,
 };
-use crate::{storage::document_tree_name, Storage};
+use crate::storage::{document_tree_name, Storage};
 
 #[derive(Debug)]
 pub struct IntegrityScanner<DB> {

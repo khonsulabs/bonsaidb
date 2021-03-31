@@ -9,12 +9,12 @@ use pliantdb_jobs::{manager::Manager, task::Handle};
 use tokio::sync::RwLock;
 
 use crate::{
+    storage::Storage,
     views::{
         integrity_scanner::{IntegrityScan, IntegrityScanner},
         mapper::{Map, Mapper},
         Task,
     },
-    Storage,
 };
 
 #[derive(Debug, Clone)]

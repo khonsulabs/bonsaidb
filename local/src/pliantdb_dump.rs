@@ -1,4 +1,5 @@
-//! Local storage backend for `PliantDB`.
+//! Local database tool to dump and load databases into plain an easy-to-consume
+//! filesystem structure.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -17,26 +18,19 @@
     clippy::option_if_let_else,
 )]
 
-/// Configuration options.
-pub mod config;
+mod config;
+mod dump;
 mod error;
 mod open_trees;
 mod storage;
 mod tasks;
 mod views;
 
-#[doc(inline)]
-pub use pliantdb_core as core;
+pub use error::Error;
+use structopt::StructOpt;
 
-pub use self::{
-    config::Configuration,
-    error::Error,
-    storage::{Storage, LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-};
-
-/// The `pliantdb-dump` command line tool.
-#[cfg(feature = "cli")]
-pub mod dump;
-
-#[cfg(test)]
-mod tests;
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let args = dump::Cli::from_args();
+    args.command.execute(args.database_path).await
+}

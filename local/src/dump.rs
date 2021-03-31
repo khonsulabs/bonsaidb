@@ -18,23 +18,6 @@
 //! pliantdb-dump <database_path> load <backup_location>
 //! ```
 
-#![forbid(unsafe_code)]
-#![warn(
-    clippy::cargo,
-    missing_docs,
-    // clippy::missing_docs_in_private_items,
-    clippy::nursery,
-    clippy::pedantic,
-    future_incompatible,
-    rust_2018_idioms,
-)]
-#![cfg_attr(doc, warn(rustdoc))]
-#![allow(
-    clippy::missing_errors_doc, // TODO
-    // clippy::missing_panics_doc, // not on stable yet
-    clippy::option_if_let_else,
-)]
-
 use std::{
     borrow::Cow,
     ffi::OsString,
@@ -42,28 +25,20 @@ use std::{
     str::FromStr,
 };
 
+use crate::{
+    config::Configuration,
+    storage::{document_tree_name, Storage},
+};
 use flume::Receiver;
 use pliantdb_core::{
     document::{Document, Header, Revision},
     schema::{collection, Key},
 };
-use storage::document_tree_name;
 use structopt::StructOpt;
 use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncWriteExt},
 };
-
-mod config;
-mod error;
-mod open_trees;
-mod storage;
-mod tasks;
-mod views;
-
-pub use error::Error;
-
-use self::{config::Configuration, storage::Storage};
 
 /// The command line interface for `pliantdb-dump`.
 #[derive(StructOpt, Debug)]
@@ -112,14 +87,9 @@ pub enum Command {
     },
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let args = Cli::from_args();
-    args.command.execute(args.database_path).await
-}
-
 impl Command {
-    async fn execute(&self, database_path: PathBuf) -> anyhow::Result<()> {
+    /// Executes the command.
+    pub async fn execute(&self, database_path: PathBuf) -> anyhow::Result<()> {
         match self {
             Self::Dump {
                 output_directory,
