@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Revision {
     /// The current revision id of the document. This value is sequentially incremented on each document update.
-    pub id: usize,
+    pub id: u32,
 
     /// The SHA256 digest of the bytes contained within the `Document`.
     pub sha256: [u8; 32],
@@ -15,8 +15,14 @@ impl Revision {
     /// Creates the first revision for a document with the SHA256 digest of the passed bytes.
     #[must_use]
     pub fn new(contents: &[u8]) -> Self {
+        Self::with_id(0, contents)
+    }
+
+    /// Creates a revision with `id` for a document with the SHA256 digest of the passed bytes.
+    #[must_use]
+    pub fn with_id(id: u32, contents: &[u8]) -> Self {
         Self {
-            id: 0,
+            id,
             sha256: digest(contents),
         }
     }

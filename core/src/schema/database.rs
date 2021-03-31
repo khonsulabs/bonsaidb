@@ -15,6 +15,12 @@ pub trait Database: Send + Sync + Debug + 'static {
     fn define_collections(schema: &mut Schema);
 }
 
+/// This trait is only useful for tools like `pliantdb-dump`. There is no
+/// real-world use case of connecting to a Database with no schema.
+impl Database for () {
+    fn define_collections(_schema: &mut Schema) {}
+}
+
 trait ThreadsafeAny: Any + Send + Sync {}
 
 impl<T> ThreadsafeAny for T where T: Any + Send + Sync {}

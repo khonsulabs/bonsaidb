@@ -15,11 +15,11 @@ use sled::{
 };
 
 use crate::{
-    error::ResultExt as _,
+    config::Configuration,
+    error::{Error, ResultExt as _},
     open_trees::OpenTrees,
     tasks::TaskManager,
     views::{view_entries_tree_name, view_invalidated_docs_tree_name, ViewEntry},
-    Configuration, Error,
 };
 
 /// The maximum number of results allowed to be returned from `list_executed_transactions`.
@@ -653,5 +653,5 @@ fn save_doc(
 const TRANSACTION_TREE_NAME: &str = "transactions";
 
 pub fn document_tree_name(collection: &collection::Id) -> String {
-    collection.0.to_string()
+    format!("collection::{}", collection.0)
 }

@@ -15,7 +15,7 @@ use super::{
     view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
     view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
 };
-use crate::{storage::document_tree_name, Storage};
+use crate::storage::{document_tree_name, Storage};
 
 #[derive(Debug)]
 pub struct Mapper<DB> {

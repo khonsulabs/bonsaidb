@@ -10,6 +10,17 @@ keywords = ["document-database", "database"]
 categories = ["database-implementations", "database"]
 readme = "../README.md"
 
+[lib]
+
+[[bin]]
+name = "pliantdb-dump"
+path = "src/dump.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+cli = ["structopt"]
+
 [dependencies]
 async-trait = "0.1"
 pliantdb-core = { path = "../core", version = "0.1.0-dev-0" }
@@ -23,6 +34,7 @@ anyhow = "1"
 pliantdb-jobs = { path = "../jobs", version = "0.1.0-dev-0" }
 flume = "0.10"
 itertools = "0.10"
+structopt = { version = "0.3", optional = true }
 
 [dev-dependencies]
 pliantdb-core = { path = "../core", version = "0.1.0-dev-0", features = ["test-util"] }

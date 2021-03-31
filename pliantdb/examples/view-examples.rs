@@ -45,12 +45,12 @@ impl View for ShapesByNumberOfSides {
     }
 
     fn name(&self) -> Cow<'static, str> {
-        Cow::from("by-color")
+        Cow::from("by-number-of-sides")
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let shape = document.contents::<Shape>()?;
-        Ok(Some(document.emit_key_and_value(shape.sides as u32, 1)))
+        Ok(Some(document.emit_key_and_value(shape.sides, 1)))
     }
 
     fn reduce(
