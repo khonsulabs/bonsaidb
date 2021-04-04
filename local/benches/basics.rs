@@ -51,7 +51,6 @@ impl<'a> Collection for ResizableDocument<'a> {
 
 async fn save_document(doc: &ResizableDocument<'_>, db: &Storage<ResizableDocument<'static>>) {
     db.collection::<ResizableDocument<'static>>()
-        .unwrap()
         .push(doc)
         .await
         .unwrap();

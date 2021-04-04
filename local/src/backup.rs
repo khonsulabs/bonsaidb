@@ -269,7 +269,7 @@ mod tests {
             let db = Storage::<Basic>::open_local(&database_directory, &Configuration::default())
                 .await?;
             let test_doc = db
-                .collection::<Basic>()?
+                .collection::<Basic>()
                 .push(&Basic::new("somevalue"))
                 .await?;
             drop(db);

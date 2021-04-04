@@ -21,6 +21,8 @@
 pub mod connection;
 /// Types for interacting with `Document`s.
 pub mod document;
+/// Limits used within `PliantDB`.
+pub mod limits;
 /// Types for defining database schema.
 pub mod schema;
 /// Types for executing transactions.
@@ -31,9 +33,13 @@ use schema::collection;
 /// an enumeration of errors that this crate can produce
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    /// An error from serializing or deserializing from a `Document`.
-    #[error("error working with storage: {0}")]
+    /// An error from interacting with local storage.
+    #[error("error from storage: {0}")]
     Storage(String),
+
+    /// An error from interacting with a server.
+    #[error("error from server: {0}")]
+    Server(String),
 
     /// An attempt to use a `Collection` with a `Database` that it wasn't defined within.
     #[error("attempted to access a collection not registered with this schema")]

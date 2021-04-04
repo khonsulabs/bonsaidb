@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use async_trait::async_trait;
 use pliantdb_core::{
+    connection::Connection,
     document::Document,
     schema::{collection, map, view, Key, Schema},
 };

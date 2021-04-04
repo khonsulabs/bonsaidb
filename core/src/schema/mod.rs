@@ -10,8 +10,16 @@ pub use self::{collection::*, schematic::*, view::*};
 
 /// Defines a group of collections that are stored into a single database.
 pub trait Schema: Send + Sync + Debug + 'static {
-    /// Defines the `Collection`s into `schema`
+    /// Defines the `Collection`s into `schema`.
     fn define_collections(schema: &mut Schematic);
+
+    /// Retrieves the [`Schematic`] for this schema.
+    #[must_use]
+    fn schematic() -> Schematic {
+        let mut schematic = Schematic::default();
+        Self::define_collections(&mut schematic);
+        schematic
+    }
 }
 
 /// This trait is only useful for tools like `pliantdb local-backup`. There is no

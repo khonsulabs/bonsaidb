@@ -4,7 +4,10 @@ use std::{
     sync::Arc,
 };
 
-use pliantdb_core::schema::{collection, view, Schema};
+use pliantdb_core::{
+    connection::Connection,
+    schema::{collection, view, Schema},
+};
 use pliantdb_jobs::{manager::Manager, task::Handle};
 use tokio::sync::RwLock;
 

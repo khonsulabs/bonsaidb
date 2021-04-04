@@ -25,7 +25,7 @@ impl Collection for Message {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let db = Storage::<Message>::open_local("basic.pliantdb", &Configuration::default()).await?;
-    let messages = db.collection::<Message>()?;
+    let messages = db.collection::<Message>();
 
     // Insert a new `Message` into the collection. The `push()` method used
     // below is made available through the `Connection` trait. While this

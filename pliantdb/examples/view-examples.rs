@@ -66,7 +66,7 @@ impl View for ShapesByNumberOfSides {
 async fn main() -> Result<(), anyhow::Error> {
     let db =
         Storage::<Shape>::open_local("view-examples.pliantdb", &Configuration::default()).await?;
-    let shapes = db.collection::<Shape>()?;
+    let shapes = db.collection::<Shape>();
 
     // Views in `PliantDB` are written using a Map/Reduce approach. In this
     // example, we take a look at how document mapping can be used to filter and

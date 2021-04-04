@@ -24,11 +24,9 @@ pub struct Document<'a> {
     pub collection: collection::Id,
 
     /// The header of the document, which contains the id and `Revision`.
-    #[serde(borrow)]
     pub header: Cow<'a, Header>,
 
     /// The serialized bytes of the stored item.
-    #[serde(borrow)]
     pub contents: Cow<'a, [u8]>,
 }
 

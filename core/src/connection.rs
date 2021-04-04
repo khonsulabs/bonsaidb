@@ -14,11 +14,12 @@ use crate::{
 #[async_trait]
 pub trait Connection<'a>: Send + Sync {
     /// Accesses a collection for the connected [`schema::Schema`].
-    fn collection<C: schema::Collection + 'static>(
-        &'a self,
-    ) -> Result<Collection<'a, Self, C>, Error>
+    fn collection<C: schema::Collection + 'static>(&'a self) -> Collection<'a, Self, C>
     where
-        Self: Sized;
+        Self: Sized,
+    {
+        Collection::new(self)
+    }
 
     /// Inserts a newly created document into the connected [`schema::Schema`] for the [`Collection`] `C`.
     async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error> {
@@ -103,27 +104,30 @@ pub trait Connection<'a>: Send + Sync {
 
     /// Queries for view entries matching [`View`].
     #[must_use]
-    async fn query<'k, V: schema::View>(
+    async fn query<V: schema::View>(
         &self,
-        query: View<'a, Self, V>,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, Error>
     where
         Self: Sized;
 
     /// Queries for view entries matching [`View`].
     #[must_use]
-    async fn query_with_docs<'k, V: schema::View>(
+    async fn query_with_docs<V: schema::View>(
         &self,
-        query: View<'a, Self, V>,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
     ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error>
     where
         Self: Sized;
 
     /// Reduces the view entries matching [`View`].
     #[must_use]
-    async fn reduce<'k, V: schema::View>(
+    async fn reduce<V: schema::View>(
         &self,
-        query: View<'a, Self, V>,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
     ) -> Result<V::Value, Error>
     where
         Self: Sized;
@@ -146,6 +150,9 @@ pub trait Connection<'a>: Send + Sync {
         starting_id: Option<u64>,
         result_limit: Option<usize>,
     ) -> Result<Vec<transaction::Executed<'static>>, Error>;
+
+    /// Fetches the last transaction id that has been committed, if any.
+    async fn last_transaction_id(&self) -> Result<Option<u64>, Error>;
 }
 
 /// Interacts with a collection over a `Connection`.
@@ -232,17 +239,23 @@ where
 
     /// Executes the query and retrieves the results.
     pub async fn query(self) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
-        self.connection.query(self).await
+        self.connection
+            .query::<V>(self.key, self.access_policy)
+            .await
     }
 
     /// Executes the query and retrieves the results with the associated `Document`s.
     pub async fn query_with_docs(self) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error> {
-        self.connection.query_with_docs(self).await
+        self.connection
+            .query_with_docs::<V>(self.key, self.access_policy)
+            .await
     }
 
     /// Executes a reduce over the results of the query
     pub async fn reduce(self) -> Result<V::Value, Error> {
-        self.connection.reduce(self).await
+        self.connection
+            .reduce::<V>(self.key, self.access_policy)
+            .await
     }
 }
 

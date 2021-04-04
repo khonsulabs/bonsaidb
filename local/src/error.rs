@@ -19,9 +19,13 @@ pub enum Error {
     #[error("error while waiting for a message: {0}")]
     InternalCommunication(#[from] flume::RecvError),
 
+    /// An error occurred while executing a view
+    #[error("error from view: {0}")]
+    View(#[from] view::Error),
+
     /// An internal error occurred while waiting for a message.
     #[error("error while waiting for a message: {0}")]
-    View(#[from] view::Error),
+    Core(#[from] pliantdb_core::Error),
 
     /// An internal error occurred while waiting for a message.
     #[error("an unexpected error occurred: {0}")]

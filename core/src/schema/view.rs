@@ -13,6 +13,7 @@ use super::collection;
 
 /// Errors that arise when interacting with views.
 #[derive(thiserror::Error, Debug)]
+// TODO add which view name and collection
 pub enum Error {
     /// An error occurred while serializing or deserializing.
     #[error("error deserializing document {0}")]

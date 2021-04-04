@@ -1,4 +1,8 @@
-use std::{any::TypeId, collections::HashMap, fmt::Debug};
+use std::{
+    any::TypeId,
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+};
 
 use crate::schema::{
     collection::{self, Collection},
@@ -8,7 +12,8 @@ use crate::schema::{
 /// A collection of defined collections and views.
 #[derive(Default, Debug)]
 pub struct Schematic {
-    collections: HashMap<TypeId, collection::Id>,
+    contained_collections: HashSet<collection::Id>,
+    collections_by_type_id: HashMap<TypeId, collection::Id>,
     views: HashMap<TypeId, Box<dyn view::Serialized>>,
     views_by_name: HashMap<String, TypeId>,
     views_by_collection: HashMap<collection::Id, Vec<TypeId>>,
@@ -17,7 +22,9 @@ pub struct Schematic {
 impl Schematic {
     /// Adds the collection `C` and its views.
     pub fn define_collection<C: Collection + 'static>(&mut self) {
-        self.collections.insert(TypeId::of::<C>(), C::id());
+        self.collections_by_type_id
+            .insert(TypeId::of::<C>(), C::id());
+        self.contained_collections.insert(C::id());
         C::define_views(self)
     }
 
@@ -38,7 +45,13 @@ impl Schematic {
     /// Returns `true` if this schema contains the collection `C`.
     #[must_use]
     pub fn contains<C: Collection + 'static>(&self) -> bool {
-        self.collections.contains_key(&TypeId::of::<C>())
+        self.collections_by_type_id.contains_key(&TypeId::of::<C>())
+    }
+
+    /// Returns `true` if this schema contains the collection `C`.
+    #[must_use]
+    pub fn contains_collection_id(&self, collection: &collection::Id) -> bool {
+        self.contained_collections.contains(collection)
     }
 
     /// Looks up a [`view::Serialized`] by name.
@@ -91,8 +104,11 @@ fn schema_tests() {
     let mut schema = Schematic::default();
     BasicSchema::define_collections(&mut schema);
 
-    assert_eq!(schema.collections.len(), 1);
-    assert_eq!(schema.collections[&TypeId::of::<Basic>()], Basic::id());
+    assert_eq!(schema.collections_by_type_id.len(), 1);
+    assert_eq!(
+        schema.collections_by_type_id[&TypeId::of::<Basic>()],
+        Basic::id()
+    );
     assert_eq!(schema.views.len(), 3);
     assert_eq!(
         schema.views[&TypeId::of::<BasicCount>()].name(),
