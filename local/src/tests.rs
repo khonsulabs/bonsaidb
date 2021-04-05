@@ -3,7 +3,7 @@ use std::time::Duration;
 use pliantdb_core::{
     connection::{AccessPolicy, Connection},
     test_util::{
-        self, Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
+        Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
         BasicCollectionWithOnlyBrokenParentId, TestDirectory,
     },
 };

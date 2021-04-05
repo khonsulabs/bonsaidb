@@ -266,7 +266,7 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new("not-found").await?;
             let db = harness.connect().await?;
 
-            test_util::not_found_tests(&db).await
+            $crate::test_util::not_found_tests(&db).await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -274,7 +274,7 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new("conflict").await?;
             let db = harness.connect().await?;
 
-            test_util::conflict_tests(&db).await
+            $crate::test_util::conflict_tests(&db).await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -282,7 +282,7 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new("bad_update").await?;
             let db = harness.connect().await?;
 
-            test_util::bad_update_tests(&db).await
+            $crate::test_util::bad_update_tests(&db).await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -290,7 +290,7 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new("no-update").await?;
             let db = harness.connect().await?;
 
-            test_util::no_update_tests(&db).await
+            $crate::test_util::no_update_tests(&db).await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -298,7 +298,7 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new("get-multiple").await?;
             let db = harness.connect().await?;
 
-            test_util::get_multiple_tests(&db).await
+            $crate::test_util::get_multiple_tests(&db).await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -306,7 +306,7 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new("list-transactions").await?;
             let db = harness.connect().await?;
 
-            test_util::list_transactions_tests(&db).await
+            $crate::test_util::list_transactions_tests(&db).await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -314,7 +314,7 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new("view-query").await?;
             let db = harness.connect().await?;
 
-            test_util::view_query_tests(&db).await
+            $crate::test_util::view_query_tests(&db).await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -322,7 +322,7 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new("unassociated-collection").await?;
             let db = harness.connect().await?;
 
-            test_util::unassociated_collection_tests(&db).await
+            $crate::test_util::unassociated_collection_tests(&db).await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -330,7 +330,7 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new("view-update").await?;
             let db = harness.connect().await?;
 
-            test_util::view_update_tests(&db).await
+            $crate::test_util::view_update_tests(&db).await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -338,7 +338,7 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new("view-access-policies").await?;
             let db = harness.connect().await?;
 
-            test_util::view_access_policy_tests(&db).await
+            $crate::test_util::view_access_policy_tests(&db).await
         }
     };
 }
