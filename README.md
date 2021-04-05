@@ -117,6 +117,18 @@ pliantdb local-backup <destination-database-path> load <backup-path>
 
 The format of this export should be easy to work with if you're either transitioning from PliantDB to another solution or needing to do complicated disaster recovery work. It is [described here](https://khonsulabs.github.io/pliantdb/main/pliantdb/local/backup/enum.Command.html#variant.Save).
 
+## Developing PliantDB
+
+### Pre-commit hook
+
+Our CI processes require that some commands succeed without warnings or errors. To ensure that code you submit passes the basic checks, install the included [pre-commit](./git-pre-commit-hook.sh) hook:
+
+```bash
+./git-pre-commit-hook.sh install
+```
+
+Once done, tools including `cargo fmt`, `cargo doc`, and `cargo test` will all be checked before `git commit` will execute.
+
 ## Open-source Licenses
 
 This project, like all projects from [Khonsu Labs](https://khonsulabs.com/), are open-source. This repository is available under the [MIT License](./LICENSE-MIT) or the [Apache License 2.0](./LICENSE-APACHE).
