@@ -6,7 +6,7 @@ use std::{
 
 use crate::schema::{
     collection::{self, Collection},
-    view, Schema, Serialized, View,
+    view, Serialized, View,
 };
 
 /// A collection of defined collections and views.
@@ -23,8 +23,8 @@ impl Schematic {
     /// Adds the collection `C` and its views.
     pub fn define_collection<C: Collection + 'static>(&mut self) {
         self.collections_by_type_id
-            .insert(TypeId::of::<C>(), C::id());
-        self.contained_collections.insert(C::id());
+            .insert(TypeId::of::<C>(), C::collection_id());
+        self.contained_collections.insert(C::collection_id());
         C::define_views(self)
     }
 
@@ -89,25 +89,19 @@ impl Schematic {
     }
 }
 
-impl<T> Schema for T
-where
-    T: Collection + 'static,
-{
-    fn define_collections(collections: &mut Schematic) {
-        collections.define_collection::<Self>();
-    }
-}
-
 #[test]
 fn schema_tests() {
-    use crate::test_util::{Basic, BasicCount, BasicSchema};
+    use crate::{
+        schema::Schema,
+        test_util::{Basic, BasicCount, BasicSchema},
+    };
     let mut schema = Schematic::default();
     BasicSchema::define_collections(&mut schema);
 
     assert_eq!(schema.collections_by_type_id.len(), 1);
     assert_eq!(
         schema.collections_by_type_id[&TypeId::of::<Basic>()],
-        Basic::id()
+        Basic::collection_id()
     );
     assert_eq!(schema.views.len(), 3);
     assert_eq!(

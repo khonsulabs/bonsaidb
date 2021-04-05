@@ -15,7 +15,7 @@ struct Message {
 }
 
 impl Collection for Message {
-    fn id() -> collection::Id {
+    fn collection_id() -> collection::Id {
         collection::Id::from("messages")
     }
 

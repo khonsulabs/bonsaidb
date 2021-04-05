@@ -127,7 +127,7 @@ where
     <T as View>::Key: 'static,
 {
     fn collection(&self) -> collection::Id {
-        <<Self as View>::Collection as Collection>::id()
+        <<Self as View>::Collection as Collection>::collection_id()
     }
 
     fn version(&self) -> u64 {

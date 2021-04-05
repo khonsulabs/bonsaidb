@@ -218,7 +218,7 @@ async fn write_documents(
     }
 
     while let Ok(document) = receiver.recv_async().await {
-        let collection_directory = backup.join(document.collection.0.as_ref());
+        let collection_directory = backup.join(document.collection.as_ref());
         if !collection_directory.exists() {
             tokio::fs::create_dir(&collection_directory).await?;
         }

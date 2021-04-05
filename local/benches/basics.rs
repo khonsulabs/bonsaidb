@@ -42,7 +42,7 @@ struct ResizableDocument<'a> {
 }
 
 impl<'a> Collection for ResizableDocument<'a> {
-    fn id() -> collection::Id {
+    fn collection_id() -> collection::Id {
         collection::Id::from("resizable-docs")
     }
 

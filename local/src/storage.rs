@@ -262,7 +262,7 @@ where
         tokio::task::block_in_place(|| {
             let tree = self
                 .sled
-                .open_tree(document_tree_name(&C::id()))
+                .open_tree(document_tree_name(&C::collection_id()))
                 .map_err_to_core()?;
             if let Some(vec) = tree
                 .get(
@@ -290,7 +290,7 @@ where
         tokio::task::block_in_place(|| {
             let tree = self
                 .sled
-                .open_tree(document_tree_name(&C::id()))
+                .open_tree(document_tree_name(&C::collection_id()))
                 .map_err_to_core()?;
             let mut found_docs = Vec::new();
             for id in ids {
@@ -636,5 +636,5 @@ fn save_doc(
 const TRANSACTION_TREE_NAME: &str = "transactions";
 
 pub fn document_tree_name(collection: &collection::Id) -> String {
-    format!("collection::{}", collection.0)
+    format!("collection::{}", collection)
 }

@@ -1,4 +1,3 @@
-use admin::database::{self, Database};
 use std::{
     any::Any,
     borrow::Cow,
@@ -7,8 +6,9 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::sync::RwLock;
 
+use admin::database::{self, Database};
+use pliantdb_core::schema;
 use pliantdb_local::{
     core::{
         connection::Connection,
@@ -16,7 +16,7 @@ use pliantdb_local::{
     },
     Configuration, Storage,
 };
-use pliantdb_networking::SchemaId;
+use tokio::sync::RwLock;
 
 use crate::{
     admin::{self, database::ByName, Admin},
@@ -24,6 +24,7 @@ use crate::{
     hosted,
 };
 
+/// A `PliantDB` server.
 #[derive(Clone, Debug)]
 pub struct Server {
     data: Arc<Data>,
@@ -33,15 +34,17 @@ pub struct Server {
 struct Data {
     directory: PathBuf,
     admin: Storage<Admin>,
-    schemas: HashMap<SchemaId, Schematic>,
+    schemas: HashMap<schema::Id, Schematic>,
     open_databases: RwLock<HashMap<String, Box<dyn OpenDatabase>>>,
-    available_databases: RwLock<HashMap<String, SchemaId>>,
+    available_databases: RwLock<HashMap<String, schema::Id>>,
 }
 
 impl Server {
+    /// Creates or opens a [`Server`] with its data stored in `directory`.
+    /// `schemas` is a collection of [`schema::Id`] to [`Schematic`] pairs. [`schema::Id`]s are used as an identifier of a specific `Schema`, which the Server uses to
     pub async fn open(
         directory: &Path,
-        schemas: HashMap<SchemaId, Schematic>,
+        schemas: HashMap<schema::Id, Schematic>,
     ) -> Result<Self, Error> {
         let admin =
             Storage::open_local(directory.join("admin.pliantdb"), &Configuration::default())
@@ -66,7 +69,16 @@ impl Server {
         })
     }
 
-    pub async fn create_database(&self, name: &str, schema: SchemaId) -> Result<(), Error> {
+    /// Creates a database named `name` using the [`schema::Id`] `schema`.
+    ///
+    /// ## Errors
+    ///
+    /// * [`Error::InvalidDatabaseName`]: `name` must begin with an alphanumeric
+    ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
+    ///   alphanumeric, a period (`.`), or a hyphen (`-`).
+    /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
+    ///   previous database name. Database names are case insensitive.
+    pub async fn create_database(&self, name: &str, schema: schema::Id) -> Result<(), Error> {
         Self::validate_name(name)?;
 
         let mut available_databases = self.data.available_databases.write().await;
@@ -94,14 +106,23 @@ impl Server {
         Ok(())
     }
 
+    /// Retrieves a database. This function only verifies that the database exists
     pub async fn database<'a, DB: Schema>(
         &self,
         name: &'a str,
     ) -> Result<hosted::Database<'_, 'a, DB>, Error> {
         let available_databases = self.data.available_databases.read().await;
 
-        if available_databases.contains_key(name) {
-            Ok(hosted::Database::new(self, name))
+        if let Some(stored_schema) = available_databases.get(name) {
+            if stored_schema == &DB::schema_id() {
+                Ok(hosted::Database::new(self, name))
+            } else {
+                Err(Error::SchemaMismatch {
+                    database_name: name.to_owned(),
+                    schema: DB::schema_id(),
+                    stored_schema: stored_schema.clone(),
+                })
+            }
         } else {
             Err(Error::DatabaseNotFound(name.to_owned()))
         }
@@ -181,7 +202,7 @@ fn name_validation_tests() {
         Err(Error::InvalidDatabaseName(_))
     ));
     assert!(matches!(
-        Server::validate_name("♡"),
+        Server::validate_name("\u{2661}"),
         Err(Error::InvalidDatabaseName(_))
     ));
 }

@@ -4,17 +4,15 @@ use pliantdb_core::{
     schema::Schema,
     test_util::{self, Basic, TestDirectory},
 };
-use pliantdb_networking::SchemaId;
 
 use crate::{hosted::Database, Error, Server};
 
 async fn initialize_basic_server(path: &Path) -> Result<Server, Error> {
     let mut schemas = HashMap::new();
-    let basic_schema_id = SchemaId::from("basic");
-    schemas.insert(basic_schema_id.clone(), Basic::schematic());
+    schemas.insert(Basic::schema_id(), Basic::schematic());
     let server = Server::open(path, schemas).await?;
 
-    server.create_database("tests", basic_schema_id).await?;
+    server.create_database("tests", Basic::schema_id()).await?;
 
     Ok(server)
 }

@@ -7,7 +7,7 @@ use sled::{IVec, Transactional, Tree};
 
 use super::{
     mapper::{Map, Mapper},
-    view_document_map_tree_name, view_invalidated_docs_tree_name, view_versions, Task,
+    view_document_map_tree_name, view_invalidated_docs_tree_name, view_versions_tree_name, Task,
 };
 use crate::storage::{document_tree_name, Storage};
 
@@ -40,7 +40,7 @@ where
         let view_versions = self
             .storage
             .sled
-            .open_tree(view_versions(&self.scan.collection))?;
+            .open_tree(view_versions_tree_name(&self.scan.collection))?;
 
         let document_map = self.storage.sled.open_tree(view_document_map_tree_name(
             &self.scan.collection,

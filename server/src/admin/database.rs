@@ -4,13 +4,12 @@ use pliantdb_local::core::{
     document::Document,
     schema::{self, collection, Collection, Schematic, View},
 };
-use pliantdb_networking::SchemaId;
 
 #[derive(Debug)]
 pub struct Database;
 
 impl Collection for Database {
-    fn id() -> collection::Id {
+    fn collection_id() -> collection::Id {
         collection::Id::from("pliantdb.databases")
     }
 
@@ -25,7 +24,7 @@ pub struct ByName;
 impl View for ByName {
     type Collection = Database;
     type Key = String;
-    type Value = SchemaId;
+    type Value = schema::Id;
 
     fn version(&self) -> u64 {
         1

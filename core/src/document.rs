@@ -129,7 +129,7 @@ fn emissions_tests() -> Result<(), crate::Error> {
         test_util::Basic,
     };
 
-    let doc = Document::with_contents(1, &Basic::default(), Basic::id())?;
+    let doc = Document::with_contents(1, &Basic::default(), Basic::collection_id())?;
 
     assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));
 

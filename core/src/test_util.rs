@@ -14,7 +14,7 @@ use crate::{
     connection::{AccessPolicy, Connection},
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    schema::{collection, view, Collection, MapResult, Schema, Schematic, View},
+    schema::{self, collection, view, Collection, MapResult, Schema, Schematic, View},
     Error,
 };
 
@@ -47,7 +47,7 @@ impl Basic {
 }
 
 impl Collection for Basic {
-    fn id() -> collection::Id {
+    fn collection_id() -> collection::Id {
         collection::Id::from("tests.basic")
     }
 
@@ -178,6 +178,10 @@ impl View for BasicByBrokenParentId {
 pub struct BasicSchema;
 
 impl Schema for BasicSchema {
+    fn schema_id() -> schema::Id {
+        schema::Id::from("basic")
+    }
+
     fn define_collections(schema: &mut Schematic) {
         schema.define_collection::<Basic>();
     }
@@ -215,8 +219,8 @@ impl AsRef<Path> for TestDirectory {
 pub struct BasicCollectionWithNoViews;
 
 impl Collection for BasicCollectionWithNoViews {
-    fn id() -> collection::Id {
-        Basic::id()
+    fn collection_id() -> collection::Id {
+        Basic::collection_id()
     }
 
     fn define_views(_schema: &mut Schematic) {}
@@ -226,8 +230,8 @@ impl Collection for BasicCollectionWithNoViews {
 pub struct BasicCollectionWithOnlyBrokenParentId;
 
 impl Collection for BasicCollectionWithOnlyBrokenParentId {
-    fn id() -> collection::Id {
-        Basic::id()
+    fn collection_id() -> collection::Id {
+        Basic::collection_id()
     }
 
     fn define_views(schema: &mut Schematic) {
@@ -239,7 +243,7 @@ impl Collection for BasicCollectionWithOnlyBrokenParentId {
 pub struct UnassociatedCollection;
 
 impl Collection for UnassociatedCollection {
-    fn id() -> collection::Id {
+    fn collection_id() -> collection::Id {
         collection::Id::from("unassociated")
     }
 
@@ -375,7 +379,10 @@ pub async fn store_retrieve_update_delete_tests<'a, C: Connection<'a>>(
     assert!(transactions[0].id < transactions[1].id);
     for transaction in &transactions {
         assert_eq!(transaction.changed_documents.len(), 1);
-        assert_eq!(transaction.changed_documents[0].collection, Basic::id());
+        assert_eq!(
+            transaction.changed_documents[0].collection,
+            Basic::collection_id()
+        );
         assert_eq!(transaction.changed_documents[0].id, header.id);
         assert_eq!(transaction.changed_documents[0].deleted, false);
     }
@@ -388,7 +395,10 @@ pub async fn store_retrieve_update_delete_tests<'a, C: Connection<'a>>(
     assert_eq!(transactions.len(), 1);
     let transaction = transactions.first().unwrap();
     assert_eq!(transaction.changed_documents.len(), 1);
-    assert_eq!(transaction.changed_documents[0].collection, Basic::id());
+    assert_eq!(
+        transaction.changed_documents[0].collection,
+        Basic::collection_id()
+    );
     assert_eq!(transaction.changed_documents[0].id, header.id);
     assert_eq!(transaction.changed_documents[0].deleted, true);
 
@@ -426,7 +436,7 @@ pub async fn conflict_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), anyh
         .expect_err("conflict should have generated an error")
     {
         Error::DocumentConflict(collection, id) => {
-            assert_eq!(collection, Basic::id());
+            assert_eq!(collection, Basic::collection_id());
             assert_eq!(id, doc.header.id);
         }
         other => return Err(anyhow::Error::from(other)),
@@ -436,10 +446,10 @@ pub async fn conflict_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), anyh
 }
 
 pub async fn bad_update_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), anyhow::Error> {
-    let mut doc = Document::with_contents(1, &Basic::default(), Basic::id())?;
+    let mut doc = Document::with_contents(1, &Basic::default(), Basic::collection_id())?;
     match db.update(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
-            assert_eq!(collection, Basic::id());
+            assert_eq!(collection, Basic::collection_id());
             assert_eq!(id, 1);
             Ok(())
         }

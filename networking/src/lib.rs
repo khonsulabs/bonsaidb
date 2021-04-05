@@ -1,8 +1,10 @@
+use std::borrow::Cow;
+
 pub use cosmicverge_networking;
-use pliantdb_core::{document::Document, schema::collection};
-
-use std::{borrow::Cow, sync::Arc};
-
+use pliantdb_core::{
+    document::Document,
+    schema::{self, collection},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -39,7 +41,7 @@ pub enum ServerResponse<'a> {
     DatabaseCreated { name: Cow<'a, str> },
     DatabaseDeleted { name: Cow<'a, str> },
     Databases(Vec<Database<'a>>),
-    AvailableSchemas(Vec<SchemaId>),
+    AvailableSchemas(Vec<schema::Id>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -50,27 +52,5 @@ pub enum DatabaseResponse<'a> {
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Database<'a> {
     pub name: Cow<'a, str>,
-    pub schema: SchemaId,
-}
-
-#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone)]
-#[serde(transparent)]
-pub struct SchemaId(Arc<String>);
-
-impl AsRef<str> for SchemaId {
-    fn as_ref(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-
-impl SchemaId {
-    pub fn new<S: Into<String>>(id: S) -> Self {
-        Self(Arc::new(id.into()))
-    }
-}
-
-impl From<&'_ str> for SchemaId {
-    fn from(id: &'_ str) -> Self {
-        Self::new(id)
-    }
+    pub schema: schema::Id,
 }

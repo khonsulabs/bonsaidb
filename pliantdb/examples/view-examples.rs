@@ -21,7 +21,7 @@ impl Shape {
 }
 
 impl Collection for Shape {
-    fn id() -> collection::Id {
+    fn collection_id() -> collection::Id {
         collection::Id::from("shapes")
     }
 
