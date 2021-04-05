@@ -10,7 +10,7 @@
     future_incompatible,
     rust_2018_idioms,
 )]
-#![cfg_attr(doc, warn(rustdoc))]
+#![cfg_attr(doc, deny(rustdoc))]
 #![allow(
     clippy::missing_errors_doc, // TODO
     // clippy::missing_panics_doc, // not on stable yet
