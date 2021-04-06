@@ -1,16 +1,17 @@
-use std::{collections::HashMap, path::Path};
+use std::{borrow::Cow, path::Path};
 
 use pliantdb_core::{
-    schema::Schema,
+    self as core,
+    schema::{Collection, Schema},
     test_util::{self, Basic, TestDirectory},
 };
+use pliantdb_networking::{DatabaseRequest, Request};
 
 use crate::{hosted::Database, Error, Server};
 
 async fn initialize_basic_server(path: &Path) -> Result<Server, Error> {
-    let mut schemas = HashMap::new();
-    schemas.insert(Basic::schema_id(), Basic::schematic());
-    let server = Server::open(path, schemas).await?;
+    let server = Server::open(path).await?;
+    server.register_schema::<Basic>().await?;
 
     server.create_database("tests", Basic::schema_id()).await?;
 
@@ -18,7 +19,7 @@ async fn initialize_basic_server(path: &Path) -> Result<Server, Error> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn simple_test() -> Result<(), anyhow::Error> {
+async fn simple_test() -> anyhow::Result<()> {
     let test_dir = TestDirectory::new("simple-test");
     let server = initialize_basic_server(test_dir.as_ref()).await?;
     let db = server.database::<Basic>("tests").await?;
@@ -47,3 +48,26 @@ impl TestHarness {
 }
 
 pliantdb_core::define_connection_test_suite!(TestHarness);
+
+// TODO test creating/deleting databases/listing
+// TODO test available schemas
+
+#[tokio::test(flavor = "multi_thread")]
+async fn handle_request_tests() -> anyhow::Result<()> {
+    let test_dir = TestDirectory::new("handle-requests");
+    let server = initialize_basic_server(test_dir.as_ref()).await?;
+    assert!(matches!(
+        server
+            .handle_request(Request::Database {
+                database: Cow::from("tests"),
+                request: DatabaseRequest::Get {
+                    collection: Basic::collection_id(),
+                    id: 0
+                }
+            })
+            .await,
+        Err(Error::Core(core::Error::DocumentNotFound { .. }))
+    ));
+
+    Ok(())
+}

@@ -147,6 +147,36 @@ where
 
         Ok(())
     }
+
+    /// Retrieves document `id` from the specified `collection`.
+    pub async fn get_from_collection_id(
+        &self,
+        id: u64,
+        collection: &collection::Id,
+    ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
+        tokio::task::block_in_place(|| {
+            let tree = self
+                .sled
+                .open_tree(document_tree_name(collection))
+                .map_err_to_core()?;
+            if let Some(vec) = tree
+                .get(
+                    id.as_big_endian_bytes()
+                        .map_err(view::Error::KeySerialization)
+                        .map_err_to_core()?,
+                )
+                .map_err_to_core()?
+            {
+                Ok(Some(
+                    bincode::deserialize::<Document<'_>>(&vec)
+                        .map_err_to_core()?
+                        .to_owned(),
+                ))
+            } else {
+                Ok(None)
+            }
+        })
+    }
 }
 
 #[async_trait]
@@ -259,28 +289,7 @@ where
         &self,
         id: u64,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| {
-            let tree = self
-                .sled
-                .open_tree(document_tree_name(&C::collection_id()))
-                .map_err_to_core()?;
-            if let Some(vec) = tree
-                .get(
-                    id.as_big_endian_bytes()
-                        .map_err(view::Error::KeySerialization)
-                        .map_err_to_core()?,
-                )
-                .map_err_to_core()?
-            {
-                Ok(Some(
-                    bincode::deserialize::<Document<'_>>(&vec)
-                        .map_err_to_core()?
-                        .to_owned(),
-                ))
-            } else {
-                Ok(None)
-            }
-        })
+        self.get_from_collection_id(id, &C::collection_id()).await
     }
 
     async fn get_multiple<C: schema::Collection>(

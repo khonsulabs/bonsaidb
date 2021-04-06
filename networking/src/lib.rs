@@ -15,19 +15,21 @@ pub enum Payload<'a> {
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub enum Request<'a> {
-    Server { request: ServerRequest<'a> },
-    // Database {
-    //     database: Cow<'a, str>,
-    //     request: DatabaseRequest,
-    // },
+    Server {
+        request: ServerRequest<'a>,
+    },
+    Database {
+        database: Cow<'a, str>,
+        request: DatabaseRequest,
+    },
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub enum ServerRequest<'a> {
     CreateDatabase(Database<'a>),
-    // DeleteDatabase { name: Cow<'a, str> },
-    // ListDatabases,
-    // ListAvailableSchemas,
+    DeleteDatabase { name: Cow<'a, str> },
+    ListDatabases,
+    ListAvailableSchemas,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]

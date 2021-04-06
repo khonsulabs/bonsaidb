@@ -3,6 +3,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::Debug,
+    marker::PhantomData,
     net::ToSocketAddrs,
     path::{Path, PathBuf},
     sync::Arc,
@@ -10,18 +11,22 @@ use std::{
 };
 
 use admin::database::{self, Database};
+use async_trait::async_trait;
 use futures::{FutureExt, StreamExt, TryFutureExt};
+use itertools::Itertools;
 use pliantdb_core::schema;
 use pliantdb_local::{
     core::{
+        self,
         connection::Connection,
-        schema::{Schema, Schematic},
+        document::Document,
+        schema::{collection, Schema, Schematic},
     },
     Configuration, Storage,
 };
 use pliantdb_networking::{
     fabruic::{self, Certificate, Endpoint, PrivateKey},
-    Payload, Request, Response, ServerRequest, ServerResponse,
+    DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerRequest, ServerResponse,
 };
 use tokio::{fs::File, sync::RwLock};
 
@@ -32,8 +37,6 @@ use crate::{
     hosted,
 };
 
-mod shutdown;
-
 /// A `PliantDB` server.
 #[derive(Clone, Debug)]
 pub struct Server {
@@ -43,21 +46,17 @@ pub struct Server {
 #[derive(Debug)]
 struct Data {
     endpoint: RwLock<Option<Endpoint>>,
-    shutdown: shutdown::Signal,
     directory: PathBuf,
     admin: Storage<Admin>,
-    schemas: HashMap<schema::Id, Schematic>,
-    open_databases: RwLock<HashMap<String, Box<dyn OpenDatabase>>>,
+    schemas: RwLock<HashMap<schema::Id, Box<dyn DatabaseOpener>>>,
+    open_databases: RwLock<HashMap<String, Arc<Box<dyn OpenDatabase>>>>,
     available_databases: RwLock<HashMap<String, schema::Id>>,
 }
 
 impl Server {
     /// Creates or opens a [`Server`] with its data stored in `directory`.
     /// `schemas` is a collection of [`schema::Id`] to [`Schematic`] pairs. [`schema::Id`]s are used as an identifier of a specific `Schema`, which the Server uses to
-    pub async fn open(
-        directory: &Path,
-        schemas: HashMap<schema::Id, Schematic>,
-    ) -> Result<Self, Error> {
+    pub async fn open(directory: &Path) -> Result<Self, Error> {
         let admin =
             Storage::open_local(directory.join("admin.pliantdb"), &Configuration::default())
                 .await?;
@@ -74,13 +73,28 @@ impl Server {
             data: Arc::new(Data {
                 admin,
                 directory: directory.to_owned(),
-                schemas,
-                shutdown: shutdown::Signal::new(),
                 available_databases: RwLock::new(available_databases),
+                schemas: RwLock::default(),
                 endpoint: RwLock::default(),
                 open_databases: RwLock::default(),
             }),
         })
+    }
+
+    /// Registers a schema for use within the server.
+    pub async fn register_schema<DB: Schema>(&self) -> Result<(), Error> {
+        let mut schemas = self.data.schemas.write().await;
+        if schemas
+            .insert(
+                DB::schema_id(),
+                Box::new(ServerSchemaOpener::<DB>::new(self.clone())),
+            )
+            .is_none()
+        {
+            Ok(())
+        } else {
+            Err(Error::SchemaAlreadyRegistered(DB::schema_id()))
+        }
     }
 
     /// Creates a database named `name` using the [`schema::Id`] `schema`.
@@ -120,6 +134,65 @@ impl Server {
         Ok(())
     }
 
+    /// Deletes a database named `name`.
+    ///
+    /// ## Errors
+    ///
+    /// * [`Error::DatabaseNotFound`]: database `name` does not exist.
+    /// * [`Error::Io`]: an error occurred while deleting files.
+    pub async fn delete_database(&self, name: &str) -> Result<(), Error> {
+        let mut available_databases = self.data.available_databases.write().await;
+
+        let file_path = self.database_path(name);
+        let files_existed = file_path.exists();
+        if file_path.exists() {
+            tokio::fs::remove_dir_all(file_path).await?;
+        }
+
+        if let Some(entry) = self
+            .data
+            .admin
+            .view::<database::ByName>()
+            .with_key(name.to_ascii_lowercase())
+            .query_with_docs()
+            .await?
+            .first()
+        {
+            self.data.admin.delete(&entry.document).await?;
+            available_databases.remove(name);
+
+            Ok(())
+        } else if files_existed {
+            // There's no way to atomically remove files AND ensure the admin
+            // database is updated. Instead, if this method is called again and
+            // the folder is still found, we will try to delete it again without
+            // returning an error. Thus, if you get an error from
+            // delete_database, you can try again until you get a success
+            // returned.
+            Ok(())
+        } else {
+            return Err(Error::DatabaseNotFound(name.to_string()));
+        }
+    }
+
+    /// Lists the databases on this server.
+    pub async fn list_databases(&self) -> Vec<pliantdb_networking::Database<'static>> {
+        let available_databases = self.data.available_databases.read().await;
+        available_databases
+            .iter()
+            .map(|(name, schema)| pliantdb_networking::Database {
+                name: Cow::Owned(name.to_owned()),
+                schema: schema.clone(),
+            })
+            .collect()
+    }
+
+    /// Lists the [`schema::Id`]s on this server.
+    pub async fn list_available_schemas(&self) -> Vec<schema::Id> {
+        let available_databases = self.data.available_databases.read().await;
+        available_databases.values().unique().cloned().collect()
+    }
+
     /// Retrieves a database. This function only verifies that the database exists
     pub async fn database<'a, DB: Schema>(
         &self,
@@ -142,40 +215,50 @@ impl Server {
         }
     }
 
-    pub(crate) async fn open_database<DB: Schema>(&self, name: &str) -> Result<Storage<DB>, Error> {
+    pub(crate) async fn open_database_without_schema(
+        &self,
+        name: &str,
+    ) -> Result<Arc<Box<dyn OpenDatabase>>, Error> {
         // If we have an open database return it
         {
             let open_databases = self.data.open_databases.read().await;
             if let Some(db) = open_databases.get(name) {
-                let storage = db
-                    .as_any()
-                    .downcast_ref::<Storage<DB>>()
-                    .expect("schema did not match");
-                return Ok(storage.clone());
+                return Ok(db.clone());
             }
         }
 
         // Open the database.
         let mut open_databases = self.data.open_databases.write().await;
-        if self
+        let schema = match self
             .data
             .admin
             .view::<database::ByName>()
             .with_key(name.to_ascii_lowercase())
             .query()
             .await?
-            .is_empty()
+            .first()
         {
-            return Err(Error::DatabaseNotFound(name.to_string()));
-        }
+            Some(entry) => entry.value.clone(),
+            None => return Err(Error::DatabaseNotFound(name.to_string())),
+        };
 
-        let db = Storage::<DB>::open_local(
-            self.data.directory.join(format!("{}.pliantdb", name)),
-            &Configuration::default(),
-        )
-        .await?;
-        open_databases.insert(name.to_owned(), Box::new(db.clone()));
-        Ok(db)
+        let schemas = self.data.schemas.read().await;
+        if let Some(schema) = schemas.get(&schema) {
+            let db = schema.open(name).await?;
+            open_databases.insert(name.to_string(), db.clone());
+            Ok(db)
+        } else {
+            todo!()
+        }
+    }
+
+    pub(crate) async fn open_database<DB: Schema>(&self, name: &str) -> Result<Storage<DB>, Error> {
+        let db = self.open_database_without_schema(name).await?;
+        let storage = db
+            .as_any()
+            .downcast_ref::<Storage<DB>>()
+            .expect("schema did not match");
+        Ok(storage.clone())
     }
 
     fn validate_name(name: &str) -> Result<(), Error> {
@@ -188,6 +271,10 @@ impl Server {
         } else {
             Err(Error::InvalidDatabaseName(name.to_owned()))
         }
+    }
+
+    fn database_path(&self, name: &str) -> PathBuf {
+        self.data.directory.join(format!("{}.pliantdb", name))
     }
 
     /// Installs an X.509 certificate used for general purpose connections.
@@ -279,13 +366,7 @@ impl Server {
 
     async fn handle_connection(&self, mut connection: fabruic::Connection) -> Result<(), Error> {
         // TODO this is ugly
-        while let Some(incoming) = futures::try_join!(
-            async { Ok(connection.next().await) },
-            self.wait_for_shutdown()
-        )
-        .unwrap_or_default()
-        .0
-        {
+        while let Some(incoming) = connection.next().await {
             let incoming = incoming?;
             println!("New incoming stream from: {}", connection.remote_address());
 
@@ -302,13 +383,7 @@ impl Server {
         mut receiver: fabruic::Receiver<Payload<'static>>,
     ) -> Result<(), Error> {
         // TODO this is ugly
-        while let Some(payload) = futures::try_join!(
-            async { Ok(receiver.next().await) },
-            self.wait_for_shutdown()
-        )
-        .unwrap_or_default()
-        .0
-        {
+        while let Some(payload) = receiver.next().await {
             let payload = payload?;
             let request = match payload {
                 Payload::Request(request) => request,
@@ -325,29 +400,44 @@ impl Server {
         Ok(())
     }
 
-    async fn wait_for_shutdown(&self) -> Result<(), Error> {
-        self.data
-            .shutdown
-            .wait()
-            .then(|_| async { Err::<(), Error>(Error::ShuttingDown) })
-            .await
-    }
-
-    async fn handle_request(&self, request: Request<'static>) -> Result<Response<'static>, Error> {
+    pub(crate) async fn handle_request(
+        &self,
+        request: Request<'static>,
+    ) -> Result<Response<'static>, Error> {
         match request {
             Request::Server { request } => match request {
                 ServerRequest::CreateDatabase(database) => {
-                    self.create_database(database.name.as_ref(), database.schema)
+                    self.create_database(&database.name, database.schema)
                         .await?;
                     Ok(Response::Server(ServerResponse::DatabaseCreated {
                         name: database.name.clone(),
                     }))
                 }
-                // ServerRequest::DeleteDatabase { name } => {},
-                // ServerRequest::ListDatabases => todo!(),
-                // ServerRequest::ListAvailableSchemas => todo!(),
+                ServerRequest::DeleteDatabase { name } => {
+                    self.delete_database(&name).await?;
+                    Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
+                }
+                ServerRequest::ListDatabases => Ok(Response::Server(ServerResponse::Databases(
+                    self.list_databases().await,
+                ))),
+                ServerRequest::ListAvailableSchemas => Ok(Response::Server(
+                    ServerResponse::AvailableSchemas(self.list_available_schemas().await),
+                )),
             },
-            // Request::Database { database, request } => todo!(),
+            Request::Database { database, request } => {
+                let db = self.open_database_without_schema(&database).await?;
+                match request {
+                    DatabaseRequest::Get { collection, id } => {
+                        let document = db
+                            .get_from_collection_id(id, &collection)
+                            .await?
+                            .ok_or(Error::Core(core::Error::DocumentNotFound(collection, id)))?;
+                        Ok(Response::Database(DatabaseResponse::Documents(vec![
+                            document,
+                        ])))
+                    }
+                }
+            }
         }
     }
 
@@ -356,8 +446,6 @@ impl Server {
     /// requests already being processed. After the `timeout` has elapsed or if
     /// no `timeout` was provided, the server is forcefully shut down.
     pub async fn shutdown(&self, timeout: Option<Duration>) -> Result<(), Error> {
-        self.data.shutdown.shutdown();
-
         let endpoint = {
             let endpoint = self.data.endpoint.read().await;
             endpoint.clone()
@@ -377,20 +465,40 @@ impl Server {
             }
         }
 
+        // Close all databases by dropping them.
+        let mut open_databases = self.data.open_databases.write().await;
+        open_databases.clear();
+
         Ok(())
     }
 }
 
-trait OpenDatabase: Send + Sync + Debug + 'static {
+#[async_trait]
+pub trait OpenDatabase: Send + Sync + Debug + 'static {
     fn as_any(&self) -> &'_ dyn Any;
+
+    async fn get_from_collection_id(
+        &self,
+        id: u64,
+        collection: &collection::Id,
+    ) -> Result<Option<Document<'static>>, pliantdb_core::Error>;
 }
 
+#[async_trait]
 impl<DB> OpenDatabase for Storage<DB>
 where
     DB: Schema,
 {
     fn as_any(&self) -> &'_ dyn Any {
         self
+    }
+
+    async fn get_from_collection_id(
+        &self,
+        id: u64,
+        collection: &collection::Id,
+    ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
+        self.get_from_collection_id(id, collection).await
     }
 }
 
@@ -414,4 +522,48 @@ fn name_validation_tests() {
 #[tokio::test(flavor = "multi_thread")]
 async fn opening_databases_test() -> Result<(), Error> {
     Ok(())
+}
+
+#[async_trait]
+trait DatabaseOpener: Send + Sync + Debug {
+    fn schematic(&self) -> &'_ Schematic;
+    async fn open(&self, name: &str) -> Result<Arc<Box<dyn OpenDatabase>>, Error>;
+}
+
+#[derive(Debug)]
+struct ServerSchemaOpener<DB: Schema> {
+    server: Server,
+    schematic: Schematic,
+    _phantom: PhantomData<DB>,
+}
+
+impl<DB> ServerSchemaOpener<DB>
+where
+    DB: Schema,
+{
+    fn new(server: Server) -> Self {
+        let schematic = DB::schematic();
+        Self {
+            server,
+            schematic,
+            _phantom: PhantomData::default(),
+        }
+    }
+}
+
+#[async_trait]
+impl<DB> DatabaseOpener for ServerSchemaOpener<DB>
+where
+    DB: Schema,
+{
+    fn schematic(&self) -> &'_ Schematic {
+        &self.schematic
+    }
+
+    async fn open(&self, name: &str) -> Result<Arc<Box<dyn OpenDatabase>>, Error> {
+        let db =
+            Storage::<DB>::open_local(self.server.database_path(name), &Configuration::default())
+                .await?;
+        Ok(Arc::new(Box::new(db)))
+    }
 }

@@ -3,12 +3,8 @@ pub mod certificate;
 /// Command-line interface for hosting a server.
 pub mod serve;
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-use pliantdb_core::schema::{self, Schematic};
 use structopt::StructOpt;
 
 use crate::Server;
@@ -37,12 +33,13 @@ pub enum Command {
 
 impl Command {
     /// Executes the command.
-    pub async fn execute(
+    pub async fn execute<F: Fn(&Server) + Send>(
         &self,
         database_path: &Path,
-        native_schemas: HashMap<schema::Id, Schematic>,
+        schema_registrar: F,
     ) -> anyhow::Result<()> {
-        let server = Server::open(database_path, native_schemas).await?;
+        let server = Server::open(database_path).await?;
+        schema_registrar(&server);
         match self {
             Self::Certificate(command) => command.execute(server).await,
             Self::Serve(command) => command.execute(server).await,

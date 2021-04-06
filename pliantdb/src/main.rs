@@ -20,11 +20,9 @@
 
 mod cli;
 
-use std::collections::HashMap;
-
 use structopt::StructOpt;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let command = cli::Command::from_args();
-    command.execute(HashMap::default()).await
+    command.execute(|_| {}).await
 }

@@ -22,9 +22,13 @@ pub enum Error {
     #[error("a configuration error occurred: '{0}'")]
     Configuration(String),
 
-    /// An error occurred from IO
+    /// An error occurred from networking
     #[error("a networking error occurred: '{0}'")]
     Networking(#[from] fabruic::Error),
+
+    /// An error occurred from IO
+    #[error("a networking error occurred: '{0}'")]
+    Io(#[from] tokio::io::Error),
 
     /// The database named `database_name` was created with a different schema
     /// (`stored_schema`) than provided (`schema`).
@@ -42,6 +46,10 @@ pub enum Error {
         stored_schema: schema::Id,
     },
 
+    /// The [`schema::Id`] returned has already been registered with this server.
+    #[error("schema '{0}' was already registered")]
+    SchemaAlreadyRegistered(schema::Id),
+
     /// An error occurred from within the schema.
     #[error("error from core {0}")]
     Core(#[from] core::Error),
@@ -49,10 +57,6 @@ pub enum Error {
     /// An error occurred while interacting with a local database.
     #[error("an error occurred interacting with a database: {0}")]
     Storage(#[from] pliantdb_local::Error),
-
-    /// The server is shutting down.
-    #[error("the server is shutting down")]
-    ShuttingDown,
 }
 
 impl From<Error> for core::Error {
