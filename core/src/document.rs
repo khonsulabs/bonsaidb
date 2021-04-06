@@ -18,7 +18,7 @@ pub struct Header {
 }
 
 /// Contains a serialized document in the database.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Document<'a> {
     /// The `Id` of the `Collection` this document belongs to.
     pub collection: collection::Id,

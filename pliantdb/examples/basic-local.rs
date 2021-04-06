@@ -1,11 +1,12 @@
 use std::time::SystemTime;
 
-use pliantdb::local::Storage;
-use pliantdb_core::{
-    connection::Connection,
-    schema::{collection, Collection, Schematic},
+use pliantdb::{
+    core::{
+        connection::Connection,
+        schema::{collection, Collection, Schematic},
+    },
+    local::{Configuration, Storage},
 };
-use pliantdb_local::Configuration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]

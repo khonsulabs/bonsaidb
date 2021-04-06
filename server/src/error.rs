@@ -1,4 +1,5 @@
 use pliantdb_local::core::{self, schema};
+use pliantdb_networking::fabruic;
 
 /// An error occurred while interacting with a [`Server`](crate::Server).
 #[derive(Debug, thiserror::Error)]
@@ -16,6 +17,14 @@ pub enum Error {
     /// The database name already exists.
     #[error("a database with name '{0}' already exists")]
     DatabaseNameAlreadyTaken(String),
+
+    /// An error occurred with the provided configuration options.
+    #[error("a configuration error occurred: '{0}'")]
+    Configuration(String),
+
+    /// An error occurred from IO
+    #[error("a networking error occurred: '{0}'")]
+    Networking(#[from] fabruic::Error),
 
     /// The database named `database_name` was created with a different schema
     /// (`stored_schema`) than provided (`schema`).
@@ -40,6 +49,10 @@ pub enum Error {
     /// An error occurred while interacting with a local database.
     #[error("an error occurred interacting with a database: {0}")]
     Storage(#[from] pliantdb_local::Error),
+
+    /// The server is shutting down.
+    #[error("the server is shutting down")]
+    ShuttingDown,
 }
 
 impl From<Error> for core::Error {

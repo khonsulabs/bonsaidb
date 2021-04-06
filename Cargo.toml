@@ -1,3 +1,6 @@
 [workspace]
 
 members = ["pliantdb", "core", "local", "jobs", "client", "server", "networking"]
+
+[patch.crates-io]
+cosmicverge-networking = { path = "../cosmicverge/networking", version = "0.0.1" }

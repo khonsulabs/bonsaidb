@@ -12,18 +12,19 @@
     future_incompatible,
     rust_2018_idioms,
 )]
-#![cfg_attr(doc, deny(rustdoc))]
+#![cfg_attr(doc, warn(rustdoc))]
 #![allow(
     clippy::missing_errors_doc, // TODO
-    // clippy::missing_panics_doc, // not on stable yet
     clippy::option_if_let_else,
 )]
 
 mod cli;
 
+use std::collections::HashMap;
+
 use structopt::StructOpt;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let command = cli::Command::from_args();
-    command.execute().await
+    command.execute(HashMap::default()).await
 }

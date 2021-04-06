@@ -10,15 +10,22 @@ keywords = ["document-database", "database"]
 categories = ["database-implementations"]
 readme = "../README.md"
 
+[features]
+default = []
+cli = ["pliantdb-networking/certificate", "structopt", "anyhow"]
+
 [dependencies]
-pliantdb-networking = { path = "../networking", version = "0.1.0-dev-1" }
+pliantdb-networking = { path = "../networking", version = "0.1.0-dev-1", features = ["certificate"] }
 pliantdb-local = { path = "../local", version = "0.1.0-dev-1" }
 pliantdb-core = { path = "../core", version = "0.1.0-dev-1" }
-cosmicverge-networking = { git = "https://github.com/daxpedda/cosmicverge.git", branch = "networking" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "1"
 async-trait = "0.1"
+structopt = { version = "0.3", optional = true }
+anyhow = { version = "1", optional = true }
+futures = "0.3"
+flume = "0.10"
 
 [dev-dependencies]
 anyhow = "1"

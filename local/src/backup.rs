@@ -28,7 +28,7 @@ use std::{
 use flume::Receiver;
 use pliantdb_core::{
     document::{Document, Header, Revision},
-    schema::{collection, Key},
+    schema::{collection, Key, Schema},
 };
 use structopt::StructOpt;
 use tokio::{
@@ -49,7 +49,7 @@ pub struct Cli {
 
     /// The command to execute on the database.
     #[structopt(subcommand)]
-    pub command: Command,
+    pub subcommand: Command,
 }
 
 /// The command to execute.
@@ -234,7 +234,10 @@ async fn write_documents(
 }
 
 #[allow(clippy::clippy::needless_pass_by_value)] // it's not needless, it's to avoid a borrow that would need to span a 'static lifetime
-fn restore_documents(receiver: Receiver<Document<'static>>, db: Storage<()>) -> anyhow::Result<()> {
+fn restore_documents<DB: Schema>(
+    receiver: Receiver<Document<'static>>,
+    db: Storage<DB>,
+) -> anyhow::Result<()> {
     while let Ok(doc) = receiver.recv() {
         let tree = db.sled.open_tree(document_tree_name(&doc.collection))?;
         tree.insert(

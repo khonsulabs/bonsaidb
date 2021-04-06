@@ -1,12 +1,13 @@
 use std::borrow::Cow;
 
-use pliantdb::local::Storage;
-use pliantdb_core::{
-    connection::Connection,
-    document::Document,
-    schema::{collection, map::MappedValue, view, Collection, MapResult, Schematic, View},
+use pliantdb::{
+    core::{
+        connection::Connection,
+        document::Document,
+        schema::{collection, map::MappedValue, view, Collection, MapResult, Schematic, View},
+    },
+    local::{Configuration, Storage},
 };
-use pliantdb_local::Configuration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]

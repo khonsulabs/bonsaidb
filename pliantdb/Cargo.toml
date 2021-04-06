@@ -21,13 +21,22 @@ required-features = ["local"]
 
 [features]
 default = ["cli"]
-full = ["local"]
+full = ["local", "server"]
 local = ["pliantdb-local"]
-cli = ["full", "anyhow", "tokio", "structopt", "pliantdb-local/cli"]
+server = ["pliantdb-server"]
+cli = [
+    "full",
+    "anyhow",
+    "tokio",
+    "structopt",
+    "pliantdb-local/cli",
+    "pliantdb-server/cli",
+]
 
 [dependencies]
 pliantdb-core = { path = "../core", version = "0.1.0-dev-1" }
 pliantdb-local = { path = "../local", version = "0.1.0-dev-1", optional = true }
+pliantdb-server = { path = "../server", version = "0.1.0-dev-1", optional = true }
 
 tokio = { version = "1", features = ["full"], optional = true }
 structopt = { version = "0.3", optional = true }

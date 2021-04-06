@@ -13,7 +13,6 @@
 #![cfg_attr(doc, deny(rustdoc))]
 #![allow(
     clippy::missing_errors_doc, // TODO
-    // clippy::missing_panics_doc, // not on stable yet
     clippy::option_if_let_else,
 )]
 
@@ -22,5 +21,8 @@ pub use pliantdb_core as core;
 #[cfg(feature = "local")]
 #[doc(inline)]
 pub use pliantdb_local as local;
+#[cfg(feature = "server")]
+#[doc(inline)]
+pub use pliantdb_server as server;
 #[cfg(feature = "cli")]
 pub mod cli;

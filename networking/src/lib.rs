@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-pub use cosmicverge_networking;
+pub use cosmicverge_networking as fabruic;
 use pliantdb_core::{
     document::Document,
     schema::{self, collection},
@@ -8,35 +8,40 @@ use pliantdb_core::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
+pub enum Payload<'a> {
+    Request(Request<'a>),
+    Response(Response<'a>),
+}
+
+#[derive(Clone, Deserialize, Serialize, Debug)]
 pub enum Request<'a> {
-    Server {
-        request: ServerRequest<'a>,
-    },
-    Database {
-        database: Cow<'a, str>,
-        request: DatabaseRequest,
-    },
+    Server { request: ServerRequest<'a> },
+    // Database {
+    //     database: Cow<'a, str>,
+    //     request: DatabaseRequest,
+    // },
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub enum ServerRequest<'a> {
     CreateDatabase(Database<'a>),
-    DeleteDatabase { name: Cow<'a, str> },
-    ListDatabases,
-    ListAvailableSchemas,
+    // DeleteDatabase { name: Cow<'a, str> },
+    // ListDatabases,
+    // ListAvailableSchemas,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub enum DatabaseRequest {
     Get { collection: collection::Id, id: u64 },
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Response<'a> {
     Server(ServerResponse<'a>),
     Database(DatabaseResponse<'a>),
+    Error(String),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum ServerResponse<'a> {
     DatabaseCreated { name: Cow<'a, str> },
     DatabaseDeleted { name: Cow<'a, str> },
@@ -44,7 +49,7 @@ pub enum ServerResponse<'a> {
     AvailableSchemas(Vec<schema::Id>),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum DatabaseResponse<'a> {
     Documents(Vec<Document<'a>>),
 }
