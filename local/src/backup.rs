@@ -228,6 +228,7 @@ async fn write_documents(
         ));
         let mut file = File::create(&document_path).await?;
         file.write_all(&document.contents).await?;
+        file.shutdown().await?;
     }
 
     Ok(())
