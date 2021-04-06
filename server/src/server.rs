@@ -351,7 +351,10 @@ impl Server {
         }
     }
 
-    /// Shuts the server down.
+    /// Shuts the server down. If a `timeout` is provided, the server will stop
+    /// accepting new connections and attempt to respond to any outstanding
+    /// requests already being processed. After the `timeout` has elapsed or if
+    /// no `timeout` was provided, the server is forcefully shut down.
     pub async fn shutdown(&self, timeout: Option<Duration>) -> Result<(), Error> {
         self.data.shutdown.shutdown();
 
