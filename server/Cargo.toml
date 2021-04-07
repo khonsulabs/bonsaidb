@@ -13,7 +13,7 @@ readme = "../README.md"
 [features]
 default = []
 cli = ["pliantdb-networking/certificate", "structopt", "anyhow"]
-test-util = ["pliantdb-core/test-util"]
+test-util = ["pliantdb-core/test-util", "anyhow"]
 
 [dependencies]
 pliantdb-networking = { path = "../networking", version = "0.1.0-dev-1", features = ["certificate"] }

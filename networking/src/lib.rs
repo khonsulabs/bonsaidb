@@ -64,14 +64,14 @@ pub enum DatabaseResponse<'a> {
     TransactionResults(Vec<OperationResult>),
 }
 
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
 pub struct Database<'a> {
     pub name: Cow<'a, str>,
     pub schema: schema::Id,
 }
 
 #[async_trait]
-pub trait ServerConnection {
+pub trait ServerConnection: Send + Sync {
     /// Creates a database named `name` using the [`schema::Id`] `schema`.
     ///
     /// ## Errors
@@ -141,6 +141,10 @@ pub enum Error {
     /// The [`schema::Id`] returned has already been registered with this server.
     #[error("schema '{0}' was already registered")]
     SchemaAlreadyRegistered(schema::Id),
+
+    /// The [`schema::Id`] requested was not registered with this server.
+    #[error("schema '{0}' is not registered with this server")]
+    SchemaNotRegistered(schema::Id),
 
     /// An error occurred from within the schema.
     #[error("error from core {0}")]

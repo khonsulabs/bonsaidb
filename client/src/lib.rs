@@ -27,12 +27,10 @@ pub use self::{client::Client, error::Error};
 mod tests {
     use std::{sync::atomic::Ordering, time::Duration};
 
-    use pliantdb_core::{
-        schema::Schema,
-        test_util::{Basic, TestDirectory},
+    use pliantdb_core::test_util::TestDirectory;
+    use pliantdb_server::test_util::{
+        basic_server_connection_tests, initialize_basic_server, BASIC_SERVER_NAME,
     };
-    use pliantdb_networking::ServerConnection;
-    use pliantdb_server::test_util::{initialize_basic_server, BASIC_SERVER_NAME};
     use url::Url;
 
     use super::*;
@@ -54,12 +52,7 @@ mod tests {
         let client_task_is_running = client.background_task_running.clone();
         assert!(client_task_is_running.load(Ordering::Acquire));
 
-        let databases = client.list_databases().await?;
-        assert_eq!(databases.len(), 1);
-        assert_eq!(databases[0].name.as_ref(), "tests");
-        assert_eq!(databases[0].schema, Basic::schema_id());
-
-        drop(client);
+        basic_server_connection_tests(client).await?;
 
         println!("Calling shutdown");
         server.shutdown(None).await?;

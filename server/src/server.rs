@@ -422,6 +422,13 @@ impl pliantdb_networking::ServerConnection for Server {
     ) -> Result<(), pliantdb_networking::Error> {
         Self::validate_name(name)?;
 
+        {
+            let schemas = self.data.schemas.read().await;
+            if !schemas.contains_key(&schema) {
+                return Err(pliantdb_networking::Error::SchemaNotRegistered(schema));
+            }
+        }
+
         let mut available_databases = self.data.available_databases.write().await;
         if !self
             .data
@@ -436,6 +443,7 @@ impl pliantdb_networking::ServerConnection for Server {
                 name.to_string(),
             ));
         }
+
         self.data
             .admin
             .collection::<Database>()
