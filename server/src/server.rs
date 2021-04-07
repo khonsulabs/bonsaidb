@@ -413,7 +413,7 @@ impl Server {
         request: Request<'static>,
     ) -> Result<Response<'static>, Error> {
         match request {
-            Request::Server { request } => match request {
+            Request::Server(request) => match request {
                 ServerRequest::CreateDatabase(database) => {
                     self.create_database(&database.name, database.schema)
                         .await?;

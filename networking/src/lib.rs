@@ -22,9 +22,7 @@ pub enum Api<'a> {
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub enum Request<'a> {
-    Server {
-        request: ServerRequest<'a>,
-    },
+    Server(ServerRequest<'a>),
     Database {
         database: Cow<'a, str>,
         request: DatabaseRequest<'a>,

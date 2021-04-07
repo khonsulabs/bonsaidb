@@ -4,7 +4,7 @@ use flume::{Receiver, Sender};
 use futures::StreamExt;
 use pliantdb_networking::{
     fabruic::{self, Certificate, Endpoint},
-    Api, Payload, Request, Response,
+    Api, Database, Payload, Request, Response, ServerRequest, ServerResponse,
 };
 use tokio::{sync::Mutex, task::JoinHandle};
 pub use url;
@@ -58,6 +58,28 @@ impl Client {
 
         Ok(client)
     }
+
+    async fn send_request(&self, request: Request<'static>) -> Result<Response<'static>, Error> {
+        let (result_sender, result_receiver) = flume::bounded(1);
+        println!("Sending request");
+        self.request_sender.send(ClientRequest {
+            request,
+            responder: result_sender,
+        })?;
+        println!("Sent request");
+
+        dbg!(result_receiver.recv_async().await)?
+    }
+
+    pub async fn list_databases(&self) -> Result<Vec<Database<'static>>, Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::ListDatabases))
+            .await?
+        {
+            Response::Server(ServerResponse::Databases(databases)) => Ok(databases),
+            other => Err(Error::UnexpectedResponse(format!("{:?}", other))),
+        }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -69,6 +91,24 @@ pub enum Error {
     /// An invalid Url was provided.
     #[error("invalid url: '{0}'")]
     InvalidUrl(String),
+
+    #[error("unexpected disconnection")]
+    Disconnected,
+
+    #[error("unexpected response: {0}")]
+    UnexpectedResponse(String),
+}
+
+impl<T> From<flume::SendError<T>> for Error {
+    fn from(_: flume::SendError<T>) -> Self {
+        Error::Disconnected
+    }
+}
+
+impl From<flume::RecvError> for Error {
+    fn from(_: flume::RecvError) -> Self {
+        Error::Disconnected
+    }
 }
 
 struct ClientRequest {
@@ -238,13 +278,10 @@ impl<T> Drop for CancellableHandle<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
-
     use pliantdb_core::{
-        schema::Collection,
+        schema::Schema,
         test_util::{Basic, TestDirectory},
     };
-    use pliantdb_networking::DatabaseRequest;
     use pliantdb_server::test_util::{initialize_basic_server, BASIC_SERVER_NAME};
 
     use super::*;
@@ -263,24 +300,12 @@ mod tests {
         ))?;
 
         let client = Client::connect(&url, server.certificate().await?)?;
-        let (result_sender, result_receiver) = flume::bounded(1);
-        println!("Sending request");
-        client.request_sender.send(ClientRequest {
-            request: Request::Database {
-                database: Cow::from("tests"),
-                request: DatabaseRequest::Get {
-                    collection: Basic::collection_id(),
-                    id: 0,
-                },
-            },
-            responder: result_sender,
-        })?;
-        println!("Sent request");
-
-        let result = dbg!(result_receiver.recv_async().await)?;
-        println!("Result: {:?}", result);
-
+        let databases = client.list_databases().await?;
+        assert_eq!(databases.len(), 1);
+        assert_eq!(databases[0].name.as_ref(), "tests");
+        assert_eq!(databases[0].schema, Basic::schema_id());
         drop(client);
+
         println!("Calling shutdown");
         server.shutdown(None).await?;
         server_task.await??;
