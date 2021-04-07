@@ -30,3 +30,6 @@ pub use self::{error::Error, server::Server};
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(any(feature = "test-util", test))]
+pub mod test_util;

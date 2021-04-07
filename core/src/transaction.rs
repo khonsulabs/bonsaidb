@@ -7,7 +7,7 @@ use crate::{document::Header, schema::collection};
 /// A list of operations to execute as a single unit. If any operation fails,
 /// all changes are aborted. Reads that happen while the transaction is in
 /// progress will return old data and not block.
-#[derive(Default, Debug)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct Transaction<'a> {
     /// The operations in this transaction.
     pub operations: Vec<Operation<'a>>,
@@ -21,7 +21,7 @@ impl<'a> Transaction<'a> {
 }
 
 /// A single operation performed on a `Collection`.
-#[derive(Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Operation<'a> {
     /// The id of the `Collection`.
     pub collection: collection::Id,
@@ -31,12 +31,11 @@ pub struct Operation<'a> {
 }
 
 /// A command to execute within a `Collection`.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Command<'a> {
     /// Inserts a new document containing `contents`.
     Insert {
         /// The initial contents of the document.
-        #[serde(borrow)]
         contents: Cow<'a, [u8]>,
     },
 
@@ -48,7 +47,6 @@ pub enum Command<'a> {
         header: Cow<'a, Header>,
 
         /// The new contents to store within the `Document`.
-        #[serde(borrow)]
         contents: Cow<'a, [u8]>,
     },
 
@@ -62,7 +60,7 @@ pub enum Command<'a> {
 }
 
 /// Information about the result of each `Operation` in a transaction.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum OperationResult {
     /// An operation succeeded but had no information to output.
     Success,

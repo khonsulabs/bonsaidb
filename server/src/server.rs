@@ -21,12 +21,14 @@ use pliantdb_local::{
         connection::Connection,
         document::Document,
         schema::{collection, Schema, Schematic},
+        transaction::{OperationResult, Transaction},
     },
     Configuration, Storage,
 };
 use pliantdb_networking::{
     fabruic::{self, Certificate, Endpoint, PrivateKey},
-    DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerRequest, ServerResponse,
+    Api, DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerRequest,
+    ServerResponse,
 };
 use tokio::{fs::File, sync::RwLock};
 
@@ -321,8 +323,17 @@ impl Server {
         self.data.directory.join("public-certificate.der")
     }
 
+    /// Returns the current certificate.
+    pub async fn certificate(&self) -> Result<Certificate, Error> {
+        File::open(self.certificate_path())
+            .and_then(FileExt::read_all)
+            .await
+            .map(Certificate)
+            .map_err(|err| Error::Configuration(format!("Error reading certificate file: {}", err)))
+    }
+
     fn private_key_path(&self) -> PathBuf {
-        self.data.directory.join("public-certificate.der")
+        self.data.directory.join("private-key.der")
     }
 
     /// Listens for incoming client connections. Does not return until the
@@ -331,13 +342,7 @@ impl Server {
         &self,
         addrs: Addrs,
     ) -> Result<(), Error> {
-        let certificate = File::open(self.certificate_path())
-            .and_then(FileExt::read_all)
-            .await
-            .map(Certificate)
-            .map_err(|err| {
-                Error::Configuration(format!("Error reading certificate file: {}", err))
-            })?;
+        let certificate = self.certificate().await?;
         let private_key = File::open(self.private_key_path())
             .and_then(FileExt::read_all)
             .await
@@ -365,12 +370,13 @@ impl Server {
     }
 
     async fn handle_connection(&self, mut connection: fabruic::Connection) -> Result<(), Error> {
-        // TODO this is ugly
+        // TODO limit number of streams open for a client -- allowing for streams to shut down and be reclaimed.
         while let Some(incoming) = connection.next().await {
             let incoming = incoming?;
             println!("New incoming stream from: {}", connection.remote_address());
 
             let (sender, receiver) = incoming.accept_stream::<pliantdb_networking::Payload<'_>>();
+            println!("Accepted incoming stream");
             let task_self = self.clone();
             tokio::spawn(async move { task_self.handle_stream(sender, receiver).await });
         }
@@ -382,12 +388,11 @@ impl Server {
         sender: fabruic::Sender<Payload<'static>>,
         mut receiver: fabruic::Receiver<Payload<'static>>,
     ) -> Result<(), Error> {
-        // TODO this is ugly
-        while let Some(payload) = receiver.next().await {
+        while let Some(payload) = dbg!(receiver.next().await) {
             let payload = payload?;
-            let request = match payload {
-                Payload::Request(request) => request,
-                Payload::Response(..) => {
+            let request = match payload.api {
+                Api::Request(request) => request,
+                Api::Response(..) => {
                     todo!("fabruic should have separate types for send/receive")
                 }
             };
@@ -395,7 +400,10 @@ impl Server {
                 .handle_request(request)
                 .await
                 .unwrap_or_else(|err| Response::Error(err.to_string()));
-            sender.send(&Payload::Response(response))?;
+            sender.send(&Payload {
+                id: payload.id,
+                api: Api::Response(response),
+            })?;
         }
         Ok(())
     }
@@ -436,6 +444,13 @@ impl Server {
                             document,
                         ])))
                     }
+
+                    DatabaseRequest::ApplyTransaction { transaction } => {
+                        let results = db.apply_transaction(transaction).await?;
+                        Ok(Response::Database(DatabaseResponse::TransactionResults(
+                            results,
+                        )))
+                    }
                 }
             }
         }
@@ -451,7 +466,9 @@ impl Server {
             endpoint.clone()
         };
 
+        println!("Checking endpoint");
         if let Some(server) = endpoint {
+            println!("Have endpoint");
             if let Some(timeout) = timeout {
                 server.close_incoming().await?;
 
@@ -461,7 +478,9 @@ impl Server {
                     server.close().await?;
                 }
             } else {
+                println!("Closing");
                 server.close().await?;
+                println!("After close");
             }
         }
 
@@ -482,6 +501,11 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         id: u64,
         collection: &collection::Id,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error>;
+
+    async fn apply_transaction(
+        &self,
+        transaction: Transaction<'static>,
+    ) -> Result<Vec<OperationResult>, pliantdb_core::Error>;
 }
 
 #[async_trait]
@@ -499,6 +523,13 @@ where
         collection: &collection::Id,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
         self.get_from_collection_id(id, collection).await
+    }
+
+    async fn apply_transaction(
+        &self,
+        transaction: Transaction<'static>,
+    ) -> Result<Vec<OperationResult>, core::Error> {
+        <Self as Connection>::apply_transaction(self, transaction).await
     }
 }
 

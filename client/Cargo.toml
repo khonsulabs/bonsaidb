@@ -12,3 +12,13 @@ readme = "../README.md"
 
 [dependencies]
 pliantdb-networking = { path = "../networking", version = "0.1.0-dev-1" }
+pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["test-util"] }
+thiserror = "1"
+url = "2.2"
+flume = "0.10"
+tokio = { version = "1" }
+futures = "0.3"
+
+[dev-dependencies]
+pliantdb-server = { path = "../server", version = "0.1.0-dev-1", features = ["test-util"] }
+anyhow = "1"

@@ -4,11 +4,18 @@ pub use cosmicverge_networking as fabruic;
 use pliantdb_core::{
     document::Document,
     schema::{self, collection},
+    transaction::{OperationResult, Transaction},
 };
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
-pub enum Payload<'a> {
+pub struct Payload<'a> {
+    pub id: u64,
+    pub api: Api<'a>,
+}
+
+#[derive(Clone, Deserialize, Serialize, Debug)]
+pub enum Api<'a> {
     Request(Request<'a>),
     Response(Response<'a>),
 }
@@ -20,7 +27,7 @@ pub enum Request<'a> {
     },
     Database {
         database: Cow<'a, str>,
-        request: DatabaseRequest,
+        request: DatabaseRequest<'a>,
     },
 }
 
@@ -33,8 +40,9 @@ pub enum ServerRequest<'a> {
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
-pub enum DatabaseRequest {
+pub enum DatabaseRequest<'a> {
     Get { collection: collection::Id, id: u64 },
+    ApplyTransaction { transaction: Transaction<'a> },
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Response<'a> {
@@ -54,6 +62,7 @@ pub enum ServerResponse<'a> {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum DatabaseResponse<'a> {
     Documents(Vec<Document<'a>>),
+    TransactionResults(Vec<OperationResult>),
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
