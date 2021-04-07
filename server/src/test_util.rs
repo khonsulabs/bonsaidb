@@ -3,12 +3,13 @@
 use std::path::Path;
 
 use pliantdb_core::{schema::Schema, test_util::Basic};
+use pliantdb_networking::ServerConnection;
 
-use crate::{Error, Server};
+use crate::Server;
 
 pub const BASIC_SERVER_NAME: &str = "basic-server";
 
-pub async fn initialize_basic_server(path: &Path) -> Result<Server, Error> {
+pub async fn initialize_basic_server(path: &Path) -> anyhow::Result<Server> {
     let server = Server::open(path).await?;
     server.register_schema::<Basic>().await?;
     server

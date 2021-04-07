@@ -5,8 +5,8 @@ use pliantdb_networking::fabruic;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// An invalid database name was specified. See
-    /// [`Server::create_database()`](crate::Server::create_database) for
-    /// database name requirements.
+    /// [`ServerConnection::create_database()`](pliantdb_networking::ServerConnection::create_database)
+    /// for database name requirements.
     #[error("invalid database name: {0}")]
     InvalidDatabaseName(String),
 
@@ -18,13 +18,9 @@ pub enum Error {
     #[error("a database with name '{0}' already exists")]
     DatabaseNameAlreadyTaken(String),
 
-    /// An error occurred with the provided configuration options.
-    #[error("a configuration error occurred: '{0}'")]
-    Configuration(String),
-
-    /// An error occurred from networking
+    /// An error occurred from the QUIC transport layer.
     #[error("a networking error occurred: '{0}'")]
-    Networking(#[from] fabruic::Error),
+    Transport(#[from] fabruic::Error),
 
     /// An error occurred from IO
     #[error("a networking error occurred: '{0}'")]
@@ -64,13 +60,39 @@ impl From<Error> for core::Error {
         match other {
             Error::Storage(storage) => Self::Storage(storage.to_string()),
             Error::Core(core) => core,
+            Error::Io(io) => Self::Io(io.to_string()),
+            Error::Transport(networking) => Self::Transport(networking.to_string()),
             other => Self::Server(other.to_string()),
+        }
+    }
+}
+
+impl From<Error> for pliantdb_networking::Error {
+    fn from(other: Error) -> Self {
+        match other {
+            Error::InvalidDatabaseName(name) => Self::InvalidDatabaseName(name),
+            Error::DatabaseNotFound(name) => Self::DatabaseNotFound(name),
+            Error::DatabaseNameAlreadyTaken(name) => Self::DatabaseNameAlreadyTaken(name),
+            Error::SchemaMismatch {
+                database_name,
+                schema,
+                stored_schema,
+            } => Self::SchemaMismatch {
+                database_name,
+                schema,
+                stored_schema,
+            },
+            Error::SchemaAlreadyRegistered(id) => Self::SchemaAlreadyRegistered(id),
+            other => Self::Core(other.into()),
         }
     }
 }
 
 pub trait ResultExt<R> {
     fn map_err_to_core(self) -> Result<R, core::Error>
+    where
+        Self: Sized;
+    fn map_err_to_net(self) -> Result<R, pliantdb_networking::Error>
     where
         Self: Sized;
 }
@@ -81,5 +103,11 @@ impl<R> ResultExt<R> for Result<R, Error> {
         Self: Sized,
     {
         self.map_err(core::Error::from)
+    }
+    fn map_err_to_net(self) -> Result<R, pliantdb_networking::Error>
+    where
+        Self: Sized,
+    {
+        self.map_err(pliantdb_networking::Error::from)
     }
 }

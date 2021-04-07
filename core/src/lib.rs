@@ -28,9 +28,10 @@ pub mod schema;
 pub mod transaction;
 
 use schema::collection;
+use serde::{Deserialize, Serialize};
 
 /// an enumeration of errors that this crate can produce
-#[derive(thiserror::Error, Debug)]
+#[derive(Clone, thiserror::Error, Debug, Serialize, Deserialize)]
 pub enum Error {
     /// An error from interacting with local storage.
     #[error("error from storage: {0}")]
@@ -39,6 +40,22 @@ pub enum Error {
     /// An error from interacting with a server.
     #[error("error from server: {0}")]
     Server(String),
+
+    /// An error occurred from the QUIC transport layer.
+    #[error("a transport error occurred: '{0}'")]
+    Transport(String),
+
+    /// An error occurred from networking.
+    #[error("a networking error occurred: '{0}'")]
+    Networking(String),
+
+    /// An error occurred from IO.
+    #[error("an io error occurred: '{0}'")]
+    Io(String),
+
+    /// An error occurred with the provided configuration options.
+    #[error("a configuration error occurred: '{0}'")]
+    Configuration(String),
 
     /// An attempt to use a `Collection` with a `Database` that it wasn't defined within.
     #[error("attempted to access a collection not registered with this schema")]

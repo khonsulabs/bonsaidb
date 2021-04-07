@@ -27,8 +27,8 @@ use pliantdb_local::{
 };
 use pliantdb_networking::{
     fabruic::{self, Certificate, Endpoint, PrivateKey},
-    Api, DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerRequest,
-    ServerResponse,
+    Api, DatabaseRequest, DatabaseResponse, Payload, Request, Response, ResultExt as _,
+    ServerConnection as _, ServerRequest, ServerResponse,
 };
 use tokio::{fs::File, sync::RwLock};
 
@@ -97,102 +97,6 @@ impl Server {
         } else {
             Err(Error::SchemaAlreadyRegistered(DB::schema_id()))
         }
-    }
-
-    /// Creates a database named `name` using the [`schema::Id`] `schema`.
-    ///
-    /// ## Errors
-    ///
-    /// * [`Error::InvalidDatabaseName`]: `name` must begin with an alphanumeric
-    ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
-    ///   alphanumeric, a period (`.`), or a hyphen (`-`).
-    /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
-    ///   previous database name. Database names are case insensitive.
-    pub async fn create_database(&self, name: &str, schema: schema::Id) -> Result<(), Error> {
-        Self::validate_name(name)?;
-
-        let mut available_databases = self.data.available_databases.write().await;
-        if !self
-            .data
-            .admin
-            .view::<database::ByName>()
-            .with_key(name.to_ascii_lowercase())
-            .query()
-            .await?
-            .is_empty()
-        {
-            return Err(Error::DatabaseNameAlreadyTaken(name.to_string()));
-        }
-        self.data
-            .admin
-            .collection::<Database>()
-            .push(&pliantdb_networking::Database {
-                name: Cow::Borrowed(name),
-                schema: schema.clone(),
-            })
-            .await?;
-        available_databases.insert(name.to_owned(), schema);
-
-        Ok(())
-    }
-
-    /// Deletes a database named `name`.
-    ///
-    /// ## Errors
-    ///
-    /// * [`Error::DatabaseNotFound`]: database `name` does not exist.
-    /// * [`Error::Io`]: an error occurred while deleting files.
-    pub async fn delete_database(&self, name: &str) -> Result<(), Error> {
-        let mut available_databases = self.data.available_databases.write().await;
-
-        let file_path = self.database_path(name);
-        let files_existed = file_path.exists();
-        if file_path.exists() {
-            tokio::fs::remove_dir_all(file_path).await?;
-        }
-
-        if let Some(entry) = self
-            .data
-            .admin
-            .view::<database::ByName>()
-            .with_key(name.to_ascii_lowercase())
-            .query_with_docs()
-            .await?
-            .first()
-        {
-            self.data.admin.delete(&entry.document).await?;
-            available_databases.remove(name);
-
-            Ok(())
-        } else if files_existed {
-            // There's no way to atomically remove files AND ensure the admin
-            // database is updated. Instead, if this method is called again and
-            // the folder is still found, we will try to delete it again without
-            // returning an error. Thus, if you get an error from
-            // delete_database, you can try again until you get a success
-            // returned.
-            Ok(())
-        } else {
-            return Err(Error::DatabaseNotFound(name.to_string()));
-        }
-    }
-
-    /// Lists the databases on this server.
-    pub async fn list_databases(&self) -> Vec<pliantdb_networking::Database<'static>> {
-        let available_databases = self.data.available_databases.read().await;
-        available_databases
-            .iter()
-            .map(|(name, schema)| pliantdb_networking::Database {
-                name: Cow::Owned(name.to_owned()),
-                schema: schema.clone(),
-            })
-            .collect()
-    }
-
-    /// Lists the [`schema::Id`]s on this server.
-    pub async fn list_available_schemas(&self) -> Vec<schema::Id> {
-        let available_databases = self.data.available_databases.read().await;
-        available_databases.values().unique().cloned().collect()
     }
 
     /// Retrieves a database. This function only verifies that the database exists
@@ -288,7 +192,7 @@ impl Server {
         let (certificate, private_key) = fabruic::generate_self_signed(server_name);
 
         if self.certificate_path().exists() && !overwrite {
-            return Err(Error::Configuration(String::from("Certificate already installed. Enable overwrite if you wish to replace the existing certificate.")));
+            return Err(Error::Core(core::Error::Configuration(String::from("Certificate already installed. Enable overwrite if you wish to replace the existing certificate."))));
         }
 
         self.install_certificate(&certificate, &private_key).await?;
@@ -307,13 +211,19 @@ impl Server {
             .and_then(|file| file.write_all(&certificate.0))
             .await
             .map_err(|err| {
-                Error::Configuration(format!("Error writing certificate file: {}", err))
+                Error::Core(core::Error::Configuration(format!(
+                    "Error writing certificate file: {}",
+                    err
+                )))
             })?;
         File::create(self.private_key_path())
             .and_then(|file| file.write_all(&private_key.0))
             .await
             .map_err(|err| {
-                Error::Configuration(format!("Error writing private key file: {}", err))
+                Error::Core(core::Error::Configuration(format!(
+                    "Error writing private key file: {}",
+                    err
+                )))
             })?;
 
         Ok(())
@@ -329,7 +239,12 @@ impl Server {
             .and_then(FileExt::read_all)
             .await
             .map(Certificate)
-            .map_err(|err| Error::Configuration(format!("Error reading certificate file: {}", err)))
+            .map_err(|err| {
+                Error::Core(core::Error::Configuration(format!(
+                    "Error reading certificate file: {}",
+                    err
+                )))
+            })
     }
 
     fn private_key_path(&self) -> PathBuf {
@@ -348,7 +263,10 @@ impl Server {
             .await
             .map(PrivateKey)
             .map_err(|err| {
-                Error::Configuration(format!("Error reading private key file: {}", err))
+                Error::Core(core::Error::Configuration(format!(
+                    "Error reading private key file: {}",
+                    err
+                )))
             })?;
 
         let mut server = Endpoint::new_server(addrs, &certificate, &private_key)?;
@@ -399,7 +317,7 @@ impl Server {
             let response = self
                 .handle_request(request)
                 .await
-                .unwrap_or_else(|err| Response::Error(err.to_string()));
+                .unwrap_or_else(|err| Response::Error(err.into()));
             sender.send(&Payload {
                 id: payload.id,
                 api: Api::Response(response),
@@ -416,21 +334,24 @@ impl Server {
             Request::Server(request) => match request {
                 ServerRequest::CreateDatabase(database) => {
                     self.create_database(&database.name, database.schema)
-                        .await?;
+                        .await
+                        .map_err_to_core()?;
                     Ok(Response::Server(ServerResponse::DatabaseCreated {
                         name: database.name.clone(),
                     }))
                 }
                 ServerRequest::DeleteDatabase { name } => {
-                    self.delete_database(&name).await?;
+                    self.delete_database(&name).await.map_err_to_core()?;
                     Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
                 }
                 ServerRequest::ListDatabases => Ok(Response::Server(ServerResponse::Databases(
-                    self.list_databases().await,
+                    self.list_databases().await.map_err_to_core()?,
                 ))),
-                ServerRequest::ListAvailableSchemas => Ok(Response::Server(
-                    ServerResponse::AvailableSchemas(self.list_available_schemas().await),
-                )),
+                ServerRequest::ListAvailableSchemas => {
+                    Ok(Response::Server(ServerResponse::AvailableSchemas(
+                        self.list_available_schemas().await.map_err_to_core()?,
+                    )))
+                }
             },
             Request::Database { database, request } => {
                 let db = self.open_database_without_schema(&database).await?;
@@ -489,6 +410,100 @@ impl Server {
         open_databases.clear();
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl pliantdb_networking::ServerConnection for Server {
+    async fn create_database(
+        &self,
+        name: &str,
+        schema: schema::Id,
+    ) -> Result<(), pliantdb_networking::Error> {
+        Self::validate_name(name)?;
+
+        let mut available_databases = self.data.available_databases.write().await;
+        if !self
+            .data
+            .admin
+            .view::<database::ByName>()
+            .with_key(name.to_ascii_lowercase())
+            .query()
+            .await?
+            .is_empty()
+        {
+            return Err(pliantdb_networking::Error::DatabaseNameAlreadyTaken(
+                name.to_string(),
+            ));
+        }
+        self.data
+            .admin
+            .collection::<Database>()
+            .push(&pliantdb_networking::Database {
+                name: Cow::Borrowed(name),
+                schema: schema.clone(),
+            })
+            .await?;
+        available_databases.insert(name.to_owned(), schema);
+
+        Ok(())
+    }
+
+    async fn delete_database(&self, name: &str) -> Result<(), pliantdb_networking::Error> {
+        let mut available_databases = self.data.available_databases.write().await;
+
+        let file_path = self.database_path(name);
+        let files_existed = file_path.exists();
+        if file_path.exists() {
+            tokio::fs::remove_dir_all(file_path)
+                .await
+                .map_err(|err| core::Error::Io(err.to_string()))?;
+        }
+
+        if let Some(entry) = self
+            .data
+            .admin
+            .view::<database::ByName>()
+            .with_key(name.to_ascii_lowercase())
+            .query_with_docs()
+            .await?
+            .first()
+        {
+            self.data.admin.delete(&entry.document).await?;
+            available_databases.remove(name);
+
+            Ok(())
+        } else if files_existed {
+            // There's no way to atomically remove files AND ensure the admin
+            // database is updated. Instead, if this method is called again and
+            // the folder is still found, we will try to delete it again without
+            // returning an error. Thus, if you get an error from
+            // delete_database, you can try again until you get a success
+            // returned.
+            Ok(())
+        } else {
+            return Err(pliantdb_networking::Error::DatabaseNotFound(
+                name.to_string(),
+            ));
+        }
+    }
+
+    async fn list_databases(
+        &self,
+    ) -> Result<Vec<pliantdb_networking::Database<'static>>, pliantdb_networking::Error> {
+        let available_databases = self.data.available_databases.read().await;
+        Ok(available_databases
+            .iter()
+            .map(|(name, schema)| pliantdb_networking::Database {
+                name: Cow::Owned(name.to_owned()),
+                schema: schema.clone(),
+            })
+            .collect())
+    }
+
+    async fn list_available_schemas(&self) -> Result<Vec<schema::Id>, pliantdb_networking::Error> {
+        let available_databases = self.data.available_databases.read().await;
+        Ok(available_databases.values().unique().cloned().collect())
     }
 }
 
