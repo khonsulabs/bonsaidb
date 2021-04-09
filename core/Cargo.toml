@@ -12,7 +12,9 @@ readme = "../README.md"
 
 [features]
 default = []
-test-util = ["futures", "tokio"]
+test-util = ["futures", "tokio", "networking"]
+networking = ["fabruic"]
+certificate = ["fabruic/certificate"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -24,6 +26,7 @@ anyhow = "1"
 sha2 = "0.9"
 futures = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["time"], optional = true }
+fabruic = { version = "0.0.0-reserve", optional = true }
 
 [dev-dependencies]
 hex-literal = "0.3"

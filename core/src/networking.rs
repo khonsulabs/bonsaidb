@@ -1,13 +1,20 @@
+#![allow(missing_docs)] // TODO
 use std::borrow::Cow;
 
 use async_trait::async_trait;
-pub use cosmicverge_networking as fabruic;
-use pliantdb_core::{
+pub use fabruic;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+use crate::{
+    connection::{AccessPolicy, QueryKey},
     document::Document,
-    schema::{self, collection},
+    schema::{
+        self, collection,
+        map::{self},
+        view, Key,
+    },
     transaction::{OperationResult, Transaction},
 };
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Payload<'a> {
@@ -40,14 +47,29 @@ pub enum ServerRequest<'a> {
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub enum DatabaseRequest<'a> {
-    Get { collection: collection::Id, id: u64 },
-    ApplyTransaction { transaction: Transaction<'a> },
+    Get {
+        collection: collection::Id,
+        id: u64,
+    },
+    GetMultiple {
+        collection: collection::Id,
+        ids: Vec<u64>,
+    },
+    Query {
+        view: Cow<'a, str>,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+        with_docs: bool,
+    },
+    ApplyTransaction {
+        transaction: Transaction<'a>,
+    },
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Response<'a> {
     Server(ServerResponse<'a>),
     Database(DatabaseResponse<'a>),
-    Error(Error),
+    Error(crate::Error),
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -62,6 +84,32 @@ pub enum ServerResponse<'a> {
 pub enum DatabaseResponse<'a> {
     Documents(Vec<Document<'a>>),
     TransactionResults(Vec<OperationResult>),
+    ViewMappings(Vec<map::Serialized>),
+    ViewMappingsWithDocs(Vec<MappedDocument>),
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct MappedDocument {
+    pub key: Vec<u8>,
+    pub value: Vec<u8>,
+    pub source: Document<'static>,
+}
+
+impl MappedDocument {
+    pub fn deserialized<K: Key, V: Serialize + DeserializeOwned>(
+        self,
+    ) -> Result<map::MappedDocument<K, V>, crate::Error> {
+        let key = Key::from_big_endian_bytes(&self.key)
+            .map_err(|err| crate::Error::Storage(view::Error::KeySerialization(err).to_string()))?;
+        let value = serde_cbor::from_slice(&self.value)
+            .map_err(|err| crate::Error::Storage(view::Error::from(err).to_string()))?;
+
+        Ok(map::MappedDocument {
+            document: self.source,
+            key,
+            value,
+        })
+    }
 }
 
 #[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
@@ -81,7 +129,7 @@ pub trait ServerConnection: Send + Sync {
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
     /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
     ///   previous database name. Database names are case insensitive.
-    async fn create_database(&self, name: &str, schema: schema::Id) -> Result<(), Error>;
+    async fn create_database(&self, name: &str, schema: schema::Id) -> Result<(), crate::Error>;
 
     /// Deletes a database named `name`.
     ///
@@ -89,13 +137,13 @@ pub trait ServerConnection: Send + Sync {
     ///
     /// * [`Error::DatabaseNotFound`]: database `name` does not exist.
     /// * [`Error::Core(core::Error::Io)`]: an error occurred while deleting files.
-    async fn delete_database(&self, name: &str) -> Result<(), Error>;
+    async fn delete_database(&self, name: &str) -> Result<(), crate::Error>;
 
     /// Lists the databases on this server.
-    async fn list_databases(&self) -> Result<Vec<Database<'static>>, Error>;
+    async fn list_databases(&self) -> Result<Vec<Database<'static>>, crate::Error>;
 
     /// Lists the [`schema::Id`]s on this server.
-    async fn list_available_schemas(&self) -> Result<Vec<schema::Id>, Error>;
+    async fn list_available_schemas(&self) -> Result<Vec<schema::Id>, crate::Error>;
 }
 
 #[derive(Clone, thiserror::Error, Debug, Serialize, Deserialize)]
@@ -145,28 +193,4 @@ pub enum Error {
     /// The [`schema::Id`] requested was not registered with this server.
     #[error("schema '{0}' is not registered with this server")]
     SchemaNotRegistered(schema::Id),
-
-    /// An error occurred from within the schema.
-    #[error("error from core {0}")]
-    Core(#[from] pliantdb_core::Error),
-}
-
-impl From<Error> for pliantdb_core::Error {
-    fn from(other: Error) -> Self {
-        match other {
-            Error::Core(core) => core,
-            other => Self::Networking(other.to_string()),
-        }
-    }
-}
-
-pub trait ResultExt<R> {
-    fn map_err_to_core(self) -> Result<R, pliantdb_core::Error>
-    where
-        Self: Sized;
-}
-impl<R> ResultExt<R> for Result<R, Error> {
-    fn map_err_to_core(self) -> Result<R, pliantdb_core::Error> {
-        self.map_err(pliantdb_core::Error::from)
-    }
 }

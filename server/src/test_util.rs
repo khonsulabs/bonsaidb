@@ -3,10 +3,10 @@
 use std::{borrow::Cow, path::Path};
 
 use pliantdb_core::{
+    networking::ServerConnection,
     schema::{self, Schema},
     test_util::Basic,
 };
-use pliantdb_networking::ServerConnection;
 
 use crate::Server;
 
@@ -31,7 +31,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
     let databases = server.list_databases().await?;
     assert_eq!(
         databases,
-        vec![pliantdb_networking::Database {
+        vec![pliantdb_core::networking::Database {
             name: Cow::Borrowed("tests"),
             schema: Basic::schema_id()
         }]
@@ -43,27 +43,35 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
     server.delete_database("another-db").await?;
 
     assert!(matches!(
-        server.delete_database("another-db").await,
-        Err(pliantdb_networking::Error::DatabaseNotFound(_))
+        dbg!(server.delete_database("another-db").await),
+        Err(pliantdb_core::Error::Networking(
+            pliantdb_core::networking::Error::DatabaseNotFound(_)
+        ))
     ));
 
     assert!(matches!(
         server.create_database("tests", Basic::schema_id()).await,
-        Err(pliantdb_networking::Error::DatabaseNameAlreadyTaken(_))
+        Err(pliantdb_core::Error::Networking(
+            pliantdb_core::networking::Error::DatabaseNameAlreadyTaken(_)
+        ))
     ));
 
     assert!(matches!(
         server
             .create_database("|invalidname", Basic::schema_id())
             .await,
-        Err(pliantdb_networking::Error::InvalidDatabaseName(_))
+        Err(pliantdb_core::Error::Networking(
+            pliantdb_core::networking::Error::InvalidDatabaseName(_)
+        ))
     ));
 
     assert!(matches!(
         server
             .create_database("another-db", schema::Id::from("unknown schema"))
             .await,
-        Err(pliantdb_networking::Error::SchemaNotRegistered(_))
+        Err(pliantdb_core::Error::Networking(
+            pliantdb_core::networking::Error::SchemaNotRegistered(_)
+        ))
     ));
 
     Ok(())

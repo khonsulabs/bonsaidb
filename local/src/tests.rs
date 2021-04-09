@@ -4,7 +4,7 @@ use pliantdb_core::{
     connection::{AccessPolicy, Connection},
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
-        BasicCollectionWithOnlyBrokenParentId, TestDirectory,
+        BasicCollectionWithOnlyBrokenParentId, ConnectionTest, TestDirectory,
     },
 };
 
@@ -17,8 +17,8 @@ struct TestHarness {
 }
 
 impl TestHarness {
-    pub async fn new(name: &str) -> anyhow::Result<Self> {
-        let directory = TestDirectory::new(name);
+    pub async fn new(test: ConnectionTest) -> anyhow::Result<Self> {
+        let directory = TestDirectory::new(test.to_string());
         let db = Storage::<Basic>::open_local(&directory, &Configuration::default()).await?;
         Ok(Self {
             _directory: directory,

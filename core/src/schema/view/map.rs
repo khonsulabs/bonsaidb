@@ -1,8 +1,8 @@
 use std::{borrow::Cow, convert::TryInto};
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::document::Document;
+use crate::{document::Document, schema::view};
 
 /// A document's entry in a View's mappings.
 #[derive(PartialEq, Debug)]
@@ -15,6 +15,20 @@ pub struct Map<K: Key = (), V: Serialize = ()> {
 
     /// An associated value stored in the view.
     pub value: V,
+}
+
+impl<K: Key, V: Serialize> Map<K, V> {
+    pub fn serialized(&self) -> Result<Serialized, view::Error> {
+        Ok(Serialized {
+            source: self.source,
+            key: self
+                .key
+                .as_big_endian_bytes()
+                .map_err(view::Error::KeySerialization)?
+                .to_vec(),
+            value: serde_cbor::to_vec(&self.value)?,
+        })
+    }
 }
 
 /// A document's entry in a View's mappings.
@@ -50,6 +64,18 @@ pub struct Serialized {
     pub value: Vec<u8>,
 }
 
+impl Serialized {
+    pub fn deserialized<K: Key, V: Serialize + DeserializeOwned>(
+        &self,
+    ) -> Result<Map<K, V>, view::Error> {
+        Ok(Map {
+            source: self.source,
+            key: K::from_big_endian_bytes(&self.key).map_err(view::Error::KeySerialization)?,
+            value: serde_cbor::from_slice(&self.value)?,
+        })
+    }
+}
+
 /// A key value pair
 #[derive(PartialEq, Debug)]
 pub struct MappedValue<K: Key, V: Serialize> {
@@ -76,6 +102,16 @@ impl<'k> Key for Cow<'k, [u8]> {
 
     fn from_big_endian_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
         Ok(Cow::Owned(bytes.to_vec()))
+    }
+}
+
+impl Key for Vec<u8> {
+    fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'_, [u8]>> {
+        Ok(Cow::Borrowed(self))
+    }
+
+    fn from_big_endian_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+        Ok(bytes.to_vec())
     }
 }
 

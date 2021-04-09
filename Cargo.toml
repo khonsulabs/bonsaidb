@@ -1,6 +1,6 @@
 [workspace]
 
-members = ["pliantdb", "core", "local", "jobs", "client", "server", "networking"]
+members = ["pliantdb", "core", "local", "jobs", "client", "server"]
 
 [patch.crates-io]
-cosmicverge-networking = { path = "../cosmicverge/networking", version = "0.0.1" }
+fabruic = { path = "../fabruic", version = "0.0.0-reserve" }

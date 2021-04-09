@@ -4,7 +4,6 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     marker::PhantomData,
-    net::ToSocketAddrs,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -14,21 +13,25 @@ use admin::database::{self, Database};
 use async_trait::async_trait;
 use futures::{FutureExt, StreamExt, TryFutureExt};
 use itertools::Itertools;
-use pliantdb_core::schema;
+use pliantdb_core::{
+    connection::{AccessPolicy, QueryKey},
+    networking::{
+        self,
+        fabruic::{self, Certificate, Endpoint, PrivateKey},
+        Api, DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerConnection as _,
+        ServerRequest, ServerResponse,
+    },
+    schema,
+};
 use pliantdb_local::{
     core::{
         self,
         connection::Connection,
         document::Document,
-        schema::{collection, Schema, Schematic},
+        schema::{collection, map, Schema, Schematic},
         transaction::{OperationResult, Transaction},
     },
     Configuration, Storage,
-};
-use pliantdb_networking::{
-    fabruic::{self, Certificate, Endpoint, PrivateKey},
-    Api, DatabaseRequest, DatabaseResponse, Payload, Request, Response, ResultExt as _,
-    ServerConnection as _, ServerRequest, ServerResponse,
 };
 use tokio::{fs::File, sync::RwLock};
 
@@ -184,6 +187,7 @@ impl Server {
     }
 
     /// Installs an X.509 certificate used for general purpose connections.
+    #[cfg(feature = "certificate")]
     pub async fn install_self_signed_certificate(
         &self,
         server_name: &str,
@@ -208,7 +212,7 @@ impl Server {
         private_key: &PrivateKey,
     ) -> Result<(), Error> {
         File::create(self.certificate_path())
-            .and_then(|file| file.write_all(&certificate.0))
+            .and_then(|file| file.write_all(certificate.as_ref()))
             .await
             .map_err(|err| {
                 Error::Core(core::Error::Configuration(format!(
@@ -217,7 +221,7 @@ impl Server {
                 )))
             })?;
         File::create(self.private_key_path())
-            .and_then(|file| file.write_all(&private_key.0))
+            .and_then(|file| file.write_all(fabruic::Dangerous::as_ref(private_key)))
             .await
             .map_err(|err| {
                 Error::Core(core::Error::Configuration(format!(
@@ -235,16 +239,16 @@ impl Server {
 
     /// Returns the current certificate.
     pub async fn certificate(&self) -> Result<Certificate, Error> {
-        File::open(self.certificate_path())
+        Ok(File::open(self.certificate_path())
             .and_then(FileExt::read_all)
             .await
-            .map(Certificate)
+            .map(Certificate::unchecked_from_der)
             .map_err(|err| {
                 Error::Core(core::Error::Configuration(format!(
                     "Error reading certificate file: {}",
                     err
                 )))
-            })
+            })?)
     }
 
     fn private_key_path(&self) -> PathBuf {
@@ -253,23 +257,20 @@ impl Server {
 
     /// Listens for incoming client connections. Does not return until the
     /// server shuts down.
-    pub async fn listen_on<Addrs: ToSocketAddrs + Send + Sync>(
-        &self,
-        addrs: Addrs,
-    ) -> Result<(), Error> {
+    pub async fn listen_on(&self, port: u16) -> Result<(), Error> {
         let certificate = self.certificate().await?;
         let private_key = File::open(self.private_key_path())
             .and_then(FileExt::read_all)
             .await
-            .map(PrivateKey)
+            .map(PrivateKey::from_der)
             .map_err(|err| {
                 Error::Core(core::Error::Configuration(format!(
                     "Error reading private key file: {}",
                     err
                 )))
-            })?;
+            })??;
 
-        let mut server = Endpoint::new_server(addrs, &certificate, &private_key)?;
+        let mut server = Endpoint::new_server(port, &certificate, &private_key)?;
         {
             let mut endpoint = self.data.endpoint.write().await;
             *endpoint = Some(server.clone());
@@ -290,11 +291,9 @@ impl Server {
     async fn handle_connection(&self, mut connection: fabruic::Connection) -> Result<(), Error> {
         // TODO limit number of streams open for a client -- allowing for streams to shut down and be reclaimed.
         while let Some(incoming) = connection.next().await {
-            let incoming = incoming?;
             println!("New incoming stream from: {}", connection.remote_address());
 
-            let (sender, receiver) = incoming.accept_stream::<pliantdb_networking::Payload<'_>>();
-            println!("Accepted incoming stream");
+            let (sender, receiver) = incoming.accept_stream::<networking::Payload<'_>>();
             let task_self = self.clone();
             tokio::spawn(async move { task_self.handle_stream(sender, receiver).await });
         }
@@ -334,24 +333,21 @@ impl Server {
             Request::Server(request) => match request {
                 ServerRequest::CreateDatabase(database) => {
                     self.create_database(&database.name, database.schema)
-                        .await
-                        .map_err_to_core()?;
+                        .await?;
                     Ok(Response::Server(ServerResponse::DatabaseCreated {
                         name: database.name.clone(),
                     }))
                 }
                 ServerRequest::DeleteDatabase { name } => {
-                    self.delete_database(&name).await.map_err_to_core()?;
+                    self.delete_database(&name).await?;
                     Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
                 }
                 ServerRequest::ListDatabases => Ok(Response::Server(ServerResponse::Databases(
-                    self.list_databases().await.map_err_to_core()?,
+                    self.list_databases().await?,
                 ))),
-                ServerRequest::ListAvailableSchemas => {
-                    Ok(Response::Server(ServerResponse::AvailableSchemas(
-                        self.list_available_schemas().await.map_err_to_core()?,
-                    )))
-                }
+                ServerRequest::ListAvailableSchemas => Ok(Response::Server(
+                    ServerResponse::AvailableSchemas(self.list_available_schemas().await?),
+                )),
             },
             Request::Database { database, request } => {
                 let db = self.open_database_without_schema(&database).await?;
@@ -364,6 +360,28 @@ impl Server {
                         Ok(Response::Database(DatabaseResponse::Documents(vec![
                             document,
                         ])))
+                    }
+                    DatabaseRequest::GetMultiple { collection, ids } => {
+                        let documents = db
+                            .get_multiple_from_collection_id(&ids, &collection)
+                            .await?;
+                        Ok(Response::Database(DatabaseResponse::Documents(documents)))
+                    }
+                    DatabaseRequest::Query {
+                        view,
+                        key,
+                        access_policy,
+                        with_docs,
+                    } => {
+                        if with_docs {
+                            let mappings = db.query_with_docs(&view, key, access_policy).await?;
+                            Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
+                                mappings,
+                            )))
+                        } else {
+                            let mappings = db.query(&view, key, access_policy).await?;
+                            Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
+                        }
                     }
 
                     DatabaseRequest::ApplyTransaction { transaction } => {
@@ -387,9 +405,7 @@ impl Server {
             endpoint.clone()
         };
 
-        println!("Checking endpoint");
         if let Some(server) = endpoint {
-            println!("Have endpoint");
             if let Some(timeout) = timeout {
                 server.close_incoming().await?;
 
@@ -399,9 +415,7 @@ impl Server {
                     server.close().await?;
                 }
             } else {
-                println!("Closing");
                 server.close().await?;
-                println!("After close");
             }
         }
 
@@ -414,18 +428,20 @@ impl Server {
 }
 
 #[async_trait]
-impl pliantdb_networking::ServerConnection for Server {
+impl networking::ServerConnection for Server {
     async fn create_database(
         &self,
         name: &str,
         schema: schema::Id,
-    ) -> Result<(), pliantdb_networking::Error> {
+    ) -> Result<(), pliantdb_core::Error> {
         Self::validate_name(name)?;
 
         {
             let schemas = self.data.schemas.read().await;
             if !schemas.contains_key(&schema) {
-                return Err(pliantdb_networking::Error::SchemaNotRegistered(schema));
+                return Err(pliantdb_core::Error::Networking(
+                    networking::Error::SchemaNotRegistered(schema),
+                ));
             }
         }
 
@@ -439,15 +455,15 @@ impl pliantdb_networking::ServerConnection for Server {
             .await?
             .is_empty()
         {
-            return Err(pliantdb_networking::Error::DatabaseNameAlreadyTaken(
-                name.to_string(),
+            return Err(pliantdb_core::Error::Networking(
+                networking::Error::DatabaseNameAlreadyTaken(name.to_string()),
             ));
         }
 
         self.data
             .admin
             .collection::<Database>()
-            .push(&pliantdb_networking::Database {
+            .push(&networking::Database {
                 name: Cow::Borrowed(name),
                 schema: schema.clone(),
             })
@@ -457,7 +473,7 @@ impl pliantdb_networking::ServerConnection for Server {
         Ok(())
     }
 
-    async fn delete_database(&self, name: &str) -> Result<(), pliantdb_networking::Error> {
+    async fn delete_database(&self, name: &str) -> Result<(), pliantdb_core::Error> {
         let mut available_databases = self.data.available_databases.write().await;
 
         let file_path = self.database_path(name);
@@ -490,26 +506,26 @@ impl pliantdb_networking::ServerConnection for Server {
             // returned.
             Ok(())
         } else {
-            return Err(pliantdb_networking::Error::DatabaseNotFound(
-                name.to_string(),
+            return Err(pliantdb_core::Error::Networking(
+                networking::Error::DatabaseNotFound(name.to_string()),
             ));
         }
     }
 
     async fn list_databases(
         &self,
-    ) -> Result<Vec<pliantdb_networking::Database<'static>>, pliantdb_networking::Error> {
+    ) -> Result<Vec<networking::Database<'static>>, pliantdb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases
             .iter()
-            .map(|(name, schema)| pliantdb_networking::Database {
+            .map(|(name, schema)| networking::Database {
                 name: Cow::Owned(name.to_owned()),
                 schema: schema.clone(),
             })
             .collect())
     }
 
-    async fn list_available_schemas(&self) -> Result<Vec<schema::Id>, pliantdb_networking::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<schema::Id>, pliantdb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases.values().unique().cloned().collect())
     }
@@ -525,10 +541,30 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         collection: &collection::Id,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error>;
 
+    async fn get_multiple_from_collection_id(
+        &self,
+        ids: &[u64],
+        collection: &collection::Id,
+    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error>;
+
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
     ) -> Result<Vec<OperationResult>, pliantdb_core::Error>;
+
+    async fn query(
+        &self,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<map::Serialized>, pliantdb_core::Error>;
+
+    async fn query_with_docs(
+        &self,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error>;
 }
 
 #[async_trait]
@@ -548,11 +584,80 @@ where
         self.get_from_collection_id(id, collection).await
     }
 
+    async fn get_multiple_from_collection_id(
+        &self,
+        ids: &[u64],
+        collection: &collection::Id,
+    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
+        self.get_multiple_from_collection_id(ids, collection).await
+    }
+
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
     ) -> Result<Vec<OperationResult>, core::Error> {
         <Self as Connection>::apply_transaction(self, transaction).await
+    }
+
+    async fn query(
+        &self,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<map::Serialized>, pliantdb_core::Error> {
+        if let Some(view) = self.schema.view_by_name(view) {
+            let mut results = Vec::new();
+            self.for_each_in_view(view, key, access_policy, |key, entry| {
+                for mapping in entry.mappings {
+                    results.push(map::Serialized {
+                        source: mapping.source,
+                        key: key.to_vec(),
+                        value: mapping.value,
+                    });
+                }
+                Ok(())
+            })
+            .await?;
+
+            Ok(results)
+        } else {
+            Err(pliantdb_core::Error::CollectionNotFound)
+        }
+    }
+
+    async fn query_with_docs(
+        &self,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error> {
+        let results = OpenDatabase::query(self, view, key, access_policy).await?;
+        let view = self.schema.view_by_name(view).unwrap(); // query() will fail if it's not present
+
+        let mut documents = self
+            .get_multiple_from_collection_id(
+                &results.iter().map(|m| m.source).collect::<Vec<_>>(),
+                &view.collection(),
+            )
+            .await?
+            .into_iter()
+            .map(|doc| (doc.header.id, doc))
+            .collect::<HashMap<_, _>>();
+
+        Ok(results
+            .into_iter()
+            .filter_map(|map| {
+                if let Some(source) = documents.remove(&map.source) {
+                    Some(networking::MappedDocument {
+                        key: map.key,
+                        value: map.value,
+                        source,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect())
     }
 }
 

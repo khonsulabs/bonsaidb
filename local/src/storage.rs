@@ -26,8 +26,9 @@ use crate::{
 /// A local, file-based database.
 #[derive(Debug)]
 pub struct Storage<DB> {
+    /// The [`Schematic`] of [`DB`].
+    pub schema: Arc<Schematic>,
     pub(crate) sled: sled::Db,
-    pub(crate) schema: Arc<Schematic>,
     pub(crate) tasks: TaskManager,
     _schema: PhantomData<DB>,
 }
@@ -86,23 +87,16 @@ where
         Ok(storage)
     }
 
-    async fn for_each_view_entry<
-        V: schema::View,
+    /// Iterate over each view entry matching `key`.
+    pub async fn for_each_in_view<
         F: FnMut(IVec, ViewEntry) -> Result<(), pliantdb_core::Error> + Send + Sync,
     >(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        view: &dyn view::Serialized,
+        key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         mut callback: F,
-    ) -> Result<(), pliantdb_core::Error>
-    where
-        Self: Sized,
-    {
-        let view = self
-            .schema
-            .view::<V>()
-            .expect("query made with view that isn't registered with this database");
-
+    ) -> Result<(), pliantdb_core::Error> {
         if matches!(access_policy, AccessPolicy::UpdateBefore) {
             self.tasks
                 .update_view_if_needed(view, self)
@@ -136,16 +130,41 @@ where
 
         if matches!(access_policy, AccessPolicy::UpdateAfter) {
             let storage = self.clone();
+            let view_name = view.name();
             tokio::task::spawn(async move {
                 let view = storage
                     .schema
-                    .view::<V>()
+                    .view_by_name(&view_name)
                     .expect("query made with view that isn't registered with this database");
                 storage.tasks.update_view_if_needed(view, &storage).await
             });
         }
 
         Ok(())
+    }
+
+    /// Iterate over each view entry matching `key`.
+    pub async fn for_each_view_entry<
+        V: schema::View,
+        F: FnMut(IVec, ViewEntry) -> Result<(), pliantdb_core::Error> + Send + Sync,
+    >(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+        callback: F,
+    ) -> Result<(), pliantdb_core::Error> {
+        let view = self
+            .schema
+            .view::<V>()
+            .expect("query made with view that isn't registered with this database");
+
+        self.for_each_in_view(
+            view,
+            key.map(|key| key.serialized()).transpose()?,
+            access_policy,
+            callback,
+        )
+        .await
     }
 
     /// Retrieves document `id` from the specified `collection`.
@@ -175,6 +194,39 @@ where
             } else {
                 Ok(None)
             }
+        })
+    }
+
+    /// Retrieves document `id` from the specified `collection`.
+    pub async fn get_multiple_from_collection_id(
+        &self,
+        ids: &[u64],
+        collection: &collection::Id,
+    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
+        tokio::task::block_in_place(|| {
+            let tree = self
+                .sled
+                .open_tree(document_tree_name(collection))
+                .map_err_to_core()?;
+            let mut found_docs = Vec::new();
+            for id in ids {
+                if let Some(vec) = tree
+                    .get(
+                        id.as_big_endian_bytes()
+                            .map_err(view::Error::KeySerialization)
+                            .map_err_to_core()?,
+                    )
+                    .map_err_to_core()?
+                {
+                    found_docs.push(
+                        bincode::deserialize::<Document<'_>>(&vec)
+                            .map_err_to_core()?
+                            .to_owned(),
+                    );
+                }
+            }
+
+            Ok(found_docs)
         })
     }
 }
@@ -296,31 +348,8 @@ where
         &self,
         ids: &[u64],
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| {
-            let tree = self
-                .sled
-                .open_tree(document_tree_name(&C::collection_id()))
-                .map_err_to_core()?;
-            let mut found_docs = Vec::new();
-            for id in ids {
-                if let Some(vec) = tree
-                    .get(
-                        id.as_big_endian_bytes()
-                            .map_err(view::Error::KeySerialization)
-                            .map_err_to_core()?,
-                    )
-                    .map_err_to_core()?
-                {
-                    found_docs.push(
-                        bincode::deserialize::<Document<'_>>(&vec)
-                            .map_err_to_core()?
-                            .to_owned(),
-                    );
-                }
-            }
-
-            Ok(found_docs)
-        })
+        self.get_multiple_from_collection_id(ids, &C::collection_id())
+            .await
     }
 
     async fn list_executed_transactions(

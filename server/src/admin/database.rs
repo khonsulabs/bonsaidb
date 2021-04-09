@@ -35,7 +35,7 @@ impl View for ByName {
     }
 
     fn map(&self, document: &Document<'_>) -> schema::MapResult<Self::Key, Self::Value> {
-        let database = document.contents::<pliantdb_networking::Database<'_>>()?;
+        let database = document.contents::<pliantdb_core::networking::Database<'_>>()?;
         Ok(Some(document.emit_key_and_value(
             database.name.to_string().to_ascii_lowercase(),
             database.schema,

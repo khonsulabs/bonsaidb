@@ -16,12 +16,18 @@
     clippy::option_if_let_else,
 )]
 
+#[cfg(feature = "networking")]
+pub use fabruic;
+
 /// Types for interacting with a database.
 pub mod connection;
 /// Types for interacting with `Document`s.
 pub mod document;
 /// Limits used within `PliantDB`.
 pub mod limits;
+#[cfg(feature = "networking")]
+/// Types for networked communications.
+pub mod networking;
 /// Types for defining database schema.
 pub mod schema;
 /// Types for executing transactions.
@@ -46,8 +52,9 @@ pub enum Error {
     Transport(String),
 
     /// An error occurred from networking.
+    #[cfg(feature = "networking")]
     #[error("a networking error occurred: '{0}'")]
-    Networking(String),
+    Networking(networking::Error),
 
     /// An error occurred from IO.
     #[error("an io error occurred: '{0}'")]
@@ -56,6 +63,10 @@ pub enum Error {
     /// An error occurred with the provided configuration options.
     #[error("a configuration error occurred: '{0}'")]
     Configuration(String),
+
+    /// An error occurred inside of the client.
+    #[error("an io error in the client: '{0}'")]
+    Client(String),
 
     /// An attempt to use a `Collection` with a `Database` that it wasn't defined within.
     #[error("attempted to access a collection not registered with this schema")]

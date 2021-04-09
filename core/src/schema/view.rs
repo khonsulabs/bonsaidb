@@ -141,18 +141,7 @@ where
     fn map(&self, document: &Document<'_>) -> Result<Option<map::Serialized>, Error> {
         let map = self.map(document)?;
 
-        match map {
-            Some(map) => Ok(Some(map::Serialized {
-                source: map.source,
-                key: map
-                    .key
-                    .as_big_endian_bytes()
-                    .map_err(Error::KeySerialization)?
-                    .to_vec(),
-                value: serde_cbor::to_vec(&map.value)?,
-            })),
-            None => Ok(None),
-        }
+        map.map(|map| map.serialized()).transpose()
     }
 
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error> {

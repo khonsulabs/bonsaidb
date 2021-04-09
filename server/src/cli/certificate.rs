@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use pliantdb_networking::fabruic::{Certificate, PrivateKey};
+use pliantdb_core::networking::fabruic::{Certificate, PrivateKey};
 use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
 
@@ -65,7 +65,10 @@ impl Command {
                 certificate_file.read_to_end(&mut certificate).await?;
 
                 server
-                    .install_certificate(&Certificate(certificate), &PrivateKey(private_key))
+                    .install_certificate(
+                        &Certificate::from_der(certificate)?,
+                        &PrivateKey::from_der(private_key)?,
+                    )
                     .await?;
             }
         }

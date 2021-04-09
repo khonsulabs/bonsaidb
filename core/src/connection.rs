@@ -1,11 +1,11 @@
 use std::{borrow::Cow, marker::PhantomData, ops::Range};
 
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     document::{Document, Header},
-    schema::{self, map::MappedDocument, Map},
+    schema::{self, map::MappedDocument, view, Key, Map},
     transaction::{self, Command, Operation, OperationResult, Transaction},
     Error,
 };
@@ -260,6 +260,7 @@ where
 }
 
 /// Filters a [`View`] by key.
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum QueryKey<K> {
     /// Matches all entries with the key provided.
     Matches(K),
@@ -271,7 +272,81 @@ pub enum QueryKey<K> {
     Multiple(Vec<K>),
 }
 
+#[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
+impl<K: Key> QueryKey<K> {
+    /// Converts this key to a serialized format using the [`Key`] trait.
+    pub fn serialized(&self) -> Result<QueryKey<Vec<u8>>, Error> {
+        match self {
+            Self::Matches(key) => key
+                .as_big_endian_bytes()
+                .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))
+                .map(|v| QueryKey::Matches(v.to_vec())),
+            Self::Range(range) => {
+                let start = range
+                    .start
+                    .as_big_endian_bytes()
+                    .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))?
+                    .to_vec();
+                let end = range
+                    .end
+                    .as_big_endian_bytes()
+                    .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))?
+                    .to_vec();
+                Ok(QueryKey::Range(start..end))
+            }
+            Self::Multiple(keys) => {
+                let keys = keys
+                    .iter()
+                    .map(|key| {
+                        key.as_big_endian_bytes()
+                            .map(|key| key.to_vec())
+                            .map_err(|err| {
+                                Error::Storage(view::Error::KeySerialization(err).to_string())
+                            })
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
+
+                Ok(QueryKey::Multiple(keys))
+            }
+        }
+    }
+}
+
+#[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
+impl QueryKey<Vec<u8>> {
+    /// Deserializes the bytes into [`K`] via the [`Key`] trait.
+    pub fn deserialized<K: Key>(&self) -> Result<QueryKey<K>, Error> {
+        match self {
+            Self::Matches(key) => K::from_big_endian_bytes(key)
+                .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))
+                .map(QueryKey::Matches),
+            Self::Range(range) => {
+                let start = K::from_big_endian_bytes(&range.start).map_err(|err| {
+                    Error::Storage(view::Error::KeySerialization(err).to_string())
+                })?;
+                let end = K::from_big_endian_bytes(&range.end).map_err(|err| {
+                    Error::Storage(view::Error::KeySerialization(err).to_string())
+                })?;
+                Ok(QueryKey::Range(start..end))
+            }
+            Self::Multiple(keys) => {
+                let keys = keys
+                    .iter()
+                    .map(|key| {
+                        K::from_big_endian_bytes(key).map_err(|err| {
+                            Error::Storage(view::Error::KeySerialization(err).to_string())
+                        })
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
+
+                Ok(QueryKey::Multiple(keys))
+            }
+        }
+    }
+}
+
 /// Changes how the view's outdated data will be treated.
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum AccessPolicy {
     /// Update any changed documents before returning a response.
     UpdateBefore,

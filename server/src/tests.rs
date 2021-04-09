@@ -1,4 +1,4 @@
-use pliantdb_core::test_util::{self, Basic, TestDirectory};
+use pliantdb_core::test_util::{self, Basic, ConnectionTest, TestDirectory};
 
 use crate::{
     hosted::Database,
@@ -20,8 +20,8 @@ struct TestHarness {
 }
 
 impl TestHarness {
-    pub async fn new(name: &str) -> anyhow::Result<Self> {
-        let directory = TestDirectory::new(name);
+    pub async fn new(test: ConnectionTest) -> anyhow::Result<Self> {
+        let directory = TestDirectory::new(test.to_string());
         let server = initialize_basic_server(directory.as_ref()).await?;
         Ok(Self {
             _directory: directory,

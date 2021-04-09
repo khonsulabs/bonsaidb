@@ -1,0 +1,197 @@
+use std::{borrow::Cow, marker::PhantomData, sync::Arc};
+
+use async_trait::async_trait;
+use pliantdb_core::{
+    connection::{AccessPolicy, Connection, QueryKey},
+    document::Document,
+    networking::{self, DatabaseRequest, DatabaseResponse, Request, Response},
+    schema::{
+        map::{self, MappedDocument},
+        Collection, Map, Schema, Schematic, View,
+    },
+    transaction::{Executed, OperationResult, Transaction},
+};
+
+use crate::Client;
+
+#[derive(Debug)]
+pub struct RemoteDatabase<DB: Schema> {
+    client: Client,
+    name: String,
+    schema: Arc<Schematic>,
+    _phantom: PhantomData<DB>,
+}
+
+impl<DB: Schema> RemoteDatabase<DB> {
+    pub(crate) fn new(client: Client, name: String, schema: Arc<Schematic>) -> Self {
+        Self {
+            client,
+            name,
+            schema,
+            _phantom: PhantomData::default(),
+        }
+    }
+}
+
+#[async_trait]
+impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
+    async fn get<C: Collection>(
+        &self,
+        id: u64,
+    ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
+        match self
+            .client
+            .send_request(Request::Database {
+                database: Cow::Owned(self.name.clone()),
+                request: DatabaseRequest::Get {
+                    collection: C::collection_id(),
+                    id,
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::Documents(documents)) => {
+                Ok(documents.into_iter().next())
+            }
+            other => Err(pliantdb_core::Error::Networking(
+                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn get_multiple<C: Collection>(
+        &self,
+        ids: &[u64],
+    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
+        match self
+            .client
+            .send_request(Request::Database {
+                database: Cow::Owned(self.name.clone()),
+                request: DatabaseRequest::GetMultiple {
+                    collection: C::collection_id(),
+                    ids: ids.to_vec(),
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::Documents(documents)) => Ok(documents),
+            other => Err(pliantdb_core::Error::Networking(
+                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn query<V: View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<Map<V::Key, V::Value>>, pliantdb_core::Error>
+    where
+        Self: Sized,
+    {
+        match self
+            .client
+            .send_request(Request::Database {
+                database: Cow::Owned(self.name.clone()),
+                request: DatabaseRequest::Query {
+                    view: self
+                        .schema
+                        .view::<V>()
+                        .ok_or(pliantdb_core::Error::CollectionNotFound)?
+                        .name(),
+                    key: key.map(|key| key.serialized()).transpose()?,
+                    access_policy,
+                    with_docs: false,
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::ViewMappings(mappings)) => Ok(mappings
+                .iter()
+                .map(map::Serialized::deserialized::<V::Key, V::Value>)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|err| pliantdb_core::Error::Storage(err.to_string()))?),
+            other => Err(pliantdb_core::Error::Networking(
+                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn query_with_docs<V: View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, pliantdb_core::Error>
+    where
+        Self: Sized,
+    {
+        match self
+            .client
+            .send_request(Request::Database {
+                database: Cow::Owned(self.name.clone()),
+                request: DatabaseRequest::Query {
+                    view: self
+                        .schema
+                        .view::<V>()
+                        .ok_or(pliantdb_core::Error::CollectionNotFound)?
+                        .name(),
+                    key: key.map(|key| key.serialized()).transpose()?,
+                    access_policy,
+                    with_docs: true,
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::ViewMappingsWithDocs(mappings)) => Ok(mappings
+                .into_iter()
+                .map(networking::MappedDocument::deserialized::<V::Key, V::Value>)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|err| pliantdb_core::Error::Storage(err.to_string()))?),
+            other => Err(pliantdb_core::Error::Networking(
+                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn reduce<V: View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<V::Value, pliantdb_core::Error>
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
+
+    async fn apply_transaction(
+        &self,
+        transaction: Transaction<'static>,
+    ) -> Result<Vec<OperationResult>, pliantdb_core::Error> {
+        match self
+            .client
+            .send_request(Request::Database {
+                database: Cow::Owned(self.name.clone()),
+                request: DatabaseRequest::ApplyTransaction { transaction },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::TransactionResults(results)) => Ok(results),
+            other => Err(pliantdb_core::Error::Networking(
+                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn list_executed_transactions(
+        &self,
+        starting_id: Option<u64>,
+        result_limit: Option<usize>,
+    ) -> Result<Vec<Executed<'static>>, pliantdb_core::Error> {
+        todo!()
+    }
+
+    async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
+        todo!()
+    }
+}

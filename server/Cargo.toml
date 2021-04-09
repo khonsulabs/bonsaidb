@@ -12,12 +12,12 @@ readme = "../README.md"
 
 [features]
 default = []
-cli = ["pliantdb-networking/certificate", "structopt", "anyhow"]
+cli = ["certificate", "structopt", "anyhow"]
 test-util = ["pliantdb-core/test-util", "anyhow"]
+certificate = ["pliantdb-core/certificate"]
 
 [dependencies]
-pliantdb-networking = { path = "../networking", version = "0.1.0-dev-1", features = ["certificate"] }
-pliantdb-core = { path = "../core", version = "0.1.0-dev-1" }
+pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["networking"] }
 pliantdb-local = { path = "../local", version = "0.1.0-dev-1" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
@@ -31,4 +31,4 @@ itertools = "0.10"
 
 [dev-dependencies]
 anyhow = "1"
-pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["test-util"] }
+pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["test-util", "certificate"] }

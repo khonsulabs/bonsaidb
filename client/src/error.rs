@@ -1,4 +1,5 @@
-use pliantdb_networking::fabruic;
+use pliantdb_core as core;
+use pliantdb_core::networking::fabruic;
 
 /// Errors related to working with [`Client`](crate::Client)
 #[derive(thiserror::Error, Debug)]
@@ -9,7 +10,7 @@ pub enum Error {
 
     /// An error occurred from networking.
     #[error("a networking error occurred: '{0}'")]
-    Network(#[from] pliantdb_networking::Error),
+    Network(#[from] pliantdb_core::networking::Error),
 
     /// An invalid Url was provided.
     #[error("invalid url: '{0}'")]
@@ -18,6 +19,10 @@ pub enum Error {
     /// The connection was interrupted.
     #[error("unexpected disconnection")]
     Disconnected,
+
+    /// The connection was interrupted.
+    #[error("unexpected disconnection")]
+    Core(#[from] core::Error),
 }
 
 impl<T> From<flume::SendError<T>> for Error {
@@ -32,16 +37,8 @@ impl From<flume::RecvError> for Error {
     }
 }
 
-impl From<Error> for pliantdb_networking::Error {
+impl From<Error> for core::Error {
     fn from(other: Error) -> Self {
-        match other {
-            Error::Transport(err) => Self::Core(pliantdb_core::Error::Transport(err.to_string())),
-            Error::Network(err) => err,
-            Error::InvalidUrl(err) => Self::Core(pliantdb_core::Error::Configuration(format!(
-                "invalid url: {:?}",
-                err
-            ))),
-            Error::Disconnected => Self::Disconnected,
-        }
+        Self::Client(other.to_string())
     }
 }
