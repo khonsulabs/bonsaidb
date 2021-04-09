@@ -27,8 +27,12 @@ pub use self::{client::Client, error::Error};
 mod tests {
     use std::{sync::atomic::Ordering, time::Duration};
 
-    use once_cell::sync::{Lazy, OnceCell};
-    use pliantdb_core::test_util::{self, Basic, ConnectionTest, TestDirectory};
+    use once_cell::sync::Lazy;
+    use pliantdb_core::{
+        networking::ServerConnection,
+        schema::Schema,
+        test_util::{Basic, ConnectionTest, TestDirectory},
+    };
     use pliantdb_server::{
         test_util::{basic_server_connection_tests, initialize_basic_server, BASIC_SERVER_NAME},
         Server,
@@ -36,9 +40,8 @@ mod tests {
     use tokio::sync::Mutex;
     use url::Url;
 
-    use crate::client::RemoteDatabase;
-
     use super::*;
+    use crate::client::RemoteDatabase;
     #[tokio::test(flavor = "multi_thread")]
     async fn server_connection_tests() -> anyhow::Result<()> {
         let directory = TestDirectory::new("client-test");
@@ -78,14 +81,14 @@ mod tests {
 
     struct TestHarness {
         _server: Server,
-        client: Client,
+        db: RemoteDatabase<Basic>,
     }
 
     impl TestHarness {
         pub async fn new(test: ConnectionTest) -> anyhow::Result<Self> {
             let mut shared_server = SHARED_TEST_SERVER.lock().await;
             if shared_server.is_none() {
-                let directory = TestDirectory::new(test.to_string());
+                let directory = TestDirectory::new("shared-client-server");
                 let server = initialize_basic_server(directory.as_ref()).await?;
                 let task_server = server.clone();
                 tokio::spawn(async move { task_server.listen_on(5001).await });
@@ -96,6 +99,9 @@ mod tests {
             }
 
             let server = shared_server.as_ref().unwrap().server.clone();
+            server
+                .create_database(&test.to_string(), Basic::schema_id())
+                .await?;
 
             tokio::time::sleep(Duration::from_millis(100)).await;
             let url = Url::parse(&format!(
@@ -103,16 +109,16 @@ mod tests {
                 BASIC_SERVER_NAME
             ))?;
             let client = Client::new(&url, server.certificate().await?)?;
+            let db = client.database::<Basic>(&test.to_string()).await;
 
             Ok(Self {
-                client,
+                db,
                 _server: server,
             })
         }
 
         pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<Basic>> {
-            let db = self.client.database::<Basic>("tests").await;
-            Ok(db)
+            Ok(self.db.clone())
         }
     }
 

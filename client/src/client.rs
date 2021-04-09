@@ -100,7 +100,7 @@ impl Client {
 
     /// Returns a structure representing a remote database. No validations are
     /// done when this method is executed. The server will validate the schema
-    /// and database name when a [`Connection`] function is called.
+    /// and database name when a [`Connection`](pliantdb_core::connection::Connection) function is called.
     pub async fn database<DB: Schema>(&self, name: &str) -> RemoteDatabase<DB> {
         let mut schemas = self.schemas.lock().await;
         let schema = schemas
@@ -117,7 +117,7 @@ impl Client {
             responder: result_sender,
         })?;
 
-        dbg!(result_receiver.recv_async().await)?
+        result_receiver.recv_async().await?
     }
 }
 

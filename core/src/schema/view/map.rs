@@ -18,6 +18,7 @@ pub struct Map<K: Key = (), V: Serialize = ()> {
 }
 
 impl<K: Key, V: Serialize> Map<K, V> {
+    /// Serializes this map.
     pub fn serialized(&self) -> Result<Serialized, view::Error> {
         Ok(Serialized {
             source: self.source,
@@ -65,6 +66,7 @@ pub struct Serialized {
 }
 
 impl Serialized {
+    /// Deserializes this map.
     pub fn deserialized<K: Key, V: Serialize + DeserializeOwned>(
         &self,
     ) -> Result<Map<K, V>, view::Error> {

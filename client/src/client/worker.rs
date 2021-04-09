@@ -22,16 +22,15 @@ pub async fn reconnecting_client_loop(
     request_receiver: Receiver<PendingRequest>,
 ) -> Result<(), Error> {
     while let Ok(request) = request_receiver.recv_async().await {
-        if let Err((responder, err)) = dbg!(
-            connect_and_process(
-                &host,
-                &server_name,
-                &certificate,
-                request,
-                &request_receiver,
-            )
-            .await
-        ) {
+        if let Err((responder, err)) = connect_and_process(
+            &host,
+            &server_name,
+            &certificate,
+            request,
+            &request_receiver,
+        )
+        .await
+        {
             if let Some(responder) = responder {
                 let _ = responder.try_send(Err(err));
             }
@@ -117,7 +116,7 @@ pub async fn process(
     outstanding_requests: OutstandingRequestMapHandle,
     mut payload_receiver: fabruic::Receiver<Payload<'static>>,
 ) -> Result<(), Error> {
-    while let Some(payload) = dbg!(payload_receiver.next().await) {
+    while let Some(payload) = payload_receiver.next().await {
         let payload = payload?;
         let mut outstanding_requests = outstanding_requests.lock().await;
         let responder = outstanding_requests

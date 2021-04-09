@@ -314,7 +314,7 @@ impl<K: Key> QueryKey<K> {
 
 #[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
 impl QueryKey<Vec<u8>> {
-    /// Deserializes the bytes into [`K`] via the [`Key`] trait.
+    /// Deserializes the bytes into `K` via the [`Key`] trait.
     pub fn deserialized<K: Key>(&self) -> Result<QueryKey<K>, Error> {
         match self {
             Self::Matches(key) => K::from_big_endian_bytes(key)

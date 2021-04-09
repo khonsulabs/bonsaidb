@@ -22,6 +22,7 @@ use pliantdb_core::{
         ServerRequest, ServerResponse,
     },
     schema,
+    transaction::Executed,
 };
 use pliantdb_local::{
     core::{
@@ -305,7 +306,7 @@ impl Server {
         sender: fabruic::Sender<Payload<'static>>,
         mut receiver: fabruic::Receiver<Payload<'static>>,
     ) -> Result<(), Error> {
-        while let Some(payload) = dbg!(receiver.next().await) {
+        while let Some(payload) = receiver.next().await {
             let payload = payload?;
             let request = match payload.api {
                 Api::Request(request) => request,
@@ -383,6 +384,14 @@ impl Server {
                             Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
                         }
                     }
+                    DatabaseRequest::Reduce {
+                        view,
+                        key,
+                        access_policy,
+                    } => {
+                        let value = db.reduce(&view, key, access_policy).await?;
+                        Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
+                    }
 
                     DatabaseRequest::ApplyTransaction { transaction } => {
                         let results = db.apply_transaction(transaction).await?;
@@ -390,6 +399,17 @@ impl Server {
                             results,
                         )))
                     }
+
+                    DatabaseRequest::ListExecutedTransactions {
+                        starting_id,
+                        result_limit,
+                    } => Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
+                        db.list_executed_transactions(starting_id, result_limit)
+                            .await?,
+                    ))),
+                    DatabaseRequest::LastTransactionId => Ok(Response::Database(
+                        DatabaseResponse::LastTransactionId(db.last_transaction_id().await?),
+                    )),
                 }
             }
         }
@@ -565,6 +585,21 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error>;
+
+    async fn reduce(
+        &self,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<u8>, pliantdb_core::Error>;
+
+    async fn list_executed_transactions(
+        &self,
+        starting_id: Option<u64>,
+        result_limit: Option<usize>,
+    ) -> Result<Vec<Executed<'static>>, pliantdb_core::Error>;
+
+    async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error>;
 }
 
 #[async_trait]
@@ -658,6 +693,27 @@ where
                 }
             })
             .collect())
+    }
+
+    async fn reduce(
+        &self,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<u8>, pliantdb_core::Error> {
+        self.reduce_in_view(view, key, access_policy).await
+    }
+
+    async fn list_executed_transactions(
+        &self,
+        starting_id: Option<u64>,
+        result_limit: Option<usize>,
+    ) -> Result<Vec<Executed<'static>>, pliantdb_core::Error> {
+        Connection::list_executed_transactions(self, starting_id, result_limit).await
+    }
+
+    async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
+        Connection::last_transaction_id(self).await
     }
 }
 

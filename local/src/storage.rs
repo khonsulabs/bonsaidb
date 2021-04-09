@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sync::Arc, u8};
 
 use async_trait::async_trait;
 use itertools::Itertools;
@@ -26,7 +26,7 @@ use crate::{
 /// A local, file-based database.
 #[derive(Debug)]
 pub struct Storage<DB> {
-    /// The [`Schematic`] of [`DB`].
+    /// The [`Schematic`] of `DB`.
     pub schema: Arc<Schematic>,
     pub(crate) sled: sled::Db,
     pub(crate) tasks: TaskManager,
@@ -228,6 +228,42 @@ where
 
             Ok(found_docs)
         })
+    }
+
+    /// Reduce view `view_name`.
+    pub async fn reduce_in_view(
+        &self,
+        view_name: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<u8>, pliantdb_core::Error> {
+        let view = self
+            .schema
+            .view_by_name(view_name)
+            .ok_or(pliantdb_core::Error::CollectionNotFound)?;
+        let mut mappings = Vec::new();
+        self.for_each_in_view(view, key, access_policy, |key, entry| {
+            mappings.push((key, entry.reduced_value));
+            Ok(())
+        })
+        .await?;
+
+        // An unfortunate side effect of interacting with the view over a
+        // typeless interface is that we're getting a serialized version back.
+        // This is wasteful. We should be able to use Any to get a full
+        // reference to the view here so that we can call reduce directly.
+        let result = view
+            .reduce(
+                &mappings
+                    .iter()
+                    .map(|(key, value)| (key.as_ref(), value.as_ref()))
+                    .collect::<Vec<_>>(),
+                true,
+            )
+            .map_err(Error::View)
+            .map_err_to_core()?;
+
+        Ok(result)
     }
 }
 
@@ -464,32 +500,18 @@ where
     where
         Self: Sized,
     {
-        let mut mappings = Vec::new();
-        self.for_each_view_entry::<V, _>(key, access_policy, |key, entry| {
-            mappings.push((key, entry.reduced_value));
-            Ok(())
-        })
-        .await?;
-
         let view = self
             .schema
             .view::<V>()
             .expect("query made with view that isn't registered with this database");
 
-        // An unfortunate side effect of interacting with the view over a
-        // typeless interface is that we're getting a serialized version back.
-        // This is wasteful. We should be able to use Any to get a full
-        // reference to the view here so that we can call reduce directly.
-        let result = view
-            .reduce(
-                &mappings
-                    .iter()
-                    .map(|(key, value)| (key.as_ref(), value.as_ref()))
-                    .collect::<Vec<_>>(),
-                true,
+        let result = self
+            .reduce_in_view(
+                &view.name(),
+                key.map(|key| key.serialized()).transpose()?,
+                access_policy,
             )
-            .map_err(Error::View)
-            .map_err_to_core()?;
+            .await?;
         let value = serde_cbor::from_slice(&result)
             .map_err(Error::Serialization)
             .map_err_to_core()?;

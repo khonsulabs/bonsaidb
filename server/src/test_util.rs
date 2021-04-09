@@ -43,7 +43,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
     server.delete_database("another-db").await?;
 
     assert!(matches!(
-        dbg!(server.delete_database("another-db").await),
+        server.delete_database("another-db").await,
         Err(pliantdb_core::Error::Networking(
             pliantdb_core::networking::Error::DatabaseNotFound(_)
         ))

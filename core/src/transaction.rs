@@ -85,13 +85,12 @@ pub enum OperationResult {
 }
 
 /// Details about an executed transaction.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Executed<'a> {
     /// The id of the transaction.
     pub id: u64,
 
     /// A list of containing ids of `Documents` changed.
-    #[serde(borrow)]
     pub changed_documents: Cow<'a, [ChangedDocument]>,
 }
 

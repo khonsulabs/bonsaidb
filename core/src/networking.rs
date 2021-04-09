@@ -13,7 +13,7 @@ use crate::{
         map::{self},
         view, Key,
     },
-    transaction::{OperationResult, Transaction},
+    transaction::{Executed, OperationResult, Transaction},
 };
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -61,9 +61,19 @@ pub enum DatabaseRequest<'a> {
         access_policy: AccessPolicy,
         with_docs: bool,
     },
+    Reduce {
+        view: Cow<'a, str>,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    },
     ApplyTransaction {
         transaction: Transaction<'a>,
     },
+    ListExecutedTransactions {
+        starting_id: Option<u64>,
+        result_limit: Option<usize>,
+    },
+    LastTransactionId,
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Response<'a> {
@@ -86,6 +96,9 @@ pub enum DatabaseResponse<'a> {
     TransactionResults(Vec<OperationResult>),
     ViewMappings(Vec<map::Serialized>),
     ViewMappingsWithDocs(Vec<MappedDocument>),
+    ViewReduction(Vec<u8>),
+    ExecutedTransactions(Vec<Executed<'a>>),
+    LastTransactionId(Option<u64>),
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

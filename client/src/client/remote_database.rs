@@ -17,16 +17,27 @@ use crate::Client;
 #[derive(Debug)]
 pub struct RemoteDatabase<DB: Schema> {
     client: Client,
-    name: String,
+    name: Arc<String>,
     schema: Arc<Schematic>,
     _phantom: PhantomData<DB>,
+}
+
+impl<DB: Schema> Clone for RemoteDatabase<DB> {
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            name: self.name.clone(),
+            schema: self.schema.clone(),
+            _phantom: PhantomData::default(),
+        }
+    }
 }
 
 impl<DB: Schema> RemoteDatabase<DB> {
     pub(crate) fn new(client: Client, name: String, schema: Arc<Schematic>) -> Self {
         Self {
             client,
-            name,
+            name: Arc::new(name),
             schema,
             _phantom: PhantomData::default(),
         }
@@ -42,7 +53,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.clone()),
+                database: Cow::Owned(self.name.to_string()),
                 request: DatabaseRequest::Get {
                     collection: C::collection_id(),
                     id,
@@ -53,6 +64,8 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
             Response::Database(DatabaseResponse::Documents(documents)) => {
                 Ok(documents.into_iter().next())
             }
+            Response::Error(pliantdb_core::Error::DocumentNotFound(_, _)) => Ok(None),
+            Response::Error(err) => Err(err),
             other => Err(pliantdb_core::Error::Networking(
                 pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
@@ -66,7 +79,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.clone()),
+                database: Cow::Owned(self.name.to_string()),
                 request: DatabaseRequest::GetMultiple {
                     collection: C::collection_id(),
                     ids: ids.to_vec(),
@@ -75,6 +88,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
             .await?
         {
             Response::Database(DatabaseResponse::Documents(documents)) => Ok(documents),
+            Response::Error(err) => Err(err),
             other => Err(pliantdb_core::Error::Networking(
                 pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
@@ -92,7 +106,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.clone()),
+                database: Cow::Owned(self.name.to_string()),
                 request: DatabaseRequest::Query {
                     view: self
                         .schema
@@ -111,6 +125,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
                 .map(map::Serialized::deserialized::<V::Key, V::Value>)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|err| pliantdb_core::Error::Storage(err.to_string()))?),
+            Response::Error(err) => Err(err),
             other => Err(pliantdb_core::Error::Networking(
                 pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
@@ -128,7 +143,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.clone()),
+                database: Cow::Owned(self.name.to_string()),
                 request: DatabaseRequest::Query {
                     view: self
                         .schema
@@ -147,6 +162,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
                 .map(networking::MappedDocument::deserialized::<V::Key, V::Value>)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|err| pliantdb_core::Error::Storage(err.to_string()))?),
+            Response::Error(err) => Err(err),
             other => Err(pliantdb_core::Error::Networking(
                 pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
@@ -161,7 +177,31 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
     where
         Self: Sized,
     {
-        todo!()
+        match self
+            .client
+            .send_request(Request::Database {
+                database: Cow::Owned(self.name.to_string()),
+                request: DatabaseRequest::Reduce {
+                    view: self
+                        .schema
+                        .view::<V>()
+                        .ok_or(pliantdb_core::Error::CollectionNotFound)?
+                        .name(),
+                    key: key.map(|key| key.serialized()).transpose()?,
+                    access_policy,
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::ViewReduction(value)) => {
+                let value = serde_cbor::from_slice::<V::Value>(&value)?;
+                Ok(value)
+            }
+            Response::Error(err) => Err(err),
+            other => Err(pliantdb_core::Error::Networking(
+                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
     }
 
     async fn apply_transaction(
@@ -171,12 +211,13 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.clone()),
+                database: Cow::Owned(self.name.to_string()),
                 request: DatabaseRequest::ApplyTransaction { transaction },
             })
             .await?
         {
             Response::Database(DatabaseResponse::TransactionResults(results)) => Ok(results),
+            Response::Error(err) => Err(err),
             other => Err(pliantdb_core::Error::Networking(
                 pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
@@ -188,10 +229,39 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         starting_id: Option<u64>,
         result_limit: Option<usize>,
     ) -> Result<Vec<Executed<'static>>, pliantdb_core::Error> {
-        todo!()
+        match self
+            .client
+            .send_request(Request::Database {
+                database: Cow::Owned(self.name.to_string()),
+                request: DatabaseRequest::ListExecutedTransactions {
+                    starting_id,
+                    result_limit,
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::ExecutedTransactions(results)) => Ok(results),
+            Response::Error(err) => Err(err),
+            other => Err(pliantdb_core::Error::Networking(
+                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
     }
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
-        todo!()
+        match self
+            .client
+            .send_request(Request::Database {
+                database: Cow::Owned(self.name.to_string()),
+                request: DatabaseRequest::LastTransactionId,
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::LastTransactionId(result)) => Ok(result),
+            Response::Error(err) => Err(err),
+            other => Err(pliantdb_core::Error::Networking(
+                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
     }
 }
