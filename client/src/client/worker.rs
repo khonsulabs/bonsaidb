@@ -58,34 +58,26 @@ async fn connect_and_process(
     let outstanding_requests = OutstandingRequestMapHandle::default();
     let request_processor = tokio::spawn(process(outstanding_requests.clone(), payload_receiver));
 
-    let mut request_id = 0;
-    let PendingRequest { request, responder } = initial_request;
+    let PendingRequest {
+        id,
+        request,
+        responder,
+    } = initial_request;
     payload_sender
         .send(&Payload {
-            id: request_id,
+            id,
             api: Api::Request(request),
         })
         .map_err(|err| (Some(responder.clone()), Error::from(err)))?;
     {
         let mut outstanding_requests = outstanding_requests.lock().await;
-        outstanding_requests.insert(request_id, responder);
-        request_id += 1;
+        outstanding_requests.insert(id, responder);
     }
 
     // TODO switch to select
     futures::try_join!(
-        process_requests(
-            outstanding_requests,
-            request_id,
-            request_receiver,
-            payload_sender
-        ),
-        async {
-            match request_processor.await {
-                Ok(result) => result,
-                Err(_) => Err(Error::Disconnected),
-            }
-        }
+        process_requests(outstanding_requests, request_receiver, payload_sender),
+        async { request_processor.await.map_err(|_| Error::Disconnected)? }
     )
     .map_err(|err| (None, err))?;
 
@@ -94,18 +86,16 @@ async fn connect_and_process(
 
 async fn process_requests(
     outstanding_requests: OutstandingRequestMapHandle,
-    mut request_id: u64,
     request_receiver: &Receiver<PendingRequest>,
     payload_sender: fabruic::Sender<Payload<'static>>,
 ) -> Result<(), Error> {
     while let Ok(client_request) = request_receiver.recv_async().await {
         payload_sender.send(&Payload {
-            id: request_id,
+            id: client_request.id,
             api: Api::Request(client_request.request),
         })?;
         let mut outstanding_requests = outstanding_requests.lock().await;
-        outstanding_requests.insert(request_id, client_request.responder);
-        request_id += 1;
+        outstanding_requests.insert(client_request.id, client_request.responder);
     }
 
     // Return an error to make sure try_join returns.
@@ -118,13 +108,15 @@ pub async fn process(
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
         let payload = payload?;
-        let mut outstanding_requests = outstanding_requests.lock().await;
-        let responder = outstanding_requests
-            .remove(&payload.id)
-            .expect("missing responder");
         let response = match payload.api {
             Api::Request(_) => unreachable!("server should never send a requset"),
             Api::Response(response) => response,
+        };
+        let responder = {
+            let mut outstanding_requests = outstanding_requests.lock().await;
+            outstanding_requests
+                .remove(&payload.id)
+                .expect("missing responder")
         };
         let _ = responder.send(Ok(response));
     }
@@ -145,6 +137,8 @@ async fn connect(
     Error,
 > {
     let endpoint = Endpoint::new_client(certificate)?;
+    // TODO This could be handled by fabruic, or we could bring in trust-dns for
+    // an alternative option here.
     let addr = tokio::net::lookup_host(host)
         .await
         .map_err(|err| Error::InvalidUrl(err.to_string()))?

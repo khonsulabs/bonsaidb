@@ -1,6 +1,14 @@
 #[cfg(test)]
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::{any::TypeId, borrow::Cow, collections::HashMap, sync::Arc};
+use std::sync::atomic::AtomicBool;
+use std::{
+    any::TypeId,
+    borrow::Cow,
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 use async_trait::async_trait;
 use flume::Sender;
@@ -27,6 +35,7 @@ pub struct Client {
     request_sender: Sender<PendingRequest>,
     worker: Arc<CancellableHandle<Result<(), Error>>>,
     schemas: Arc<Mutex<HashMap<TypeId, Arc<Schematic>>>>,
+    request_id: Arc<AtomicU64>,
     #[cfg(test)]
     pub(crate) background_task_running: Arc<AtomicBool>,
 }
@@ -74,6 +83,7 @@ impl Client {
 
         let (request_sender, request_receiver) = flume::unbounded();
 
+        // TODO, split host and port for the backend.
         let connect_to = format!("{}:{}", host.to_string(), url.port().unwrap_or(5000));
         let worker = tokio::task::spawn(async move {
             worker::reconnecting_client_loop(connect_to, server_name, certificate, request_receiver)
@@ -91,6 +101,7 @@ impl Client {
                 background_task_running: background_task_running.clone(),
             }),
             schemas: Arc::default(),
+            request_id: Arc::default(),
             #[cfg(test)]
             background_task_running,
         };
@@ -112,9 +123,11 @@ impl Client {
 
     async fn send_request(&self, request: Request<'static>) -> Result<Response<'static>, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
+        let id = self.request_id.fetch_add(1, Ordering::SeqCst);
         self.request_sender.send(PendingRequest {
+            id,
             request,
-            responder: result_sender,
+            responder: result_sender.clone(),
         })?;
 
         result_receiver.recv_async().await?
@@ -190,7 +203,9 @@ impl ServerConnection for Client {
 type OutstandingRequestMap = HashMap<u64, Sender<Result<Response<'static>, Error>>>;
 type OutstandingRequestMapHandle = Arc<Mutex<OutstandingRequestMap>>;
 
+#[derive(Debug)]
 pub struct PendingRequest {
+    id: u64,
     request: Request<'static>,
     responder: Sender<Result<Response<'static>, Error>>,
 }

@@ -252,6 +252,7 @@ where
         // typeless interface is that we're getting a serialized version back.
         // This is wasteful. We should be able to use Any to get a full
         // reference to the view here so that we can call reduce directly.
+        // TODO If we have one mapping, no need to re-reduce
         let result = view
             .reduce(
                 &mappings

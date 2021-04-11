@@ -323,6 +323,7 @@ impl Server {
                 api: Api::Response(response),
             })?;
         }
+
         Ok(())
     }
 
@@ -429,13 +430,14 @@ impl Server {
             if let Some(timeout) = timeout {
                 server.close_incoming().await?;
 
-                let idle = server.wait_idle().then(|_| async { Ok(()) });
-                let timeout = tokio::time::sleep(timeout).then(|_| async { Err::<(), ()>(()) });
-                if futures::try_join!(idle, timeout).is_err() {
-                    server.close().await?;
+                if tokio::time::timeout(timeout, server.wait_idle())
+                    .await
+                    .is_err()
+                {
+                    server.close().await;
                 }
             } else {
-                server.close().await?;
+                server.close().await;
             }
         }
 
@@ -494,6 +496,9 @@ impl networking::ServerConnection for Server {
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), pliantdb_core::Error> {
+        let mut open_databases = self.data.open_databases.write().await;
+        open_databases.remove(name);
+
         let mut available_databases = self.data.available_databases.write().await;
 
         let file_path = self.database_path(name);
