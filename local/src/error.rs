@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use pliantdb_core::schema::view;
 
 /// Errors that can occur from interacting with storage.
@@ -29,7 +31,7 @@ pub enum Error {
 
     /// An internal error occurred while waiting for a message.
     #[error("an unexpected error occurred: {0}")]
-    Other(#[from] anyhow::Error),
+    Other(#[from] Arc<anyhow::Error>),
 }
 
 impl From<Error> for pliantdb_core::Error {

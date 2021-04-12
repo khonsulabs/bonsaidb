@@ -22,4 +22,6 @@ pub mod manager;
 pub mod task;
 mod traits;
 
+pub use flume;
+
 pub use self::traits::{Job, Keyed};

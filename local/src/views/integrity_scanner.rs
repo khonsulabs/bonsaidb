@@ -127,7 +127,7 @@ where
                     },
                 })
                 .await;
-            job.receive().await?;
+            job.receive().await?.map_err(crate::Error::Other)?;
         }
 
         self.storage

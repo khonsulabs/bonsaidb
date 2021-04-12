@@ -63,7 +63,9 @@ where
         jobs.lookup_or_enqueue(job, self.clone())
     }
 
-    async fn job_completed<T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static>(
+    async fn job_completed<
+        T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    >(
         &self,
         id: Id,
         key: Option<&Key>,

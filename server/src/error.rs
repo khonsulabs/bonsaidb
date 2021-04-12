@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use pliantdb_core::networking::{self, fabruic};
 use pliantdb_local::core::{self, schema};
 
@@ -30,6 +32,10 @@ pub enum Error {
     /// An error occurred from IO
     #[error("a networking error occurred: '{0}'")]
     Io(#[from] tokio::io::Error),
+
+    /// An error occurred while processing a request
+    #[error("an error occurred processing a request: '{0}'")]
+    Request(Arc<anyhow::Error>),
 
     /// The database named `database_name` was created with a different schema
     /// (`stored_schema`) than provided (`schema`).
@@ -80,6 +86,7 @@ impl From<Error> for core::Error {
             Error::DatabaseNameAlreadyTaken(name) => {
                 Self::Networking(networking::Error::DatabaseNameAlreadyTaken(name))
             }
+            Error::Request(err) => Self::Server(err.to_string()),
             Error::SchemaMismatch {
                 database_name,
                 schema,

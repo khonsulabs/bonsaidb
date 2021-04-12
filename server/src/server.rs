@@ -15,7 +15,7 @@ use async_trait::async_trait;
 use flume::Sender;
 #[cfg(feature = "websockets")]
 use futures::SinkExt;
-use futures::{StreamExt, TryFutureExt};
+use futures::{Future, StreamExt, TryFutureExt};
 use itertools::Itertools;
 use pliantdb_core::{
     connection::{AccessPolicy, QueryKey},
@@ -28,6 +28,7 @@ use pliantdb_core::{
     schema,
     transaction::Executed,
 };
+use pliantdb_jobs::{manager::Manager, Job};
 use pliantdb_local::{
     core::{
         self,
@@ -65,6 +66,7 @@ struct Data {
     schemas: RwLock<HashMap<schema::Id, Box<dyn DatabaseOpener>>>,
     open_databases: RwLock<HashMap<String, Arc<Box<dyn OpenDatabase>>>>,
     available_databases: RwLock<HashMap<String, schema::Id>>,
+    request_processor: Manager,
 }
 
 impl Server {
@@ -83,6 +85,17 @@ impl Server {
             .map(|map| (map.key, map.value))
             .collect();
 
+        let request_processor = Manager::default();
+        // TODO add configuration
+        // TODO also, I think the vision was to share
+        // workers between Client and Server but it's uncertain how that would
+        // work since the local storage wants to interact with its own Task
+        // type.
+        request_processor.spawn_worker();
+        request_processor.spawn_worker();
+        request_processor.spawn_worker();
+        request_processor.spawn_worker();
+
         Ok(Self {
             data: Arc::new(Data {
                 admin,
@@ -93,6 +106,7 @@ impl Server {
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
                 open_databases: RwLock::default(),
+                request_processor,
             }),
         })
     }
@@ -361,25 +375,38 @@ impl Server {
         let stream = tokio_tungstenite::accept_async(connection).await?;
 
         let (mut sender, mut receiver) = stream.split();
+        let (response_sender, response_receiver) = flume::unbounded();
+        tokio::spawn(async move {
+            while let Ok(response) = response_receiver.recv_async().await {
+                sender.send(response).await?;
+            }
+
+            Result::<(), tokio_tungstenite::tungstenite::Error>::Ok(())
+        });
 
         while let Some(payload) = receiver.next().await {
             match payload? {
                 Message::Binary(binary) => {
                     let payload = bincode::deserialize::<Payload<Request<'_>>>(&binary)?;
-                    let result = self
-                        .handle_request(payload.wrapped)
-                        .await
-                        .unwrap_or_else(|err| Response::Error(err.into()));
-                    sender
-                        .send(Message::Binary(bincode::serialize(&Payload {
-                            id: payload.id,
-                            wrapped: result,
-                        })?))
-                        .await?;
+                    let id = payload.id;
+                    let task_sender = response_sender.clone();
+                    self.handle_request_through_worker(
+                        payload.wrapped,
+                        move |response| async move {
+                            let _ =
+                                task_sender.send(Message::Binary(bincode::serialize(&Payload {
+                                    id,
+                                    wrapped: response,
+                                })?));
+
+                            Ok(())
+                        },
+                    )
+                    .await?;
                 }
                 Message::Close(_) => break,
                 Message::Ping(payload) => {
-                    sender.send(Message::Pong(payload)).await?;
+                    let _ = response_sender.send(Message::Pong(payload));
                 }
                 other => {
                     eprintln!("[server] unexpected message: {:?}", other);
@@ -387,6 +414,31 @@ impl Server {
             }
         }
 
+        Ok(())
+    }
+
+    async fn handle_request_through_worker<
+        F: FnOnce(Response<'static>) -> R + Send + 'static,
+        R: Future<Output = Result<(), Error>> + Send,
+    >(
+        &self,
+        request: Request<'static>,
+        callback: F,
+    ) -> Result<(), Error> {
+        let job = self
+            .data
+            .request_processor
+            .enqueue(ClientRequest::new(request, self.clone()))
+            .await;
+        tokio::spawn(async move {
+            let result = job
+                .receive()
+                .await
+                .map_err(|_| Error::Request(Arc::new(anyhow::anyhow!("background job aborted"))))?
+                .map_err(Error::Request)?;
+            callback(result).await?;
+            Result::<(), Error>::Ok(())
+        });
         Ok(())
     }
 
@@ -402,14 +454,17 @@ impl Server {
                     todo!("fabruic should have separate types for send/receive")
                 }
             };
-            let response = self
-                .handle_request(request)
-                .await
-                .unwrap_or_else(|err| Response::Error(err.into()));
-            sender.send(&Payload {
-                id: payload.id,
-                wrapped: Api::Response(response),
-            })?;
+            let id = payload.id;
+            let task_sender = sender.clone();
+            self.handle_request_through_worker(request, move |response| async move {
+                task_sender.send(&Payload {
+                    id,
+                    wrapped: Api::Response(response),
+                })?;
+
+                Ok(())
+            })
+            .await?;
         }
 
         Ok(())
@@ -873,5 +928,33 @@ where
             Storage::<DB>::open_local(self.server.database_path(name), &Configuration::default())
                 .await?;
         Ok(Arc::new(Box::new(db)))
+    }
+}
+
+#[derive(Debug)]
+struct ClientRequest {
+    request: Option<Request<'static>>,
+    server: Server,
+}
+impl ClientRequest {
+    pub const fn new(request: Request<'static>, server: Server) -> Self {
+        Self {
+            request: Some(request),
+            server,
+        }
+    }
+}
+
+#[async_trait]
+impl Job for ClientRequest {
+    type Output = Response<'static>;
+
+    async fn execute(&mut self) -> anyhow::Result<Self::Output> {
+        let request = self.request.take().unwrap();
+        Ok(self
+            .server
+            .handle_request(request)
+            .await
+            .unwrap_or_else(|err| Response::Error(err.into())))
     }
 }

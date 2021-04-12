@@ -16,7 +16,7 @@ pub struct Handle<T, Key> {
     pub id: Id,
 
     pub(crate) manager: Manager<Key>,
-    pub(crate) receiver: Receiver<Arc<Result<T, anyhow::Error>>>,
+    pub(crate) receiver: Receiver<Result<T, Arc<anyhow::Error>>>,
 }
 
 impl<T, Key> Handle<T, Key>
@@ -32,13 +32,13 @@ where
     }
 
     /// Waits for the job to complete and returns the result.
-    pub async fn receive(&self) -> Result<Arc<Result<T, anyhow::Error>>, flume::RecvError> {
+    pub async fn receive(&self) -> Result<Result<T, Arc<anyhow::Error>>, flume::RecvError> {
         self.receiver.recv_async().await
     }
 
     /// Tries to receive the status of the job. If available, it is returned.
     /// This function will not block.
-    pub fn try_receive(&self) -> Result<Arc<Result<T, anyhow::Error>>, flume::TryRecvError> {
+    pub fn try_receive(&self) -> Result<Result<T, Arc<anyhow::Error>>, flume::TryRecvError> {
         self.receiver.try_recv()
     }
 }
