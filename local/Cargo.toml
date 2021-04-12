@@ -27,7 +27,7 @@ serde_cbor = "0.11"
 bincode = "1.3"
 anyhow = "1"
 pliantdb-jobs = { path = "../jobs", version = "0.1.0-dev-1" }
-flume = "0.9"
+flume = "0.10"
 itertools = "0.10"
 structopt = { version = "0.3", optional = true }
 

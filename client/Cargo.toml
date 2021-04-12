@@ -18,7 +18,7 @@ websockets = ["pliantdb-core/websockets", "tokio-tungstenite", "bincode"]
 pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["networking"] }
 thiserror = "1"
 url = "2.2"
-flume = "0.9"
+flume = "0.10"
 tokio = { version = "1" }
 futures = "0.3"
 async-trait = "0.1"
