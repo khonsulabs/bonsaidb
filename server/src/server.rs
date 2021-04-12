@@ -396,7 +396,6 @@ impl Server {
         mut receiver: fabruic::Receiver<Payload<Api<'static>>>,
     ) -> Result<(), Error> {
         while let Some(payload) = receiver.next().await {
-            let payload = payload?;
             let request = match payload.wrapped {
                 Api::Request(request) => request,
                 Api::Response(..) => {

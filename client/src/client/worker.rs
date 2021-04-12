@@ -103,7 +103,6 @@ pub async fn process(
     mut payload_receiver: fabruic::Receiver<Payload<Api<'static>>>,
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
-        let payload = payload?;
         let response = match payload.wrapped {
             Api::Request(_) => unreachable!("server should never send a requset"),
             Api::Response(response) => response,

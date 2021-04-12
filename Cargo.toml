@@ -3,4 +3,4 @@
 members = ["pliantdb", "core", "local", "jobs", "client", "server"]
 
 [patch.crates-io]
-fabruic = { path = "../fabruic", version = "0.0.0-reserve" }
+# fabruic = { path = "../fabruic", version = "0.0.0-reserve" }
