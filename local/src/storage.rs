@@ -76,7 +76,7 @@ where
                 .map_err(Error::from)
         })
         .await
-        .unwrap()?;
+        .map_err(|err| pliantdb_core::Error::Storage(err.to_string()))??;
 
         if configuration.views.check_integrity_on_open {
             for view in storage.schema.views() {
@@ -371,7 +371,7 @@ where
             }
         })
         .await
-        .unwrap()
+        .map_err(|err| pliantdb_core::Error::Storage(err.to_string()))?
     }
 
     async fn get<C: schema::Collection>(

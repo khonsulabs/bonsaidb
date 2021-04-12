@@ -15,7 +15,7 @@ use flume::Sender;
 use pliantdb_core::{
     fabruic::Certificate,
     networking::{
-        self, Database, Request, Response, ServerConnection, ServerRequest, ServerResponse,
+        self, Database, Payload, Request, Response, ServerConnection, ServerRequest, ServerResponse,
     },
     schema::{Schema, Schematic},
 };
@@ -26,6 +26,8 @@ pub use self::remote_database::RemoteDatabase;
 use crate::error::Error;
 
 mod remote_database;
+#[cfg(feature = "websockets")]
+mod websocket_worker;
 mod worker;
 
 /// Client for connecting to a `PliantDB` server.
@@ -56,13 +58,26 @@ impl Client {
     /// to recover and reconnect, each component of the apps built can adopt a
     /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
     /// the database is to operation.
-    pub fn new(url: &Url, certificate: Certificate) -> Result<Self, Error> {
-        if url.scheme() != "pliantdb" {
-            return Err(Error::InvalidUrl(String::from(
-                "url should begin with pliantdb://",
-            )));
-        }
+    pub async fn new(url: &Url, certificate: Option<Certificate>) -> Result<Self, Error> {
+        match url.scheme() {
+            "pliantdb" => {
+                let certificate = certificate.ok_or_else(|| {
+                    Error::InvalidUrl(String::from(
+                        "certificate must be provided with pliantdb:// urls",
+                    ))
+                })?;
 
+                Self::new_pliant_client(url, certificate)
+            }
+            #[cfg(feature = "websockets")]
+            "wss" | "ws" => Self::new_websocket_client(url).await,
+            other => {
+                return Err(Error::InvalidUrl(format!("unsupported scheme {}", other)));
+            }
+        }
+    }
+
+    fn new_pliant_client(url: &Url, certificate: Certificate) -> Result<Self, Error> {
         let host = url
             .host_str()
             .ok_or_else(|| Error::InvalidUrl(String::from("url must specify a host")))?;
@@ -85,10 +100,40 @@ impl Client {
 
         // TODO, split host and port for the backend.
         let connect_to = format!("{}:{}", host.to_string(), url.port().unwrap_or(5000));
-        let worker = tokio::task::spawn(async move {
-            worker::reconnecting_client_loop(connect_to, server_name, certificate, request_receiver)
-                .await
-        });
+        let worker = tokio::task::spawn(worker::reconnecting_client_loop(
+            connect_to,
+            server_name,
+            certificate,
+            request_receiver,
+        ));
+
+        #[cfg(test)]
+        let background_task_running = Arc::new(AtomicBool::new(true));
+
+        let client = Self {
+            request_sender,
+            worker: Arc::new(CancellableHandle {
+                worker,
+                #[cfg(test)]
+                background_task_running: background_task_running.clone(),
+            }),
+            schemas: Arc::default(),
+            request_id: Arc::default(),
+            #[cfg(test)]
+            background_task_running,
+        };
+
+        Ok(client)
+    }
+
+    #[cfg(feature = "websockets")]
+    async fn new_websocket_client(url: &Url) -> Result<Self, Error> {
+        let (request_sender, request_receiver) = flume::unbounded();
+
+        let worker = tokio::task::spawn(websocket_worker::reconnecting_client_loop(
+            url.clone(),
+            request_receiver,
+        ));
 
         #[cfg(test)]
         let background_task_running = Arc::new(AtomicBool::new(true));
@@ -125,8 +170,10 @@ impl Client {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.request_id.fetch_add(1, Ordering::SeqCst);
         self.request_sender.send(PendingRequest {
-            id,
-            request,
+            request: Payload {
+                id,
+                wrapped: request,
+            },
             responder: result_sender.clone(),
         })?;
 
@@ -205,8 +252,7 @@ type OutstandingRequestMapHandle = Arc<Mutex<OutstandingRequestMap>>;
 
 #[derive(Debug)]
 pub struct PendingRequest {
-    id: u64,
-    request: Request<'static>,
+    request: Payload<Request<'static>>,
     responder: Sender<Result<Response<'static>, Error>>,
 }
 

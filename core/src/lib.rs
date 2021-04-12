@@ -51,6 +51,11 @@ pub enum Error {
     #[error("a transport error occurred: '{0}'")]
     Transport(String),
 
+    /// An error occurred from the websocket transport layer.
+    #[cfg(feature = "websockets")]
+    #[error("a websocket error occurred: '{0}'")]
+    Websocket(String),
+
     /// An error occurred from networking.
     #[cfg(feature = "networking")]
     #[error("a networking error occurred: '{0}'")]

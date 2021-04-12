@@ -58,20 +58,16 @@ async fn connect_and_process(
     let outstanding_requests = OutstandingRequestMapHandle::default();
     let request_processor = tokio::spawn(process(outstanding_requests.clone(), payload_receiver));
 
-    let PendingRequest {
-        id,
-        request,
-        responder,
-    } = initial_request;
+    let PendingRequest { request, responder } = initial_request;
     payload_sender
         .send(&Payload {
-            id,
-            api: Api::Request(request),
+            id: request.id,
+            wrapped: Api::Request(request.wrapped),
         })
         .map_err(|err| (Some(responder.clone()), Error::from(err)))?;
     {
         let mut outstanding_requests = outstanding_requests.lock().await;
-        outstanding_requests.insert(id, responder);
+        outstanding_requests.insert(request.id, responder);
     }
 
     // TODO switch to select
@@ -87,15 +83,15 @@ async fn connect_and_process(
 async fn process_requests(
     outstanding_requests: OutstandingRequestMapHandle,
     request_receiver: &Receiver<PendingRequest>,
-    payload_sender: fabruic::Sender<Payload<'static>>,
+    payload_sender: fabruic::Sender<Payload<Api<'static>>>,
 ) -> Result<(), Error> {
     while let Ok(client_request) = request_receiver.recv_async().await {
-        payload_sender.send(&Payload {
-            id: client_request.id,
-            api: Api::Request(client_request.request),
-        })?;
         let mut outstanding_requests = outstanding_requests.lock().await;
-        outstanding_requests.insert(client_request.id, client_request.responder);
+        outstanding_requests.insert(client_request.request.id, client_request.responder);
+        payload_sender.send(&Payload {
+            id: client_request.request.id,
+            wrapped: Api::Request(client_request.request.wrapped),
+        })?;
     }
 
     // Return an error to make sure try_join returns.
@@ -104,11 +100,11 @@ async fn process_requests(
 
 pub async fn process(
     outstanding_requests: OutstandingRequestMapHandle,
-    mut payload_receiver: fabruic::Receiver<Payload<'static>>,
+    mut payload_receiver: fabruic::Receiver<Payload<Api<'static>>>,
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
         let payload = payload?;
-        let response = match payload.api {
+        let response = match payload.wrapped {
             Api::Request(_) => unreachable!("server should never send a requset"),
             Api::Response(response) => response,
         };
@@ -131,8 +127,8 @@ async fn connect(
 ) -> Result<
     (
         fabruic::Connection,
-        fabruic::Sender<Payload<'static>>,
-        fabruic::Receiver<Payload<'static>>,
+        fabruic::Sender<Payload<Api<'static>>>,
+        fabruic::Receiver<Payload<Api<'static>>>,
     ),
     Error,
 > {

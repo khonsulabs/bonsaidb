@@ -12,9 +12,10 @@ readme = "../README.md"
 
 [features]
 default = []
-test-util = ["futures", "tokio", "networking"]
+test-util = ["futures", "tokio", "networking", "websockets"]
 networking = ["fabruic"]
 certificate = ["fabruic/certificate"]
+websockets = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

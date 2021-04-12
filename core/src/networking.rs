@@ -17,9 +17,9 @@ use crate::{
 };
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
-pub struct Payload<'a> {
+pub struct Payload<T> {
     pub id: u64,
-    pub api: Api<'a>,
+    pub wrapped: T,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]

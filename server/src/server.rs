@@ -11,7 +11,11 @@ use std::{
 
 use admin::database::{self, Database};
 use async_trait::async_trait;
-use futures::{FutureExt, StreamExt, TryFutureExt};
+#[cfg(feature = "websockets")]
+use flume::Sender;
+#[cfg(feature = "websockets")]
+use futures::SinkExt;
+use futures::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use pliantdb_core::{
     connection::{AccessPolicy, QueryKey},
@@ -34,6 +38,8 @@ use pliantdb_local::{
     },
     Configuration, Storage,
 };
+#[cfg(feature = "websockets")]
+use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
 
 use crate::{
@@ -52,6 +58,8 @@ pub struct Server {
 #[derive(Debug)]
 struct Data {
     endpoint: RwLock<Option<Endpoint>>,
+    #[cfg(feature = "websockets")]
+    websocket_shutdown: RwLock<Option<Sender<()>>>,
     directory: PathBuf,
     admin: Storage<Admin>,
     schemas: RwLock<HashMap<schema::Id, Box<dyn DatabaseOpener>>>,
@@ -82,6 +90,8 @@ impl Server {
                 available_databases: RwLock::new(available_databases),
                 schemas: RwLock::default(),
                 endpoint: RwLock::default(),
+                #[cfg(feature = "websockets")]
+                websocket_shutdown: RwLock::default(),
                 open_databases: RwLock::default(),
             }),
         })
@@ -289,26 +299,105 @@ impl Server {
         Ok(())
     }
 
+    /// Listens for `WebSocket` traffic on `port`.
+    #[cfg(feature = "websockets")]
+    pub async fn listen_for_websockets_on<T: tokio::net::ToSocketAddrs + Send + Sync>(
+        &self,
+        addr: T,
+    ) -> Result<(), Error> {
+        let listener = TcpListener::bind(&addr).await?;
+        let (shutdown_sender, shutdown_receiver) = flume::bounded(1);
+        {
+            let mut shutdown = self.data.websocket_shutdown.write().await;
+            *shutdown = Some(shutdown_sender);
+        }
+
+        loop {
+            tokio::select! {
+                _ = shutdown_receiver.recv_async() => {
+                    break;
+                }
+                incoming = listener.accept() => {
+                    if incoming.is_err() {
+                        continue;
+                    }
+                    let (connection, remote_addr) = incoming.unwrap();
+                    println!("[server] new connection from {}", remote_addr);
+
+                    let task_self = self.clone();
+                    tokio::spawn(async move {
+                        if let Err(err) = task_self.handle_websocket_connection(connection).await {
+                            eprintln!("[server] closing connection {}: {:?}", remote_addr, err);
+                        }
+                    });
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     async fn handle_connection(&self, mut connection: fabruic::Connection) -> Result<(), Error> {
         // TODO limit number of streams open for a client -- allowing for streams to shut down and be reclaimed.
         while let Some(incoming) = connection.next().await {
-            println!("New incoming stream from: {}", connection.remote_address());
+            println!(
+                "[server] incoming stream from: {}",
+                connection.remote_address()
+            );
 
-            let (sender, receiver) = incoming.accept_stream::<networking::Payload<'_>>();
+            let (sender, receiver) = incoming.accept_stream::<networking::Payload<Api<'_>>>();
             let task_self = self.clone();
             tokio::spawn(async move { task_self.handle_stream(sender, receiver).await });
         }
         Ok(())
     }
 
+    #[cfg(feature = "websockets")]
+    async fn handle_websocket_connection(
+        &self,
+        connection: tokio::net::TcpStream,
+    ) -> Result<(), Error> {
+        use tokio_tungstenite::tungstenite::Message;
+        let stream = tokio_tungstenite::accept_async(connection).await?;
+
+        let (mut sender, mut receiver) = stream.split();
+
+        while let Some(payload) = receiver.next().await {
+            match payload? {
+                Message::Binary(binary) => {
+                    let payload = bincode::deserialize::<Payload<Request<'_>>>(&binary)?;
+                    let result = self
+                        .handle_request(payload.wrapped)
+                        .await
+                        .unwrap_or_else(|err| Response::Error(err.into()));
+                    sender
+                        .send(Message::Binary(bincode::serialize(&Payload {
+                            id: payload.id,
+                            wrapped: result,
+                        })?))
+                        .await?;
+                }
+                Message::Close(_) => break,
+                Message::Ping(payload) => {
+                    sender.send(Message::Pong(payload)).await?;
+                }
+                other => {
+                    eprintln!("[server] unexpected message: {:?}", other);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     async fn handle_stream(
         &self,
-        sender: fabruic::Sender<Payload<'static>>,
-        mut receiver: fabruic::Receiver<Payload<'static>>,
+        sender: fabruic::Sender<Payload<Api<'static>>>,
+        mut receiver: fabruic::Receiver<Payload<Api<'static>>>,
     ) -> Result<(), Error> {
         while let Some(payload) = receiver.next().await {
             let payload = payload?;
-            let request = match payload.api {
+            let request = match payload.wrapped {
                 Api::Request(request) => request,
                 Api::Response(..) => {
                     todo!("fabruic should have separate types for send/receive")
@@ -320,7 +409,7 @@ impl Server {
                 .unwrap_or_else(|err| Response::Error(err.into()));
             sender.send(&Payload {
                 id: payload.id,
-                api: Api::Response(response),
+                wrapped: Api::Response(response),
             })?;
         }
 

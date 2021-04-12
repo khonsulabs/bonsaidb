@@ -19,11 +19,20 @@ required-features = ["cli"]
 name = "basic-local"
 required-features = ["local"]
 
+[[example]]
+name = "view-examples"
+required-features = ["local"]
+
+[[example]]
+name = "server-test"
+required-features = ["server"]
+
 [features]
 default = ["cli"]
-full = ["local", "server"]
+full = ["local", "server", "client", "websockets"]
 local = ["pliantdb-local"]
 server = ["pliantdb-server"]
+client = ["pliantdb-client"]
 cli = [
     "full",
     "anyhow",
@@ -32,10 +41,12 @@ cli = [
     "pliantdb-local/cli",
     "pliantdb-server/cli",
 ]
+websockets = ["pliantdb-server/websockets", "pliantdb-client/websockets"]
 
 [dependencies]
 pliantdb-core = { path = "../core", version = "0.1.0-dev-1" }
 pliantdb-local = { path = "../local", version = "0.1.0-dev-1", optional = true }
+pliantdb-client = { path = "../client", version = "0.1.0-dev-1", optional = true }
 pliantdb-server = { path = "../server", version = "0.1.0-dev-1", optional = true }
 
 tokio = { version = "1", features = ["full"], optional = true }
@@ -46,3 +57,5 @@ anyhow = { version = "1", optional = true }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 anyhow = "1"
+pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["test-util"] }
+futures = "0.3"

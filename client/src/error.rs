@@ -8,6 +8,11 @@ pub enum Error {
     #[error("a transport error occurred: '{0}'")]
     Transport(#[from] fabruic::Error),
 
+    #[cfg(feature = "websockets")]
+    /// An error occurred from the WebSocket transport layer.
+    #[error("a transport error occurred: '{0}'")]
+    WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
+
     /// An error occurred from networking.
     #[error("a networking error occurred: '{0}'")]
     Network(#[from] pliantdb_core::networking::Error),
@@ -40,5 +45,15 @@ impl From<flume::RecvError> for Error {
 impl From<Error> for core::Error {
     fn from(other: Error) -> Self {
         Self::Client(other.to_string())
+    }
+}
+
+#[cfg(feature = "websockets")]
+impl From<bincode::Error> for Error {
+    fn from(other: bincode::Error) -> Self {
+        Self::Core(core::Error::Websocket(format!(
+            "error decoding websocket message: {:?}",
+            other
+        )))
     }
 }

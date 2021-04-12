@@ -127,7 +127,7 @@ where
                     },
                 })
                 .await;
-            job.receive().await.unwrap();
+            job.receive().await?;
         }
 
         self.storage

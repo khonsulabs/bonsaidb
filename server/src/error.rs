@@ -22,6 +22,11 @@ pub enum Error {
     #[error("a networking error occurred: '{0}'")]
     Transport(#[from] fabruic::Error),
 
+    #[cfg(feature = "websockets")]
+    /// An error occurred from the Websocket transport layer.
+    #[error("a websocket error occurred: '{0}'")]
+    Websocket(#[from] tokio_tungstenite::tungstenite::Error),
+
     /// An error occurred from IO
     #[error("a networking error occurred: '{0}'")]
     Io(#[from] tokio::io::Error),
@@ -64,6 +69,8 @@ impl From<Error> for core::Error {
             Error::Core(core) => core,
             Error::Io(io) => Self::Io(io.to_string()),
             Error::Transport(networking) => Self::Transport(networking.to_string()),
+            #[cfg(feature = "websockets")]
+            Error::Websocket(err) => Self::Websocket(err.to_string()),
             Error::InvalidDatabaseName(name) => {
                 Self::Networking(networking::Error::InvalidDatabaseName(name))
             }
@@ -101,5 +108,15 @@ impl<R> ResultExt<R> for Result<R, Error> {
         Self: Sized,
     {
         self.map_err(core::Error::from)
+    }
+}
+
+#[cfg(feature = "websockets")]
+impl From<bincode::Error> for Error {
+    fn from(other: bincode::Error) -> Self {
+        Self::Core(core::Error::Websocket(format!(
+            "error deserializing message: {:?}",
+            other
+        )))
     }
 }

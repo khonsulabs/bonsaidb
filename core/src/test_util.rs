@@ -251,9 +251,9 @@ impl Collection for UnassociatedCollection {
     fn define_views(_schema: &mut Schematic) {}
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum ConnectionTest {
-    StoreRetrieveUpdate,
+    StoreRetrieveUpdate = 1,
     NotFound,
     Conflict,
     BadUpdate,
@@ -264,6 +264,13 @@ pub enum ConnectionTest {
     UnassociatedCollection,
     ViewUpdate,
     ViewAccessPolicies,
+}
+
+impl ConnectionTest {
+    #[must_use]
+    pub const fn port(self, base: u16) -> u16 {
+        base + self as u16
+    }
 }
 
 impl Display for ConnectionTest {

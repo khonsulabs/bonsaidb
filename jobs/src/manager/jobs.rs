@@ -98,6 +98,10 @@ where
         key: Option<&Key>,
         result: Result<T, anyhow::Error>,
     ) {
+        if let Some(key) = key {
+            self.keyed_jobs.remove(key);
+        }
+
         if let Some(senders) = self.result_senders.remove(&id) {
             tokio::spawn(async move {
                 let result = &Arc::new(result);
@@ -110,10 +114,6 @@ where
                 }))
                 .await;
             });
-        }
-
-        if let Some(key) = key {
-            self.keyed_jobs.remove(key);
         }
     }
 }
