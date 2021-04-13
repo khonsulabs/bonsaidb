@@ -1,4 +1,4 @@
-use std::{borrow::Cow, marker::PhantomData, sync::Arc};
+use std::{marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
 use pliantdb_core::{
@@ -53,7 +53,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.to_string()),
+                database: self.name.to_string(),
                 request: DatabaseRequest::Get {
                     collection: C::collection_id(),
                     id,
@@ -79,7 +79,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.to_string()),
+                database: self.name.to_string(),
                 request: DatabaseRequest::GetMultiple {
                     collection: C::collection_id(),
                     ids: ids.to_vec(),
@@ -106,7 +106,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.to_string()),
+                database: self.name.to_string(),
                 request: DatabaseRequest::Query {
                     view: self
                         .schema
@@ -143,7 +143,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.to_string()),
+                database: self.name.to_string(),
                 request: DatabaseRequest::Query {
                     view: self
                         .schema
@@ -180,7 +180,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.to_string()),
+                database: self.name.to_string(),
                 request: DatabaseRequest::Reduce {
                     view: self
                         .schema
@@ -211,7 +211,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.to_string()),
+                database: self.name.to_string(),
                 request: DatabaseRequest::ApplyTransaction { transaction },
             })
             .await?
@@ -232,7 +232,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.to_string()),
+                database: self.name.to_string(),
                 request: DatabaseRequest::ListExecutedTransactions {
                     starting_id,
                     result_limit,
@@ -252,7 +252,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
         match self
             .client
             .send_request(Request::Database {
-                database: Cow::Owned(self.name.to_string()),
+                database: self.name.to_string(),
                 request: DatabaseRequest::LastTransactionId,
             })
             .await?

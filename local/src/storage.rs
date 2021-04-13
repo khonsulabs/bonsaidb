@@ -231,6 +231,7 @@ where
     }
 
     /// Reduce view `view_name`.
+    #[allow(clippy::missing_panics_doc)] // the only unwrap is impossible to fail
     pub async fn reduce_in_view(
         &self,
         view_name: &str,
@@ -248,13 +249,10 @@ where
         })
         .await?;
 
-        // An unfortunate side effect of interacting with the view over a
-        // typeless interface is that we're getting a serialized version back.
-        // This is wasteful. We should be able to use Any to get a full
-        // reference to the view here so that we can call reduce directly.
-        // TODO If we have one mapping, no need to re-reduce
-        let result = view
-            .reduce(
+        let result = if mappings.len() == 1 {
+            mappings.pop().unwrap().1 // reason for missing_panics_doc
+        } else {
+            view.reduce(
                 &mappings
                     .iter()
                     .map(|(key, value)| (key.as_ref(), value.as_ref()))
@@ -262,7 +260,8 @@ where
                 true,
             )
             .map_err(Error::View)
-            .map_err_to_core()?;
+            .map_err_to_core()?
+        };
 
         Ok(result)
     }

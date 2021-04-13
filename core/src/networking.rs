@@ -1,4 +1,3 @@
-#![allow(missing_docs)] // TODO
 use std::borrow::Cow;
 
 use async_trait::async_trait;
@@ -16,99 +15,171 @@ use crate::{
     transaction::{Executed, OperationResult, Transaction},
 };
 
+/// A payload with an associated id.
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Payload<T> {
-    pub id: u64,
+    /// The unique id for this payload.
+    pub id: u32,
+    /// The wrapped payload.
     pub wrapped: T,
 }
 
+/// An Api request or response.
 #[derive(Clone, Deserialize, Serialize, Debug)]
-pub enum Api<'a> {
-    Request(Request<'a>),
-    Response(Response<'a>),
+pub enum Api {
+    /// An Api request.
+    Request(Request),
+    /// An Api response.
+    Response(Response),
 }
 
+/// A request made to a server.
 #[derive(Clone, Deserialize, Serialize, Debug)]
-pub enum Request<'a> {
-    Server(ServerRequest<'a>),
+pub enum Request {
+    /// A server-related request.
+    Server(ServerRequest),
+    /// A database-related request.
     Database {
-        database: Cow<'a, str>,
-        request: DatabaseRequest<'a>,
+        /// The name of the database.
+        database: String,
+        /// The request made to the database.
+        request: DatabaseRequest,
     },
 }
 
+/// A server-related request.
 #[derive(Clone, Deserialize, Serialize, Debug)]
-pub enum ServerRequest<'a> {
-    CreateDatabase(Database<'a>),
-    DeleteDatabase { name: Cow<'a, str> },
+pub enum ServerRequest {
+    /// Creates a database.
+    CreateDatabase(Database),
+    /// Deletes the database named `name`
+    DeleteDatabase {
+        /// The name of the database to delete.
+        name: String,
+    },
+    /// Lists all databases.
     ListDatabases,
+    /// Lists available schemas.
     ListAvailableSchemas,
 }
 
+/// A database-related request.
 #[derive(Clone, Deserialize, Serialize, Debug)]
-pub enum DatabaseRequest<'a> {
+pub enum DatabaseRequest {
+    /// Retrieve a single document.
     Get {
+        /// The collection of the document.
         collection: collection::Id,
+        /// The id of the document.
         id: u64,
     },
+    /// Retrieve multiple documents.
     GetMultiple {
+        /// The collection of the documents.
         collection: collection::Id,
+        /// The ids of the documents.
         ids: Vec<u64>,
     },
+    /// Queries a view.
     Query {
-        view: Cow<'a, str>,
+        /// The name of the view.
+        view: Cow<'static, str>,
+        /// The filter for the view.
         key: Option<QueryKey<Vec<u8>>>,
+        /// The access policy for the query.
         access_policy: AccessPolicy,
+        /// If true, [`DatabaseResponse::ViewMappingsWithDocs`] will be
+        /// returned. If false, [`DatabaseResponse::ViewMappings`] will be
+        /// returned.
         with_docs: bool,
     },
+    /// Reduces a view.
     Reduce {
-        view: Cow<'a, str>,
+        /// The name of the view.
+        view: Cow<'static, str>,
+        /// The filter for the view.
         key: Option<QueryKey<Vec<u8>>>,
+        /// The access policy for the query.
         access_policy: AccessPolicy,
     },
+    /// Applies a transaction.
     ApplyTransaction {
-        transaction: Transaction<'a>,
+        /// The trasnaction to apply.
+        transaction: Transaction<'static>,
     },
+    /// Lists executed transactions.
     ListExecutedTransactions {
+        /// The starting transaction id.
         starting_id: Option<u64>,
+        /// The maximum number of results.
         result_limit: Option<usize>,
     },
+    /// Queries the last transaction id.
     LastTransactionId,
 }
+
+/// A response from a server.
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub enum Response<'a> {
-    Server(ServerResponse<'a>),
-    Database(DatabaseResponse<'a>),
+pub enum Response {
+    /// A response to a [`ServerRequest`].
+    Server(ServerResponse),
+    /// A response to a [`DatabaseRequest`].
+    Database(DatabaseResponse),
+    /// An error occurred processing a request.
     Error(crate::Error),
 }
 
+/// A response to a [`ServerRequest`].
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub enum ServerResponse<'a> {
-    DatabaseCreated { name: Cow<'a, str> },
-    DatabaseDeleted { name: Cow<'a, str> },
-    Databases(Vec<Database<'a>>),
+pub enum ServerResponse {
+    /// A database with `name` was successfully created.
+    DatabaseCreated {
+        /// The name of the database to create.
+        name: String,
+    },
+    /// A database with `name` was successfully removed.
+    DatabaseDeleted {
+        /// The name of the database to remove.
+        name: String,
+    },
+    /// A list of available databases.
+    Databases(Vec<Database>),
+    ///A list of availble schemas.
     AvailableSchemas(Vec<schema::Id>),
 }
 
+/// A response to a [`DatabaseRequest`].
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub enum DatabaseResponse<'a> {
-    Documents(Vec<Document<'a>>),
+pub enum DatabaseResponse {
+    /// One or more documents.
+    Documents(Vec<Document<'static>>),
+    /// Results of [`DatabaseRequest::ApplyTransaction`].
     TransactionResults(Vec<OperationResult>),
+    /// Results of [`DatabaseRequest::Query`] when `with_docs` is false.
     ViewMappings(Vec<map::Serialized>),
+    /// Results of [`DatabaseRequest::Query`] when `with_docs` is true.
     ViewMappingsWithDocs(Vec<MappedDocument>),
+    /// Result of [`DatabaseRequest::Reduce`].
     ViewReduction(Vec<u8>),
-    ExecutedTransactions(Vec<Executed<'a>>),
+    /// Results of [`DatabaseRequest::ListExecutedTrasnactions`].
+    ExecutedTransactions(Vec<Executed<'static>>),
+    /// Result of [`DatabaseRequest::LastTransactionId`].
     LastTransactionId(Option<u64>),
 }
 
+/// A serialized [`MappedDocument`](map::MappedDocument).
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct MappedDocument {
+    /// The serialized key.
     pub key: Vec<u8>,
+    /// The serialized value.
     pub value: Vec<u8>,
+    /// The source document.
     pub source: Document<'static>,
 }
 
 impl MappedDocument {
+    /// Deserialize into a [`MappedDocument`](map::MappedDocument).
     pub fn deserialized<K: Key, V: Serialize + DeserializeOwned>(
         self,
     ) -> Result<map::MappedDocument<K, V>, crate::Error> {
@@ -125,12 +196,16 @@ impl MappedDocument {
     }
 }
 
+/// A database on a server.
 #[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
-pub struct Database<'a> {
-    pub name: Cow<'a, str>,
+pub struct Database {
+    /// The name of the database.
+    pub name: String,
+    /// The schema defining the database.
     pub schema: schema::Id,
 }
 
+/// Functions for interacting with a `PliantDB` server.
 #[async_trait]
 pub trait ServerConnection: Send + Sync {
     /// Creates a database named `name` using the [`schema::Id`] `schema`.
@@ -153,12 +228,13 @@ pub trait ServerConnection: Send + Sync {
     async fn delete_database(&self, name: &str) -> Result<(), crate::Error>;
 
     /// Lists the databases on this server.
-    async fn list_databases(&self) -> Result<Vec<Database<'static>>, crate::Error>;
+    async fn list_databases(&self) -> Result<Vec<Database>, crate::Error>;
 
     /// Lists the [`schema::Id`]s on this server.
     async fn list_available_schemas(&self) -> Result<Vec<schema::Id>, crate::Error>;
 }
 
+/// A networking error.
 #[derive(Clone, thiserror::Error, Debug, Serialize, Deserialize)]
 pub enum Error {
     /// An invalid database name was specified. See

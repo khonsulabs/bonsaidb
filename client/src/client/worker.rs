@@ -50,7 +50,7 @@ async fn connect_and_process(
     certificate: &Certificate,
     initial_request: PendingRequest,
     request_receiver: &Receiver<PendingRequest>,
-) -> Result<(), (Option<Sender<Result<Response<'static>, Error>>>, Error)> {
+) -> Result<(), (Option<Sender<Result<Response, Error>>>, Error)> {
     let (_connection, payload_sender, payload_receiver) = connect(host, server_name, certificate)
         .await
         .map_err(|err| (Some(initial_request.responder.clone()), err))?;
@@ -83,7 +83,7 @@ async fn connect_and_process(
 async fn process_requests(
     outstanding_requests: OutstandingRequestMapHandle,
     request_receiver: &Receiver<PendingRequest>,
-    payload_sender: fabruic::Sender<Payload<Api<'static>>>,
+    payload_sender: fabruic::Sender<Payload<Api>>,
 ) -> Result<(), Error> {
     while let Ok(client_request) = request_receiver.recv_async().await {
         let mut outstanding_requests = outstanding_requests.lock().await;
@@ -100,7 +100,7 @@ async fn process_requests(
 
 pub async fn process(
     outstanding_requests: OutstandingRequestMapHandle,
-    mut payload_receiver: fabruic::Receiver<Payload<Api<'static>>>,
+    mut payload_receiver: fabruic::Receiver<Payload<Api>>,
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
         let response = match payload.wrapped {
@@ -126,8 +126,8 @@ async fn connect(
 ) -> Result<
     (
         fabruic::Connection,
-        fabruic::Sender<Payload<Api<'static>>>,
-        fabruic::Receiver<Payload<Api<'static>>>,
+        fabruic::Sender<Payload<Api>>,
+        fabruic::Receiver<Payload<Api>>,
     ),
     Error,
 > {

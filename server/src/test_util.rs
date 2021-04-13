@@ -1,6 +1,6 @@
 #![allow(missing_docs)]
 
-use std::{borrow::Cow, path::Path};
+use std::path::Path;
 
 use pliantdb_core::{
     networking::ServerConnection,
@@ -32,7 +32,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
     assert_eq!(
         databases,
         vec![pliantdb_core::networking::Database {
-            name: Cow::Borrowed("tests"),
+            name: String::from("tests"),
             schema: Basic::schema_id()
         }]
     );

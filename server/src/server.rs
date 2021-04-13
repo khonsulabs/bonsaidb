@@ -1,6 +1,5 @@
 use std::{
     any::Any,
-    borrow::Cow,
     collections::HashMap,
     fmt::Debug,
     marker::PhantomData,
@@ -182,7 +181,9 @@ impl Server {
             open_databases.insert(name.to_string(), db.clone());
             Ok(db)
         } else {
-            todo!()
+            Err(Error::Core(pliantdb_core::Error::Networking(
+                networking::Error::SchemaNotRegistered(schema),
+            )))
         }
     }
 
@@ -352,14 +353,13 @@ impl Server {
     }
 
     async fn handle_connection(&self, mut connection: fabruic::Connection) -> Result<(), Error> {
-        // TODO limit number of streams open for a client -- allowing for streams to shut down and be reclaimed.
-        while let Some(incoming) = connection.next().await {
+        if let Some(incoming) = connection.next().await {
             println!(
                 "[server] incoming stream from: {}",
                 connection.remote_address()
             );
 
-            let (sender, receiver) = incoming.accept_stream::<networking::Payload<Api<'_>>>();
+            let (sender, receiver) = incoming.accept_stream::<networking::Payload<Api>>();
             let task_self = self.clone();
             tokio::spawn(async move { task_self.handle_stream(sender, receiver).await });
         }
@@ -387,7 +387,7 @@ impl Server {
         while let Some(payload) = receiver.next().await {
             match payload? {
                 Message::Binary(binary) => {
-                    let payload = bincode::deserialize::<Payload<Request<'_>>>(&binary)?;
+                    let payload = bincode::deserialize::<Payload<Request>>(&binary)?;
                     let id = payload.id;
                     let task_sender = response_sender.clone();
                     self.handle_request_through_worker(
@@ -418,11 +418,11 @@ impl Server {
     }
 
     async fn handle_request_through_worker<
-        F: FnOnce(Response<'static>) -> R + Send + 'static,
+        F: FnOnce(Response) -> R + Send + 'static,
         R: Future<Output = Result<(), Error>> + Send,
     >(
         &self,
-        request: Request<'static>,
+        request: Request,
         callback: F,
     ) -> Result<(), Error> {
         let job = self
@@ -444,8 +444,8 @@ impl Server {
 
     async fn handle_stream(
         &self,
-        sender: fabruic::Sender<Payload<Api<'static>>>,
-        mut receiver: fabruic::Receiver<Payload<Api<'static>>>,
+        sender: fabruic::Sender<Payload<Api>>,
+        mut receiver: fabruic::Receiver<Payload<Api>>,
     ) -> Result<(), Error> {
         while let Some(payload) = receiver.next().await {
             let request = match payload.wrapped {
@@ -470,10 +470,7 @@ impl Server {
         Ok(())
     }
 
-    pub(crate) async fn handle_request(
-        &self,
-        request: Request<'static>,
-    ) -> Result<Response<'static>, Error> {
+    pub(crate) async fn handle_request(&self, request: Request) -> Result<Response, Error> {
         match request {
             Request::Server(request) => match request {
                 ServerRequest::CreateDatabase(database) => {
@@ -629,11 +626,11 @@ impl networking::ServerConnection for Server {
             .admin
             .collection::<Database>()
             .push(&networking::Database {
-                name: Cow::Borrowed(name),
+                name: name.to_string(),
                 schema: schema.clone(),
             })
             .await?;
-        available_databases.insert(name.to_owned(), schema);
+        available_databases.insert(name.to_string(), schema);
 
         Ok(())
     }
@@ -680,14 +677,12 @@ impl networking::ServerConnection for Server {
         }
     }
 
-    async fn list_databases(
-        &self,
-    ) -> Result<Vec<networking::Database<'static>>, pliantdb_core::Error> {
+    async fn list_databases(&self) -> Result<Vec<networking::Database>, pliantdb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases
             .iter()
             .map(|(name, schema)| networking::Database {
-                name: Cow::Owned(name.to_owned()),
+                name: name.to_string(),
                 schema: schema.clone(),
             })
             .collect())
@@ -933,11 +928,11 @@ where
 
 #[derive(Debug)]
 struct ClientRequest {
-    request: Option<Request<'static>>,
+    request: Option<Request>,
     server: Server,
 }
 impl ClientRequest {
-    pub const fn new(request: Request<'static>, server: Server) -> Self {
+    pub const fn new(request: Request, server: Server) -> Self {
         Self {
             request: Some(request),
             server,
@@ -947,7 +942,7 @@ impl ClientRequest {
 
 #[async_trait]
 impl Job for ClientRequest {
-    type Output = Response<'static>;
+    type Output = Response;
 
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
         let request = self.request.take().unwrap();

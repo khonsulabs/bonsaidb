@@ -66,7 +66,7 @@ async fn response_processor(
         let message = message?;
         match message {
             Message::Binary(response) => {
-                let payload = bincode::deserialize::<Payload<Response<'_>>>(&response)?;
+                let payload = bincode::deserialize::<Payload<Response>>(&response)?;
                 let responder = {
                     let mut outstanding_requests = outstanding_requests.lock().await;
                     outstanding_requests

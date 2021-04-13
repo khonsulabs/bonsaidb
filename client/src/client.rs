@@ -2,10 +2,9 @@
 use std::sync::atomic::AtomicBool;
 use std::{
     any::TypeId,
-    borrow::Cow,
     collections::HashMap,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU32, Ordering},
         Arc,
     },
 };
@@ -37,7 +36,7 @@ pub struct Client {
     request_sender: Sender<PendingRequest>,
     worker: Arc<CancellableHandle<Result<(), Error>>>,
     schemas: Arc<Mutex<HashMap<TypeId, Arc<Schematic>>>>,
-    request_id: Arc<AtomicU64>,
+    request_id: Arc<AtomicU32>,
     #[cfg(test)]
     pub(crate) background_task_running: Arc<AtomicBool>,
 }
@@ -99,7 +98,7 @@ impl Client {
         let (request_sender, request_receiver) = flume::unbounded();
 
         // TODO, split host and port for the backend.
-        let connect_to = format!("{}:{}", host.to_string(), url.port().unwrap_or(5000));
+        let connect_to = format!("{}:{}", host.to_string(), url.port().unwrap_or(5645));
         let worker = tokio::task::spawn(worker::reconnecting_client_loop(
             connect_to,
             server_name,
@@ -166,7 +165,7 @@ impl Client {
         RemoteDatabase::new(self.clone(), name.to_string(), schema)
     }
 
-    async fn send_request(&self, request: Request<'static>) -> Result<Response<'static>, Error> {
+    async fn send_request(&self, request: Request) -> Result<Response, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.request_id.fetch_add(1, Ordering::SeqCst);
         self.request_sender.send(PendingRequest {
@@ -190,7 +189,7 @@ impl ServerConnection for Client {
     ) -> Result<(), pliantdb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::CreateDatabase(Database {
-                name: Cow::Owned(name.to_string()),
+                name: name.to_string(),
                 schema,
             })))
             .await?
@@ -206,7 +205,7 @@ impl ServerConnection for Client {
     async fn delete_database(&self, name: &str) -> Result<(), pliantdb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::DeleteDatabase {
-                name: Cow::Owned(name.to_string()),
+                name: name.to_string(),
             }))
             .await?
         {
@@ -218,7 +217,7 @@ impl ServerConnection for Client {
         }
     }
 
-    async fn list_databases(&self) -> Result<Vec<Database<'static>>, pliantdb_core::Error> {
+    async fn list_databases(&self) -> Result<Vec<Database>, pliantdb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::ListDatabases))
             .await?
@@ -247,13 +246,13 @@ impl ServerConnection for Client {
     }
 }
 
-type OutstandingRequestMap = HashMap<u64, Sender<Result<Response<'static>, Error>>>;
+type OutstandingRequestMap = HashMap<u32, Sender<Result<Response, Error>>>;
 type OutstandingRequestMapHandle = Arc<Mutex<OutstandingRequestMap>>;
 
 #[derive(Debug)]
 pub struct PendingRequest {
-    request: Payload<Request<'static>>,
-    responder: Sender<Result<Response<'static>, Error>>,
+    request: Payload<Request>,
+    responder: Sender<Result<Response, Error>>,
 }
 
 #[derive(Debug)]
