@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use flume::Receiver;
 use futures::{
     stream::{SplitSink, SplitStream},
@@ -17,19 +15,29 @@ pub async fn reconnecting_client_loop(
     url: Url,
     mut request_receiver: Receiver<PendingRequest>,
 ) -> Result<(), Error> {
-    loop {
+    while let Ok(request) = request_receiver.recv_async().await {
         let (stream, _) = match tokio_tungstenite::connect_async(&url).await {
             Ok(result) => result,
             Err(err) => {
-                println!("Error connecting: {:?}", err);
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                let _ = request.responder.send(Err(Error::WebSocket(err)));
                 continue;
             }
         };
 
-        let (sender, receiver) = stream.split();
+        let (mut sender, receiver) = stream.split();
 
         let outstanding_requests = OutstandingRequestMapHandle::default();
+        {
+            let mut outstanding_requests = outstanding_requests.lock().await;
+            if let Err(err) = sender
+                .send(Message::Binary(bincode::serialize(&request.request)?))
+                .await
+            {
+                let _ = request.responder.send(Err(Error::WebSocket(err)));
+                continue;
+            }
+            outstanding_requests.insert(request.request.id, request.responder);
+        }
 
         if let Err(err) = tokio::try_join!(
             request_sender(&mut request_receiver, sender, outstanding_requests.clone()),
@@ -38,6 +46,8 @@ pub async fn reconnecting_client_loop(
             println!("Error on socket {:?}", err);
         }
     }
+
+    Ok(())
 }
 
 async fn request_sender(
