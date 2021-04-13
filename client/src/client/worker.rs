@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    time::Duration,
+};
 
 use flume::{Receiver, Sender};
 use futures::StreamExt;
@@ -17,6 +20,7 @@ use crate::{
 /// error replayed to them.
 pub async fn reconnecting_client_loop(
     host: String,
+    port: u16,
     server_name: String,
     certificate: Certificate,
     request_receiver: Receiver<PendingRequest>,
@@ -24,6 +28,7 @@ pub async fn reconnecting_client_loop(
     while let Ok(request) = request_receiver.recv_async().await {
         if let Err((responder, err)) = connect_and_process(
             &host,
+            port,
             &server_name,
             &certificate,
             request,
@@ -46,14 +51,16 @@ pub async fn reconnecting_client_loop(
 
 async fn connect_and_process(
     host: &str,
+    port: u16,
     server_name: &str,
     certificate: &Certificate,
     initial_request: PendingRequest,
     request_receiver: &Receiver<PendingRequest>,
 ) -> Result<(), (Option<Sender<Result<Response, Error>>>, Error)> {
-    let (_connection, payload_sender, payload_receiver) = connect(host, server_name, certificate)
-        .await
-        .map_err(|err| (Some(initial_request.responder.clone()), err))?;
+    let (_connection, payload_sender, payload_receiver) =
+        connect(host, port, server_name, certificate)
+            .await
+            .map_err(|err| (Some(initial_request.responder.clone()), err))?;
 
     let outstanding_requests = OutstandingRequestMapHandle::default();
     let request_processor = tokio::spawn(process(outstanding_requests.clone(), payload_receiver));
@@ -111,6 +118,7 @@ pub async fn process(
 
 async fn connect(
     host: &str,
+    port: u16,
     server_name: &str,
     certificate: &Certificate,
 ) -> Result<
@@ -122,14 +130,49 @@ async fn connect(
     Error,
 > {
     let endpoint = Endpoint::new_client(certificate)?;
-    // TODO This could be handled by fabruic, or we could bring in trust-dns for
-    // an alternative option here.
-    let addr = tokio::net::lookup_host(host)
-        .await
-        .map_err(|err| Error::InvalidUrl(err.to_string()))?
-        .next()
-        .ok_or_else(|| Error::InvalidUrl(String::from("No IP found for host.")))?;
-    let connecting = endpoint.connect(addr, server_name)?;
+    // When parsing an ipv6 URL such as pliantdb://[::1]:5645, the host will
+    // contain the brackets which we must strip before parsing the IpAddr.
+    let possible_ip = if host.starts_with('[') && host.ends_with(']') {
+        &host[1..host.len() - 1]
+    } else {
+        host
+    };
+
+    // Attempt to parse the ip address string
+    let possible_ip = if let Ok(ip) = possible_ip.parse::<IpAddr>() {
+        Some(ip)
+    } else if possible_ip == "localhost" {
+        // If feature trusted-dns is enabled, a DNSSEC-supporting resolver will
+        // be used, which won't support localhost.
+        // TODO auto-detect ipv6 on loopback? Does it matter? Need to test an ipv6 only machine.
+        Some(IpAddr::V4(Ipv4Addr::LOCALHOST))
+    } else {
+        None
+    };
+    let connecting = if let Some(ip) = possible_ip {
+        endpoint.connect(SocketAddr::new(ip, port), server_name)?
+    } else {
+        #[cfg(feature = "trusted-dns")]
+        // If using trusted-dns, use fabruic to do the hostname resolution. In
+        // this mode, server_name is not used to validate, just the host name.
+        let connector = async move { endpoint.connect_with(port, host).await };
+
+        #[cfg(not(feature = "trusted-dns"))]
+        // When not using trusted-dns, resolve to an IP address using the system
+        // resolver, and then connect using the server_name to validate the
+        // certificate.
+        let connector = async move {
+            let addr = tokio::net::lookup_host(&format!("{}:{}", host, port))
+                .await
+                .map_err(|err| Error::InvalidUrl(err.to_string()))?
+                .next()
+                .ok_or_else(|| Error::InvalidUrl(String::from("No IP found for host.")))?;
+            endpoint.connect(addr, server_name).map_err(Error::from)
+        };
+
+        connector.await?
+    };
+
     let connection = connecting.accept::<()>().await?;
     let (sender, receiver) = connection.open_stream(&()).await?;
 

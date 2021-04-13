@@ -16,6 +16,7 @@ test-util = ["futures", "tokio", "networking", "websockets"]
 networking = ["fabruic"]
 certificate = ["fabruic/certificate"]
 websockets = []
+trusted-dns = ["fabruic/dns"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

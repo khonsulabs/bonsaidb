@@ -97,10 +97,9 @@ impl Client {
 
         let (request_sender, request_receiver) = flume::unbounded();
 
-        // TODO, split host and port for the backend.
-        let connect_to = format!("{}:{}", host.to_string(), url.port().unwrap_or(5645));
         let worker = tokio::task::spawn(worker::reconnecting_client_loop(
-            connect_to,
+            host.to_string(),
+            url.port().unwrap_or(5645),
             server_name,
             certificate,
             request_receiver,

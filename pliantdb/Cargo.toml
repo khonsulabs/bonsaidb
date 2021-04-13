@@ -29,7 +29,7 @@ required-features = ["server"]
 
 [features]
 default = ["cli"]
-full = ["local", "server", "client", "websockets"]
+full = ["local", "server", "client", "websockets", "trusted-dns"]
 local = ["pliantdb-local"]
 server = ["pliantdb-server"]
 client = ["pliantdb-client"]
@@ -42,6 +42,7 @@ cli = [
     "pliantdb-server/cli",
 ]
 websockets = ["pliantdb-server/websockets", "pliantdb-client/websockets"]
+trusted-dns = ["pliantdb-server/trusted-dns", "pliantdb-client/trusted-dns"]
 
 [dependencies]
 pliantdb-core = { path = "../core", version = "0.1.0-dev-1" }

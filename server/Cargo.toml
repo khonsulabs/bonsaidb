@@ -16,6 +16,7 @@ cli = ["certificate", "structopt", "anyhow"]
 test-util = ["pliantdb-core/test-util", "anyhow"]
 certificate = ["pliantdb-core/certificate"]
 websockets = ["pliantdb-core/websockets", "tokio-tungstenite", "bincode"]
+trusted-dns = ["pliantdb-core/trusted-dns"]
 
 [dependencies]
 pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["networking"] }
