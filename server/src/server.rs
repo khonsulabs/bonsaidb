@@ -21,7 +21,7 @@ use pliantdb_core::{
     networking::{
         self,
         fabruic::{self, Certificate, Endpoint, PrivateKey},
-        Api, DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerConnection as _,
+        DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerConnection as _,
         ServerRequest, ServerResponse,
     },
     schema,
@@ -306,7 +306,7 @@ impl Server {
         println!("Listening on {}", server.local_address()?);
 
         while let Some(result) = server.next().await {
-            let connection = result?;
+            let connection = result.accept::<()>().await?;
             let task_self = self.clone();
             tokio::spawn(async move { task_self.handle_connection(connection).await });
         }
@@ -352,14 +352,19 @@ impl Server {
         Ok(())
     }
 
-    async fn handle_connection(&self, mut connection: fabruic::Connection) -> Result<(), Error> {
+    async fn handle_connection(
+        &self,
+        mut connection: fabruic::Connection<()>,
+    ) -> Result<(), Error> {
         if let Some(incoming) = connection.next().await {
             println!(
                 "[server] incoming stream from: {}",
                 connection.remote_address()
             );
 
-            let (sender, receiver) = incoming.accept_stream::<networking::Payload<Api>>();
+            let (sender, receiver) = incoming
+                .accept::<networking::Payload<Response>, networking::Payload<Request>>()
+                .await?;
             let task_self = self.clone();
             tokio::spawn(async move { task_self.handle_stream(sender, receiver).await });
         }
@@ -444,22 +449,16 @@ impl Server {
 
     async fn handle_stream(
         &self,
-        sender: fabruic::Sender<Payload<Api>>,
-        mut receiver: fabruic::Receiver<Payload<Api>>,
+        sender: fabruic::Sender<Payload<Response>>,
+        mut receiver: fabruic::Receiver<Payload<Request>>,
     ) -> Result<(), Error> {
         while let Some(payload) = receiver.next().await {
-            let request = match payload.wrapped {
-                Api::Request(request) => request,
-                Api::Response(..) => {
-                    todo!("fabruic should have separate types for send/receive")
-                }
-            };
-            let id = payload.id;
+            let Payload { id, wrapped } = payload;
             let task_sender = sender.clone();
-            self.handle_request_through_worker(request, move |response| async move {
+            self.handle_request_through_worker(wrapped, move |response| async move {
                 task_sender.send(&Payload {
                     id,
-                    wrapped: Api::Response(response),
+                    wrapped: response,
                 })?;
 
                 Ok(())

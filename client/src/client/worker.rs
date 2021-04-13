@@ -4,7 +4,7 @@ use flume::{Receiver, Sender};
 use futures::StreamExt;
 use pliantdb_core::networking::{
     fabruic::{self, Certificate, Endpoint},
-    Api, Payload, Response,
+    Payload, Request, Response,
 };
 
 use crate::{
@@ -60,10 +60,7 @@ async fn connect_and_process(
 
     let PendingRequest { request, responder } = initial_request;
     payload_sender
-        .send(&Payload {
-            id: request.id,
-            wrapped: Api::Request(request.wrapped),
-        })
+        .send(&request)
         .map_err(|err| (Some(responder.clone()), Error::from(err)))?;
     {
         let mut outstanding_requests = outstanding_requests.lock().await;
@@ -83,15 +80,12 @@ async fn connect_and_process(
 async fn process_requests(
     outstanding_requests: OutstandingRequestMapHandle,
     request_receiver: &Receiver<PendingRequest>,
-    payload_sender: fabruic::Sender<Payload<Api>>,
+    payload_sender: fabruic::Sender<Payload<Request>>,
 ) -> Result<(), Error> {
     while let Ok(client_request) = request_receiver.recv_async().await {
         let mut outstanding_requests = outstanding_requests.lock().await;
         outstanding_requests.insert(client_request.request.id, client_request.responder);
-        payload_sender.send(&Payload {
-            id: client_request.request.id,
-            wrapped: Api::Request(client_request.request.wrapped),
-        })?;
+        payload_sender.send(&client_request.request)?;
     }
 
     // Return an error to make sure try_join returns.
@@ -100,20 +94,16 @@ async fn process_requests(
 
 pub async fn process(
     outstanding_requests: OutstandingRequestMapHandle,
-    mut payload_receiver: fabruic::Receiver<Payload<Api>>,
+    mut payload_receiver: fabruic::Receiver<Payload<Response>>,
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
-        let response = match payload.wrapped {
-            Api::Request(_) => unreachable!("server should never send a requset"),
-            Api::Response(response) => response,
-        };
         let responder = {
             let mut outstanding_requests = outstanding_requests.lock().await;
             outstanding_requests
                 .remove(&payload.id)
                 .expect("missing responder")
         };
-        let _ = responder.send(Ok(response));
+        let _ = responder.send(Ok(payload.wrapped));
     }
 
     Err(Error::Disconnected)
@@ -125,9 +115,9 @@ async fn connect(
     certificate: &Certificate,
 ) -> Result<
     (
-        fabruic::Connection,
-        fabruic::Sender<Payload<Api>>,
-        fabruic::Receiver<Payload<Api>>,
+        fabruic::Connection<()>,
+        fabruic::Sender<Payload<Request>>,
+        fabruic::Receiver<Payload<Response>>,
     ),
     Error,
 > {
@@ -139,8 +129,9 @@ async fn connect(
         .map_err(|err| Error::InvalidUrl(err.to_string()))?
         .next()
         .ok_or_else(|| Error::InvalidUrl(String::from("No IP found for host.")))?;
-    let connection = endpoint.connect(addr, server_name).await?;
-    let (sender, receiver) = connection.open_stream().await?;
+    let connecting = endpoint.connect(addr, server_name)?;
+    let connection = connecting.accept::<()>().await?;
+    let (sender, receiver) = connection.open_stream(&()).await?;
 
     Ok((connection, sender, receiver))
 }

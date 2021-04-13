@@ -24,15 +24,6 @@ pub struct Payload<T> {
     pub wrapped: T,
 }
 
-/// An Api request or response.
-#[derive(Clone, Deserialize, Serialize, Debug)]
-pub enum Api {
-    /// An Api request.
-    Request(Request),
-    /// An Api response.
-    Response(Response),
-}
-
 /// A request made to a server.
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub enum Request {
@@ -161,7 +152,7 @@ pub enum DatabaseResponse {
     ViewMappingsWithDocs(Vec<MappedDocument>),
     /// Result of [`DatabaseRequest::Reduce`].
     ViewReduction(Vec<u8>),
-    /// Results of [`DatabaseRequest::ListExecutedTrasnactions`].
+    /// Results of [`DatabaseRequest::ListExecutedTransactions`].
     ExecutedTransactions(Vec<Executed<'static>>),
     /// Result of [`DatabaseRequest::LastTransactionId`].
     LastTransactionId(Option<u64>),
