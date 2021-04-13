@@ -17,7 +17,9 @@ use futures::SinkExt;
 use futures::{Future, StreamExt, TryFutureExt};
 use itertools::Itertools;
 use pliantdb_core::{
-    connection::{AccessPolicy, QueryKey},
+    self as core,
+    connection::{AccessPolicy, Connection, QueryKey},
+    document::Document,
     networking::{
         self,
         fabruic::{self, Certificate, Endpoint, PrivateKey},
@@ -25,19 +27,15 @@ use pliantdb_core::{
         ServerRequest, ServerResponse,
     },
     schema,
-    transaction::Executed,
+    schema::{
+        collection,
+        map::{self, MappedValue},
+        Schema, Schematic,
+    },
+    transaction::{Executed, OperationResult, Transaction},
 };
 use pliantdb_jobs::{manager::Manager, Job};
-use pliantdb_local::{
-    core::{
-        self,
-        connection::Connection,
-        document::Document,
-        schema::{collection, map, Schema, Schematic},
-        transaction::{OperationResult, Transaction},
-    },
-    Configuration, Storage,
-};
+use pliantdb_local::Storage;
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
@@ -46,7 +44,7 @@ use crate::{
     admin::{self, database::ByName, Admin},
     async_io_util::FileExt,
     error::Error,
-    hosted,
+    hosted, Configuration,
 };
 
 /// A `PliantDB` server.
@@ -66,15 +64,15 @@ struct Data {
     open_databases: RwLock<HashMap<String, Arc<Box<dyn OpenDatabase>>>>,
     available_databases: RwLock<HashMap<String, schema::Id>>,
     request_processor: Manager,
+    storage_configuration: pliantdb_local::Configuration,
 }
 
 impl Server {
     /// Creates or opens a [`Server`] with its data stored in `directory`.
     /// `schemas` is a collection of [`schema::Id`] to [`Schematic`] pairs. [`schema::Id`]s are used as an identifier of a specific `Schema`, which the Server uses to
-    pub async fn open(directory: &Path) -> Result<Self, Error> {
+    pub async fn open(directory: &Path, configuration: Configuration) -> Result<Self, Error> {
         let admin =
-            Storage::open_local(directory.join("admin.pliantdb"), &Configuration::default())
-                .await?;
+            Storage::open_local(directory.join("admin.pliantdb"), &configuration.storage).await?;
 
         let available_databases = admin
             .view::<ByName>()
@@ -106,6 +104,7 @@ impl Server {
                 websocket_shutdown: RwLock::default(),
                 open_databases: RwLock::default(),
                 request_processor,
+                storage_configuration: configuration.storage,
             }),
         })
     }
@@ -528,9 +527,17 @@ impl Server {
                         view,
                         key,
                         access_policy,
+                        grouped,
                     } => {
-                        let value = db.reduce(&view, key, access_policy).await?;
-                        Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
+                        if grouped {
+                            let values = db.reduce_grouped(&view, key, access_policy).await?;
+                            Ok(Response::Database(DatabaseResponse::ViewGroupedReduction(
+                                values,
+                            )))
+                        } else {
+                            let value = db.reduce(&view, key, access_policy).await?;
+                            Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
+                        }
                     }
 
                     DatabaseRequest::ApplyTransaction { transaction } => {
@@ -735,6 +742,13 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, pliantdb_core::Error>;
 
+    async fn reduce_grouped(
+        &self,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error>;
+
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
@@ -846,6 +860,15 @@ where
         self.reduce_in_view(view, key, access_policy).await
     }
 
+    async fn reduce_grouped(
+        &self,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error> {
+        self.grouped_reduce_in_view(view, key, access_policy).await
+    }
+
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
@@ -918,9 +941,11 @@ where
     }
 
     async fn open(&self, name: &str) -> Result<Arc<Box<dyn OpenDatabase>>, Error> {
-        let db =
-            Storage::<DB>::open_local(self.server.database_path(name), &Configuration::default())
-                .await?;
+        let db = Storage::<DB>::open_local(
+            self.server.database_path(name),
+            &self.server.data.storage_configuration,
+        )
+        .await?;
         Ok(Arc::new(Box::new(db)))
     }
 }

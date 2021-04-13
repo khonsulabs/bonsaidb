@@ -79,8 +79,8 @@ impl Serialized {
 }
 
 /// A key value pair
-#[derive(PartialEq, Debug)]
-pub struct MappedValue<K: Key, V: Serialize> {
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct MappedValue<K: Key, V> {
     /// The key responsible for generating the value
     pub key: K,
 

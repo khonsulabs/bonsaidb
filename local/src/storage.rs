@@ -6,7 +6,11 @@ use pliantdb_core::{
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    schema::{self, collection, map::MappedDocument, view, Key, Map, Schema, Schematic},
+    schema::{
+        self, collection,
+        map::{MappedDocument, MappedValue},
+        view, Key, Map, Schema, Schematic,
+    },
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
 use pliantdb_jobs::manager::Manager;
@@ -242,20 +246,17 @@ where
             .schema
             .view_by_name(view_name)
             .ok_or(pliantdb_core::Error::CollectionNotFound)?;
-        let mut mappings = Vec::new();
-        self.for_each_in_view(view, key, access_policy, |key, entry| {
-            mappings.push((key, entry.reduced_value));
-            Ok(())
-        })
-        .await?;
+        let mut mappings = self
+            .grouped_reduce_in_view(view_name, key, access_policy)
+            .await?;
 
         let result = if mappings.len() == 1 {
-            mappings.pop().unwrap().1 // reason for missing_panics_doc
+            mappings.pop().unwrap().value // reason for missing_panics_doc
         } else {
             view.reduce(
                 &mappings
                     .iter()
-                    .map(|(key, value)| (key.as_ref(), value.as_ref()))
+                    .map(|map| (map.key.as_ref(), map.value.as_ref()))
                     .collect::<Vec<_>>(),
                 true,
             )
@@ -265,10 +266,35 @@ where
 
         Ok(result)
     }
+
+    /// Reduce view `view_name`, grouping by unique keys.
+    #[allow(clippy::missing_panics_doc)] // the only unwrap is impossible to fail
+    pub async fn grouped_reduce_in_view(
+        &self,
+        view_name: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error> {
+        let view = self
+            .schema
+            .view_by_name(view_name)
+            .ok_or(pliantdb_core::Error::CollectionNotFound)?;
+        let mut mappings = Vec::new();
+        self.for_each_in_view(view, key, access_policy, |key, entry| {
+            mappings.push(MappedValue {
+                key: key.to_vec(),
+                value: entry.reduced_value,
+            });
+            Ok(())
+        })
+        .await?;
+
+        Ok(mappings)
+    }
 }
 
 #[async_trait]
-impl<'a, DB> Connection<'a> for Storage<DB>
+impl<'a, DB> Connection for Storage<DB>
 where
     DB: Schema,
 {
@@ -517,6 +543,39 @@ where
             .map_err_to_core()?;
 
         Ok(value)
+    }
+
+    async fn reduce_grouped<V: schema::View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, pliantdb_core::Error>
+    where
+        Self: Sized,
+    {
+        let view = self
+            .schema
+            .view::<V>()
+            .expect("query made with view that isn't registered with this database");
+
+        let results = self
+            .grouped_reduce_in_view(
+                &view.name(),
+                key.map(|key| key.serialized()).transpose()?,
+                access_policy,
+            )
+            .await?;
+        results
+            .into_iter()
+            .map(|map| {
+                Ok(MappedValue {
+                    key: V::Key::from_big_endian_bytes(&map.key)
+                        .map_err(view::Error::KeySerialization)
+                        .map_err_to_core()?,
+                    value: serde_cbor::from_slice(&map.value)?,
+                })
+            })
+            .collect::<Result<Vec<_>, pliantdb_core::Error>>()
     }
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {

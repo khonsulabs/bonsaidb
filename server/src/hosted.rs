@@ -5,7 +5,7 @@ use pliantdb_local::core::{
     self,
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
-    schema::{Collection, Map, Schema},
+    schema::{map::MappedValue, Collection, Map, Schema},
 };
 
 use crate::{error::ResultExt, Server};
@@ -30,7 +30,7 @@ where
 }
 
 #[async_trait]
-impl<'a, 'b, DB> Connection<'a> for Database<'a, 'b, DB>
+impl<'a, 'b, DB> Connection for Database<'a, 'b, DB>
 where
     DB: Schema,
 {
@@ -101,6 +101,22 @@ where
             .await
             .map_err_to_core()?;
         db.reduce::<V>(key, access_policy).await
+    }
+
+    async fn reduce_grouped<V: core::schema::View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, core::Error>
+    where
+        Self: Sized,
+    {
+        let db = self
+            .server
+            .open_database::<DB>(self.name)
+            .await
+            .map_err_to_core()?;
+        db.reduce_grouped::<V>(key, access_policy).await
     }
 
     async fn apply_transaction(

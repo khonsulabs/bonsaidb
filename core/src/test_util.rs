@@ -376,8 +376,8 @@ macro_rules! define_connection_test_suite {
     };
 }
 
-pub async fn store_retrieve_update_delete_tests<'a, C: Connection<'a>>(
-    db: &'a C,
+pub async fn store_retrieve_update_delete_tests<C: Connection>(
+    db: &C,
 ) -> Result<(), anyhow::Error> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
@@ -438,7 +438,7 @@ pub async fn store_retrieve_update_delete_tests<'a, C: Connection<'a>>(
     Ok(())
 }
 
-pub async fn not_found_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), anyhow::Error> {
+pub async fn not_found_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
     assert!(db.collection::<Basic>().get(1).await?.is_none());
 
     assert!(db.last_transaction_id().await?.is_none());
@@ -446,7 +446,7 @@ pub async fn not_found_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), any
     Ok(())
 }
 
-pub async fn conflict_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), anyhow::Error> {
+pub async fn conflict_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     let header = collection.push(&original_value).await?;
@@ -478,7 +478,7 @@ pub async fn conflict_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), anyh
     Ok(())
 }
 
-pub async fn bad_update_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), anyhow::Error> {
+pub async fn bad_update_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
     let mut doc = Document::with_contents(1, &Basic::default(), Basic::collection_id())?;
     match db.update(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
@@ -490,7 +490,7 @@ pub async fn bad_update_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), an
     }
 }
 
-pub async fn no_update_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), anyhow::Error> {
+pub async fn no_update_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     let header = collection.push(&original_value).await?;
@@ -506,7 +506,7 @@ pub async fn no_update_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), any
     Ok(())
 }
 
-pub async fn get_multiple_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), anyhow::Error> {
+pub async fn get_multiple_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
     let collection = db.collection::<Basic>();
     let doc1_value = Basic::new("initial_value");
     let doc1 = collection.push(&doc1_value).await?;
@@ -535,9 +535,7 @@ pub async fn get_multiple_tests<'a, C: Connection<'a>>(db: &'a C) -> Result<(), 
     Ok(())
 }
 
-pub async fn list_transactions_tests<'a, C: Connection<'a>>(
-    db: &'a C,
-) -> Result<(), anyhow::Error> {
+pub async fn list_transactions_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
     let collection = db.collection::<Basic>();
 
     // create LIST_TRANSACTIONS_MAX_RESULTS + 1 items, giving us just enough
@@ -583,7 +581,7 @@ pub async fn list_transactions_tests<'a, C: Connection<'a>>(
     Ok(())
 }
 
-pub async fn view_query_tests<'a, C: Connection<'a>>(db: &'a C) -> anyhow::Result<()> {
+pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let a = collection.push(&Basic::new("A")).await?;
     let b = collection.push(&Basic::new("B")).await?;
@@ -647,9 +645,7 @@ pub async fn view_query_tests<'a, C: Connection<'a>>(db: &'a C) -> anyhow::Resul
     Ok(())
 }
 
-pub async fn unassociated_collection_tests<'a, C: Connection<'a>>(
-    db: &'a C,
-) -> Result<(), anyhow::Error> {
+pub async fn unassociated_collection_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
     assert!(matches!(
         db.collection::<UnassociatedCollection>()
             .push(&Basic::default())
@@ -660,7 +656,7 @@ pub async fn unassociated_collection_tests<'a, C: Connection<'a>>(
     Ok(())
 }
 
-pub async fn view_update_tests<'a, C: Connection<'a>>(db: &'a C) -> anyhow::Result<()> {
+pub async fn view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let a = collection.push(&Basic::new("A")).await?;
 
@@ -702,6 +698,21 @@ pub async fn view_update_tests<'a, C: Connection<'a>>(db: &'a C) -> anyhow::Resu
         1
     );
 
+    // Verify reduce_grouped matches our expectations.
+    assert_eq!(
+        db.view::<BasicByParentId>().reduce_grouped().await?,
+        vec![
+            MappedValue {
+                key: None,
+                value: 1,
+            },
+            MappedValue {
+                key: Some(a.id),
+                value: 1,
+            },
+        ]
+    );
+
     // Test updating the record and the view being updated appropriately
     let mut doc = db.collection::<Basic>().get(a_child.id).await?.unwrap();
     let mut basic = doc.contents::<Basic>()?;
@@ -730,10 +741,19 @@ pub async fn view_update_tests<'a, C: Connection<'a>>(db: &'a C) -> anyhow::Resu
     let all_entries = db.view::<BasicByParentId>().query().await?;
     assert_eq!(all_entries.len(), 1);
 
+    // Verify reduce_grouped matches our expectations.
+    assert_eq!(
+        db.view::<BasicByParentId>().reduce_grouped().await?,
+        vec![MappedValue {
+            key: None,
+            value: 1,
+        },]
+    );
+
     Ok(())
 }
 
-pub async fn view_access_policy_tests<'a, C: Connection<'a>>(db: &'a C) -> anyhow::Result<()> {
+pub async fn view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let a = collection.push(&Basic::new("A")).await?;
 

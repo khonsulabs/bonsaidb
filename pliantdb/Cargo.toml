@@ -24,8 +24,8 @@ name = "view-examples"
 required-features = ["local"]
 
 [[example]]
-name = "server-test"
-required-features = ["server"]
+name = "server"
+required-features = ["server", "client"]
 
 [features]
 default = ["cli"]
@@ -60,3 +60,4 @@ serde = { version = "1", features = ["derive"] }
 anyhow = "1"
 pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["test-util"] }
 futures = "0.3"
+rand = "0.8"

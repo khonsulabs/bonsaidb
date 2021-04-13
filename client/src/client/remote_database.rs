@@ -6,8 +6,8 @@ use pliantdb_core::{
     document::Document,
     networking::{self, DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
-        map::{self, MappedDocument},
-        Collection, Map, Schema, Schematic, View,
+        map::{self, MappedDocument, MappedValue},
+        view, Collection, Key, Map, Schema, Schematic, View,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -45,7 +45,7 @@ impl<DB: Schema> RemoteDatabase<DB> {
 }
 
 #[async_trait]
-impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
+impl<DB: Schema> Connection for RemoteDatabase<DB> {
     async fn get<C: Collection>(
         &self,
         id: u64,
@@ -189,6 +189,7 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
                         .name(),
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
+                    grouped: false,
                 },
             })
             .await?
@@ -197,6 +198,51 @@ impl<'a, DB: Schema> Connection<'a> for RemoteDatabase<DB> {
                 let value = serde_cbor::from_slice::<V::Value>(&value)?;
                 Ok(value)
             }
+            Response::Error(err) => Err(err),
+            other => Err(pliantdb_core::Error::Networking(
+                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn reduce_grouped<V: View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, pliantdb_core::Error>
+    where
+        Self: Sized,
+    {
+        match self
+            .client
+            .send_request(Request::Database {
+                database: self.name.to_string(),
+                request: DatabaseRequest::Reduce {
+                    view: self
+                        .schema
+                        .view::<V>()
+                        .ok_or(pliantdb_core::Error::CollectionNotFound)?
+                        .name(),
+                    key: key.map(|key| key.serialized()).transpose()?,
+                    access_policy,
+                    grouped: true,
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::ViewGroupedReduction(values)) => values
+                .into_iter()
+                .map(|map| {
+                    Ok(MappedValue {
+                        key: V::Key::from_big_endian_bytes(&map.key).map_err(|err| {
+                            pliantdb_core::Error::Storage(
+                                view::Error::KeySerialization(err).to_string(),
+                            )
+                        })?,
+                        value: serde_cbor::from_slice(&map.value)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, pliantdb_core::Error>>(),
             Response::Error(err) => Err(err),
             other => Err(pliantdb_core::Error::Networking(
                 pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),

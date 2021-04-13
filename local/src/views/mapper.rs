@@ -332,16 +332,21 @@ fn remove_existing_view_entries_for_keys(
             bincode::deserialize::<ViewEntry>(&existing_entry).map_to_transaction_error()?;
         let document_id = u64::from_big_endian_bytes(document_id).unwrap();
         entry.mappings.retain(|m| m.source != document_id);
-        let mappings = entry
-            .mappings
-            .iter()
-            .map(|m| (existing_keys[0].as_ref(), m.value.as_slice()))
-            .collect::<Vec<_>>();
-        entry.reduced_value = view.reduce(&mappings, false).map_to_transaction_error()?;
-        view_entries.insert(
-            existing_keys[0].as_ref(),
-            bincode::serialize(&entry).map_to_transaction_error()?,
-        )?;
+
+        if entry.mappings.is_empty() {
+            view_entries.remove(existing_keys[0].as_ref())?;
+        } else {
+            let mappings = entry
+                .mappings
+                .iter()
+                .map(|m| (existing_keys[0].as_ref(), m.value.as_slice()))
+                .collect::<Vec<_>>();
+            entry.reduced_value = view.reduce(&mappings, false).map_to_transaction_error()?;
+            view_entries.insert(
+                existing_keys[0].as_ref(),
+                bincode::serialize(&entry).map_to_transaction_error()?,
+            )?;
+        }
     }
     Ok(())
 }

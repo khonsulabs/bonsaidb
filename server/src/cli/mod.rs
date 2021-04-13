@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use structopt::StructOpt;
 
-use crate::Server;
+use crate::{Configuration, Server};
 
 /// Command-line interface for `pliantdb server`.
 #[derive(StructOpt, Debug)]
@@ -38,7 +38,7 @@ impl Command {
         database_path: &Path,
         schema_registrar: F,
     ) -> anyhow::Result<()> {
-        let server = Server::open(database_path).await?;
+        let server = Server::open(database_path, Configuration::default()).await?;
         schema_registrar(&server);
         match self {
             Self::Certificate(command) => command.execute(server).await,

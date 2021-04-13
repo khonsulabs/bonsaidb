@@ -1,16 +1,17 @@
+//! Tests a single server with multiple simultaneous connections.
+
 use pliantdb_client::{url::Url, Client};
 use pliantdb_core::{
     networking::ServerConnection,
     schema::Schema,
     test_util::{self, Basic, TestDirectory},
 };
-use pliantdb_server::Server;
+use pliantdb_server::{Configuration, Server};
 
-// This isn't really an example, just a way to run some manual testing
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let dir = TestDirectory::new("test-server.pliantdb");
-    let server = Server::open(dir.as_ref()).await?;
+#[tokio::test(flavor = "multi_thread")]
+async fn simultaneous_connections() -> anyhow::Result<()> {
+    let dir = TestDirectory::new("simultaneous-connections.pliantdb");
+    let server = Server::open(dir.as_ref(), Configuration::default()).await?;
     server
         .install_self_signed_certificate("test", false)
         .await?;
@@ -33,12 +34,11 @@ async fn main() -> anyhow::Result<()> {
         .await
         .into_iter()
         .collect::<Result<Vec<()>, anyhow::Error>>()?;
-    println!("Done!");
     Ok(())
 }
 
 async fn test_one_client(client: Client, database_name: String) -> anyhow::Result<()> {
-    for _ in 0u32..100 {
+    for _ in 0u32..50 {
         client
             .create_database(&database_name, Basic::schema_id())
             .await

@@ -10,7 +10,8 @@ use crate::{
     schema::{
         self, collection,
         map::{self},
-        view, Key,
+        view::{self, map::MappedValue},
+        Key,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -92,6 +93,10 @@ pub enum DatabaseRequest {
         key: Option<QueryKey<Vec<u8>>>,
         /// The access policy for the query.
         access_policy: AccessPolicy,
+        /// Whether to return a single value or values grouped by unique key. If
+        /// true, [`DatabaseResponse::ViewGroupedReduction`] will be returned.
+        /// If false, [`DatabaseResponse::ViewReduction`] is returned.
+        grouped: bool,
     },
     /// Applies a transaction.
     ApplyTransaction {
@@ -150,8 +155,10 @@ pub enum DatabaseResponse {
     ViewMappings(Vec<map::Serialized>),
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is true.
     ViewMappingsWithDocs(Vec<MappedDocument>),
-    /// Result of [`DatabaseRequest::Reduce`].
+    /// Result of [`DatabaseRequest::Reduce`] when `grouped` is false.
     ViewReduction(Vec<u8>),
+    /// Result of [`DatabaseRequest::Reduce`] when `grouped` is true.
+    ViewGroupedReduction(Vec<MappedValue<Vec<u8>, Vec<u8>>>),
     /// Results of [`DatabaseRequest::ListExecutedTransactions`].
     ExecutedTransactions(Vec<Executed<'static>>),
     /// Result of [`DatabaseRequest::LastTransactionId`].

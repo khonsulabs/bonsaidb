@@ -22,11 +22,12 @@ mod async_io_util;
 /// Command-line interface for the server.
 #[cfg(feature = "cli")]
 pub mod cli;
+mod config;
 mod error;
 mod hosted;
 mod server;
 
-pub use self::{error::Error, server::Server};
+pub use self::{config::Configuration, error::Error, server::Server};
 
 #[cfg(test)]
 mod tests;

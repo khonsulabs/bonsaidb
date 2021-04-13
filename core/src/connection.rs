@@ -5,16 +5,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     document::{Document, Header},
-    schema::{self, map::MappedDocument, view, Key, Map},
+    schema::{
+        self,
+        map::MappedDocument,
+        view::{self, map::MappedValue},
+        Key, Map,
+    },
     transaction::{self, Command, Operation, OperationResult, Transaction},
     Error,
 };
 
 /// Defines all interactions with a [`schema::Schema`], regardless of whether it is local or remote.
 #[async_trait]
-pub trait Connection<'a>: Send + Sync {
+pub trait Connection: Send + Sync {
     /// Accesses a collection for the connected [`schema::Schema`].
-    fn collection<C: schema::Collection + 'static>(&'a self) -> Collection<'a, Self, C>
+    fn collection<'a, C: schema::Collection + 'static>(&'a self) -> Collection<'a, Self, C>
     where
         Self: Sized,
     {
@@ -95,7 +100,7 @@ pub trait Connection<'a>: Send + Sync {
 
     /// Initializes [`View`] for [`schema::View`] `V`.
     #[must_use]
-    fn view<V: schema::View>(&'a self) -> View<'a, Self, V>
+    fn view<V: schema::View>(&'_ self) -> View<'_, Self, V>
     where
         Self: Sized,
     {
@@ -132,6 +137,17 @@ pub trait Connection<'a>: Send + Sync {
     where
         Self: Sized;
 
+    /// Reduces the view entries matching [`View`], reducing the values by each
+    /// unique key.
+    #[must_use]
+    async fn reduce_grouped<V: schema::View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error>
+    where
+        Self: Sized;
+
     /// Applies a [`Transaction`] to the [`schema::Schema`]. If any operation in the
     /// [`Transaction`] fails, none of the operations will be applied to the
     /// [`schema::Schema`].
@@ -163,7 +179,7 @@ pub struct Collection<'a, Cn, Cl> {
 
 impl<'a, Cn, Cl> Collection<'a, Cn, Cl>
 where
-    Cn: Connection<'a>,
+    Cn: Connection,
     Cl: schema::Collection,
 {
     /// Creates a new instance using `connection`.
@@ -200,7 +216,7 @@ pub struct View<'a, Cn, V: schema::View> {
 impl<'a, Cn, V> View<'a, Cn, V>
 where
     V: schema::View,
-    Cn: Connection<'a>,
+    Cn: Connection,
 {
     fn new(connection: &'a Cn) -> Self {
         Self {
@@ -255,6 +271,13 @@ where
     pub async fn reduce(self) -> Result<V::Value, Error> {
         self.connection
             .reduce::<V>(self.key, self.access_policy)
+            .await
+    }
+
+    /// Executes a reduce over the results of the query
+    pub async fn reduce_grouped(self) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error> {
+        self.connection
+            .reduce_grouped::<V>(self.key, self.access_policy)
             .await
     }
 }
