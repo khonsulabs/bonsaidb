@@ -1,7 +1,4 @@
-use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    time::Duration,
-};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use flume::{Receiver, Sender};
 use futures::StreamExt;
@@ -39,9 +36,6 @@ pub async fn reconnecting_client_loop(
             if let Some(responder) = responder {
                 let _ = responder.try_send(Err(err));
             }
-            // TODO implement logic to slow reconnects if the connection is
-            // dropped. Right now it only sleeps until the next request.
-            tokio::time::sleep(Duration::from_millis(50)).await;
             continue;
         }
     }

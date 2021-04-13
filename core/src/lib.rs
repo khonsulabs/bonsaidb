@@ -12,7 +12,7 @@
 )]
 #![cfg_attr(doc, deny(rustdoc))]
 #![allow(
-    clippy::missing_errors_doc, // TODO
+    clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
 )]
 
@@ -77,7 +77,6 @@ pub enum Error {
     #[error("attempted to access a collection not registered with this schema")]
     CollectionNotFound,
 
-    // TODO consider moving these to something like a document::Error
     /// An attempt to update a document that doesn't exist.
     #[error("the requested document id {1} from collection {0} was not found")]
     DocumentNotFound(collection::Id, u64),

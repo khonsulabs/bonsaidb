@@ -542,15 +542,11 @@ pub async fn list_transactions_tests<'a, C: Connection<'a>>(
 
     // create LIST_TRANSACTIONS_MAX_RESULTS + 1 items, giving us just enough
     // transactions to test the edge cases of `list_transactions`
-    // TODO this code path currently causes this test to fail on the client.
-    // futures::future::join_all(
-    //     (0..=(LIST_TRANSACTIONS_MAX_RESULTS))
-    //         .map(|_| async { collection.push(&Basic::default()).await.unwrap() }),
-    // )
-    // .await;
-    for _ in 0..=LIST_TRANSACTIONS_MAX_RESULTS {
-        collection.push(&Basic::default()).await?;
-    }
+    futures::future::join_all(
+        (0..=(LIST_TRANSACTIONS_MAX_RESULTS))
+            .map(|_| async { collection.push(&Basic::default()).await.unwrap() }),
+    )
+    .await;
 
     // Test defaults
     let transactions = db.list_executed_transactions(None, None).await?;
