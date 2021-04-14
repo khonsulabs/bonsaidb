@@ -14,7 +14,7 @@ readme = "../README.md"
 default = []
 test-util = ["futures", "tokio", "networking", "websockets"]
 networking = ["fabruic"]
-certificate = ["fabruic/certificate"]
+certificate-generation = ["fabruic/certificate"]
 websockets = []
 trusted-dns = ["fabruic/dns"]
 

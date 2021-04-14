@@ -212,7 +212,7 @@ impl Server {
     }
 
     /// Installs an X.509 certificate used for general purpose connections.
-    #[cfg(feature = "certificate")]
+    #[cfg(feature = "certificate-generation")]
     pub async fn install_self_signed_certificate(
         &self,
         server_name: &str,
