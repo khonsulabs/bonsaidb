@@ -16,8 +16,7 @@ The high-level goals for this project are:
 - ☑️ Be able to a document-based database's schema using Rust types.
 - ☑️ Run within your Rust binary, simplifying basic deployments.
 - ☑️ Run as a local-only file-based database with no networking involved.
-- Run stand-alone, allowing more complex deployments and scaling your app separately from scaling the database.
-- Run in a multi-database, networked mode with TLS enabled by default.
+- ☑️🚧 Run in a multi-database, networked server mode with TLS enabled by default
 - Easily set up read-replicas between multiple servers.
 - Easily run a highly-available quorum-based cluster across at least 3 servers
 - Expose a Publish/Subscribe eventing system
