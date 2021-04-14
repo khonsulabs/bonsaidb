@@ -15,6 +15,7 @@ readme = "../README.md"
 [features]
 default = ["cli"]
 cli = ["structopt"]
+internal-apis = []
 
 [dependencies]
 async-trait = "0.1"

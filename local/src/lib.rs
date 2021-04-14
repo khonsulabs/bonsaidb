@@ -26,6 +26,8 @@ mod views;
 
 #[doc(inline)]
 pub use pliantdb_core as core;
+#[cfg(feature = "internal-apis")]
+pub use storage::Internal;
 
 pub use self::{config::Configuration, error::Error, storage::Storage};
 

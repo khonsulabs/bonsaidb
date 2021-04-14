@@ -35,7 +35,7 @@ use pliantdb_core::{
     transaction::{Executed, OperationResult, Transaction},
 };
 use pliantdb_jobs::{manager::Manager, Job};
-use pliantdb_local::Storage;
+use pliantdb_local::{Internal, Storage};
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
@@ -772,7 +772,7 @@ where
         id: u64,
         collection: &collection::Id,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
-        self.get_from_collection_id(id, collection).await
+        Internal::get_from_collection_id(self, id, collection).await
     }
 
     async fn get_multiple_from_collection_id(
@@ -780,7 +780,7 @@ where
         ids: &[u64],
         collection: &collection::Id,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
-        self.get_multiple_from_collection_id(ids, collection).await
+        Internal::get_multiple_from_collection_id(self, ids, collection).await
     }
 
     async fn apply_transaction(
@@ -825,15 +825,15 @@ where
         let results = OpenDatabase::query(self, view, key, access_policy).await?;
         let view = self.schema.view_by_name(view).unwrap(); // query() will fail if it's not present
 
-        let mut documents = self
-            .get_multiple_from_collection_id(
-                &results.iter().map(|m| m.source).collect::<Vec<_>>(),
-                &view.collection(),
-            )
-            .await?
-            .into_iter()
-            .map(|doc| (doc.header.id, doc))
-            .collect::<HashMap<_, _>>();
+        let mut documents = Internal::get_multiple_from_collection_id(
+            self,
+            &results.iter().map(|m| m.source).collect::<Vec<_>>(),
+            &view.collection(),
+        )
+        .await?
+        .into_iter()
+        .map(|doc| (doc.header.id, doc))
+        .collect::<HashMap<_, _>>();
 
         Ok(results
             .into_iter()
