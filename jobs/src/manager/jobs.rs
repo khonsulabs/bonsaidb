@@ -92,28 +92,33 @@ where
         }
     }
 
-    pub async fn job_completed<T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static>(
+    pub async fn job_completed<
+        T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    >(
         &mut self,
         id: Id,
         key: Option<&Key>,
         result: Result<T, anyhow::Error>,
     ) {
+        if let Some(key) = key {
+            self.keyed_jobs.remove(key);
+        }
+
         if let Some(senders) = self.result_senders.remove(&id) {
+            let result = result.map_err(Arc::new);
             tokio::spawn(async move {
-                let result = &Arc::new(result);
-                futures::future::join_all(senders.into_iter().map(|handle| async move {
-                    let handle = handle
-                        .as_any()
-                        .downcast_ref::<Sender<Arc<Result<T, anyhow::Error>>>>()
-                        .unwrap();
-                    handle.send_async(result.clone()).await
+                futures::future::join_all(senders.into_iter().map(|handle| {
+                    let result = result.clone();
+                    async move {
+                        let handle = handle
+                            .as_any()
+                            .downcast_ref::<Sender<Result<T, Arc<anyhow::Error>>>>()
+                            .unwrap();
+                        handle.send_async(result).await
+                    }
                 }))
                 .await;
             });
-        }
-
-        if let Some(key) = key {
-            self.keyed_jobs.remove(key);
         }
     }
 }
@@ -122,7 +127,7 @@ pub trait AnySender: Any + Send + Sync + Debug {
     fn as_any(&self) -> &'_ dyn Any;
 }
 
-impl<T> AnySender for Sender<Arc<Result<T, anyhow::Error>>>
+impl<T> AnySender for Sender<Result<T, Arc<anyhow::Error>>>
 where
     T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
 {

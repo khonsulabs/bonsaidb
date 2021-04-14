@@ -1,11 +1,12 @@
 use std::time::SystemTime;
 
-use pliantdb::local::Storage;
-use pliantdb_core::{
-    connection::Connection,
-    schema::{collection, Collection, Schematic},
+use pliantdb::{
+    core::{
+        connection::Connection,
+        schema::{collection, Collection, Schematic},
+    },
+    local::{Configuration, Storage},
 };
-use pliantdb_local::Configuration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -15,7 +16,7 @@ struct Message {
 }
 
 impl Collection for Message {
-    fn id() -> collection::Id {
+    fn collection_id() -> collection::Id {
         collection::Id::from("messages")
     }
 
@@ -25,7 +26,7 @@ impl Collection for Message {
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     let db = Storage::<Message>::open_local("basic.pliantdb", &Configuration::default()).await?;
-    let messages = db.collection::<Message>()?;
+    let messages = db.collection::<Message>();
 
     // Insert a new `Message` into the collection. The `push()` method used
     // below is made available through the `Connection` trait. While this

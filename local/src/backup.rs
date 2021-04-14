@@ -28,7 +28,7 @@ use std::{
 use flume::Receiver;
 use pliantdb_core::{
     document::{Document, Header, Revision},
-    schema::{collection, Key},
+    schema::{collection, Key, Schema},
 };
 use structopt::StructOpt;
 use tokio::{
@@ -49,7 +49,7 @@ pub struct Cli {
 
     /// The command to execute on the database.
     #[structopt(subcommand)]
-    pub command: Command,
+    pub subcommand: Command,
 }
 
 /// The command to execute.
@@ -218,7 +218,7 @@ async fn write_documents(
     }
 
     while let Ok(document) = receiver.recv_async().await {
-        let collection_directory = backup.join(document.collection.0.as_ref());
+        let collection_directory = backup.join(document.collection.as_ref());
         if !collection_directory.exists() {
             tokio::fs::create_dir(&collection_directory).await?;
         }
@@ -228,13 +228,17 @@ async fn write_documents(
         ));
         let mut file = File::create(&document_path).await?;
         file.write_all(&document.contents).await?;
+        file.shutdown().await?;
     }
 
     Ok(())
 }
 
 #[allow(clippy::clippy::needless_pass_by_value)] // it's not needless, it's to avoid a borrow that would need to span a 'static lifetime
-fn restore_documents(receiver: Receiver<Document<'static>>, db: Storage<()>) -> anyhow::Result<()> {
+fn restore_documents<DB: Schema>(
+    receiver: Receiver<Document<'static>>,
+    db: Storage<DB>,
+) -> anyhow::Result<()> {
     while let Ok(doc) = receiver.recv() {
         let tree = db.sled.open_tree(document_tree_name(&doc.collection))?;
         tree.insert(
@@ -269,7 +273,7 @@ mod tests {
             let db = Storage::<Basic>::open_local(&database_directory, &Configuration::default())
                 .await?;
             let test_doc = db
-                .collection::<Basic>()?
+                .collection::<Basic>()
                 .push(&Basic::new("somevalue"))
                 .await?;
             drop(db);

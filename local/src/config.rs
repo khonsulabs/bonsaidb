@@ -1,5 +1,5 @@
 /// Configuration options for [`Storage`](crate::storage::Storage).
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Configuration {
     /// Configuration options related to background tasks.
     pub workers: Tasks,
@@ -9,7 +9,7 @@ pub struct Configuration {
 }
 
 /// Configujration options for background tasks.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Tasks {
     /// Defines how many workers should be spawned to process tasks. Default
     /// value is `16`.
@@ -27,7 +27,7 @@ impl Default for Tasks {
 }
 
 /// Configuration options for views.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Views {
     /// If true, the database will scan all views during the call to
     /// `open_local`. This will cause database opening to take longer, but once

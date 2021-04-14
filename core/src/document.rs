@@ -18,17 +18,15 @@ pub struct Header {
 }
 
 /// Contains a serialized document in the database.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Document<'a> {
     /// The `Id` of the `Collection` this document belongs to.
     pub collection: collection::Id,
 
     /// The header of the document, which contains the id and `Revision`.
-    #[serde(borrow)]
     pub header: Cow<'a, Header>,
 
     /// The serialized bytes of the stored item.
-    #[serde(borrow)]
     pub contents: Cow<'a, [u8]>,
 }
 
@@ -131,7 +129,7 @@ fn emissions_tests() -> Result<(), crate::Error> {
         test_util::Basic,
     };
 
-    let doc = Document::with_contents(1, &Basic::default(), Basic::id())?;
+    let doc = Document::with_contents(1, &Basic::default(), Basic::collection_id())?;
 
     assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));
 

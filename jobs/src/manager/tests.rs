@@ -64,13 +64,7 @@ async fn keyed_simple() -> Result<(), flume::RecvError> {
         .expect("try_receive failed even though other channels were available");
 
     for result in vec![result1, result2, result3] {
-        result
-            .as_ref()
-            .as_ref()
-            .map(|value| {
-                assert_eq!(value, &1);
-            })
-            .unwrap();
+        assert_eq!(result.unwrap(), 1);
     }
 
     Ok(())

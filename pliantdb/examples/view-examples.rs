@@ -1,12 +1,13 @@
 use std::borrow::Cow;
 
-use pliantdb::local::Storage;
-use pliantdb_core::{
-    connection::Connection,
-    document::Document,
-    schema::{collection, map::MappedValue, view, Collection, MapResult, Schematic, View},
+use pliantdb::{
+    core::{
+        connection::Connection,
+        document::Document,
+        schema::{collection, map::MappedValue, view, Collection, MapResult, Schematic, View},
+    },
+    local::{Configuration, Storage},
 };
-use pliantdb_local::Configuration;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -21,7 +22,7 @@ impl Shape {
 }
 
 impl Collection for Shape {
-    fn id() -> collection::Id {
+    fn collection_id() -> collection::Id {
         collection::Id::from("shapes")
     }
 
@@ -66,7 +67,7 @@ impl View for ShapesByNumberOfSides {
 async fn main() -> Result<(), anyhow::Error> {
     let db =
         Storage::<Shape>::open_local("view-examples.pliantdb", &Configuration::default()).await?;
-    let shapes = db.collection::<Shape>()?;
+    let shapes = db.collection::<Shape>();
 
     // Views in `PliantDB` are written using a Map/Reduce approach. In this
     // example, we take a look at how document mapping can be used to filter and

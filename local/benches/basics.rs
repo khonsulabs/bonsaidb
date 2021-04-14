@@ -42,7 +42,7 @@ struct ResizableDocument<'a> {
 }
 
 impl<'a> Collection for ResizableDocument<'a> {
-    fn id() -> collection::Id {
+    fn collection_id() -> collection::Id {
         collection::Id::from("resizable-docs")
     }
 
@@ -51,7 +51,6 @@ impl<'a> Collection for ResizableDocument<'a> {
 
 async fn save_document(doc: &ResizableDocument<'_>, db: &Storage<ResizableDocument<'static>>) {
     db.collection::<ResizableDocument<'static>>()
-        .unwrap()
         .push(doc)
         .await
         .unwrap();

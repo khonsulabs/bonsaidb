@@ -10,10 +10,9 @@
     future_incompatible,
     rust_2018_idioms,
 )]
-#![cfg_attr(doc, warn(rustdoc))]
+#![cfg_attr(doc, deny(rustdoc))]
 #![allow(
     clippy::missing_errors_doc, // TODO
-    // clippy::missing_panics_doc, // not on stable yet
     clippy::option_if_let_else,
 )]
 
@@ -22,5 +21,7 @@ pub mod manager;
 /// Types related to defining [`Job`]s.
 pub mod task;
 mod traits;
+
+pub use flume;
 
 pub use self::traits::{Job, Keyed};

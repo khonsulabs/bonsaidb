@@ -1,30 +1,36 @@
 use std::{borrow::Cow, marker::PhantomData, ops::Range};
 
 use async_trait::async_trait;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     document::{Document, Header},
-    schema::{self, map::MappedDocument, Map},
+    schema::{
+        self,
+        map::MappedDocument,
+        view::{self, map::MappedValue},
+        Key, Map,
+    },
     transaction::{self, Command, Operation, OperationResult, Transaction},
     Error,
 };
 
 /// Defines all interactions with a [`schema::Schema`], regardless of whether it is local or remote.
 #[async_trait]
-pub trait Connection<'a>: Send + Sync {
+pub trait Connection: Send + Sync {
     /// Accesses a collection for the connected [`schema::Schema`].
-    fn collection<C: schema::Collection + 'static>(
-        &'a self,
-    ) -> Result<Collection<'a, Self, C>, Error>
+    fn collection<'a, C: schema::Collection + 'static>(&'a self) -> Collection<'a, Self, C>
     where
-        Self: Sized;
+        Self: Sized,
+    {
+        Collection::new(self)
+    }
 
     /// Inserts a newly created document into the connected [`schema::Schema`] for the [`Collection`] `C`.
     async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error> {
         let mut tx = Transaction::default();
         tx.push(Operation {
-            collection: C::id(),
+            collection: C::collection_id(),
             command: Command::Insert {
                 contents: Cow::from(contents),
             },
@@ -94,7 +100,7 @@ pub trait Connection<'a>: Send + Sync {
 
     /// Initializes [`View`] for [`schema::View`] `V`.
     #[must_use]
-    fn view<V: schema::View>(&'a self) -> View<'a, Self, V>
+    fn view<V: schema::View>(&'_ self) -> View<'_, Self, V>
     where
         Self: Sized,
     {
@@ -103,28 +109,42 @@ pub trait Connection<'a>: Send + Sync {
 
     /// Queries for view entries matching [`View`].
     #[must_use]
-    async fn query<'k, V: schema::View>(
+    async fn query<V: schema::View>(
         &self,
-        query: View<'a, Self, V>,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, Error>
     where
         Self: Sized;
 
     /// Queries for view entries matching [`View`].
     #[must_use]
-    async fn query_with_docs<'k, V: schema::View>(
+    async fn query_with_docs<V: schema::View>(
         &self,
-        query: View<'a, Self, V>,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
     ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error>
     where
         Self: Sized;
 
     /// Reduces the view entries matching [`View`].
     #[must_use]
-    async fn reduce<'k, V: schema::View>(
+    async fn reduce<V: schema::View>(
         &self,
-        query: View<'a, Self, V>,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
     ) -> Result<V::Value, Error>
+    where
+        Self: Sized;
+
+    /// Reduces the view entries matching [`View`], reducing the values by each
+    /// unique key.
+    #[must_use]
+    async fn reduce_grouped<V: schema::View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error>
     where
         Self: Sized;
 
@@ -146,6 +166,9 @@ pub trait Connection<'a>: Send + Sync {
         starting_id: Option<u64>,
         result_limit: Option<usize>,
     ) -> Result<Vec<transaction::Executed<'static>>, Error>;
+
+    /// Fetches the last transaction id that has been committed, if any.
+    async fn last_transaction_id(&self) -> Result<Option<u64>, Error>;
 }
 
 /// Interacts with a collection over a `Connection`.
@@ -156,7 +179,7 @@ pub struct Collection<'a, Cn, Cl> {
 
 impl<'a, Cn, Cl> Collection<'a, Cn, Cl>
 where
-    Cn: Connection<'a>,
+    Cn: Connection,
     Cl: schema::Collection,
 {
     /// Creates a new instance using `connection`.
@@ -193,7 +216,7 @@ pub struct View<'a, Cn, V: schema::View> {
 impl<'a, Cn, V> View<'a, Cn, V>
 where
     V: schema::View,
-    Cn: Connection<'a>,
+    Cn: Connection,
 {
     fn new(connection: &'a Cn) -> Self {
         Self {
@@ -232,21 +255,35 @@ where
 
     /// Executes the query and retrieves the results.
     pub async fn query(self) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
-        self.connection.query(self).await
+        self.connection
+            .query::<V>(self.key, self.access_policy)
+            .await
     }
 
     /// Executes the query and retrieves the results with the associated `Document`s.
     pub async fn query_with_docs(self) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error> {
-        self.connection.query_with_docs(self).await
+        self.connection
+            .query_with_docs::<V>(self.key, self.access_policy)
+            .await
     }
 
     /// Executes a reduce over the results of the query
     pub async fn reduce(self) -> Result<V::Value, Error> {
-        self.connection.reduce(self).await
+        self.connection
+            .reduce::<V>(self.key, self.access_policy)
+            .await
+    }
+
+    /// Executes a reduce over the results of the query
+    pub async fn reduce_grouped(self) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error> {
+        self.connection
+            .reduce_grouped::<V>(self.key, self.access_policy)
+            .await
     }
 }
 
 /// Filters a [`View`] by key.
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum QueryKey<K> {
     /// Matches all entries with the key provided.
     Matches(K),
@@ -258,7 +295,81 @@ pub enum QueryKey<K> {
     Multiple(Vec<K>),
 }
 
+#[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
+impl<K: Key> QueryKey<K> {
+    /// Converts this key to a serialized format using the [`Key`] trait.
+    pub fn serialized(&self) -> Result<QueryKey<Vec<u8>>, Error> {
+        match self {
+            Self::Matches(key) => key
+                .as_big_endian_bytes()
+                .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))
+                .map(|v| QueryKey::Matches(v.to_vec())),
+            Self::Range(range) => {
+                let start = range
+                    .start
+                    .as_big_endian_bytes()
+                    .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))?
+                    .to_vec();
+                let end = range
+                    .end
+                    .as_big_endian_bytes()
+                    .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))?
+                    .to_vec();
+                Ok(QueryKey::Range(start..end))
+            }
+            Self::Multiple(keys) => {
+                let keys = keys
+                    .iter()
+                    .map(|key| {
+                        key.as_big_endian_bytes()
+                            .map(|key| key.to_vec())
+                            .map_err(|err| {
+                                Error::Storage(view::Error::KeySerialization(err).to_string())
+                            })
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
+
+                Ok(QueryKey::Multiple(keys))
+            }
+        }
+    }
+}
+
+#[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
+impl QueryKey<Vec<u8>> {
+    /// Deserializes the bytes into `K` via the [`Key`] trait.
+    pub fn deserialized<K: Key>(&self) -> Result<QueryKey<K>, Error> {
+        match self {
+            Self::Matches(key) => K::from_big_endian_bytes(key)
+                .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))
+                .map(QueryKey::Matches),
+            Self::Range(range) => {
+                let start = K::from_big_endian_bytes(&range.start).map_err(|err| {
+                    Error::Storage(view::Error::KeySerialization(err).to_string())
+                })?;
+                let end = K::from_big_endian_bytes(&range.end).map_err(|err| {
+                    Error::Storage(view::Error::KeySerialization(err).to_string())
+                })?;
+                Ok(QueryKey::Range(start..end))
+            }
+            Self::Multiple(keys) => {
+                let keys = keys
+                    .iter()
+                    .map(|key| {
+                        K::from_big_endian_bytes(key).map_err(|err| {
+                            Error::Storage(view::Error::KeySerialization(err).to_string())
+                        })
+                    })
+                    .collect::<Result<Vec<_>, Error>>()?;
+
+                Ok(QueryKey::Multiple(keys))
+            }
+        }
+    }
+}
+
 /// Changes how the view's outdated data will be treated.
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum AccessPolicy {
     /// Update any changed documents before returning a response.
     UpdateBefore,

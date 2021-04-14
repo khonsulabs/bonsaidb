@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 #[async_trait]
 pub trait Job: Debug + Send + Sync + 'static {
     /// The output type of the job.
-    type Output: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static;
+    type Output: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static;
 
     /// Executes the job and returns the result.
     async fn execute(&mut self) -> anyhow::Result<Self::Output>;

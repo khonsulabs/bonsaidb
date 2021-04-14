@@ -11,7 +11,8 @@ use crate::schema::Schematic;
 /// conflict with others, so that if someone mixes collections from multiple
 /// authors in a single database.
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
-pub struct Id(pub Cow<'static, str>);
+#[serde(transparent)]
+pub struct Id(pub(crate) Cow<'static, str>);
 
 impl From<&'static str> for Id {
     fn from(str: &'static str) -> Self {
@@ -31,10 +32,16 @@ impl Display for Id {
     }
 }
 
+impl AsRef<str> for Id {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
 /// A namespaced collection of `Document<Self>` items and views.
 pub trait Collection: Debug + Send + Sync {
     /// The `Id` of this collection.
-    fn id() -> Id;
+    fn collection_id() -> Id;
 
     /// Defines all `View`s in this collection in `schema`.
     fn define_views(schema: &mut Schematic);

@@ -1,11 +1,16 @@
-use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sync::Arc, u8};
 
 use async_trait::async_trait;
 use itertools::Itertools;
 use pliantdb_core::{
-    connection::{AccessPolicy, Collection, Connection, QueryKey, View},
+    connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
-    schema::{self, collection, map::MappedDocument, view, Key, Map, Schema, Schematic},
+    limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
+    schema::{
+        self, collection,
+        map::{MappedDocument, MappedValue},
+        view, Key, Map, Schema, Schematic,
+    },
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
 use pliantdb_jobs::manager::Manager;
@@ -22,16 +27,12 @@ use crate::{
     views::{view_entries_tree_name, view_invalidated_docs_tree_name, ViewEntry},
 };
 
-/// The maximum number of results allowed to be returned from `list_executed_transactions`.
-pub const LIST_TRANSACTIONS_MAX_RESULTS: usize = 1000;
-/// If no `result_limit` is specified, this value is the limit used by default.
-pub const LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT: usize = 100;
-
 /// A local, file-based database.
 #[derive(Debug)]
 pub struct Storage<DB> {
+    /// The [`Schematic`] of `DB`.
+    pub schema: Arc<Schematic>,
     pub(crate) sled: sled::Db,
-    pub(crate) schema: Arc<Schematic>,
     pub(crate) tasks: TaskManager,
     _schema: PhantomData<DB>,
 }
@@ -69,20 +70,17 @@ where
         let tasks = TaskManager::new(manager);
 
         let storage = tokio::task::spawn_blocking(move || {
-            let mut collections = Schematic::default();
-            DB::define_collections(&mut collections);
-
             sled::open(owned_path)
                 .map(|sled| Self {
                     sled,
-                    schema: Arc::new(collections),
+                    schema: Arc::new(DB::schematic()),
                     tasks,
                     _schema: PhantomData::default(),
                 })
                 .map_err(Error::from)
         })
         .await
-        .unwrap()?;
+        .map_err(|err| pliantdb_core::Error::Storage(err.to_string()))??;
 
         if configuration.views.check_integrity_on_open {
             for view in storage.schema.views() {
@@ -93,37 +91,16 @@ where
         Ok(storage)
     }
 
-    /// Fetches the last transaction id that has been committed, if any.
-    pub async fn last_transaction_id(&self) -> Result<Option<u64>, Error> {
-        tokio::task::block_in_place(|| {
-            let tree = self.sled.open_tree(TRANSACTION_TREE_NAME)?;
-            if let Some((key, _)) = tree.last()? {
-                Ok(Some(
-                    u64::from_big_endian_bytes(&key).map_err(view::Error::KeySerialization)?,
-                ))
-            } else {
-                Ok(None)
-            }
-        })
-    }
-
-    async fn for_each_view_entry<
-        V: schema::View,
+    /// Iterate over each view entry matching `key`.
+    pub async fn for_each_in_view<
         F: FnMut(IVec, ViewEntry) -> Result<(), pliantdb_core::Error> + Send + Sync,
     >(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        view: &dyn view::Serialized,
+        key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         mut callback: F,
-    ) -> Result<(), pliantdb_core::Error>
-    where
-        Self: Sized,
-    {
-        let view = self
-            .schema
-            .view::<V>()
-            .expect("query made with view that isn't registered with this database");
-
+    ) -> Result<(), pliantdb_core::Error> {
         if matches!(access_policy, AccessPolicy::UpdateBefore) {
             self.tasks
                 .update_view_if_needed(view, self)
@@ -157,10 +134,11 @@ where
 
         if matches!(access_policy, AccessPolicy::UpdateAfter) {
             let storage = self.clone();
+            let view_name = view.name();
             tokio::task::spawn(async move {
                 let view = storage
                     .schema
-                    .view::<V>()
+                    .view_by_name(&view_name)
                     .expect("query made with view that isn't registered with this database");
                 storage.tasks.update_view_if_needed(view, &storage).await
             });
@@ -168,26 +146,158 @@ where
 
         Ok(())
     }
+
+    /// Iterate over each view entry matching `key`.
+    pub async fn for_each_view_entry<
+        V: schema::View,
+        F: FnMut(IVec, ViewEntry) -> Result<(), pliantdb_core::Error> + Send + Sync,
+    >(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+        callback: F,
+    ) -> Result<(), pliantdb_core::Error> {
+        let view = self
+            .schema
+            .view::<V>()
+            .expect("query made with view that isn't registered with this database");
+
+        self.for_each_in_view(
+            view,
+            key.map(|key| key.serialized()).transpose()?,
+            access_policy,
+            callback,
+        )
+        .await
+    }
+
+    /// Retrieves document `id` from the specified `collection`.
+    pub async fn get_from_collection_id(
+        &self,
+        id: u64,
+        collection: &collection::Id,
+    ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
+        tokio::task::block_in_place(|| {
+            let tree = self
+                .sled
+                .open_tree(document_tree_name(collection))
+                .map_err_to_core()?;
+            if let Some(vec) = tree
+                .get(
+                    id.as_big_endian_bytes()
+                        .map_err(view::Error::KeySerialization)
+                        .map_err_to_core()?,
+                )
+                .map_err_to_core()?
+            {
+                Ok(Some(
+                    bincode::deserialize::<Document<'_>>(&vec)
+                        .map_err_to_core()?
+                        .to_owned(),
+                ))
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
+    /// Retrieves document `id` from the specified `collection`.
+    pub async fn get_multiple_from_collection_id(
+        &self,
+        ids: &[u64],
+        collection: &collection::Id,
+    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
+        tokio::task::block_in_place(|| {
+            let tree = self
+                .sled
+                .open_tree(document_tree_name(collection))
+                .map_err_to_core()?;
+            let mut found_docs = Vec::new();
+            for id in ids {
+                if let Some(vec) = tree
+                    .get(
+                        id.as_big_endian_bytes()
+                            .map_err(view::Error::KeySerialization)
+                            .map_err_to_core()?,
+                    )
+                    .map_err_to_core()?
+                {
+                    found_docs.push(
+                        bincode::deserialize::<Document<'_>>(&vec)
+                            .map_err_to_core()?
+                            .to_owned(),
+                    );
+                }
+            }
+
+            Ok(found_docs)
+        })
+    }
+
+    /// Reduce view `view_name`.
+    #[allow(clippy::missing_panics_doc)] // the only unwrap is impossible to fail
+    pub async fn reduce_in_view(
+        &self,
+        view_name: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<u8>, pliantdb_core::Error> {
+        let view = self
+            .schema
+            .view_by_name(view_name)
+            .ok_or(pliantdb_core::Error::CollectionNotFound)?;
+        let mut mappings = self
+            .grouped_reduce_in_view(view_name, key, access_policy)
+            .await?;
+
+        let result = if mappings.len() == 1 {
+            mappings.pop().unwrap().value // reason for missing_panics_doc
+        } else {
+            view.reduce(
+                &mappings
+                    .iter()
+                    .map(|map| (map.key.as_ref(), map.value.as_ref()))
+                    .collect::<Vec<_>>(),
+                true,
+            )
+            .map_err(Error::View)
+            .map_err_to_core()?
+        };
+
+        Ok(result)
+    }
+
+    /// Reduce view `view_name`, grouping by unique keys.
+    #[allow(clippy::missing_panics_doc)] // the only unwrap is impossible to fail
+    pub async fn grouped_reduce_in_view(
+        &self,
+        view_name: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error> {
+        let view = self
+            .schema
+            .view_by_name(view_name)
+            .ok_or(pliantdb_core::Error::CollectionNotFound)?;
+        let mut mappings = Vec::new();
+        self.for_each_in_view(view, key, access_policy, |key, entry| {
+            mappings.push(MappedValue {
+                key: key.to_vec(),
+                value: entry.reduced_value,
+            });
+            Ok(())
+        })
+        .await?;
+
+        Ok(mappings)
+    }
 }
 
 #[async_trait]
-impl<'a, DB> Connection<'a> for Storage<DB>
+impl<'a, DB> Connection for Storage<DB>
 where
     DB: Schema,
 {
-    fn collection<C: schema::Collection + 'static>(
-        &'a self,
-    ) -> Result<Collection<'a, Self, C>, pliantdb_core::Error>
-    where
-        Self: Sized,
-    {
-        if self.schema.contains::<C>() {
-            Ok(Collection::new(self))
-        } else {
-            Err(pliantdb_core::Error::CollectionNotFound)
-        }
-    }
-
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
@@ -200,6 +310,10 @@ where
                 .open_tree(&sled, TRANSACTION_TREE_NAME)
                 .map_err_to_core()?;
             for op in &transaction.operations {
+                if !schema.contains_collection_id(&op.collection) {
+                    return Err(pliantdb_core::Error::CollectionNotFound);
+                }
+
                 match &op.command {
                     Command::Update { .. } | Command::Insert { .. } | Command::Delete { .. } => {
                         open_trees
@@ -282,66 +396,22 @@ where
             }
         })
         .await
-        .unwrap()
+        .map_err(|err| pliantdb_core::Error::Storage(err.to_string()))?
     }
 
     async fn get<C: schema::Collection>(
         &self,
         id: u64,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| {
-            let tree = self
-                .sled
-                .open_tree(document_tree_name(&C::id()))
-                .map_err_to_core()?;
-            if let Some(vec) = tree
-                .get(
-                    id.as_big_endian_bytes()
-                        .map_err(view::Error::KeySerialization)
-                        .map_err_to_core()?,
-                )
-                .map_err_to_core()?
-            {
-                Ok(Some(
-                    bincode::deserialize::<Document<'_>>(&vec)
-                        .map_err_to_core()?
-                        .to_owned(),
-                ))
-            } else {
-                Ok(None)
-            }
-        })
+        self.get_from_collection_id(id, &C::collection_id()).await
     }
 
     async fn get_multiple<C: schema::Collection>(
         &self,
         ids: &[u64],
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| {
-            let tree = self
-                .sled
-                .open_tree(document_tree_name(&C::id()))
-                .map_err_to_core()?;
-            let mut found_docs = Vec::new();
-            for id in ids {
-                if let Some(vec) = tree
-                    .get(
-                        id.as_big_endian_bytes()
-                            .map_err(view::Error::KeySerialization)
-                            .map_err_to_core()?,
-                    )
-                    .map_err_to_core()?
-                {
-                    found_docs.push(
-                        bincode::deserialize::<Document<'_>>(&vec)
-                            .map_err_to_core()?
-                            .to_owned(),
-                    );
-                }
-            }
-
-            Ok(found_docs)
-        })
+        self.get_multiple_from_collection_id(ids, &C::collection_id())
+            .await
     }
 
     async fn list_executed_transactions(
@@ -388,17 +458,14 @@ where
     }
 
     #[must_use]
-    async fn query<'k, V: schema::View>(
+    async fn query<V: schema::View>(
         &self,
-        query: View<'a, Self, V>,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
     ) -> Result<Vec<view::Map<V::Key, V::Value>>, pliantdb_core::Error>
     where
         Self: Sized,
     {
-        let View {
-            key, access_policy, ..
-        } = query;
-
         let mut results = Vec::new();
         self.for_each_view_entry::<V, _>(key, access_policy, |key, entry| {
             let key = <V::Key as Key>::from_big_endian_bytes(&key)
@@ -418,14 +485,15 @@ where
         Ok(results)
     }
 
-    async fn query_with_docs<'k, V: schema::View>(
+    async fn query_with_docs<V: schema::View>(
         &self,
-        query: View<'a, Self, V>,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
     ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, pliantdb_core::Error>
     where
         Self: Sized,
     {
-        let results = self.query(query).await?;
+        let results = self.query::<V>(key, access_policy).await?;
 
         let mut documents = self
             .get_multiple::<V::Collection>(&results.iter().map(|m| m.source).collect::<Vec<_>>())
@@ -450,48 +518,82 @@ where
             .collect())
     }
 
-    async fn reduce<'k, V: schema::View>(
+    async fn reduce<V: schema::View>(
         &self,
-        query: View<'a, Self, V>,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
     ) -> Result<V::Value, pliantdb_core::Error>
     where
         Self: Sized,
     {
-        let View {
-            key, access_policy, ..
-        } = query;
-
-        let mut mappings = Vec::new();
-        self.for_each_view_entry::<V, _>(key, access_policy, |key, entry| {
-            mappings.push((key, entry.reduced_value));
-            Ok(())
-        })
-        .await?;
-
         let view = self
             .schema
             .view::<V>()
             .expect("query made with view that isn't registered with this database");
 
-        // An unfortunate side effect of interacting with the view over a
-        // typeless interface is that we're getting a serialized version back.
-        // This is wasteful. We should be able to use Any to get a full
-        // reference to the view here so that we can call reduce directly.
-        let result = view
-            .reduce(
-                &mappings
-                    .iter()
-                    .map(|(key, value)| (key.as_ref(), value.as_ref()))
-                    .collect::<Vec<_>>(),
-                true,
+        let result = self
+            .reduce_in_view(
+                &view.name(),
+                key.map(|key| key.serialized()).transpose()?,
+                access_policy,
             )
-            .map_err(Error::View)
-            .map_err_to_core()?;
+            .await?;
         let value = serde_cbor::from_slice(&result)
             .map_err(Error::Serialization)
             .map_err_to_core()?;
 
         Ok(value)
+    }
+
+    async fn reduce_grouped<V: schema::View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, pliantdb_core::Error>
+    where
+        Self: Sized,
+    {
+        let view = self
+            .schema
+            .view::<V>()
+            .expect("query made with view that isn't registered with this database");
+
+        let results = self
+            .grouped_reduce_in_view(
+                &view.name(),
+                key.map(|key| key.serialized()).transpose()?,
+                access_policy,
+            )
+            .await?;
+        results
+            .into_iter()
+            .map(|map| {
+                Ok(MappedValue {
+                    key: V::Key::from_big_endian_bytes(&map.key)
+                        .map_err(view::Error::KeySerialization)
+                        .map_err_to_core()?,
+                    value: serde_cbor::from_slice(&map.value)?,
+                })
+            })
+            .collect::<Result<Vec<_>, pliantdb_core::Error>>()
+    }
+
+    async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
+        tokio::task::block_in_place(|| {
+            let tree = self
+                .sled
+                .open_tree(TRANSACTION_TREE_NAME)
+                .map_err_to_core()?;
+            if let Some((key, _)) = tree.last().map_err_to_core()? {
+                Ok(Some(
+                    u64::from_big_endian_bytes(&key)
+                        .map_err(view::Error::KeySerialization)
+                        .map_err_to_core()?,
+                ))
+            } else {
+                Ok(None)
+            }
+        })
     }
 }
 
@@ -653,5 +755,5 @@ fn save_doc(
 const TRANSACTION_TREE_NAME: &str = "transactions";
 
 pub fn document_tree_name(collection: &collection::Id) -> String {
-    format!("collection::{}", collection.0)
+    format!("collection::{}", collection)
 }

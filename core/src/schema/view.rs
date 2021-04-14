@@ -13,6 +13,7 @@ use super::collection;
 
 /// Errors that arise when interacting with views.
 #[derive(thiserror::Error, Debug)]
+// TODO add which view name and collection
 pub enum Error {
     /// An error occurred while serializing or deserializing.
     #[error("error deserializing document {0}")]
@@ -107,7 +108,7 @@ where
 
 /// Wraps a [`View`] with serialization to erase the associated types
 pub trait Serialized: Send + Sync + Debug {
-    /// Wraps returing [`<View::Collection as Collection>::id()`](crate::schema::Collection::id)
+    /// Wraps returing [`<View::Collection as Collection>::collection_id()`](crate::schema::Collection::collection_id)
     fn collection(&self) -> collection::Id;
     /// Wraps [`View::version`]
     fn version(&self) -> u64;
@@ -126,7 +127,7 @@ where
     <T as View>::Key: 'static,
 {
     fn collection(&self) -> collection::Id {
-        <<Self as View>::Collection as Collection>::id()
+        <<Self as View>::Collection as Collection>::collection_id()
     }
 
     fn version(&self) -> u64 {
@@ -140,18 +141,7 @@ where
     fn map(&self, document: &Document<'_>) -> Result<Option<map::Serialized>, Error> {
         let map = self.map(document)?;
 
-        match map {
-            Some(map) => Ok(Some(map::Serialized {
-                source: map.source,
-                key: map
-                    .key
-                    .as_big_endian_bytes()
-                    .map_err(Error::KeySerialization)?
-                    .to_vec(),
-                value: serde_cbor::to_vec(&map.value)?,
-            })),
-            None => Ok(None),
-        }
+        map.map(|map| map.serialized()).transpose()
     }
 
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error> {

@@ -10,10 +10,9 @@
     future_incompatible,
     rust_2018_idioms,
 )]
-#![cfg_attr(doc, warn(rustdoc))]
+#![cfg_attr(doc, deny(rustdoc))]
 #![allow(
     clippy::missing_errors_doc, // TODO
-    // clippy::missing_panics_doc, // not on stable yet
     clippy::option_if_let_else,
 )]
 
@@ -28,11 +27,7 @@ mod views;
 #[doc(inline)]
 pub use pliantdb_core as core;
 
-pub use self::{
-    config::Configuration,
-    error::Error,
-    storage::{Storage, LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-};
+pub use self::{config::Configuration, error::Error, storage::Storage};
 
 #[cfg(feature = "cli")]
 pub mod backup;

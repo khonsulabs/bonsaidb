@@ -4,7 +4,10 @@ use std::{
     sync::Arc,
 };
 
-use pliantdb_core::schema::{collection, view, Schema};
+use pliantdb_core::{
+    connection::Connection,
+    schema::{collection, view, Schema},
+};
 use pliantdb_jobs::{manager::Manager, task::Handle};
 use tokio::sync::RwLock;
 
@@ -44,7 +47,7 @@ impl TaskManager {
     ) -> Result<(), crate::Error> {
         let view_name = view.name();
         if let Some(job) = self.spawn_integrity_check(view, storage).await? {
-            job.receive().await.unwrap();
+            job.receive().await?.map_err(crate::Error::Other)?;
         }
 
         // If there is no transaction id, there is no data, so the view is "up-to-date"
@@ -84,7 +87,9 @@ impl TaskManager {
                             }
                         }
                         Err(err) => {
-                            return Err(crate::Error::Other(anyhow::Error::msg(err.to_string())))
+                            return Err(crate::Error::Other(Arc::new(anyhow::Error::msg(
+                                err.to_string(),
+                            ))))
                         }
                     }
                 }
