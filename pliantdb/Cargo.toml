@@ -1,6 +1,6 @@
 [package]
 name = "pliantdb"
-version = "0.1.0-dev-1"
+version = "0.1.0-dev-2"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
 description = "a programmable document database inspired by CouchDB"
@@ -53,10 +53,10 @@ trusted-dns = ["pliantdb-server/trusted-dns", "pliantdb-client/trusted-dns"]
 certificate-generation = ["pliantdb-server/certificate-generation"]
 
 [dependencies]
-pliantdb-core = { path = "../core", version = "0.1.0-dev-1" }
-pliantdb-local = { path = "../local", version = "0.1.0-dev-1", optional = true }
-pliantdb-client = { path = "../client", version = "0.1.0-dev-1", optional = true }
-pliantdb-server = { path = "../server", version = "0.1.0-dev-1", optional = true }
+pliantdb-core = { path = "../core", version = "0.1.0-dev-2" }
+pliantdb-local = { path = "../local", version = "0.1.0-dev-2", optional = true }
+pliantdb-client = { path = "../client", version = "0.1.0-dev-2", optional = true }
+pliantdb-server = { path = "../server", version = "0.1.0-dev-2", optional = true }
 
 tokio = { version = "1", features = ["full"], optional = true }
 structopt = { version = "0.3", optional = true }
@@ -66,6 +66,6 @@ anyhow = { version = "1", optional = true }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 anyhow = "1"
-pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["test-util"] }
+pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["test-util"] }
 futures = "0.3"
 rand = "0.8"

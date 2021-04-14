@@ -13,7 +13,7 @@ PliantDB aims to be a [Rust](https://rust-lang.org)-written, ACID-compliant, doc
 
 The high-level goals for this project are:
 
-- ☑️ Be able to a document-based database's schema using Rust types.
+- ☑️ Be able to build a document-based database's schema using Rust types.
 - ☑️ Run within your Rust binary, simplifying basic deployments.
 - ☑️ Run as a local-only file-based database with no networking involved.
 - ☑️🚧 Run in a multi-database, networked server mode with TLS enabled by default

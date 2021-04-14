@@ -1,6 +1,6 @@
 [package]
 name = "pliantdb-core"
-version = "0.1.0-dev-1"
+version = "0.1.0-dev-2"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
 description = "Local storage backend for PliantDB."
@@ -28,7 +28,7 @@ anyhow = "1"
 sha2 = "0.9"
 futures = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["time"], optional = true }
-fabruic = { version = "0.0.0-reserve", git = "https://github.com/khonsulabs/fabruic.git", branch = "main", optional = true }
+fabruic = { version = "0.0.1-dev-1", optional = true }
 
 [dev-dependencies]
 hex-literal = "0.3"

@@ -1,6 +1,6 @@
 [package]
 name = "pliantdb-server"
-version = "0.1.0-dev-1"
+version = "0.1.0-dev-2"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
 description = "Database server for PliantDB."
@@ -12,22 +12,22 @@ readme = "../README.md"
 
 [features]
 default = []
-cli = ["certificate-generation", "structopt", "anyhow"]
-test-util = ["pliantdb-core/test-util", "anyhow"]
+cli = ["certificate-generation", "structopt"]
+test-util = ["pliantdb-core/test-util"]
 certificate-generation = ["pliantdb-core/certificate-generation"]
 websockets = ["pliantdb-core/websockets", "tokio-tungstenite", "bincode"]
 trusted-dns = ["pliantdb-core/trusted-dns"]
 
 [dependencies]
-pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["networking"] }
-pliantdb-local = { path = "../local", version = "0.1.0-dev-1" }
-pliantdb-jobs = { path = "../jobs", version = "0.1.0-dev-1" }
+pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["networking"] }
+pliantdb-local = { path = "../local", version = "0.1.0-dev-2" }
+pliantdb-jobs = { path = "../jobs", version = "0.1.0-dev-2" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "1"
 async-trait = "0.1"
 structopt = { version = "0.3", optional = true }
-anyhow = { version = "1", optional = true }
+anyhow = "1"
 futures = "0.3"
 flume = "0.10"
 itertools = "0.10"
@@ -35,5 +35,4 @@ tokio-tungstenite = { version = "0.14", optional = true }
 bincode = { version = "1", optional = true }
 
 [dev-dependencies]
-anyhow = "1"
-pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["test-util", "certificate-generation"] }
+pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["test-util", "certificate-generation"] }

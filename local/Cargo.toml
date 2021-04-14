@@ -1,6 +1,6 @@
 [package]
 name = "pliantdb-local"
-version = "0.1.0-dev-1"
+version = "0.1.0-dev-2"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
 description = "Core functionality and types for PliantDB."
@@ -18,8 +18,8 @@ cli = ["structopt"]
 
 [dependencies]
 async-trait = "0.1"
-pliantdb-core = { path = "../core", version = "0.1.0-dev-1" }
-pliantdb-jobs = { path = "../jobs", version = "0.1.0-dev-1" }
+pliantdb-core = { path = "../core", version = "0.1.0-dev-2" }
+pliantdb-jobs = { path = "../jobs", version = "0.1.0-dev-2" }
 sled = "0.34"
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
@@ -32,7 +32,7 @@ itertools = "0.10"
 structopt = { version = "0.3", optional = true }
 
 [dev-dependencies]
-pliantdb-core = { path = "../core", version = "0.1.0-dev-1", features = ["test-util"] }
+pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["test-util"] }
 futures = "0.3"
 criterion = { version = "0.3", features = ["async_tokio"] }
 
