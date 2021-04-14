@@ -68,23 +68,11 @@ jobs:
         run: |
           rustup component add llvm-tools-preview
           rustup install nightly
-          # Current versions are causing "[ERROR] Execution count overflow detected."
-          # https://github.com/mozilla/grcov/issues/555
-          # curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
-          curl -L https://github.com/mozilla/grcov/releases/download/v0.6.1/grcov-linux-x86_64.tar.bz2 | tar jxf -
+          curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
 
       - name: Run code coverage
         run: |
-          LLVM_PROFILE_FILE="%m.profraw" cargo +nightly test --all-features
-
-          ./grcov . --binary-path ./target/debug/ -s . -t lcov --branch --ignore-not-existing -o lcov.info;
-          bash <(curl -s https://codecov.io/bash) -f lcov.info;
-          ./grcov . --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing -o coverage/;
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-          CARGO_INCREMENTAL: 0
-          RUSTFLAGS: "-Zinstrument-coverage"
-          RUSTDOCFLAGS: "-Cpanic=abort"
+          PATH=".:$PATH" ./generate-code-coverage.sh
 
       - name: Deploy Docs
         if: github.ref == 'refs/heads/main'
