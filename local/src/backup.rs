@@ -28,7 +28,7 @@ use std::{
 use flume::Receiver;
 use pliantdb_core::{
     document::{Document, Header, Revision},
-    schema::{collection, Key, Schema},
+    schema::{CollectionId, Key, Schema},
 };
 use structopt::StructOpt;
 use tokio::{
@@ -59,7 +59,7 @@ pub enum Command {
     ///
     /// This command will create a single folder within `output_directory` named
     /// `output_name`. Within that folder, one subfolder will be created for
-    /// each collection [`collection::Id`]. Each folder will contain files named
+    /// each collection [`CollectionId`]. Each folder will contain files named
     /// `<Document.header.id>.<Document.header.revision.id>`, and the files will
     /// contain the raw bytes stored inside of the documents. Assuming you're
     /// using the built in Serialization, the data will be in the
@@ -171,7 +171,7 @@ impl Command {
                 .unwrap()
                 .to_str()
                 .expect("invalid collection name encountered");
-            let collection = collection::Id::from(collection.to_owned());
+            let collection = CollectionId::from(collection.to_owned());
             println!("Restoring {}", collection);
 
             let mut entries = tokio::fs::read_dir(&collection_folder).await?;

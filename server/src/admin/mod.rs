@@ -1,4 +1,5 @@
 use pliantdb_core::schema::{self, Schema};
+use schema::SchemaId;
 
 pub mod database;
 
@@ -6,8 +7,8 @@ pub mod database;
 pub struct Admin;
 
 impl Schema for Admin {
-    fn schema_id() -> schema::Id {
-        schema::Id::from("pliantdb.admin")
+    fn schema_id() -> SchemaId {
+        SchemaId::from("pliantdb.admin")
     }
 
     fn define_collections(schema: &mut pliantdb_local::core::schema::Schematic) {

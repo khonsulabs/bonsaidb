@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use pliantdb_core::{
     connection::Connection,
     document::Document,
-    schema::{collection, map, view, Key, Schema},
+    schema::{view, view::map, CollectionId, Key, Schema},
 };
 use pliantdb_jobs::{Job, Keyed};
 use sled::{
@@ -26,7 +26,7 @@ pub struct Mapper<DB> {
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Map {
-    pub collection: collection::Id,
+    pub collection: CollectionId,
     pub view_name: Cow<'static, str>,
 }
 

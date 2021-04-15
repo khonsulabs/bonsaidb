@@ -6,14 +6,14 @@ use pliantdb_core::{
     document::Document,
     networking::{self, DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
-        map::{self, MappedDocument, MappedValue},
-        view, Collection, Key, Map, Schema, Schematic, View,
+        view, view::map, Collection, Key, Map, MappedDocument, MappedValue, Schema, Schematic, View,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
 
 use crate::Client;
 
+/// A database on a remote server.
 #[derive(Debug)]
 pub struct RemoteDatabase<DB: Schema> {
     client: Client,

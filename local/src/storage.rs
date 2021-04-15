@@ -6,11 +6,7 @@ use pliantdb_core::{
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    schema::{
-        self, collection,
-        map::{MappedDocument, MappedValue},
-        view, Key, Map, Schema, Schematic,
-    },
+    schema::{self, view, CollectionId, Key, Map, MappedDocument, MappedValue, Schema, Schematic},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
 use pliantdb_jobs::manager::Manager;
@@ -261,7 +257,7 @@ where
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<view::Map<V::Key, V::Value>>, pliantdb_core::Error>
+    ) -> Result<Vec<Map<V::Key, V::Value>>, pliantdb_core::Error>
     where
         Self: Sized,
     {
@@ -553,7 +549,7 @@ fn save_doc(
 
 const TRANSACTION_TREE_NAME: &str = "transactions";
 
-pub fn document_tree_name(collection: &collection::Id) -> String {
+pub fn document_tree_name(collection: &CollectionId) -> String {
     format!("collection::{}", collection)
 }
 
@@ -590,14 +586,14 @@ pub trait Internal {
     async fn get_from_collection_id(
         &self,
         id: u64,
-        collection: &collection::Id,
+        collection: &CollectionId,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error>;
 
     /// Retrieves document `id` from the specified `collection`.
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
-        collection: &collection::Id,
+        collection: &CollectionId,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error>;
 
     /// Reduce view `view_name`.
@@ -704,7 +700,7 @@ where
     async fn get_from_collection_id(
         &self,
         id: u64,
-        collection: &collection::Id,
+        collection: &CollectionId,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
         tokio::task::block_in_place(|| {
             let tree = self
@@ -733,7 +729,7 @@ where
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
-        collection: &collection::Id,
+        collection: &CollectionId,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
         tokio::task::block_in_place(|| {
             let tree = self

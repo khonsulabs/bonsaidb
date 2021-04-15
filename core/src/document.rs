@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{collection, map, Map};
+use crate::schema::{CollectionId, Key, Map};
 
 mod revision;
 pub use revision::Revision;
@@ -21,7 +21,7 @@ pub struct Header {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Document<'a> {
     /// The `Id` of the `Collection` this document belongs to.
-    pub collection: collection::Id,
+    pub collection: CollectionId,
 
     /// The header of the document, which contains the id and `Revision`.
     pub header: Cow<'a, Header>,
@@ -33,7 +33,7 @@ pub struct Document<'a> {
 impl<'a> Document<'a> {
     /// Creates a new document with `contents`.
     #[must_use]
-    pub fn new(id: u64, contents: Cow<'a, [u8]>, collection: collection::Id) -> Self {
+    pub fn new(id: u64, contents: Cow<'a, [u8]>, collection: CollectionId) -> Self {
         let revision = Revision::new(&contents);
         Self {
             header: Cow::Owned(Header { id, revision }),
@@ -46,7 +46,7 @@ impl<'a> Document<'a> {
     pub fn with_contents<S: Serialize>(
         id: u64,
         contents: &S,
-        collection: collection::Id,
+        collection: CollectionId,
     ) -> Result<Self, serde_cbor::Error> {
         let contents = Cow::from(serde_cbor::to_vec(contents)?);
         Ok(Self::new(id, contents, collection))
@@ -91,7 +91,7 @@ impl<'a> Document<'a> {
 
     /// Creates a `Map` result with a `key` and an empty value.
     #[must_use]
-    pub fn emit_key<Key: map::Key>(&self, key: Key) -> Map<Key, ()> {
+    pub fn emit_key<K: Key>(&self, key: K) -> Map<K, ()> {
         self.emit_key_and_value(key, ())
     }
 
@@ -103,11 +103,11 @@ impl<'a> Document<'a> {
 
     /// Creates a `Map` result with a `key` and `value`.
     #[must_use]
-    pub fn emit_key_and_value<Key: map::Key, Value: Serialize>(
+    pub fn emit_key_and_value<K: Key, Value: Serialize>(
         &self,
-        key: Key,
+        key: K,
         value: Value,
-    ) -> Map<Key, Value> {
+    ) -> Map<K, Value> {
         Map::new(self.header.id, key, value)
     }
 

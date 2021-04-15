@@ -33,7 +33,7 @@ pub mod schema;
 /// Types for executing transactions.
 pub mod transaction;
 
-use schema::collection;
+use schema::CollectionId;
 use serde::{Deserialize, Serialize};
 
 /// an enumeration of errors that this crate can produce
@@ -79,11 +79,11 @@ pub enum Error {
 
     /// An attempt to update a document that doesn't exist.
     #[error("the requested document id {1} from collection {0} was not found")]
-    DocumentNotFound(collection::Id, u64),
+    DocumentNotFound(CollectionId, u64),
 
     /// When updating a document, if a situation is detected where the contents have changed on the server since the `Revision` provided, a Conflict error will be returned.
     #[error("a conflict was detected while updating document id {1} from collection {0}")]
-    DocumentConflict(collection::Id, u64),
+    DocumentConflict(CollectionId, u64),
 }
 
 impl From<serde_cbor::Error> for Error {

@@ -2,14 +2,14 @@ use std::{borrow::Cow, fmt::Debug};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{document::Document, schema::Collection};
+use crate::{
+    document::Document,
+    schema::{Collection, CollectionId},
+};
 
 /// Types for defining a `Map` within a `View`.
 pub mod map;
-pub use map::{Key, Map};
-
-use self::map::MappedValue;
-use super::collection;
+use map::{Key, Map, MappedValue};
 
 /// Errors that arise when interacting with views.
 #[derive(thiserror::Error, Debug)]
@@ -109,7 +109,7 @@ where
 /// Wraps a [`View`] with serialization to erase the associated types
 pub trait Serialized: Send + Sync + Debug {
     /// Wraps returing [`<View::Collection as Collection>::collection_id()`](crate::schema::Collection::collection_id)
-    fn collection(&self) -> collection::Id;
+    fn collection(&self) -> CollectionId;
     /// Wraps [`View::version`]
     fn version(&self) -> u64;
     /// Wraps [`View::name`]
@@ -126,7 +126,7 @@ where
     T: View,
     <T as View>::Key: 'static,
 {
-    fn collection(&self) -> collection::Id {
+    fn collection(&self) -> CollectionId {
         <<Self as View>::Collection as Collection>::collection_id()
     }
 

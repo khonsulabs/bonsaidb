@@ -3,10 +3,11 @@ use std::time::SystemTime;
 use pliantdb::{
     core::{
         connection::Connection,
-        schema::{collection, Collection, Schematic},
+        schema::{Collection, Schematic},
     },
     local::{Configuration, Storage},
 };
+use pliantdb_core::schema::CollectionId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -16,8 +17,8 @@ struct Message {
 }
 
 impl Collection for Message {
-    fn collection_id() -> collection::Id {
-        collection::Id::from("messages")
+    fn collection_id() -> CollectionId {
+        CollectionId::from("messages")
     }
 
     fn define_views(_schema: &mut Schematic) {}

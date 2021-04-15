@@ -5,12 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     document::{Document, Header},
-    schema::{
-        self,
-        map::MappedDocument,
-        view::{self, map::MappedValue},
-        Key, Map,
-    },
+    schema::{self, view, Key, Map, MappedDocument, MappedValue},
     transaction::{self, Command, Operation, OperationResult, Transaction},
     Error,
 };

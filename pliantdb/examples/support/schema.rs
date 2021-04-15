@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use pliantdb_core::{
     document::Document,
-    schema::{collection, map::MappedValue, view, Collection, MapResult, Schematic, View},
+    schema::{view, Collection, CollectionId, MapResult, MappedValue, Schematic, View},
 };
 use serde::{Deserialize, Serialize};
 
@@ -18,8 +18,8 @@ impl Shape {
 }
 
 impl Collection for Shape {
-    fn collection_id() -> collection::Id {
-        collection::Id::from("shapes")
+    fn collection_id() -> CollectionId {
+        CollectionId::from("shapes")
     }
 
     fn define_views(schema: &mut Schematic) {

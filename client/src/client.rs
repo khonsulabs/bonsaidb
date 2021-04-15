@@ -16,7 +16,7 @@ use pliantdb_core::{
     networking::{
         self, Database, Payload, Request, Response, ServerConnection, ServerRequest, ServerResponse,
     },
-    schema::{Schema, Schematic},
+    schema::{Schema, SchemaId, Schematic},
 };
 use tokio::{sync::Mutex, task::JoinHandle};
 use url::Url;
@@ -184,7 +184,7 @@ impl ServerConnection for Client {
     async fn create_database(
         &self,
         name: &str,
-        schema: pliantdb_core::schema::Id,
+        schema: SchemaId,
     ) -> Result<(), pliantdb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::CreateDatabase(Database {
@@ -229,9 +229,7 @@ impl ServerConnection for Client {
         }
     }
 
-    async fn list_available_schemas(
-        &self,
-    ) -> Result<Vec<pliantdb_core::schema::Id>, pliantdb_core::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaId>, pliantdb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::ListAvailableSchemas))
             .await?

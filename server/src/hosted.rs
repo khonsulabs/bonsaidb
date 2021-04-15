@@ -5,11 +5,12 @@ use pliantdb_local::core::{
     self,
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
-    schema::{map::MappedValue, Collection, Map, Schema},
+    schema::{Collection, Map, MappedDocument, MappedValue, Schema},
 };
 
 use crate::{error::ResultExt, Server};
 
+/// A database hosted on a server.
 pub struct Database<'a, 'b, DB: Schema> {
     server: &'a Server,
     name: &'b str,
@@ -75,7 +76,7 @@ where
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<core::schema::map::MappedDocument<V::Key, V::Value>>, core::Error>
+    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, core::Error>
     where
         Self: Sized,
     {

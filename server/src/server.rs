@@ -28,14 +28,14 @@ use pliantdb_core::{
     },
     schema,
     schema::{
-        collection,
-        map::{self, MappedValue},
-        Schema, Schematic,
+        view::map::{self, MappedValue},
+        CollectionId, Schema, Schematic,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
 use pliantdb_jobs::{manager::Manager, Job};
 use pliantdb_local::{Internal, Storage};
+use schema::SchemaId;
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
@@ -60,16 +60,16 @@ struct Data {
     websocket_shutdown: RwLock<Option<Sender<()>>>,
     directory: PathBuf,
     admin: Storage<Admin>,
-    schemas: RwLock<HashMap<schema::Id, Box<dyn DatabaseOpener>>>,
+    schemas: RwLock<HashMap<SchemaId, Box<dyn DatabaseOpener>>>,
     open_databases: RwLock<HashMap<String, Arc<Box<dyn OpenDatabase>>>>,
-    available_databases: RwLock<HashMap<String, schema::Id>>,
+    available_databases: RwLock<HashMap<String, SchemaId>>,
     request_processor: Manager,
     storage_configuration: pliantdb_local::Configuration,
 }
 
 impl Server {
     /// Creates or opens a [`Server`] with its data stored in `directory`.
-    /// `schemas` is a collection of [`schema::Id`] to [`Schematic`] pairs. [`schema::Id`]s are used as an identifier of a specific `Schema`, which the Server uses to
+    /// `schemas` is a collection of [`SchemaId`] to [`Schematic`] pairs. [`SchemaId`]s are used as an identifier of a specific `Schema`, which the Server uses to
     pub async fn open(directory: &Path, configuration: Configuration) -> Result<Self, Error> {
         let admin =
             Storage::open_local(directory.join("admin.pliantdb"), &configuration.storage).await?;
@@ -600,7 +600,7 @@ impl networking::ServerConnection for Server {
     async fn create_database(
         &self,
         name: &str,
-        schema: schema::Id,
+        schema: SchemaId,
     ) -> Result<(), pliantdb_core::Error> {
         Self::validate_name(name)?;
 
@@ -694,7 +694,7 @@ impl networking::ServerConnection for Server {
             .collect())
     }
 
-    async fn list_available_schemas(&self) -> Result<Vec<schema::Id>, pliantdb_core::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaId>, pliantdb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases.values().unique().cloned().collect())
     }
@@ -707,13 +707,13 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
     async fn get_from_collection_id(
         &self,
         id: u64,
-        collection: &collection::Id,
+        collection: &CollectionId,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error>;
 
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
-        collection: &collection::Id,
+        collection: &CollectionId,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error>;
 
     async fn apply_transaction(
@@ -770,7 +770,7 @@ where
     async fn get_from_collection_id(
         &self,
         id: u64,
-        collection: &collection::Id,
+        collection: &CollectionId,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
         Internal::get_from_collection_id(self, id, collection).await
     }
@@ -778,7 +778,7 @@ where
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
-        collection: &collection::Id,
+        collection: &CollectionId,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
         Internal::get_multiple_from_collection_id(self, ids, collection).await
     }

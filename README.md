@@ -39,8 +39,8 @@ struct Shape {
 }
 
 impl Collection for Shape {
-    fn id() -> collection::Id {
-        collection::Id::from("shapes")
+    fn id() -> CollectionId {
+        CollectionId::from("shapes")
     }
 
     fn define_views(schema: &mut Schema) {

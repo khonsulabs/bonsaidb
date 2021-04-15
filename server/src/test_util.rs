@@ -4,7 +4,7 @@ use std::path::Path;
 
 use pliantdb_core::{
     networking::ServerConnection,
-    schema::{self, Schema},
+    schema::{Schema, SchemaId},
     test_util::Basic,
 };
 
@@ -67,7 +67,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
 
     assert!(matches!(
         server
-            .create_database("another-db", schema::Id::from("unknown schema"))
+            .create_database("another-db", SchemaId::from("unknown schema"))
             .await,
         Err(pliantdb_core::Error::Networking(
             pliantdb_core::networking::Error::SchemaNotRegistered(_)

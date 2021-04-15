@@ -8,14 +8,16 @@ use std::{
     time::Duration,
 };
 
+use schema::SchemaId;
 use serde::{Deserialize, Serialize};
-use view::map::MappedValue;
 
 use crate::{
     connection::{AccessPolicy, Connection},
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    schema::{self, collection, view, Collection, MapResult, Schema, Schematic, View},
+    schema::{
+        self, view, Collection, CollectionId, MapResult, MappedValue, Schema, Schematic, View,
+    },
     Error,
 };
 
@@ -48,8 +50,8 @@ impl Basic {
 }
 
 impl Collection for Basic {
-    fn collection_id() -> collection::Id {
-        collection::Id::from("tests.basic")
+    fn collection_id() -> CollectionId {
+        CollectionId::from("tests.basic")
     }
 
     fn define_views(schema: &mut Schematic) {
@@ -179,8 +181,8 @@ impl View for BasicByBrokenParentId {
 pub struct BasicSchema;
 
 impl Schema for BasicSchema {
-    fn schema_id() -> schema::Id {
-        schema::Id::from("basic")
+    fn schema_id() -> SchemaId {
+        SchemaId::from("basic")
     }
 
     fn define_collections(schema: &mut Schematic) {
@@ -220,7 +222,7 @@ impl AsRef<Path> for TestDirectory {
 pub struct BasicCollectionWithNoViews;
 
 impl Collection for BasicCollectionWithNoViews {
-    fn collection_id() -> collection::Id {
+    fn collection_id() -> CollectionId {
         Basic::collection_id()
     }
 
@@ -231,7 +233,7 @@ impl Collection for BasicCollectionWithNoViews {
 pub struct BasicCollectionWithOnlyBrokenParentId;
 
 impl Collection for BasicCollectionWithOnlyBrokenParentId {
-    fn collection_id() -> collection::Id {
+    fn collection_id() -> CollectionId {
         Basic::collection_id()
     }
 
@@ -244,8 +246,8 @@ impl Collection for BasicCollectionWithOnlyBrokenParentId {
 pub struct UnassociatedCollection;
 
 impl Collection for UnassociatedCollection {
-    fn collection_id() -> collection::Id {
-        collection::Id::from("unassociated")
+    fn collection_id() -> CollectionId {
+        CollectionId::from("unassociated")
     }
 
     fn define_views(_schema: &mut Schematic) {}

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use pliantdb_core::networking::{self, fabruic};
 use pliantdb_local::core::{self, schema};
+use schema::SchemaId;
 
 /// An error occurred while interacting with a [`Server`](crate::Server).
 #[derive(Debug, thiserror::Error)]
@@ -47,15 +48,15 @@ pub enum Error {
         database_name: String,
 
         /// The schema provided for the database.
-        schema: schema::Id,
+        schema: SchemaId,
 
         /// The schema stored for the database.
-        stored_schema: schema::Id,
+        stored_schema: SchemaId,
     },
 
-    /// The [`schema::Id`] returned has already been registered with this server.
+    /// The [`SchemaId`] returned has already been registered with this server.
     #[error("schema '{0}' was already registered")]
-    SchemaAlreadyRegistered(schema::Id),
+    SchemaAlreadyRegistered(SchemaId),
 
     /// An error occurred from within the schema.
     #[error("error from core {0}")]

@@ -12,27 +12,28 @@ use crate::schema::Schematic;
 /// authors in a single database.
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 #[serde(transparent)]
-pub struct Id(pub(crate) Cow<'static, str>);
+#[allow(clippy::module_name_repetitions)]
+pub struct CollectionId(pub(crate) Cow<'static, str>);
 
-impl From<&'static str> for Id {
+impl From<&'static str> for CollectionId {
     fn from(str: &'static str) -> Self {
         Self(Cow::from(str))
     }
 }
 
-impl From<String> for Id {
+impl From<String> for CollectionId {
     fn from(str: String) -> Self {
         Self(Cow::from(str))
     }
 }
 
-impl Display for Id {
+impl Display for CollectionId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.0, f)
     }
 }
 
-impl AsRef<str> for Id {
+impl AsRef<str> for CollectionId {
     fn as_ref(&self) -> &str {
         self.0.as_ref()
     }
@@ -41,7 +42,7 @@ impl AsRef<str> for Id {
 /// A namespaced collection of `Document<Self>` items and views.
 pub trait Collection: Debug + Send + Sync {
     /// The `Id` of this collection.
-    fn collection_id() -> Id;
+    fn collection_id() -> CollectionId;
 
     /// Defines all `View`s in this collection in `schema`.
     fn define_views(schema: &mut Schematic);
@@ -49,6 +50,6 @@ pub trait Collection: Debug + Send + Sync {
 
 #[test]
 fn test_id_conversions() {
-    assert_eq!(Id::from("a").to_string(), "a");
-    assert_eq!(Id::from(String::from("a")).to_string(), "a");
+    assert_eq!(CollectionId::from("a").to_string(), "a");
+    assert_eq!(CollectionId::from(String::from("a")).to_string(), "a");
 }

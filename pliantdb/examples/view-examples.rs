@@ -4,7 +4,7 @@ use pliantdb::{
     core::{
         connection::Connection,
         document::Document,
-        schema::{collection, map::MappedValue, view, Collection, MapResult, Schematic, View},
+        schema::{view, Collection, CollectionId, MapResult, MappedValue, Schematic, View},
     },
     local::{Configuration, Storage},
 };
@@ -22,8 +22,8 @@ impl Shape {
 }
 
 impl Collection for Shape {
-    fn collection_id() -> collection::Id {
-        collection::Id::from("shapes")
+    fn collection_id() -> CollectionId {
+        CollectionId::from("shapes")
     }
 
     fn define_views(schema: &mut Schematic) {

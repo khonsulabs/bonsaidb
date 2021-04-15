@@ -21,7 +21,10 @@ pub use url;
 mod client;
 mod error;
 
-pub use self::{client::Client, error::Error};
+pub use self::{
+    client::{Client, RemoteDatabase},
+    error::Error,
+};
 
 #[cfg(test)]
 mod tests;

@@ -2,16 +2,16 @@ use std::borrow::Cow;
 
 use async_trait::async_trait;
 pub use fabruic;
+use schema::SchemaId;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
     connection::{AccessPolicy, QueryKey},
     document::Document,
     schema::{
-        self, collection,
-        map::{self},
-        view::{self, map::MappedValue},
-        Key,
+        self,
+        view::{self, map},
+        CollectionId, Key, MappedValue,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -61,14 +61,14 @@ pub enum DatabaseRequest {
     /// Retrieve a single document.
     Get {
         /// The collection of the document.
-        collection: collection::Id,
+        collection: CollectionId,
         /// The id of the document.
         id: u64,
     },
     /// Retrieve multiple documents.
     GetMultiple {
         /// The collection of the documents.
-        collection: collection::Id,
+        collection: CollectionId,
         /// The ids of the documents.
         ids: Vec<u64>,
     },
@@ -141,7 +141,7 @@ pub enum ServerResponse {
     /// A list of available databases.
     Databases(Vec<Database>),
     ///A list of availble schemas.
-    AvailableSchemas(Vec<schema::Id>),
+    AvailableSchemas(Vec<SchemaId>),
 }
 
 /// A response to a [`DatabaseRequest`].
@@ -200,13 +200,13 @@ pub struct Database {
     /// The name of the database.
     pub name: String,
     /// The schema defining the database.
-    pub schema: schema::Id,
+    pub schema: SchemaId,
 }
 
 /// Functions for interacting with a `PliantDB` server.
 #[async_trait]
 pub trait ServerConnection: Send + Sync {
-    /// Creates a database named `name` using the [`schema::Id`] `schema`.
+    /// Creates a database named `name` using the [`SchemaId`] `schema`.
     ///
     /// ## Errors
     ///
@@ -215,7 +215,7 @@ pub trait ServerConnection: Send + Sync {
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
     /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
     ///   previous database name. Database names are case insensitive.
-    async fn create_database(&self, name: &str, schema: schema::Id) -> Result<(), crate::Error>;
+    async fn create_database(&self, name: &str, schema: SchemaId) -> Result<(), crate::Error>;
 
     /// Deletes a database named `name`.
     ///
@@ -228,8 +228,8 @@ pub trait ServerConnection: Send + Sync {
     /// Lists the databases on this server.
     async fn list_databases(&self) -> Result<Vec<Database>, crate::Error>;
 
-    /// Lists the [`schema::Id`]s on this server.
-    async fn list_available_schemas(&self) -> Result<Vec<schema::Id>, crate::Error>;
+    /// Lists the [`SchemaId`]s on this server.
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaId>, crate::Error>;
 }
 
 /// A networking error.
@@ -267,17 +267,17 @@ pub enum Error {
         database_name: String,
 
         /// The schema provided for the database.
-        schema: schema::Id,
+        schema: SchemaId,
 
         /// The schema stored for the database.
-        stored_schema: schema::Id,
+        stored_schema: SchemaId,
     },
 
-    /// The [`schema::Id`] returned has already been registered with this server.
+    /// The [`SchemaId`] returned has already been registered with this server.
     #[error("schema '{0}' was already registered")]
-    SchemaAlreadyRegistered(schema::Id),
+    SchemaAlreadyRegistered(SchemaId),
 
-    /// The [`schema::Id`] requested was not registered with this server.
+    /// The [`SchemaId`] requested was not registered with this server.
     #[error("schema '{0}' is not registered with this server")]
-    SchemaNotRegistered(schema::Id),
+    SchemaNotRegistered(SchemaId),
 }

@@ -27,7 +27,7 @@ mod error;
 mod hosted;
 mod server;
 
-pub use self::{config::Configuration, error::Error, server::Server};
+pub use self::{config::Configuration, error::Error, hosted::Database, server::Server};
 
 #[cfg(test)]
 mod tests;

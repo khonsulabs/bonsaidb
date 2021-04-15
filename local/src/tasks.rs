@@ -6,7 +6,7 @@ use std::{
 
 use pliantdb_core::{
     connection::Connection,
-    schema::{collection, view, Schema},
+    schema::{view, CollectionId, Schema},
 };
 use pliantdb_jobs::{manager::Manager, task::Handle};
 use tokio::sync::RwLock;
@@ -28,8 +28,8 @@ pub struct TaskManager {
 
 #[derive(Default, Debug)]
 pub struct Statuses {
-    completed_integrity_checks: HashSet<(collection::Id, Cow<'static, str>)>,
-    view_update_last_status: HashMap<(collection::Id, Cow<'static, str>), u64>,
+    completed_integrity_checks: HashSet<(CollectionId, Cow<'static, str>)>,
+    view_update_last_status: HashMap<(CollectionId, Cow<'static, str>), u64>,
 }
 
 impl TaskManager {
@@ -101,7 +101,7 @@ impl TaskManager {
 
     pub async fn view_integrity_checked(
         &self,
-        collection: collection::Id,
+        collection: CollectionId,
         view_name: Cow<'static, str>,
     ) -> bool {
         let statuses = self.statuses.read().await;
@@ -139,7 +139,7 @@ impl TaskManager {
 
     pub async fn mark_integrity_check_complete(
         &self,
-        collection: collection::Id,
+        collection: CollectionId,
         view_name: Cow<'static, str>,
     ) {
         let mut statuses = self.statuses.write().await;
@@ -150,7 +150,7 @@ impl TaskManager {
 
     pub async fn mark_view_updated(
         &self,
-        collection: collection::Id,
+        collection: CollectionId,
         view_name: Cow<'static, str>,
         transaction_id: u64,
     ) {

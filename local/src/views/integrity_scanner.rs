@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::HashSet, hash::Hash};
 
 use async_trait::async_trait;
-use pliantdb_core::schema::{collection, view, Key, Schema};
+use pliantdb_core::schema::{view, CollectionId, Key, Schema};
 use pliantdb_jobs::{Job, Keyed};
 use sled::{IVec, Transactional, Tree};
 
@@ -20,7 +20,7 @@ pub struct IntegrityScanner<DB> {
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct IntegrityScan {
     pub view_version: u64,
-    pub collection: collection::Id,
+    pub collection: CollectionId,
     pub view_name: Cow<'static, str>,
 }
 

@@ -5,18 +5,19 @@ use std::{
 };
 
 use crate::schema::{
-    collection::{self, Collection},
-    view, Serialized, View,
+    collection::{Collection, CollectionId},
+    view::{self, Serialized},
+    View,
 };
 
 /// A collection of defined collections and views.
 #[derive(Default, Debug)]
 pub struct Schematic {
-    contained_collections: HashSet<collection::Id>,
-    collections_by_type_id: HashMap<TypeId, collection::Id>,
+    contained_collections: HashSet<CollectionId>,
+    collections_by_type_id: HashMap<TypeId, CollectionId>,
     views: HashMap<TypeId, Box<dyn view::Serialized>>,
     views_by_name: HashMap<String, TypeId>,
-    views_by_collection: HashMap<collection::Id, Vec<TypeId>>,
+    views_by_collection: HashMap<CollectionId, Vec<TypeId>>,
 }
 
 impl Schematic {
@@ -50,7 +51,7 @@ impl Schematic {
 
     /// Returns `true` if this schema contains the collection `C`.
     #[must_use]
-    pub fn contains_collection_id(&self, collection: &collection::Id) -> bool {
+    pub fn contains_collection_id(&self, collection: &CollectionId) -> bool {
         self.contained_collections.contains(collection)
     }
 
@@ -78,7 +79,7 @@ impl Schematic {
     #[must_use]
     pub fn views_in_collection(
         &self,
-        collection: &collection::Id,
+        collection: &CollectionId,
     ) -> Option<Vec<&'_ dyn view::Serialized>> {
         self.views_by_collection.get(collection).map(|view_ids| {
             view_ids
