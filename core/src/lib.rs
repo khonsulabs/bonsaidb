@@ -33,6 +33,10 @@ pub mod schema;
 /// Types for executing transactions.
 pub mod transaction;
 
+/// Types for Publish/Subscribe (`PubSub`) messaging.
+#[cfg(feature = "pubsub")]
+pub mod pubsub;
+
 use schema::CollectionId;
 use serde::{Deserialize, Serialize};
 

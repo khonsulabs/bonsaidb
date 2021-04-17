@@ -790,7 +790,7 @@ pub async fn view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<(
     assert_eq!(a_children.len(), 0);
 
     // Waiting on background jobs can be unreliable in a CI environment
-    for _ in 0..10 {
+    for _ in 0..10_u8 {
         tokio::time::sleep(Duration::from_millis(20)).await;
 
         // Now, the view should contain the entry.
