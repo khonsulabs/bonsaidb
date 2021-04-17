@@ -136,12 +136,13 @@ impl Command {
         let document_writer = tokio::spawn(write_documents(receiver, backup_directory));
         tokio::task::block_in_place::<_, anyhow::Result<()>>(|| {
             for collection_tree in db
+                .data
                 .sled
                 .tree_names()
                 .into_iter()
                 .filter(|tree| tree.starts_with(b"collection::"))
             {
-                let tree = db.sled.open_tree(&collection_tree)?;
+                let tree = db.data.sled.open_tree(&collection_tree)?;
                 for result in tree.iter() {
                     let (_, document) = result?;
                     let document = bincode::deserialize::<Document<'_>>(&document)?;
@@ -240,14 +241,17 @@ fn restore_documents<DB: Schema>(
     db: Storage<DB>,
 ) -> anyhow::Result<()> {
     while let Ok(doc) = receiver.recv() {
-        let tree = db.sled.open_tree(document_tree_name(&doc.collection))?;
+        let tree = db
+            .data
+            .sled
+            .open_tree(document_tree_name(&doc.collection))?;
         tree.insert(
             doc.header.id.as_big_endian_bytes()?,
             bincode::serialize(&doc)?,
         )?;
     }
 
-    db.sled.flush()?;
+    db.data.sled.flush()?;
 
     Ok(())
 }

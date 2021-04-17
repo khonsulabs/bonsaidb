@@ -796,7 +796,7 @@ where
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<map::Serialized>, pliantdb_core::Error> {
-        if let Some(view) = self.schema.view_by_name(view) {
+        if let Some(view) = self.schematic().view_by_name(view) {
             let mut results = Vec::new();
             self.for_each_in_view(view, key, access_policy, |key, entry| {
                 for mapping in entry.mappings {
@@ -823,7 +823,7 @@ where
         access_policy: AccessPolicy,
     ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error> {
         let results = OpenDatabase::query(self, view, key, access_policy).await?;
-        let view = self.schema.view_by_name(view).unwrap(); // query() will fail if it's not present
+        let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
 
         let mut documents = Internal::get_multiple_from_collection_id(
             self,

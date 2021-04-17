@@ -34,7 +34,6 @@ pub mod schema;
 pub mod transaction;
 
 /// Types for Publish/Subscribe (`PubSub`) messaging.
-#[cfg(feature = "pubsub")]
 pub mod pubsub;
 
 use schema::CollectionId;
