@@ -16,6 +16,7 @@
     clippy::option_if_let_else,
 )]
 
+pub use circulate;
 #[cfg(feature = "networking")]
 pub use fabruic;
 

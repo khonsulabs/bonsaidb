@@ -3,10 +3,11 @@ use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sy
 use async_trait::async_trait;
 use itertools::Itertools;
 use pliantdb_core::{
+    circulate::{Relay, Subscriber},
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    pubsub::{PubSub, Relay, Subscriber},
+    pubsub::PubSub,
     schema::{self, view, CollectionId, Key, Map, MappedDocument, MappedValue, Schema, Schematic},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
@@ -418,7 +419,7 @@ where
     DB: Schema,
 {
     async fn create_subscriber(&self) -> Result<Subscriber, pliantdb_core::Error> {
-        self.data.relay.create_subscriber().await
+        Ok(self.data.relay.create_subscriber().await)
     }
 
     async fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
@@ -426,7 +427,8 @@ where
         topic: S,
         payload: &P,
     ) -> Result<(), pliantdb_core::Error> {
-        self.data.relay.publish(topic, payload).await
+        self.data.relay.publish(topic, payload).await?;
+        Ok(())
     }
 }
 
