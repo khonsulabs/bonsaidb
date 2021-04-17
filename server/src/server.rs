@@ -18,6 +18,7 @@ use futures::{Future, StreamExt, TryFutureExt};
 use itertools::Itertools;
 use pliantdb_core::{
     self as core,
+    circulate::Relay,
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
     networking::{
@@ -65,6 +66,7 @@ struct Data {
     available_databases: RwLock<HashMap<String, SchemaId>>,
     request_processor: Manager,
     storage_configuration: pliantdb_local::Configuration,
+    relay: Relay,
 }
 
 impl Server {
@@ -83,15 +85,9 @@ impl Server {
             .collect();
 
         let request_processor = Manager::default();
-        // TODO add configuration
-        // TODO also, I think the vision was to share
-        // workers between Client and Server but it's uncertain how that would
-        // work since the local storage wants to interact with its own Task
-        // type.
-        request_processor.spawn_worker();
-        request_processor.spawn_worker();
-        request_processor.spawn_worker();
-        request_processor.spawn_worker();
+        for _ in 0..configuration.request_workers {
+            request_processor.spawn_worker();
+        }
 
         Ok(Self {
             data: Arc::new(Data {
@@ -105,6 +101,7 @@ impl Server {
                 open_databases: RwLock::default(),
                 request_processor,
                 storage_configuration: configuration.storage,
+                relay: Relay::default(),
             }),
         })
     }
@@ -195,6 +192,10 @@ impl Server {
         Ok(storage.clone())
     }
 
+    pub(crate) fn relay(&self) -> &'_ Relay {
+        &self.data.relay
+    }
+
     fn validate_name(name: &str) -> Result<(), Error> {
         if name
             .chars()
@@ -212,7 +213,7 @@ impl Server {
     }
 
     /// Installs an X.509 certificate used for general purpose connections.
-    #[cfg(feature = "certificate-generation")]
+    #[cfg(any(test, feature = "certificate-generation"))]
     pub async fn install_self_signed_certificate(
         &self,
         server_name: &str,

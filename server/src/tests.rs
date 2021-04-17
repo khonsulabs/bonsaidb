@@ -36,6 +36,7 @@ impl TestHarness {
 }
 
 pliantdb_core::define_connection_test_suite!(TestHarness);
+pliantdb_core::define_pubsub_test_suite!(TestHarness);
 
 #[tokio::test(flavor = "multi_thread")]
 async fn basic_server_tests() -> anyhow::Result<()> {

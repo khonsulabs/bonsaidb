@@ -77,18 +77,18 @@ impl Subscriber for circulate::Subscriber {
 macro_rules! define_pubsub_test_suite {
     ($harness:ident) => {
         #[cfg(test)]
-        use $crate::pubsub::PubSub;
+        use $crate::pubsub::{PubSub, Subscriber};
 
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         async fn simple_pubsub_test() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::PubSubSimple).await?;
             let pubsub = harness.connect().await?;
             let subscriber = PubSub::create_subscriber(&pubsub).await?;
-            subscriber.subscribe_to("mytopic").await;
+            Subscriber::subscribe_to(&subscriber, "mytopic").await?;
             pubsub.publish("mytopic", &String::from("test")).await?;
+            pubsub.publish("othertopic", &String::from("test")).await?;
             let receiver = subscriber.receiver().clone();
             let message = receiver.recv_async().await.expect("No message received");
-            assert_eq!(message.topic, "mytopic");
             assert_eq!(message.payload::<String>()?, "test");
             // The message should only be received once.
             assert!(matches!(
@@ -101,16 +101,16 @@ macro_rules! define_pubsub_test_suite {
             Ok(())
         }
 
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         async fn multiple_subscribers_test() -> anyhow::Result<()> {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::PubSubMultipleSubscribers).await?;
             let pubsub = harness.connect().await?;
             let subscriber_a = PubSub::create_subscriber(&pubsub).await?;
             let subscriber_ab = PubSub::create_subscriber(&pubsub).await?;
-            subscriber_a.subscribe_to("a").await;
-            subscriber_ab.subscribe_to("a").await;
-            subscriber_ab.subscribe_to("b").await;
+            Subscriber::subscribe_to(&subscriber_a, "a").await?;
+            Subscriber::subscribe_to(&subscriber_ab, "a").await?;
+            Subscriber::subscribe_to(&subscriber_ab, "b").await?;
 
             pubsub.publish("a", &String::from("a1")).await?;
             pubsub.publish("b", &String::from("b1")).await?;
@@ -132,17 +132,17 @@ macro_rules! define_pubsub_test_suite {
             Ok(())
         }
 
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         async fn unsubscribe_test() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::PubSubUnsubscribe).await?;
             let pubsub = harness.connect().await?;
             let subscriber = PubSub::create_subscriber(&pubsub).await?;
-            subscriber.subscribe_to("a").await;
+            Subscriber::subscribe_to(&subscriber, "a").await?;
 
             pubsub.publish("a", &String::from("a1")).await?;
-            subscriber.unsubscribe_from("a").await;
+            Subscriber::unsubscribe_from(&subscriber, "a").await?;
             pubsub.publish("a", &String::from("a2")).await?;
-            subscriber.subscribe_to("a").await;
+            Subscriber::subscribe_to(&subscriber, "a").await?;
             pubsub.publish("a", &String::from("a3")).await?;
 
             // Check subscriber_a for a1 and a2.
