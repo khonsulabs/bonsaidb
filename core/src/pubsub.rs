@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
-use circulate::{Relay, Subscriber};
+use circulate::{flume, Message, Relay};
 use serde::Serialize;
 
 use crate::Error;
@@ -7,8 +9,11 @@ use crate::Error;
 /// Publishes and Subscribes to messages on topics.
 #[async_trait]
 pub trait PubSub {
+    /// The Subscriber type for this `PubSub` connection.
+    type Subscriber: Subscriber;
+
     /// Create a new [`Subscriber`] for this relay.
-    async fn create_subscriber(&self) -> Result<Subscriber, Error>;
+    async fn create_subscriber(&self) -> Result<Self::Subscriber, Error>;
     /// Publishes a `payload` to all subscribers of `topic`.
     async fn publish<S: Into<String> + Send, P: Serialize + Sync>(
         &self,
@@ -17,9 +22,25 @@ pub trait PubSub {
     ) -> Result<(), Error>;
 }
 
+/// A subscriber to one or more topics.
+#[async_trait]
+pub trait Subscriber {
+    /// Subscribe to [`Message`]s published to `topic`.
+    async fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error>;
+
+    /// Unsubscribe from [`Message`]s published to `topic`.
+    async fn unsubscribe_from(&self, topic: &str) -> Result<(), Error>;
+
+    /// Returns the receiver to receive [`Message`]s.
+    #[must_use]
+    fn receiver(&self) -> &'_ flume::Receiver<Arc<Message>>;
+}
+
 #[async_trait]
 impl PubSub for Relay {
-    async fn create_subscriber(&self) -> Result<Subscriber, Error> {
+    type Subscriber = circulate::Subscriber;
+
+    async fn create_subscriber(&self) -> Result<Self::Subscriber, Error> {
         Ok(self.create_subscriber().await)
     }
 
@@ -30,6 +51,23 @@ impl PubSub for Relay {
     ) -> Result<(), Error> {
         self.publish(topic, payload).await?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl Subscriber for circulate::Subscriber {
+    async fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error> {
+        self.subscribe_to(topic).await;
+        Ok(())
+    }
+
+    async fn unsubscribe_from(&self, topic: &str) -> Result<(), Error> {
+        self.unsubscribe_from(topic).await;
+        Ok(())
+    }
+
+    fn receiver(&self) -> &'_ flume::Receiver<Arc<Message>> {
+        self.receiver()
     }
 }
 

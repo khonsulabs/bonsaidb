@@ -418,7 +418,9 @@ impl<DB> PubSub for Storage<DB>
 where
     DB: Schema,
 {
-    async fn create_subscriber(&self) -> Result<Subscriber, pliantdb_core::Error> {
+    type Subscriber = Subscriber;
+
+    async fn create_subscriber(&self) -> Result<Self::Subscriber, pliantdb_core::Error> {
         Ok(self.data.relay.create_subscriber().await)
     }
 

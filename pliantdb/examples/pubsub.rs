@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use pliantdb::local::{Configuration, Storage};
-use pliantdb_core::pubsub::PubSub;
+use pliantdb_core::pubsub::{PubSub, Subscriber};
 use tokio::time::sleep;
 
 #[tokio::main]
@@ -51,7 +51,7 @@ async fn pinger<P: PubSub>(pubsub: P) -> anyhow::Result<()> {
 async fn ponger<P: PubSub>(pubsub: P) -> anyhow::Result<()> {
     const NUMBER_OF_PONGS: usize = 5;
     let subscriber = pubsub.create_subscriber().await?;
-    subscriber.subscribe_to("ping").await;
+    subscriber.subscribe_to("ping").await?;
     let mut pings_remaining = NUMBER_OF_PONGS;
 
     println!(

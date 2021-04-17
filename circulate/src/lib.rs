@@ -21,6 +21,7 @@ use std::{
     },
 };
 
+pub use flume;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 

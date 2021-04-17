@@ -19,7 +19,6 @@ websockets = []
 trusted-dns = ["fabruic/dns"]
 
 [dependencies]
-# TODO this doesn't need to be in core, but right now the traits use the types.
 circulate = { path = "../circulate", version = "0.1.0-dev.1" }
 serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
