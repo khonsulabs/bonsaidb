@@ -1,0 +1,3 @@
+# Server
+
+A [Server](https://pliantdb.dev/main/pliantdb/server/struct.Server.html) allows one or more [Schemas](./schema.md) to create named [Databases](./database.md). It can be embedded into your existing application and used without any networking, or it can be executed separately and connected to with [QUIC](https://en.wikipedia.org/wiki/QUIC) or [WebSockets](https://en.wikipedia.org/wiki/WebSocket). The QUIC protocol is preferred, but it uses UDP which many load balancers don't support. If you're exposing PliantDB behind a load balancer, WebSockets may be the only option depending on your host's capabilities.

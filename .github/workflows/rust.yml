@@ -85,3 +85,39 @@ jobs:
           git-config-email: botsu@khonsulabs.com
           target-folder: /coverage/
           clean: true
+
+  book:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ matrix.branch }}
+      - name: Cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.cargo/bin/mdbook
+            ~/.cargo/bin/mdbook-linkcheck
+            ~/.cargo/bin/mdbook-mermaid
+          key: cargo-audit
+      - name: Install mdbook
+        run: |
+          cargo install mdbook --no-default-features --features search
+          cargo install mdbook-linkcheck
+          cargo install mdbook-mermaid
+      - name: Generate book
+        run: cd book && mdbook build
+
+      - name: Generate
+        uses: JamesIves/github-pages-deploy-action@releases/v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          branch: gh-pages
+          folder: book/book/html/
+          git-config-name: kl-botsu
+          git-config-email: botsu@khonsulabs.com
+          target-folder: /guide
+          clean: true

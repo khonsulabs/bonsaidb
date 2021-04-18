@@ -1,5 +1,6 @@
 #!/bin/bash
 echo "Executing tests"
+cargo clean
 CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE="%m.profraw" RUSTFLAGS="-Zinstrument-coverage" RUSTDOCFLAGS="-Cpanic=abort" cargo +nightly test --all-features
 echo "Generating coverage report"
 grcov . --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing --llvm -o coverage/
