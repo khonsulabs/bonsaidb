@@ -508,7 +508,6 @@ impl Server {
         Ok(())
     }
 
-    #[allow(clippy::too_many_lines)] // TODO split
     pub(crate) async fn handle_request(
         &self,
         request: Request,
@@ -516,162 +515,293 @@ impl Server {
         response_sender: &flume::Sender<Payload<Response>>,
     ) -> Result<Response, Error> {
         match request {
-            Request::Server(request) => match request {
-                ServerRequest::CreateDatabase(database) => {
-                    self.create_database(&database.name, database.schema)
-                        .await?;
-                    Ok(Response::Server(ServerResponse::DatabaseCreated {
-                        name: database.name.clone(),
-                    }))
-                }
-                ServerRequest::DeleteDatabase { name } => {
-                    self.delete_database(&name).await?;
-                    Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
-                }
-                ServerRequest::ListDatabases => Ok(Response::Server(ServerResponse::Databases(
-                    self.list_databases().await?,
-                ))),
-                ServerRequest::ListAvailableSchemas => Ok(Response::Server(
-                    ServerResponse::AvailableSchemas(self.list_available_schemas().await?),
-                )),
-            },
+            Request::Server(request) => self.handle_server_request(request).await,
             Request::Database { database, request } => {
-                let db = self.open_database_without_schema(&database).await?;
-                match request {
-                    DatabaseRequest::Get { collection, id } => {
-                        let document = db
-                            .get_from_collection_id(id, &collection)
-                            .await?
-                            .ok_or(Error::Core(core::Error::DocumentNotFound(collection, id)))?;
-                        Ok(Response::Database(DatabaseResponse::Documents(vec![
-                            document,
-                        ])))
-                    }
-                    DatabaseRequest::GetMultiple { collection, ids } => {
-                        let documents = db
-                            .get_multiple_from_collection_id(&ids, &collection)
-                            .await?;
-                        Ok(Response::Database(DatabaseResponse::Documents(documents)))
-                    }
-                    DatabaseRequest::Query {
-                        view,
-                        key,
-                        access_policy,
-                        with_docs,
-                    } => {
-                        if with_docs {
-                            let mappings = db.query_with_docs(&view, key, access_policy).await?;
-                            Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
-                                mappings,
-                            )))
-                        } else {
-                            let mappings = db.query(&view, key, access_policy).await?;
-                            Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
-                        }
-                    }
-                    DatabaseRequest::Reduce {
-                        view,
-                        key,
-                        access_policy,
-                        grouped,
-                    } => {
-                        if grouped {
-                            let values = db.reduce_grouped(&view, key, access_policy).await?;
-                            Ok(Response::Database(DatabaseResponse::ViewGroupedReduction(
-                                values,
-                            )))
-                        } else {
-                            let value = db.reduce(&view, key, access_policy).await?;
-                            Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
-                        }
-                    }
-
-                    DatabaseRequest::ApplyTransaction { transaction } => {
-                        let results = db.apply_transaction(transaction).await?;
-                        Ok(Response::Database(DatabaseResponse::TransactionResults(
-                            results,
-                        )))
-                    }
-
-                    DatabaseRequest::ListExecutedTransactions {
-                        starting_id,
-                        result_limit,
-                    } => Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
-                        db.list_executed_transactions(starting_id, result_limit)
-                            .await?,
-                    ))),
-                    DatabaseRequest::LastTransactionId => Ok(Response::Database(
-                        DatabaseResponse::LastTransactionId(db.last_transaction_id().await?),
-                    )),
-
-                    DatabaseRequest::CreateSubscriber => {
-                        let subscriber = self.data.relay.create_subscriber().await;
-
-                        let mut subscribers = subscribers.write().await;
-                        let subscriber_id = subscriber.id();
-                        let receiver = subscriber.receiver().clone();
-                        subscribers.insert(subscriber_id, subscriber);
-
-                        let task_self = self.clone();
-                        let response_sender = response_sender.clone();
-                        tokio::spawn(async move {
-                            task_self
-                                .forward_notifications_for(
-                                    subscriber_id,
-                                    receiver,
-                                    response_sender.clone(),
-                                )
-                                .await
-                        });
-
-                        Ok(Response::Database(DatabaseResponse::SubscriberCreated {
-                            subscriber_id,
-                        }))
-                    }
-                    DatabaseRequest::Publish(message) => {
-                        self.data.relay.publish_message(message).await;
-                        Ok(Response::Ok)
-                    }
-                    DatabaseRequest::SubscribeTo {
-                        subscriber_id,
-                        topic,
-                    } => {
-                        let subscribers = subscribers.read().await;
-                        if let Some(subscriber) = subscribers.get(&subscriber_id) {
-                            subscriber.subscribe_to(topic).await;
-                            Ok(Response::Ok)
-                        } else {
-                            Ok(Response::Error(core::Error::Server(String::from(
-                                "invalid subscriber id",
-                            ))))
-                        }
-                    }
-                    DatabaseRequest::UnsubscribeFrom {
-                        subscriber_id,
-                        topic,
-                    } => {
-                        let subscribers = subscribers.read().await;
-                        if let Some(subscriber) = subscribers.get(&subscriber_id) {
-                            subscriber.unsubscribe_from(&topic).await;
-                            Ok(Response::Ok)
-                        } else {
-                            Ok(Response::Error(core::Error::Server(String::from(
-                                "invalid subscriber id",
-                            ))))
-                        }
-                    }
-                    DatabaseRequest::UnregisterSubscriber { subscriber_id } => {
-                        let mut subscribers = subscribers.write().await;
-                        if subscribers.remove(&subscriber_id).is_none() {
-                            Ok(Response::Error(core::Error::Server(String::from(
-                                "invalid subscriber id",
-                            ))))
-                        } else {
-                            Ok(Response::Ok)
-                        }
-                    }
-                }
+                self.handle_database_request(database, request, subscribers, response_sender)
+                    .await
             }
+        }
+    }
+
+    async fn handle_server_request(&self, request: ServerRequest) -> Result<Response, Error> {
+        match request {
+            ServerRequest::CreateDatabase(database) => {
+                self.create_database(&database.name, database.schema)
+                    .await?;
+                Ok(Response::Server(ServerResponse::DatabaseCreated {
+                    name: database.name.clone(),
+                }))
+            }
+            ServerRequest::DeleteDatabase { name } => {
+                self.delete_database(&name).await?;
+                Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
+            }
+            ServerRequest::ListDatabases => Ok(Response::Server(ServerResponse::Databases(
+                self.list_databases().await?,
+            ))),
+            ServerRequest::ListAvailableSchemas => Ok(Response::Server(
+                ServerResponse::AvailableSchemas(self.list_available_schemas().await?),
+            )),
+        }
+    }
+
+    async fn handle_database_request(
+        &self,
+        database: String,
+        request: DatabaseRequest,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        response_sender: &flume::Sender<Payload<Response>>,
+    ) -> Result<Response, Error> {
+        match request {
+            DatabaseRequest::Get { collection, id } => {
+                self.handle_database_get_request(database, collection, id)
+                    .await
+            }
+            DatabaseRequest::GetMultiple { collection, ids } => {
+                self.handle_database_get_multiple_request(database, collection, ids)
+                    .await
+            }
+            DatabaseRequest::Query {
+                view,
+                key,
+                access_policy,
+                with_docs,
+            } => {
+                self.handle_database_query(database, &view, key, access_policy, with_docs)
+                    .await
+            }
+            DatabaseRequest::Reduce {
+                view,
+                key,
+                access_policy,
+                grouped,
+            } => {
+                self.handle_database_reduce(database, &view, key, access_policy, grouped)
+                    .await
+            }
+
+            DatabaseRequest::ApplyTransaction { transaction } => {
+                self.handle_database_apply_transaction(database, transaction)
+                    .await
+            }
+
+            DatabaseRequest::ListExecutedTransactions {
+                starting_id,
+                result_limit,
+            } => {
+                self.handle_database_list_executed_transactions(database, starting_id, result_limit)
+                    .await
+            }
+            DatabaseRequest::LastTransactionId => {
+                self.handle_database_last_transaction_id(database).await
+            }
+
+            DatabaseRequest::CreateSubscriber => {
+                self.handle_database_create_subscriber(subscribers, response_sender)
+                    .await
+            }
+            DatabaseRequest::Publish(message) => self.handle_database_publish(message).await,
+            DatabaseRequest::SubscribeTo {
+                subscriber_id,
+                topic,
+            } => {
+                self.handle_database_subscribe_to(subscriber_id, topic, subscribers)
+                    .await
+            }
+            DatabaseRequest::UnsubscribeFrom {
+                subscriber_id,
+                topic,
+            } => {
+                self.handle_database_unsubscribe_from(subscriber_id, topic, subscribers)
+                    .await
+            }
+            DatabaseRequest::UnregisterSubscriber { subscriber_id } => {
+                self.handle_database_unregister_subscriber(subscriber_id, subscribers)
+                    .await
+            }
+        }
+    }
+
+    async fn handle_database_get_request(
+        &self,
+        database: String,
+        collection: CollectionId,
+        id: u64,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        let document = db
+            .get_from_collection_id(id, &collection)
+            .await?
+            .ok_or(Error::Core(core::Error::DocumentNotFound(collection, id)))?;
+        Ok(Response::Database(DatabaseResponse::Documents(vec![
+            document,
+        ])))
+    }
+
+    async fn handle_database_get_multiple_request(
+        &self,
+        database: String,
+        collection: CollectionId,
+        ids: Vec<u64>,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        let documents = db
+            .get_multiple_from_collection_id(&ids, &collection)
+            .await?;
+        Ok(Response::Database(DatabaseResponse::Documents(documents)))
+    }
+
+    async fn handle_database_query(
+        &self,
+        database: String,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+        with_docs: bool,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        if with_docs {
+            let mappings = db.query_with_docs(view, key, access_policy).await?;
+            Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
+                mappings,
+            )))
+        } else {
+            let mappings = db.query(view, key, access_policy).await?;
+            Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
+        }
+    }
+
+    async fn handle_database_reduce(
+        &self,
+        database: String,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+        grouped: bool,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        if grouped {
+            let values = db.reduce_grouped(view, key, access_policy).await?;
+            Ok(Response::Database(DatabaseResponse::ViewGroupedReduction(
+                values,
+            )))
+        } else {
+            let value = db.reduce(view, key, access_policy).await?;
+            Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
+        }
+    }
+
+    async fn handle_database_apply_transaction(
+        &self,
+        database: String,
+        transaction: Transaction<'static>,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        let results = db.apply_transaction(transaction).await?;
+        Ok(Response::Database(DatabaseResponse::TransactionResults(
+            results,
+        )))
+    }
+
+    async fn handle_database_list_executed_transactions(
+        &self,
+        database: String,
+        starting_id: Option<u64>,
+        result_limit: Option<usize>,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
+            db.list_executed_transactions(starting_id, result_limit)
+                .await?,
+        )))
+    }
+
+    async fn handle_database_last_transaction_id(
+        &self,
+        database: String,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        Ok(Response::Database(DatabaseResponse::LastTransactionId(
+            db.last_transaction_id().await?,
+        )))
+    }
+
+    async fn handle_database_create_subscriber(
+        &self,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        response_sender: &flume::Sender<Payload<Response>>,
+    ) -> Result<Response, Error> {
+        let subscriber = self.data.relay.create_subscriber().await;
+
+        let mut subscribers = subscribers.write().await;
+        let subscriber_id = subscriber.id();
+        let receiver = subscriber.receiver().clone();
+        subscribers.insert(subscriber_id, subscriber);
+
+        let task_self = self.clone();
+        let response_sender = response_sender.clone();
+        tokio::spawn(async move {
+            task_self
+                .forward_notifications_for(subscriber_id, receiver, response_sender.clone())
+                .await
+        });
+
+        Ok(Response::Database(DatabaseResponse::SubscriberCreated {
+            subscriber_id,
+        }))
+    }
+
+    async fn handle_database_publish(&self, message: Message) -> Result<Response, Error> {
+        self.data.relay.publish_message(message).await;
+        Ok(Response::Ok)
+    }
+
+    async fn handle_database_subscribe_to(
+        &self,
+        subscriber_id: u64,
+        topic: String,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+    ) -> Result<Response, Error> {
+        let subscribers = subscribers.read().await;
+        if let Some(subscriber) = subscribers.get(&subscriber_id) {
+            subscriber.subscribe_to(topic).await;
+            Ok(Response::Ok)
+        } else {
+            Ok(Response::Error(core::Error::Server(String::from(
+                "invalid subscriber id",
+            ))))
+        }
+    }
+
+    async fn handle_database_unsubscribe_from(
+        &self,
+        subscriber_id: u64,
+        topic: String,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+    ) -> Result<Response, Error> {
+        let subscribers = subscribers.read().await;
+        if let Some(subscriber) = subscribers.get(&subscriber_id) {
+            subscriber.unsubscribe_from(&topic).await;
+            Ok(Response::Ok)
+        } else {
+            Ok(Response::Error(core::Error::Server(String::from(
+                "invalid subscriber id",
+            ))))
+        }
+    }
+
+    async fn handle_database_unregister_subscriber(
+        &self,
+        subscriber_id: u64,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+    ) -> Result<Response, Error> {
+        let mut subscribers = subscribers.write().await;
+        if subscribers.remove(&subscriber_id).is_none() {
+            Ok(Response::Error(core::Error::Server(String::from(
+                "invalid subscriber id",
+            ))))
+        } else {
+            Ok(Response::Ok)
         }
     }
 

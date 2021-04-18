@@ -44,7 +44,7 @@
 )]
 #![cfg_attr(doc, deny(rustdoc))]
 #![allow(
-    clippy::missing_errors_doc, // TODO
+    clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
 )]
 

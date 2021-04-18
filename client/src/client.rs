@@ -36,11 +36,15 @@ type SubscriberMap = Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>;
 /// Client for connecting to a `PliantDB` server.
 #[derive(Clone, Debug)]
 pub struct Client {
-    /// TODO switch to a single arc wrapping data.
+    pub(crate) data: Arc<Data>,
+}
+
+#[derive(Debug)]
+pub struct Data {
     request_sender: Sender<PendingRequest>,
-    worker: Arc<CancellableHandle<Result<(), Error>>>,
-    schemas: Arc<Mutex<HashMap<TypeId, Arc<Schematic>>>>,
-    request_id: Arc<AtomicU32>,
+    worker: CancellableHandle<Result<(), Error>>,
+    schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
+    request_id: AtomicU32,
     subscribers: SubscriberMap,
     #[cfg(test)]
     pub(crate) background_task_running: Arc<AtomicBool>,
@@ -116,17 +120,19 @@ impl Client {
         let background_task_running = Arc::new(AtomicBool::new(true));
 
         let client = Self {
-            request_sender,
-            worker: Arc::new(CancellableHandle {
-                worker,
+            data: Arc::new(Data {
+                request_sender,
+                worker: CancellableHandle {
+                    worker,
+                    #[cfg(test)]
+                    background_task_running: background_task_running.clone(),
+                },
+                schemas: Mutex::default(),
+                request_id: AtomicU32::default(),
+                subscribers,
                 #[cfg(test)]
-                background_task_running: background_task_running.clone(),
+                background_task_running,
             }),
-            schemas: Arc::default(),
-            request_id: Arc::default(),
-            subscribers,
-            #[cfg(test)]
-            background_task_running,
         };
 
         Ok(client)
@@ -147,17 +153,19 @@ impl Client {
         let background_task_running = Arc::new(AtomicBool::new(true));
 
         let client = Self {
-            request_sender,
-            worker: Arc::new(CancellableHandle {
-                worker,
+            data: Arc::new(Data {
+                request_sender,
+                worker: CancellableHandle {
+                    worker,
+                    #[cfg(test)]
+                    background_task_running: background_task_running.clone(),
+                },
+                schemas: Mutex::default(),
+                request_id: AtomicU32::default(),
+                subscribers,
                 #[cfg(test)]
-                background_task_running: background_task_running.clone(),
+                background_task_running,
             }),
-            schemas: Arc::default(),
-            request_id: Arc::default(),
-            subscribers,
-            #[cfg(test)]
-            background_task_running,
         };
 
         Ok(client)
@@ -167,7 +175,7 @@ impl Client {
     /// done when this method is executed. The server will validate the schema
     /// and database name when a [`Connection`](pliantdb_core::connection::Connection) function is called.
     pub async fn database<DB: Schema>(&self, name: &str) -> RemoteDatabase<DB> {
-        let mut schemas = self.schemas.lock().await;
+        let mut schemas = self.data.schemas.lock().await;
         let schema = schemas
             .entry(TypeId::of::<DB>())
             .or_insert_with(|| Arc::new(DB::schematic()))
@@ -177,8 +185,8 @@ impl Client {
 
     async fn send_request(&self, request: Request) -> Result<Response, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
-        let id = self.request_id.fetch_add(1, Ordering::SeqCst);
-        self.request_sender.send(PendingRequest {
+        let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
+        self.data.request_sender.send(PendingRequest {
             request: Payload {
                 id: Some(id),
                 wrapped: request,
@@ -190,7 +198,7 @@ impl Client {
     }
 
     pub(crate) async fn register_subscriber(&self, id: u64, sender: flume::Sender<Arc<Message>>) {
-        let mut subscribers = self.subscribers.lock().await;
+        let mut subscribers = self.data.subscribers.lock().await;
         subscribers.insert(id, sender);
     }
 
@@ -201,7 +209,7 @@ impl Client {
                 request: DatabaseRequest::UnregisterSubscriber { subscriber_id: id },
             })
             .await;
-        let mut subscribers = self.subscribers.lock().await;
+        let mut subscribers = self.data.subscribers.lock().await;
         subscribers.remove(&id);
     }
 }

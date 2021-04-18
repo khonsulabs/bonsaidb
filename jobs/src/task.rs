@@ -32,12 +32,23 @@ where
     }
 
     /// Waits for the job to complete and returns the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the job is cancelled.
     pub async fn receive(&self) -> Result<Result<T, Arc<anyhow::Error>>, flume::RecvError> {
         self.receiver.recv_async().await
     }
 
     /// Tries to receive the status of the job. If available, it is returned.
     /// This function will not block.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the job isn't complete.
+    ///
+    /// * [`TryRecvError::Disconnected`](flume::TryRecvError::Disconnected): The job has been cancelled.
+    /// * [`TryRecvError::Empty`](flume::TryRecvError::Empty): The job has not completed yet.
     pub fn try_receive(&self) -> Result<Result<T, Arc<anyhow::Error>>, flume::TryRecvError> {
         self.receiver.try_recv()
     }

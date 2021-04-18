@@ -28,7 +28,7 @@ async fn server_connection_tests() -> anyhow::Result<()> {
 
     let client_task_is_running = {
         let client = Client::new(&url, Some(server.certificate().await?)).await?;
-        let client_task_is_running = client.background_task_running.clone();
+        let client_task_is_running = client.data.background_task_running.clone();
         assert!(client_task_is_running.load(Ordering::Acquire));
 
         basic_server_connection_tests(client).await?;
