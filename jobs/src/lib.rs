@@ -11,10 +11,7 @@
     rust_2018_idioms,
 )]
 #![cfg_attr(doc, deny(rustdoc))]
-#![allow(
-    clippy::missing_errors_doc, // TODO
-    clippy::option_if_let_else,
-)]
+#![allow(clippy::option_if_let_else)]
 
 /// Types related to the job [`Manager`](manager::Manager).
 pub mod manager;

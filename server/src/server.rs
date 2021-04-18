@@ -18,6 +18,7 @@ use futures::{Future, StreamExt, TryFutureExt};
 use itertools::Itertools;
 use pliantdb_core::{
     self as core,
+    circulate::{Message, Relay, Subscriber},
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
     networking::{
@@ -65,6 +66,7 @@ struct Data {
     available_databases: RwLock<HashMap<String, SchemaId>>,
     request_processor: Manager,
     storage_configuration: pliantdb_local::Configuration,
+    relay: Relay,
 }
 
 impl Server {
@@ -83,15 +85,9 @@ impl Server {
             .collect();
 
         let request_processor = Manager::default();
-        // TODO add configuration
-        // TODO also, I think the vision was to share
-        // workers between Client and Server but it's uncertain how that would
-        // work since the local storage wants to interact with its own Task
-        // type.
-        request_processor.spawn_worker();
-        request_processor.spawn_worker();
-        request_processor.spawn_worker();
-        request_processor.spawn_worker();
+        for _ in 0..configuration.request_workers {
+            request_processor.spawn_worker();
+        }
 
         Ok(Self {
             data: Arc::new(Data {
@@ -105,6 +101,7 @@ impl Server {
                 open_databases: RwLock::default(),
                 request_processor,
                 storage_configuration: configuration.storage,
+                relay: Relay::default(),
             }),
         })
     }
@@ -195,6 +192,10 @@ impl Server {
         Ok(storage.clone())
     }
 
+    pub(crate) fn relay(&self) -> &'_ Relay {
+        &self.data.relay
+    }
+
     fn validate_name(name: &str) -> Result<(), Error> {
         if name
             .chars()
@@ -212,7 +213,7 @@ impl Server {
     }
 
     /// Installs an X.509 certificate used for general purpose connections.
-    #[cfg(feature = "certificate-generation")]
+    #[cfg(any(test, feature = "certificate-generation"))]
     pub async fn install_self_signed_certificate(
         &self,
         server_name: &str,
@@ -380,13 +381,29 @@ impl Server {
 
         let (mut sender, mut receiver) = stream.split();
         let (response_sender, response_receiver) = flume::unbounded();
+        let (message_sender, message_receiver) = flume::unbounded();
         tokio::spawn(async move {
-            while let Ok(response) = response_receiver.recv_async().await {
+            while let Ok(response) = message_receiver.recv_async().await {
                 sender.send(response).await?;
             }
 
-            Result::<(), tokio_tungstenite::tungstenite::Error>::Ok(())
+            Result::<(), anyhow::Error>::Ok(())
         });
+        let task_sender = message_sender.clone();
+        tokio::spawn(async move {
+            while let Ok(response) = response_receiver.recv_async().await {
+                if task_sender
+                    .send(Message::Binary(bincode::serialize(&response)?))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+
+            Result::<(), anyhow::Error>::Ok(())
+        });
+
+        let subscribers: Arc<RwLock<HashMap<u64, Subscriber>>> = Arc::default();
 
         while let Some(payload) = receiver.next().await {
             match payload? {
@@ -397,20 +414,21 @@ impl Server {
                     self.handle_request_through_worker(
                         payload.wrapped,
                         move |response| async move {
-                            let _ =
-                                task_sender.send(Message::Binary(bincode::serialize(&Payload {
-                                    id,
-                                    wrapped: response,
-                                })?));
+                            let _ = task_sender.send(Payload {
+                                id,
+                                wrapped: response,
+                            });
 
                             Ok(())
                         },
+                        subscribers.clone(),
+                        response_sender.clone(),
                     )
                     .await?;
                 }
                 Message::Close(_) => break,
                 Message::Ping(payload) => {
-                    let _ = response_sender.send(Message::Pong(payload));
+                    let _ = message_sender.send(Message::Pong(payload));
                 }
                 other => {
                     eprintln!("[server] unexpected message: {:?}", other);
@@ -428,11 +446,18 @@ impl Server {
         &self,
         request: Request,
         callback: F,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        response_sender: flume::Sender<Payload<Response>>,
     ) -> Result<(), Error> {
         let job = self
             .data
             .request_processor
-            .enqueue(ClientRequest::new(request, self.clone()))
+            .enqueue(ClientRequest::new(
+                request,
+                self.clone(),
+                subscribers,
+                response_sender,
+            ))
             .await;
         tokio::spawn(async move {
             let result = job
@@ -451,113 +476,353 @@ impl Server {
         sender: fabruic::Sender<Payload<Response>>,
         mut receiver: fabruic::Receiver<Payload<Request>>,
     ) -> Result<(), Error> {
+        let subscribers: Arc<RwLock<HashMap<u64, Subscriber>>> = Arc::default();
+        let (payload_sender, payload_receiver) = flume::unbounded();
+        tokio::spawn(async move {
+            while let Ok(payload) = payload_receiver.recv_async().await {
+                if sender.send(&payload).is_err() {
+                    break;
+                }
+            }
+        });
+
         while let Some(payload) = receiver.next().await {
             let Payload { id, wrapped } = payload;
-            let task_sender = sender.clone();
-            self.handle_request_through_worker(wrapped, move |response| async move {
-                task_sender.send(&Payload {
-                    id,
-                    wrapped: response,
-                })?;
+            let task_sender = payload_sender.clone();
+            self.handle_request_through_worker(
+                wrapped,
+                move |response| async move {
+                    let _ = task_sender.send(Payload {
+                        id,
+                        wrapped: response,
+                    });
 
-                Ok(())
-            })
+                    Ok(())
+                },
+                subscribers.clone(),
+                payload_sender.clone(),
+            )
             .await?;
         }
 
         Ok(())
     }
 
-    pub(crate) async fn handle_request(&self, request: Request) -> Result<Response, Error> {
+    pub(crate) async fn handle_request(
+        &self,
+        request: Request,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        response_sender: &flume::Sender<Payload<Response>>,
+    ) -> Result<Response, Error> {
         match request {
-            Request::Server(request) => match request {
-                ServerRequest::CreateDatabase(database) => {
-                    self.create_database(&database.name, database.schema)
-                        .await?;
-                    Ok(Response::Server(ServerResponse::DatabaseCreated {
-                        name: database.name.clone(),
-                    }))
-                }
-                ServerRequest::DeleteDatabase { name } => {
-                    self.delete_database(&name).await?;
-                    Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
-                }
-                ServerRequest::ListDatabases => Ok(Response::Server(ServerResponse::Databases(
-                    self.list_databases().await?,
-                ))),
-                ServerRequest::ListAvailableSchemas => Ok(Response::Server(
-                    ServerResponse::AvailableSchemas(self.list_available_schemas().await?),
-                )),
-            },
+            Request::Server(request) => self.handle_server_request(request).await,
             Request::Database { database, request } => {
-                let db = self.open_database_without_schema(&database).await?;
-                match request {
-                    DatabaseRequest::Get { collection, id } => {
-                        let document = db
-                            .get_from_collection_id(id, &collection)
-                            .await?
-                            .ok_or(Error::Core(core::Error::DocumentNotFound(collection, id)))?;
-                        Ok(Response::Database(DatabaseResponse::Documents(vec![
-                            document,
-                        ])))
-                    }
-                    DatabaseRequest::GetMultiple { collection, ids } => {
-                        let documents = db
-                            .get_multiple_from_collection_id(&ids, &collection)
-                            .await?;
-                        Ok(Response::Database(DatabaseResponse::Documents(documents)))
-                    }
-                    DatabaseRequest::Query {
-                        view,
-                        key,
-                        access_policy,
-                        with_docs,
-                    } => {
-                        if with_docs {
-                            let mappings = db.query_with_docs(&view, key, access_policy).await?;
-                            Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
-                                mappings,
-                            )))
-                        } else {
-                            let mappings = db.query(&view, key, access_policy).await?;
-                            Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
-                        }
-                    }
-                    DatabaseRequest::Reduce {
-                        view,
-                        key,
-                        access_policy,
-                        grouped,
-                    } => {
-                        if grouped {
-                            let values = db.reduce_grouped(&view, key, access_policy).await?;
-                            Ok(Response::Database(DatabaseResponse::ViewGroupedReduction(
-                                values,
-                            )))
-                        } else {
-                            let value = db.reduce(&view, key, access_policy).await?;
-                            Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
-                        }
-                    }
+                self.handle_database_request(database, request, subscribers, response_sender)
+                    .await
+            }
+        }
+    }
 
-                    DatabaseRequest::ApplyTransaction { transaction } => {
-                        let results = db.apply_transaction(transaction).await?;
-                        Ok(Response::Database(DatabaseResponse::TransactionResults(
-                            results,
-                        )))
-                    }
+    async fn handle_server_request(&self, request: ServerRequest) -> Result<Response, Error> {
+        match request {
+            ServerRequest::CreateDatabase(database) => {
+                self.create_database(&database.name, database.schema)
+                    .await?;
+                Ok(Response::Server(ServerResponse::DatabaseCreated {
+                    name: database.name.clone(),
+                }))
+            }
+            ServerRequest::DeleteDatabase { name } => {
+                self.delete_database(&name).await?;
+                Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
+            }
+            ServerRequest::ListDatabases => Ok(Response::Server(ServerResponse::Databases(
+                self.list_databases().await?,
+            ))),
+            ServerRequest::ListAvailableSchemas => Ok(Response::Server(
+                ServerResponse::AvailableSchemas(self.list_available_schemas().await?),
+            )),
+        }
+    }
 
-                    DatabaseRequest::ListExecutedTransactions {
-                        starting_id,
-                        result_limit,
-                    } => Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
-                        db.list_executed_transactions(starting_id, result_limit)
-                            .await?,
-                    ))),
-                    DatabaseRequest::LastTransactionId => Ok(Response::Database(
-                        DatabaseResponse::LastTransactionId(db.last_transaction_id().await?),
-                    )),
-                }
+    async fn handle_database_request(
+        &self,
+        database: String,
+        request: DatabaseRequest,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        response_sender: &flume::Sender<Payload<Response>>,
+    ) -> Result<Response, Error> {
+        match request {
+            DatabaseRequest::Get { collection, id } => {
+                self.handle_database_get_request(database, collection, id)
+                    .await
+            }
+            DatabaseRequest::GetMultiple { collection, ids } => {
+                self.handle_database_get_multiple_request(database, collection, ids)
+                    .await
+            }
+            DatabaseRequest::Query {
+                view,
+                key,
+                access_policy,
+                with_docs,
+            } => {
+                self.handle_database_query(database, &view, key, access_policy, with_docs)
+                    .await
+            }
+            DatabaseRequest::Reduce {
+                view,
+                key,
+                access_policy,
+                grouped,
+            } => {
+                self.handle_database_reduce(database, &view, key, access_policy, grouped)
+                    .await
+            }
+
+            DatabaseRequest::ApplyTransaction { transaction } => {
+                self.handle_database_apply_transaction(database, transaction)
+                    .await
+            }
+
+            DatabaseRequest::ListExecutedTransactions {
+                starting_id,
+                result_limit,
+            } => {
+                self.handle_database_list_executed_transactions(database, starting_id, result_limit)
+                    .await
+            }
+            DatabaseRequest::LastTransactionId => {
+                self.handle_database_last_transaction_id(database).await
+            }
+
+            DatabaseRequest::CreateSubscriber => {
+                self.handle_database_create_subscriber(subscribers, response_sender)
+                    .await
+            }
+            DatabaseRequest::Publish(message) => self.handle_database_publish(message).await,
+            DatabaseRequest::SubscribeTo {
+                subscriber_id,
+                topic,
+            } => {
+                self.handle_database_subscribe_to(subscriber_id, topic, subscribers)
+                    .await
+            }
+            DatabaseRequest::UnsubscribeFrom {
+                subscriber_id,
+                topic,
+            } => {
+                self.handle_database_unsubscribe_from(subscriber_id, topic, subscribers)
+                    .await
+            }
+            DatabaseRequest::UnregisterSubscriber { subscriber_id } => {
+                self.handle_database_unregister_subscriber(subscriber_id, subscribers)
+                    .await
+            }
+        }
+    }
+
+    async fn handle_database_get_request(
+        &self,
+        database: String,
+        collection: CollectionId,
+        id: u64,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        let document = db
+            .get_from_collection_id(id, &collection)
+            .await?
+            .ok_or(Error::Core(core::Error::DocumentNotFound(collection, id)))?;
+        Ok(Response::Database(DatabaseResponse::Documents(vec![
+            document,
+        ])))
+    }
+
+    async fn handle_database_get_multiple_request(
+        &self,
+        database: String,
+        collection: CollectionId,
+        ids: Vec<u64>,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        let documents = db
+            .get_multiple_from_collection_id(&ids, &collection)
+            .await?;
+        Ok(Response::Database(DatabaseResponse::Documents(documents)))
+    }
+
+    async fn handle_database_query(
+        &self,
+        database: String,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+        with_docs: bool,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        if with_docs {
+            let mappings = db.query_with_docs(view, key, access_policy).await?;
+            Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
+                mappings,
+            )))
+        } else {
+            let mappings = db.query(view, key, access_policy).await?;
+            Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
+        }
+    }
+
+    async fn handle_database_reduce(
+        &self,
+        database: String,
+        view: &str,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+        grouped: bool,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        if grouped {
+            let values = db.reduce_grouped(view, key, access_policy).await?;
+            Ok(Response::Database(DatabaseResponse::ViewGroupedReduction(
+                values,
+            )))
+        } else {
+            let value = db.reduce(view, key, access_policy).await?;
+            Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
+        }
+    }
+
+    async fn handle_database_apply_transaction(
+        &self,
+        database: String,
+        transaction: Transaction<'static>,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        let results = db.apply_transaction(transaction).await?;
+        Ok(Response::Database(DatabaseResponse::TransactionResults(
+            results,
+        )))
+    }
+
+    async fn handle_database_list_executed_transactions(
+        &self,
+        database: String,
+        starting_id: Option<u64>,
+        result_limit: Option<usize>,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
+            db.list_executed_transactions(starting_id, result_limit)
+                .await?,
+        )))
+    }
+
+    async fn handle_database_last_transaction_id(
+        &self,
+        database: String,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        Ok(Response::Database(DatabaseResponse::LastTransactionId(
+            db.last_transaction_id().await?,
+        )))
+    }
+
+    async fn handle_database_create_subscriber(
+        &self,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        response_sender: &flume::Sender<Payload<Response>>,
+    ) -> Result<Response, Error> {
+        let subscriber = self.data.relay.create_subscriber().await;
+
+        let mut subscribers = subscribers.write().await;
+        let subscriber_id = subscriber.id();
+        let receiver = subscriber.receiver().clone();
+        subscribers.insert(subscriber_id, subscriber);
+
+        let task_self = self.clone();
+        let response_sender = response_sender.clone();
+        tokio::spawn(async move {
+            task_self
+                .forward_notifications_for(subscriber_id, receiver, response_sender.clone())
+                .await
+        });
+
+        Ok(Response::Database(DatabaseResponse::SubscriberCreated {
+            subscriber_id,
+        }))
+    }
+
+    async fn handle_database_publish(&self, message: Message) -> Result<Response, Error> {
+        self.data.relay.publish_message(message).await;
+        Ok(Response::Ok)
+    }
+
+    async fn handle_database_subscribe_to(
+        &self,
+        subscriber_id: u64,
+        topic: String,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+    ) -> Result<Response, Error> {
+        let subscribers = subscribers.read().await;
+        if let Some(subscriber) = subscribers.get(&subscriber_id) {
+            subscriber.subscribe_to(topic).await;
+            Ok(Response::Ok)
+        } else {
+            Ok(Response::Error(core::Error::Server(String::from(
+                "invalid subscriber id",
+            ))))
+        }
+    }
+
+    async fn handle_database_unsubscribe_from(
+        &self,
+        subscriber_id: u64,
+        topic: String,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+    ) -> Result<Response, Error> {
+        let subscribers = subscribers.read().await;
+        if let Some(subscriber) = subscribers.get(&subscriber_id) {
+            subscriber.unsubscribe_from(&topic).await;
+            Ok(Response::Ok)
+        } else {
+            Ok(Response::Error(core::Error::Server(String::from(
+                "invalid subscriber id",
+            ))))
+        }
+    }
+
+    async fn handle_database_unregister_subscriber(
+        &self,
+        subscriber_id: u64,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+    ) -> Result<Response, Error> {
+        let mut subscribers = subscribers.write().await;
+        if subscribers.remove(&subscriber_id).is_none() {
+            Ok(Response::Error(core::Error::Server(String::from(
+                "invalid subscriber id",
+            ))))
+        } else {
+            Ok(Response::Ok)
+        }
+    }
+
+    async fn forward_notifications_for(
+        &self,
+        subscriber_id: u64,
+        receiver: flume::Receiver<Arc<Message>>,
+        sender: flume::Sender<Payload<Response>>,
+    ) {
+        while let Ok(message) = receiver.recv_async().await {
+            if sender
+                .send(Payload {
+                    id: None,
+                    wrapped: Response::Database(DatabaseResponse::MessageReceived {
+                        subscriber_id,
+                        message: message.as_ref().clone(),
+                    }),
+                })
+                .is_err()
+            {
+                break;
             }
         }
     }
@@ -796,7 +1061,7 @@ where
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<map::Serialized>, pliantdb_core::Error> {
-        if let Some(view) = self.schema.view_by_name(view) {
+        if let Some(view) = self.schematic().view_by_name(view) {
             let mut results = Vec::new();
             self.for_each_in_view(view, key, access_policy, |key, entry| {
                 for mapping in entry.mappings {
@@ -823,7 +1088,7 @@ where
         access_policy: AccessPolicy,
     ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error> {
         let results = OpenDatabase::query(self, view, key, access_policy).await?;
-        let view = self.schema.view_by_name(view).unwrap(); // query() will fail if it's not present
+        let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
 
         let mut documents = Internal::get_multiple_from_collection_id(
             self,
@@ -954,12 +1219,21 @@ where
 struct ClientRequest {
     request: Option<Request>,
     server: Server,
+    subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+    sender: flume::Sender<Payload<Response>>,
 }
 impl ClientRequest {
-    pub const fn new(request: Request, server: Server) -> Self {
+    pub const fn new(
+        request: Request,
+        server: Server,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        sender: flume::Sender<Payload<Response>>,
+    ) -> Self {
         Self {
             request: Some(request),
             server,
+            subscribers,
+            sender,
         }
     }
 }
@@ -972,7 +1246,7 @@ impl Job for ClientRequest {
         let request = self.request.take().unwrap();
         Ok(self
             .server
-            .handle_request(request)
+            .handle_request(request, self.subscribers.clone(), &self.sender)
             .await
             .unwrap_or_else(|err| Response::Error(err.into())))
     }

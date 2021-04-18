@@ -3,9 +3,11 @@ use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sy
 use async_trait::async_trait;
 use itertools::Itertools;
 use pliantdb_core::{
+    circulate::{Relay, Subscriber},
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
+    pubsub::PubSub,
     schema::{self, view, CollectionId, Key, Map, MappedDocument, MappedValue, Schema, Schematic},
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
@@ -26,20 +28,22 @@ use crate::{
 /// A local, file-based database.
 #[derive(Debug)]
 pub struct Storage<DB> {
-    /// The [`Schematic`] of `DB`.
-    pub schema: Arc<Schematic>,
+    pub(crate) data: Arc<Data<DB>>,
+}
+
+#[derive(Debug)]
+pub struct Data<DB> {
+    pub(crate) schema: Arc<Schematic>,
     pub(crate) sled: sled::Db,
     pub(crate) tasks: TaskManager,
+    relay: Relay,
     _schema: PhantomData<DB>,
 }
 
 impl<DB> Clone for Storage<DB> {
     fn clone(&self) -> Self {
         Self {
-            sled: self.sled.clone(),
-            schema: self.schema.clone(),
-            tasks: self.tasks.clone(),
-            _schema: PhantomData::default(),
+            data: self.data.clone(),
         }
     }
 }
@@ -68,10 +72,13 @@ where
         let storage = tokio::task::spawn_blocking(move || {
             sled::open(owned_path)
                 .map(|sled| Self {
-                    sled,
-                    schema: Arc::new(DB::schematic()),
-                    tasks,
-                    _schema: PhantomData::default(),
+                    data: Arc::new(Data {
+                        sled,
+                        schema: Arc::new(DB::schematic()),
+                        tasks,
+                        relay: Relay::default(),
+                        _schema: PhantomData::default(),
+                    }),
                 })
                 .map_err(Error::from)
         })
@@ -79,12 +86,22 @@ where
         .map_err(|err| pliantdb_core::Error::Storage(err.to_string()))??;
 
         if configuration.views.check_integrity_on_open {
-            for view in storage.schema.views() {
-                storage.tasks.spawn_integrity_check(view, &storage).await?;
+            for view in storage.data.schema.views() {
+                storage
+                    .data
+                    .tasks
+                    .spawn_integrity_check(view, &storage)
+                    .await?;
             }
         }
 
         Ok(storage)
+    }
+
+    /// Returns the [`Schematic`] for `DB`.
+    #[must_use]
+    pub fn schematic(&self) -> &'_ Schematic {
+        &self.data.schema
     }
 }
 
@@ -97,8 +114,8 @@ where
         &self,
         transaction: Transaction<'static>,
     ) -> Result<Vec<OperationResult>, pliantdb_core::Error> {
-        let sled = self.sled.clone();
-        let schema = self.schema.clone();
+        let sled = self.data.sled.clone();
+        let schema = self.data.schema.clone();
         tokio::task::spawn_blocking(move || {
             let mut open_trees = OpenTrees::default();
             open_trees
@@ -220,6 +237,7 @@ where
         if result_limit > 0 {
             tokio::task::block_in_place(|| {
                 let tree = self
+                    .data
                     .sled
                     .open_tree(TRANSACTION_TREE_NAME)
                     .map_err_to_core()?;
@@ -322,6 +340,7 @@ where
         Self: Sized,
     {
         let view = self
+            .data
             .schema
             .view::<V>()
             .expect("query made with view that isn't registered with this database");
@@ -349,6 +368,7 @@ where
         Self: Sized,
     {
         let view = self
+            .data
             .schema
             .view::<V>()
             .expect("query made with view that isn't registered with this database");
@@ -376,6 +396,7 @@ where
     async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
         tokio::task::block_in_place(|| {
             let tree = self
+                .data
                 .sled
                 .open_tree(TRANSACTION_TREE_NAME)
                 .map_err_to_core()?;
@@ -389,6 +410,27 @@ where
                 Ok(None)
             }
         })
+    }
+}
+
+#[async_trait]
+impl<DB> PubSub for Storage<DB>
+where
+    DB: Schema,
+{
+    type Subscriber = Subscriber;
+
+    async fn create_subscriber(&self) -> Result<Self::Subscriber, pliantdb_core::Error> {
+        Ok(self.data.relay.create_subscriber().await)
+    }
+
+    async fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
+        &self,
+        topic: S,
+        payload: &P,
+    ) -> Result<(), pliantdb_core::Error> {
+        self.data.relay.publish(topic, payload).await?;
+        Ok(())
     }
 }
 
@@ -553,7 +595,6 @@ pub fn document_tree_name(collection: &CollectionId) -> String {
     format!("collection::{}", collection)
 }
 
-#[cfg(feature = "internal-apis")]
 #[doc(hidden)]
 /// These methods are internal methods used inside pliantdb-server. Changes to
 /// these methods will not affect semver the same way changes to other APIs
@@ -613,7 +654,6 @@ pub trait Internal {
     ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error>;
 }
 
-#[cfg(feature = "internal-apis")]
 #[async_trait]
 impl<DB> Internal for Storage<DB>
 where
@@ -629,13 +669,15 @@ where
         mut callback: F,
     ) -> Result<(), pliantdb_core::Error> {
         if matches!(access_policy, AccessPolicy::UpdateBefore) {
-            self.tasks
+            self.data
+                .tasks
                 .update_view_if_needed(view, self)
                 .await
                 .map_err_to_core()?;
         }
 
         let view_entries = self
+            .data
             .sled
             .open_tree(view_entries_tree_name(
                 &view.collection(),
@@ -664,10 +706,15 @@ where
             let view_name = view.name();
             tokio::task::spawn(async move {
                 let view = storage
+                    .data
                     .schema
                     .view_by_name(&view_name)
                     .expect("query made with view that isn't registered with this database");
-                storage.tasks.update_view_if_needed(view, &storage).await
+                storage
+                    .data
+                    .tasks
+                    .update_view_if_needed(view, &storage)
+                    .await
             });
         }
 
@@ -684,6 +731,7 @@ where
         callback: F,
     ) -> Result<(), pliantdb_core::Error> {
         let view = self
+            .data
             .schema
             .view::<V>()
             .expect("query made with view that isn't registered with this database");
@@ -704,6 +752,7 @@ where
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
         tokio::task::block_in_place(|| {
             let tree = self
+                .data
                 .sled
                 .open_tree(document_tree_name(collection))
                 .map_err_to_core()?;
@@ -733,6 +782,7 @@ where
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
         tokio::task::block_in_place(|| {
             let tree = self
+                .data
                 .sled
                 .open_tree(document_tree_name(collection))
                 .map_err_to_core()?;
@@ -766,6 +816,7 @@ where
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, pliantdb_core::Error> {
         let view = self
+            .data
             .schema
             .view_by_name(view_name)
             .ok_or(pliantdb_core::Error::CollectionNotFound)?;
@@ -798,6 +849,7 @@ where
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error> {
         let view = self
+            .data
             .schema
             .view_by_name(view_name)
             .ok_or(pliantdb_core::Error::CollectionNotFound)?;

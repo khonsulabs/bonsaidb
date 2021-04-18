@@ -1,14 +1,17 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::Arc,
+};
 
 use flume::{Receiver, Sender};
 use futures::StreamExt;
 use pliantdb_core::networking::{
     fabruic::{self, Certificate, Endpoint},
-    Payload, Request, Response,
+    DatabaseResponse, Payload, Request, Response,
 };
 
 use crate::{
-    client::{OutstandingRequestMapHandle, PendingRequest},
+    client::{OutstandingRequestMapHandle, PendingRequest, SubscriberMap},
     Error,
 };
 
@@ -21,6 +24,7 @@ pub async fn reconnecting_client_loop(
     server_name: String,
     certificate: Certificate,
     request_receiver: Receiver<PendingRequest>,
+    subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Ok(request) = request_receiver.recv_async().await {
         if let Err((responder, err)) = connect_and_process(
@@ -30,6 +34,7 @@ pub async fn reconnecting_client_loop(
             &certificate,
             request,
             &request_receiver,
+            &subscribers,
         )
         .await
         {
@@ -50,6 +55,7 @@ async fn connect_and_process(
     certificate: &Certificate,
     initial_request: PendingRequest,
     request_receiver: &Receiver<PendingRequest>,
+    subscribers: &SubscriberMap,
 ) -> Result<(), (Option<Sender<Result<Response, Error>>>, Error)> {
     let (_connection, payload_sender, payload_receiver) =
         connect(host, port, server_name, certificate)
@@ -57,7 +63,11 @@ async fn connect_and_process(
             .map_err(|err| (Some(initial_request.responder.clone()), err))?;
 
     let outstanding_requests = OutstandingRequestMapHandle::default();
-    let request_processor = tokio::spawn(process(outstanding_requests.clone(), payload_receiver));
+    let request_processor = tokio::spawn(process(
+        outstanding_requests.clone(),
+        payload_receiver,
+        subscribers.clone(),
+    ));
 
     let PendingRequest { request, responder } = initial_request;
     payload_sender
@@ -65,7 +75,7 @@ async fn connect_and_process(
         .map_err(|err| (Some(responder.clone()), Error::from(err)))?;
     {
         let mut outstanding_requests = outstanding_requests.lock().await;
-        outstanding_requests.insert(request.id, responder);
+        outstanding_requests.insert(request.id.expect("all requests require ids"), responder);
     }
 
     // TODO switch to select
@@ -85,7 +95,10 @@ async fn process_requests(
 ) -> Result<(), Error> {
     while let Ok(client_request) = request_receiver.recv_async().await {
         let mut outstanding_requests = outstanding_requests.lock().await;
-        outstanding_requests.insert(client_request.request.id, client_request.responder);
+        outstanding_requests.insert(
+            client_request.request.id.expect("all requests require ids"),
+            client_request.responder,
+        );
         payload_sender.send(&client_request.request)?;
     }
 
@@ -96,15 +109,31 @@ async fn process_requests(
 pub async fn process(
     outstanding_requests: OutstandingRequestMapHandle,
     mut payload_receiver: fabruic::Receiver<Payload<Response>>,
+    subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
-        let responder = {
-            let mut outstanding_requests = outstanding_requests.lock().await;
-            outstanding_requests
-                .remove(&payload.id)
-                .expect("missing responder")
-        };
-        let _ = responder.send(Ok(payload.wrapped));
+        if let Some(payload_id) = payload.id {
+            let responder = {
+                let mut outstanding_requests = outstanding_requests.lock().await;
+                outstanding_requests
+                    .remove(&payload_id)
+                    .expect("missing responder")
+            };
+            let _ = responder.send(Ok(payload.wrapped));
+        } else if let Response::Database(DatabaseResponse::MessageReceived {
+            subscriber_id,
+            message,
+        }) = payload.wrapped
+        {
+            let mut subscribers = subscribers.lock().await;
+            if let Some(sender) = subscribers.get(&subscriber_id) {
+                if sender.send(Arc::new(message)).is_err() {
+                    subscribers.remove(&subscriber_id);
+                }
+            }
+        } else {
+            unreachable!("only MessageReceived is allowed to not have an id")
+        }
     }
 
     Err(Error::Disconnected)

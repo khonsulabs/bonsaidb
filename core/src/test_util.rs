@@ -254,7 +254,7 @@ impl Collection for UnassociatedCollection {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum ConnectionTest {
+pub enum HarnessTest {
     StoreRetrieveUpdate = 1,
     NotFound,
     Conflict,
@@ -266,16 +266,21 @@ pub enum ConnectionTest {
     UnassociatedCollection,
     ViewUpdate,
     ViewAccessPolicies,
+    PubSubSimple,
+    PubSubMultipleSubscribers,
+    PubSubDropAndSend,
+    PubSubUnsubscribe,
+    PubSubDropCleanup,
 }
 
-impl ConnectionTest {
+impl HarnessTest {
     #[must_use]
     pub const fn port(self, base: u16) -> u16 {
         base + self as u16
     }
 }
 
-impl Display for ConnectionTest {
+impl Display for HarnessTest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(&self, f)
     }
@@ -288,14 +293,14 @@ macro_rules! define_connection_test_suite {
         #[tokio::test(flavor = "multi_thread")]
         async fn store_retrieve_update_delete() -> Result<(), anyhow::Error> {
             let harness =
-                $harness::new($crate::test_util::ConnectionTest::StoreRetrieveUpdate).await?;
+                $harness::new($crate::test_util::HarnessTest::StoreRetrieveUpdate).await?;
             let db = harness.connect().await?;
             $crate::test_util::store_retrieve_update_delete_tests(&db).await
         }
 
         #[tokio::test(flavor = "multi_thread")]
         async fn not_found() -> Result<(), anyhow::Error> {
-            let harness = $harness::new($crate::test_util::ConnectionTest::NotFound).await?;
+            let harness = $harness::new($crate::test_util::HarnessTest::NotFound).await?;
             let db = harness.connect().await?;
 
             $crate::test_util::not_found_tests(&db).await
@@ -303,7 +308,7 @@ macro_rules! define_connection_test_suite {
 
         #[tokio::test(flavor = "multi_thread")]
         async fn conflict() -> Result<(), anyhow::Error> {
-            let harness = $harness::new($crate::test_util::ConnectionTest::Conflict).await?;
+            let harness = $harness::new($crate::test_util::HarnessTest::Conflict).await?;
             let db = harness.connect().await?;
 
             $crate::test_util::conflict_tests(&db).await
@@ -311,7 +316,7 @@ macro_rules! define_connection_test_suite {
 
         #[tokio::test(flavor = "multi_thread")]
         async fn bad_update() -> Result<(), anyhow::Error> {
-            let harness = $harness::new($crate::test_util::ConnectionTest::BadUpdate).await?;
+            let harness = $harness::new($crate::test_util::HarnessTest::BadUpdate).await?;
             let db = harness.connect().await?;
 
             $crate::test_util::bad_update_tests(&db).await
@@ -319,7 +324,7 @@ macro_rules! define_connection_test_suite {
 
         #[tokio::test(flavor = "multi_thread")]
         async fn no_update() -> Result<(), anyhow::Error> {
-            let harness = $harness::new($crate::test_util::ConnectionTest::NoUpdate).await?;
+            let harness = $harness::new($crate::test_util::HarnessTest::NoUpdate).await?;
             let db = harness.connect().await?;
 
             $crate::test_util::no_update_tests(&db).await
@@ -327,7 +332,7 @@ macro_rules! define_connection_test_suite {
 
         #[tokio::test(flavor = "multi_thread")]
         async fn get_multiple() -> Result<(), anyhow::Error> {
-            let harness = $harness::new($crate::test_util::ConnectionTest::GetMultiple).await?;
+            let harness = $harness::new($crate::test_util::HarnessTest::GetMultiple).await?;
             let db = harness.connect().await?;
 
             $crate::test_util::get_multiple_tests(&db).await
@@ -335,8 +340,7 @@ macro_rules! define_connection_test_suite {
 
         #[tokio::test(flavor = "multi_thread")]
         async fn list_transactions() -> Result<(), anyhow::Error> {
-            let harness =
-                $harness::new($crate::test_util::ConnectionTest::ListTransactions).await?;
+            let harness = $harness::new($crate::test_util::HarnessTest::ListTransactions).await?;
             let db = harness.connect().await?;
 
             $crate::test_util::list_transactions_tests(&db).await
@@ -344,7 +348,7 @@ macro_rules! define_connection_test_suite {
 
         #[tokio::test(flavor = "multi_thread")]
         async fn view_query() -> anyhow::Result<()> {
-            let harness = $harness::new($crate::test_util::ConnectionTest::ViewQuery).await?;
+            let harness = $harness::new($crate::test_util::HarnessTest::ViewQuery).await?;
             let db = harness.connect().await?;
 
             $crate::test_util::view_query_tests(&db).await
@@ -353,7 +357,7 @@ macro_rules! define_connection_test_suite {
         #[tokio::test(flavor = "multi_thread")]
         async fn unassociated_collection() -> Result<(), anyhow::Error> {
             let harness =
-                $harness::new($crate::test_util::ConnectionTest::UnassociatedCollection).await?;
+                $harness::new($crate::test_util::HarnessTest::UnassociatedCollection).await?;
             let db = harness.connect().await?;
 
             $crate::test_util::unassociated_collection_tests(&db).await
@@ -361,7 +365,7 @@ macro_rules! define_connection_test_suite {
 
         #[tokio::test(flavor = "multi_thread")]
         async fn view_update() -> anyhow::Result<()> {
-            let harness = $harness::new($crate::test_util::ConnectionTest::ViewUpdate).await?;
+            let harness = $harness::new($crate::test_util::HarnessTest::ViewUpdate).await?;
             let db = harness.connect().await?;
 
             $crate::test_util::view_update_tests(&db).await
@@ -369,8 +373,7 @@ macro_rules! define_connection_test_suite {
 
         #[tokio::test(flavor = "multi_thread")]
         async fn view_access_policies() -> anyhow::Result<()> {
-            let harness =
-                $harness::new($crate::test_util::ConnectionTest::ViewAccessPolicies).await?;
+            let harness = $harness::new($crate::test_util::HarnessTest::ViewAccessPolicies).await?;
             let db = harness.connect().await?;
 
             $crate::test_util::view_access_policy_tests(&db).await
@@ -790,7 +793,7 @@ pub async fn view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<(
     assert_eq!(a_children.len(), 0);
 
     // Waiting on background jobs can be unreliable in a CI environment
-    for _ in 0..10 {
+    for _ in 0..10_u8 {
         tokio::time::sleep(Duration::from_millis(20)).await;
 
         // Now, the view should contain the entry.

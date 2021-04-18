@@ -41,31 +41,41 @@ where
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
         let documents = self
             .storage
+            .data
             .sled
             .open_tree(document_tree_name(&self.map.collection))?;
 
-        let view_entries = self.storage.sled.open_tree(view_entries_tree_name(
+        let view_entries = self.storage.data.sled.open_tree(view_entries_tree_name(
             &self.map.collection,
             &self.map.view_name,
         ))?;
 
-        let document_map = self.storage.sled.open_tree(view_document_map_tree_name(
-            &self.map.collection,
-            &self.map.view_name,
-        ))?;
-
-        let invalidated_entries = self
+        let document_map = self
             .storage
+            .data
             .sled
-            .open_tree(view_invalidated_docs_tree_name(
+            .open_tree(view_document_map_tree_name(
                 &self.map.collection,
                 &self.map.view_name,
             ))?;
 
-        let omitted_entries = self.storage.sled.open_tree(view_omitted_docs_tree_name(
-            &self.map.collection,
-            &self.map.view_name,
-        ))?;
+        let invalidated_entries =
+            self.storage
+                .data
+                .sled
+                .open_tree(view_invalidated_docs_tree_name(
+                    &self.map.collection,
+                    &self.map.view_name,
+                ))?;
+
+        let omitted_entries = self
+            .storage
+            .data
+            .sled
+            .open_tree(view_omitted_docs_tree_name(
+                &self.map.collection,
+                &self.map.view_name,
+            ))?;
         let transaction_id = self
             .storage
             .last_transaction_id()
@@ -89,6 +99,7 @@ where
         .await??;
 
         self.storage
+            .data
             .tasks
             .mark_view_updated(
                 self.map.collection.clone(),
@@ -170,6 +181,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
 
         let view = self
             .storage
+            .data
             .schema
             .view_by_name(&self.map_request.view_name)
             .unwrap();

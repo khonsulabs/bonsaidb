@@ -1,0 +1,29 @@
+[package]
+name = "circulate"
+version = "0.1.0-dev.1"
+authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
+edition = "2018"
+description = "Lightweight async PubSub framework."
+repository = "https://github.com/khonsulabs/pliantdb"
+license = "MIT OR Apache-2.0"
+keywords = ["pubsub"]
+categories = ["asynchronous"]
+readme = "./README.md"
+
+[dependencies]
+tokio = { version = "1", features = ["sync", "macros", "rt"] }
+flume = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_cbor = "0.11"
+futures = "0.3"
+
+[dev-dependencies]
+anyhow = "1"
+tokio = { version = "1", features = [
+    "sync",
+    "rt",
+    "rt-multi-thread",
+    "macros",
+    "time",
+    "test-util",
+] }

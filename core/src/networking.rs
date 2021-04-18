@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
 use async_trait::async_trait;
+use circulate::Message;
 pub use fabruic;
 use schema::SchemaId;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -20,7 +21,7 @@ use crate::{
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Payload<T> {
     /// The unique id for this payload.
-    pub id: u32,
+    pub id: Option<u32>,
     /// The wrapped payload.
     pub wrapped: T,
 }
@@ -112,11 +113,36 @@ pub enum DatabaseRequest {
     },
     /// Queries the last transaction id.
     LastTransactionId,
+    /// Creates a `PubSub` [`Subscriber`](crate::pubsub::Subscriber)
+    CreateSubscriber,
+    /// Publishes a `PubSub` message.
+    Publish(Message),
+    /// Subscribes `subscriber_id` to messages for `topic`.
+    SubscribeTo {
+        /// The id of the [`Subscriber`](crate::pubsub::Subscriber).
+        subscriber_id: u64,
+        /// The topic to subscribe to.
+        topic: String,
+    },
+    /// Unsubscribes `subscriber_id` from messages for `topic`.
+    UnsubscribeFrom {
+        /// The id of the [`Subscriber`](crate::pubsub::Subscriber).
+        subscriber_id: u64,
+        /// The topic to unsubscribe from.
+        topic: String,
+    },
+    /// Unregisters the subscriber.
+    UnregisterSubscriber {
+        /// The id of the [`Subscriber`](crate::pubsub::Subscriber).
+        subscriber_id: u64,
+    },
 }
 
 /// A response from a server.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Response {
+    /// A request succeded but provided no output.
+    Ok,
     /// A response to a [`ServerRequest`].
     Server(ServerResponse),
     /// A response to a [`DatabaseRequest`].
@@ -163,6 +189,18 @@ pub enum DatabaseResponse {
     ExecutedTransactions(Vec<Executed<'static>>),
     /// Result of [`DatabaseRequest::LastTransactionId`].
     LastTransactionId(Option<u64>),
+    /// A new `PubSub` subscriber was created.
+    SubscriberCreated {
+        /// The unique ID of the subscriber.
+        subscriber_id: u64,
+    },
+    /// A PubSub message was received.
+    MessageReceived {
+        /// The ID of the subscriber receiving the message.
+        subscriber_id: u64,
+        /// The message received.
+        message: Message,
+    },
 }
 
 /// A serialized [`MappedDocument`](map::MappedDocument).

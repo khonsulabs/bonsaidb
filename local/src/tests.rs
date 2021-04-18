@@ -4,7 +4,7 @@ use pliantdb_core::{
     connection::{AccessPolicy, Connection},
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
-        BasicCollectionWithOnlyBrokenParentId, ConnectionTest, TestDirectory,
+        BasicCollectionWithOnlyBrokenParentId, HarnessTest, TestDirectory,
     },
 };
 
@@ -17,7 +17,7 @@ struct TestHarness {
 }
 
 impl TestHarness {
-    pub async fn new(test: ConnectionTest) -> anyhow::Result<Self> {
+    async fn new(test: HarnessTest) -> anyhow::Result<Self> {
         let directory = TestDirectory::new(test.to_string());
         let db = Storage::<Basic>::open_local(&directory, &Configuration::default()).await?;
         Ok(Self {
@@ -26,12 +26,14 @@ impl TestHarness {
         })
     }
 
-    pub async fn connect(&self) -> anyhow::Result<Storage<Basic>> {
+    async fn connect(&self) -> anyhow::Result<Storage<Basic>> {
         Ok(self.db.clone())
     }
 }
 
 pliantdb_core::define_connection_test_suite!(TestHarness);
+
+pliantdb_core::define_pubsub_test_suite!(TestHarness);
 
 #[tokio::test(flavor = "multi_thread")]
 async fn integrity_checks() -> anyhow::Result<()> {

@@ -3,7 +3,7 @@ use std::{sync::atomic::Ordering, time::Duration};
 use pliantdb_core::{
     networking::ServerConnection,
     schema::Schema,
-    test_util::{Basic, ConnectionTest, TestDirectory},
+    test_util::{Basic, HarnessTest, TestDirectory},
 };
 use pliantdb_server::{
     test_util::{basic_server_connection_tests, initialize_basic_server, BASIC_SERVER_NAME},
@@ -28,7 +28,7 @@ async fn server_connection_tests() -> anyhow::Result<()> {
 
     let client_task_is_running = {
         let client = Client::new(&url, Some(server.certificate().await?)).await?;
-        let client_task_is_running = client.background_task_running.clone();
+        let client_task_is_running = client.data.background_task_running.clone();
         assert!(client_task_is_running.load(Ordering::Acquire));
 
         basic_server_connection_tests(client).await?;
@@ -55,7 +55,7 @@ mod websockets {
     }
 
     impl WebsocketTestHarness {
-        pub async fn new(test: ConnectionTest) -> anyhow::Result<Self> {
+        pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
             let directory = TestDirectory::new(format!("websocket-server-{}", test));
             let server = initialize_basic_server(directory.as_ref()).await?;
             let task_server = server.clone();
@@ -90,6 +90,7 @@ mod websockets {
     }
 
     pliantdb_core::define_connection_test_suite!(WebsocketTestHarness);
+    pliantdb_core::define_pubsub_test_suite!(WebsocketTestHarness);
 }
 
 mod pliant {
@@ -101,7 +102,7 @@ mod pliant {
     }
 
     impl PliantTestHarness {
-        pub async fn new(test: ConnectionTest) -> anyhow::Result<Self> {
+        pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
             let directory = TestDirectory::new(format!("pliant-server-{}", test));
             let server = initialize_basic_server(directory.as_ref()).await?;
             let task_server = server.clone();
@@ -134,4 +135,5 @@ mod pliant {
     }
 
     pliantdb_core::define_connection_test_suite!(PliantTestHarness);
+    pliantdb_core::define_pubsub_test_suite!(PliantTestHarness);
 }

@@ -16,6 +16,7 @@
     clippy::option_if_let_else,
 )]
 
+pub use circulate;
 #[cfg(feature = "networking")]
 pub use fabruic;
 
@@ -32,6 +33,9 @@ pub mod networking;
 pub mod schema;
 /// Types for executing transactions.
 pub mod transaction;
+
+/// Types for Publish/Subscribe (`PubSub`) messaging.
+pub mod pubsub;
 
 use schema::CollectionId;
 use serde::{Deserialize, Serialize};

@@ -34,26 +34,33 @@ where
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
         let documents = self
             .storage
+            .data
             .sled
             .open_tree(document_tree_name(&self.scan.collection))?;
 
         let view_versions = self
             .storage
+            .data
             .sled
             .open_tree(view_versions_tree_name(&self.scan.collection))?;
 
-        let document_map = self.storage.sled.open_tree(view_document_map_tree_name(
-            &self.scan.collection,
-            &self.scan.view_name,
-        ))?;
-
-        let invalidated_entries = self
+        let document_map = self
             .storage
+            .data
             .sled
-            .open_tree(view_invalidated_docs_tree_name(
+            .open_tree(view_document_map_tree_name(
                 &self.scan.collection,
                 &self.scan.view_name,
             ))?;
+
+        let invalidated_entries =
+            self.storage
+                .data
+                .sled
+                .open_tree(view_invalidated_docs_tree_name(
+                    &self.scan.collection,
+                    &self.scan.view_name,
+                ))?;
 
         let view_name = self.scan.view_name.clone();
         let view_version = self.scan.view_version;
@@ -117,6 +124,7 @@ where
         if needs_update {
             let job = self
                 .storage
+                .data
                 .tasks
                 .jobs
                 .lookup_or_enqueue(Mapper {
@@ -131,6 +139,7 @@ where
         }
 
         self.storage
+            .data
             .tasks
             .mark_integrity_check_complete(
                 self.scan.collection.clone(),
