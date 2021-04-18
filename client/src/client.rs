@@ -11,7 +11,9 @@ use std::{
 
 use async_trait::async_trait;
 use flume::Sender;
+use networking::DatabaseRequest;
 use pliantdb_core::{
+    circulate::Message,
     fabruic::Certificate,
     networking::{
         self, Database, Payload, Request, Response, ServerConnection, ServerRequest, ServerResponse,
@@ -29,14 +31,17 @@ mod remote_database;
 mod websocket_worker;
 mod worker;
 
+type SubscriberMap = Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>;
+
 /// Client for connecting to a `PliantDB` server.
 #[derive(Clone, Debug)]
 pub struct Client {
-    /// todo switch to a single arc wrapping data.
+    /// TODO switch to a single arc wrapping data.
     request_sender: Sender<PendingRequest>,
     worker: Arc<CancellableHandle<Result<(), Error>>>,
     schemas: Arc<Mutex<HashMap<TypeId, Arc<Schematic>>>>,
     request_id: Arc<AtomicU32>,
+    subscribers: SubscriberMap,
     #[cfg(test)]
     pub(crate) background_task_running: Arc<AtomicBool>,
 }
@@ -97,12 +102,14 @@ impl Client {
 
         let (request_sender, request_receiver) = flume::unbounded();
 
+        let subscribers = SubscriberMap::default();
         let worker = tokio::task::spawn(worker::reconnecting_client_loop(
             host.to_string(),
             url.port().unwrap_or(5645),
             server_name,
             certificate,
             request_receiver,
+            subscribers.clone(),
         ));
 
         #[cfg(test)]
@@ -117,6 +124,7 @@ impl Client {
             }),
             schemas: Arc::default(),
             request_id: Arc::default(),
+            subscribers,
             #[cfg(test)]
             background_task_running,
         };
@@ -128,9 +136,11 @@ impl Client {
     async fn new_websocket_client(url: &Url) -> Result<Self, Error> {
         let (request_sender, request_receiver) = flume::unbounded();
 
+        let subscribers = SubscriberMap::default();
         let worker = tokio::task::spawn(websocket_worker::reconnecting_client_loop(
             url.clone(),
             request_receiver,
+            subscribers.clone(),
         ));
 
         #[cfg(test)]
@@ -145,6 +155,7 @@ impl Client {
             }),
             schemas: Arc::default(),
             request_id: Arc::default(),
+            subscribers,
             #[cfg(test)]
             background_task_running,
         };
@@ -169,13 +180,29 @@ impl Client {
         let id = self.request_id.fetch_add(1, Ordering::SeqCst);
         self.request_sender.send(PendingRequest {
             request: Payload {
-                id,
+                id: Some(id),
                 wrapped: request,
             },
             responder: result_sender.clone(),
         })?;
 
         result_receiver.recv_async().await?
+    }
+
+    pub(crate) async fn register_subscriber(&self, id: u64, sender: flume::Sender<Arc<Message>>) {
+        let mut subscribers = self.subscribers.lock().await;
+        subscribers.insert(id, sender);
+    }
+
+    pub(crate) async fn unregister_subscriber(&self, database: String, id: u64) {
+        let _ = self
+            .send_request(Request::Database {
+                database,
+                request: DatabaseRequest::UnregisterSubscriber { subscriber_id: id },
+            })
+            .await;
+        let mut subscribers = self.subscribers.lock().await;
+        subscribers.remove(&id);
     }
 }
 

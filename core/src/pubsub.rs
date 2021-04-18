@@ -71,6 +71,15 @@ impl Subscriber for circulate::Subscriber {
     }
 }
 
+/// Creates a topic for use in a server. This is an internal API, which is why
+/// the documentation is hidden. This is an implementation detail, but both
+/// Client and Server must agree on this format, which is why it lives in core.
+#[doc(hidden)]
+#[must_use]
+pub fn database_topic(database: &str, topic: &str) -> String {
+    format!("{}\u{0}{}", database, topic)
+}
+
 /// Expands into a suite of pubsub unit tests using the passed type as the test harness.
 #[cfg(any(test, feature = "test-util"))]
 #[cfg_attr(feature = "test-util", macro_export)]

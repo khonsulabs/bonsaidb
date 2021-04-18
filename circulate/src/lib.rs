@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 /// A `PubSub` message.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Message {
     /// The topic of the message.
     pub topic: String,
@@ -35,6 +35,21 @@ pub struct Message {
 }
 
 impl Message {
+    /// Creates a new message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `payload` fails to serialize with `serde_cbor`.
+    pub fn new<S: Into<String>, P: Serialize>(
+        topic: S,
+        payload: &P,
+    ) -> Result<Self, serde_cbor::Error> {
+        Ok(Self {
+            topic: topic.into(),
+            payload: serde_cbor::to_vec(payload)?,
+        })
+    }
+
     /// Deserialize the payload as `P` using CBOR.
     ///
     /// # Errors
@@ -95,15 +110,16 @@ impl Relay {
         topic: S,
         payload: &P,
     ) -> Result<(), serde_cbor::Error> {
-        let payload = serde_cbor::to_vec(payload)?;
-        let topic = topic.into();
-        if let Some(topic_id) = self.topic_id(&topic).await {
-            let message = Message { topic, payload };
+        let message = Message::new(topic, payload)?;
+        self.publish_message(message).await;
+        Ok(())
+    }
 
+    /// Publishes a message to all subscribers of its topic.
+    pub async fn publish_message(&self, message: Message) {
+        if let Some(topic_id) = self.topic_id(&message.topic).await {
             self.post_message_to_topic(message, topic_id).await;
         }
-
-        Ok(())
     }
 
     async fn add_subscriber_to_topic(&self, subscriber_id: u64, topic: String) {
@@ -255,6 +271,12 @@ impl Subscriber {
     #[must_use]
     pub fn receiver(&self) -> &'_ flume::Receiver<Arc<Message>> {
         &self.data.receiver
+    }
+
+    #[must_use]
+    /// Returns the unique ID of the subscriber.
+    pub fn id(&self) -> u64 {
+        self.data.id
     }
 }
 

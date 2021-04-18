@@ -5,7 +5,7 @@ use pliantdb_local::core::{
     self, circulate,
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
-    pubsub::{self, PubSub},
+    pubsub::{self, database_topic, PubSub},
     schema::{Collection, Map, MappedDocument, MappedValue, Schema},
 };
 
@@ -210,8 +210,4 @@ impl pubsub::Subscriber for Subscriber {
     fn receiver(&self) -> &'_ flume::Receiver<std::sync::Arc<circulate::Message>> {
         self.subscriber.receiver()
     }
-}
-
-fn database_topic(database: &str, topic: &str) -> String {
-    format!("{}\u{0}{}", database, topic)
 }

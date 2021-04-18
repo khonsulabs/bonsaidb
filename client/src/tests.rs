@@ -90,6 +90,7 @@ mod websockets {
     }
 
     pliantdb_core::define_connection_test_suite!(WebsocketTestHarness);
+    pliantdb_core::define_pubsub_test_suite!(WebsocketTestHarness);
 }
 
 mod pliant {
@@ -134,4 +135,5 @@ mod pliant {
     }
 
     pliantdb_core::define_connection_test_suite!(PliantTestHarness);
+    pliantdb_core::define_pubsub_test_suite!(PliantTestHarness);
 }

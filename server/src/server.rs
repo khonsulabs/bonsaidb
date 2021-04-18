@@ -18,7 +18,7 @@ use futures::{Future, StreamExt, TryFutureExt};
 use itertools::Itertools;
 use pliantdb_core::{
     self as core,
-    circulate::Relay,
+    circulate::{Message, Relay, Subscriber},
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
     networking::{
@@ -381,13 +381,29 @@ impl Server {
 
         let (mut sender, mut receiver) = stream.split();
         let (response_sender, response_receiver) = flume::unbounded();
+        let (message_sender, message_receiver) = flume::unbounded();
         tokio::spawn(async move {
-            while let Ok(response) = response_receiver.recv_async().await {
+            while let Ok(response) = message_receiver.recv_async().await {
                 sender.send(response).await?;
             }
 
-            Result::<(), tokio_tungstenite::tungstenite::Error>::Ok(())
+            Result::<(), anyhow::Error>::Ok(())
         });
+        let task_sender = message_sender.clone();
+        tokio::spawn(async move {
+            while let Ok(response) = response_receiver.recv_async().await {
+                if task_sender
+                    .send(Message::Binary(bincode::serialize(&response)?))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+
+            Result::<(), anyhow::Error>::Ok(())
+        });
+
+        let subscribers: Arc<RwLock<HashMap<u64, Subscriber>>> = Arc::default();
 
         while let Some(payload) = receiver.next().await {
             match payload? {
@@ -398,20 +414,21 @@ impl Server {
                     self.handle_request_through_worker(
                         payload.wrapped,
                         move |response| async move {
-                            let _ =
-                                task_sender.send(Message::Binary(bincode::serialize(&Payload {
-                                    id,
-                                    wrapped: response,
-                                })?));
+                            let _ = task_sender.send(Payload {
+                                id,
+                                wrapped: response,
+                            });
 
                             Ok(())
                         },
+                        subscribers.clone(),
+                        response_sender.clone(),
                     )
                     .await?;
                 }
                 Message::Close(_) => break,
                 Message::Ping(payload) => {
-                    let _ = response_sender.send(Message::Pong(payload));
+                    let _ = message_sender.send(Message::Pong(payload));
                 }
                 other => {
                     eprintln!("[server] unexpected message: {:?}", other);
@@ -429,11 +446,18 @@ impl Server {
         &self,
         request: Request,
         callback: F,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        response_sender: flume::Sender<Payload<Response>>,
     ) -> Result<(), Error> {
         let job = self
             .data
             .request_processor
-            .enqueue(ClientRequest::new(request, self.clone()))
+            .enqueue(ClientRequest::new(
+                request,
+                self.clone(),
+                subscribers,
+                response_sender,
+            ))
             .await;
         tokio::spawn(async move {
             let result = job
@@ -452,24 +476,45 @@ impl Server {
         sender: fabruic::Sender<Payload<Response>>,
         mut receiver: fabruic::Receiver<Payload<Request>>,
     ) -> Result<(), Error> {
+        let subscribers: Arc<RwLock<HashMap<u64, Subscriber>>> = Arc::default();
+        let (payload_sender, payload_receiver) = flume::unbounded();
+        tokio::spawn(async move {
+            while let Ok(payload) = payload_receiver.recv_async().await {
+                if sender.send(&payload).is_err() {
+                    break;
+                }
+            }
+        });
+
         while let Some(payload) = receiver.next().await {
             let Payload { id, wrapped } = payload;
-            let task_sender = sender.clone();
-            self.handle_request_through_worker(wrapped, move |response| async move {
-                task_sender.send(&Payload {
-                    id,
-                    wrapped: response,
-                })?;
+            let task_sender = payload_sender.clone();
+            self.handle_request_through_worker(
+                wrapped,
+                move |response| async move {
+                    let _ = task_sender.send(Payload {
+                        id,
+                        wrapped: response,
+                    });
 
-                Ok(())
-            })
+                    Ok(())
+                },
+                subscribers.clone(),
+                payload_sender.clone(),
+            )
             .await?;
         }
 
         Ok(())
     }
 
-    pub(crate) async fn handle_request(&self, request: Request) -> Result<Response, Error> {
+    #[allow(clippy::too_many_lines)] // TODO split
+    pub(crate) async fn handle_request(
+        &self,
+        request: Request,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        response_sender: &flume::Sender<Payload<Response>>,
+    ) -> Result<Response, Error> {
         match request {
             Request::Server(request) => match request {
                 ServerRequest::CreateDatabase(database) => {
@@ -558,7 +603,96 @@ impl Server {
                     DatabaseRequest::LastTransactionId => Ok(Response::Database(
                         DatabaseResponse::LastTransactionId(db.last_transaction_id().await?),
                     )),
+
+                    DatabaseRequest::CreateSubscriber => {
+                        let subscriber = self.data.relay.create_subscriber().await;
+
+                        let mut subscribers = subscribers.write().await;
+                        let subscriber_id = subscriber.id();
+                        let receiver = subscriber.receiver().clone();
+                        subscribers.insert(subscriber_id, subscriber);
+
+                        let task_self = self.clone();
+                        let response_sender = response_sender.clone();
+                        tokio::spawn(async move {
+                            task_self
+                                .forward_notifications_for(
+                                    subscriber_id,
+                                    receiver,
+                                    response_sender.clone(),
+                                )
+                                .await
+                        });
+
+                        Ok(Response::Database(DatabaseResponse::SubscriberCreated {
+                            subscriber_id,
+                        }))
+                    }
+                    DatabaseRequest::Publish(message) => {
+                        self.data.relay.publish_message(message).await;
+                        Ok(Response::Ok)
+                    }
+                    DatabaseRequest::SubscribeTo {
+                        subscriber_id,
+                        topic,
+                    } => {
+                        let subscribers = subscribers.read().await;
+                        if let Some(subscriber) = subscribers.get(&subscriber_id) {
+                            subscriber.subscribe_to(topic).await;
+                            Ok(Response::Ok)
+                        } else {
+                            Ok(Response::Error(core::Error::Server(String::from(
+                                "invalid subscriber id",
+                            ))))
+                        }
+                    }
+                    DatabaseRequest::UnsubscribeFrom {
+                        subscriber_id,
+                        topic,
+                    } => {
+                        let subscribers = subscribers.read().await;
+                        if let Some(subscriber) = subscribers.get(&subscriber_id) {
+                            subscriber.unsubscribe_from(&topic).await;
+                            Ok(Response::Ok)
+                        } else {
+                            Ok(Response::Error(core::Error::Server(String::from(
+                                "invalid subscriber id",
+                            ))))
+                        }
+                    }
+                    DatabaseRequest::UnregisterSubscriber { subscriber_id } => {
+                        let mut subscribers = subscribers.write().await;
+                        if subscribers.remove(&subscriber_id).is_none() {
+                            Ok(Response::Error(core::Error::Server(String::from(
+                                "invalid subscriber id",
+                            ))))
+                        } else {
+                            Ok(Response::Ok)
+                        }
+                    }
                 }
+            }
+        }
+    }
+
+    async fn forward_notifications_for(
+        &self,
+        subscriber_id: u64,
+        receiver: flume::Receiver<Arc<Message>>,
+        sender: flume::Sender<Payload<Response>>,
+    ) {
+        while let Ok(message) = receiver.recv_async().await {
+            if sender
+                .send(Payload {
+                    id: None,
+                    wrapped: Response::Database(DatabaseResponse::MessageReceived {
+                        subscriber_id,
+                        message: message.as_ref().clone(),
+                    }),
+                })
+                .is_err()
+            {
+                break;
             }
         }
     }
@@ -955,12 +1089,21 @@ where
 struct ClientRequest {
     request: Option<Request>,
     server: Server,
+    subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+    sender: flume::Sender<Payload<Response>>,
 }
 impl ClientRequest {
-    pub const fn new(request: Request, server: Server) -> Self {
+    pub const fn new(
+        request: Request,
+        server: Server,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        sender: flume::Sender<Payload<Response>>,
+    ) -> Self {
         Self {
             request: Some(request),
             server,
+            subscribers,
+            sender,
         }
     }
 }
@@ -973,7 +1116,7 @@ impl Job for ClientRequest {
         let request = self.request.take().unwrap();
         Ok(self
             .server
-            .handle_request(request)
+            .handle_request(request, self.subscribers.clone(), &self.sender)
             .await
             .unwrap_or_else(|err| Response::Error(err.into())))
     }
