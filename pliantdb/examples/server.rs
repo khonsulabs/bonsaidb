@@ -2,9 +2,11 @@
 
 use std::{path::Path, time::Duration};
 
-use pliantdb_client::{url::Url, Client};
-use pliantdb_core::{connection::Connection, networking::ServerConnection, schema::Schema, Error};
-use pliantdb_server::{Configuration, Server};
+use pliantdb::{
+    client::{url::Url, Client},
+    core::{connection::Connection, networking::ServerConnection, schema::Schema, Error},
+    server::{Configuration, Server},
+};
 use rand::{thread_rng, Rng};
 
 mod support;
@@ -21,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
     let certificate = server.certificate().await?;
     server.register_schema::<Shape>().await?;
     match server
-        .create_database("my-database", Shape::schema_id())
+        .create_database("my-database", Shape::schema_name()?)
         .await
     {
         Ok(()) => {}
@@ -58,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
             Client::new(&Url::parse("ws://localhost:8080")?, None)
                 .await?
                 .database::<Shape>("my-database")
-                .await,
+                .await?,
             "websockets",
         ));
     }
@@ -72,7 +74,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?
         .database::<Shape>("my-database")
-        .await,
+        .await?,
         "pliantdb",
     ));
 

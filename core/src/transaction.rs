@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{document::Header, schema::CollectionId};
+use crate::{document::Header, schema::CollectionName};
 
 /// A list of operations to execute as a single unit. If any operation fails,
 /// all changes are aborted. Reads that happen while the transaction is in
@@ -24,7 +24,7 @@ impl<'a> Transaction<'a> {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Operation<'a> {
     /// The id of the `Collection`.
-    pub collection: CollectionId,
+    pub collection: CollectionName,
 
     /// The command being performed.
     pub command: Command<'a>,
@@ -68,7 +68,7 @@ pub enum OperationResult {
     /// A `Document` was updated.
     DocumentUpdated {
         /// The id of the `Collection` of the updated `Document`.
-        collection: CollectionId,
+        collection: CollectionName,
 
         /// The header of the updated `Document`.
         header: Header,
@@ -77,7 +77,7 @@ pub enum OperationResult {
     /// A `Document` was deleted.
     DocumentDeleted {
         /// The id of the `Collection` of the deleted `Document`.
-        collection: CollectionId,
+        collection: CollectionName,
 
         /// The id of the deleted `Document`.
         id: u64,
@@ -109,7 +109,7 @@ impl<'a> Executed<'a> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChangedDocument {
     /// The id of the `Collection` of the changed `Document`.
-    pub collection: CollectionId,
+    pub collection: CollectionName,
 
     /// The id of the changed `Document`.
     pub id: u64,

@@ -1,55 +1,16 @@
-use std::{
-    borrow::Cow,
-    fmt::{Debug, Display},
+use std::fmt::Debug;
+
+use super::names::InvalidNameError;
+use crate::{
+    schema::{CollectionName, Schematic},
+    Error,
 };
-
-use serde::{Deserialize, Serialize};
-
-use crate::schema::Schematic;
-
-/// A unique collection id. Choose collection names that aren't likely to
-/// conflict with others, so that if someone mixes collections from multiple
-/// authors in a single database.
-#[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
-#[serde(transparent)]
-#[allow(clippy::module_name_repetitions)]
-pub struct CollectionId(pub(crate) Cow<'static, str>);
-
-impl From<&'static str> for CollectionId {
-    fn from(str: &'static str) -> Self {
-        Self(Cow::from(str))
-    }
-}
-
-impl From<String> for CollectionId {
-    fn from(str: String) -> Self {
-        Self(Cow::from(str))
-    }
-}
-
-impl Display for CollectionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, f)
-    }
-}
-
-impl AsRef<str> for CollectionId {
-    fn as_ref(&self) -> &str {
-        self.0.as_ref()
-    }
-}
 
 /// A namespaced collection of `Document<Self>` items and views.
 pub trait Collection: Debug + Send + Sync {
     /// The `Id` of this collection.
-    fn collection_id() -> CollectionId;
+    fn collection_name() -> Result<CollectionName, InvalidNameError>;
 
     /// Defines all `View`s in this collection in `schema`.
-    fn define_views(schema: &mut Schematic);
-}
-
-#[test]
-fn test_id_conversions() {
-    assert_eq!(CollectionId::from("a").to_string(), "a");
-    assert_eq!(CollectionId::from(String::from("a")).to_string(), "a");
+    fn define_views(schema: &mut Schematic) -> Result<(), Error>;
 }

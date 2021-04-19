@@ -1,21 +1,19 @@
-use std::borrow::Cow;
-
-use pliantdb_core::schema::CollectionId;
-use pliantdb_local::core::{
+use pliantdb_core::{
     document::Document,
-    schema::{self, Collection, Schematic, View},
+    schema::{self, Collection, CollectionName, InvalidNameError, Name, Schematic, View},
+    Error,
 };
 
 #[derive(Debug)]
 pub struct Database;
 
 impl Collection for Database {
-    fn collection_id() -> CollectionId {
-        CollectionId::from("pliantdb.databases")
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        CollectionName::new("pliantdb", "databases")
     }
 
-    fn define_views(schema: &mut Schematic) {
-        schema.define_view(ByName);
+    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
+        schema.define_view(ByName)
     }
 }
 
@@ -25,14 +23,14 @@ pub struct ByName;
 impl View for ByName {
     type Collection = Database;
     type Key = String;
-    type Value = schema::SchemaId;
+    type Value = schema::SchemaName;
 
     fn version(&self) -> u64 {
         1
     }
 
-    fn name(&self) -> Cow<'static, str> {
-        Cow::from("by-name")
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-name")
     }
 
     fn map(&self, document: &Document<'_>) -> schema::MapResult<Self::Key, Self::Value> {

@@ -8,7 +8,10 @@ use pliantdb_core::{
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     pubsub::PubSub,
-    schema::{self, view, CollectionId, Key, Map, MappedDocument, MappedValue, Schema, Schematic},
+    schema::{
+        self, view, CollectionName, Key, Map, MappedDocument, MappedValue, Schema, Schematic,
+        ViewName,
+    },
     transaction::{self, ChangedDocument, Command, Operation, OperationResult, Transaction},
 };
 use pliantdb_jobs::manager::Manager;
@@ -68,13 +71,14 @@ where
             manager.spawn_worker();
         }
         let tasks = TaskManager::new(manager);
+        let schema = Arc::new(DB::schematic()?);
 
         let storage = tokio::task::spawn_blocking(move || {
             sled::open(owned_path)
                 .map(|sled| Self {
                     data: Arc::new(Data {
                         sled,
-                        schema: Arc::new(DB::schematic()),
+                        schema,
                         tasks,
                         relay: Relay::default(),
                         _schema: PhantomData::default(),
@@ -168,13 +172,13 @@ where
                     if let Some(views) = schema.views_in_collection(&collection) {
                         let changed_documents = changed_documents.collect::<Vec<_>>();
                         for view in views {
-                            let view_name = view.name();
+                            let view_name = view
+                                .view_name()
+                                .map_err_to_core()
+                                .map_err(ConflictableTransactionError::Abort)?;
                             for changed_document in &changed_documents {
                                 let invalidated_docs = &trees[open_trees.trees_index_by_name
-                                    [&view_invalidated_docs_tree_name(
-                                        &collection,
-                                        view_name.as_ref(),
-                                    )]];
+                                    [&view_invalidated_docs_tree_name(&collection, &view_name)]];
                                 invalidated_docs.insert(
                                     changed_document.id.as_big_endian_bytes().unwrap().as_ref(),
                                     IVec::default(),
@@ -215,14 +219,15 @@ where
         &self,
         id: u64,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
-        self.get_from_collection_id(id, &C::collection_id()).await
+        self.get_from_collection_id(id, &C::collection_name()?)
+            .await
     }
 
     async fn get_multiple<C: schema::Collection>(
         &self,
         ids: &[u64],
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
-        self.get_multiple_from_collection_id(ids, &C::collection_id())
+        self.get_multiple_from_collection_id(ids, &C::collection_name()?)
             .await
     }
 
@@ -347,7 +352,7 @@ where
 
         let result = self
             .reduce_in_view(
-                &view.name(),
+                &view.view_name()?,
                 key.map(|key| key.serialized()).transpose()?,
                 access_policy,
             )
@@ -375,7 +380,7 @@ where
 
         let results = self
             .grouped_reduce_in_view(
-                &view.name(),
+                &view.view_name()?,
                 key.map(|key| key.serialized()).transpose()?,
                 access_policy,
             )
@@ -591,7 +596,7 @@ fn save_doc(
 
 const TRANSACTION_TREE_NAME: &str = "transactions";
 
-pub fn document_tree_name(collection: &CollectionId) -> String {
+pub fn document_tree_name(collection: &CollectionName) -> String {
     format!("collection::{}", collection)
 }
 
@@ -627,20 +632,20 @@ pub trait Internal {
     async fn get_from_collection_id(
         &self,
         id: u64,
-        collection: &CollectionId,
+        collection: &CollectionName,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error>;
 
     /// Retrieves document `id` from the specified `collection`.
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
-        collection: &CollectionId,
+        collection: &CollectionName,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error>;
 
     /// Reduce view `view_name`.
     async fn reduce_in_view(
         &self,
-        view_name: &str,
+        view_name: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, pliantdb_core::Error>;
@@ -648,7 +653,7 @@ pub trait Internal {
     /// Reduce view `view_name`, grouping by unique keys.
     async fn grouped_reduce_in_view(
         &self,
-        view_name: &str,
+        view_name: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error>;
@@ -680,8 +685,8 @@ where
             .data
             .sled
             .open_tree(view_entries_tree_name(
-                &view.collection(),
-                view.name().as_ref(),
+                &view.collection()?,
+                &view.view_name()?,
             ))
             .map_err(Error::Sled)
             .map_err_to_core()?;
@@ -703,7 +708,7 @@ where
 
         if matches!(access_policy, AccessPolicy::UpdateAfter) {
             let storage = self.clone();
-            let view_name = view.name();
+            let view_name = view.view_name()?;
             tokio::task::spawn(async move {
                 let view = storage
                     .data
@@ -748,7 +753,7 @@ where
     async fn get_from_collection_id(
         &self,
         id: u64,
-        collection: &CollectionId,
+        collection: &CollectionName,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
         tokio::task::block_in_place(|| {
             let tree = self
@@ -778,7 +783,7 @@ where
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
-        collection: &CollectionId,
+        collection: &CollectionName,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
         tokio::task::block_in_place(|| {
             let tree = self
@@ -811,7 +816,7 @@ where
     #[allow(clippy::missing_panics_doc)] // the only unwrap is impossible to fail
     async fn reduce_in_view(
         &self,
-        view_name: &str,
+        view_name: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, pliantdb_core::Error> {
@@ -844,7 +849,7 @@ where
     #[allow(clippy::missing_panics_doc)] // the only unwrap is impossible to fail
     async fn grouped_reduce_in_view(
         &self,
-        view_name: &str,
+        view_name: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error> {

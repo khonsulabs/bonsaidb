@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use pliantdb_core::networking::{self, fabruic};
 use pliantdb_local::core::{self, schema};
-use schema::SchemaId;
+use schema::{InvalidNameError, SchemaName};
 
 /// An error occurred while interacting with a [`Server`](crate::Server).
 #[derive(Debug, thiserror::Error)]
@@ -48,15 +48,15 @@ pub enum Error {
         database_name: String,
 
         /// The schema provided for the database.
-        schema: SchemaId,
+        schema: SchemaName,
 
         /// The schema stored for the database.
-        stored_schema: SchemaId,
+        stored_schema: SchemaName,
     },
 
-    /// The [`SchemaId`] returned has already been registered with this server.
+    /// The [`SchemaName`] returned has already been registered with this server.
     #[error("schema '{0}' was already registered")]
-    SchemaAlreadyRegistered(SchemaId),
+    SchemaAlreadyRegistered(SchemaName),
 
     /// An error occurred from within the schema.
     #[error("error from core {0}")]
@@ -101,6 +101,12 @@ impl From<Error> for core::Error {
                 Self::Networking(networking::Error::SchemaAlreadyRegistered(id))
             }
         }
+    }
+}
+
+impl From<InvalidNameError> for Error {
+    fn from(err: InvalidNameError) -> Self {
+        Self::Core(core::Error::InvalidName(err))
     }
 }
 

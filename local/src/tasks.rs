@@ -1,12 +1,11 @@
 use std::{
-    borrow::Cow,
     collections::{HashMap, HashSet},
     sync::Arc,
 };
 
 use pliantdb_core::{
     connection::Connection,
-    schema::{view, CollectionId, Schema},
+    schema::{view, CollectionName, Schema, ViewName},
 };
 use pliantdb_jobs::{manager::Manager, task::Handle};
 use tokio::sync::RwLock;
@@ -28,8 +27,8 @@ pub struct TaskManager {
 
 #[derive(Default, Debug)]
 pub struct Statuses {
-    completed_integrity_checks: HashSet<(CollectionId, Cow<'static, str>)>,
-    view_update_last_status: HashMap<(CollectionId, Cow<'static, str>), u64>,
+    completed_integrity_checks: HashSet<(CollectionName, ViewName)>,
+    view_update_last_status: HashMap<(CollectionName, ViewName), u64>,
 }
 
 impl TaskManager {
@@ -45,7 +44,7 @@ impl TaskManager {
         view: &dyn view::Serialized,
         storage: &Storage<DB>,
     ) -> Result<(), crate::Error> {
-        let view_name = view.name();
+        let view_name = view.view_name();
         if let Some(job) = self.spawn_integrity_check(view, storage).await? {
             job.receive().await?.map_err(crate::Error::Other)?;
         }
@@ -59,7 +58,7 @@ impl TaskManager {
                 let statuses = self.statuses.read().await;
                 if let Some(last_transaction_indexed) = statuses
                     .view_update_last_status
-                    .get(&(view.collection(), view.name()))
+                    .get(&(view.collection()?, view.view_name()?))
                 {
                     last_transaction_indexed < &current_transaction_id
                 } else {
@@ -75,8 +74,8 @@ impl TaskManager {
                         .lookup_or_enqueue(Mapper {
                             storage: storage.clone(),
                             map: Map {
-                                collection: view.collection(),
-                                view_name: view_name.clone(),
+                                collection: view.collection()?,
+                                view_name: view_name.clone()?,
                             },
                         })
                         .await;
@@ -101,8 +100,8 @@ impl TaskManager {
 
     pub async fn view_integrity_checked(
         &self,
-        collection: CollectionId,
-        view_name: Cow<'static, str>,
+        collection: CollectionName,
+        view_name: ViewName,
     ) -> bool {
         let statuses = self.statuses.read().await;
         statuses
@@ -115,9 +114,9 @@ impl TaskManager {
         view: &dyn view::Serialized,
         storage: &Storage<DB>,
     ) -> Result<Option<Handle<(), Task>>, crate::Error> {
-        let view_name = view.name();
+        let view_name = view.view_name()?;
         if !self
-            .view_integrity_checked(view.collection(), view_name.clone())
+            .view_integrity_checked(view.collection()?, view_name.clone())
             .await
         {
             let job = self
@@ -126,8 +125,8 @@ impl TaskManager {
                     storage: storage.clone(),
                     scan: IntegrityScan {
                         view_version: view.version(),
-                        collection: view.collection(),
-                        view_name: view_name.clone(),
+                        collection: view.collection()?,
+                        view_name,
                     },
                 })
                 .await;
@@ -139,8 +138,8 @@ impl TaskManager {
 
     pub async fn mark_integrity_check_complete(
         &self,
-        collection: CollectionId,
-        view_name: Cow<'static, str>,
+        collection: CollectionName,
+        view_name: ViewName,
     ) {
         let mut statuses = self.statuses.write().await;
         statuses
@@ -150,8 +149,8 @@ impl TaskManager {
 
     pub async fn mark_view_updated(
         &self,
-        collection: CollectionId,
-        view_name: Cow<'static, str>,
+        collection: CollectionName,
+        view_name: ViewName,
         transaction_id: u64,
     ) {
         let mut statuses = self.statuses.write().await;

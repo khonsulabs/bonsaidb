@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use pliantdb_core::schema::view;
+use pliantdb_core::schema::{view, InvalidNameError};
 
 /// Errors that can occur from interacting with storage.
 #[derive(thiserror::Error, Debug)]
@@ -37,6 +37,12 @@ pub enum Error {
 impl From<Error> for pliantdb_core::Error {
     fn from(err: Error) -> Self {
         Self::Storage(err.to_string())
+    }
+}
+
+impl From<InvalidNameError> for Error {
+    fn from(err: InvalidNameError) -> Self {
+        Self::Core(pliantdb_core::Error::from(err))
     }
 }
 

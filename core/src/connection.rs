@@ -25,7 +25,7 @@ pub trait Connection: Send + Sync {
     async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error> {
         let mut tx = Transaction::default();
         tx.push(Operation {
-            collection: C::collection_id(),
+            collection: C::collection_name()?,
             command: Command::Insert {
                 contents: Cow::from(contents),
             },

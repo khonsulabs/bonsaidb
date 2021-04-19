@@ -1,10 +1,12 @@
-use std::borrow::Cow;
-
 use pliantdb::{
     core::{
         connection::Connection,
         document::Document,
-        schema::{view, Collection, CollectionId, MapResult, MappedValue, Schematic, View},
+        schema::{
+            view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
+            Schematic, View,
+        },
+        Error,
     },
     local::{Configuration, Storage},
 };
@@ -22,12 +24,12 @@ impl Shape {
 }
 
 impl Collection for Shape {
-    fn collection_id() -> CollectionId {
-        CollectionId::from("shapes")
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        CollectionName::new("khonsulabs", "shapes")
     }
 
-    fn define_views(schema: &mut Schematic) {
-        schema.define_view(ShapesByNumberOfSides);
+    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
+        schema.define_view(ShapesByNumberOfSides)
     }
 }
 
@@ -45,8 +47,8 @@ impl View for ShapesByNumberOfSides {
         1
     }
 
-    fn name(&self) -> Cow<'static, str> {
-        Cow::from("by-number-of-sides")
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-number-of-sides")
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
