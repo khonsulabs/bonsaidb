@@ -19,6 +19,7 @@
 pub use circulate;
 #[cfg(feature = "networking")]
 pub use fabruic;
+pub use num_traits;
 
 /// Types for interacting with a database.
 pub mod connection;

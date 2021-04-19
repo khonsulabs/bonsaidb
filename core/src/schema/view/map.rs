@@ -1,5 +1,6 @@
 use std::{borrow::Cow, convert::TryInto};
 
+use num_traits::{FromPrimitive, ToPrimitive};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{document::Document, schema::view};
@@ -90,7 +91,7 @@ pub struct MappedValue<K: Key, V> {
 
 /// A trait that enables a type to convert itself to a big-endian/network byte order.
 pub trait Key: Clone + Send + Sync {
-    /// Convert `self` into an `IVec` containing bytes ordered in big-endian/network byte order.
+    /// Convert `self` into a `Cow<[u8]>` containing bytes ordered in big-endian/network byte order.
     fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'_, [u8]>>;
 
     /// Convert a slice of bytes into `Self` by interpretting `bytes` in big-endian/network byte order.
@@ -177,6 +178,35 @@ where
     }
 }
 
+/// Adds `Key` support to an enum. Requires implementing
+/// [`ToPrimitive`](num_traits::ToPrimitive) and
+/// [`FromPrimitive`](num_traits::FromPrimitive), or using a crate like
+/// [num-derive](https://crates.io/crates/num-derive) to do it automatically.
+/// Take care when using enums as keys: if the order changes or if the meaning
+/// of existing numerical values changes, make sure to update any related views'
+/// version number to ensure the values are re-evaluated.
+pub trait EnumKey: ToPrimitive + FromPrimitive + Clone + Send + Sync {}
+
+// ANCHOR: impl_key_for_enumkey
+impl<T> Key for T
+where
+    T: EnumKey,
+{
+    fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'_, [u8]>> {
+        self.to_u64()
+            .ok_or_else(|| anyhow::anyhow!("Primitive::to_u64() returned None"))?
+            .as_big_endian_bytes()
+            .map(|bytes| Cow::Owned(bytes.to_vec()))
+    }
+
+    fn from_big_endian_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+        let primitive = u64::from_big_endian_bytes(bytes)?;
+        Self::from_u64(primitive)
+            .ok_or_else(|| anyhow::anyhow!("Primitive::from_u64() returned None"))
+    }
+}
+// ANCHOR_END: impl_key_for_enumkey
+
 macro_rules! impl_key_for_primitive {
     ($type:ident) => {
         impl Key for $type {
@@ -262,5 +292,26 @@ fn vec_key_encoding_tests() -> anyhow::Result<()> {
         vec.clone(),
         Cow::from_big_endian_bytes(&vec.as_big_endian_bytes()?)?
     );
+    Ok(())
+}
+
+#[test]
+fn enum_derive_tests() -> anyhow::Result<()> {
+    #[derive(Clone, num_derive::ToPrimitive, num_derive::FromPrimitive)]
+    enum SomeEnum {
+        One = 1,
+        NineNineNine = 999,
+    }
+
+    impl EnumKey for SomeEnum {}
+
+    let encoded = SomeEnum::One.as_big_endian_bytes()?;
+    let value = SomeEnum::from_big_endian_bytes(&encoded)?;
+    assert!(matches!(value, SomeEnum::One));
+
+    let encoded = SomeEnum::NineNineNine.as_big_endian_bytes()?;
+    let value = SomeEnum::from_big_endian_bytes(&encoded)?;
+    assert!(matches!(value, SomeEnum::NineNineNine));
+
     Ok(())
 }

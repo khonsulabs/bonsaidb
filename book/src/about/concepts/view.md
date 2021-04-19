@@ -30,7 +30,7 @@ The above queries the [Database](./database.md) for all documents in the `BlogPo
 
 The second function to learn about is the `reduce()` function. It is responsible for turning an array of Key/Value pairs into a single Value. In some cases, PliantDB might need to call `reduce()` with values that have already been reduced one time. If this is the case, `rereduce` is set to true.
 
-In this example, we're using the built-in `Iterator::sum()`(https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.sum) function to turn our Value of `1_u32` into a single `u32` representing the total number of documents.
+In this example, we're using the built-in [`Iterator::sum()`](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.sum) function to turn our Value of `1_u32` into a single `u32` representing the total number of documents.
 
 ```rust,noplayground,no_run
 {{#include ../../view-example-string.rs:reduce_one_key}}
@@ -80,3 +80,37 @@ When a View is accessed, the queries include an [`AccessPolicy`](https://pliantd
 If you're wanting to get results quickly and are willing to accept data that might not be updated, the access policies [`UpdateAfter`](https://pliantdb.dev/main/pliantdb/core/connection/enum.AccessPolicy.html#variant.UpdateAfter) and [`NoUpdate`](https://pliantdb.dev/main/pliantdb/core/connection/enum.AccessPolicy.html#variant.NoUpdate) can be used depending on your needs.
 
 If multiple simulataneous queries are being evaluted for the same View and the View is outdated, PliantDB ensures that only a single view indexer will execute while both queries wait for it to complete.
+
+## Using arbitrary types as a View Key
+
+In our previous example, we used `String` for the Key type. The reason is important: Keys must be sortable by [our underlying storage engine](http://sled.rs/), which means special care must be taken. Most serialization types do not guarantee binary sort order. Instead, PliantDB exposes the [`Key`][key] trait. On that documentation page, you can see that PliantDB implements `Key` for many built-in types.
+
+### Using an enum as a View Key
+
+The easiest way to expose an enum is to derive [`num_traits::FromPrimitive`](https://docs.rs/num-traits/0.2.14/num_traits/cast/trait.FromPrimitive.html) and [`num_traits::ToPrimitive`](https://docs.rs/num-traits/0.2.14/num_traits/cast/trait.ToPrimitive.html) using [num-derive](https://lib.rs/num-derive), and add an `impl EnumKey` line:
+
+```rust,noplayground,no_run
+{{#include ../../view-example-enum.rs:enum}}
+```
+
+The View code remains unchanged, although the associated Key type can now be set to `Option<Category>`. The queries can now use the enum instead of a `String`:
+
+```rust,noplayground,no_run
+{{#include ../../view-example-enum.rs:reduce_one_key}}
+```
+
+PliantDB will convert the enum to a u64 and use that value as the Key. A u64 was chosen to ensure fairly wide compatibility even with some extreme usages of bitmasks. If you wish to customize this behavior, you can implement `Key` directly.
+
+### Implementing the `Key` trait
+
+The [`Key`][key] trait declares two functions: [`as_big_endian_bytes()`](https://pliantdb.dev/main/pliantdb/core/schema/trait.Key.html#tymethod.as_big_endian_bytes) and [`from_big_endian_bytes`](https://pliantdb.dev/main/pliantdb/core/schema/trait.Key.html#tymethod.from_big_endian_bytes). The intention is to convert the type to bytes using a network byte order for numerical types, and for non-numerical types, the bytes need to be stored in binary-sortable order.
+
+Here is how PliantDB implements Key for `EnumKey`:
+
+```rust,noplayground,no_run
+{{#include ../../../../core/src/schema/view/map.rs:impl_key_for_enumkey}}
+```
+
+By implementing `Key` you can take full control of converting your view keys.
+
+[key]: https://pliantdb.dev/main/pliantdb/core/schema/trait.Key.html
