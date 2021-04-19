@@ -3,22 +3,23 @@
 ![PliantDB is considered experimental and unsupported](https://img.shields.io/badge/status-experimental-blueviolet)
 [![crate version](https://img.shields.io/crates/v/pliantdb.svg)](https://crates.io/crates/pliantdb)
 [![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/pliantdb/Tests/main)](https://github.com/khonsulabs/pliantdb/actions?query=workflow:Tests)
-[![HTML Coverage Report for `main` branch](https://khonsulabs.github.io/pliantdb/coverage/badge.svg)](https://khonsulabs.github.io/pliantdb/coverage/)
-[![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://khonsulabs.github.io/pliantdb/main/pliantdb/)
+[![HTML Coverage Report for `main` branch](https://khonsulabs.github.io/pliantdb/coverage/badge.svg)](https://pliantdb.dev/coverage/)
+[![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://pliantdb.dev/main/pliantdb/)
+[![User's Guide](https://img.shields.io/badge/guide-mdbook-informational)](https://pliantdb.dev/guide/)
 
-PliantDB aims to be a [Rust](https://rust-lang.org)-written, ACID-compliant, document-database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies.
+PliantDB aims to be a [Rust](https://rust-lang.org)-written, ACID-compliant, document-database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies. PliantDB gains a mature and efficient storage foundation by leveraging [sled](https://github.com/spacejam/sled).
 
 ## Project Goals
 
 The high-level goals for this project are:
 
-- ☑️ Be able to build a document-based database's schema using Rust types.
+- ☑️ Be able to build a document-based database's schema [using Rust types](https://pliantdb.dev/main/pliantdb/core/schema/).
 - ☑️ Run within your Rust binary, simplifying basic deployments.
-- ☑️ Run as a local-only file-based database with no networking involved.
-- ☑️🚧 Run in a multi-database, networked server mode with TLS enabled by default
+- ☑️ Run as a [local-only file-based database](./pliantdb/examples/basic.rs) with no networking involved.
+- ☑️🚧 Run in a [multi-database, networked server mode](./pliantdb/examples/server.rs) with TLS enabled by default
 - Easily set up read-replicas between multiple servers.
 - Easily run a highly-available quorum-based cluster across at least 3 servers
-- ☑️ Expose a Publish/Subscribe eventing system
+- ☑️ Expose a [Publish/Subscribe eventing system](./pliantdb/examples/pubsub.rs)
 - Expose a Job queue and scheduling system -- a la [Sidekiq](https://sidekiq.org/) or [SQS](https://aws.amazon.com/sqs/)
 
 ## ⚠️ Status of this project

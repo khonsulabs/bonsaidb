@@ -3,12 +3,13 @@ name = "pliantdb"
 version = "0.1.0-dev-2"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
-description = "a programmable document database inspired by CouchDB"
+description = "A programmable, ACID-compliant, document-database inspired by CouchDB."
 repository = "https://github.com/khonsulabs/pliantdb"
 license = "MIT OR Apache-2.0"
 keywords = ["document-database", "database"]
 categories = ["database-implementations", "database"]
 readme = "../README.md"
+homepage = "https://pliantdb.dev/"
 
 [[bin]]
 name = "pliantdb"
