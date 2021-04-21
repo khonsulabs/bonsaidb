@@ -1,4 +1,11 @@
-use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sync::Arc, u8};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    marker::PhantomData,
+    path::Path,
+    sync::{Arc, RwLock},
+    u8,
+};
 
 use async_trait::async_trait;
 use itertools::Itertools;
@@ -17,6 +24,7 @@ use sled::{
     IVec, Transactional, Tree,
 };
 
+use self::kv::ExpirationUpdate;
 use crate::{
     config::Configuration,
     error::{Error, ResultExt as _},
@@ -24,6 +32,8 @@ use crate::{
     tasks::TaskManager,
     views::{view_entries_tree_name, view_invalidated_docs_tree_name, ViewEntry},
 };
+
+mod kv;
 
 /// A local, file-based database.
 #[derive(Debug)]
@@ -37,6 +47,7 @@ pub struct Data<DB> {
     pub(crate) sled: sled::Db,
     pub(crate) tasks: TaskManager,
     relay: Relay,
+    kv_expirer: RwLock<Option<flume::Sender<kv::ExpirationUpdate>>>,
     _schema: PhantomData<DB>,
 }
 
@@ -53,10 +64,6 @@ where
     DB: Schema,
 {
     /// Opens a local file as a pliantdb.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `tokio::task::spawn_blocking` fails
     pub async fn open_local<P: AsRef<Path> + Send>(
         path: P,
         configuration: &Configuration,
@@ -76,6 +83,7 @@ where
                         sled,
                         schema: Arc::new(DB::schematic()),
                         tasks,
+                        kv_expirer: RwLock::default(),
                         relay: Relay::default(),
                         _schema: PhantomData::default(),
                     }),
@@ -102,6 +110,29 @@ where
     #[must_use]
     pub fn schematic(&self) -> &'_ Schematic {
         &self.data.schema
+    }
+
+    fn update_key_expiration(&self, update: ExpirationUpdate) {
+        {
+            let sender = self.data.kv_expirer.read().unwrap();
+            if let Some(sender) = sender.as_ref() {
+                let _ = sender.send(update);
+                return;
+            }
+        }
+
+        // If we fall through, we need to initialize the expirer task
+        let mut sender = self.data.kv_expirer.write().unwrap();
+        if sender.is_none() {
+            let (kv_sender, kv_expirer_receiver) = flume::unbounded();
+            let thread_sled = self.data.sled.clone();
+            tokio::task::spawn_blocking(move || {
+                kv::expiration_thread(kv_expirer_receiver, thread_sled)
+            });
+            *sender = Some(kv_sender);
+        }
+
+        let _ = sender.as_ref().unwrap().send(update);
     }
 }
 
