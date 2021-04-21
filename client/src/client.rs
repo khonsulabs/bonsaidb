@@ -18,7 +18,7 @@ use pliantdb_core::{
     networking::{
         self, Database, Payload, Request, Response, ServerConnection, ServerRequest, ServerResponse,
     },
-    schema::{Schema, SchemaId, Schematic},
+    schema::{Schema, SchemaName, Schematic},
 };
 use tokio::{sync::Mutex, task::JoinHandle};
 use url::Url;
@@ -174,13 +174,21 @@ impl Client {
     /// Returns a structure representing a remote database. No validations are
     /// done when this method is executed. The server will validate the schema
     /// and database name when a [`Connection`](pliantdb_core::connection::Connection) function is called.
-    pub async fn database<DB: Schema>(&self, name: &str) -> RemoteDatabase<DB> {
+    pub async fn database<DB: Schema>(&self, name: &str) -> Result<RemoteDatabase<DB>, Error> {
         let mut schemas = self.data.schemas.lock().await;
-        let schema = schemas
-            .entry(TypeId::of::<DB>())
-            .or_insert_with(|| Arc::new(DB::schematic()))
-            .clone();
-        RemoteDatabase::new(self.clone(), name.to_string(), schema)
+        let type_id = TypeId::of::<DB>();
+        let schematic = if let Some(schematic) = schemas.get(&type_id) {
+            schematic.clone()
+        } else {
+            let schematic = Arc::new(DB::schematic()?);
+            schemas.insert(type_id, schematic.clone());
+            schematic
+        };
+        Ok(RemoteDatabase::new(
+            self.clone(),
+            name.to_string(),
+            schematic,
+        ))
     }
 
     async fn send_request(&self, request: Request) -> Result<Response, Error> {
@@ -219,7 +227,7 @@ impl ServerConnection for Client {
     async fn create_database(
         &self,
         name: &str,
-        schema: SchemaId,
+        schema: SchemaName,
     ) -> Result<(), pliantdb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::CreateDatabase(Database {
@@ -264,7 +272,7 @@ impl ServerConnection for Client {
         }
     }
 
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaId>, pliantdb_core::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, pliantdb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::ListAvailableSchemas))
             .await?

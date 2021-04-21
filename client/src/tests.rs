@@ -73,9 +73,9 @@ mod websockets {
             let client = Client::new(&url, None).await?;
 
             client
-                .create_database(&test.to_string(), Basic::schema_id())
+                .create_database(&test.to_string(), Basic::schema_name()?)
                 .await?;
-            let db = client.database::<Basic>(&test.to_string()).await;
+            let db = client.database::<Basic>(&test.to_string()).await?;
 
             Ok(Self {
                 db,
@@ -118,9 +118,9 @@ mod pliant {
             let client = Client::new(&url, Some(server.certificate().await?)).await?;
 
             client
-                .create_database(&test.to_string(), Basic::schema_id())
+                .create_database(&test.to_string(), Basic::schema_name()?)
                 .await?;
-            let db = client.database::<Basic>(&test.to_string()).await;
+            let db = client.database::<Basic>(&test.to_string()).await?;
 
             Ok(Self {
                 db,

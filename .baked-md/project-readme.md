@@ -3,23 +3,22 @@
 ![PliantDB is considered experimental and unsupported](https://img.shields.io/badge/status-experimental-blueviolet)
 [![crate version](https://img.shields.io/crates/v/pliantdb.svg)](https://crates.io/crates/pliantdb)
 [![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/pliantdb/Tests/main)](https://github.com/khonsulabs/pliantdb/actions?query=workflow:Tests)
-[![HTML Coverage Report for `main` branch](https://khonsulabs.github.io/pliantdb/coverage/badge.svg)](https://pliantdb.dev/coverage/)
-[![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://pliantdb.dev/main/pliantdb/)
-[![User's Guide](https://img.shields.io/badge/guide-mdbook-informational)](https://pliantdb.dev/guide/)
+[![HTML Coverage Report for `main` branch](https://khonsulabs.github.io/pliantdb/coverage/badge.svg)](https://khonsulabs.github.io/pliantdb/coverage/)
+[![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://khonsulabs.github.io/pliantdb/main/pliantdb/)
 
-PliantDB aims to be a [Rust](https://rust-lang.org)-written, ACID-compliant, document-database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies. PliantDB gains a mature and efficient storage foundation by leveraging [sled](https://github.com/spacejam/sled).
+PliantDB aims to be a [Rust](https://rust-lang.org)-written, ACID-compliant, document-database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies.
 
 ## Project Goals
 
 The high-level goals for this project are:
 
-- ☑️ Be able to build a document-based database's schema [using Rust types](https://pliantdb.dev/main/pliantdb/core/schema/).
+- ☑️ Be able to build a document-based database's schema using Rust types.
 - ☑️ Run within your Rust binary, simplifying basic deployments.
-- ☑️ Run as a [local-only file-based database](./pliantdb/examples/basic.rs) with no networking involved.
-- ☑️🚧 Run in a [multi-database, networked server mode](./pliantdb/examples/server.rs) with TLS enabled by default
+- ☑️ Run as a local-only file-based database with no networking involved.
+- ☑️🚧 Run in a multi-database, networked server mode with TLS enabled by default
 - Easily set up read-replicas between multiple servers.
 - Easily run a highly-available quorum-based cluster across at least 3 servers
-- ☑️ Expose a [Publish/Subscribe eventing system](./pliantdb/examples/pubsub.rs)
+- ☑️ Expose a Publish/Subscribe eventing system
 - Expose a Job queue and scheduling system -- a la [Sidekiq](https://sidekiq.org/) or [SQS](https://aws.amazon.com/sqs/)
 
 ## ⚠️ Status of this project
@@ -32,74 +31,20 @@ If you're interested in chatting about this project or potentially wanting to co
 
 Check out [./pliantdb/examples](./pliantdb/examples) for examples. To get an idea of how it works, this is a simple schema:
 
-```rust
-#[derive(Debug, Serialize, Deserialize)]
-struct Shape {
-    pub sides: u32,
-}
-
-impl Collection for Shape {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
-        CollectionName::new("khonsulabs", "shapes")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(ShapesByNumberOfSides)
-    }
-}
-
-#[derive(Debug)]
-struct ShapesByNumberOfSides;
-
-impl View for ShapesByNumberOfSides {
-    type Collection = Shape;
-
-    type Key = u32;
-
-    type Value = usize;
-
-    fn version(&self) -> u64 {
-        1
-    }
-
-    fn name(&self) -> Result<Name, InvalidNameError> {
-        Name::new("by-number-of-sides")
-    }
-
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        let shape = document.contents::<Shape>()?;
-        Ok(Some(document.emit_key_and_value(shape.sides, 1)))
-    }
-
-    fn reduce(
-        &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
-        _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
-        Ok(mappings.iter().map(|m| m.value).sum())
-    }
-}
+```rust: source @ snippet-a
+pliantdb/examples/view-examples.rs
 ```
 
 After you have your collection(s) defined, you can open up a database and insert documents:
 
-```rust
-    let db =
-        Storage::<Shape>::open_local("view-examples.pliantdb", &Configuration::default()).await?;
-
-    // Insert a new document into the Shape collection.
-    db.collection::<Shape>().push(&Shape::new(3)).await?;
+```rust: source @ snippet-b
+pliantdb/examples/view-examples.rs
 ```
 
 And query data using the Map-Reduce-powered view:
 
-```rust
-    let triangles = db
-        .view::<ShapesByNumberOfSides>()
-        .with_key(3)
-        .query()
-        .await?;
-    println!("Number of triangles: {}", triangles.len());
+```rust: source @ snippet-c
+pliantdb/examples/view-examples.rs
 ```
 
 ## Why write another database?

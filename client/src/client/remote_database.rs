@@ -58,7 +58,7 @@ impl<DB: Schema> Connection for RemoteDatabase<DB> {
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Get {
-                    collection: C::collection_id(),
+                    collection: C::collection_name()?,
                     id,
                 },
             })
@@ -84,7 +84,7 @@ impl<DB: Schema> Connection for RemoteDatabase<DB> {
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::GetMultiple {
-                    collection: C::collection_id(),
+                    collection: C::collection_name()?,
                     ids: ids.to_vec(),
                 },
             })
@@ -115,7 +115,7 @@ impl<DB: Schema> Connection for RemoteDatabase<DB> {
                         .schema
                         .view::<V>()
                         .ok_or(pliantdb_core::Error::CollectionNotFound)?
-                        .name(),
+                        .view_name()?,
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
                     with_docs: false,
@@ -152,7 +152,7 @@ impl<DB: Schema> Connection for RemoteDatabase<DB> {
                         .schema
                         .view::<V>()
                         .ok_or(pliantdb_core::Error::CollectionNotFound)?
-                        .name(),
+                        .view_name()?,
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
                     with_docs: true,
@@ -189,7 +189,7 @@ impl<DB: Schema> Connection for RemoteDatabase<DB> {
                         .schema
                         .view::<V>()
                         .ok_or(pliantdb_core::Error::CollectionNotFound)?
-                        .name(),
+                        .view_name()?,
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
                     grouped: false,
@@ -225,7 +225,7 @@ impl<DB: Schema> Connection for RemoteDatabase<DB> {
                         .schema
                         .view::<V>()
                         .ok_or(pliantdb_core::Error::CollectionNotFound)?
-                        .name(),
+                        .view_name()?,
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
                     grouped: true,

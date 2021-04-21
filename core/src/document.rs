@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{CollectionId, Key, Map};
+use crate::schema::{CollectionName, Key, Map};
 
 mod revision;
 pub use revision::Revision;
@@ -21,7 +21,7 @@ pub struct Header {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Document<'a> {
     /// The `Id` of the `Collection` this document belongs to.
-    pub collection: CollectionId,
+    pub collection: CollectionName,
 
     /// The header of the document, which contains the id and `Revision`.
     pub header: Cow<'a, Header>,
@@ -33,7 +33,7 @@ pub struct Document<'a> {
 impl<'a> Document<'a> {
     /// Creates a new document with `contents`.
     #[must_use]
-    pub fn new(id: u64, contents: Cow<'a, [u8]>, collection: CollectionId) -> Self {
+    pub fn new(id: u64, contents: Cow<'a, [u8]>, collection: CollectionName) -> Self {
         let revision = Revision::new(&contents);
         Self {
             header: Cow::Owned(Header { id, revision }),
@@ -46,7 +46,7 @@ impl<'a> Document<'a> {
     pub fn with_contents<S: Serialize>(
         id: u64,
         contents: &S,
-        collection: CollectionId,
+        collection: CollectionName,
     ) -> Result<Self, serde_cbor::Error> {
         let contents = Cow::from(serde_cbor::to_vec(contents)?);
         Ok(Self::new(id, contents, collection))
@@ -129,7 +129,7 @@ fn emissions_tests() -> Result<(), crate::Error> {
         test_util::Basic,
     };
 
-    let doc = Document::with_contents(1, &Basic::default(), Basic::collection_id())?;
+    let doc = Document::with_contents(1, &Basic::default(), Basic::collection_name()?)?;
 
     assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));
 

@@ -291,6 +291,7 @@ impl Drop for SubscriberData {
     fn drop(&mut self) {
         let id = self.id;
         let relay = self.relay.clone();
+        // TODO Replace with a tokio runtime handle instead of global tokio::spawn
         tokio::spawn(async move {
             relay.unsubscribe_all(id).await;
         });

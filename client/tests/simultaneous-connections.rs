@@ -40,10 +40,10 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
 async fn test_one_client(client: Client, database_name: String) -> anyhow::Result<()> {
     for _ in 0u32..50 {
         client
-            .create_database(&database_name, Basic::schema_id())
+            .create_database(&database_name, Basic::schema_name()?)
             .await
             .unwrap();
-        let db = client.database::<Basic>(&database_name).await;
+        let db = client.database::<Basic>(&database_name).await?;
         test_util::store_retrieve_update_delete_tests(&db)
             .await
             .unwrap();

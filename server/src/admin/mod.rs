@@ -1,5 +1,7 @@
-use pliantdb_core::schema::{self, Schema};
-use schema::SchemaId;
+use pliantdb_core::{
+    schema::{InvalidNameError, Schema, SchemaName},
+    Error,
+};
 
 pub mod database;
 
@@ -7,11 +9,13 @@ pub mod database;
 pub struct Admin;
 
 impl Schema for Admin {
-    fn schema_id() -> SchemaId {
-        SchemaId::from("pliantdb.admin")
+    fn schema_name() -> Result<SchemaName, InvalidNameError> {
+        SchemaName::new("khonsulabs", "pliantdb.admin")
     }
 
-    fn define_collections(schema: &mut pliantdb_local::core::schema::Schematic) {
-        schema.define_collection::<database::Database>();
+    fn define_collections(
+        schema: &mut pliantdb_local::core::schema::Schematic,
+    ) -> Result<(), Error> {
+        schema.define_collection::<database::Database>()
     }
 }

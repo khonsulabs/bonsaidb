@@ -1,10 +1,10 @@
-use std::{borrow::Cow, fmt::Debug};
+use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
     document::Document,
-    schema::{Collection, CollectionId},
+    schema::{Collection, CollectionName, InvalidNameError, Name, ViewName},
 };
 
 /// Types for defining a `Map` within a `View`.
@@ -37,7 +37,8 @@ pub type MapResult<K = (), V = ()> = Result<Option<Map<K, V>>, Error>;
 /// system](https://docs.couchdb.org/en/stable/ddocs/views/index.html)
 ///
 /// This implementation is under active development, our own docs explaining our
-/// implementation will be written as things are solidified.
+/// implementation will be written as things are solidified. The guide [has an
+/// overview](https://pliantdb.dev/guide/about/concepts/view.html).
 // TODO write our own view docs
 pub trait View: Send + Sync + Debug + 'static {
     /// The collection this view belongs to
@@ -53,7 +54,15 @@ pub trait View: Send + Sync + Debug + 'static {
     fn version(&self) -> u64;
 
     /// The name of the view. Must be unique per collection.
-    fn name(&self) -> Cow<'static, str>;
+    fn name(&self) -> Result<Name, InvalidNameError>;
+
+    /// The namespaced name of the view.
+    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
+        Ok(ViewName {
+            collection: Self::Collection::collection_name()?,
+            name: self.name()?,
+        })
+    }
 
     /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
@@ -108,12 +117,12 @@ where
 
 /// Wraps a [`View`] with serialization to erase the associated types
 pub trait Serialized: Send + Sync + Debug {
-    /// Wraps returing [`<View::Collection as Collection>::collection_id()`](crate::schema::Collection::collection_id)
-    fn collection(&self) -> CollectionId;
+    /// Wraps returing [`<View::Collection as Collection>::collection_name()`](crate::schema::Collection::collection_name)
+    fn collection(&self) -> Result<CollectionName, InvalidNameError>;
     /// Wraps [`View::version`]
     fn version(&self) -> u64;
-    /// Wraps [`View::name`]
-    fn name(&self) -> Cow<'static, str>;
+    /// Wraps [`View::view_name`]
+    fn view_name(&self) -> Result<ViewName, InvalidNameError>;
     /// Wraps [`View::map`]
     fn map(&self, document: &Document<'_>) -> Result<Option<map::Serialized>, Error>;
     /// Wraps [`View::reduce`]
@@ -126,16 +135,16 @@ where
     T: View,
     <T as View>::Key: 'static,
 {
-    fn collection(&self) -> CollectionId {
-        <<Self as View>::Collection as Collection>::collection_id()
+    fn collection(&self) -> Result<CollectionName, InvalidNameError> {
+        <<Self as View>::Collection as Collection>::collection_name()
     }
 
     fn version(&self) -> u64 {
         self.version()
     }
 
-    fn name(&self) -> Cow<'static, str> {
-        self.name()
+    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
+        self.view_name()
     }
 
     fn map(&self, document: &Document<'_>) -> Result<Option<map::Serialized>, Error> {

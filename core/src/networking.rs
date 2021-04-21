@@ -1,9 +1,7 @@
-use std::borrow::Cow;
-
 use async_trait::async_trait;
 use circulate::Message;
 pub use fabruic;
-use schema::SchemaId;
+use schema::SchemaName;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
@@ -12,7 +10,7 @@ use crate::{
     schema::{
         self,
         view::{self, map},
-        CollectionId, Key, MappedValue,
+        CollectionName, Key, MappedValue, ViewName,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -62,21 +60,21 @@ pub enum DatabaseRequest {
     /// Retrieve a single document.
     Get {
         /// The collection of the document.
-        collection: CollectionId,
+        collection: CollectionName,
         /// The id of the document.
         id: u64,
     },
     /// Retrieve multiple documents.
     GetMultiple {
         /// The collection of the documents.
-        collection: CollectionId,
+        collection: CollectionName,
         /// The ids of the documents.
         ids: Vec<u64>,
     },
     /// Queries a view.
     Query {
         /// The name of the view.
-        view: Cow<'static, str>,
+        view: ViewName,
         /// The filter for the view.
         key: Option<QueryKey<Vec<u8>>>,
         /// The access policy for the query.
@@ -89,7 +87,7 @@ pub enum DatabaseRequest {
     /// Reduces a view.
     Reduce {
         /// The name of the view.
-        view: Cow<'static, str>,
+        view: ViewName,
         /// The filter for the view.
         key: Option<QueryKey<Vec<u8>>>,
         /// The access policy for the query.
@@ -167,7 +165,7 @@ pub enum ServerResponse {
     /// A list of available databases.
     Databases(Vec<Database>),
     ///A list of availble schemas.
-    AvailableSchemas(Vec<SchemaId>),
+    AvailableSchemas(Vec<SchemaName>),
 }
 
 /// A response to a [`DatabaseRequest`].
@@ -238,13 +236,13 @@ pub struct Database {
     /// The name of the database.
     pub name: String,
     /// The schema defining the database.
-    pub schema: SchemaId,
+    pub schema: SchemaName,
 }
 
 /// Functions for interacting with a `PliantDB` server.
 #[async_trait]
 pub trait ServerConnection: Send + Sync {
-    /// Creates a database named `name` using the [`SchemaId`] `schema`.
+    /// Creates a database named `name` using the [`SchemaName`] `schema`.
     ///
     /// ## Errors
     ///
@@ -253,7 +251,7 @@ pub trait ServerConnection: Send + Sync {
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
     /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
     ///   previous database name. Database names are case insensitive.
-    async fn create_database(&self, name: &str, schema: SchemaId) -> Result<(), crate::Error>;
+    async fn create_database(&self, name: &str, schema: SchemaName) -> Result<(), crate::Error>;
 
     /// Deletes a database named `name`.
     ///
@@ -266,8 +264,8 @@ pub trait ServerConnection: Send + Sync {
     /// Lists the databases on this server.
     async fn list_databases(&self) -> Result<Vec<Database>, crate::Error>;
 
-    /// Lists the [`SchemaId`]s on this server.
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaId>, crate::Error>;
+    /// Lists the [`SchemaName`]s on this server.
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, crate::Error>;
 }
 
 /// A networking error.
@@ -305,17 +303,17 @@ pub enum Error {
         database_name: String,
 
         /// The schema provided for the database.
-        schema: SchemaId,
+        schema: SchemaName,
 
         /// The schema stored for the database.
-        stored_schema: SchemaId,
+        stored_schema: SchemaName,
     },
 
-    /// The [`SchemaId`] returned has already been registered with this server.
+    /// The [`SchemaName`] returned has already been registered with this server.
     #[error("schema '{0}' was already registered")]
-    SchemaAlreadyRegistered(SchemaId),
+    SchemaAlreadyRegistered(SchemaName),
 
-    /// The [`SchemaId`] requested was not registered with this server.
+    /// The [`SchemaName`] requested was not registered with this server.
     #[error("schema '{0}' is not registered with this server")]
-    SchemaNotRegistered(SchemaId),
+    SchemaNotRegistered(SchemaName),
 }
