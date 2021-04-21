@@ -12,15 +12,10 @@ use pliantdb::{
 };
 use serde::{Deserialize, Serialize};
 
+// [md-bakery: begin @ snippet-a]
 #[derive(Debug, Serialize, Deserialize)]
 struct Shape {
     pub sides: u32,
-}
-
-impl Shape {
-    fn new(sides: u32) -> Self {
-        Self { sides }
-    }
 }
 
 impl Collection for Shape {
@@ -64,12 +59,23 @@ impl View for ShapesByNumberOfSides {
         Ok(mappings.iter().map(|m| m.value).sum())
     }
 }
+// [md-bakery: end]
+
+impl Shape {
+    fn new(sides: u32) -> Self {
+        Self { sides }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    // [md-bakery: begin @ snippet-b]
     let db =
         Storage::<Shape>::open_local("view-examples.pliantdb", &Configuration::default()).await?;
-    let shapes = db.collection::<Shape>();
+
+    // Insert a new document into the Shape collection.
+    db.collection::<Shape>().push(&Shape::new(3)).await?;
+    // [md-bakery: end]
 
     // Views in `PliantDB` are written using a Map/Reduce approach. In this
     // example, we take a look at how document mapping can be used to filter and
@@ -77,21 +83,22 @@ async fn main() -> Result<(), anyhow::Error> {
     //
     // Let's start by seeding the database with some shapes of various sizes:
     for sides in 3..=20 {
-        shapes.push(&Shape::new(sides)).await?;
+        db.collection::<Shape>().push(&Shape::new(sides)).await?;
     }
 
     // And, let's add a few shapes with the same number of sides
-    shapes.push(&Shape::new(3)).await?;
-    shapes.push(&Shape::new(3)).await?;
-    shapes.push(&Shape::new(4)).await?;
+    db.collection::<Shape>().push(&Shape::new(3)).await?;
+    db.collection::<Shape>().push(&Shape::new(4)).await?;
 
     // At this point, our database should have 3 triangles:
+    // [md-bakery: begin @ snippet-c]
     let triangles = db
         .view::<ShapesByNumberOfSides>()
         .with_key(3)
         .query()
         .await?;
-    println!("Number of triangles: {} (expected 3)", triangles.len());
+    println!("Number of triangles: {}", triangles.len());
+    // [md-bakery: end]
 
     // What is returned is a list of entries containing the document id
     // (source), the key of the entry, and the value of the entry:
