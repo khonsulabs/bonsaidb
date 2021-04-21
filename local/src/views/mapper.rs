@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use pliantdb_core::{
     connection::Connection,
     document::Document,
-    schema::{view, view::map, CollectionId, Key, Schema},
+    schema::{view, view::map, CollectionName, Key, Schema, ViewName},
 };
 use pliantdb_jobs::{Job, Keyed};
 use sled::{
@@ -12,11 +12,13 @@ use sled::{
     IVec, Transactional, Tree,
 };
 
-use super::{
-    view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-    view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
+use crate::{
+    storage::{document_tree_name, Storage},
+    views::{
+        view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
+        view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
+    },
 };
-use crate::storage::{document_tree_name, Storage};
 
 #[derive(Debug)]
 pub struct Mapper<DB> {
@@ -26,8 +28,8 @@ pub struct Mapper<DB> {
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Map {
-    pub collection: CollectionId,
-    pub view_name: Cow<'static, str>,
+    pub collection: CollectionName,
+    pub view_name: ViewName,
 }
 
 #[async_trait]

@@ -8,7 +8,6 @@ use std::{
     time::Duration,
 };
 
-use schema::SchemaId;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -16,7 +15,8 @@ use crate::{
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
-        self, view, Collection, CollectionId, MapResult, MappedValue, Schema, Schematic, View,
+        view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name, Schema,
+        SchemaName, Schematic, View,
     },
     Error,
 };
@@ -50,13 +50,13 @@ impl Basic {
 }
 
 impl Collection for Basic {
-    fn collection_id() -> CollectionId {
-        CollectionId::from("tests.basic")
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        CollectionName::new("khonsulabs", "basic")
     }
 
-    fn define_views(schema: &mut Schematic) {
-        schema.define_view(BasicCount);
-        schema.define_view(BasicByParentId);
+    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
+        schema.define_view(BasicCount)?;
+        schema.define_view(BasicByParentId)?;
         schema.define_view(BasicByCategory)
     }
 }
@@ -73,8 +73,8 @@ impl View for BasicCount {
         0
     }
 
-    fn name(&self) -> Cow<'static, str> {
-        Cow::from("count")
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("count")
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
@@ -102,8 +102,8 @@ impl View for BasicByParentId {
         1
     }
 
-    fn name(&self) -> Cow<'static, str> {
-        Cow::from("by-parent-id")
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-parent-id")
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
@@ -132,8 +132,8 @@ impl View for BasicByCategory {
         0
     }
 
-    fn name(&self) -> Cow<'static, str> {
-        Cow::from("by-category")
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-category")
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
@@ -168,8 +168,8 @@ impl View for BasicByBrokenParentId {
         0
     }
 
-    fn name(&self) -> Cow<'static, str> {
-        Cow::from("by-parent-id")
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-parent-id")
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
@@ -181,12 +181,12 @@ impl View for BasicByBrokenParentId {
 pub struct BasicSchema;
 
 impl Schema for BasicSchema {
-    fn schema_id() -> SchemaId {
-        SchemaId::from("basic")
+    fn schema_name() -> Result<SchemaName, InvalidNameError> {
+        SchemaName::new("khonsulabs", "basic")
     }
 
-    fn define_collections(schema: &mut Schematic) {
-        schema.define_collection::<Basic>();
+    fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
+        schema.define_collection::<Basic>()
     }
 }
 
@@ -222,23 +222,25 @@ impl AsRef<Path> for TestDirectory {
 pub struct BasicCollectionWithNoViews;
 
 impl Collection for BasicCollectionWithNoViews {
-    fn collection_id() -> CollectionId {
-        Basic::collection_id()
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        Basic::collection_name()
     }
 
-    fn define_views(_schema: &mut Schematic) {}
+    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
 pub struct BasicCollectionWithOnlyBrokenParentId;
 
 impl Collection for BasicCollectionWithOnlyBrokenParentId {
-    fn collection_id() -> CollectionId {
-        Basic::collection_id()
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        Basic::collection_name()
     }
 
-    fn define_views(schema: &mut Schematic) {
-        schema.define_view(BasicByBrokenParentId);
+    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
+        schema.define_view(BasicByBrokenParentId)
     }
 }
 
@@ -246,11 +248,13 @@ impl Collection for BasicCollectionWithOnlyBrokenParentId {
 pub struct UnassociatedCollection;
 
 impl Collection for UnassociatedCollection {
-    fn collection_id() -> CollectionId {
-        CollectionId::from("unassociated")
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        CollectionName::new("khonsulabs", "unassociated")
     }
 
-    fn define_views(_schema: &mut Schematic) {}
+    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -419,7 +423,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(
         assert_eq!(transaction.changed_documents.len(), 1);
         assert_eq!(
             transaction.changed_documents[0].collection,
-            Basic::collection_id()
+            Basic::collection_name()?
         );
         assert_eq!(transaction.changed_documents[0].id, header.id);
         assert_eq!(transaction.changed_documents[0].deleted, false);
@@ -435,7 +439,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(
     assert_eq!(transaction.changed_documents.len(), 1);
     assert_eq!(
         transaction.changed_documents[0].collection,
-        Basic::collection_id()
+        Basic::collection_name()?
     );
     assert_eq!(transaction.changed_documents[0].id, header.id);
     assert_eq!(transaction.changed_documents[0].deleted, true);
@@ -474,7 +478,7 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> 
         .expect_err("conflict should have generated an error")
     {
         Error::DocumentConflict(collection, id) => {
-            assert_eq!(collection, Basic::collection_id());
+            assert_eq!(collection, Basic::collection_name()?);
             assert_eq!(id, doc.header.id);
         }
         other => return Err(anyhow::Error::from(other)),
@@ -484,10 +488,10 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> 
 }
 
 pub async fn bad_update_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
-    let mut doc = Document::with_contents(1, &Basic::default(), Basic::collection_id())?;
+    let mut doc = Document::with_contents(1, &Basic::default(), Basic::collection_name()?)?;
     match db.update(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
-            assert_eq!(collection, Basic::collection_id());
+            assert_eq!(collection, Basic::collection_name()?);
             assert_eq!(id, 1);
             Ok(())
         }

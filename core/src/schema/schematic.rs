@@ -4,43 +4,47 @@ use std::{
     fmt::Debug,
 };
 
-use crate::schema::{
-    collection::{Collection, CollectionId},
-    view::{self, Serialized},
-    View,
+use crate::{
+    schema::{
+        collection::Collection,
+        view::{self, Serialized},
+        CollectionName, View, ViewName,
+    },
+    Error,
 };
 
 /// A collection of defined collections and views.
 #[derive(Default, Debug)]
 pub struct Schematic {
-    contained_collections: HashSet<CollectionId>,
-    collections_by_type_id: HashMap<TypeId, CollectionId>,
+    contained_collections: HashSet<CollectionName>,
+    collections_by_type_id: HashMap<TypeId, CollectionName>,
     views: HashMap<TypeId, Box<dyn view::Serialized>>,
-    views_by_name: HashMap<String, TypeId>,
-    views_by_collection: HashMap<CollectionId, Vec<TypeId>>,
+    views_by_name: HashMap<ViewName, TypeId>,
+    views_by_collection: HashMap<CollectionName, Vec<TypeId>>,
 }
 
 impl Schematic {
     /// Adds the collection `C` and its views.
-    pub fn define_collection<C: Collection + 'static>(&mut self) {
+    pub fn define_collection<C: Collection + 'static>(&mut self) -> Result<(), Error> {
         self.collections_by_type_id
-            .insert(TypeId::of::<C>(), C::collection_id());
-        self.contained_collections.insert(C::collection_id());
+            .insert(TypeId::of::<C>(), C::collection_name()?);
+        self.contained_collections.insert(C::collection_name()?);
         C::define_views(self)
     }
 
     /// Adds the view `V`.
-    pub fn define_view<V: View + 'static>(&mut self, view: V) {
-        let name = view.name();
-        let collection = view.collection();
+    pub fn define_view<V: View + 'static>(&mut self, view: V) -> Result<(), Error> {
+        let name = view.view_name()?;
+        let collection = view.collection()?;
         self.views.insert(TypeId::of::<V>(), Box::new(view));
-        self.views_by_name
-            .insert(name.to_string(), TypeId::of::<V>());
+        // TODO check for name collision
+        self.views_by_name.insert(name, TypeId::of::<V>());
         let views = self
             .views_by_collection
             .entry(collection)
             .or_insert_with(Vec::new);
         views.push(TypeId::of::<V>());
+        Ok(())
     }
 
     /// Returns `true` if this schema contains the collection `C`.
@@ -51,13 +55,13 @@ impl Schematic {
 
     /// Returns `true` if this schema contains the collection `C`.
     #[must_use]
-    pub fn contains_collection_id(&self, collection: &CollectionId) -> bool {
+    pub fn contains_collection_id(&self, collection: &CollectionName) -> bool {
         self.contained_collections.contains(collection)
     }
 
     /// Looks up a [`view::Serialized`] by name.
     #[must_use]
-    pub fn view_by_name(&self, name: &str) -> Option<&'_ dyn view::Serialized> {
+    pub fn view_by_name(&self, name: &ViewName) -> Option<&'_ dyn view::Serialized> {
         self.views_by_name
             .get(name)
             .and_then(|type_id| self.views.get(type_id))
@@ -79,7 +83,7 @@ impl Schematic {
     #[must_use]
     pub fn views_in_collection(
         &self,
-        collection: &CollectionId,
+        collection: &CollectionName,
     ) -> Option<Vec<&'_ dyn view::Serialized>> {
         self.views_by_collection.get(collection).map(|view_ids| {
             view_ids
@@ -91,22 +95,24 @@ impl Schematic {
 }
 
 #[test]
-fn schema_tests() {
+fn schema_tests() -> anyhow::Result<()> {
     use crate::{
         schema::Schema,
         test_util::{Basic, BasicCount, BasicSchema},
     };
     let mut schema = Schematic::default();
-    BasicSchema::define_collections(&mut schema);
+    BasicSchema::define_collections(&mut schema)?;
 
     assert_eq!(schema.collections_by_type_id.len(), 1);
     assert_eq!(
         schema.collections_by_type_id[&TypeId::of::<Basic>()],
-        Basic::collection_id()
+        Basic::collection_name()?
     );
     assert_eq!(schema.views.len(), 3);
     assert_eq!(
-        schema.views[&TypeId::of::<BasicCount>()].name(),
-        View::name(&BasicCount)
+        schema.views[&TypeId::of::<BasicCount>()].view_name()?,
+        View::view_name(&BasicCount)?
     );
+
+    Ok(())
 }

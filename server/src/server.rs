@@ -30,13 +30,13 @@ use pliantdb_core::{
     schema,
     schema::{
         view::map::{self, MappedValue},
-        CollectionId, Schema, Schematic,
+        CollectionName, Schema, Schematic, ViewName,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
 use pliantdb_jobs::{manager::Manager, Job};
 use pliantdb_local::{Internal, Storage};
-use schema::SchemaId;
+use schema::SchemaName;
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
@@ -61,9 +61,9 @@ struct Data {
     websocket_shutdown: RwLock<Option<Sender<()>>>,
     directory: PathBuf,
     admin: Storage<Admin>,
-    schemas: RwLock<HashMap<SchemaId, Box<dyn DatabaseOpener>>>,
+    schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
     open_databases: RwLock<HashMap<String, Arc<Box<dyn OpenDatabase>>>>,
-    available_databases: RwLock<HashMap<String, SchemaId>>,
+    available_databases: RwLock<HashMap<String, SchemaName>>,
     request_processor: Manager,
     storage_configuration: pliantdb_local::Configuration,
     relay: Relay,
@@ -71,7 +71,7 @@ struct Data {
 
 impl Server {
     /// Creates or opens a [`Server`] with its data stored in `directory`.
-    /// `schemas` is a collection of [`SchemaId`] to [`Schematic`] pairs. [`SchemaId`]s are used as an identifier of a specific `Schema`, which the Server uses to
+    /// `schemas` is a collection of [`SchemaName`] to [`Schematic`] pairs. [`SchemaName`]s are used as an identifier of a specific `Schema`, which the Server uses to
     pub async fn open(directory: &Path, configuration: Configuration) -> Result<Self, Error> {
         let admin =
             Storage::open_local(directory.join("admin.pliantdb"), &configuration.storage).await?;
@@ -111,14 +111,14 @@ impl Server {
         let mut schemas = self.data.schemas.write().await;
         if schemas
             .insert(
-                DB::schema_id(),
-                Box::new(ServerSchemaOpener::<DB>::new(self.clone())),
+                DB::schema_name()?,
+                Box::new(ServerSchemaOpener::<DB>::new(self.clone())?),
             )
             .is_none()
         {
             Ok(())
         } else {
-            Err(Error::SchemaAlreadyRegistered(DB::schema_id()))
+            Err(Error::SchemaAlreadyRegistered(DB::schema_name()?))
         }
     }
 
@@ -130,12 +130,12 @@ impl Server {
         let available_databases = self.data.available_databases.read().await;
 
         if let Some(stored_schema) = available_databases.get(name) {
-            if stored_schema == &DB::schema_id() {
+            if stored_schema == &DB::schema_name()? {
                 Ok(hosted::Database::new(self, name))
             } else {
                 Err(Error::SchemaMismatch {
                     database_name: name.to_owned(),
-                    schema: DB::schema_id(),
+                    schema: DB::schema_name()?,
                     stored_schema: stored_schema.clone(),
                 })
             }
@@ -625,7 +625,7 @@ impl Server {
     async fn handle_database_get_request(
         &self,
         database: String,
-        collection: CollectionId,
+        collection: CollectionName,
         id: u64,
     ) -> Result<Response, Error> {
         let db = self.open_database_without_schema(&database).await?;
@@ -641,7 +641,7 @@ impl Server {
     async fn handle_database_get_multiple_request(
         &self,
         database: String,
-        collection: CollectionId,
+        collection: CollectionName,
         ids: Vec<u64>,
     ) -> Result<Response, Error> {
         let db = self.open_database_without_schema(&database).await?;
@@ -654,7 +654,7 @@ impl Server {
     async fn handle_database_query(
         &self,
         database: String,
-        view: &str,
+        view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         with_docs: bool,
@@ -674,7 +674,7 @@ impl Server {
     async fn handle_database_reduce(
         &self,
         database: String,
-        view: &str,
+        view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         grouped: bool,
@@ -865,7 +865,7 @@ impl networking::ServerConnection for Server {
     async fn create_database(
         &self,
         name: &str,
-        schema: SchemaId,
+        schema: SchemaName,
     ) -> Result<(), pliantdb_core::Error> {
         Self::validate_name(name)?;
 
@@ -959,7 +959,7 @@ impl networking::ServerConnection for Server {
             .collect())
     }
 
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaId>, pliantdb_core::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, pliantdb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases.values().unique().cloned().collect())
     }
@@ -972,13 +972,13 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
     async fn get_from_collection_id(
         &self,
         id: u64,
-        collection: &CollectionId,
+        collection: &CollectionName,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error>;
 
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
-        collection: &CollectionId,
+        collection: &CollectionName,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error>;
 
     async fn apply_transaction(
@@ -988,28 +988,28 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
 
     async fn query(
         &self,
-        view: &str,
+        view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<map::Serialized>, pliantdb_core::Error>;
 
     async fn query_with_docs(
         &self,
-        view: &str,
+        view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error>;
 
     async fn reduce(
         &self,
-        view: &str,
+        view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, pliantdb_core::Error>;
 
     async fn reduce_grouped(
         &self,
-        view: &str,
+        view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error>;
@@ -1035,7 +1035,7 @@ where
     async fn get_from_collection_id(
         &self,
         id: u64,
-        collection: &CollectionId,
+        collection: &CollectionName,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
         Internal::get_from_collection_id(self, id, collection).await
     }
@@ -1043,7 +1043,7 @@ where
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
-        collection: &CollectionId,
+        collection: &CollectionName,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
         Internal::get_multiple_from_collection_id(self, ids, collection).await
     }
@@ -1057,7 +1057,7 @@ where
 
     async fn query(
         &self,
-        view: &str,
+        view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<map::Serialized>, pliantdb_core::Error> {
@@ -1083,7 +1083,7 @@ where
 
     async fn query_with_docs(
         &self,
-        view: &str,
+        view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error> {
@@ -1093,7 +1093,7 @@ where
         let mut documents = Internal::get_multiple_from_collection_id(
             self,
             &results.iter().map(|m| m.source).collect::<Vec<_>>(),
-            &view.collection(),
+            &view.collection()?,
         )
         .await?
         .into_iter()
@@ -1118,7 +1118,7 @@ where
 
     async fn reduce(
         &self,
-        view: &str,
+        view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, pliantdb_core::Error> {
@@ -1127,7 +1127,7 @@ where
 
     async fn reduce_grouped(
         &self,
-        view: &str,
+        view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error> {
@@ -1186,13 +1186,13 @@ impl<DB> ServerSchemaOpener<DB>
 where
     DB: Schema,
 {
-    fn new(server: Server) -> Self {
-        let schematic = DB::schematic();
-        Self {
+    fn new(server: Server) -> Result<Self, Error> {
+        let schematic = DB::schematic()?;
+        Ok(Self {
             server,
             schematic,
             _phantom: PhantomData::default(),
-        }
+        })
     }
 }
 

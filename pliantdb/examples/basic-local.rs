@@ -3,11 +3,11 @@ use std::time::SystemTime;
 use pliantdb::{
     core::{
         connection::Connection,
-        schema::{Collection, Schematic},
+        schema::{Collection, CollectionName, InvalidNameError, Schematic},
+        Error,
     },
     local::{Configuration, Storage},
 };
-use pliantdb_core::schema::CollectionId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -17,11 +17,13 @@ struct Message {
 }
 
 impl Collection for Message {
-    fn collection_id() -> CollectionId {
-        CollectionId::from("messages")
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        CollectionName::new("khonsulabs", "messages")
     }
 
-    fn define_views(_schema: &mut Schematic) {}
+    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 #[tokio::main]

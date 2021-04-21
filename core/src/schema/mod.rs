@@ -1,92 +1,59 @@
 mod collection;
+mod names;
 mod schematic;
 /// Types for defining map/reduce-powered `View`s.
 pub mod view;
-
-use std::{
-    borrow::Cow,
-    fmt::{Debug, Display},
-};
-
-use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 
 pub use self::{
-    collection::{Collection, CollectionId},
+    collection::Collection,
+    names::{Authority, CollectionName, InvalidNameError, Name, SchemaName, ViewName},
     schematic::Schematic,
     view::{
         map::{Key, Map, MappedDocument, MappedValue},
         MapResult, View,
     },
 };
-
-#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone)]
-#[serde(transparent)]
-/// The unique Id of a [`Schema`]. Primarily used to try to protect against
-/// using the incorrect data types across a remote connection.
-#[allow(clippy::clippy::module_name_repetitions)]
-pub struct SchemaId(Cow<'static, str>);
-
-impl AsRef<str> for SchemaId {
-    fn as_ref(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-
-impl Display for SchemaId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, f)
-    }
-}
-
-impl SchemaId {
-    /// Creates a new id.
-    pub fn new<S: Into<String>>(id: S) -> Self {
-        Self(Cow::Owned(id.into()))
-    }
-}
-
-impl From<&'static str> for SchemaId {
-    fn from(id: &'static str) -> Self {
-        Self(Cow::Borrowed(id))
-    }
-}
+use crate::Error;
 
 /// Defines a group of collections that are stored into a single database.
 pub trait Schema: Send + Sync + Debug + 'static {
-    /// Returns the unique [`SchemaId`] for this schema.
-    fn schema_id() -> SchemaId;
+    /// Returns the unique [`SchemaName`] for this schema.
+    fn schema_name() -> Result<SchemaName, InvalidNameError>;
 
     /// Defines the `Collection`s into `schema`.
-    fn define_collections(schema: &mut Schematic);
+    fn define_collections(schema: &mut Schematic) -> Result<(), Error>;
 
     /// Retrieves the [`Schematic`] for this schema.
-    #[must_use]
-    fn schematic() -> Schematic {
+    fn schematic() -> Result<Schematic, Error> {
         let mut schematic = Schematic::default();
-        Self::define_collections(&mut schematic);
-        schematic
+        Self::define_collections(&mut schematic)?;
+        Ok(schematic)
     }
 }
 
 /// This trait is only useful for tools like `pliantdb local-backup`. There is no
 /// real-world use case of connecting to a Database with no schema.
 impl Schema for () {
-    fn schema_id() -> SchemaId {
-        SchemaId::from("")
+    fn schema_name() -> Result<SchemaName, InvalidNameError> {
+        SchemaName::new("", "")
     }
 
-    fn define_collections(_schema: &mut Schematic) {}
+    fn define_collections(_schema: &mut Schematic) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 impl<T> Schema for T
 where
     T: Collection + 'static,
 {
-    fn schema_id() -> SchemaId {
-        SchemaId(Self::collection_id().0)
+    fn schema_name() -> Result<SchemaName, InvalidNameError> {
+        let CollectionName { authority, name } = Self::collection_name()?;
+        Ok(SchemaName { authority, name })
     }
 
-    fn define_collections(schema: &mut Schematic) {
-        schema.define_collection::<Self>();
+    fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
+        schema.define_collection::<Self>()
     }
 }

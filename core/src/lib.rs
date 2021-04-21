@@ -38,7 +38,7 @@ pub mod transaction;
 /// Types for Publish/Subscribe (`PubSub`) messaging.
 pub mod pubsub;
 
-use schema::CollectionId;
+use schema::CollectionName;
 use serde::{Deserialize, Serialize};
 
 /// an enumeration of errors that this crate can produce
@@ -84,11 +84,15 @@ pub enum Error {
 
     /// An attempt to update a document that doesn't exist.
     #[error("the requested document id {1} from collection {0} was not found")]
-    DocumentNotFound(CollectionId, u64),
+    DocumentNotFound(CollectionName, u64),
 
     /// When updating a document, if a situation is detected where the contents have changed on the server since the `Revision` provided, a Conflict error will be returned.
     #[error("a conflict was detected while updating document id {1} from collection {0}")]
-    DocumentConflict(CollectionId, u64),
+    DocumentConflict(CollectionName, u64),
+
+    /// An invalid name was specified during schema creation.
+    #[error("an invalid name was used in a schema: {0}")]
+    InvalidName(#[from] schema::InvalidNameError),
 }
 
 impl From<serde_cbor::Error> for Error {

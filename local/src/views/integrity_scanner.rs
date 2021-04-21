@@ -1,7 +1,7 @@
-use std::{borrow::Cow, collections::HashSet, hash::Hash};
+use std::{collections::HashSet, hash::Hash};
 
 use async_trait::async_trait;
-use pliantdb_core::schema::{view, CollectionId, Key, Schema};
+use pliantdb_core::schema::{view, CollectionName, Key, Schema, ViewName};
 use pliantdb_jobs::{Job, Keyed};
 use sled::{IVec, Transactional, Tree};
 
@@ -20,8 +20,8 @@ pub struct IntegrityScanner<DB> {
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct IntegrityScan {
     pub view_version: u64,
-    pub collection: CollectionId,
-    pub view_name: Cow<'static, str>,
+    pub collection: CollectionName,
+    pub view_name: ViewName,
 }
 
 #[async_trait]
@@ -68,7 +68,7 @@ where
         let needs_update = tokio::task::spawn_blocking::<_, anyhow::Result<bool>>(move || {
             let document_ids = tree_keys::<u64>(&documents)?;
             let view_is_current_version =
-                if let Some(version) = view_versions.get(view_name.as_bytes())? {
+                if let Some(version) = view_versions.get(view_name.to_string().as_bytes())? {
                     if let Ok(version) = u64::from_big_endian_bytes(&version) {
                         version == view_version
                     } else {
@@ -96,7 +96,7 @@ where
                 (&invalidated_entries, &view_versions)
                     .transaction(|(invalidated_entries, view_versions)| {
                         view_versions.insert(
-                            view_name.as_bytes(),
+                            view_name.to_string().as_bytes(),
                             view_version.as_big_endian_bytes().unwrap().as_ref(),
                         )?;
                         for id in &missing_entries {
