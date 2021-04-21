@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 echo "Executing tests"
 cargo clean
 CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE="%m.profraw" RUSTFLAGS="-Zinstrument-coverage" RUSTDOCFLAGS="-Cpanic=abort" cargo +nightly test --all-features
