@@ -42,10 +42,8 @@ where
                 return_previous_value,
                 self,
             ),
-            Command::Get { delete } => {
-                execute_get_operation(op.namespace, &op.key, delete, &self.data.sled)
-            }
-            Command::Delete => execute_delete_operation(op.namespace, op.key, &self.data.sled),
+            Command::Get { delete } => execute_get_operation(op.namespace, &op.key, delete, self),
+            Command::Delete => execute_delete_operation(op.namespace, op.key, self),
         })
     }
 }
@@ -126,19 +124,31 @@ fn execute_set_operation<DB: Schema>(
     }
 }
 
-fn execute_get_operation(
+fn execute_get_operation<DB: Schema>(
     namespace: Option<String>,
     key: &str,
     delete: bool,
-    sled: &sled::Db,
+    storage: &Storage<DB>,
 ) -> Result<Output, pliantdb_core::Error> {
-    let full_namespace = format!("kv.{}", namespace.unwrap_or_default());
+    let tree_name = format!("kv.{}", namespace.unwrap_or_default());
 
-    let tree = sled
-        .open_tree(full_namespace.as_bytes())
+    let tree = storage
+        .data
+        .sled
+        .open_tree(tree_name.as_bytes())
         .map_err_to_core()?;
     let entry = if delete {
-        tree.remove(key.as_bytes()).map_err_to_core()?
+        let entry = tree.remove(key.as_bytes()).map_err_to_core()?;
+        if entry.is_some() {
+            storage.update_key_expiration(ExpirationUpdate {
+                tree_key: TreeKey {
+                    tree: tree_name,
+                    key: key.to_string(),
+                },
+                expiration: None,
+            });
+        }
+        entry
     } else {
         tree.get(key.as_bytes()).map_err_to_core()?
     };
@@ -151,18 +161,28 @@ fn execute_get_operation(
     Ok(Output::Value(entry))
 }
 
-fn execute_delete_operation(
+fn execute_delete_operation<DB: Schema>(
     namespace: Option<String>,
     key: String,
-    sled: &sled::Db,
+    storage: &Storage<DB>,
 ) -> Result<Output, pliantdb_core::Error> {
-    let full_namespace = format!("kv.{}", namespace.unwrap_or_default());
+    let tree_name = format!("kv.{}", namespace.unwrap_or_default());
 
-    let tree = sled
-        .open_tree(full_namespace.as_bytes())
+    let tree = storage
+        .data
+        .sled
+        .open_tree(tree_name.as_bytes())
         .map_err_to_core()?;
-    let value = tree.remove(key).map_err_to_core()?;
+    let value = tree.remove(&key).map_err_to_core()?;
     if value.is_some() {
+        storage.update_key_expiration(ExpirationUpdate {
+            tree_key: TreeKey {
+                tree: tree_name,
+                key,
+            },
+            expiration: None,
+        });
+
         Ok(Output::Status(KeyStatus::Deleted))
     } else {
         Ok(Output::Status(KeyStatus::NotChanged))
@@ -288,7 +308,7 @@ mod tests {
     use std::time::Duration;
 
     use futures::Future;
-    use pliantdb_core::test_util::TestDirectory;
+    use pliantdb_core::test_util::{TestDirectory, TimingTest};
 
     use super::*;
 
@@ -342,26 +362,36 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn updating_expiration() -> anyhow::Result<()> {
         run_test("kv-updating-expiration", |sender, sled| async move {
-            let tree = sled.open_tree(b"atree")?;
-            tree.insert(b"akey", b"somevalue")?;
-            sender.send(ExpirationUpdate {
-                tree_key: TreeKey {
-                    tree: String::from("atree"),
-                    key: String::from("akey"),
-                },
-                expiration: Some(Timestamp::now() + Duration::from_millis(100)),
-            })?;
-            sender.send(ExpirationUpdate {
-                tree_key: TreeKey {
-                    tree: String::from("atree"),
-                    key: String::from("akey"),
-                },
-                expiration: Some(Timestamp::now() + Duration::from_secs(1)),
-            })?;
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            assert!(tree.get(b"akey")?.is_some());
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            assert!(tree.get(b"akey")?.is_none());
+            loop {
+                sled.drop_tree(b"atree")?;
+                let tree = sled.open_tree(b"atree")?;
+                tree.insert(b"akey", b"somevalue")?;
+                let timing = TimingTest::new(Duration::from_millis(100));
+                sender.send(ExpirationUpdate {
+                    tree_key: TreeKey {
+                        tree: String::from("atree"),
+                        key: String::from("akey"),
+                    },
+                    expiration: Some(Timestamp::now() + Duration::from_millis(100)),
+                })?;
+                sender.send(ExpirationUpdate {
+                    tree_key: TreeKey {
+                        tree: String::from("atree"),
+                        key: String::from("akey"),
+                    },
+                    expiration: Some(Timestamp::now() + Duration::from_secs(1)),
+                })?;
+                if timing.elapsed() > Duration::from_millis(100)
+                    || !timing.wait_until(Duration::from_millis(500)).await
+                {
+                    continue;
+                }
+                assert!(tree.get(b"akey")?.is_some());
+
+                timing.wait_until(Duration::from_secs_f32(1.5)).await;
+                assert!(tree.get(b"akey")?.is_none());
+                break;
+            }
 
             Ok(())
         })
@@ -371,31 +401,39 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn multiple_keys_expiration() -> anyhow::Result<()> {
         run_test("kv-multiple-keys-expiration", |sender, sled| async move {
-            let tree = sled.open_tree(b"atree")?;
-            tree.insert(b"akey", b"somevalue")?;
-            tree.insert(b"bkey", b"somevalue")?;
+            loop {
+                sled.drop_tree(b"atree")?;
+                let tree = sled.open_tree(b"atree")?;
+                tree.insert(b"akey", b"somevalue")?;
+                tree.insert(b"bkey", b"somevalue")?;
 
-            sender.send(ExpirationUpdate {
-                tree_key: TreeKey {
-                    tree: String::from("atree"),
-                    key: String::from("akey"),
-                },
-                expiration: Some(Timestamp::now() + Duration::from_millis(10)),
-            })?;
-            sender.send(ExpirationUpdate {
-                tree_key: TreeKey {
-                    tree: String::from("atree"),
-                    key: String::from("bkey"),
-                },
-                expiration: Some(Timestamp::now() + Duration::from_secs(1)),
-            })?;
+                let timing = TimingTest::new(Duration::from_millis(100));
+                sender.send(ExpirationUpdate {
+                    tree_key: TreeKey {
+                        tree: String::from("atree"),
+                        key: String::from("akey"),
+                    },
+                    expiration: Some(Timestamp::now() + Duration::from_millis(100)),
+                })?;
+                sender.send(ExpirationUpdate {
+                    tree_key: TreeKey {
+                        tree: String::from("atree"),
+                        key: String::from("bkey"),
+                    },
+                    expiration: Some(Timestamp::now() + Duration::from_secs(1)),
+                })?;
 
-            tokio::time::sleep(Duration::from_millis(100)).await;
+                if !timing.wait_until(Duration::from_millis(200)).await {
+                    continue;
+                }
 
-            assert!(tree.get(b"akey")?.is_none());
-            assert!(tree.get(b"bkey")?.is_some());
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            assert!(tree.get(b"bkey")?.is_none());
+                assert!(tree.get(b"akey")?.is_none());
+                assert!(tree.get(b"bkey")?.is_some());
+                timing.wait_until(Duration::from_millis(1100)).await;
+                assert!(tree.get(b"bkey")?.is_none());
+
+                break;
+            }
 
             Ok(())
         })
@@ -405,24 +443,33 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn clearing_expiration() -> anyhow::Result<()> {
         run_test("kv-clearing-expiration", |sender, sled| async move {
-            let tree = sled.open_tree(b"atree")?;
-            tree.insert(b"akey", b"somevalue")?;
-            sender.send(ExpirationUpdate {
-                tree_key: TreeKey {
-                    tree: String::from("atree"),
-                    key: String::from("akey"),
-                },
-                expiration: Some(Timestamp::now() + Duration::from_millis(10)),
-            })?;
-            sender.send(ExpirationUpdate {
-                tree_key: TreeKey {
-                    tree: String::from("atree"),
-                    key: String::from("akey"),
-                },
-                expiration: None,
-            })?;
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            assert!(tree.get(b"akey")?.is_some());
+            loop {
+                sled.drop_tree(b"atree")?;
+                let tree = sled.open_tree(b"atree")?;
+                tree.insert(b"akey", b"somevalue")?;
+                let timing = TimingTest::new(Duration::from_millis(100));
+                sender.send(ExpirationUpdate {
+                    tree_key: TreeKey {
+                        tree: String::from("atree"),
+                        key: String::from("akey"),
+                    },
+                    expiration: Some(Timestamp::now() + Duration::from_millis(100)),
+                })?;
+                sender.send(ExpirationUpdate {
+                    tree_key: TreeKey {
+                        tree: String::from("atree"),
+                        key: String::from("akey"),
+                    },
+                    expiration: None,
+                })?;
+                if timing.elapsed() > Duration::from_millis(100) {
+                    // Restart, took too long.
+                    continue;
+                }
+                timing.wait_until(Duration::from_millis(150)).await;
+                assert!(tree.get(b"akey")?.is_some());
+                break;
+            }
 
             Ok(())
         })

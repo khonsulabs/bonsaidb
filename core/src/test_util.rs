@@ -278,6 +278,7 @@ pub enum HarnessTest {
     KvBasic,
     KvSet,
     KvExpiration,
+    KvDeleteExpire,
 }
 
 impl HarnessTest {
@@ -919,6 +920,14 @@ macro_rules! define_kv_test_suite {
                     kv.set_key("a", &0_u32).expire_in(Duration::from_secs(2)),
                     kv.set_key("b", &0_u32).expire_in(Duration::from_secs(2))
                 );
+                if timing.elapsed() > Duration::from_millis(500) {
+                    println!(
+                        "Restarting test {}. Took too long {:?}",
+                        line!(),
+                        timing.elapsed(),
+                    );
+                    continue;
+                }
                 assert_eq!(r1?, KeyStatus::Inserted);
                 assert_eq!(r2?, KeyStatus::Inserted);
                 let (r1, r2) = tokio::join!(
@@ -933,7 +942,6 @@ macro_rules! define_kv_test_suite {
                         line!(),
                         timing.elapsed(),
                     );
-                    // If it took longer than 2 seconds to reach here, the a will already have dropped. So, restart.
                     continue;
                 }
                 if !timing.wait_until(Duration::from_secs_f32(2.5)).await {
@@ -942,7 +950,7 @@ macro_rules! define_kv_test_suite {
                         line!(),
                         timing.elapsed()
                     );
-                    continue; // restart if this has taken too much time.
+                    continue;
                 }
 
                 assert_eq!(r1?, KeyStatus::Updated, "a wasn't an update");
@@ -953,6 +961,56 @@ macro_rules! define_kv_test_suite {
 
                 timing.wait_until(Duration::from_secs_f32(5.)).await;
                 assert_eq!(kv.get_key::<u32, _>("a").await?, None);
+                break;
+            }
+            harness.shutdown().await?;
+
+            Ok(())
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn delete_expire_tests() -> anyhow::Result<()> {
+            use std::time::Duration;
+
+            use $crate::kv::{KeyStatus, Kv};
+
+            let harness = $harness::new($crate::test_util::HarnessTest::KvDeleteExpire).await?;
+            let db = harness.connect().await?;
+
+            loop {
+                let kv = db.with_key_namespace("delete_expire");
+
+                kv.delete_key("a").await?;
+
+                let timing = $crate::test_util::TimingTest::new(Duration::from_millis(500));
+
+                // Create a key with an expiration. Delete the key. Set a new
+                // value at that key with no expiration. Ensure it doesn't
+                // expire.
+                kv.set_key("a", &0_u32)
+                    .expire_in(Duration::from_secs(2))
+                    .await?;
+                kv.delete_key("a").await?;
+                kv.set_key("a", &1_u32).await?;
+                if timing.elapsed() > Duration::from_secs(2) {
+                    println!(
+                        "Restarting test {}. Took too long {:?}",
+                        line!(),
+                        timing.elapsed(),
+                    );
+                    continue;
+                }
+                if !timing.wait_until(Duration::from_secs_f32(2.5)).await {
+                    println!(
+                        "Restarting test {}. Took too long {:?}",
+                        line!(),
+                        timing.elapsed()
+                    );
+                    continue;
+                }
+
+                assert_eq!(kv.get_key::<u32, _>("a").await?, Some(1));
+
                 break;
             }
             harness.shutdown().await?;
