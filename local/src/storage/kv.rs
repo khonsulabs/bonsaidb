@@ -5,6 +5,7 @@ use pliantdb_core::{
     kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Output, Timestamp},
     schema::Schema,
 };
+use pliantdb_jobs::Job;
 use serde::{Deserialize, Serialize};
 use sled::IVec;
 
@@ -517,5 +518,56 @@ mod tests {
             Ok(())
         })
         .await
+    }
+}
+
+#[derive(Debug)]
+pub struct ExpirationLoader<DB> {
+    pub storage: Storage<DB>,
+}
+
+#[async_trait]
+impl<DB> Job for ExpirationLoader<DB>
+where
+    DB: Schema,
+{
+    type Output = ();
+
+    async fn execute(&mut self) -> anyhow::Result<Self::Output> {
+        let storage = self.storage.clone();
+        let (sender, receiver) = flume::unbounded();
+
+        tokio::task::spawn_blocking(move || {
+            for kv_tree in storage
+                .data
+                .sled
+                .tree_names()
+                .into_iter()
+                .filter(|t| t.starts_with(b"kv."))
+            {
+                for row in storage.data.sled.open_tree(&kv_tree)?.iter() {
+                    let (key, entry) = row?;
+                    if let Ok(entry) = bincode::deserialize::<KvEntry>(&entry) {
+                        if entry.expiration.is_some() {
+                            sender.send((kv_tree.to_vec(), key.to_vec(), entry.expiration))?;
+                        }
+                    }
+                }
+            }
+
+            Result::<(), anyhow::Error>::Ok(())
+        });
+
+        while let Ok((tree, key, expiration)) = receiver.recv_async().await {
+            self.storage.update_key_expiration(ExpirationUpdate {
+                tree_key: TreeKey {
+                    tree: String::from_utf8(tree)?,
+                    key: String::from_utf8(key)?,
+                },
+                expiration,
+            });
+        }
+
+        Ok(())
     }
 }

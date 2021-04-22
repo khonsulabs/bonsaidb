@@ -36,7 +36,7 @@ use crate::{
     views::{view_entries_tree_name, view_invalidated_docs_tree_name, ViewEntry},
 };
 
-mod kv;
+pub mod kv;
 
 /// A local, file-based database.
 #[derive(Debug)]
@@ -106,6 +106,12 @@ where
                     .await?;
             }
         }
+
+        storage
+            .data
+            .tasks
+            .spawn_key_value_expiration_loader(&storage)
+            .await;
 
         Ok(storage)
     }

@@ -2,9 +2,10 @@ use std::time::Duration;
 
 use pliantdb_core::{
     connection::{AccessPolicy, Connection},
+    kv::Kv,
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
-        BasicCollectionWithOnlyBrokenParentId, HarnessTest, TestDirectory,
+        BasicCollectionWithOnlyBrokenParentId, HarnessTest, TestDirectory, TimingTest,
     },
 };
 
@@ -117,4 +118,53 @@ fn integrity_checks() -> anyhow::Result<()> {
             panic!("Integrity checker didn't run in the allocated time")
         })
     }
+}
+
+#[test]
+fn expiration_after_close() -> anyhow::Result<()> {
+    loop {
+        let path = TestDirectory::new("expiration-after-close");
+        // To ensure full cleanup between each block, each runs in its own runtime;
+        let timing = TimingTest::new(Duration::from_millis(500));
+        // Set a key with an expiration, then close it. Then try to validate it
+        // exists after opening, and then expires at the correct time.
+        {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let db = Storage::<()>::open_local(&path, &Configuration::default()).await?;
+
+                db.set_key("a", &0_u32)
+                    .expire_in(Duration::from_secs(3))
+                    .await?;
+
+                Result::<(), anyhow::Error>::Ok(())
+            })?;
+        }
+
+        {
+            let rt = tokio::runtime::Runtime::new()?;
+            let retry = rt.block_on(async {
+                let db = Storage::<()>::open_local(&path, &Configuration::default()).await?;
+
+                if timing.elapsed() > Duration::from_secs(1) {
+                    return Ok(true);
+                }
+
+                assert_eq!(db.get_key("a").await?, Some(0_u32));
+
+                timing.wait_until(Duration::from_secs(4)).await;
+
+                assert!(db.get_key::<u32, _>("a").await?.is_none());
+
+                Result::<bool, anyhow::Error>::Ok(false)
+            })?;
+
+            if retry {
+                continue;
+            }
+        }
+
+        break;
+    }
+    Ok(())
 }
