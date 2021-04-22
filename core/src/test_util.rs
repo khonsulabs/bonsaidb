@@ -5,7 +5,7 @@ use std::{
     fmt::{Debug, Display},
     io::ErrorKind,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
@@ -276,6 +276,8 @@ pub enum HarnessTest {
     PubSubUnsubscribe,
     PubSubDropCleanup,
     KvBasic,
+    KvSet,
+    KvExpiration,
 }
 
 impl HarnessTest {
@@ -830,51 +832,168 @@ pub async fn view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<(
 #[macro_export]
 macro_rules! define_kv_test_suite {
     ($harness:ident) => {
-        #[cfg(test)]
-        use $crate::kv::{KeyStatus, Kv};
-
         #[tokio::test(flavor = "multi_thread")]
         async fn basic_kv_test() -> anyhow::Result<()> {
+            use $crate::kv::{KeyStatus, Kv};
             let harness = $harness::new($crate::test_util::HarnessTest::KvBasic).await?;
             let db = harness.connect().await?;
-            println!("Connected.");
             assert_eq!(
                 db.set_key("akey", &String::from("avalue")).await?,
                 KeyStatus::Inserted
             );
-            println!("Inserted");
             assert_eq!(db.get_key("akey").await?, Some(String::from("avalue")));
-            println!("get");
             assert_eq!(
                 db.set_key("akey", &String::from("new_value"))
                     .returning_previous()
                     .await?,
                 Some(String::from("avalue"))
             );
-            println!("2");
             assert_eq!(db.get_key("akey").await?, Some(String::from("new_value")));
-            println!("4");
             assert_eq!(
                 db.get_key("akey").and_delete().await?,
                 Some(String::from("new_value"))
             );
-            println!("6");
             assert_eq!(db.get_key::<String, _>("akey").await?, None);
-            println!("7");
             assert_eq!(
                 db.set_key("akey", &String::from("new_value"))
                     .returning_previous()
                     .await?,
                 None
             );
-            println!("8");
             assert_eq!(db.delete_key("akey").await?, KeyStatus::Deleted);
-            println!("9");
             assert_eq!(db.delete_key("akey").await?, KeyStatus::NotChanged);
 
             harness.shutdown().await?;
 
             Ok(())
         }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn kv_set_tests() -> anyhow::Result<()> {
+            use $crate::kv::{KeyStatus, Kv};
+            let harness = $harness::new($crate::test_util::HarnessTest::KvSet).await?;
+            let db = harness.connect().await?;
+            let kv = db.with_key_namespace("set");
+
+            assert_eq!(
+                kv.set_key("a", &0_u32).only_if_exists().await?,
+                KeyStatus::NotChanged
+            );
+            assert_eq!(
+                kv.set_key("a", &0_u32).only_if_vacant().await?,
+                KeyStatus::Inserted
+            );
+            assert_eq!(
+                kv.set_key("a", &1_u32).only_if_vacant().await?,
+                KeyStatus::NotChanged
+            );
+            assert_eq!(
+                kv.set_key("a", &2_u32).only_if_exists().await?,
+                KeyStatus::Updated,
+            );
+            assert_eq!(kv.set_key("a", &3_u32).returning_previous().await?, Some(2),);
+
+            harness.shutdown().await?;
+
+            Ok(())
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn kv_expiration_tests() -> anyhow::Result<()> {
+            use std::time::Duration;
+
+            use $crate::kv::{KeyStatus, Kv};
+
+            let harness = $harness::new($crate::test_util::HarnessTest::KvExpiration).await?;
+            let db = harness.connect().await?;
+
+            loop {
+                let kv = db.with_key_namespace("expiration");
+
+                kv.delete_key("a").await?;
+                kv.delete_key("b").await?;
+
+                // Test that the expiration is updated for key a, but not for key b.
+                let timing = $crate::test_util::TimingTest::new(Duration::from_millis(500));
+                let (r1, r2) = tokio::join!(
+                    kv.set_key("a", &0_u32).expire_in(Duration::from_secs(2)),
+                    kv.set_key("b", &0_u32).expire_in(Duration::from_secs(2))
+                );
+                assert_eq!(r1?, KeyStatus::Inserted);
+                assert_eq!(r2?, KeyStatus::Inserted);
+                let (r1, r2) = tokio::join!(
+                    kv.set_key("a", &1_u32).expire_in(Duration::from_secs(4)),
+                    kv.set_key("b", &1_u32)
+                        .expire_in(Duration::from_secs(100))
+                        .keep_existing_expiration()
+                );
+                if timing.elapsed() > Duration::from_secs(2) {
+                    println!(
+                        "Restarting test {}. Took too long {:?}",
+                        line!(),
+                        timing.elapsed(),
+                    );
+                    // If it took longer than 2 seconds to reach here, the a will already have dropped. So, restart.
+                    continue;
+                }
+                if !timing.wait_until(Duration::from_secs_f32(2.5)).await {
+                    println!(
+                        "Restarting test {}. Took too long {:?}",
+                        line!(),
+                        timing.elapsed()
+                    );
+                    continue; // restart if this has taken too much time.
+                }
+
+                assert_eq!(r1?, KeyStatus::Updated, "a wasn't an update");
+                assert_eq!(r2?, KeyStatus::Updated, "b wasn't an update");
+
+                assert_eq!(kv.get_key::<u32, _>("a").await?, Some(1));
+                assert_eq!(kv.get_key::<u32, _>("b").await?, None);
+
+                timing.wait_until(Duration::from_secs_f32(5.)).await;
+                assert_eq!(kv.get_key::<u32, _>("a").await?, None);
+                break;
+            }
+            harness.shutdown().await?;
+
+            Ok(())
+        }
     };
+}
+
+pub struct TimingTest {
+    tolerance: Duration,
+    start: Instant,
+}
+
+impl TimingTest {
+    #[must_use]
+    pub fn new(tolerance: Duration) -> Self {
+        Self {
+            tolerance,
+            start: Instant::now(),
+        }
+    }
+
+    pub async fn wait_until(&self, absolute_duration: Duration) -> bool {
+        let target = self.start + absolute_duration;
+        let now = Instant::now();
+        if now > target {
+            let amount_past = now - target;
+
+            // Return false if we're beyond the tolerance given
+            amount_past < self.tolerance
+        } else {
+            tokio::time::sleep_until(target.into()).await;
+            true
+        }
+    }
+
+    #[must_use]
+    pub fn elapsed(&self) -> Duration {
+        Instant::now()
+            .checked_duration_since(self.start)
+            .unwrap_or_default()
+    }
 }

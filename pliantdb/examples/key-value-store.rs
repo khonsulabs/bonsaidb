@@ -14,7 +14,8 @@ async fn main() -> anyhow::Result<()> {
     let db =
         Storage::<()>::open_local("key-value-store.pliantdb", &Configuration::default()).await?;
 
-    // The set_key method can be awaited to insert/replace a key. Values can be anything supported by serde.
+    // The set_key method can be awaited to insert/replace a key. Values can be
+    // anything supported by serde.
     db.set_key("mykey", &1_u32).await?;
 
     // Or, you can customize it's behavior:
@@ -26,17 +27,15 @@ async fn main() -> anyhow::Result<()> {
     assert_eq!(old_value, Some(1));
 
     // Retrieving is simple too.
-    let value = db.get_key::<u32, _>("mykey").await?;
-    assert_eq!(value, Some(2));
+    let value = db.get_key("mykey").await?;
+    assert_eq!(value, Some(2_u32));
 
     // Namespacing is built-in as well, so that you can easily separate storage.
-    let value = db
-        .with_key_namespace("anamespace")
-        .get_key::<u32, _>("mykey")
-        .await?;
+    let value: Option<u32> = db.with_key_namespace("anamespace").get_key("mykey").await?;
     assert!(value.is_none());
 
-    // Because of the atomic nature of the key-value store, you can use set_key as a synchronized lock:
+    // Because of the atomic nature of the key-value store, you can use set_key
+    // as a synchronized lock:
     let result = db
         .set_key("lockname", &()) // A useful value would be the unique id of the worker that aquired the lock.
         .only_if_vacant()

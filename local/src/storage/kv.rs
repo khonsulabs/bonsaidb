@@ -91,7 +91,13 @@ fn execute_set_operation<DB: Schema>(
                 let entry_vec = bincode::serialize(&entry).unwrap();
                 Some(IVec::from(entry_vec))
             } else {
-                None
+                // TODO Investigate if this actually copies, I think IVec
+                // optimizes this under the hood. Ultimately, fetch_and_update
+                // isn't the exact right choice here, but it is implemented as a
+                // loop calling compare_swap. It'd be a lot better for us to
+                // write our own function, and be able to exit without updating
+                // the key.
+                existing_value.map(IVec::from)
             }
         })
         .map_err_to_core()?;
@@ -315,6 +321,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn basic_expiration() -> anyhow::Result<()> {
         run_test("kv-basic-expiration", |sender, sled| async move {
+            sled.drop_tree(b"atree")?;
             let tree = sled.open_tree(b"atree")?;
             tree.insert(b"akey", b"somevalue")?;
             sender.send(ExpirationUpdate {
@@ -324,7 +331,7 @@ mod tests {
                 },
                 expiration: Some(Timestamp::now() + Duration::from_millis(100)),
             })?;
-            tokio::time::sleep(Duration::from_millis(110)).await;
+            tokio::time::sleep(Duration::from_millis(200)).await;
             assert!(tree.get(b"akey")?.is_none());
 
             Ok(())
@@ -351,7 +358,7 @@ mod tests {
                 },
                 expiration: Some(Timestamp::now() + Duration::from_secs(1)),
             })?;
-            tokio::time::sleep(Duration::from_millis(105)).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
             assert!(tree.get(b"akey")?.is_some());
             tokio::time::sleep(Duration::from_secs(1)).await;
             assert!(tree.get(b"akey")?.is_none());
@@ -367,6 +374,7 @@ mod tests {
             let tree = sled.open_tree(b"atree")?;
             tree.insert(b"akey", b"somevalue")?;
             tree.insert(b"bkey", b"somevalue")?;
+
             sender.send(ExpirationUpdate {
                 tree_key: TreeKey {
                     tree: String::from("atree"),
@@ -381,7 +389,9 @@ mod tests {
                 },
                 expiration: Some(Timestamp::now() + Duration::from_secs(1)),
             })?;
-            tokio::time::sleep(Duration::from_millis(15)).await;
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+
             assert!(tree.get(b"akey")?.is_none());
             assert!(tree.get(b"bkey")?.is_some());
             tokio::time::sleep(Duration::from_secs(1)).await;

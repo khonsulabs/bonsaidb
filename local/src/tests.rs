@@ -41,67 +41,80 @@ pliantdb_core::define_pubsub_test_suite!(TestHarness);
 
 pliantdb_core::define_kv_test_suite!(TestHarness);
 
-#[tokio::test(flavor = "multi_thread")]
-async fn integrity_checks() -> anyhow::Result<()> {
+#[test]
+fn integrity_checks() -> anyhow::Result<()> {
     let path = TestDirectory::new("integrity-checks");
+    // To ensure full cleanup between each block, each runs in its own runtime;
+
     // Add a doc with no views installed
     {
-        let db =
-            Storage::<BasicCollectionWithNoViews>::open_local(&path, &Configuration::default())
-                .await?;
-        let collection = db.collection::<BasicCollectionWithNoViews>();
-        collection.push(&Basic::default().with_parent_id(1)).await?;
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let db =
+                Storage::<BasicCollectionWithNoViews>::open_local(&path, &Configuration::default())
+                    .await?;
+            let collection = db.collection::<BasicCollectionWithNoViews>();
+            collection.push(&Basic::default().with_parent_id(1)).await?;
+            Result::<(), anyhow::Error>::Ok(())
+        })?;
     }
     // Connect with a new view
     {
-        let db = Storage::<BasicCollectionWithOnlyBrokenParentId>::open_local(
-            &path,
-            &Configuration::default(),
-        )
-        .await?;
-        // Give the integrity scanner time to run if it were to run (it shouldn't in this configuration).
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let db = Storage::<BasicCollectionWithOnlyBrokenParentId>::open_local(
+                &path,
+                &Configuration::default(),
+            )
+            .await?;
+            // Give the integrity scanner time to run if it were to run (it shouldn't in this configuration).
+            tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // NoUpdate should return data without the validation checker having run.
-        assert_eq!(
-            db.view::<BasicByBrokenParentId>()
-                .with_access_policy(AccessPolicy::NoUpdate)
-                .query()
-                .await?
-                .len(),
-            0
-        );
+            // NoUpdate should return data without the validation checker having run.
+            assert_eq!(
+                db.view::<BasicByBrokenParentId>()
+                    .with_access_policy(AccessPolicy::NoUpdate)
+                    .query()
+                    .await?
+                    .len(),
+                0
+            );
 
-        // Regular query should show the correct data
-        assert_eq!(db.view::<BasicByBrokenParentId>().query().await?.len(), 1);
+            // Regular query should show the correct data
+            assert_eq!(db.view::<BasicByBrokenParentId>().query().await?.len(), 1);
+            Result::<(), anyhow::Error>::Ok(())
+        })?;
     }
     // Connect with a fixed view, and wait for the integrity scanner to work
     {
-        let db = Storage::<Basic>::open_local(
-            &path,
-            &Configuration {
-                views: config::Views {
-                    check_integrity_on_open: true,
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let db = Storage::<Basic>::open_local(
+                &path,
+                &Configuration {
+                    views: config::Views {
+                        check_integrity_on_open: true,
+                    },
+                    ..Configuration::default()
                 },
-                ..Configuration::default()
-            },
-        )
-        .await?;
-        for _ in 0_u8..10 {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            if db
-                .view::<BasicByParentId>()
-                .with_access_policy(AccessPolicy::NoUpdate)
-                .with_key(Some(1))
-                .query()
-                .await?
-                .len()
-                == 1
-            {
-                return Ok(());
+            )
+            .await?;
+            for _ in 0_u8..10 {
+                tokio::time::sleep(Duration::from_millis(1000)).await;
+                if db
+                    .view::<BasicByParentId>()
+                    .with_access_policy(AccessPolicy::NoUpdate)
+                    .with_key(Some(1))
+                    .query()
+                    .await?
+                    .len()
+                    == 1
+                {
+                    return Result::<(), anyhow::Error>::Ok(());
+                }
             }
-        }
 
-        panic!("Integrity checker didn't run in the allocated time")
+            panic!("Integrity checker didn't run in the allocated time")
+        })
     }
 }
