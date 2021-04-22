@@ -1,14 +1,22 @@
 use std::{
     borrow::Cow,
-    ops::Add,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
-use futures::{future::BoxFuture, Future};
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
 use crate::{schema::Key, Error};
+
+/// Types for executing get operations.
+pub mod get;
+/// Types for handling key namespaces.
+pub mod namespaced;
+/// Types for executing set operations.
+pub mod set;
+
+use namespaced::Namespaced;
 
 /// A timestamp relative to [`UNIX_EPOCH`].
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
@@ -98,21 +106,49 @@ impl Key for Timestamp {
 /// for synchronized locking.
 #[async_trait]
 pub trait Kv: Send + Sync {
-    /// Executes a single [`Op`].
-    async fn execute(&self, op: Op) -> Result<Output, Error>;
+    /// Executes a single [`KeyOperation`].
+    async fn execute(&self, op: KeyOperation) -> Result<Output, Error>;
 
     /// Sets `key` to `value`. This function returns a builder that is also a
-    /// Future. Awaiting the builder will execute [`Op::Set`] with the options
+    /// Future. Awaiting the builder will execute [`Command::Set`] with the options
     /// given.
     fn set<'a, S: Into<String>, V: Serialize>(
         &'a self,
         key: S,
         value: &'a V,
-    ) -> SetBuilder<'a, Self, V>
+    ) -> set::Builder<'a, Self, V>
     where
         Self: Sized,
     {
-        SetBuilder::new(self, self.namespace().map(Into::into), key.into(), value)
+        set::Builder::new(self, self.namespace().map(Into::into), key.into(), value)
+    }
+
+    /// Gets the value stored at `key`. This function returns a builder that is also a
+    /// Future. Awaiting the builder will execute [`Command::Get`] with the options
+    /// given.
+    fn get<'de, V: Deserialize<'de>, S: Into<String>>(&'_ self, key: S) -> get::Builder<'_, Self, V>
+    where
+        Self: Sized,
+    {
+        get::Builder::new(self, self.namespace().map(Into::into), key.into())
+    }
+
+    /// Deletes the value stored at `key`.
+    async fn delete<S: Into<String> + Send>(&'_ self, key: S) -> Result<KeyStatus, Error>
+    where
+        Self: Sized,
+    {
+        match self
+            .execute(KeyOperation {
+                namespace: self.namespace().map(ToOwned::to_owned),
+                key: key.into(),
+                command: Command::Delete,
+            })
+            .await?
+        {
+            Output::Status(status) => Ok(status),
+            Output::Value(_) => unreachable!("invalid output from delete operation"),
+        }
     }
 
     /// The current namespace.
@@ -127,162 +163,13 @@ pub trait Kv: Send + Sync {
     where
         Self: Sized,
     {
-        Namespaced {
-            namespace: namespace.to_string(),
-            kv: self,
-        }
-    }
-}
-
-/// A namespaced key-value store. All operations performed with this will be
-/// separate from other namespaces.
-pub struct Namespaced<'a, K> {
-    namespace: String,
-    kv: &'a K,
-}
-
-#[async_trait]
-impl<'a, K> Kv for Namespaced<'a, K>
-where
-    K: Kv,
-{
-    async fn execute(&self, op: Op) -> Result<Output, Error> {
-        self.kv.execute(op).await
-    }
-
-    fn namespace(&self) -> Option<&'_ str> {
-        Some(&self.namespace)
-    }
-
-    fn with_namespace(&'_ self, namespace: &str) -> Namespaced<'_, Self>
-    where
-        Self: Sized,
-    {
-        Namespaced {
-            namespace: format!("{}\u{0}{}", self.namespace, namespace),
-            kv: self,
-        }
-    }
-}
-
-/// Executes [`Op::Set`] when awaited. Also offers methods to customize the
-/// options for the operation.
-#[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct SetBuilder<'a, Kv, V> {
-    state: BuilderState<'a, SetBuilderOptions<'a, Kv, V>, Result<Output, Error>>,
-}
-
-struct SetBuilderOptions<'a, Kv, V> {
-    kv: &'a Kv,
-    namespace: Option<String>,
-    key: String,
-    value: &'a V,
-    expiration: Option<Timestamp>,
-    keep_existing_expiration: bool,
-    check: Option<KeyCheck>,
-}
-
-impl<'a, K, V> SetBuilder<'a, K, V>
-where
-    K: Kv,
-{
-    fn new(kv: &'a K, namespace: Option<String>, key: String, value: &'a V) -> Self {
-        Self {
-            state: BuilderState::Pending(Some(SetBuilderOptions {
-                key,
-                value,
-                kv,
-                namespace,
-                expiration: None,
-                keep_existing_expiration: false,
-                check: None,
-            })),
-        }
-    }
-
-    fn options(&mut self) -> &mut SetBuilderOptions<'a, K, V> {
-        if let BuilderState::Pending(Some(options)) = &mut self.state {
-            options
-        } else {
-            panic!("Attempted to use after retrieving the result")
-        }
-    }
-
-    /// Set this key to expire after `duration` from now.
-    pub fn expire_in(mut self, duration: Duration) -> Self {
-        // TODO consider using checked_add here and making it return an error.
-        self.options().expiration = Some(Timestamp::from(SystemTime::now().add(duration)));
-        self
-    }
-
-    /// Set this key to expire at the provided `time`.
-    pub fn expire_at(mut self, time: SystemTime) -> Self {
-        // TODO consider using checked_add here and making it return an error.
-        self.options().expiration = Some(Timestamp::from(time));
-        self
-    }
-
-    /// If the key already exists, do not update the currently set expiration.
-    pub fn keep_existing_expiration(mut self) -> Self {
-        self.options().keep_existing_expiration = true;
-        self
-    }
-
-    /// Only set the value if this key already exists.
-    pub fn only_if_exists(mut self) -> Self {
-        self.options().check = Some(KeyCheck::OnlyIfPresent);
-        self
-    }
-
-    /// Only set the value if this key isn't present.
-    pub fn only_if_vacant(mut self) -> Self {
-        self.options().check = Some(KeyCheck::OnlyIfVacant);
-        self
+        Namespaced::new(namespace.to_string(), self)
     }
 }
 
 enum BuilderState<'a, T, R> {
     Pending(Option<T>),
     Executing(BoxFuture<'a, R>),
-}
-
-impl<'a, K, V> Future for SetBuilder<'a, K, V>
-where
-    K: Kv,
-    V: Serialize,
-{
-    type Output = Result<Output, Error>;
-
-    fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        match &mut self.state {
-            BuilderState::Executing(future) => future.as_mut().poll(cx),
-            BuilderState::Pending(builder) => {
-                let SetBuilderOptions {
-                    kv,
-                    namespace,
-                    key,
-                    value,
-                    expiration,
-                    keep_existing_expiration,
-                    check,
-                } = builder.take().expect("expected builder to have options");
-                let future = kv.execute(Op::Set {
-                    namespace,
-                    key,
-                    value: serde_cbor::to_vec(value)?,
-                    expiration,
-                    keep_existing_expiration,
-                    check,
-                });
-
-                self.state = BuilderState::Executing(future);
-                self.poll(cx)
-            }
-        }
-    }
 }
 
 /// Checks for existing keys.
@@ -294,15 +181,21 @@ pub enum KeyCheck {
     OnlyIfVacant,
 }
 
-/// Operations for a key-value store.
+/// An operation performed on a key.
+pub struct KeyOperation {
+    /// The namespace for the key.
+    pub namespace: Option<String>,
+    /// The key to operate on.
+    pub key: String,
+    /// The command to execute.
+    pub command: Command,
+}
+
+/// Commands for a key-value store.
 #[derive(Serialize, Deserialize, Debug)]
-pub enum Op {
+pub enum Command {
     /// Set a key/value pair.
     Set {
-        /// The namespace for the key.
-        namespace: Option<String>,
-        /// The key.
-        key: String,
         /// The value.
         value: Vec<u8>,
         /// If set, the key will be set to expire automatically.
@@ -313,23 +206,35 @@ pub enum Op {
         keep_existing_expiration: bool,
         /// Conditional checks for whether the key is already present or not.
         check: Option<KeyCheck>,
+        /// If true and the key already exists, the existing key will be returned if overwritten.
+        return_previous_value: bool,
+    },
+    /// Get the value from a key.
+    Get {
+        /// Remove the key after retrieving the value.
+        delete: bool,
     },
     /// Delete a key.
-    Delete {
-        /// The namespace for the key.
-        namespace: Option<String>,
-        /// The key to remove.
-        key: String,
-    },
+    Delete,
 }
 
-/// The result of an [`Op`].
+/// The result of a [`KeyOperation`].
 #[derive(Debug)]
 pub enum Output {
-    /// The operation succeeded.
-    Ok,
-    /// The key was not modified.
-    KeyNotChanged,
+    /// A status was returned.
+    Status(KeyStatus),
     /// A value was returned.
     Value(Option<Vec<u8>>),
+}
+/// The status of an operation on a Key.
+#[derive(Debug, PartialEq)]
+pub enum KeyStatus {
+    /// A new key was inserted.
+    Inserted,
+    /// An existing key was updated with a new value.
+    Updated,
+    /// A key was deleted.
+    Deleted,
+    /// No changes were made.
+    NotChanged,
 }

@@ -2,13 +2,13 @@ use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
 use pliantdb_core::{
-    kv::{KeyCheck, Kv, Op, Output, Timestamp},
+    kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Output, Timestamp},
     schema::Schema,
 };
 use serde::{Deserialize, Serialize};
 use sled::IVec;
 
-use crate::error::ResultExt as _;
+use crate::{error::ResultExt as _, Storage};
 
 #[derive(Serialize, Deserialize)]
 struct KvEntry {
@@ -17,70 +17,146 @@ struct KvEntry {
 }
 
 #[async_trait]
-impl<DB> Kv for super::Storage<DB>
+impl<DB> Kv for Storage<DB>
 where
     DB: Schema,
 {
-    async fn execute(&self, op: Op) -> Result<Output, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| match op {
-            Op::Set {
-                namespace,
-                key,
+    async fn execute(&self, op: KeyOperation) -> Result<Output, pliantdb_core::Error> {
+        tokio::task::block_in_place(|| match op.command {
+            Command::Set {
                 value,
                 expiration,
                 keep_existing_expiration,
                 check,
-            } => {
-                let tree_name = format!("kv.{}", namespace.unwrap_or_default());
-                let kv_tree = self
-                    .data
-                    .sled
-                    .open_tree(tree_name.as_bytes())
-                    .map_err_to_core()?;
-
-                let entry = KvEntry { value, expiration };
-                let entry_vec = bincode::serialize(&entry).map_err_to_core()?;
-                let updated_value = kv_tree
-                    .fetch_and_update(key.as_bytes(), |existing_value| {
-                        let should_update = match check {
-                            Some(KeyCheck::OnlyIfPresent) => existing_value.is_some(),
-                            Some(KeyCheck::OnlyIfVacant) => existing_value.is_none(),
-                            None => true,
-                        };
-                        if should_update {
-                            Some(IVec::from(entry_vec.clone()))
-                        } else {
-                            None
-                        }
-                    })
-                    .map_err_to_core()?;
-
-                if updated_value.is_some() {
-                    self.update_key_expiration(ExpirationUpdate {
-                        tree_key: TreeKey {
-                            tree: tree_name,
-                            key,
-                        },
-                        expiration: entry.expiration,
-                    });
-                    return Ok(Output::Ok);
-                } else if keep_existing_expiration {
-                    return Ok(Output::KeyNotChanged);
-                }
-                Ok(Output::Ok)
+                return_previous_value,
+            } => execute_set_operation(
+                op.namespace,
+                op.key,
+                value,
+                expiration,
+                keep_existing_expiration,
+                check,
+                return_previous_value,
+                self,
+            ),
+            Command::Get { delete } => {
+                execute_get_operation(op.namespace, &op.key, delete, &self.data.sled)
             }
-            Op::Delete { namespace, key } => {
-                let full_namespace = format!("kv.{}", namespace.unwrap_or_default());
+            Command::Delete => execute_delete_operation(op.namespace, op.key, &self.data.sled),
+        })
+    }
+}
 
-                let tree = self
-                    .data
-                    .sled
-                    .open_tree(full_namespace.as_bytes())
-                    .map_err_to_core()?;
-                let old_value = tree.remove(key).map_err_to_core()?;
-                Ok(Output::Value(old_value.map(|v| v.to_vec())))
+#[allow(clippy::too_many_arguments)]
+fn execute_set_operation<DB: Schema>(
+    namespace: Option<String>,
+    key: String,
+    value: Vec<u8>,
+    expiration: Option<Timestamp>,
+    keep_existing_expiration: bool,
+    check: Option<KeyCheck>,
+    return_previous_value: bool,
+    storage: &Storage<DB>,
+) -> Result<Output, pliantdb_core::Error> {
+    let tree_name = format!("kv.{}", namespace.unwrap_or_default());
+    let kv_tree = storage
+        .data
+        .sled
+        .open_tree(tree_name.as_bytes())
+        .map_err_to_core()?;
+
+    let mut entry = KvEntry { value, expiration };
+    let mut inserted = false;
+    let mut updated = false;
+    let previous_value = kv_tree
+        .fetch_and_update(key.as_bytes(), |existing_value| {
+            let should_update = match check {
+                Some(KeyCheck::OnlyIfPresent) => existing_value.is_some(),
+                Some(KeyCheck::OnlyIfVacant) => existing_value.is_none(),
+                None => true,
+            };
+            if should_update {
+                updated = true;
+                inserted = existing_value.is_none();
+                if keep_existing_expiration && !inserted {
+                    if let Ok(previous_entry) =
+                        bincode::deserialize::<KvEntry>(existing_value.unwrap())
+                    {
+                        entry.expiration = previous_entry.expiration;
+                    }
+                }
+                let entry_vec = bincode::serialize(&entry).unwrap();
+                Some(IVec::from(entry_vec))
+            } else {
+                None
             }
         })
+        .map_err_to_core()?;
+
+    if updated {
+        storage.update_key_expiration(ExpirationUpdate {
+            tree_key: TreeKey {
+                tree: tree_name,
+                key,
+            },
+            expiration: entry.expiration,
+        });
+        if return_previous_value {
+            if let Some(Ok(entry)) = previous_value.map(|v| bincode::deserialize::<KvEntry>(&v)) {
+                Ok(Output::Value(Some(entry.value)))
+            } else {
+                Ok(Output::Value(None))
+            }
+        } else if inserted {
+            Ok(Output::Status(KeyStatus::Inserted))
+        } else {
+            Ok(Output::Status(KeyStatus::Updated))
+        }
+    } else {
+        Ok(Output::Status(KeyStatus::NotChanged))
+    }
+}
+
+fn execute_get_operation(
+    namespace: Option<String>,
+    key: &str,
+    delete: bool,
+    sled: &sled::Db,
+) -> Result<Output, pliantdb_core::Error> {
+    let full_namespace = format!("kv.{}", namespace.unwrap_or_default());
+
+    let tree = sled
+        .open_tree(full_namespace.as_bytes())
+        .map_err_to_core()?;
+    let entry = if delete {
+        tree.remove(key.as_bytes()).map_err_to_core()?
+    } else {
+        tree.get(key.as_bytes()).map_err_to_core()?
+    };
+
+    let entry = entry
+        .map(|e| bincode::deserialize::<KvEntry>(&e))
+        .transpose()
+        .map_err_to_core()?
+        .map(|e| e.value);
+    Ok(Output::Value(entry))
+}
+
+fn execute_delete_operation(
+    namespace: Option<String>,
+    key: String,
+    sled: &sled::Db,
+) -> Result<Output, pliantdb_core::Error> {
+    let full_namespace = format!("kv.{}", namespace.unwrap_or_default());
+
+    let tree = sled
+        .open_tree(full_namespace.as_bytes())
+        .map_err_to_core()?;
+    let value = tree.remove(key).map_err_to_core()?;
+    if value.is_some() {
+        Ok(Output::Status(KeyStatus::Deleted))
+    } else {
+        Ok(Output::Status(KeyStatus::NotChanged))
     }
 }
 
@@ -369,7 +445,7 @@ mod tests {
                 },
                 expiration: Some(Timestamp::now() + Duration::from_secs(2)),
             })?;
-            tokio::time::sleep(Duration::from_millis(1001)).await;
+            tokio::time::sleep(Duration::from_millis(1100)).await;
             assert!(tree.get(b"akey")?.is_some());
             assert!(tree.get(b"bkey")?.is_some());
             assert!(tree.get(b"ckey")?.is_none());
@@ -383,14 +459,36 @@ mod tests {
         })
         .await
     }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn basic_kv_test() -> anyhow::Result<()> {
         let directory = TestDirectory::new("basic-kv-test");
         let db = Storage::<()>::open_local(&directory, &Configuration::default()).await?;
-        assert!(matches!(
+        assert_eq!(
             db.set("akey", &String::from("avalue")).await?,
-            Output::Ok,
-        ));
+            KeyStatus::Inserted
+        );
+        assert_eq!(db.get("akey").await?, Some(String::from("avalue")));
+        assert_eq!(
+            db.set("akey", &String::from("new_value"))
+                .returning_previous()
+                .await?,
+            Some(String::from("avalue"))
+        );
+        assert_eq!(db.get("akey").await?, Some(String::from("new_value")));
+        assert_eq!(
+            db.get("akey").and_delete().await?,
+            Some(String::from("new_value"))
+        );
+        assert_eq!(db.get::<String, _>("akey").await?, None);
+        assert_eq!(
+            db.set("akey", &String::from("new_value"))
+                .returning_previous()
+                .await?,
+            None
+        );
+        assert_eq!(db.delete("akey").await?, KeyStatus::Deleted);
+        assert_eq!(db.delete("akey").await?, KeyStatus::NotChanged);
 
         Ok(())
     }
