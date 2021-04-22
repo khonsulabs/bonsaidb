@@ -38,7 +38,7 @@ jobs:
 
       - name: Run default features unit tests
         run: |
-          cargo test --all-features
+          cargo test --all-features -- --nocapture
 
   docs:
     runs-on: ubuntu-latest
