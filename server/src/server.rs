@@ -21,6 +21,7 @@ use pliantdb_core::{
     circulate::{Message, Relay, Subscriber},
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
+    kv::{KeyOperation, Kv, Output},
     networking::{
         self,
         fabruic::{self, Certificate, Endpoint, PrivateKey},
@@ -619,6 +620,9 @@ impl Server {
                 self.handle_database_unregister_subscriber(subscriber_id, subscribers)
                     .await
             }
+            DatabaseRequest::ExecuteKeyOperation(op) => {
+                self.handle_database_kv_request(database, op).await
+            }
         }
     }
 
@@ -803,6 +807,16 @@ impl Server {
         } else {
             Ok(Response::Ok)
         }
+    }
+
+    async fn handle_database_kv_request(
+        &self,
+        database: String,
+        op: KeyOperation,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        let result = db.execute_key_operation(op).await?;
+        Ok(Response::Database(DatabaseResponse::KvOutput(result)))
     }
 
     async fn forward_notifications_for(
@@ -1021,6 +1035,9 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
     ) -> Result<Vec<Executed<'static>>, pliantdb_core::Error>;
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error>;
+
+    async fn execute_key_operation(&self, op: KeyOperation)
+        -> Result<Output, pliantdb_core::Error>;
 }
 
 #[async_trait]
@@ -1144,6 +1161,13 @@ where
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
         Connection::last_transaction_id(self).await
+    }
+
+    async fn execute_key_operation(
+        &self,
+        op: KeyOperation,
+    ) -> Result<Output, pliantdb_core::Error> {
+        Kv::execute_key_operation(self, op).await
     }
 }
 

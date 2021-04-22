@@ -21,15 +21,15 @@ impl<'a, K> Kv for Namespaced<'a, K>
 where
     K: Kv,
 {
-    async fn execute(&self, op: KeyOperation) -> Result<Output, Error> {
-        self.kv.execute(op).await
+    async fn execute_key_operation(&self, op: KeyOperation) -> Result<Output, Error> {
+        self.kv.execute_key_operation(op).await
     }
 
-    fn namespace(&self) -> Option<&'_ str> {
+    fn key_namespace(&self) -> Option<&'_ str> {
         Some(&self.namespace)
     }
 
-    fn with_namespace(&'_ self, namespace: &str) -> Namespaced<'_, Self>
+    fn with_key_namespace(&'_ self, namespace: &str) -> Namespaced<'_, Self>
     where
         Self: Sized,
     {

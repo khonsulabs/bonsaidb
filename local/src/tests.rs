@@ -29,11 +29,17 @@ impl TestHarness {
     async fn connect(&self) -> anyhow::Result<Storage<Basic>> {
         Ok(self.db.clone())
     }
+
+    pub async fn shutdown(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 pliantdb_core::define_connection_test_suite!(TestHarness);
 
 pliantdb_core::define_pubsub_test_suite!(TestHarness);
+
+pliantdb_core::define_kv_test_suite!(TestHarness);
 
 #[tokio::test(flavor = "multi_thread")]
 async fn integrity_checks() -> anyhow::Result<()> {

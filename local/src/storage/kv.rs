@@ -21,7 +21,10 @@ impl<DB> Kv for Storage<DB>
 where
     DB: Schema,
 {
-    async fn execute(&self, op: KeyOperation) -> Result<Output, pliantdb_core::Error> {
+    async fn execute_key_operation(
+        &self,
+        op: KeyOperation,
+    ) -> Result<Output, pliantdb_core::Error> {
         tokio::task::block_in_place(|| match op.command {
             Command::Set {
                 value,
@@ -282,7 +285,6 @@ mod tests {
     use pliantdb_core::test_util::TestDirectory;
 
     use super::*;
-    use crate::storage::{Configuration, Storage};
 
     async fn run_test<
         F: FnOnce(flume::Sender<ExpirationUpdate>, sled::Db) -> R + Send,
@@ -458,38 +460,5 @@ mod tests {
             Ok(())
         })
         .await
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn basic_kv_test() -> anyhow::Result<()> {
-        let directory = TestDirectory::new("basic-kv-test");
-        let db = Storage::<()>::open_local(&directory, &Configuration::default()).await?;
-        assert_eq!(
-            db.set("akey", &String::from("avalue")).await?,
-            KeyStatus::Inserted
-        );
-        assert_eq!(db.get("akey").await?, Some(String::from("avalue")));
-        assert_eq!(
-            db.set("akey", &String::from("new_value"))
-                .returning_previous()
-                .await?,
-            Some(String::from("avalue"))
-        );
-        assert_eq!(db.get("akey").await?, Some(String::from("new_value")));
-        assert_eq!(
-            db.get("akey").and_delete().await?,
-            Some(String::from("new_value"))
-        );
-        assert_eq!(db.get::<String, _>("akey").await?, None);
-        assert_eq!(
-            db.set("akey", &String::from("new_value"))
-                .returning_previous()
-                .await?,
-            None
-        );
-        assert_eq!(db.delete("akey").await?, KeyStatus::Deleted);
-        assert_eq!(db.delete("akey").await?, KeyStatus::NotChanged);
-
-        Ok(())
     }
 }

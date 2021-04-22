@@ -70,7 +70,7 @@ where
                 } = builder.take().expect("expected builder to have options");
                 let future = async move {
                     let result = kv
-                        .execute(KeyOperation {
+                        .execute_key_operation(KeyOperation {
                             namespace,
                             key,
                             command: Command::Get { delete },

@@ -5,6 +5,7 @@ use pliantdb_local::core::{
     self, circulate,
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
+    kv::Kv,
     pubsub::{self, database_topic, PubSub},
     schema::{Collection, Map, MappedDocument, MappedValue, Schema},
 };
@@ -209,5 +210,23 @@ impl pubsub::Subscriber for Subscriber {
 
     fn receiver(&self) -> &'_ flume::Receiver<std::sync::Arc<circulate::Message>> {
         self.subscriber.receiver()
+    }
+}
+
+#[async_trait]
+impl<'a, 'b, DB> Kv for Database<'a, 'b, DB>
+where
+    DB: Schema,
+{
+    async fn execute_key_operation(
+        &self,
+        op: core::kv::KeyOperation,
+    ) -> Result<core::kv::Output, core::Error> {
+        let db = self
+            .server
+            .open_database::<DB>(self.name)
+            .await
+            .map_err_to_core()?;
+        db.execute_key_operation(op).await
     }
 }

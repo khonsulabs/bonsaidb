@@ -7,6 +7,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use crate::{
     connection::{AccessPolicy, QueryKey},
     document::Document,
+    kv::{KeyOperation, Output},
     schema::{
         self,
         view::{self, map},
@@ -134,6 +135,8 @@ pub enum DatabaseRequest {
         /// The id of the [`Subscriber`](crate::pubsub::Subscriber).
         subscriber_id: u64,
     },
+    /// Excutes a key-value store operation.
+    ExecuteKeyOperation(KeyOperation),
 }
 
 /// A response from a server.
@@ -199,6 +202,8 @@ pub enum DatabaseResponse {
         /// The message received.
         message: Message,
     },
+    /// Output from a [`KeyOperation`] being executed.
+    KvOutput(Output),
 }
 
 /// A serialized [`MappedDocument`](map::MappedDocument).

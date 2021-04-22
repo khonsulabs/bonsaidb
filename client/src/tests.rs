@@ -49,7 +49,7 @@ mod websockets {
     use super::*;
 
     struct WebsocketTestHarness {
-        _server: Server,
+        server: Server,
         _directory: TestDirectory,
         db: RemoteDatabase<Basic>,
     }
@@ -79,7 +79,7 @@ mod websockets {
 
             Ok(Self {
                 db,
-                _server: server,
+                server,
                 _directory: directory,
             })
         }
@@ -87,16 +87,22 @@ mod websockets {
         pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<Basic>> {
             Ok(self.db.clone())
         }
+
+        pub async fn shutdown(&self) -> anyhow::Result<()> {
+            self.server.shutdown(None).await?;
+            Ok(())
+        }
     }
 
     pliantdb_core::define_connection_test_suite!(WebsocketTestHarness);
     pliantdb_core::define_pubsub_test_suite!(WebsocketTestHarness);
+    pliantdb_core::define_kv_test_suite!(WebsocketTestHarness);
 }
 
 mod pliant {
     use super::*;
     struct PliantTestHarness {
-        _server: Server,
+        server: Server,
         _directory: TestDirectory,
         db: RemoteDatabase<Basic>,
     }
@@ -124,7 +130,7 @@ mod pliant {
 
             Ok(Self {
                 db,
-                _server: server,
+                server,
                 _directory: directory,
             })
         }
@@ -132,8 +138,14 @@ mod pliant {
         pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<Basic>> {
             Ok(self.db.clone())
         }
+
+        pub async fn shutdown(&self) -> anyhow::Result<()> {
+            self.server.shutdown(None).await?;
+            Ok(())
+        }
     }
 
     pliantdb_core::define_connection_test_suite!(PliantTestHarness);
     pliantdb_core::define_pubsub_test_suite!(PliantTestHarness);
+    pliantdb_core::define_kv_test_suite!(PliantTestHarness);
 }

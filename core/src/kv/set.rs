@@ -104,7 +104,7 @@ where
             let value = serde_cbor::to_vec(value)?;
 
             let result = kv
-                .execute(KeyOperation {
+                .execute_key_operation(KeyOperation {
                     namespace,
                     key,
                     command: Command::Set {
@@ -156,7 +156,7 @@ where
                 let value = serde_cbor::to_vec(value)?;
                 let future = async move {
                     let result = kv
-                        .execute(KeyOperation {
+                        .execute_key_operation(KeyOperation {
                             namespace,
                             key,
                             command: Command::Set {

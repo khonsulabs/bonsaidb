@@ -275,6 +275,7 @@ pub enum HarnessTest {
     PubSubDropAndSend,
     PubSubUnsubscribe,
     PubSubDropCleanup,
+    KvBasic,
 }
 
 impl HarnessTest {
@@ -299,7 +300,8 @@ macro_rules! define_connection_test_suite {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::StoreRetrieveUpdate).await?;
             let db = harness.connect().await?;
-            $crate::test_util::store_retrieve_update_delete_tests(&db).await
+            $crate::test_util::store_retrieve_update_delete_tests(&db).await?;
+            harness.shutdown().await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -307,7 +309,8 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::NotFound).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::not_found_tests(&db).await
+            $crate::test_util::not_found_tests(&db).await?;
+            harness.shutdown().await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -315,7 +318,8 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::Conflict).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::conflict_tests(&db).await
+            $crate::test_util::conflict_tests(&db).await?;
+            harness.shutdown().await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -323,7 +327,8 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::BadUpdate).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::bad_update_tests(&db).await
+            $crate::test_util::bad_update_tests(&db).await?;
+            harness.shutdown().await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -331,7 +336,8 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::NoUpdate).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::no_update_tests(&db).await
+            $crate::test_util::no_update_tests(&db).await?;
+            harness.shutdown().await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -339,7 +345,8 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::GetMultiple).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::get_multiple_tests(&db).await
+            $crate::test_util::get_multiple_tests(&db).await?;
+            harness.shutdown().await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -347,7 +354,8 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::ListTransactions).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::list_transactions_tests(&db).await
+            $crate::test_util::list_transactions_tests(&db).await?;
+            harness.shutdown().await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -355,7 +363,8 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::ViewQuery).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::view_query_tests(&db).await
+            $crate::test_util::view_query_tests(&db).await?;
+            harness.shutdown().await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -364,7 +373,8 @@ macro_rules! define_connection_test_suite {
                 $harness::new($crate::test_util::HarnessTest::UnassociatedCollection).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::unassociated_collection_tests(&db).await
+            $crate::test_util::unassociated_collection_tests(&db).await?;
+            harness.shutdown().await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -372,7 +382,8 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::ViewUpdate).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::view_update_tests(&db).await
+            $crate::test_util::view_update_tests(&db).await?;
+            harness.shutdown().await
         }
 
         #[tokio::test(flavor = "multi_thread")]
@@ -380,7 +391,8 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::ViewAccessPolicies).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::view_access_policy_tests(&db).await
+            $crate::test_util::view_access_policy_tests(&db).await?;
+            harness.shutdown().await
         }
     };
 }
@@ -812,4 +824,57 @@ pub async fn view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<(
         }
     }
     panic!("view never updated")
+}
+
+/// Defines the Kv test suite
+#[macro_export]
+macro_rules! define_kv_test_suite {
+    ($harness:ident) => {
+        #[cfg(test)]
+        use $crate::kv::{KeyStatus, Kv};
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn basic_kv_test() -> anyhow::Result<()> {
+            let harness = $harness::new($crate::test_util::HarnessTest::KvBasic).await?;
+            let db = harness.connect().await?;
+            println!("Connected.");
+            assert_eq!(
+                db.set_key("akey", &String::from("avalue")).await?,
+                KeyStatus::Inserted
+            );
+            println!("Inserted");
+            assert_eq!(db.get_key("akey").await?, Some(String::from("avalue")));
+            println!("get");
+            assert_eq!(
+                db.set_key("akey", &String::from("new_value"))
+                    .returning_previous()
+                    .await?,
+                Some(String::from("avalue"))
+            );
+            println!("2");
+            assert_eq!(db.get_key("akey").await?, Some(String::from("new_value")));
+            println!("4");
+            assert_eq!(
+                db.get_key("akey").and_delete().await?,
+                Some(String::from("new_value"))
+            );
+            println!("6");
+            assert_eq!(db.get_key::<String, _>("akey").await?, None);
+            println!("7");
+            assert_eq!(
+                db.set_key("akey", &String::from("new_value"))
+                    .returning_previous()
+                    .await?,
+                None
+            );
+            println!("8");
+            assert_eq!(db.delete_key("akey").await?, KeyStatus::Deleted);
+            println!("9");
+            assert_eq!(db.delete_key("akey").await?, KeyStatus::NotChanged);
+
+            harness.shutdown().await?;
+
+            Ok(())
+        }
+    };
 }
