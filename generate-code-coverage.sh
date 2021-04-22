@@ -4,7 +4,7 @@ echo "Executing tests"
 cargo clean
 CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE="%m.profraw" RUSTFLAGS="-Zinstrument-coverage" RUSTDOCFLAGS="-Cpanic=abort" cargo +nightly-2021-03-25 test --all-features
 echo "Generating coverage report"
-grcov . --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing --llvm -o coverage/
+grcov . --binary-path ./target/debug/ -s . -t html --branch --ignore-not-existing --llvm --ignore "target/*" --ignore "circulate/examples/*" --ignore "pliantdb/examples/*" -o coverage/
 COVERAGE=`cat coverage/index.html | grep -oP '\d+(\.\d+)? %' | head -n1`
 if command -v cargo-badge &> /dev/null
 then
