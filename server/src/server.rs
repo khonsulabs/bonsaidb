@@ -159,6 +159,11 @@ impl Server {
 
         // Open the database.
         let mut open_databases = self.data.open_databases.write().await;
+        // Check that we weren't in a race to initialize this database.
+        if let Some(db) = open_databases.get(name) {
+            return Ok(db.clone());
+        }
+
         let schema = match self
             .data
             .admin
