@@ -21,7 +21,7 @@ struct TestHarness {
 
 impl TestHarness {
     pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
-        let directory = TestDirectory::new(test.to_string());
+        let directory = TestDirectory::new(format!("server-{}", test));
         let server = initialize_basic_server(directory.as_ref()).await?;
         Ok(Self {
             _directory: directory,

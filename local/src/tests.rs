@@ -19,7 +19,7 @@ struct TestHarness {
 
 impl TestHarness {
     async fn new(test: HarnessTest) -> anyhow::Result<Self> {
-        let directory = TestDirectory::new(test.to_string());
+        let directory = TestDirectory::new(format!("local-{}", test));
         let db = Storage::<Basic>::open_local(&directory, &Configuration::default()).await?;
         Ok(Self {
             _directory: directory,
