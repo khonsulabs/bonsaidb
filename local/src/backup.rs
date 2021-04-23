@@ -135,7 +135,7 @@ impl Command {
         // reading will likely be much faster than writing.
         let (sender, receiver) = flume::bounded(100);
         let document_writer = tokio::spawn(write_documents(receiver, backup_directory));
-        tokio::task::block_in_place::<_, anyhow::Result<()>>(|| {
+        tokio::task::spawn_blocking::<_, anyhow::Result<()>>(move || {
             for collection_tree in db
                 .data
                 .sled
@@ -152,9 +152,8 @@ impl Command {
             }
 
             Ok(())
-        })?;
-
-        drop(sender);
+        })
+        .await??;
 
         document_writer.await?
     }
@@ -266,7 +265,7 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn backup_restore() -> anyhow::Result<()> {
         let backup_destination = TestDirectory::new("backup-restore.pliantdb.backup");
 

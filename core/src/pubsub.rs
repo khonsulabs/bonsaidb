@@ -88,7 +88,7 @@ macro_rules! define_pubsub_test_suite {
         #[cfg(test)]
         use $crate::pubsub::{PubSub, Subscriber};
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn simple_pubsub_test() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::PubSubSimple).await?;
             let pubsub = harness.connect().await?;
@@ -110,7 +110,7 @@ macro_rules! define_pubsub_test_suite {
             Ok(())
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn multiple_subscribers_test() -> anyhow::Result<()> {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::PubSubMultipleSubscribers).await?;
@@ -141,7 +141,7 @@ macro_rules! define_pubsub_test_suite {
             Ok(())
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn unsubscribe_test() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::PubSubUnsubscribe).await?;
             let pubsub = harness.connect().await?;

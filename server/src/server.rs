@@ -1193,7 +1193,7 @@ fn name_validation_tests() {
     ));
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn opening_databases_test() -> Result<(), Error> {
     Ok(())
 }

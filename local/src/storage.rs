@@ -277,8 +277,9 @@ where
             .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
             .min(LIST_TRANSACTIONS_MAX_RESULTS);
         if result_limit > 0 {
-            tokio::task::block_in_place(|| {
-                let tree = self
+            let task_self = self.clone();
+            tokio::task::spawn_blocking(move || {
+                let tree = task_self
                     .data
                     .sled
                     .open_tree(TRANSACTION_TREE_NAME)
@@ -305,6 +306,8 @@ where
                 }
                 Ok(results)
             })
+            .await
+            .unwrap()
         } else {
             // A request was made to return an empty result? This should probably be
             // an error, but technically this is a correct response.
@@ -436,8 +439,9 @@ where
     }
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| {
-            let tree = self
+        let task_self = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let tree = task_self
                 .data
                 .sled
                 .open_tree(TRANSACTION_TREE_NAME)
@@ -452,6 +456,8 @@ where
                 Ok(None)
             }
         })
+        .await
+        .unwrap()
     }
 }
 
@@ -792,11 +798,13 @@ where
         id: u64,
         collection: &CollectionName,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| {
-            let tree = self
+        let task_self = self.clone();
+        let collection = collection.clone();
+        tokio::task::spawn_blocking(move || {
+            let tree = task_self
                 .data
                 .sled
-                .open_tree(document_tree_name(collection))
+                .open_tree(document_tree_name(&collection))
                 .map_err_to_core()?;
             if let Some(vec) = tree
                 .get(
@@ -815,6 +823,8 @@ where
                 Ok(None)
             }
         })
+        .await
+        .unwrap()
     }
 
     async fn get_multiple_from_collection_id(
@@ -822,11 +832,14 @@ where
         ids: &[u64],
         collection: &CollectionName,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| {
-            let tree = self
+        let task_self = self.clone();
+        let ids = ids.to_vec();
+        let collection = collection.clone();
+        tokio::task::spawn_blocking(move || {
+            let tree = task_self
                 .data
                 .sled
-                .open_tree(document_tree_name(collection))
+                .open_tree(document_tree_name(&collection))
                 .map_err_to_core()?;
             let mut found_docs = Vec::new();
             for id in ids {
@@ -848,6 +861,8 @@ where
 
             Ok(found_docs)
         })
+        .await
+        .unwrap()
     }
 
     #[allow(clippy::missing_panics_doc)] // the only unwrap is impossible to fail

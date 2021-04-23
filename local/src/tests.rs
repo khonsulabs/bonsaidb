@@ -160,6 +160,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
             })?;
 
             if retry {
+                println!("Retrying  expiration_after_close because it was too slow");
                 continue;
             }
         }

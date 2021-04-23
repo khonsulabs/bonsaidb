@@ -6,7 +6,7 @@ use crate::{
     Server,
 };
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn simple_test() -> anyhow::Result<()> {
     let test_dir = TestDirectory::new("simple-test");
     let server = initialize_basic_server(test_dir.as_ref()).await?;
@@ -44,7 +44,7 @@ pliantdb_core::define_connection_test_suite!(TestHarness);
 pliantdb_core::define_pubsub_test_suite!(TestHarness);
 pliantdb_core::define_kv_test_suite!(TestHarness);
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn basic_server_tests() -> anyhow::Result<()> {
     let test_dir = TestDirectory::new("handle-requests");
     let server = initialize_basic_server(test_dir.as_ref()).await?;

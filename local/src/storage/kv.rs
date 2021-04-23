@@ -26,7 +26,8 @@ where
         &self,
         op: KeyOperation,
     ) -> Result<Output, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| match op.command {
+        let task_self = self.clone();
+        tokio::task::spawn_blocking(move || match op.command {
             Command::Set {
                 value,
                 expiration,
@@ -41,11 +42,15 @@ where
                 keep_existing_expiration,
                 check,
                 return_previous_value,
-                self,
+                &task_self,
             ),
-            Command::Get { delete } => execute_get_operation(op.namespace, &op.key, delete, self),
-            Command::Delete => execute_delete_operation(op.namespace, op.key, self),
+            Command::Get { delete } => {
+                execute_get_operation(op.namespace, &op.key, delete, &task_self)
+            }
+            Command::Delete => execute_delete_operation(op.namespace, op.key, &task_self),
         })
+        .await
+        .unwrap()
     }
 }
 
@@ -339,7 +344,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn basic_expiration() -> anyhow::Result<()> {
         run_test("kv-basic-expiration", |sender, sled| async move {
             sled.drop_tree(b"atree")?;
@@ -360,7 +365,7 @@ mod tests {
         .await
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn updating_expiration() -> anyhow::Result<()> {
         run_test("kv-updating-expiration", |sender, sled| async move {
             loop {
@@ -399,7 +404,7 @@ mod tests {
         .await
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn multiple_keys_expiration() -> anyhow::Result<()> {
         run_test("kv-multiple-keys-expiration", |sender, sled| async move {
             loop {
@@ -441,7 +446,7 @@ mod tests {
         .await
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn clearing_expiration() -> anyhow::Result<()> {
         run_test("kv-clearing-expiration", |sender, sled| async move {
             loop {
@@ -477,7 +482,7 @@ mod tests {
         .await
     }
 
-    #[tokio::test(flavor = "multi_thread")]
+    #[tokio::test]
     async fn out_of_order_expiration() -> anyhow::Result<()> {
         run_test("kv-out-of-order-expiration", |sender, sled| async move {
             let tree = sled.open_tree(b"atree")?;

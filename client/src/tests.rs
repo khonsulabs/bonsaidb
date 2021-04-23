@@ -16,7 +16,7 @@ use url::Url;
 use super::*;
 use crate::client::RemoteDatabase;
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn server_connection_tests() -> anyhow::Result<()> {
     let directory = TestDirectory::new("client-test");
     let server = initialize_basic_server(directory.as_ref()).await?;

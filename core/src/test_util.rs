@@ -298,7 +298,7 @@ impl Display for HarnessTest {
 #[macro_export]
 macro_rules! define_connection_test_suite {
     ($harness:ident) => {
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn store_retrieve_update_delete() -> Result<(), anyhow::Error> {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::StoreRetrieveUpdate).await?;
@@ -307,7 +307,7 @@ macro_rules! define_connection_test_suite {
             harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn not_found() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::NotFound).await?;
             let db = harness.connect().await?;
@@ -316,7 +316,7 @@ macro_rules! define_connection_test_suite {
             harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn conflict() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::Conflict).await?;
             let db = harness.connect().await?;
@@ -325,7 +325,7 @@ macro_rules! define_connection_test_suite {
             harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn bad_update() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::BadUpdate).await?;
             let db = harness.connect().await?;
@@ -334,7 +334,7 @@ macro_rules! define_connection_test_suite {
             harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn no_update() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::NoUpdate).await?;
             let db = harness.connect().await?;
@@ -343,7 +343,7 @@ macro_rules! define_connection_test_suite {
             harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn get_multiple() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::GetMultiple).await?;
             let db = harness.connect().await?;
@@ -352,7 +352,7 @@ macro_rules! define_connection_test_suite {
             harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn list_transactions() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::ListTransactions).await?;
             let db = harness.connect().await?;
@@ -361,7 +361,7 @@ macro_rules! define_connection_test_suite {
             harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn view_query() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::ViewQuery).await?;
             let db = harness.connect().await?;
@@ -370,7 +370,7 @@ macro_rules! define_connection_test_suite {
             harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn unassociated_collection() -> Result<(), anyhow::Error> {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::UnassociatedCollection).await?;
@@ -380,7 +380,7 @@ macro_rules! define_connection_test_suite {
             harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn view_update() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::ViewUpdate).await?;
             let db = harness.connect().await?;
@@ -389,7 +389,7 @@ macro_rules! define_connection_test_suite {
             harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn view_access_policies() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::ViewAccessPolicies).await?;
             let db = harness.connect().await?;
@@ -833,7 +833,7 @@ pub async fn view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<(
 #[macro_export]
 macro_rules! define_kv_test_suite {
     ($harness:ident) => {
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn basic_kv_test() -> anyhow::Result<()> {
             use $crate::kv::{KeyStatus, Kv};
             let harness = $harness::new($crate::test_util::HarnessTest::KvBasic).await?;
@@ -869,7 +869,7 @@ macro_rules! define_kv_test_suite {
             Ok(())
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn kv_set_tests() -> anyhow::Result<()> {
             use $crate::kv::{KeyStatus, Kv};
             let harness = $harness::new($crate::test_util::HarnessTest::KvSet).await?;
@@ -899,7 +899,7 @@ macro_rules! define_kv_test_suite {
             Ok(())
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn kv_expiration_tests() -> anyhow::Result<()> {
             use std::time::Duration;
 
@@ -973,7 +973,7 @@ macro_rules! define_kv_test_suite {
             Ok(())
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn delete_expire_tests() -> anyhow::Result<()> {
             use std::time::Duration;
 
