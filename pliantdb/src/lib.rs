@@ -16,8 +16,7 @@
 //!
 //! By default, `cli` is enabled, which also enables `full`.
 //!
-//! - `full`: Enables `local`, `server`, `client`, `websockets`, `trusted-dns`,
-//!   and `certificate-generation`.
+//! - `full`: Enables `local`, `server`, `client`, `websockets`, `trusted-dns`
 //! - `cli`: Enables the `pliantdb` executable, as well as `StructOpt` structures
 //!   for embedding into your own command-line interface.
 //! - `local`: Enables the [`local`] module, which re-exports the crate
@@ -29,8 +28,6 @@
 //! - `websockets`: Enables `WebSocket` support for `server` and `client`.
 //! - `trusted-dns`: Enables using [trust-dns](https://lib.rs/trust-dns) for DNS
 //!   resolution within `pliantdb-client`.
-//! - `certificate-generation`: Enables features in `pliantdb-server` for
-//!   encryption certificate generation.
 
 #![forbid(unsafe_code)]
 #![warn(

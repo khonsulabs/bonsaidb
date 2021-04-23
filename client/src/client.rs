@@ -66,7 +66,7 @@ impl Client {
     /// to recover and reconnect, each component of the apps built can adopt a
     /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
     /// the database is to operation.
-    pub async fn new(url: &Url, certificate: Option<Certificate>) -> Result<Self, Error> {
+    pub async fn new(url: Url, certificate: Option<Certificate>) -> Result<Self, Error> {
         match url.scheme() {
             "pliantdb" => {
                 let certificate = certificate.ok_or_else(|| {
@@ -75,7 +75,7 @@ impl Client {
                     ))
                 })?;
 
-                Self::new_pliant_client(url, certificate)
+                Ok(Self::new_pliant_client(url, certificate))
             }
             #[cfg(feature = "websockets")]
             "wss" | "ws" => Self::new_websocket_client(url).await,
@@ -85,32 +85,12 @@ impl Client {
         }
     }
 
-    fn new_pliant_client(url: &Url, certificate: Certificate) -> Result<Self, Error> {
-        let host = url
-            .host_str()
-            .ok_or_else(|| Error::InvalidUrl(String::from("url must specify a host")))?;
-        let mut server_name = host.to_owned();
-        for (name, value) in url.query_pairs() {
-            match name.as_ref() {
-                "server" => {
-                    server_name = value.to_string();
-                }
-                _ => {
-                    return Err(Error::InvalidUrl(format!(
-                        "invalid query string parameter '{}'",
-                        name
-                    )))
-                }
-            }
-        }
-
+    fn new_pliant_client(url: Url, certificate: Certificate) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
         let subscribers = SubscriberMap::default();
         let worker = tokio::task::spawn(worker::reconnecting_client_loop(
-            host.to_string(),
-            url.port().unwrap_or(5645),
-            server_name,
+            url,
             certificate,
             request_receiver,
             subscribers.clone(),
@@ -119,7 +99,7 @@ impl Client {
         #[cfg(test)]
         let background_task_running = Arc::new(AtomicBool::new(true));
 
-        let client = Self {
+        Self {
             data: Arc::new(Data {
                 request_sender,
                 worker: CancellableHandle {
@@ -133,18 +113,16 @@ impl Client {
                 #[cfg(test)]
                 background_task_running,
             }),
-        };
-
-        Ok(client)
+        }
     }
 
     #[cfg(feature = "websockets")]
-    async fn new_websocket_client(url: &Url) -> Result<Self, Error> {
+    async fn new_websocket_client(url: Url) -> Result<Self, Error> {
         let (request_sender, request_receiver) = flume::unbounded();
 
         let subscribers = SubscriberMap::default();
         let worker = tokio::task::spawn(websocket_worker::reconnecting_client_loop(
-            url.clone(),
+            url,
             request_receiver,
             subscribers.clone(),
         ));

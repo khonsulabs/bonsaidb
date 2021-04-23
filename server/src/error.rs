@@ -23,7 +23,7 @@ pub enum Error {
 
     /// An error occurred from the QUIC transport layer.
     #[error("a networking error occurred: '{0}'")]
-    Transport(#[from] fabruic::Error),
+    Transport(String),
 
     #[cfg(feature = "websockets")]
     /// An error occurred from the Websocket transport layer.
@@ -75,7 +75,7 @@ impl From<Error> for core::Error {
             Error::Storage(storage) => Self::Storage(storage.to_string()),
             Error::Core(core) => core,
             Error::Io(io) => Self::Io(io.to_string()),
-            Error::Transport(networking) => Self::Transport(networking.to_string()),
+            Error::Transport(networking) => Self::Transport(networking),
             #[cfg(feature = "websockets")]
             Error::Websocket(err) => Self::Websocket(err.to_string()),
             Error::InvalidDatabaseName(name) => {
@@ -134,3 +134,22 @@ impl From<bincode::Error> for Error {
         )))
     }
 }
+
+macro_rules! impl_from_fabruic {
+    ($error:ty) => {
+        impl From<$error> for Error {
+            fn from(other: $error) -> Self {
+                Self::Core(pliantdb_core::Error::Transport(other.to_string()))
+            }
+        }
+    };
+}
+
+impl_from_fabruic!(fabruic::error::CertificateChain);
+impl_from_fabruic!(fabruic::error::Receiver);
+impl_from_fabruic!(fabruic::error::Connecting);
+impl_from_fabruic!(fabruic::error::PrivateKey);
+impl_from_fabruic!(fabruic::error::KeyPair);
+impl_from_fabruic!(fabruic::error::Connection);
+impl_from_fabruic!(fabruic::error::Incoming);
+impl_from_fabruic!(fabruic::error::AlreadyClosed);

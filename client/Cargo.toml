@@ -30,9 +30,5 @@ tokio-tungstenite = { version = "0.14", optional = true }
 bincode = { version = "1", optional = true }
 
 [dev-dependencies]
-pliantdb-server = { path = "../server", version = "0.1.0-dev-2", features = [
-    "test-util",
-    "certificate-generation",
-    "websockets",
-] }
+pliantdb-server = { path = "../server", version = "0.1.0-dev-2", features = ["test-util", "websockets"] }
 anyhow = "1"

@@ -29,7 +29,7 @@ async fn server_connection_tests() -> anyhow::Result<()> {
     ))?;
 
     let client_task_is_running = {
-        let client = Client::new(&url, Some(server.certificate().await?)).await?;
+        let client = Client::new(url, Some(server.certificate().await?)).await?;
         let client_task_is_running = client.data.background_task_running.clone();
         assert!(client_task_is_running.load(Ordering::Acquire));
 
@@ -99,7 +99,7 @@ mod websockets {
         pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
             initialize_shared_server().await;
             let url = Url::parse("ws://localhost:6001")?;
-            let client = Client::new(&url, None).await?;
+            let client = Client::new(url, None).await?;
 
             let dbname = format!("websockets-{}", test);
             client
@@ -138,7 +138,7 @@ mod pliant {
                 "pliantdb://localhost:6000?server={}",
                 BASIC_SERVER_NAME
             ))?;
-            let client = Client::new(&url, Some(certificate)).await?;
+            let client = Client::new(url, Some(certificate)).await?;
 
             let dbname = format!("pliant-{}", test);
             client

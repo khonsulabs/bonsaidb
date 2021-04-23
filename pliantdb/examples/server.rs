@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
     {
         // To connect over websockets, use the websocket scheme.
         tasks.push(do_some_database_work(
-            Client::new(&Url::parse("ws://localhost:8080")?, None)
+            Client::new(Url::parse("ws://localhost:8080")?, None)
                 .await?
                 .database::<Shape>("my-database")
                 .await?,
@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
     // TODO update example once fabruic doesn't require server
     tasks.push(do_some_database_work(
         Client::new(
-            &Url::parse("pliantdb://localhost?server=example-server")?,
+            Url::parse("pliantdb://localhost?server=example-server")?,
             Some(certificate),
         )
         .await?

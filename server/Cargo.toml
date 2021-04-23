@@ -13,9 +13,8 @@ homepage = "https://pliantdb.dev/"
 
 [features]
 default = []
-cli = ["certificate-generation", "structopt"]
+cli = ["structopt"]
 test-util = ["pliantdb-core/test-util"]
-certificate-generation = ["pliantdb-core/certificate-generation"]
 websockets = ["pliantdb-core/websockets", "tokio-tungstenite", "bincode"]
 trusted-dns = ["pliantdb-core/trusted-dns"]
 
@@ -36,4 +35,4 @@ tokio-tungstenite = { version = "0.14", optional = true }
 bincode = { version = "1", optional = true }
 
 [dev-dependencies]
-pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["test-util", "certificate-generation"] }
+pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["test-util"] }

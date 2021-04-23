@@ -20,7 +20,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
     tokio::spawn(async move { server.listen_on(12345).await });
 
     let client = Client::new(
-        &Url::parse("pliantdb://localhost:12345?server=test")?,
+        Url::parse("pliantdb://localhost:12345?server=test")?,
         Some(certificate),
     )
     .await?;

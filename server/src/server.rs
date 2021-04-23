@@ -17,14 +17,13 @@ use futures::SinkExt;
 use futures::{Future, StreamExt, TryFutureExt};
 use itertools::Itertools;
 use pliantdb_core::{
-    self as core,
     circulate::{Message, Relay, Subscriber},
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
     kv::{KeyOperation, Kv, Output},
     networking::{
         self,
-        fabruic::{self, Certificate, Endpoint, PrivateKey},
+        fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey},
         DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerConnection as _,
         ServerRequest, ServerResponse,
     },
@@ -219,19 +218,19 @@ impl Server {
     }
 
     /// Installs an X.509 certificate used for general purpose connections.
-    #[cfg(any(test, feature = "certificate-generation"))]
     pub async fn install_self_signed_certificate(
         &self,
         server_name: &str,
         overwrite: bool,
     ) -> Result<(), Error> {
-        let (certificate, private_key) = fabruic::generate_self_signed(server_name);
+        let keypair = KeyPair::new_self_signed(server_name);
 
         if self.certificate_path().exists() && !overwrite {
-            return Err(Error::Core(core::Error::Configuration(String::from("Certificate already installed. Enable overwrite if you wish to replace the existing certificate."))));
+            return Err(Error::Core(pliantdb_core::Error::Configuration(String::from("Certificate already installed. Enable overwrite if you wish to replace the existing certificate."))));
         }
 
-        self.install_certificate(&certificate, &private_key).await?;
+        self.install_certificate(keypair.end_entity_certificate(), keypair.private_key())
+            .await?;
 
         Ok(())
     }
@@ -247,16 +246,16 @@ impl Server {
             .and_then(|file| file.write_all(certificate.as_ref()))
             .await
             .map_err(|err| {
-                Error::Core(core::Error::Configuration(format!(
+                Error::Core(pliantdb_core::Error::Configuration(format!(
                     "Error writing certificate file: {}",
                     err
                 )))
             })?;
         File::create(self.private_key_path())
-            .and_then(|file| file.write_all(fabruic::Dangerous::as_ref(private_key)))
+            .and_then(|file| file.write_all(fabruic::dangerous::PrivateKey::as_ref(private_key)))
             .await
             .map_err(|err| {
-                Error::Core(core::Error::Configuration(format!(
+                Error::Core(pliantdb_core::Error::Configuration(format!(
                     "Error writing private key file: {}",
                     err
                 )))
@@ -276,7 +275,7 @@ impl Server {
             .await
             .map(Certificate::unchecked_from_der)
             .map_err(|err| {
-                Error::Core(core::Error::Configuration(format!(
+                Error::Core(pliantdb_core::Error::Configuration(format!(
                     "Error reading certificate file: {}",
                     err
                 )))
@@ -296,13 +295,15 @@ impl Server {
             .await
             .map(PrivateKey::from_der)
             .map_err(|err| {
-                Error::Core(core::Error::Configuration(format!(
+                Error::Core(pliantdb_core::Error::Configuration(format!(
                     "Error reading private key file: {}",
                     err
                 )))
             })??;
+        let certchain = CertificateChain::from_certificates(vec![certificate])?;
+        let keypair = KeyPair::from_parts(certchain, private_key)?;
 
-        let mut server = Endpoint::new_server(port, &certificate, &private_key)?;
+        let mut server = Endpoint::new_server(port, keypair)?;
         {
             let mut endpoint = self.data.endpoint.write().await;
             *endpoint = Some(server.clone());
@@ -363,6 +364,7 @@ impl Server {
         mut connection: fabruic::Connection<()>,
     ) -> Result<(), Error> {
         if let Some(incoming) = connection.next().await {
+            let incoming = incoming?;
             println!(
                 "[server] incoming stream from: {}",
                 connection.remote_address()
@@ -493,7 +495,7 @@ impl Server {
         });
 
         while let Some(payload) = receiver.next().await {
-            let Payload { id, wrapped } = payload;
+            let Payload { id, wrapped } = payload?;
             let task_sender = payload_sender.clone();
             self.handle_request_through_worker(
                 wrapped,
@@ -641,7 +643,9 @@ impl Server {
         let document = db
             .get_from_collection_id(id, &collection)
             .await?
-            .ok_or(Error::Core(core::Error::DocumentNotFound(collection, id)))?;
+            .ok_or(Error::Core(pliantdb_core::Error::DocumentNotFound(
+                collection, id,
+            )))?;
         Ok(Response::Database(DatabaseResponse::Documents(vec![
             document,
         ])))
@@ -776,7 +780,7 @@ impl Server {
             subscriber.subscribe_to(topic).await;
             Ok(Response::Ok)
         } else {
-            Ok(Response::Error(core::Error::Server(String::from(
+            Ok(Response::Error(pliantdb_core::Error::Server(String::from(
                 "invalid subscriber id",
             ))))
         }
@@ -793,7 +797,7 @@ impl Server {
             subscriber.unsubscribe_from(&topic).await;
             Ok(Response::Ok)
         } else {
-            Ok(Response::Error(core::Error::Server(String::from(
+            Ok(Response::Error(pliantdb_core::Error::Server(String::from(
                 "invalid subscriber id",
             ))))
         }
@@ -806,7 +810,7 @@ impl Server {
     ) -> Result<Response, Error> {
         let mut subscribers = subscribers.write().await;
         if subscribers.remove(&subscriber_id).is_none() {
-            Ok(Response::Error(core::Error::Server(String::from(
+            Ok(Response::Error(pliantdb_core::Error::Server(String::from(
                 "invalid subscriber id",
             ))))
         } else {
@@ -936,7 +940,7 @@ impl networking::ServerConnection for Server {
         if file_path.exists() {
             tokio::fs::remove_dir_all(file_path)
                 .await
-                .map_err(|err| core::Error::Io(err.to_string()))?;
+                .map_err(|err| pliantdb_core::Error::Io(err.to_string()))?;
         }
 
         if let Some(entry) = self
@@ -1073,7 +1077,7 @@ where
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
-    ) -> Result<Vec<OperationResult>, core::Error> {
+    ) -> Result<Vec<OperationResult>, pliantdb_core::Error> {
         <Self as Connection>::apply_transaction(self, transaction).await
     }
 
