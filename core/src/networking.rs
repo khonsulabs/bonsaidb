@@ -114,8 +114,20 @@ pub enum DatabaseRequest {
     LastTransactionId,
     /// Creates a `PubSub` [`Subscriber`](crate::pubsub::Subscriber)
     CreateSubscriber,
-    /// Publishes a `PubSub` message.
-    Publish(Message),
+    /// Publishes `payload` to all subscribers of `topic`.
+    Publish {
+        /// The topics to publish to.
+        topic: String,
+        /// The payload to publish.
+        payload: Vec<u8>,
+    },
+    /// Publishes `payload` to all subscribers of all `topics`.
+    PublishToAll {
+        /// The topics to publish to.
+        topics: Vec<String>,
+        /// The payload to publish.
+        payload: Vec<u8>,
+    },
     /// Subscribes `subscriber_id` to messages for `topic`.
     SubscribeTo {
         /// The id of the [`Subscriber`](crate::pubsub::Subscriber).

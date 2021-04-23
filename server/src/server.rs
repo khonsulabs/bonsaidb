@@ -27,6 +27,7 @@ use pliantdb_core::{
         DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerConnection as _,
         ServerRequest, ServerResponse,
     },
+    pubsub::database_topic,
     schema,
     schema::{
         view::map::{self, MappedValue},
@@ -364,17 +365,32 @@ impl Server {
         mut connection: fabruic::Connection<()>,
     ) -> Result<(), Error> {
         if let Some(incoming) = connection.next().await {
-            let incoming = incoming?;
+            let incoming = match incoming {
+                Ok(incoming) => incoming,
+                Err(err) => {
+                    eprintln!("[server] Error establishing a stream: {:?}", err);
+                    return Ok(());
+                }
+            };
+
             println!(
                 "[server] incoming stream from: {}",
                 connection.remote_address()
             );
 
-            let (sender, receiver) = incoming
+            match incoming
                 .accept::<networking::Payload<Response>, networking::Payload<Request>>()
-                .await?;
-            let task_self = self.clone();
-            tokio::spawn(async move { task_self.handle_stream(sender, receiver).await });
+                .await
+            {
+                Ok((sender, receiver)) => {
+                    let task_self = self.clone();
+                    tokio::spawn(async move { task_self.handle_stream(sender, receiver).await });
+                }
+                Err(err) => {
+                    eprintln!("[server] Error accepting incoming stream: {:?}", err);
+                    return Ok(());
+                }
+            }
         }
         Ok(())
     }
@@ -608,7 +624,13 @@ impl Server {
                 self.handle_database_create_subscriber(subscribers, response_sender)
                     .await
             }
-            DatabaseRequest::Publish(message) => self.handle_database_publish(message).await,
+            DatabaseRequest::Publish { topic, payload } => {
+                self.handle_database_publish(database, topic, payload).await
+            }
+            DatabaseRequest::PublishToAll { topics, payload } => {
+                self.handle_database_publish_to_all(database, topics, payload)
+                    .await
+            }
             DatabaseRequest::SubscribeTo {
                 subscriber_id,
                 topic,
@@ -764,8 +786,38 @@ impl Server {
         }))
     }
 
-    async fn handle_database_publish(&self, message: Message) -> Result<Response, Error> {
-        self.data.relay.publish_message(message).await;
+    async fn handle_database_publish(
+        &self,
+        database: String,
+        topic: String,
+        payload: Vec<u8>,
+    ) -> Result<Response, Error> {
+        self.data
+            .relay
+            .publish_message(Message {
+                topic: database_topic(&database, &topic),
+                payload,
+            })
+            .await;
+        Ok(Response::Ok)
+    }
+
+    async fn handle_database_publish_to_all(
+        &self,
+        database: String,
+        topics: Vec<String>,
+        payload: Vec<u8>,
+    ) -> Result<Response, Error> {
+        self.data
+            .relay
+            .publish_serialized_to_all(
+                topics
+                    .iter()
+                    .map(|topic| database_topic(&database, topic))
+                    .collect(),
+                payload,
+            )
+            .await;
         Ok(Response::Ok)
     }
 

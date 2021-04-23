@@ -14,10 +14,18 @@ pub trait PubSub {
 
     /// Create a new [`Subscriber`] for this relay.
     async fn create_subscriber(&self) -> Result<Self::Subscriber, Error>;
+
     /// Publishes a `payload` to all subscribers of `topic`.
     async fn publish<S: Into<String> + Send, P: Serialize + Sync>(
         &self,
         topic: S,
+        payload: &P,
+    ) -> Result<(), Error>;
+
+    /// Publishes a `payload` to all subscribers of all `topics`.
+    async fn publish_to_all<P: Serialize + Sync>(
+        &self,
+        topics: Vec<String>,
         payload: &P,
     ) -> Result<(), Error>;
 }
@@ -50,6 +58,15 @@ impl PubSub for Relay {
         payload: &P,
     ) -> Result<(), Error> {
         self.publish(topic, payload).await?;
+        Ok(())
+    }
+
+    async fn publish_to_all<P: Serialize + Sync>(
+        &self,
+        topics: Vec<String>,
+        payload: &P,
+    ) -> Result<(), Error> {
+        self.publish_to_all(topics, payload).await?;
         Ok(())
     }
 }
@@ -159,6 +176,45 @@ macro_rules! define_pubsub_test_suite {
             assert_eq!(message.payload::<String>()?, "a1");
             let message = subscriber.receiver().recv_async().await?;
             assert_eq!(message.payload::<String>()?, "a3");
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn publish_to_all_test() -> anyhow::Result<()> {
+            let harness = $harness::new($crate::test_util::HarnessTest::PubSubPublishAll).await?;
+            let pubsub = harness.connect().await?;
+            let subscriber_a = PubSub::create_subscriber(&pubsub).await?;
+            let subscriber_b = PubSub::create_subscriber(&pubsub).await?;
+            let subscriber_c = PubSub::create_subscriber(&pubsub).await?;
+            Subscriber::subscribe_to(&subscriber_a, "1").await?;
+            Subscriber::subscribe_to(&subscriber_b, "1").await?;
+            Subscriber::subscribe_to(&subscriber_b, "2").await?;
+            Subscriber::subscribe_to(&subscriber_c, "2").await?;
+            Subscriber::subscribe_to(&subscriber_a, "3").await?;
+            Subscriber::subscribe_to(&subscriber_c, "3").await?;
+
+            pubsub
+                .publish_to_all(
+                    vec![String::from("1"), String::from("2"), String::from("3")],
+                    &String::from("1"),
+                )
+                .await?;
+
+            // Each subscriber should get "1" twice on separate topics
+            for subscriber in &[subscriber_a, subscriber_b, subscriber_c] {
+                let mut message_topics = Vec::new();
+                for _ in 0..2_u8 {
+                    let message = subscriber.receiver().recv_async().await?;
+                    assert_eq!(message.payload::<String>()?, "1");
+                    message_topics.push(message.topic.clone());
+                }
+                assert!(matches!(
+                    subscriber.receiver().try_recv(),
+                    Err(flume::TryRecvError::Empty)
+                ));
+                assert!(message_topics[0] != message_topics[1]);
+            }
 
             Ok(())
         }

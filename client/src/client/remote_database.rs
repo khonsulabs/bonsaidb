@@ -354,14 +354,37 @@ where
         topic: S,
         payload: &P,
     ) -> Result<(), pliantdb_core::Error> {
+        let payload = serde_cbor::to_vec(&payload)?;
         match self
             .client
             .send_request(Request::Database {
                 database: self.name.to_string(),
-                request: DatabaseRequest::Publish(Message::new(
-                    database_topic(&self.name, &topic.into()),
+                request: DatabaseRequest::Publish {
+                    topic: topic.into(),
                     payload,
-                )?),
+                },
+            })
+            .await?
+        {
+            Response::Ok => Ok(()),
+            Response::Error(err) => Err(err),
+            other => Err(pliantdb_core::Error::Networking(
+                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn publish_to_all<P: Serialize + Sync>(
+        &self,
+        topics: Vec<String>,
+        payload: &P,
+    ) -> Result<(), pliantdb_core::Error> {
+        let payload = serde_cbor::to_vec(&payload)?;
+        match self
+            .client
+            .send_request(Request::Database {
+                database: self.name.to_string(),
+                request: DatabaseRequest::PublishToAll { topics, payload },
             })
             .await?
         {

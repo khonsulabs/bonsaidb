@@ -480,6 +480,15 @@ where
         self.data.relay.publish(topic, payload).await?;
         Ok(())
     }
+
+    async fn publish_to_all<P: serde::Serialize + Sync>(
+        &self,
+        topics: Vec<String>,
+        payload: &P,
+    ) -> Result<(), pliantdb_core::Error> {
+        self.data.relay.publish_to_all(topics, payload).await?;
+        Ok(())
+    }
 }
 
 type ViewIterator<'a> = Box<dyn Iterator<Item = Result<(IVec, IVec), sled::Error>> + 'a>;

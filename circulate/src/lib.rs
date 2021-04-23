@@ -115,6 +115,36 @@ impl Relay {
         Ok(())
     }
 
+    /// Publishes a `payload` to all subscribers of `topic`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `payload` fails to serialize with `serde_cbor`.
+    pub async fn publish_to_all<P: Serialize + Sync>(
+        &self,
+        topics: Vec<String>,
+        payload: &P,
+    ) -> Result<(), serde_cbor::Error> {
+        let tasks = topics
+            .into_iter()
+            .map(|topic| Message::new(topic, payload).map(|message| self.publish_message(message)))
+            .collect::<Result<Vec<_>, _>>()?;
+        futures::future::join_all(tasks).await;
+
+        Ok(())
+    }
+
+    /// Publishes a `payload` to all subscribers of `topic`.
+    pub async fn publish_serialized_to_all(&self, topics: Vec<String>, payload: Vec<u8>) {
+        let tasks = topics.into_iter().map(|topic| {
+            self.publish_message(Message {
+                topic,
+                payload: payload.clone(),
+            })
+        });
+        futures::future::join_all(tasks).await;
+    }
+
     /// Publishes a message to all subscribers of its topic.
     pub async fn publish_message(&self, message: Message) {
         if let Some(topic_id) = self.topic_id(&message.topic).await {

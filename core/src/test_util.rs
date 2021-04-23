@@ -275,6 +275,7 @@ pub enum HarnessTest {
     PubSubDropAndSend,
     PubSubUnsubscribe,
     PubSubDropCleanup,
+    PubSubPublishAll,
     KvBasic,
     KvSet,
     KvExpiration,

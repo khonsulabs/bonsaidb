@@ -186,6 +186,25 @@ where
 
         Ok(())
     }
+
+    async fn publish_to_all<P: serde::Serialize + Sync>(
+        &self,
+        topics: Vec<String>,
+        payload: &P,
+    ) -> Result<(), core::Error> {
+        self.server
+            .relay()
+            .publish_to_all(
+                topics
+                    .iter()
+                    .map(|topic| database_topic(self.name, topic))
+                    .collect(),
+                payload,
+            )
+            .await?;
+
+        Ok(())
+    }
 }
 
 pub struct Subscriber {
