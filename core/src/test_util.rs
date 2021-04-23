@@ -5,7 +5,7 @@ use std::{
     fmt::{Debug, Display},
     io::ErrorKind,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde::{Deserialize, Serialize};
@@ -275,6 +275,10 @@ pub enum HarnessTest {
     PubSubDropAndSend,
     PubSubUnsubscribe,
     PubSubDropCleanup,
+    KvBasic,
+    KvSet,
+    KvExpiration,
+    KvDeleteExpire,
 }
 
 impl HarnessTest {
@@ -294,93 +298,104 @@ impl Display for HarnessTest {
 #[macro_export]
 macro_rules! define_connection_test_suite {
     ($harness:ident) => {
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn store_retrieve_update_delete() -> Result<(), anyhow::Error> {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::StoreRetrieveUpdate).await?;
             let db = harness.connect().await?;
-            $crate::test_util::store_retrieve_update_delete_tests(&db).await
+            $crate::test_util::store_retrieve_update_delete_tests(&db).await?;
+            harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn not_found() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::NotFound).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::not_found_tests(&db).await
+            $crate::test_util::not_found_tests(&db).await?;
+            harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn conflict() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::Conflict).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::conflict_tests(&db).await
+            $crate::test_util::conflict_tests(&db).await?;
+            harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn bad_update() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::BadUpdate).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::bad_update_tests(&db).await
+            $crate::test_util::bad_update_tests(&db).await?;
+            harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn no_update() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::NoUpdate).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::no_update_tests(&db).await
+            $crate::test_util::no_update_tests(&db).await?;
+            harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn get_multiple() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::GetMultiple).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::get_multiple_tests(&db).await
+            $crate::test_util::get_multiple_tests(&db).await?;
+            harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn list_transactions() -> Result<(), anyhow::Error> {
             let harness = $harness::new($crate::test_util::HarnessTest::ListTransactions).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::list_transactions_tests(&db).await
+            $crate::test_util::list_transactions_tests(&db).await?;
+            harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn view_query() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::ViewQuery).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::view_query_tests(&db).await
+            $crate::test_util::view_query_tests(&db).await?;
+            harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn unassociated_collection() -> Result<(), anyhow::Error> {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::UnassociatedCollection).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::unassociated_collection_tests(&db).await
+            $crate::test_util::unassociated_collection_tests(&db).await?;
+            harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn view_update() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::ViewUpdate).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::view_update_tests(&db).await
+            $crate::test_util::view_update_tests(&db).await?;
+            harness.shutdown().await
         }
 
-        #[tokio::test(flavor = "multi_thread")]
+        #[tokio::test]
         async fn view_access_policies() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::ViewAccessPolicies).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::view_access_policy_tests(&db).await
+            $crate::test_util::view_access_policy_tests(&db).await?;
+            harness.shutdown().await
         }
     };
 }
@@ -812,4 +827,236 @@ pub async fn view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<(
         }
     }
     panic!("view never updated")
+}
+
+/// Defines the Kv test suite
+#[macro_export]
+macro_rules! define_kv_test_suite {
+    ($harness:ident) => {
+        #[tokio::test]
+        async fn basic_kv_test() -> anyhow::Result<()> {
+            use $crate::kv::{KeyStatus, Kv};
+            let harness = $harness::new($crate::test_util::HarnessTest::KvBasic).await?;
+            let db = harness.connect().await?;
+            assert_eq!(
+                db.set_key("akey", &String::from("avalue")).await?,
+                KeyStatus::Inserted
+            );
+            assert_eq!(db.get_key("akey").await?, Some(String::from("avalue")));
+            assert_eq!(
+                db.set_key("akey", &String::from("new_value"))
+                    .returning_previous()
+                    .await?,
+                Some(String::from("avalue"))
+            );
+            assert_eq!(db.get_key("akey").await?, Some(String::from("new_value")));
+            assert_eq!(
+                db.get_key("akey").and_delete().await?,
+                Some(String::from("new_value"))
+            );
+            assert_eq!(db.get_key::<String, _>("akey").await?, None);
+            assert_eq!(
+                db.set_key("akey", &String::from("new_value"))
+                    .returning_previous()
+                    .await?,
+                None
+            );
+            assert_eq!(db.delete_key("akey").await?, KeyStatus::Deleted);
+            assert_eq!(db.delete_key("akey").await?, KeyStatus::NotChanged);
+
+            harness.shutdown().await?;
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn kv_set_tests() -> anyhow::Result<()> {
+            use $crate::kv::{KeyStatus, Kv};
+            let harness = $harness::new($crate::test_util::HarnessTest::KvSet).await?;
+            let db = harness.connect().await?;
+            let kv = db.with_key_namespace("set");
+
+            assert_eq!(
+                kv.set_key("a", &0_u32).only_if_exists().await?,
+                KeyStatus::NotChanged
+            );
+            assert_eq!(
+                kv.set_key("a", &0_u32).only_if_vacant().await?,
+                KeyStatus::Inserted
+            );
+            assert_eq!(
+                kv.set_key("a", &1_u32).only_if_vacant().await?,
+                KeyStatus::NotChanged
+            );
+            assert_eq!(
+                kv.set_key("a", &2_u32).only_if_exists().await?,
+                KeyStatus::Updated,
+            );
+            assert_eq!(kv.set_key("a", &3_u32).returning_previous().await?, Some(2),);
+
+            harness.shutdown().await?;
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn kv_expiration_tests() -> anyhow::Result<()> {
+            use std::time::Duration;
+
+            use $crate::kv::{KeyStatus, Kv};
+
+            let harness = $harness::new($crate::test_util::HarnessTest::KvExpiration).await?;
+            let db = harness.connect().await?;
+
+            loop {
+                let kv = db.with_key_namespace("expiration");
+
+                kv.delete_key("a").await?;
+                kv.delete_key("b").await?;
+
+                // Test that the expiration is updated for key a, but not for key b.
+                let timing = $crate::test_util::TimingTest::new(Duration::from_millis(500));
+                let (r1, r2) = tokio::join!(
+                    kv.set_key("a", &0_u32).expire_in(Duration::from_secs(2)),
+                    kv.set_key("b", &0_u32).expire_in(Duration::from_secs(2))
+                );
+                if timing.elapsed() > Duration::from_millis(500) {
+                    println!(
+                        "Restarting test {}. Took too long {:?}",
+                        line!(),
+                        timing.elapsed(),
+                    );
+                    continue;
+                }
+                assert_eq!(r1?, KeyStatus::Inserted);
+                assert_eq!(r2?, KeyStatus::Inserted);
+                let (r1, r2) = tokio::join!(
+                    kv.set_key("a", &1_u32).expire_in(Duration::from_secs(4)),
+                    kv.set_key("b", &1_u32)
+                        .expire_in(Duration::from_secs(100))
+                        .keep_existing_expiration()
+                );
+                if timing.elapsed() > Duration::from_secs(2) {
+                    println!(
+                        "Restarting test {}. Took too long {:?}",
+                        line!(),
+                        timing.elapsed(),
+                    );
+                    continue;
+                }
+
+                assert_eq!(r1?, KeyStatus::Updated, "a wasn't an update");
+                assert_eq!(r2?, KeyStatus::Updated, "b wasn't an update");
+
+                let a = kv.get_key::<u32, _>("a").await?;
+
+                // Before checking the value, make sure we haven't elapsed too
+                // much time. If so, just restart the test.
+                if !timing.wait_until(Duration::from_secs_f32(2.5)).await {
+                    println!(
+                        "Restarting test {}. Took too long {:?}",
+                        line!(),
+                        timing.elapsed()
+                    );
+                    continue;
+                }
+
+                assert_eq!(a, Some(1));
+                assert_eq!(kv.get_key::<u32, _>("b").await?, None);
+
+                timing.wait_until(Duration::from_secs_f32(5.)).await;
+                assert_eq!(kv.get_key::<u32, _>("a").await?, None);
+                break;
+            }
+            harness.shutdown().await?;
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn delete_expire_tests() -> anyhow::Result<()> {
+            use std::time::Duration;
+
+            use $crate::kv::{KeyStatus, Kv};
+
+            let harness = $harness::new($crate::test_util::HarnessTest::KvDeleteExpire).await?;
+            let db = harness.connect().await?;
+
+            loop {
+                let kv = db.with_key_namespace("delete_expire");
+
+                kv.delete_key("a").await?;
+
+                let timing = $crate::test_util::TimingTest::new(Duration::from_millis(500));
+
+                // Create a key with an expiration. Delete the key. Set a new
+                // value at that key with no expiration. Ensure it doesn't
+                // expire.
+                kv.set_key("a", &0_u32)
+                    .expire_in(Duration::from_secs(2))
+                    .await?;
+                kv.delete_key("a").await?;
+                kv.set_key("a", &1_u32).await?;
+                if timing.elapsed() > Duration::from_secs(2) {
+                    println!(
+                        "Restarting test {}. Took too long {:?}",
+                        line!(),
+                        timing.elapsed(),
+                    );
+                    continue;
+                }
+                if !timing.wait_until(Duration::from_secs_f32(2.5)).await {
+                    println!(
+                        "Restarting test {}. Took too long {:?}",
+                        line!(),
+                        timing.elapsed()
+                    );
+                    continue;
+                }
+
+                assert_eq!(kv.get_key::<u32, _>("a").await?, Some(1));
+
+                break;
+            }
+            harness.shutdown().await?;
+
+            Ok(())
+        }
+    };
+}
+
+pub struct TimingTest {
+    tolerance: Duration,
+    start: Instant,
+}
+
+impl TimingTest {
+    #[must_use]
+    pub fn new(tolerance: Duration) -> Self {
+        Self {
+            tolerance,
+            start: Instant::now(),
+        }
+    }
+
+    pub async fn wait_until(&self, absolute_duration: Duration) -> bool {
+        let target = self.start + absolute_duration;
+        let now = Instant::now();
+        if now > target {
+            let amount_past = now - target;
+
+            // Return false if we're beyond the tolerance given
+            amount_past < self.tolerance
+        } else {
+            tokio::time::sleep_until(target.into()).await;
+            true
+        }
+    }
+
+    #[must_use]
+    pub fn elapsed(&self) -> Duration {
+        Instant::now()
+            .checked_duration_since(self.start)
+            .unwrap_or_default()
+    }
 }

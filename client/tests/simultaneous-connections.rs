@@ -8,7 +8,7 @@ use pliantdb_core::{
 };
 use pliantdb_server::{Configuration, Server};
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn simultaneous_connections() -> anyhow::Result<()> {
     let dir = TestDirectory::new("simultaneous-connections.pliantdb");
     let server = Server::open(dir.as_ref(), Configuration::default()).await?;

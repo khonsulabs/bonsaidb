@@ -35,6 +35,8 @@ pub mod schema;
 /// Types for executing transactions.
 pub mod transaction;
 
+/// Types for utilizing a lightweight atomic Key-Value store.
+pub mod kv;
 /// Types for Publish/Subscribe (`PubSub`) messaging.
 pub mod pubsub;
 

@@ -21,6 +21,7 @@ use pliantdb_core::{
     circulate::{Message, Relay, Subscriber},
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
+    kv::{KeyOperation, Kv, Output},
     networking::{
         self,
         fabruic::{self, Certificate, Endpoint, PrivateKey},
@@ -158,6 +159,11 @@ impl Server {
 
         // Open the database.
         let mut open_databases = self.data.open_databases.write().await;
+        // Check that we weren't in a race to initialize this database.
+        if let Some(db) = open_databases.get(name) {
+            return Ok(db.clone());
+        }
+
         let schema = match self
             .data
             .admin
@@ -619,6 +625,9 @@ impl Server {
                 self.handle_database_unregister_subscriber(subscriber_id, subscribers)
                     .await
             }
+            DatabaseRequest::ExecuteKeyOperation(op) => {
+                self.handle_database_kv_request(database, op).await
+            }
         }
     }
 
@@ -803,6 +812,16 @@ impl Server {
         } else {
             Ok(Response::Ok)
         }
+    }
+
+    async fn handle_database_kv_request(
+        &self,
+        database: String,
+        op: KeyOperation,
+    ) -> Result<Response, Error> {
+        let db = self.open_database_without_schema(&database).await?;
+        let result = db.execute_key_operation(op).await?;
+        Ok(Response::Database(DatabaseResponse::KvOutput(result)))
     }
 
     async fn forward_notifications_for(
@@ -1021,6 +1040,9 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
     ) -> Result<Vec<Executed<'static>>, pliantdb_core::Error>;
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error>;
+
+    async fn execute_key_operation(&self, op: KeyOperation)
+        -> Result<Output, pliantdb_core::Error>;
 }
 
 #[async_trait]
@@ -1145,6 +1167,13 @@ where
     async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
         Connection::last_transaction_id(self).await
     }
+
+    async fn execute_key_operation(
+        &self,
+        op: KeyOperation,
+    ) -> Result<Output, pliantdb_core::Error> {
+        Kv::execute_key_operation(self, op).await
+    }
 }
 
 #[test]
@@ -1164,7 +1193,7 @@ fn name_validation_tests() {
     ));
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn opening_databases_test() -> Result<(), Error> {
     Ok(())
 }

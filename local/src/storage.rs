@@ -1,4 +1,11 @@
-use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sync::Arc, u8};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    marker::PhantomData,
+    path::Path,
+    sync::{Arc, RwLock},
+    u8,
+};
 
 use async_trait::async_trait;
 use itertools::Itertools;
@@ -20,6 +27,7 @@ use sled::{
     IVec, Transactional, Tree,
 };
 
+use self::kv::ExpirationUpdate;
 use crate::{
     config::Configuration,
     error::{Error, ResultExt as _},
@@ -27,6 +35,8 @@ use crate::{
     tasks::TaskManager,
     views::{view_entries_tree_name, view_invalidated_docs_tree_name, ViewEntry},
 };
+
+pub mod kv;
 
 /// A local, file-based database.
 #[derive(Debug)]
@@ -40,6 +50,7 @@ pub struct Data<DB> {
     pub(crate) sled: sled::Db,
     pub(crate) tasks: TaskManager,
     relay: Relay,
+    kv_expirer: RwLock<Option<flume::Sender<kv::ExpirationUpdate>>>,
     _schema: PhantomData<DB>,
 }
 
@@ -56,10 +67,6 @@ where
     DB: Schema,
 {
     /// Opens a local file as a pliantdb.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `tokio::task::spawn_blocking` fails
     pub async fn open_local<P: AsRef<Path> + Send>(
         path: P,
         configuration: &Configuration,
@@ -80,6 +87,7 @@ where
                         sled,
                         schema,
                         tasks,
+                        kv_expirer: RwLock::default(),
                         relay: Relay::default(),
                         _schema: PhantomData::default(),
                     }),
@@ -99,6 +107,12 @@ where
             }
         }
 
+        storage
+            .data
+            .tasks
+            .spawn_key_value_expiration_loader(&storage)
+            .await;
+
         Ok(storage)
     }
 
@@ -106,6 +120,29 @@ where
     #[must_use]
     pub fn schematic(&self) -> &'_ Schematic {
         &self.data.schema
+    }
+
+    fn update_key_expiration(&self, update: ExpirationUpdate) {
+        {
+            let sender = self.data.kv_expirer.read().unwrap();
+            if let Some(sender) = sender.as_ref() {
+                let _ = sender.send(update);
+                return;
+            }
+        }
+
+        // If we fall through, we need to initialize the expirer task
+        let mut sender = self.data.kv_expirer.write().unwrap();
+        if sender.is_none() {
+            let (kv_sender, kv_expirer_receiver) = flume::unbounded();
+            let thread_sled = self.data.sled.clone();
+            tokio::task::spawn_blocking(move || {
+                kv::expiration_thread(kv_expirer_receiver, thread_sled)
+            });
+            *sender = Some(kv_sender);
+        }
+
+        let _ = sender.as_ref().unwrap().send(update);
     }
 }
 
@@ -240,8 +277,9 @@ where
             .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
             .min(LIST_TRANSACTIONS_MAX_RESULTS);
         if result_limit > 0 {
-            tokio::task::block_in_place(|| {
-                let tree = self
+            let task_self = self.clone();
+            tokio::task::spawn_blocking(move || {
+                let tree = task_self
                     .data
                     .sled
                     .open_tree(TRANSACTION_TREE_NAME)
@@ -268,6 +306,8 @@ where
                 }
                 Ok(results)
             })
+            .await
+            .unwrap()
         } else {
             // A request was made to return an empty result? This should probably be
             // an error, but technically this is a correct response.
@@ -399,8 +439,9 @@ where
     }
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| {
-            let tree = self
+        let task_self = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let tree = task_self
                 .data
                 .sled
                 .open_tree(TRANSACTION_TREE_NAME)
@@ -415,6 +456,8 @@ where
                 Ok(None)
             }
         })
+        .await
+        .unwrap()
     }
 }
 
@@ -755,11 +798,13 @@ where
         id: u64,
         collection: &CollectionName,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| {
-            let tree = self
+        let task_self = self.clone();
+        let collection = collection.clone();
+        tokio::task::spawn_blocking(move || {
+            let tree = task_self
                 .data
                 .sled
-                .open_tree(document_tree_name(collection))
+                .open_tree(document_tree_name(&collection))
                 .map_err_to_core()?;
             if let Some(vec) = tree
                 .get(
@@ -778,6 +823,8 @@ where
                 Ok(None)
             }
         })
+        .await
+        .unwrap()
     }
 
     async fn get_multiple_from_collection_id(
@@ -785,11 +832,14 @@ where
         ids: &[u64],
         collection: &CollectionName,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
-        tokio::task::block_in_place(|| {
-            let tree = self
+        let task_self = self.clone();
+        let ids = ids.to_vec();
+        let collection = collection.clone();
+        tokio::task::spawn_blocking(move || {
+            let tree = task_self
                 .data
                 .sled
-                .open_tree(document_tree_name(collection))
+                .open_tree(document_tree_name(&collection))
                 .map_err_to_core()?;
             let mut found_docs = Vec::new();
             for id in ids {
@@ -811,6 +861,8 @@ where
 
             Ok(found_docs)
         })
+        .await
+        .unwrap()
     }
 
     #[allow(clippy::missing_panics_doc)] // the only unwrap is impossible to fail

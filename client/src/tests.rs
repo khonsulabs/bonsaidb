@@ -1,20 +1,22 @@
 use std::{sync::atomic::Ordering, time::Duration};
 
+use once_cell::sync::Lazy;
 use pliantdb_core::{
+    fabruic::Certificate,
     networking::ServerConnection,
     schema::Schema,
     test_util::{Basic, HarnessTest, TestDirectory},
 };
-use pliantdb_server::{
-    test_util::{basic_server_connection_tests, initialize_basic_server, BASIC_SERVER_NAME},
-    Server,
+use pliantdb_server::test_util::{
+    basic_server_connection_tests, initialize_basic_server, BASIC_SERVER_NAME,
 };
+use tokio::sync::Mutex;
 use url::Url;
 
 use super::*;
 use crate::client::RemoteDatabase;
 
-#[tokio::test(flavor = "multi_thread")]
+#[tokio::test]
 async fn server_connection_tests() -> anyhow::Result<()> {
     let directory = TestDirectory::new("client-test");
     let server = initialize_basic_server(directory.as_ref()).await?;
@@ -44,96 +46,119 @@ async fn server_connection_tests() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn initialize_shared_server() -> Certificate {
+    static CERTIFICATE: Lazy<Mutex<Option<Certificate>>> = Lazy::new(|| Mutex::new(None));
+    let mut certificate = CERTIFICATE.lock().await;
+    if certificate.is_none() {
+        let (sender, receiver) = flume::bounded(1);
+        std::thread::spawn(|| run_shared_server(sender));
+
+        *certificate = Some(receiver.recv_async().await.unwrap());
+        // Give the server time to start listening
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+    }
+
+    certificate.clone().unwrap()
+}
+
+fn run_shared_server(certificate_sender: flume::Sender<Certificate>) -> anyhow::Result<()> {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async move {
+        let directory = TestDirectory::new("shared-server");
+        let server = initialize_basic_server(directory.as_ref()).await.unwrap();
+        certificate_sender
+            .send(server.certificate().await.unwrap())
+            .unwrap();
+
+        #[cfg(feature = "websockets")]
+        {
+            let task_server = server.clone();
+            tokio::spawn(async move {
+                task_server
+                    .listen_for_websockets_on("localhost:6001")
+                    .await
+                    .unwrap();
+            });
+        }
+
+        server.listen_on(6000).await.unwrap();
+    });
+
+    Ok(())
+}
+
 #[cfg(feature = "websockets")]
 mod websockets {
     use super::*;
 
     struct WebsocketTestHarness {
-        _server: Server,
-        _directory: TestDirectory,
         db: RemoteDatabase<Basic>,
     }
 
     impl WebsocketTestHarness {
         pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
-            let directory = TestDirectory::new(format!("websocket-server-{}", test));
-            let server = initialize_basic_server(directory.as_ref()).await?;
-            let task_server = server.clone();
-            tokio::spawn(async move {
-                task_server
-                    .listen_for_websockets_on(&format!("localhost:{}", test.port(6000)))
-                    .await
-                    .unwrap();
-                println!("Test websocket server shut down.");
-            });
-
-            tokio::time::sleep(Duration::from_millis(100)).await;
-
-            let url = Url::parse(&format!("ws://localhost:{}", test.port(6000)))?;
+            initialize_shared_server().await;
+            let url = Url::parse("ws://localhost:6001")?;
             let client = Client::new(&url, None).await?;
 
+            let dbname = format!("websockets-{}", test);
             client
-                .create_database(&test.to_string(), Basic::schema_name()?)
+                .create_database(&dbname, Basic::schema_name()?)
                 .await?;
-            let db = client.database::<Basic>(&test.to_string()).await?;
+            let db = client.database::<Basic>(&dbname).await?;
 
-            Ok(Self {
-                db,
-                _server: server,
-                _directory: directory,
-            })
+            Ok(Self { db })
         }
 
         pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<Basic>> {
             Ok(self.db.clone())
+        }
+
+        pub async fn shutdown(&self) -> anyhow::Result<()> {
+            Ok(())
         }
     }
 
     pliantdb_core::define_connection_test_suite!(WebsocketTestHarness);
     pliantdb_core::define_pubsub_test_suite!(WebsocketTestHarness);
+    pliantdb_core::define_kv_test_suite!(WebsocketTestHarness);
 }
 
 mod pliant {
     use super::*;
     struct PliantTestHarness {
-        _server: Server,
-        _directory: TestDirectory,
         db: RemoteDatabase<Basic>,
     }
 
     impl PliantTestHarness {
         pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
-            let directory = TestDirectory::new(format!("pliant-server-{}", test));
-            let server = initialize_basic_server(directory.as_ref()).await?;
-            let task_server = server.clone();
-            tokio::spawn(async move { task_server.listen_on(test.port(5001)).await });
-
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            let certificate = initialize_shared_server().await;
 
             let url = Url::parse(&format!(
-                "pliantdb://localhost:{}?server={}",
-                test.port(5001),
+                "pliantdb://localhost:6000?server={}",
                 BASIC_SERVER_NAME
             ))?;
-            let client = Client::new(&url, Some(server.certificate().await?)).await?;
+            let client = Client::new(&url, Some(certificate)).await?;
 
+            let dbname = format!("pliant-{}", test);
             client
-                .create_database(&test.to_string(), Basic::schema_name()?)
+                .create_database(&dbname, Basic::schema_name()?)
                 .await?;
-            let db = client.database::<Basic>(&test.to_string()).await?;
+            let db = client.database::<Basic>(&dbname).await?;
 
-            Ok(Self {
-                db,
-                _server: server,
-                _directory: directory,
-            })
+            Ok(Self { db })
         }
 
         pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<Basic>> {
             Ok(self.db.clone())
         }
+
+        pub async fn shutdown(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
     }
 
     pliantdb_core::define_connection_test_suite!(PliantTestHarness);
     pliantdb_core::define_pubsub_test_suite!(PliantTestHarness);
+    pliantdb_core::define_kv_test_suite!(PliantTestHarness);
 }

@@ -29,6 +29,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v2
 
@@ -38,7 +39,7 @@ jobs:
 
       - name: Run default features unit tests
         run: |
-          cargo test --all-features
+          cargo test --all-features -- --nocapture
 
   docs:
     runs-on: ubuntu-latest
@@ -61,6 +62,7 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v2
 
