@@ -17,6 +17,7 @@ homepage = "https://pliantdb.dev/"
 default = ["cli"]
 cli = ["structopt"]
 internal-apis = []
+pubsub = ["pliantdb-core/pubsub"]
 
 [dependencies]
 async-trait = "0.1"

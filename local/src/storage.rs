@@ -10,11 +10,9 @@ use std::{
 use async_trait::async_trait;
 use itertools::Itertools;
 use pliantdb_core::{
-    circulate::{Relay, Subscriber},
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    pubsub::PubSub,
     schema::{
         self, view, CollectionName, Key, Map, MappedDocument, MappedValue, Schema, Schematic,
         ViewName,
@@ -38,6 +36,9 @@ use crate::{
 
 pub mod kv;
 
+#[cfg(feature = "pubsub")]
+mod pubsub;
+
 /// A local, file-based database.
 #[derive(Debug)]
 pub struct Storage<DB> {
@@ -49,7 +50,8 @@ pub struct Data<DB> {
     pub(crate) schema: Arc<Schematic>,
     pub(crate) sled: sled::Db,
     pub(crate) tasks: TaskManager,
-    relay: Relay,
+    #[cfg(feature = "pubsub")]
+    relay: pubsub::Relay,
     kv_expirer: RwLock<Option<flume::Sender<kv::ExpirationUpdate>>>,
     _schema: PhantomData<DB>,
 }
@@ -88,7 +90,8 @@ where
                         schema,
                         tasks,
                         kv_expirer: RwLock::default(),
-                        relay: Relay::default(),
+                        #[cfg(feature = "pubsub")]
+                        relay: pubsub::Relay::default(),
                         _schema: PhantomData::default(),
                     }),
                 })
@@ -458,36 +461,6 @@ where
         })
         .await
         .unwrap()
-    }
-}
-
-#[async_trait]
-impl<DB> PubSub for Storage<DB>
-where
-    DB: Schema,
-{
-    type Subscriber = Subscriber;
-
-    async fn create_subscriber(&self) -> Result<Self::Subscriber, pliantdb_core::Error> {
-        Ok(self.data.relay.create_subscriber().await)
-    }
-
-    async fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
-        &self,
-        topic: S,
-        payload: &P,
-    ) -> Result<(), pliantdb_core::Error> {
-        self.data.relay.publish(topic, payload).await?;
-        Ok(())
-    }
-
-    async fn publish_to_all<P: serde::Serialize + Sync>(
-        &self,
-        topics: Vec<String>,
-        payload: &P,
-    ) -> Result<(), pliantdb_core::Error> {
-        self.data.relay.publish_to_all(topics, payload).await?;
-        Ok(())
     }
 }
 

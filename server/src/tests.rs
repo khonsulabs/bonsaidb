@@ -41,6 +41,7 @@ impl TestHarness {
 }
 
 pliantdb_core::define_connection_test_suite!(TestHarness);
+#[cfg(feature = "pubsub")]
 pliantdb_core::define_pubsub_test_suite!(TestHarness);
 pliantdb_core::define_kv_test_suite!(TestHarness);
 

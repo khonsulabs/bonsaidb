@@ -25,25 +25,36 @@ name = "view-examples"
 required-features = ["local"]
 
 [[example]]
+name = "pubsub"
+required-features = ["local", "local-pubsub"]
+
+[[example]]
 name = "server"
 required-features = ["server", "client"]
 
 [features]
 default = ["cli"]
-full = ["local", "server", "client", "websockets", "trusted-dns"]
+full = ["local", "server", "client", "websockets", "trusted-dns", "pubsub"]
 local = ["pliantdb-local"]
 server = ["pliantdb-server"]
 client = ["pliantdb-client"]
-cli = [
-    "full",
-    "anyhow",
-    "tokio",
-    "structopt",
-    "pliantdb-local/cli",
-    "pliantdb-server/cli",
-]
-websockets = ["pliantdb-server/websockets", "pliantdb-client/websockets"]
-trusted-dns = ["pliantdb-server/trusted-dns", "pliantdb-client/trusted-dns"]
+
+cli = ["full", "anyhow", "tokio", "structopt", "local-cli", "server-cli"]
+local-cli = ["pliantdb-local/cli"]
+server-cli = ["pliantdb-server/cli"]
+
+websockets = ["server-websockets", "client-websockets"]
+server-websockets = ["pliantdb-server/websockets"]
+client-websockets = ["pliantdb-client/websockets"]
+
+trusted-dns = ["server-trusted-dns", "client-trusted-dns"]
+server-trusted-dns = ["pliantdb-server/trusted-dns"]
+client-trusted-dns = ["pliantdb-client/trusted-dns"]
+
+pubsub = ["server-pubsub", "client-pubsub", "local-pubsub"]
+server-pubsub = ["pliantdb-server/pubsub", "pliantdb-core/pubsub"]
+client-pubsub = ["pliantdb-client/pubsub", "pliantdb-core/pubsub"]
+local-pubsub = ["pliantdb-local/pubsub", "pliantdb-core/pubsub"]
 
 [dependencies]
 pliantdb-core = { path = "../core", version = "0.1.0-dev-2" }

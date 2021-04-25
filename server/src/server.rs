@@ -10,14 +10,19 @@ use std::{
 
 use admin::database::{self, Database};
 use async_trait::async_trait;
+use cfg_if::cfg_if;
 #[cfg(feature = "websockets")]
 use flume::Sender;
 #[cfg(feature = "websockets")]
 use futures::SinkExt;
 use futures::{Future, StreamExt, TryFutureExt};
 use itertools::Itertools;
+#[cfg(feature = "pubsub")]
 use pliantdb_core::{
     circulate::{Message, Relay, Subscriber},
+    pubsub::database_topic,
+};
+use pliantdb_core::{
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
     kv::{KeyOperation, Kv, Output},
@@ -27,7 +32,6 @@ use pliantdb_core::{
         DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerConnection as _,
         ServerRequest, ServerResponse,
     },
-    pubsub::database_topic,
     schema,
     schema::{
         view::map::{self, MappedValue},
@@ -67,6 +71,7 @@ struct Data {
     available_databases: RwLock<HashMap<String, SchemaName>>,
     request_processor: Manager,
     storage_configuration: pliantdb_local::Configuration,
+    #[cfg(feature = "pubsub")]
     relay: Relay,
 }
 
@@ -102,6 +107,7 @@ impl Server {
                 open_databases: RwLock::default(),
                 request_processor,
                 storage_configuration: configuration.storage,
+                #[cfg(feature = "pubsub")]
                 relay: Relay::default(),
             }),
         })
@@ -198,6 +204,7 @@ impl Server {
         Ok(storage.clone())
     }
 
+    #[cfg(feature = "pubsub")]
     pub(crate) fn relay(&self) -> &'_ Relay {
         &self.data.relay
     }
@@ -427,6 +434,7 @@ impl Server {
             Result::<(), anyhow::Error>::Ok(())
         });
 
+        #[cfg(feature = "pubsub")]
         let subscribers: Arc<RwLock<HashMap<u64, Subscriber>>> = Arc::default();
 
         while let Some(payload) = receiver.next().await {
@@ -445,7 +453,9 @@ impl Server {
 
                             Ok(())
                         },
+                        #[cfg(feature = "pubsub")]
                         subscribers.clone(),
+                        #[cfg(feature = "pubsub")]
                         response_sender.clone(),
                     )
                     .await?;
@@ -470,8 +480,8 @@ impl Server {
         &self,
         request: Request,
         callback: F,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        response_sender: flume::Sender<Payload<Response>>,
+        #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        #[cfg(feature = "pubsub")] response_sender: flume::Sender<Payload<Response>>,
     ) -> Result<(), Error> {
         let job = self
             .data
@@ -479,7 +489,9 @@ impl Server {
             .enqueue(ClientRequest::new(
                 request,
                 self.clone(),
+                #[cfg(feature = "pubsub")]
                 subscribers,
+                #[cfg(feature = "pubsub")]
                 response_sender,
             ))
             .await;
@@ -500,6 +512,7 @@ impl Server {
         sender: fabruic::Sender<Payload<Response>>,
         mut receiver: fabruic::Receiver<Payload<Request>>,
     ) -> Result<(), Error> {
+        #[cfg(feature = "pubsub")]
         let subscribers: Arc<RwLock<HashMap<u64, Subscriber>>> = Arc::default();
         let (payload_sender, payload_receiver) = flume::unbounded();
         tokio::spawn(async move {
@@ -523,7 +536,9 @@ impl Server {
 
                     Ok(())
                 },
+                #[cfg(feature = "pubsub")]
                 subscribers.clone(),
+                #[cfg(feature = "pubsub")]
                 payload_sender.clone(),
             )
             .await?;
@@ -535,14 +550,21 @@ impl Server {
     pub(crate) async fn handle_request(
         &self,
         request: Request,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        response_sender: &flume::Sender<Payload<Response>>,
+        #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        #[cfg(feature = "pubsub")] response_sender: &flume::Sender<Payload<Response>>,
     ) -> Result<Response, Error> {
         match request {
             Request::Server(request) => self.handle_server_request(request).await,
             Request::Database { database, request } => {
-                self.handle_database_request(database, request, subscribers, response_sender)
-                    .await
+                self.handle_database_request(
+                    database,
+                    request,
+                    #[cfg(feature = "pubsub")]
+                    subscribers,
+                    #[cfg(feature = "pubsub")]
+                    response_sender,
+                )
+                .await
             }
         }
     }
@@ -569,12 +591,14 @@ impl Server {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
+    #[cfg_attr(not(feature = "pubsub"), allow(clippy::match_same_arms))]
     async fn handle_database_request(
         &self,
         database: String,
         request: DatabaseRequest,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        response_sender: &flume::Sender<Payload<Response>>,
+        #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        #[cfg(feature = "pubsub")] response_sender: &flume::Sender<Payload<Response>>,
     ) -> Result<Response, Error> {
         match request {
             DatabaseRequest::Get { collection, id } => {
@@ -621,33 +645,74 @@ impl Server {
             }
 
             DatabaseRequest::CreateSubscriber => {
-                self.handle_database_create_subscriber(subscribers, response_sender)
-                    .await
+                cfg_if! {
+                    if #[cfg(feature = "pubsub")] {
+                        self.handle_database_create_subscriber(subscribers, response_sender)
+                        .await
+                    } else {
+                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                    }
+                }
             }
             DatabaseRequest::Publish { topic, payload } => {
-                self.handle_database_publish(database, topic, payload).await
+                cfg_if! {
+                    if #[cfg(feature = "pubsub")] {
+                        self.handle_database_publish(database, topic, payload).await
+                    } else {
+                        drop((topic, payload));
+                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                    }
+                }
             }
             DatabaseRequest::PublishToAll { topics, payload } => {
-                self.handle_database_publish_to_all(database, topics, payload)
-                    .await
+                cfg_if! {
+                    if #[cfg(feature = "pubsub")] {
+                        self.handle_database_publish_to_all(database, topics, payload)
+                            .await
+                    } else {
+                        drop((topics, payload));
+                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                    }
+                }
             }
             DatabaseRequest::SubscribeTo {
                 subscriber_id,
                 topic,
             } => {
-                self.handle_database_subscribe_to(subscriber_id, topic, subscribers)
-                    .await
+                cfg_if! {
+                    if #[cfg(feature = "pubsub")] {
+                        self.handle_database_subscribe_to(subscriber_id, topic, subscribers)
+                            .await
+                    } else {
+                        let _ = (subscriber_id, topic);
+                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                    }
+                }
             }
             DatabaseRequest::UnsubscribeFrom {
                 subscriber_id,
                 topic,
             } => {
-                self.handle_database_unsubscribe_from(subscriber_id, topic, subscribers)
-                    .await
+                cfg_if! {
+                    if #[cfg(feature = "pubsub")] {
+                        self.handle_database_unsubscribe_from(subscriber_id, topic, subscribers)
+                            .await
+                    } else {
+                        let _ = (subscriber_id, topic);
+                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                    }
+                }
             }
             DatabaseRequest::UnregisterSubscriber { subscriber_id } => {
-                self.handle_database_unregister_subscriber(subscriber_id, subscribers)
-                    .await
+                cfg_if! {
+                    if #[cfg(feature = "pubsub")] {
+                        self.handle_database_unregister_subscriber(subscriber_id, subscribers)
+                            .await
+                    } else {
+                        let _ = subscriber_id;
+                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                    }
+                }
             }
             DatabaseRequest::ExecuteKeyOperation(op) => {
                 self.handle_database_kv_request(database, op).await
@@ -761,6 +826,7 @@ impl Server {
         )))
     }
 
+    #[cfg(feature = "pubsub")]
     async fn handle_database_create_subscriber(
         &self,
         subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
@@ -786,6 +852,7 @@ impl Server {
         }))
     }
 
+    #[cfg(feature = "pubsub")]
     async fn handle_database_publish(
         &self,
         database: String,
@@ -802,6 +869,7 @@ impl Server {
         Ok(Response::Ok)
     }
 
+    #[cfg(feature = "pubsub")]
     async fn handle_database_publish_to_all(
         &self,
         database: String,
@@ -821,6 +889,7 @@ impl Server {
         Ok(Response::Ok)
     }
 
+    #[cfg(feature = "pubsub")]
     async fn handle_database_subscribe_to(
         &self,
         subscriber_id: u64,
@@ -838,6 +907,7 @@ impl Server {
         }
     }
 
+    #[cfg(feature = "pubsub")]
     async fn handle_database_unsubscribe_from(
         &self,
         subscriber_id: u64,
@@ -855,6 +925,7 @@ impl Server {
         }
     }
 
+    #[cfg(feature = "pubsub")]
     async fn handle_database_unregister_subscriber(
         &self,
         subscriber_id: u64,
@@ -880,6 +951,7 @@ impl Server {
         Ok(Response::Database(DatabaseResponse::KvOutput(result)))
     }
 
+    #[cfg(feature = "pubsub")]
     async fn forward_notifications_for(
         &self,
         subscriber_id: u64,
@@ -892,7 +964,8 @@ impl Server {
                     id: None,
                     wrapped: Response::Database(DatabaseResponse::MessageReceived {
                         subscriber_id,
-                        message: message.as_ref().clone(),
+                        topic: message.topic.clone(),
+                        payload: message.payload.clone(),
                     }),
                 })
                 .is_err()
@@ -1304,20 +1377,24 @@ where
 struct ClientRequest {
     request: Option<Request>,
     server: Server,
+    #[cfg(feature = "pubsub")]
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+    #[cfg(feature = "pubsub")]
     sender: flume::Sender<Payload<Response>>,
 }
 impl ClientRequest {
     pub const fn new(
         request: Request,
         server: Server,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        sender: flume::Sender<Payload<Response>>,
+        #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        #[cfg(feature = "pubsub")] sender: flume::Sender<Payload<Response>>,
     ) -> Self {
         Self {
             request: Some(request),
             server,
+            #[cfg(feature = "pubsub")]
             subscribers,
+            #[cfg(feature = "pubsub")]
             sender,
         }
     }
@@ -1331,7 +1408,13 @@ impl Job for ClientRequest {
         let request = self.request.take().unwrap();
         Ok(self
             .server
-            .handle_request(request, self.subscribers.clone(), &self.sender)
+            .handle_request(
+                request,
+                #[cfg(feature = "pubsub")]
+                self.subscribers.clone(),
+                #[cfg(feature = "pubsub")]
+                &self.sender,
+            )
             .await
             .unwrap_or_else(|err| Response::Error(err.into())))
     }

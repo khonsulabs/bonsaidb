@@ -120,6 +120,8 @@ mod websockets {
     }
 
     pliantdb_core::define_connection_test_suite!(WebsocketTestHarness);
+
+    #[cfg(feature = "pubsub")]
     pliantdb_core::define_pubsub_test_suite!(WebsocketTestHarness);
     pliantdb_core::define_kv_test_suite!(WebsocketTestHarness);
 }
@@ -159,6 +161,7 @@ mod pliant {
     }
 
     pliantdb_core::define_connection_test_suite!(PliantTestHarness);
+    #[cfg(feature = "pubsub")]
     pliantdb_core::define_pubsub_test_suite!(PliantTestHarness);
     pliantdb_core::define_kv_test_suite!(PliantTestHarness);
 }

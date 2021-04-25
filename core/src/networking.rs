@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use circulate::Message;
 pub use fabruic;
 use schema::SchemaName;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -211,8 +210,10 @@ pub enum DatabaseResponse {
     MessageReceived {
         /// The ID of the subscriber receiving the message.
         subscriber_id: u64,
-        /// The message received.
-        message: Message,
+        /// The topic the payload was received on.
+        topic: String,
+        /// The message payload.
+        payload: Vec<u8>,
     },
     /// Output from a [`KeyOperation`] being executed.
     KvOutput(Output),

@@ -1,15 +1,15 @@
-use std::sync::Arc;
-
 use flume::{Receiver, Sender};
 use futures::StreamExt;
 use pliantdb_core::networking::{
     fabruic::{self, Certificate, Endpoint},
-    DatabaseResponse, Payload, Request, Response,
+    Payload, Request, Response,
 };
 use url::Url;
 
+#[cfg(feature = "pubsub")]
+use crate::client::SubscriberMap;
 use crate::{
-    client::{OutstandingRequestMapHandle, PendingRequest, SubscriberMap},
+    client::{OutstandingRequestMapHandle, PendingRequest},
     Error,
 };
 
@@ -20,11 +20,18 @@ pub async fn reconnecting_client_loop(
     url: Url,
     certificate: Certificate,
     request_receiver: Receiver<PendingRequest>,
-    subscribers: SubscriberMap,
+    #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Ok(request) = request_receiver.recv_async().await {
-        if let Err((responder, err)) =
-            connect_and_process(&url, &certificate, request, &request_receiver, &subscribers).await
+        if let Err((responder, err)) = connect_and_process(
+            &url,
+            &certificate,
+            request,
+            &request_receiver,
+            #[cfg(feature = "pubsub")]
+            &subscribers,
+        )
+        .await
         {
             if let Some(responder) = responder {
                 let _ = responder.try_send(Err(err));
@@ -41,7 +48,7 @@ async fn connect_and_process(
     certificate: &Certificate,
     initial_request: PendingRequest,
     request_receiver: &Receiver<PendingRequest>,
-    subscribers: &SubscriberMap,
+    #[cfg(feature = "pubsub")] subscribers: &SubscriberMap,
 ) -> Result<(), (Option<Sender<Result<Response, Error>>>, Error)> {
     let (_connection, payload_sender, payload_receiver) = connect(url, certificate)
         .await
@@ -51,6 +58,7 @@ async fn connect_and_process(
     let request_processor = tokio::spawn(process(
         outstanding_requests.clone(),
         payload_receiver,
+        #[cfg(feature = "pubsub")]
         subscribers.clone(),
     ));
 
@@ -94,7 +102,7 @@ async fn process_requests(
 pub async fn process(
     outstanding_requests: OutstandingRequestMapHandle,
     mut payload_receiver: fabruic::Receiver<Payload<Response>>,
-    subscribers: SubscriberMap,
+    #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
         let payload = payload?;
@@ -106,18 +114,29 @@ pub async fn process(
                     .expect("missing responder")
             };
             let _ = responder.send(Ok(payload.wrapped));
-        } else if let Response::Database(DatabaseResponse::MessageReceived {
-            subscriber_id,
-            message,
-        }) = payload.wrapped
-        {
-            let mut subscribers = subscribers.lock().await;
-            if let Some(sender) = subscribers.get(&subscriber_id) {
-                if sender.send(Arc::new(message)).is_err() {
-                    subscribers.remove(&subscriber_id);
+        } else {
+            #[cfg(feature = "pubsub")]
+            {
+                use std::sync::Arc;
+
+                use pliantdb_core::{circulate::Message, networking::DatabaseResponse};
+
+                if let Response::Database(DatabaseResponse::MessageReceived {
+                    subscriber_id,
+                    topic,
+                    payload,
+                }) = payload.wrapped
+                {
+                    let mut subscribers = subscribers.lock().await;
+                    if let Some(sender) = subscribers.get(&subscriber_id) {
+                        if sender.send(Arc::new(Message { topic, payload })).is_err() {
+                            subscribers.remove(&subscriber_id);
+                        }
+                    }
+
+                    continue;
                 }
             }
-        } else {
             unreachable!("only MessageReceived is allowed to not have an id")
         }
     }

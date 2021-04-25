@@ -16,6 +16,10 @@
     clippy::option_if_let_else,
 )]
 
+#[cfg(feature = "pubsub")]
+/// Types for Publish/Subscribe (`PubSub`) messaging.
+pub mod pubsub;
+#[cfg(feature = "pubsub")]
 pub use circulate;
 #[cfg(feature = "networking")]
 pub use fabruic;
@@ -37,8 +41,6 @@ pub mod transaction;
 
 /// Types for utilizing a lightweight atomic Key-Value store.
 pub mod kv;
-/// Types for Publish/Subscribe (`PubSub`) messaging.
-pub mod pubsub;
 
 use schema::CollectionName;
 use serde::{Deserialize, Serialize};

@@ -11,9 +11,7 @@ use std::{
 
 use async_trait::async_trait;
 use flume::Sender;
-use networking::DatabaseRequest;
 use pliantdb_core::{
-    circulate::Message,
     fabruic::Certificate,
     networking::{
         self, Database, Payload, Request, Response, ServerConnection, ServerRequest, ServerResponse,
@@ -31,7 +29,11 @@ mod remote_database;
 mod websocket_worker;
 mod worker;
 
+#[cfg(feature = "pubsub")]
 type SubscriberMap = Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>;
+
+#[cfg(feature = "pubsub")]
+use pliantdb_core::{circulate::Message, networking::DatabaseRequest};
 
 /// Client for connecting to a `PliantDB` server.
 #[derive(Clone, Debug)]
@@ -45,6 +47,7 @@ pub struct Data {
     worker: CancellableHandle<Result<(), Error>>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     request_id: AtomicU32,
+    #[cfg(feature = "pubsub")]
     subscribers: SubscriberMap,
     #[cfg(test)]
     pub(crate) background_task_running: Arc<AtomicBool>,
@@ -88,11 +91,13 @@ impl Client {
     fn new_pliant_client(url: Url, certificate: Certificate) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
+        #[cfg(feature = "pubsub")]
         let subscribers = SubscriberMap::default();
         let worker = tokio::task::spawn(worker::reconnecting_client_loop(
             url,
             certificate,
             request_receiver,
+            #[cfg(feature = "pubsub")]
             subscribers.clone(),
         ));
 
@@ -109,6 +114,7 @@ impl Client {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(test)]
                 background_task_running,
@@ -120,10 +126,12 @@ impl Client {
     async fn new_websocket_client(url: Url) -> Result<Self, Error> {
         let (request_sender, request_receiver) = flume::unbounded();
 
+        #[cfg(feature = "pubsub")]
         let subscribers = SubscriberMap::default();
         let worker = tokio::task::spawn(websocket_worker::reconnecting_client_loop(
             url,
             request_receiver,
+            #[cfg(feature = "pubsub")]
             subscribers.clone(),
         ));
 
@@ -140,6 +148,7 @@ impl Client {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(test)]
                 background_task_running,
@@ -183,11 +192,13 @@ impl Client {
         result_receiver.recv_async().await?
     }
 
+    #[cfg(feature = "pubsub")]
     pub(crate) async fn register_subscriber(&self, id: u64, sender: flume::Sender<Arc<Message>>) {
         let mut subscribers = self.data.subscribers.lock().await;
         subscribers.insert(id, sender);
     }
 
+    #[cfg(feature = "pubsub")]
     pub(crate) async fn unregister_subscriber(&self, database: String, id: u64) {
         let _ = self
             .send_request(Request::Database {
