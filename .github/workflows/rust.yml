@@ -32,7 +32,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        iteration:
+        include:
           - folder: "./"
             features: "--all-features"
           - folder: local
@@ -79,8 +79,8 @@ jobs:
 
       - name: Run unit tests
         run: |
-          cd ${{ matrix.folder }}
-          cargo test ${{ matrix.features }}
+          cd ${{ matrix.iteration.folder }}
+          cargo test ${{ matrix.iteration.features }}
 
   docs:
     runs-on: ubuntu-latest
