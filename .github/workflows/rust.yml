@@ -74,13 +74,13 @@ jobs:
 
       - name: Run clippy
         run: |
-          cd ${{ matrix.iteration.folder }}
-          cargo clippy ${{ matrix.iteration.features }}
+          cd ${{ matrix.folder }}
+          cargo clippy ${{ matrix.features }}
 
       - name: Run unit tests
         run: |
-          cd ${{ matrix.iteration.folder }}
-          cargo test ${{ matrix.iteration.features }}
+          cd ${{ matrix.folder }}
+          cargo test ${{ matrix.features }}
 
   docs:
     runs-on: ubuntu-latest
