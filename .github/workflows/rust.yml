@@ -32,9 +32,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        folder: []
-        features: []
-        include:
+        iteration:
           - folder: .
             features: "--all-features"
           - folder: local
@@ -76,8 +74,8 @@ jobs:
 
       - name: Run clippy
         run: |
-          cd ${{ matrix.folder }}
-          cargo clippy ${{ matrix.features }}
+          cd ${{ matrix.iteration.folder }}
+          cargo clippy ${{ matrix.iteration.features }}
 
       - name: Run unit tests
         run: |
