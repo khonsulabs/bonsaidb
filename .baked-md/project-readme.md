@@ -105,6 +105,11 @@ pliantdb = { version = "*", default-features = false, features = "server-full" }
 
 ### Client for accessing a `PliantDB` server.
 
+```toml
+[dependencies]
+pliantdb = { version = "*", default-features = false, features = "client-full" }
+```
+
 - `client-full`: Enables `client`, `client-trusted-dns`,
   `client-websockets`, `client-keyvalue`, and `client-pubsub`
 - `client`: Enables the [`client`] module, which re-exports the crate
