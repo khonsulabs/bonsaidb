@@ -1,20 +1,20 @@
 use std::{sync::atomic::Ordering, time::Duration};
 
 use once_cell::sync::Lazy;
-use pliantdb_core::{
-    fabruic::Certificate,
-    networking::ServerConnection,
-    schema::Schema,
-    test_util::{Basic, HarnessTest, TestDirectory},
-};
-use pliantdb_server::test_util::{
-    basic_server_connection_tests, initialize_basic_server, BASIC_SERVER_NAME,
+use pliantdb::{
+    client::{Client, RemoteDatabase},
+    core::{
+        fabruic::Certificate,
+        networking::ServerConnection,
+        schema::Schema,
+        test_util::{Basic, HarnessTest, TestDirectory},
+    },
+    server::test_util::{
+        basic_server_connection_tests, initialize_basic_server, BASIC_SERVER_NAME,
+    },
 };
 use tokio::sync::Mutex;
 use url::Url;
-
-use super::*;
-use crate::client::RemoteDatabase;
 
 #[tokio::test]
 async fn server_connection_tests() -> anyhow::Result<()> {
@@ -30,7 +30,7 @@ async fn server_connection_tests() -> anyhow::Result<()> {
 
     let client_task_is_running = {
         let client = Client::new(url, Some(server.certificate().await?)).await?;
-        let client_task_is_running = client.data.background_task_running.clone();
+        let client_task_is_running = client.background_task_running();
         assert!(client_task_is_running.load(Ordering::Acquire));
 
         basic_server_connection_tests(client).await?;
@@ -123,6 +123,7 @@ mod websockets {
 
     #[cfg(feature = "pubsub")]
     pliantdb_core::define_pubsub_test_suite!(WebsocketTestHarness);
+    #[cfg(feature = "keyvalue")]
     pliantdb_core::define_kv_test_suite!(WebsocketTestHarness);
 }
 
@@ -163,5 +164,7 @@ mod pliant {
     pliantdb_core::define_connection_test_suite!(PliantTestHarness);
     #[cfg(feature = "pubsub")]
     pliantdb_core::define_pubsub_test_suite!(PliantTestHarness);
+
+    #[cfg(feature = "keyvalue")]
     pliantdb_core::define_kv_test_suite!(PliantTestHarness);
 }

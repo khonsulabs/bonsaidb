@@ -17,6 +17,8 @@ use flume::Sender;
 use futures::SinkExt;
 use futures::{Future, StreamExt, TryFutureExt};
 use itertools::Itertools;
+#[cfg(feature = "keyvalue")]
+use pliantdb_core::kv::{KeyOperation, Kv, Output};
 #[cfg(feature = "pubsub")]
 use pliantdb_core::{
     circulate::{Message, Relay, Subscriber},
@@ -25,7 +27,6 @@ use pliantdb_core::{
 use pliantdb_core::{
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
-    kv::{KeyOperation, Kv, Output},
     networking::{
         self,
         fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey},
@@ -715,7 +716,14 @@ impl Server {
                 }
             }
             DatabaseRequest::ExecuteKeyOperation(op) => {
-                self.handle_database_kv_request(database, op).await
+                cfg_if! {
+                    if #[cfg(feature = "keyvalue")] {
+                        self.handle_database_kv_request(database, op).await
+                    } else {
+                        let _ = op;
+                        Err(Error::Request(Arc::new(anyhow::anyhow!("keyvalue is not enabled on this server"))))
+                    }
+                }
             }
         }
     }
@@ -941,6 +949,7 @@ impl Server {
         }
     }
 
+    #[cfg(feature = "keyvalue")]
     async fn handle_database_kv_request(
         &self,
         database: String,
@@ -1170,6 +1179,7 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error>;
 
+    #[cfg(feature = "keyvalue")]
     async fn execute_key_operation(&self, op: KeyOperation)
         -> Result<Output, pliantdb_core::Error>;
 }
@@ -1297,6 +1307,7 @@ where
         Connection::last_transaction_id(self).await
     }
 
+    #[cfg(feature = "keyvalue")]
     async fn execute_key_operation(
         &self,
         op: KeyOperation,

@@ -32,14 +32,42 @@ required-features = ["local", "local-pubsub"]
 name = "server"
 required-features = ["server", "client"]
 
-[features]
-default = ["cli"]
-full = ["local", "server", "client", "websockets", "trusted-dns", "pubsub"]
-local = ["pliantdb-local"]
-server = ["pliantdb-server"]
-client = ["pliantdb-client"]
+[[example]]
+name = "key-value-store"
+required-features = ["local", "local-keyvalue"]
 
-cli = ["full", "anyhow", "tokio", "structopt", "local-cli", "server-cli"]
+[[test]]
+name = "core-suite"
+required-features = ["server", "client", "test-util"]
+
+[[test]]
+name = "simultaneous-connections"
+required-features = ["server", "client"]
+
+[features]
+default = []
+full = ["local-full", "server-full", "client-full"]
+local-full = ["local", "local-pubsub", "local-keyvalue", "local-cli"]
+local = ["pliantdb-local"]
+server-full = [
+    "server",
+    "server-pubsub",
+    "server-keyvalue",
+    "server-websockets",
+    "server-cli",
+]
+server = ["pliantdb-server"]
+client-full = [
+    "client",
+    "client-pubsub",
+    "client-keyvalue",
+    "client-websockets",
+    "client-trusted-dns",
+]
+client = ["pliantdb-client"]
+test-util = ["pliantdb-client/test-util", "pliantdb-server/test-util"]
+
+cli = ["anyhow", "tokio", "structopt", "local-cli", "server-cli"]
 local-cli = ["pliantdb-local/cli"]
 server-cli = ["pliantdb-server/cli"]
 
@@ -47,14 +75,17 @@ websockets = ["server-websockets", "client-websockets"]
 server-websockets = ["pliantdb-server/websockets"]
 client-websockets = ["pliantdb-client/websockets"]
 
-trusted-dns = ["server-trusted-dns", "client-trusted-dns"]
-server-trusted-dns = ["pliantdb-server/trusted-dns"]
 client-trusted-dns = ["pliantdb-client/trusted-dns"]
 
 pubsub = ["server-pubsub", "client-pubsub", "local-pubsub"]
 server-pubsub = ["pliantdb-server/pubsub", "pliantdb-core/pubsub"]
 client-pubsub = ["pliantdb-client/pubsub", "pliantdb-core/pubsub"]
 local-pubsub = ["pliantdb-local/pubsub", "pliantdb-core/pubsub"]
+
+keyvalue = ["server-keyvalue", "client-keyvalue", "local-keyvalue"]
+server-keyvalue = ["pliantdb-server/keyvalue", "pliantdb-core/keyvalue"]
+client-keyvalue = ["pliantdb-client/keyvalue", "pliantdb-core/keyvalue"]
+local-keyvalue = ["pliantdb-local/keyvalue", "pliantdb-core/keyvalue"]
 
 [dependencies]
 pliantdb-core = { path = "../core", version = "0.1.0-dev-2" }
@@ -73,3 +104,9 @@ anyhow = "1"
 pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["test-util"] }
 futures = "0.3"
 rand = "0.8"
+url = "2.2"
+once_cell = "1"
+flume = "0.10"
+
+[package.metadata.docs.rs]
+all-features = true

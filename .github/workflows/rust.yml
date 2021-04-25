@@ -36,10 +36,45 @@ jobs:
       - name: Run clippy
         run: |
           cargo clippy
+          cd local
+          cargo clippy --no-default-features
+          cargo clippy --no-default-features --features pubsub
+          cd ../server
+          cargo clippy --no-default-features
+          cargo clippy --no-default-features --features pubsub
+          cargo clippy --no-default-features --features websockets
+          cargo clippy --no-default-features --features pubsub,websockets
+          cd ../client
+          cargo clippy --no-default-features
+          cargo clippy --no-default-features --features pubsub
+          cargo clippy --no-default-features --features websockets
+          cargo clippy --no-default-features --features pubsub,websockets
 
       - name: Run default features unit tests
         run: |
           cargo test --all-features -- --nocapture
+
+      - name: Run limited features unit tests (ensures the project compiles properly with all flag configurations)
+        run: |
+          cd local
+          cargo test --no-default-features -- --nocapture
+          cargo test --no-default-features --features pubsub -- --nocapture
+          cargo test --no-default-features --features keyvalue -- --nocapture
+          cd ../server
+          cargo test --no-default-features -- --nocapture
+          cargo test --no-default-features --features pubsub -- --nocapture
+          cargo test --no-default-features --features keyvalue -- --nocapture
+          cargo test --no-default-features --features websockets -- --nocapture
+          cargo test --no-default-features --features websockets,pubsub -- --nocapture
+          cargo test --no-default-features --features websockets,keyvalue -- --nocapture
+          cd ../pliantdb
+          cargo test --no-default-features --features server,client,test-util -- --nocapture
+          cargo test --no-default-features --features server,client,test-util,pubsub -- --nocapture
+          cargo test --no-default-features --features server,client,test-util,keyvalue -- --nocapture
+          cargo test --no-default-features --features server,client,test-util,websockets -- --nocapture
+          cargo test --no-default-features --features server,client,test-util,websockets,pubsub -- --nocapture
+          cargo test --no-default-features --features server,client,test-util,websockets,keyvalue -- --nocapture
+
 
   docs:
     runs-on: ubuntu-latest

@@ -25,6 +25,3 @@ pub use self::{
     client::{Client, RemoteDatabase},
     error::Error,
 };
-
-#[cfg(test)]
-mod tests;

@@ -1,12 +1,14 @@
 //! Tests a single server with multiple simultaneous connections.
 
-use pliantdb_client::{url::Url, Client};
-use pliantdb_core::{
-    networking::ServerConnection,
-    schema::Schema,
-    test_util::{self, Basic, TestDirectory},
+use pliantdb::{
+    client::{url::Url, Client},
+    core::{
+        networking::ServerConnection,
+        schema::Schema,
+        test_util::{self, Basic, TestDirectory},
+    },
+    server::{Configuration, Server},
 };
-use pliantdb_server::{Configuration, Server};
 
 #[tokio::test]
 async fn simultaneous_connections() -> anyhow::Result<()> {

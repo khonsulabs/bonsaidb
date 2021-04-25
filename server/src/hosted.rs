@@ -5,7 +5,6 @@ use pliantdb_local::core::{
     self,
     connection::{AccessPolicy, Connection, QueryKey},
     document::Document,
-    kv::Kv,
     schema::{Collection, Map, MappedDocument, MappedValue, Schema},
 };
 
@@ -15,6 +14,9 @@ use crate::{error::ResultExt, Server};
 mod pubsub;
 #[cfg(feature = "pubsub")]
 pub use pubsub::*;
+
+#[cfg(feature = "keyvalue")]
+mod kv;
 
 /// A database hosted on a server.
 pub struct Database<'a, 'b, DB: Schema> {
@@ -159,23 +161,5 @@ where
             .await
             .map_err_to_core()?;
         db.last_transaction_id().await
-    }
-}
-
-#[async_trait]
-impl<'a, 'b, DB> Kv for Database<'a, 'b, DB>
-where
-    DB: Schema,
-{
-    async fn execute_key_operation(
-        &self,
-        op: core::kv::KeyOperation,
-    ) -> Result<core::kv::Output, core::Error> {
-        let db = self
-            .server
-            .open_database::<DB>(self.name)
-            .await
-            .map_err_to_core()?;
-        db.execute_key_operation(op).await
     }
 }

@@ -15,14 +15,6 @@
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
 )]
-
-#[cfg(feature = "pubsub")]
-/// Types for Publish/Subscribe (`PubSub`) messaging.
-pub mod pubsub;
-#[cfg(feature = "pubsub")]
-pub use circulate;
-#[cfg(feature = "networking")]
-pub use fabruic;
 pub use num_traits;
 
 /// Types for interacting with a database.
@@ -31,9 +23,6 @@ pub mod connection;
 pub mod document;
 /// Limits used within `PliantDB`.
 pub mod limits;
-#[cfg(feature = "networking")]
-/// Types for networked communications.
-pub mod networking;
 /// Types for defining database schema.
 pub mod schema;
 /// Types for executing transactions.
@@ -42,6 +31,17 @@ pub mod transaction;
 /// Types for utilizing a lightweight atomic Key-Value store.
 pub mod kv;
 
+#[cfg(feature = "networking")]
+pub use fabruic;
+#[cfg(feature = "networking")]
+/// Types for networked communications.
+pub mod networking;
+
+#[cfg(feature = "pubsub")]
+/// Types for Publish/Subscribe (`PubSub`) messaging.
+pub mod pubsub;
+#[cfg(feature = "pubsub")]
+pub use circulate;
 use schema::CollectionName;
 use serde::{Deserialize, Serialize};
 

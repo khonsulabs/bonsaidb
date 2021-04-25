@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(feature = "test-util")]
 use std::sync::atomic::AtomicBool;
 use std::{
     any::TypeId,
@@ -49,8 +49,8 @@ pub struct Data {
     request_id: AtomicU32,
     #[cfg(feature = "pubsub")]
     subscribers: SubscriberMap,
-    #[cfg(test)]
-    pub(crate) background_task_running: Arc<AtomicBool>,
+    #[cfg(feature = "test-util")]
+    background_task_running: Arc<AtomicBool>,
 }
 
 impl Client {
@@ -101,7 +101,7 @@ impl Client {
             subscribers.clone(),
         ));
 
-        #[cfg(test)]
+        #[cfg(feature = "test-util")]
         let background_task_running = Arc::new(AtomicBool::new(true));
 
         Self {
@@ -109,14 +109,14 @@ impl Client {
                 request_sender,
                 worker: CancellableHandle {
                     worker,
-                    #[cfg(test)]
+                    #[cfg(feature = "test-util")]
                     background_task_running: background_task_running.clone(),
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
-                #[cfg(test)]
+                #[cfg(feature = "test-util")]
                 background_task_running,
             }),
         }
@@ -135,7 +135,7 @@ impl Client {
             subscribers.clone(),
         ));
 
-        #[cfg(test)]
+        #[cfg(feature = "test-util")]
         let background_task_running = Arc::new(AtomicBool::new(true));
 
         let client = Self {
@@ -143,14 +143,14 @@ impl Client {
                 request_sender,
                 worker: CancellableHandle {
                     worker,
-                    #[cfg(test)]
+                    #[cfg(feature = "test-util")]
                     background_task_running: background_task_running.clone(),
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
-                #[cfg(test)]
+                #[cfg(feature = "test-util")]
                 background_task_running,
             }),
         };
@@ -190,6 +190,13 @@ impl Client {
         })?;
 
         result_receiver.recv_async().await?
+    }
+
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn background_task_running(&self) -> Arc<AtomicBool> {
+        self.data.background_task_running.clone()
     }
 
     #[cfg(feature = "pubsub")]
@@ -287,14 +294,14 @@ pub struct PendingRequest {
 #[derive(Debug)]
 struct CancellableHandle<T> {
     worker: JoinHandle<T>,
-    #[cfg(test)]
+    #[cfg(feature = "test-util")]
     background_task_running: Arc<AtomicBool>,
 }
 
 impl<T> Drop for CancellableHandle<T> {
     fn drop(&mut self) {
         self.worker.abort();
-        #[cfg(test)]
+        #[cfg(feature = "test-util")]
         self.background_task_running.store(false, Ordering::Release);
     }
 }

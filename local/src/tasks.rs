@@ -11,7 +11,7 @@ use pliantdb_jobs::{manager::Manager, task::Handle};
 use tokio::sync::RwLock;
 
 use crate::{
-    storage::{kv::ExpirationLoader, Storage},
+    storage::Storage,
     views::{
         integrity_scanner::{IntegrityScan, IntegrityScanner},
         mapper::{Map, Mapper},
@@ -159,12 +159,13 @@ impl TaskManager {
             .insert((collection, view_name), transaction_id);
     }
 
+    #[cfg(feature = "keyvalue")]
     pub async fn spawn_key_value_expiration_loader<DB: Schema>(
         &self,
         storage: &Storage<DB>,
     ) -> Handle<(), Task> {
         self.jobs
-            .enqueue(ExpirationLoader {
+            .enqueue(crate::storage::kv::ExpirationLoader {
                 storage: storage.clone(),
             })
             .await

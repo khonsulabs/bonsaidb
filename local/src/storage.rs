@@ -1,11 +1,4 @@
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    marker::PhantomData,
-    path::Path,
-    sync::{Arc, RwLock},
-    u8,
-};
+use std::{borrow::Cow, collections::HashMap, marker::PhantomData, path::Path, sync::Arc, u8};
 
 use async_trait::async_trait;
 use itertools::Itertools;
@@ -25,7 +18,6 @@ use sled::{
     IVec, Transactional, Tree,
 };
 
-use self::kv::ExpirationUpdate;
 use crate::{
     config::Configuration,
     error::{Error, ResultExt as _},
@@ -34,10 +26,14 @@ use crate::{
     views::{view_entries_tree_name, view_invalidated_docs_tree_name, ViewEntry},
 };
 
+#[cfg(feature = "keyvalue")]
 pub mod kv;
 
 #[cfg(feature = "pubsub")]
 mod pubsub;
+
+#[cfg(feature = "keyvalue")]
+use std::sync::RwLock;
 
 /// A local, file-based database.
 #[derive(Debug)]
@@ -52,6 +48,7 @@ pub struct Data<DB> {
     pub(crate) tasks: TaskManager,
     #[cfg(feature = "pubsub")]
     relay: pubsub::Relay,
+    #[cfg(feature = "keyvalue")]
     kv_expirer: RwLock<Option<flume::Sender<kv::ExpirationUpdate>>>,
     _schema: PhantomData<DB>,
 }
@@ -89,6 +86,7 @@ where
                         sled,
                         schema,
                         tasks,
+                        #[cfg(feature = "keyvalue")]
                         kv_expirer: RwLock::default(),
                         #[cfg(feature = "pubsub")]
                         relay: pubsub::Relay::default(),
@@ -110,6 +108,7 @@ where
             }
         }
 
+        #[cfg(feature = "keyvalue")]
         storage
             .data
             .tasks
@@ -125,7 +124,8 @@ where
         &self.data.schema
     }
 
-    fn update_key_expiration(&self, update: ExpirationUpdate) {
+    #[cfg(feature = "keyvalue")]
+    fn update_key_expiration(&self, update: kv::ExpirationUpdate) {
         {
             let sender = self.data.kv_expirer.read().unwrap();
             if let Some(sender) = sender.as_ref() {

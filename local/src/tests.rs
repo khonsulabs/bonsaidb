@@ -2,10 +2,9 @@ use std::time::Duration;
 
 use pliantdb_core::{
     connection::{AccessPolicy, Connection},
-    kv::Kv,
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
-        BasicCollectionWithOnlyBrokenParentId, HarnessTest, TestDirectory, TimingTest,
+        BasicCollectionWithOnlyBrokenParentId, HarnessTest, TestDirectory,
     },
 };
 
@@ -41,6 +40,7 @@ pliantdb_core::define_connection_test_suite!(TestHarness);
 #[cfg(feature = "pubsub")]
 pliantdb_core::define_pubsub_test_suite!(TestHarness);
 
+#[cfg(feature = "keyvalue")]
 pliantdb_core::define_kv_test_suite!(TestHarness);
 
 #[test]
@@ -122,7 +122,9 @@ fn integrity_checks() -> anyhow::Result<()> {
 }
 
 #[test]
+#[cfg(feature = "keyvalue")]
 fn expiration_after_close() -> anyhow::Result<()> {
+    use pliantdb_core::{kv::Kv, test_util::TimingTest};
     loop {
         let path = TestDirectory::new("expiration-after-close");
         // To ensure full cleanup between each block, each runs in its own runtime;

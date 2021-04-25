@@ -18,6 +18,7 @@ default = ["cli"]
 cli = ["structopt"]
 internal-apis = []
 pubsub = ["pliantdb-core/pubsub"]
+keyvalue = ["pliantdb-core/keyvalue"]
 
 [dependencies]
 async-trait = "0.1"
@@ -42,3 +43,6 @@ criterion = { version = "0.3", features = ["async_tokio"] }
 [[bench]]
 name = "basics"
 harness = false
+
+[package.metadata.docs.rs]
+all-features = true

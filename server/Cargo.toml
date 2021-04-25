@@ -16,8 +16,8 @@ default = []
 cli = ["structopt"]
 test-util = ["pliantdb-core/test-util"]
 websockets = ["pliantdb-core/websockets", "tokio-tungstenite", "bincode"]
-trusted-dns = ["pliantdb-core/trusted-dns"]
 pubsub = ["pliantdb-core/pubsub", "pliantdb-local/pubsub"]
+keyvalue = ["pliantdb-core/keyvalue", "pliantdb-local/keyvalue"]
 
 [dependencies]
 pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["networking"] }
@@ -38,3 +38,6 @@ cfg-if = "1"
 
 [dev-dependencies]
 pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["test-util"] }
+
+[package.metadata.docs.rs]
+all-features = true

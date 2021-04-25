@@ -18,6 +18,7 @@ networking = ["fabruic"]
 websockets = []
 trusted-dns = ["fabruic/trust-dns"]
 pubsub = ["circulate"]
+keyvalue = ["futures"]
 
 [dependencies]
 circulate = { path = "../circulate", version = "0.1.0-dev.1", optional = true }
@@ -33,9 +34,11 @@ tokio = { version = "1", features = ["time"], optional = true }
 fabruic = { version = "0.0.1-dev.2", optional = true, features = ["dangerous"] }
 num-traits = "0.2"
 
-
 [dev-dependencies]
 hex-literal = "0.3"
 tokio = { version = "1", features = ["full"] }
 futures = { version = "0.3" }
 num-derive = "0.3"
+
+[package.metadata.docs.rs]
+all-features = true
