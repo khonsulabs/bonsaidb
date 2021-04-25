@@ -33,7 +33,7 @@ jobs:
     strategy:
       matrix:
         iteration:
-          - folder: .
+          - folder: "./"
             features: "--all-features"
           - folder: local
             features: "--no-default-features"
