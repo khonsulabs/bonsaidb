@@ -16,8 +16,10 @@
     clippy::option_if_let_else,
 )]
 
+mod admin;
 /// Configuration options.
 pub mod config;
+mod database;
 mod error;
 mod open_trees;
 mod storage;
@@ -26,10 +28,12 @@ mod views;
 
 #[doc(inline)]
 pub use pliantdb_core as core;
-#[cfg(feature = "internal-apis")]
-pub use storage::Internal;
 
-pub use self::{config::Configuration, error::Error, storage::Storage};
+#[cfg(feature = "pubsub")]
+pub use self::database::pubsub::Subscriber;
+#[cfg(feature = "internal-apis")]
+pub use self::storage::OpenDatabase;
+pub use self::{database::Database, error::Error, storage::Storage};
 
 #[cfg(feature = "cli")]
 pub mod backup;

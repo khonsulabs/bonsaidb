@@ -24,12 +24,14 @@ use std::{
     ffi::OsString,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
 };
 
 use flume::Receiver;
 use pliantdb_core::{
     document::{Document, Header, Revision},
-    schema::{CollectionName, Key, Schema},
+    schema::{CollectionName, Key},
+    transaction::Executed,
 };
 use structopt::StructOpt;
 use tokio::{
@@ -39,8 +41,11 @@ use tokio::{
 
 use crate::{
     config::Configuration,
-    storage::{document_tree_name, Storage},
+    database::{document_tree_name, transaction_tree_name},
+    Storage,
 };
+
+const TRANSACTIONS_FOLDER_NAME: &str = "_transactions";
 
 /// The command line interface for `pliantdb local-backup`.
 #[derive(StructOpt, Debug)]
@@ -114,7 +119,7 @@ impl Command {
             anyhow::bail!("database_path does not exist");
         }
 
-        let db = Storage::<()>::open_local(&database_path, &Configuration::default()).await?;
+        let db = Storage::open_local(&database_path, &Configuration::default()).await?;
 
         let output_directory = if let Some(output_directory) = output_directory {
             output_directory.clone()
@@ -136,18 +141,46 @@ impl Command {
         let (sender, receiver) = flume::bounded(100);
         let document_writer = tokio::spawn(write_documents(receiver, backup_directory));
         tokio::task::spawn_blocking::<_, anyhow::Result<()>>(move || {
-            for collection_tree in db
-                .data
-                .sled
-                .tree_names()
-                .into_iter()
-                .filter(|tree| tree.starts_with(b"collection::"))
+            for (database, collection_tree) in
+                db.sled().tree_names().into_iter().filter_map(|tree| {
+                    // Extract the database_endbase name, but also check that it's a collection
+
+                    if let Some(database_end) = tree.windows(2).position(|t| t.starts_with(b"::")) {
+                        let database = String::from_utf8(tree[0..database_end].to_vec()).ok()?;
+                        if &tree[database_end..database_end + 14] == b"::collection::" {
+                            return Some((database, tree));
+                        }
+                    }
+                    None
+                })
             {
-                let tree = db.data.sled.open_tree(&collection_tree)?;
+                println!(
+                    "Exporting {}",
+                    String::from_utf8(collection_tree.to_vec()).unwrap()
+                );
+                let database = Arc::new(database);
+                let tree = db.sled().open_tree(&collection_tree)?;
                 for result in tree.iter() {
                     let (_, document) = result?;
                     let document = bincode::deserialize::<Document<'_>>(&document)?;
-                    sender.send(document.to_owned())?;
+                    sender.send(BackupEntry::Document {
+                        database: database.clone(),
+                        document: document.to_owned(),
+                    })?;
+                }
+
+                if let Ok(tree) = db
+                    .sled()
+                    .open_tree(transaction_tree_name(&database).as_bytes())
+                {
+                    for row in tree.iter() {
+                        let (_, executed) = row?;
+                        let transaction = bincode::deserialize::<Executed<'static>>(&executed)?;
+                        sender.send(BackupEntry::Transaction {
+                            database: database.clone(),
+                            transaction,
+                        })?;
+                    }
                 }
             }
 
@@ -159,47 +192,81 @@ impl Command {
     }
 
     async fn load(&self, database_path: &Path, backup: &Path) -> anyhow::Result<()> {
-        let db = Storage::<()>::open_local(database_path, &Configuration::default()).await?;
+        let storage = Storage::open_local(database_path, &Configuration::default()).await?;
         let (sender, receiver) = flume::bounded(100);
 
-        let document_restorer = tokio::task::spawn_blocking(|| restore_documents(receiver, db));
+        let document_restorer =
+            tokio::task::spawn_blocking(|| restore_documents(receiver, storage));
 
-        let mut collections = tokio::fs::read_dir(&backup).await?;
-        while let Some(collection_folder) = collections.next_entry().await? {
-            let collection_folder = collection_folder.path();
-            let collection = collection_folder
-                .file_name()
-                .unwrap()
-                .to_str()
-                .expect("invalid collection name encountered");
-            let collection = CollectionName::try_from(collection)?;
-            println!("Restoring {}", collection);
+        let mut databases = tokio::fs::read_dir(&backup).await?;
+        while let Some(database_folder) = databases.next_entry().await? {
+            let database = match database_folder.file_name().to_str() {
+                Some(name) => Arc::new(name.to_owned()),
+                None => continue,
+            };
 
-            let mut entries = tokio::fs::read_dir(&collection_folder).await?;
-            while let Some(entry) = entries.next_entry().await? {
-                let path = entry.path();
-                if path.extension() == Some(&OsString::from("cbor")) {
-                    let file_name = path
-                        .file_name()
-                        .unwrap()
-                        .to_str()
-                        .expect("invalid file name encountered");
-                    let parts = file_name.split('.').collect::<Vec<_>>();
-                    let id = parts[0].parse::<u64>()?;
-                    let revision = parts[1].parse::<u32>()?;
-                    let mut file = File::open(&path).await?;
-                    let mut contents = Vec::new();
-                    file.read_to_end(&mut contents).await?;
+            let mut collections = tokio::fs::read_dir(&database_folder.path()).await?;
+            while let Some(collection_folder) = collections.next_entry().await? {
+                let collection_folder = collection_folder.path();
+                let collection = collection_folder
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .expect("invalid collection name encountered");
+                if collection == TRANSACTIONS_FOLDER_NAME {
+                    println!("Restoring executed transactions");
 
-                    let doc = Document {
-                        header: Cow::Owned(Header {
-                            id,
-                            revision: Revision::with_id(revision, &contents),
-                        }),
-                        collection: collection.clone(),
-                        contents: Cow::Owned(contents),
-                    };
-                    sender.send_async(doc).await?;
+                    let mut entries = tokio::fs::read_dir(&collection_folder).await?;
+                    while let Some(entry) = entries.next_entry().await? {
+                        let path = entry.path();
+                        if path.extension() == Some(&OsString::from("cbor")) {
+                            let mut file = File::open(&path).await?;
+                            let mut contents = Vec::new();
+                            file.read_to_end(&mut contents).await?;
+
+                            let transaction = serde_cbor::from_slice(&contents)?;
+                            sender.send(BackupEntry::Transaction {
+                                database: database.clone(),
+                                transaction,
+                            })?;
+                        }
+                    }
+                } else {
+                    let collection = CollectionName::try_from(collection)?;
+                    println!("Restoring {}", collection);
+
+                    let mut entries = tokio::fs::read_dir(&collection_folder).await?;
+                    while let Some(entry) = entries.next_entry().await? {
+                        let path = entry.path();
+                        if path.extension() == Some(&OsString::from("cbor")) {
+                            let file_name = path
+                                .file_name()
+                                .unwrap()
+                                .to_str()
+                                .expect("invalid file name encountered");
+                            let parts = file_name.split('.').collect::<Vec<_>>();
+                            let id = parts[0].parse::<u64>()?;
+                            let revision = parts[1].parse::<u32>()?;
+                            let mut file = File::open(&path).await?;
+                            let mut contents = Vec::new();
+                            file.read_to_end(&mut contents).await?;
+
+                            let doc = Document {
+                                header: Cow::Owned(Header {
+                                    id,
+                                    revision: Revision::with_id(revision, &contents),
+                                }),
+                                collection: collection.clone(),
+                                contents: Cow::Owned(contents),
+                            };
+                            sender
+                                .send_async(BackupEntry::Document {
+                                    database: database.clone(),
+                                    document: doc,
+                                })
+                                .await?;
+                        }
+                    }
                 }
             }
         }
@@ -210,48 +277,85 @@ impl Command {
     }
 }
 
-async fn write_documents(
-    receiver: Receiver<Document<'static>>,
-    backup: PathBuf,
-) -> anyhow::Result<()> {
+enum BackupEntry {
+    Document {
+        database: Arc<String>,
+        document: Document<'static>,
+    },
+    Transaction {
+        database: Arc<String>,
+        transaction: Executed<'static>,
+    },
+}
+
+async fn write_documents(receiver: Receiver<BackupEntry>, backup: PathBuf) -> anyhow::Result<()> {
     if !backup.exists() {
         tokio::fs::create_dir(&backup).await?;
     }
 
-    while let Ok(document) = receiver.recv_async().await {
-        let collection_directory = backup.join(document.collection.to_string());
-        if !collection_directory.exists() {
-            tokio::fs::create_dir(&collection_directory).await?;
+    while let Ok(entry) = receiver.recv_async().await {
+        match entry {
+            BackupEntry::Document { database, document } => {
+                let collection_directory = backup
+                    .join(database.as_ref())
+                    .join(document.collection.to_string());
+                if !collection_directory.exists() {
+                    tokio::fs::create_dir_all(&collection_directory).await?;
+                }
+                let document_path = collection_directory.join(format!(
+                    "{}.{}.cbor",
+                    document.header.id, document.header.revision.id
+                ));
+                let mut file = File::create(&document_path).await?;
+                file.write_all(&document.contents).await?;
+                file.shutdown().await?;
+            }
+            BackupEntry::Transaction {
+                database,
+                transaction,
+            } => {
+                let transactions_directory = backup.join(database.as_ref()).join("_transactions");
+                if !transactions_directory.exists() {
+                    tokio::fs::create_dir_all(&transactions_directory).await?;
+                }
+                let document_path = transactions_directory.join(format!("{}.cbor", transaction.id));
+                let mut file = File::create(&document_path).await?;
+                file.write_all(&serde_cbor::to_vec(&transaction)?).await?;
+                file.shutdown().await?;
+            }
         }
-        let document_path = collection_directory.join(format!(
-            "{}.{}.cbor",
-            document.header.id, document.header.revision.id
-        ));
-        let mut file = File::create(&document_path).await?;
-        file.write_all(&document.contents).await?;
-        file.shutdown().await?;
     }
 
     Ok(())
 }
 
 #[allow(clippy::clippy::needless_pass_by_value)] // it's not needless, it's to avoid a borrow that would need to span a 'static lifetime
-fn restore_documents<DB: Schema>(
-    receiver: Receiver<Document<'static>>,
-    db: Storage<DB>,
-) -> anyhow::Result<()> {
-    while let Ok(doc) = receiver.recv() {
-        let tree = db
-            .data
-            .sled
-            .open_tree(document_tree_name(&doc.collection))?;
-        tree.insert(
-            doc.header.id.as_big_endian_bytes()?,
-            bincode::serialize(&doc)?,
-        )?;
+fn restore_documents(receiver: Receiver<BackupEntry>, storage: Storage) -> anyhow::Result<()> {
+    while let Ok(entry) = receiver.recv() {
+        match entry {
+            BackupEntry::Document { database, document } => {
+                let tree = storage
+                    .sled()
+                    .open_tree(document_tree_name(&database, &document.collection))?;
+                tree.insert(
+                    document.header.id.as_big_endian_bytes()?,
+                    bincode::serialize(&document)?,
+                )?;
+            }
+            BackupEntry::Transaction {
+                database,
+                transaction,
+            } => {
+                let tree = storage.sled().open_tree(transaction_tree_name(&database))?;
+                tree.insert(
+                    transaction.id.as_big_endian_bytes()?,
+                    bincode::serialize(&transaction)?,
+                )?;
+            }
+        }
     }
 
-    db.data.sled.flush()?;
+    storage.sled().flush()?;
 
     Ok(())
 }
@@ -259,11 +363,12 @@ fn restore_documents<DB: Schema>(
 #[cfg(test)]
 mod tests {
     use pliantdb_core::{
-        connection::Connection,
+        connection::Connection as _,
         test_util::{Basic, TestDirectory},
     };
 
     use super::*;
+    use crate::Database;
 
     #[tokio::test]
     async fn backup_restore() -> anyhow::Result<()> {
@@ -274,7 +379,7 @@ mod tests {
         // which is why we're creating a nested scope here.
         let test_doc = {
             let database_directory = TestDirectory::new("backup-restore.pliantdb");
-            let db = Storage::<Basic>::open_local(&database_directory, &Configuration::default())
+            let db = Database::<Basic>::open_local(&database_directory, &Configuration::default())
                 .await?;
             let test_doc = db
                 .collection::<Basic>()
@@ -308,7 +413,7 @@ mod tests {
         .await?;
 
         let db =
-            Storage::<Basic>::open_local(&database_directory, &Configuration::default()).await?;
+            Database::<Basic>::open_local(&database_directory, &Configuration::default()).await?;
         let doc = db
             .get::<Basic>(test_doc.id)
             .await?

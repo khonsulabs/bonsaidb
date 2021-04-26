@@ -1,4 +1,4 @@
-use std::{collections::HashSet, hash::Hash};
+use std::{borrow::Cow, collections::HashSet, hash::Hash, sync::Arc};
 
 use async_trait::async_trait;
 use pliantdb_core::schema::{view, CollectionName, Key, Schema, ViewName};
@@ -9,17 +9,18 @@ use super::{
     mapper::{Map, Mapper},
     view_document_map_tree_name, view_invalidated_docs_tree_name, view_versions_tree_name, Task,
 };
-use crate::storage::{document_tree_name, Storage};
+use crate::database::{document_tree_name, Database};
 
 #[derive(Debug)]
 pub struct IntegrityScanner<DB> {
-    pub storage: Storage<DB>,
+    pub database: Database<DB>,
     pub scan: IntegrityScan,
 }
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct IntegrityScan {
     pub view_version: u64,
+    pub database: Arc<Cow<'static, str>>,
     pub collection: CollectionName,
     pub view_name: ViewName,
 }
@@ -32,33 +33,26 @@ where
     type Output = ();
 
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
-        let documents = self
-            .storage
-            .data
-            .sled
-            .open_tree(document_tree_name(&self.scan.collection))?;
+        let documents = self.database.sled().open_tree(document_tree_name(
+            &self.database.data.name,
+            &self.scan.collection,
+        ))?;
 
-        let view_versions = self
-            .storage
-            .data
-            .sled
-            .open_tree(view_versions_tree_name(&self.scan.collection))?;
+        let view_versions = self.database.sled().open_tree(view_versions_tree_name(
+            &self.database.data.name,
+            &self.scan.collection,
+        ))?;
 
-        let document_map = self
-            .storage
-            .data
-            .sled
-            .open_tree(view_document_map_tree_name(
-                &self.scan.collection,
-                &self.scan.view_name,
-            ))?;
+        let document_map = self.database.sled().open_tree(view_document_map_tree_name(
+            &self.database.data.name,
+            &self.scan.view_name,
+        ))?;
 
         let invalidated_entries =
-            self.storage
-                .data
-                .sled
+            self.database
+                .sled()
                 .open_tree(view_invalidated_docs_tree_name(
-                    &self.scan.collection,
+                    &self.database.data.name,
                     &self.scan.view_name,
                 ))?;
 
@@ -123,13 +117,15 @@ where
 
         if needs_update {
             let job = self
-                .storage
+                .database
                 .data
-                .tasks
+                .storage
+                .tasks()
                 .jobs
                 .lookup_or_enqueue(Mapper {
-                    storage: self.storage.clone(),
+                    storage: self.database.clone(),
                     map: Map {
+                        database: self.database.data.name.clone(),
                         collection: self.scan.collection.clone(),
                         view_name: self.scan.view_name.clone(),
                     },
@@ -138,10 +134,12 @@ where
             job.receive().await?.map_err(crate::Error::Other)?;
         }
 
-        self.storage
+        self.database
             .data
-            .tasks
+            .storage
+            .tasks()
             .mark_integrity_check_complete(
+                self.database.data.name.clone(),
                 self.scan.collection.clone(),
                 self.scan.view_name.clone(),
             )
@@ -178,7 +176,7 @@ where
 // shared pool of workers. So, we need to come up with a design for the view
 // updaters to work within this limitation.
 //
-// Integrity scan is simple: Have a shared structure on Storage that keeps track
+// Integrity scan is simple: Have a shared structure on Database that keeps track
 // of all integrity scan results. It can check for an existing value and return,
 // or make you wait until the job is finished. For views, I suppose the best
 // that can be done is a similar approach, but the indexer's output is the last

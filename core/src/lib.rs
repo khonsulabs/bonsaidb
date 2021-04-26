@@ -17,7 +17,7 @@
 )]
 pub use num_traits;
 
-/// Types for interacting with a database.
+/// Types for interacting with `PliantDB`.
 pub mod connection;
 /// Types for interacting with `Document`s.
 pub mod document;
@@ -34,7 +34,7 @@ pub mod kv;
 #[cfg(feature = "networking")]
 pub use fabruic;
 #[cfg(feature = "networking")]
-/// Types for networked communications.
+/// Types for implementing the `PliantDB` network protocol.
 pub mod networking;
 
 #[cfg(feature = "pubsub")]
@@ -42,15 +42,53 @@ pub mod networking;
 pub mod pubsub;
 #[cfg(feature = "pubsub")]
 pub use circulate;
-use schema::CollectionName;
+use schema::{CollectionName, SchemaName};
 use serde::{Deserialize, Serialize};
 
 /// an enumeration of errors that this crate can produce
 #[derive(Clone, thiserror::Error, Debug, Serialize, Deserialize)]
 pub enum Error {
+    /// The database named `database_name` was created with a different schema
+    /// (`stored_schema`) than provided (`schema`).
+    #[error(
+        "database '{database_name}' was created with schema '{stored_schema}', not '{schema}'"
+    )]
+    SchemaMismatch {
+        /// The name of the database being accessed.
+        database_name: String,
+
+        /// The schema provided for the database.
+        schema: SchemaName,
+
+        /// The schema stored for the database.
+        stored_schema: SchemaName,
+    },
+
+    /// The [`SchemaName`] returned has already been registered with this server.
+    #[error("schema '{0}' was already registered")]
+    SchemaAlreadyRegistered(SchemaName),
+
+    /// The [`SchemaName`] requested was not registered with this server.
+    #[error("schema '{0}' is not registered with this server")]
+    SchemaNotRegistered(SchemaName),
+
+    /// An invalid database name was specified. See
+    /// [`ServerConnection::create_database()`](connection::ServerConnection::create_database)
+    /// for database name requirements.
+    #[error("invalid database name: {0}")]
+    InvalidDatabaseName(String),
+
+    /// The database name given was not found.
+    #[error("database '{0}' was not found")]
+    DatabaseNotFound(String),
+
+    /// The database name already exists.
+    #[error("a database with name '{0}' already exists")]
+    DatabaseNameAlreadyTaken(String),
+
     /// An error from interacting with local storage.
     #[error("error from storage: {0}")]
-    Storage(String),
+    Database(String),
 
     /// An error from interacting with a server.
     #[error("error from server: {0}")]
@@ -101,7 +139,7 @@ pub enum Error {
 
 impl From<serde_cbor::Error> for Error {
     fn from(err: serde_cbor::Error) -> Self {
-        Self::Storage(err.to_string())
+        Self::Database(err.to_string())
     }
 }
 

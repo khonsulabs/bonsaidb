@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use pliantdb::local::{Configuration, Storage};
+use pliantdb::local::{config::Configuration, Database};
 use pliantdb_core::pubsub::{PubSub, Subscriber};
 use tokio::time::sleep;
 
@@ -8,11 +8,11 @@ use tokio::time::sleep;
 async fn main() -> anyhow::Result<()> {
     // This example is using a database with no collections, because PubSub is a
     // system independent of the data stored in the database.
-    let db = Storage::<()>::open_local("pubsub.pliantdb", &Configuration::default()).await?;
+    let db = Database::<()>::open_local("pubsub.pliantdb", &Configuration::default()).await?;
 
     let subscriber = db.create_subscriber().await?;
     // Subscribe for messages sent to the topic "pong"
-    subscriber.subscribe_to("pong").await;
+    subscriber.subscribe_to("pong").await?;
 
     // Launch a task that sends out "ping" messages.
     tokio::spawn(pinger(db.clone()));

@@ -1,10 +1,9 @@
-use async_trait::async_trait;
 pub use fabruic;
 use schema::SchemaName;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{
-    connection::{AccessPolicy, QueryKey},
+    connection::{AccessPolicy, Database, QueryKey},
     document::Document,
     kv::{KeyOperation, Output},
     schema::{
@@ -235,10 +234,11 @@ impl MappedDocument {
     pub fn deserialized<K: Key, V: Serialize + DeserializeOwned>(
         self,
     ) -> Result<map::MappedDocument<K, V>, crate::Error> {
-        let key = Key::from_big_endian_bytes(&self.key)
-            .map_err(|err| crate::Error::Storage(view::Error::KeySerialization(err).to_string()))?;
+        let key = Key::from_big_endian_bytes(&self.key).map_err(|err| {
+            crate::Error::Database(view::Error::KeySerialization(err).to_string())
+        })?;
         let value = serde_cbor::from_slice(&self.value)
-            .map_err(|err| crate::Error::Storage(view::Error::from(err).to_string()))?;
+            .map_err(|err| crate::Error::Database(view::Error::from(err).to_string()))?;
 
         Ok(map::MappedDocument {
             document: self.source,
@@ -248,60 +248,9 @@ impl MappedDocument {
     }
 }
 
-/// A database on a server.
-#[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
-pub struct Database {
-    /// The name of the database.
-    pub name: String,
-    /// The schema defining the database.
-    pub schema: SchemaName,
-}
-
-/// Functions for interacting with a `PliantDB` server.
-#[async_trait]
-pub trait ServerConnection: Send + Sync {
-    /// Creates a database named `name` using the [`SchemaName`] `schema`.
-    ///
-    /// ## Errors
-    ///
-    /// * [`Error::InvalidDatabaseName`]: `name` must begin with an alphanumeric
-    ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
-    ///   alphanumeric, a period (`.`), or a hyphen (`-`).
-    /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
-    ///   previous database name. Database names are case insensitive.
-    async fn create_database(&self, name: &str, schema: SchemaName) -> Result<(), crate::Error>;
-
-    /// Deletes a database named `name`.
-    ///
-    /// ## Errors
-    ///
-    /// * [`Error::DatabaseNotFound`]: database `name` does not exist.
-    /// * [`Error::Core(core::Error::Io)`]: an error occurred while deleting files.
-    async fn delete_database(&self, name: &str) -> Result<(), crate::Error>;
-
-    /// Lists the databases on this server.
-    async fn list_databases(&self) -> Result<Vec<Database>, crate::Error>;
-
-    /// Lists the [`SchemaName`]s on this server.
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, crate::Error>;
-}
-
 /// A networking error.
 #[derive(Clone, thiserror::Error, Debug, Serialize, Deserialize)]
 pub enum Error {
-    /// An invalid database name was specified. See
-    /// [`ServerConnection::create_database()`] for database name requirements.
-    #[error("invalid database name: {0}")]
-    InvalidDatabaseName(String),
-
-    /// The database name given was not found.
-    #[error("database '{0}' was not found")]
-    DatabaseNotFound(String),
-
-    /// The database name already exists.
-    #[error("a database with name '{0}' already exists")]
-    DatabaseNameAlreadyTaken(String),
-
     /// The server responded with a message that wasn't expected for the request
     /// sent.
     #[error("unexpected response: {0}")]
@@ -310,28 +259,4 @@ pub enum Error {
     /// The connection was interrupted.
     #[error("unexpected disconnection")]
     Disconnected,
-
-    /// The database named `database_name` was created with a different schema
-    /// (`stored_schema`) than provided (`schema`).
-    #[error(
-        "database '{database_name}' was created with schema '{stored_schema}', not '{schema}'"
-    )]
-    SchemaMismatch {
-        /// The name of the database being accessed.
-        database_name: String,
-
-        /// The schema provided for the database.
-        schema: SchemaName,
-
-        /// The schema stored for the database.
-        stored_schema: SchemaName,
-    },
-
-    /// The [`SchemaName`] returned has already been registered with this server.
-    #[error("schema '{0}' was already registered")]
-    SchemaAlreadyRegistered(SchemaName),
-
-    /// The [`SchemaName`] requested was not registered with this server.
-    #[error("schema '{0}' is not registered with this server")]
-    SchemaNotRegistered(SchemaName),
 }

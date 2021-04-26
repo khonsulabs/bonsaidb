@@ -7,8 +7,8 @@
 //!   used when interacting with `PliantDB`.
 //! - [`pliantdb-local`](https://docs.rs/pliantdb-local): Local, file-based
 //!   database implementation.
-//! - [`pliantdb-server`](https://docs.rs/pliantdb-server): Multi-database
-//!   networked server implementation.
+//! - [`pliantdb-server`](https://docs.rs/pliantdb-server): Networked `PliantDB`
+//!   server implementation.
 //! - [`pliantdb-client`](https://docs.rs/pliantdb-client): Client to access a
 //!   `PliantDB` server.
 //!

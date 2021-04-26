@@ -1,5 +1,5 @@
 use pliantdb_core::{
-    schema::{InvalidNameError, Schema, SchemaName},
+    schema::{InvalidNameError, Schema, SchemaName, Schematic},
     Error,
 };
 
@@ -13,9 +13,7 @@ impl Schema for Admin {
         SchemaName::new("khonsulabs", "pliantdb.admin")
     }
 
-    fn define_collections(
-        schema: &mut pliantdb_local::core::schema::Schematic,
-    ) -> Result<(), Error> {
+    fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
         schema.define_collection::<database::Database>()
     }
 }

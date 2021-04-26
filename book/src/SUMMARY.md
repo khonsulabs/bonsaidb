@@ -20,3 +20,4 @@
 - [Connection](./traits/connection.md)
 - [ServerConnection](./traits/server_connection.md)
 - [PubSub/Subscriber](./traits/pubsub.md)
+- [Kv](./traits/kv.md)

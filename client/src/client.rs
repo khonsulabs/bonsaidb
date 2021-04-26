@@ -12,10 +12,9 @@ use std::{
 use async_trait::async_trait;
 use flume::Sender;
 use pliantdb_core::{
+    connection::{Database, ServerConnection},
     fabruic::Certificate,
-    networking::{
-        self, Database, Payload, Request, Response, ServerConnection, ServerRequest, ServerResponse,
-    },
+    networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
     schema::{Schema, SchemaName, Schematic},
 };
 use tokio::{sync::Mutex, task::JoinHandle};

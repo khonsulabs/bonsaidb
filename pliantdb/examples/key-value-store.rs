@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use pliantdb_core::kv::{KeyStatus, Kv};
-use pliantdb_local::{Configuration, Storage};
+use pliantdb_local::{config::Configuration, Database};
 
 // PliantDB supports a lightweight, atomic key-value store in addition to its
 // acid-compliant transactional storage. This interface is meant to replicate
@@ -12,7 +12,7 @@ use pliantdb_local::{Configuration, Storage};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let db =
-        Storage::<()>::open_local("key-value-store.pliantdb", &Configuration::default()).await?;
+        Database::<()>::open_local("key-value-store.pliantdb", &Configuration::default()).await?;
 
     // The set_key method can be awaited to insert/replace a key. Values can be
     // anything supported by serde.

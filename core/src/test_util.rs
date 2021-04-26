@@ -11,7 +11,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    connection::{AccessPolicy, Connection},
+    connection::{AccessPolicy, Connection, ServerConnection},
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
@@ -259,7 +259,8 @@ impl Collection for UnassociatedCollection {
 
 #[derive(Copy, Clone, Debug)]
 pub enum HarnessTest {
-    StoreRetrieveUpdate = 1,
+    ServerConnectionTests = 1,
+    StoreRetrieveUpdate,
     NotFound,
     Conflict,
     BadUpdate,
@@ -299,6 +300,15 @@ impl Display for HarnessTest {
 #[macro_export]
 macro_rules! define_connection_test_suite {
     ($harness:ident) => {
+        #[tokio::test]
+        async fn server_connection_tests() -> Result<(), anyhow::Error> {
+            let harness =
+                $harness::new($crate::test_util::HarnessTest::ServerConnectionTests).await?;
+            let db = harness.server();
+            $crate::test_util::basic_server_connection_tests(db.clone()).await?;
+            harness.shutdown().await
+        }
+
         #[tokio::test]
         async fn store_retrieve_update_delete() -> Result<(), anyhow::Error> {
             let harness =
@@ -950,10 +960,11 @@ macro_rules! define_kv_test_suite {
                 assert_eq!(r2?, KeyStatus::Updated, "b wasn't an update");
 
                 let a = kv.get_key::<u32, _>("a").await?;
+                assert_eq!(a, Some(1));
 
                 // Before checking the value, make sure we haven't elapsed too
                 // much time. If so, just restart the test.
-                if !timing.wait_until(Duration::from_secs_f32(2.5)).await {
+                if !timing.wait_until(Duration::from_secs_f32(3.)).await {
                     println!(
                         "Restarting test {}. Took too long {:?}",
                         line!(),
@@ -962,11 +973,10 @@ macro_rules! define_kv_test_suite {
                     continue;
                 }
 
-                assert_eq!(a, Some(1));
-                assert_eq!(kv.get_key::<u32, _>("b").await?, None);
+                assert_eq!(kv.get_key::<u32, _>("b").await?, None, "b never expired");
 
                 timing.wait_until(Duration::from_secs_f32(5.)).await;
-                assert_eq!(kv.get_key::<u32, _>("a").await?, None);
+                assert_eq!(kv.get_key::<u32, _>("a").await?, None, "a never expired");
                 break;
             }
             harness.shutdown().await?;
@@ -1060,4 +1070,48 @@ impl TimingTest {
             .checked_duration_since(self.start)
             .unwrap_or_default()
     }
+}
+
+pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> anyhow::Result<()> {
+    let schemas = server.list_available_schemas().await?;
+    assert_eq!(schemas, vec![Basic::schema_name()?]);
+
+    let databases = server.list_databases().await?;
+    assert!(databases.contains(&crate::connection::Database {
+        name: String::from("tests"),
+        schema: Basic::schema_name()?
+    }));
+
+    server
+        .create_database("another-db", Basic::schema_name()?)
+        .await?;
+    server.delete_database("another-db").await?;
+
+    assert!(matches!(
+        server.delete_database("another-db").await,
+        Err(Error::DatabaseNotFound(_))
+    ));
+
+    assert!(matches!(
+        server.create_database("tests", Basic::schema_name()?).await,
+        Err(Error::DatabaseNameAlreadyTaken(_))
+    ));
+
+    assert!(matches!(
+        dbg!(
+            server
+                .create_database("|invalidname", Basic::schema_name()?)
+                .await
+        ),
+        Err(Error::InvalidDatabaseName(_))
+    ));
+
+    assert!(matches!(
+        server
+            .create_database("another-db", SchemaName::new("unknown", "unknown-schema")?)
+            .await,
+        Err(Error::SchemaNotRegistered(_))
+    ));
+
+    Ok(())
 }

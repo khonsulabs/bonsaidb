@@ -25,18 +25,21 @@ pub enum Error {
     #[error("error from view: {0}")]
     View(#[from] view::Error),
 
-    /// An internal error occurred while waiting for a message.
-    #[error("error while waiting for a message: {0}")]
+    /// An core error occurred.
+    #[error("a core error occurred: {0}")]
     Core(#[from] pliantdb_core::Error),
 
-    /// An internal error occurred while waiting for a message.
+    /// An unexpected error occurred.
     #[error("an unexpected error occurred: {0}")]
     Other(#[from] Arc<anyhow::Error>),
 }
 
 impl From<Error> for pliantdb_core::Error {
     fn from(err: Error) -> Self {
-        Self::Storage(err.to_string())
+        match err {
+            Error::Core(core) => core,
+            other => Self::Database(other.to_string()),
+        }
     }
 }
 
@@ -58,7 +61,7 @@ where
     type Output = T;
 
     fn map_err_to_core(self) -> Result<Self::Output, pliantdb_core::Error> {
-        self.map_err(|err| pliantdb_core::Error::Storage(err.into().to_string()))
+        self.map_err(|err| pliantdb_core::Error::Database(err.into().to_string()))
     }
 }
 
@@ -68,7 +71,7 @@ fn test_converting_error() {
     let err: pliantdb_core::Error =
         Error::Serialization(serde_cbor::Error::custom("mymessage")).into();
     match err {
-        pliantdb_core::Error::Storage(storage_error) => {
+        pliantdb_core::Error::Database(storage_error) => {
             assert!(storage_error.contains("mymessage"))
         }
         _ => unreachable!(),

@@ -81,7 +81,7 @@ pliantdb = { version = "*", default-features = false, features = "local-full" }
 
 - `local-full`: Enables `local`, `local-cli`, `local-keyvalue`, and
   `local-pubsub`
-- `local`: Enables the [`local`] module, which re-exports the crate
+- `local`: Enables the [`local`](https://pliantdb.dev/main/pliantdb/local/) module, which re-exports the crate
   `pliantdb-local`.
 - `local-cli`: Enables the `StructOpt` structures for embedding database
   management commands into your own command-line interface.
@@ -97,13 +97,13 @@ pliantdb = { version = "*", default-features = false, features = "server-full" }
 
 - `server-full`: Enables `server`, `server-websockets`, `server-keyvalue`,
   and `server-pubsub`
-- `server`: Enables the [`server`] module, which re-exports the crate
+- `server`: Enables the [`server`](https://pliantdb.dev/main/pliantdb/server/) module, which re-exports the crate
   `pliantdb-server`.
 - `server-websockets`: Enables `WebSocket` support for `pliantdb-server`.
 - `server-pubsub`: Enables `PubSub` for `pliantdb-server`.
 - `server-keyvalue`: Enables the key-value store for `pliantdb-server`.
 
-### Client for accessing a `PliantDB` server.
+### Client for accessing a `PliantDB` server
 
 ```toml
 [dependencies]
@@ -112,7 +112,7 @@ pliantdb = { version = "*", default-features = false, features = "client-full" }
 
 - `client-full`: Enables `client`, `client-trusted-dns`,
   `client-websockets`, `client-keyvalue`, and `client-pubsub`
-- `client`: Enables the [`client`] module, which re-exports the crate
+- `client`: Enables the [`client`](https://pliantdb.dev/main/pliantdb/client/) module, which re-exports the crate
   `pliantdb-client`.
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
   enabled, all DNS resolution is done with the OS's default name resolver.

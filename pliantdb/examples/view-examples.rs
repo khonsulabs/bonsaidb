@@ -8,7 +8,7 @@ use pliantdb::{
         },
         Error,
     },
-    local::{Configuration, Storage},
+    local::{config::Configuration, Database},
 };
 use serde::{Deserialize, Serialize};
 
@@ -71,7 +71,7 @@ impl Shape {
 async fn main() -> Result<(), anyhow::Error> {
     // [md-bakery: begin @ snippet-b]
     let db =
-        Storage::<Shape>::open_local("view-examples.pliantdb", &Configuration::default()).await?;
+        Database::<Shape>::open_local("view-examples.pliantdb", &Configuration::default()).await?;
 
     // Insert a new document into the Shape collection.
     db.collection::<Shape>().push(&Shape::new(3)).await?;
