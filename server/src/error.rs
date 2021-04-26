@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use pliantdb_core::networking::{self, fabruic};
+use pliantdb_core::networking::fabruic;
 use pliantdb_local::core::{self, schema};
-use schema::{InvalidNameError, SchemaName};
+use schema::InvalidNameError;
 
 /// An error occurred while interacting with a [`Server`](crate::Server).
 #[derive(Debug, thiserror::Error)]
@@ -24,26 +24,6 @@ pub enum Error {
     #[error("an error occurred processing a request: '{0}'")]
     Request(Arc<anyhow::Error>),
 
-    /// The database named `database_name` was created with a different schema
-    /// (`stored_schema`) than provided (`schema`).
-    #[error(
-        "database '{database_name}' was created with schema '{stored_schema}', not '{schema}'"
-    )]
-    SchemaMismatch {
-        /// The name of the database being accessed.
-        database_name: String,
-
-        /// The schema provided for the database.
-        schema: SchemaName,
-
-        /// The schema stored for the database.
-        stored_schema: SchemaName,
-    },
-
-    /// The [`SchemaName`] returned has already been registered with this server.
-    #[error("schema '{0}' was already registered")]
-    SchemaAlreadyRegistered(SchemaName),
-
     /// An error occurred from within the schema.
     #[error("error from core {0}")]
     Core(#[from] core::Error),
@@ -64,28 +44,7 @@ impl From<Error> for core::Error {
             Error::Transport(networking) => Self::Transport(networking),
             #[cfg(feature = "websockets")]
             Error::Websocket(err) => Self::Websocket(err.to_string()),
-            Error::InvalidDatabaseName(name) => {
-                Self::Networking(networking::Error::InvalidDatabaseName(name))
-            }
-            Error::DatabaseNotFound(name) => {
-                Self::Networking(networking::Error::DatabaseNotFound(name))
-            }
-            Error::DatabaseNameAlreadyTaken(name) => {
-                Self::Networking(networking::Error::DatabaseNameAlreadyTaken(name))
-            }
             Error::Request(err) => Self::Server(err.to_string()),
-            Error::SchemaMismatch {
-                database_name,
-                schema,
-                stored_schema,
-            } => Self::Networking(networking::Error::SchemaMismatch {
-                database_name,
-                schema,
-                stored_schema,
-            }),
-            Error::SchemaAlreadyRegistered(id) => {
-                Self::Networking(networking::Error::SchemaAlreadyRegistered(id))
-            }
         }
     }
 }

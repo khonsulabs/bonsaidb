@@ -108,6 +108,12 @@ where
         Ok(storage.database("default").await?)
     }
 
+    /// Returns the [`Storage`] that this database belongs to.
+    #[must_use]
+    pub fn storage(&self) -> &'_ Storage {
+        &self.data.storage
+    }
+
     /// Returns the [`Schematic`] for `DB`.
     #[must_use]
     pub fn schematic(&self) -> &'_ Schematic {
@@ -138,11 +144,7 @@ where
 
         let view_entries = self
             .sled()
-            .open_tree(view_entries_tree_name(
-                &self.data.name,
-                &view.collection()?,
-                &view.view_name()?,
-            ))
+            .open_tree(view_entries_tree_name(&self.data.name, &view.view_name()?))
             .map_err(Error::Sled)
             .map_err_to_core()?;
 
@@ -408,11 +410,7 @@ where
                                 .map_err(ConflictableTransactionError::Abort)?;
                             for changed_document in &changed_documents {
                                 let invalidated_docs = &trees[open_trees.trees_index_by_name
-                                    [&view_invalidated_docs_tree_name(
-                                        &dbname,
-                                        &collection,
-                                        &view_name,
-                                    )]];
+                                    [&view_invalidated_docs_tree_name(&dbname, &view_name)]];
                                 invalidated_docs.insert(
                                     changed_document.id.as_big_endian_bytes().unwrap().as_ref(),
                                     IVec::default(),

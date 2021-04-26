@@ -14,6 +14,7 @@ use crate::{
     connection::{AccessPolicy, Connection},
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
+    networking::ServerConnection,
     schema::{
         view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name, Schema,
         SchemaName, Schematic, View,
@@ -259,7 +260,8 @@ impl Collection for UnassociatedCollection {
 
 #[derive(Copy, Clone, Debug)]
 pub enum HarnessTest {
-    StoreRetrieveUpdate = 1,
+    ServerConnectionTests = 1,
+    StoreRetrieveUpdate,
     NotFound,
     Conflict,
     BadUpdate,
@@ -299,6 +301,15 @@ impl Display for HarnessTest {
 #[macro_export]
 macro_rules! define_connection_test_suite {
     ($harness:ident) => {
+        #[tokio::test]
+        async fn server_connection_tests() -> Result<(), anyhow::Error> {
+            let harness =
+                $harness::new($crate::test_util::HarnessTest::ServerConnectionTests).await?;
+            let db = harness.server();
+            $crate::test_util::basic_server_connection_tests(db.clone()).await?;
+            harness.shutdown().await
+        }
+
         #[tokio::test]
         async fn store_retrieve_update_delete() -> Result<(), anyhow::Error> {
             let harness =
@@ -1060,4 +1071,48 @@ impl TimingTest {
             .checked_duration_since(self.start)
             .unwrap_or_default()
     }
+}
+
+pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> anyhow::Result<()> {
+    let schemas = server.list_available_schemas().await?;
+    assert_eq!(schemas, vec![Basic::schema_name()?]);
+
+    let databases = server.list_databases().await?;
+    assert!(databases.contains(&crate::networking::Database {
+        name: String::from("tests"),
+        schema: Basic::schema_name()?
+    }));
+
+    server
+        .create_database("another-db", Basic::schema_name()?)
+        .await?;
+    server.delete_database("another-db").await?;
+
+    assert!(matches!(
+        server.delete_database("another-db").await,
+        Err(Error::DatabaseNotFound(_))
+    ));
+
+    assert!(matches!(
+        server.create_database("tests", Basic::schema_name()?).await,
+        Err(Error::DatabaseNameAlreadyTaken(_))
+    ));
+
+    assert!(matches!(
+        dbg!(
+            server
+                .create_database("|invalidname", Basic::schema_name()?)
+                .await
+        ),
+        Err(Error::InvalidDatabaseName(_))
+    ));
+
+    assert!(matches!(
+        server
+            .create_database("another-db", SchemaName::new("unknown", "unknown-schema")?)
+            .await,
+        Err(Error::SchemaNotRegistered(_))
+    ));
+
+    Ok(())
 }

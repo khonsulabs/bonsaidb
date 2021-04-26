@@ -27,7 +27,7 @@ async fn main() -> anyhow::Result<()> {
         .await
     {
         Ok(()) => {}
-        Err(Error::Networking(pliantdb_core::networking::Error::DatabaseNameAlreadyTaken(_))) => {}
+        Err(Error::DatabaseNameAlreadyTaken(_)) => {}
         Err(err) => panic!(
             "Unexpected error from server during create_database: {:?}",
             err

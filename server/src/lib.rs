@@ -23,13 +23,14 @@ mod async_io_util;
 pub mod cli;
 mod config;
 mod error;
-mod hosted;
 mod server;
 
-pub use self::{config::Configuration, error::Error, hosted::Database, server::Server};
+pub use self::{config::Configuration, error::Error, server::Server};
 
 #[cfg(test)]
 mod tests;
 
 #[cfg(any(feature = "test-util", test))]
 pub mod test_util;
+
+pub use pliantdb_local as local;

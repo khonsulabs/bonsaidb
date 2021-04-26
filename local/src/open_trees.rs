@@ -35,10 +35,7 @@ impl OpenTrees {
         if let Some(views) = schema.views_in_collection(collection) {
             for view in views {
                 let view_name = view.view_name()?;
-                self.open_tree(
-                    sled,
-                    &view_invalidated_docs_tree_name(database, collection, &view_name),
-                )?;
+                self.open_tree(sled, &view_invalidated_docs_tree_name(database, &view_name))?;
             }
         }
 

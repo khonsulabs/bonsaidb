@@ -57,7 +57,6 @@ pub fn expiration_thread(
                     && tracked_keys.get(&expiration_order[0]).unwrap() <= &now
                 {
                     let key_to_remove = expiration_order.pop_front().unwrap();
-                    println!("removing key: {:?}", key_to_remove);
                     tracked_keys.remove(&key_to_remove);
                     let tree = sled.open_tree(key_to_remove.tree.as_bytes())?;
                     tree.remove(key_to_remove.key.as_bytes())?;
@@ -80,7 +79,6 @@ pub fn expiration_thread(
                         }
                     })
                     .unwrap();
-                println!("removing {}", existing_entry_index);
                 expiration_order.remove(existing_entry_index).unwrap()
             } else {
                 update.tree_key.clone()
@@ -95,10 +93,8 @@ pub fn expiration_thread(
                 }
             }
             if let Some(insert_at) = insert_at {
-                println!("inserting at {}", insert_at);
                 expiration_order.insert(insert_at, key.clone());
             } else {
-                println!("pushing to end");
                 expiration_order.push_back(key.clone());
             }
             tracked_keys.insert(key, expiration);

@@ -204,16 +204,46 @@ impl Storage {
     async fn admin(&self) -> Database<Admin> {
         Database::new("admin", self.clone()).await.unwrap()
     }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    /// Opens a database through a generic-free trait.
+    pub async fn database_without_schema(
+        &self,
+        name: &str,
+    ) -> Result<Box<dyn OpenDatabase>, Error> {
+        let schema = match self
+            .admin()
+            .await
+            .view::<database::ByName>()
+            .with_key(name.to_ascii_lowercase())
+            .query()
+            .await?
+            .first()
+        {
+            Some(entry) => entry.value.clone(),
+            None => {
+                return Err(Error::Core(pliantdb_core::Error::DatabaseNotFound(
+                    name.to_string(),
+                )))
+            }
+        };
+
+        let schemas = self.data.schemas.read().await;
+        if let Some(schema) = schemas.get(&schema) {
+            schema.open(name.to_string(), self.clone()).await
+        } else {
+            Err(Error::Core(pliantdb_core::Error::SchemaNotRegistered(
+                schema,
+            )))
+        }
+    }
 }
 
 #[async_trait]
 trait DatabaseOpener: Send + Sync + Debug {
     fn schematic(&self) -> &'_ Schematic;
-    async fn open(
-        &self,
-        name: String,
-        storage: Storage,
-    ) -> Result<Arc<Box<dyn OpenDatabase>>, Error>;
+    async fn open(&self, name: String, storage: Storage) -> Result<Box<dyn OpenDatabase>, Error>;
 }
 
 #[derive(Debug)]
@@ -244,16 +274,14 @@ where
         &self.schematic
     }
 
-    async fn open(
-        &self,
-        name: String,
-        storage: Storage,
-    ) -> Result<Arc<Box<dyn OpenDatabase>>, Error> {
+    async fn open(&self, name: String, storage: Storage) -> Result<Box<dyn OpenDatabase>, Error> {
         let db = Database::<DB>::new(name, storage).await?;
-        Ok(Arc::new(Box::new(db)))
+        Ok(Box::new(db))
     }
 }
 
+/// Methods for accessing a database without the `Schema` type present.
+#[doc(hidden)]
 #[async_trait]
 pub trait OpenDatabase: Send + Sync + Debug + 'static {
     fn as_any(&self) -> &'_ dyn Any;

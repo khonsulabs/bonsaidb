@@ -2,6 +2,8 @@ use std::time::Duration;
 
 use pliantdb_core::{
     connection::{AccessPolicy, Connection},
+    networking::ServerConnection,
+    schema::Schema,
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
         BasicCollectionWithOnlyBrokenParentId, HarnessTest, TestDirectory,
@@ -19,11 +21,21 @@ struct TestHarness {
 impl TestHarness {
     async fn new(test: HarnessTest) -> anyhow::Result<Self> {
         let directory = TestDirectory::new(format!("local-{}", test));
-        let db = Database::<Basic>::open_local(&directory, &Configuration::default()).await?;
+        let storage = Storage::open_local(&directory, &Configuration::default()).await?;
+        storage.register_schema::<Basic>().await?;
+        storage
+            .create_database("tests", Basic::schema_name()?)
+            .await?;
+        let db = storage.database("tests").await?;
+
         Ok(Self {
             _directory: directory,
             db,
         })
+    }
+
+    fn server(&self) -> &'_ Storage {
+        self.db.storage()
     }
 
     async fn connect(&self) -> anyhow::Result<Database<Basic>> {

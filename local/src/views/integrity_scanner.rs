@@ -45,7 +45,6 @@ where
 
         let document_map = self.database.sled().open_tree(view_document_map_tree_name(
             &self.database.data.name,
-            &self.scan.collection,
             &self.scan.view_name,
         ))?;
 
@@ -54,7 +53,6 @@ where
                 .sled()
                 .open_tree(view_invalidated_docs_tree_name(
                     &self.database.data.name,
-                    &self.scan.collection,
                     &self.scan.view_name,
                 ))?;
 

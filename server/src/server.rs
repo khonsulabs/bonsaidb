@@ -1,14 +1,11 @@
 use std::{
-    any::Any,
-    collections::HashMap,
     fmt::Debug,
-    marker::PhantomData,
+    ops::Deref,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
 
-use admin::database::{self, Database};
 use async_trait::async_trait;
 use cfg_if::cfg_if;
 #[cfg(feature = "websockets")]
@@ -16,43 +13,35 @@ use flume::Sender;
 #[cfg(feature = "websockets")]
 use futures::SinkExt;
 use futures::{Future, StreamExt, TryFutureExt};
-use itertools::Itertools;
 #[cfg(feature = "keyvalue")]
-use pliantdb_core::kv::{KeyOperation, Kv, Output};
+use pliantdb_core::kv::KeyOperation;
 #[cfg(feature = "pubsub")]
 use pliantdb_core::{
     circulate::{Message, Relay, Subscriber},
     pubsub::database_topic,
 };
 use pliantdb_core::{
-    connection::{AccessPolicy, Connection, QueryKey},
-    document::Document,
+    connection::{AccessPolicy, QueryKey},
     networking::{
         self,
         fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey},
-        DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerConnection as _,
+        DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerConnection,
         ServerRequest, ServerResponse,
     },
     schema,
-    schema::{
-        view::map::{self, MappedValue},
-        CollectionName, Schema, Schematic, ViewName,
-    },
-    transaction::{Executed, OperationResult, Transaction},
+    schema::{CollectionName, Schema, ViewName},
+    transaction::Transaction,
 };
 use pliantdb_jobs::{manager::Manager, Job};
-use pliantdb_local::{Database, Internal, Storage};
+use pliantdb_local::{Database, OpenDatabase, Storage};
 use schema::SchemaName;
+#[cfg(feature = "pubsub")]
+use std::collections::HashMap;
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
 
-use crate::{
-    admin::{self, database::ByName, Admin},
-    async_io_util::FileExt,
-    error::Error,
-    hosted, Configuration,
-};
+use crate::{async_io_util::FileExt, error::Error, Configuration};
 
 /// A `PliantDB` server.
 #[derive(Clone, Debug)]
@@ -73,13 +62,14 @@ struct Data {
 }
 
 impl Server {
+    /// Opens a server using `directory` for storage.
     pub async fn open(directory: &Path, configuration: Configuration) -> Result<Self, Error> {
         let request_processor = Manager::default();
         for _ in 0..configuration.request_workers {
             request_processor.spawn_worker();
         }
 
-        let storage = Storage::open_local(directory, configuration.storage).await?;
+        let storage = Storage::open_local(directory, &configuration.storage).await?;
 
         Ok(Self {
             data: Arc::new(Data {
@@ -96,90 +86,17 @@ impl Server {
     }
 
     /// Retrieves a database. This function only verifies that the database exists
-    pub async fn database<'a, DB: Schema>(
+    pub async fn database<DB: Schema>(&self, name: &'_ str) -> Result<Database<DB>, Error> {
+        let db = self.data.storage.database(name).await?;
+        Ok(db)
+    }
+
+    pub(crate) async fn database_without_schema(
         &self,
-        name: &'a str,
-    ) -> Result<hosted::Database<'_, 'a, DB>, Error> {
-        let available_databases = self.data.available_databases.read().await;
-
-        if let Some(stored_schema) = available_databases.get(name) {
-            if stored_schema == &DB::schema_name()? {
-                Ok(hosted::Database::new(self, name))
-            } else {
-                Err(Error::SchemaMismatch {
-                    database_name: name.to_owned(),
-                    schema: DB::schema_name()?,
-                    stored_schema: stored_schema.clone(),
-                })
-            }
-        } else {
-            Err(Error::DatabaseNotFound(name.to_owned()))
-        }
-    }
-
-    pub(crate) async fn open_database_without_schema(
-        &self,
-        name: &str,
-    ) -> Result<Arc<Box<dyn OpenDatabase>>, Error> {
-        // If we have an open database return it
-        {
-            let open_databases = self.data.open_databases.read().await;
-            if let Some(db) = open_databases.get(name) {
-                return Ok(db.clone());
-            }
-        }
-
-        // Open the database.
-        let mut open_databases = self.data.open_databases.write().await;
-        // Check that we weren't in a race to initialize this database.
-        if let Some(db) = open_databases.get(name) {
-            return Ok(db.clone());
-        }
-
-        let schema = match self
-            .data
-            .admin
-            .view::<database::ByName>()
-            .with_key(name.to_ascii_lowercase())
-            .query()
-            .await?
-            .first()
-        {
-            Some(entry) => entry.value.clone(),
-            None => return Err(Error::DatabaseNotFound(name.to_string())),
-        };
-
-        let schemas = self.data.schemas.read().await;
-        if let Some(schema) = schemas.get(&schema) {
-            let db = schema.open(name).await?;
-            open_databases.insert(name.to_string(), db.clone());
-            Ok(db)
-        } else {
-            Err(Error::Core(pliantdb_core::Error::Networking(
-                networking::Error::SchemaNotRegistered(schema),
-            )))
-        }
-    }
-
-    pub(crate) async fn open_database<DB: Schema>(
-        &self,
-        name: &str,
-    ) -> Result<Database<DB>, Error> {
-        let db = self.open_database_without_schema(name).await?;
-        let storage = db
-            .as_any()
-            .downcast_ref::<Database<DB>>()
-            .expect("schema did not match");
-        Ok(storage.clone())
-    }
-
-    #[cfg(feature = "pubsub")]
-    pub(crate) fn relay(&self) -> &'_ Relay {
-        &self.data.relay
-    }
-
-    fn database_path(&self, name: &str) -> PathBuf {
-        self.data.directory.join(format!("{}.pliantdb", name))
+        name: &'_ str,
+    ) -> Result<Box<dyn OpenDatabase>, Error> {
+        let db = self.data.storage.database_without_schema(name).await?;
+        Ok(db)
     }
 
     /// Installs an X.509 certificate used for general purpose connections.
@@ -690,7 +607,7 @@ impl Server {
         collection: CollectionName,
         id: u64,
     ) -> Result<Response, Error> {
-        let db = self.open_database_without_schema(&database).await?;
+        let db = self.database_without_schema(&database).await?;
         let document = db
             .get_from_collection_id(id, &collection)
             .await?
@@ -708,7 +625,7 @@ impl Server {
         collection: CollectionName,
         ids: Vec<u64>,
     ) -> Result<Response, Error> {
-        let db = self.open_database_without_schema(&database).await?;
+        let db = self.database_without_schema(&database).await?;
         let documents = db
             .get_multiple_from_collection_id(&ids, &collection)
             .await?;
@@ -723,7 +640,7 @@ impl Server {
         access_policy: AccessPolicy,
         with_docs: bool,
     ) -> Result<Response, Error> {
-        let db = self.open_database_without_schema(&database).await?;
+        let db = self.database_without_schema(&database).await?;
         if with_docs {
             let mappings = db.query_with_docs(view, key, access_policy).await?;
             Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
@@ -743,7 +660,7 @@ impl Server {
         access_policy: AccessPolicy,
         grouped: bool,
     ) -> Result<Response, Error> {
-        let db = self.open_database_without_schema(&database).await?;
+        let db = self.database_without_schema(&database).await?;
         if grouped {
             let values = db.reduce_grouped(view, key, access_policy).await?;
             Ok(Response::Database(DatabaseResponse::ViewGroupedReduction(
@@ -760,7 +677,7 @@ impl Server {
         database: String,
         transaction: Transaction<'static>,
     ) -> Result<Response, Error> {
-        let db = self.open_database_without_schema(&database).await?;
+        let db = self.database_without_schema(&database).await?;
         let results = db.apply_transaction(transaction).await?;
         Ok(Response::Database(DatabaseResponse::TransactionResults(
             results,
@@ -773,7 +690,7 @@ impl Server {
         starting_id: Option<u64>,
         result_limit: Option<usize>,
     ) -> Result<Response, Error> {
-        let db = self.open_database_without_schema(&database).await?;
+        let db = self.database_without_schema(&database).await?;
         Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
             db.list_executed_transactions(starting_id, result_limit)
                 .await?,
@@ -784,7 +701,7 @@ impl Server {
         &self,
         database: String,
     ) -> Result<Response, Error> {
-        let db = self.open_database_without_schema(&database).await?;
+        let db = self.database_without_schema(&database).await?;
         Ok(Response::Database(DatabaseResponse::LastTransactionId(
             db.last_transaction_id().await?,
         )))
@@ -911,7 +828,7 @@ impl Server {
         database: String,
         op: KeyOperation,
     ) -> Result<Response, Error> {
-        let db = self.open_database_without_schema(&database).await?;
+        let db = self.database_without_schema(&database).await?;
         let result = db.execute_key_operation(op).await?;
         Ok(Response::Database(DatabaseResponse::KvOutput(result)))
     }
@@ -965,11 +882,15 @@ impl Server {
             }
         }
 
-        // Close all databases by dropping them.
-        let mut open_databases = self.data.open_databases.write().await;
-        open_databases.clear();
-
         Ok(())
+    }
+}
+
+impl Deref for Server {
+    type Target = Storage;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data.storage
     }
 }
 
@@ -1017,5 +938,28 @@ impl Job for ClientRequest {
             )
             .await
             .unwrap_or_else(|err| Response::Error(err.into())))
+    }
+}
+
+#[async_trait]
+impl ServerConnection for Server {
+    async fn create_database(
+        &self,
+        name: &str,
+        schema: SchemaName,
+    ) -> Result<(), pliantdb_core::Error> {
+        self.data.storage.create_database(name, schema).await
+    }
+
+    async fn delete_database(&self, name: &str) -> Result<(), pliantdb_core::Error> {
+        self.data.storage.delete_database(name).await
+    }
+
+    async fn list_databases(&self) -> Result<Vec<networking::Database>, pliantdb_core::Error> {
+        self.data.storage.list_databases().await
+    }
+
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, pliantdb_core::Error> {
+        self.data.storage.list_available_schemas().await
     }
 }

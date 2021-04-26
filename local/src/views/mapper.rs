@@ -59,7 +59,6 @@ where
             .sled()
             .open_tree(view_entries_tree_name(
                 &self.storage.data.name,
-                &self.map.collection,
                 &self.map.view_name,
             ))?;
 
@@ -70,7 +69,6 @@ where
                 .sled()
                 .open_tree(view_document_map_tree_name(
                     &self.storage.data.name,
-                    &self.map.collection,
                     &self.map.view_name,
                 ))?;
 
@@ -81,7 +79,6 @@ where
                 .sled()
                 .open_tree(view_invalidated_docs_tree_name(
                     &self.storage.data.name,
-                    &self.map.collection,
                     &self.map.view_name,
                 ))?;
 
@@ -92,7 +89,6 @@ where
                 .sled()
                 .open_tree(view_omitted_docs_tree_name(
                     &self.storage.data.name,
-                    &self.map.collection,
                     &self.map.view_name,
                 ))?;
         let transaction_id = self

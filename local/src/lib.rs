@@ -29,11 +29,14 @@ mod views;
 #[doc(inline)]
 pub use pliantdb_core as core;
 
+#[cfg(feature = "pubsub")]
+pub use self::database::pubsub::Subscriber;
+#[cfg(feature = "internal-apis")]
+pub use self::storage::OpenDatabase;
 pub use self::{config::Configuration, database::Database, error::Error, storage::Storage};
 
-// TODO re-enable cli
-// #[cfg(feature = "cli")]
-// pub mod backup;
+#[cfg(feature = "cli")]
+pub mod backup;
 
 #[cfg(test)]
 mod tests;

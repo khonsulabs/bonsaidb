@@ -25,18 +25,21 @@ pub enum Error {
     #[error("error from view: {0}")]
     View(#[from] view::Error),
 
-    /// An internal error occurred while waiting for a message.
-    #[error("error while waiting for a message: {0}")]
+    /// An core error occurred.
+    #[error("a core error occurred: {0}")]
     Core(#[from] pliantdb_core::Error),
 
-    /// An internal error occurred while waiting for a message.
+    /// An unexpected error occurred.
     #[error("an unexpected error occurred: {0}")]
     Other(#[from] Arc<anyhow::Error>),
 }
 
 impl From<Error> for pliantdb_core::Error {
     fn from(err: Error) -> Self {
-        Self::Database(err.to_string())
+        match err {
+            Error::Core(core) => core,
+            other => Self::Database(other.to_string()),
+        }
     }
 }
 

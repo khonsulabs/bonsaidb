@@ -12,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
 
     let subscriber = db.create_subscriber().await?;
     // Subscribe for messages sent to the topic "pong"
-    subscriber.subscribe_to("pong").await;
+    subscriber.subscribe_to("pong").await?;
 
     // Launch a task that sends out "ping" messages.
     tokio::spawn(pinger(db.clone()));

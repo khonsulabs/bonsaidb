@@ -56,6 +56,7 @@ where
     }
 }
 
+/// A subscriber for `PubSub` messages.
 pub struct Subscriber {
     database_name: String,
     subscriber: circulate::Subscriber,
