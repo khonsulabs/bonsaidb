@@ -15,7 +15,7 @@ The high-level goals for this project are:
 - ☑️ Be able to build a document-based database's schema using Rust types.
 - ☑️ Run within your Rust binary, simplifying basic deployments.
 - ☑️ Run as a local-only file-based database with no networking involved.
-- ☑️🚧 Run in a multi-database, networked server mode with TLS enabled by default
+- ☑️ Run as a networked server using QUIC with TLS enabled by default
 - Easily set up read-replicas between multiple servers.
 - Easily run a highly-available quorum-based cluster across at least 3 servers
 - ☑️ Expose a Publish/Subscribe eventing system
@@ -93,12 +93,12 @@ After you have your collection(s) defined, you can open up a database and insert
 And query data using the Map-Reduce-powered view:
 
 ```rust
-    let triangles = db
-        .view::<ShapesByNumberOfSides>()
-        .with_key(3)
-        .query()
-        .await?;
-    println!("Number of triangles: {}", triangles.len());
+let triangles = db
+    .view::<ShapesByNumberOfSides>()
+    .with_key(3)
+    .query()
+    .await?;
+println!("Number of triangles: {}", triangles.len());
 ```
 
 ## Why write another database?
@@ -108,12 +108,12 @@ And query data using the Map-Reduce-powered view:
 - Specifically for the founding author [@ecton](https://github.com/ecton), the idea for this design dates back to thoughts of fun side-projects while running my last business which was built atop CouchDB. Working on this project is fulfilling a long-time desire of his.
 
 ```rust
-    let triangles = db
-        .view::<ShapesByNumberOfSides>()
-        .with_key(3)
-        .query()
-        .await?;
-    println!("Number of triangles: {}", triangles.len());
+let triangles = db
+    .view::<ShapesByNumberOfSides>()
+    .with_key(3)
+    .query()
+    .await?;
+println!("Number of triangles: {}", triangles.len());
 ```
 
 ## Feature Flags
