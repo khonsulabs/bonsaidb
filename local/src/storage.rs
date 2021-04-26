@@ -7,7 +7,7 @@ pub use pliantdb_core::circulate::Relay;
 #[cfg(feature = "keyvalue")]
 use pliantdb_core::kv::{KeyOperation, Output};
 use pliantdb_core::{
-    connection::{AccessPolicy, Connection, QueryKey},
+    connection::{self, AccessPolicy, Connection, QueryKey, ServerConnection},
     document::Document,
     networking,
     schema::{view::map, CollectionName, MappedValue, Schema, SchemaName, Schematic, ViewName},
@@ -21,9 +21,10 @@ use crate::{
         database::{self, ByName, Database as DatabaseRecord},
         Admin,
     },
+    config::Configuration,
     error::ResultExt,
     tasks::TaskManager,
-    Configuration, Database, Error,
+    Database, Error,
 };
 
 #[cfg(feature = "keyvalue")]
@@ -345,7 +346,7 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
 }
 
 #[async_trait]
-impl networking::ServerConnection for Storage {
+impl ServerConnection for Storage {
     async fn create_database(
         &self,
         name: &str,
@@ -376,7 +377,7 @@ impl networking::ServerConnection for Storage {
 
         admin
             .collection::<DatabaseRecord>()
-            .push(&networking::Database {
+            .push(&connection::Database {
                 name: name.to_string(),
                 schema: schema.clone(),
             })
@@ -420,11 +421,11 @@ impl networking::ServerConnection for Storage {
         }
     }
 
-    async fn list_databases(&self) -> Result<Vec<networking::Database>, pliantdb_core::Error> {
+    async fn list_databases(&self) -> Result<Vec<connection::Database>, pliantdb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases
             .iter()
-            .map(|(name, schema)| networking::Database {
+            .map(|(name, schema)| connection::Database {
                 name: name.to_string(),
                 schema: schema.clone(),
             })

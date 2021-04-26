@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use pliantdb_core::{networking::ServerConnection, schema::Schema, test_util::Basic};
+use pliantdb_core::{connection::ServerConnection, schema::Schema, test_util::Basic};
 
 use crate::{Configuration, Server};
 

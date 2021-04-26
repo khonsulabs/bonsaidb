@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use pliantdb::local::{Configuration, Database};
+use pliantdb::local::{config::Configuration, Database};
 use pliantdb_core::pubsub::{PubSub, Subscriber};
 use tokio::time::sleep;
 

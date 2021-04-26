@@ -1,3 +1,5 @@
+#[cfg(feature = "pubsub")]
+use std::collections::HashMap;
 use std::{
     fmt::Debug,
     ops::Deref,
@@ -21,12 +23,12 @@ use pliantdb_core::{
     pubsub::database_topic,
 };
 use pliantdb_core::{
-    connection::{AccessPolicy, QueryKey},
+    connection::{self, AccessPolicy, QueryKey, ServerConnection},
     networking::{
         self,
         fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey},
-        DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerConnection,
-        ServerRequest, ServerResponse,
+        DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerRequest,
+        ServerResponse,
     },
     schema,
     schema::{CollectionName, Schema, ViewName},
@@ -35,8 +37,6 @@ use pliantdb_core::{
 use pliantdb_jobs::{manager::Manager, Job};
 use pliantdb_local::{Database, OpenDatabase, Storage};
 use schema::SchemaName;
-#[cfg(feature = "pubsub")]
-use std::collections::HashMap;
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
@@ -955,7 +955,7 @@ impl ServerConnection for Server {
         self.data.storage.delete_database(name).await
     }
 
-    async fn list_databases(&self) -> Result<Vec<networking::Database>, pliantdb_core::Error> {
+    async fn list_databases(&self) -> Result<Vec<connection::Database>, pliantdb_core::Error> {
         self.data.storage.list_databases().await
     }
 

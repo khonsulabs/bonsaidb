@@ -4,7 +4,11 @@ use std::{path::Path, time::Duration};
 
 use pliantdb::{
     client::{url::Url, Client},
-    core::{connection::Connection, networking::ServerConnection, schema::Schema, Error},
+    core::{
+        connection::{Connection, ServerConnection},
+        schema::Schema,
+        Error,
+    },
     server::{Configuration, Server},
 };
 use rand::{thread_rng, Rng};

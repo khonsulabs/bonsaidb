@@ -8,7 +8,7 @@ use pliantdb::{
         },
         Error,
     },
-    local::{Configuration, Database},
+    local::{config::Configuration, Database},
 };
 use serde::{Deserialize, Serialize};
 

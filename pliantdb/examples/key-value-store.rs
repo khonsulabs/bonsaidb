@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use pliantdb_core::kv::{KeyStatus, Kv};
-use pliantdb_local::{Configuration, Database};
+use pliantdb_local::{config::Configuration, Database};
 
 // PliantDB supports a lightweight, atomic key-value store in addition to its
 // acid-compliant transactional storage. This interface is meant to replicate

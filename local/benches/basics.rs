@@ -33,7 +33,7 @@ use pliantdb_core::{
     test_util::TestDirectory,
     Error,
 };
-use pliantdb_local::{Configuration, Database};
+use pliantdb_local::{config::Configuration, Database};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]

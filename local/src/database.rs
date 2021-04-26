@@ -7,10 +7,10 @@ use itertools::Itertools;
 #[cfg(feature = "keyvalue")]
 use pliantdb_core::kv::{KeyOperation, Kv, Output};
 use pliantdb_core::{
-    connection::{AccessPolicy, Connection, QueryKey},
+    connection::{AccessPolicy, Connection, QueryKey, ServerConnection},
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    networking::{self, ServerConnection},
+    networking::{self},
     schema::{
         self,
         view::{self, map},
@@ -26,11 +26,12 @@ use sled::{
 };
 
 use crate::{
+    config::Configuration,
     error::{Error, ResultExt as _},
     open_trees::OpenTrees,
     storage::OpenDatabase,
     views::{view_entries_tree_name, view_invalidated_docs_tree_name, ViewEntry},
-    Configuration, Storage,
+    Storage,
 };
 #[cfg(feature = "keyvalue")]
 pub mod kv;

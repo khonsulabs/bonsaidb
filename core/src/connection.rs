@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     document::{Document, Header},
-    schema::{self, view, Key, Map, MappedDocument, MappedValue},
+    schema::{self, view, Key, Map, MappedDocument, MappedValue, SchemaName},
     transaction::{self, Command, Operation, OperationResult, Transaction},
     Error,
 };
@@ -382,4 +382,43 @@ pub enum AccessPolicy {
     /// shouldn't have much overhead, this option removes all overhead related
     /// to view updating from the query.
     NoUpdate,
+}
+
+/// Functions for interacting with a multi-database `PliantDB` instance.
+#[allow(clippy::module_name_repetitions)]
+#[async_trait]
+pub trait ServerConnection: Send + Sync {
+    /// Creates a database named `name` using the [`SchemaName`] `schema`.
+    ///
+    /// ## Errors
+    ///
+    /// * [`Error::InvalidDatabaseName`]: `name` must begin with an alphanumeric
+    ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
+    ///   alphanumeric, a period (`.`), or a hyphen (`-`).
+    /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
+    ///   previous database name. Database names are case insensitive.
+    async fn create_database(&self, name: &str, schema: SchemaName) -> Result<(), crate::Error>;
+
+    /// Deletes a database named `name`.
+    ///
+    /// ## Errors
+    ///
+    /// * [`Error::DatabaseNotFound`]: database `name` does not exist.
+    /// * [`Error::Io)`]: an error occurred while deleting files.
+    async fn delete_database(&self, name: &str) -> Result<(), crate::Error>;
+
+    /// Lists the databases on this server.
+    async fn list_databases(&self) -> Result<Vec<Database>, crate::Error>;
+
+    /// Lists the [`SchemaName`]s on this server.
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, crate::Error>;
+}
+
+/// A database on a server.
+#[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
+pub struct Database {
+    /// The name of the database.
+    pub name: String,
+    /// The schema defining the database.
+    pub schema: SchemaName,
 }

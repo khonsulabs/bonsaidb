@@ -11,10 +11,9 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    connection::{AccessPolicy, Connection},
+    connection::{AccessPolicy, Connection, ServerConnection},
     document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    networking::ServerConnection,
     schema::{
         view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name, Schema,
         SchemaName, Schematic, View,
@@ -1078,7 +1077,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
     assert_eq!(schemas, vec![Basic::schema_name()?]);
 
     let databases = server.list_databases().await?;
-    assert!(databases.contains(&crate::networking::Database {
+    assert!(databases.contains(&crate::connection::Database {
         name: String::from("tests"),
         schema: Basic::schema_name()?
     }));

@@ -4,8 +4,8 @@ use once_cell::sync::Lazy;
 use pliantdb::{
     client::{Client, RemoteDatabase},
     core::{
+        connection::ServerConnection,
         fabruic::Certificate,
-        networking::ServerConnection,
         schema::Schema,
         test_util::{Basic, HarnessTest, TestDirectory},
     },

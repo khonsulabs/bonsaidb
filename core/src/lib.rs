@@ -17,7 +17,7 @@
 )]
 pub use num_traits;
 
-/// Types for interacting with a database.
+/// Types for interacting with `PliantDB`.
 pub mod connection;
 /// Types for interacting with `Document`s.
 pub mod document;
@@ -34,7 +34,7 @@ pub mod kv;
 #[cfg(feature = "networking")]
 pub use fabruic;
 #[cfg(feature = "networking")]
-/// Types for networked communications.
+/// Types for implementing the `PliantDB` network protocol.
 pub mod networking;
 
 #[cfg(feature = "pubsub")]
@@ -73,7 +73,7 @@ pub enum Error {
     SchemaNotRegistered(SchemaName),
 
     /// An invalid database name was specified. See
-    /// [`ServerConnection::create_database()`](pliantdb_core::networking::ServerConnection::create_database)
+    /// [`ServerConnection::create_database()`](connection::ServerConnection::create_database)
     /// for database name requirements.
     #[error("invalid database name: {0}")]
     InvalidDatabaseName(String),

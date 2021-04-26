@@ -6,7 +6,7 @@ use pliantdb::{
         schema::{Collection, CollectionName, InvalidNameError, Schematic},
         Error,
     },
-    local::{Configuration, Database},
+    local::{config::Configuration, Database},
 };
 use serde::{Deserialize, Serialize};
 

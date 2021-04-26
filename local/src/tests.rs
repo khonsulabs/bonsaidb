@@ -1,8 +1,8 @@
 use std::time::Duration;
 
+use config::Configuration;
 use pliantdb_core::{
-    connection::{AccessPolicy, Connection},
-    networking::ServerConnection,
+    connection::{AccessPolicy, Connection, ServerConnection},
     schema::Schema,
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,

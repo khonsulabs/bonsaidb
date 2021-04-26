@@ -33,7 +33,7 @@ pub use pliantdb_core as core;
 pub use self::database::pubsub::Subscriber;
 #[cfg(feature = "internal-apis")]
 pub use self::storage::OpenDatabase;
-pub use self::{config::Configuration, database::Database, error::Error, storage::Storage};
+pub use self::{database::Database, error::Error, storage::Storage};
 
 #[cfg(feature = "cli")]
 pub mod backup;

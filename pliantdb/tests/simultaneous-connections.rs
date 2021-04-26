@@ -3,7 +3,7 @@
 use pliantdb::{
     client::{url::Url, Client},
     core::{
-        networking::ServerConnection,
+        connection::ServerConnection,
         schema::Schema,
         test_util::{self, Basic, TestDirectory},
     },
