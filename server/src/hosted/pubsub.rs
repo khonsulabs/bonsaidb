@@ -53,28 +53,3 @@ where
         Ok(())
     }
 }
-
-pub struct Subscriber {
-    database_name: String,
-    subscriber: circulate::Subscriber,
-}
-
-#[async_trait]
-impl pubsub::Subscriber for Subscriber {
-    async fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), core::Error> {
-        self.subscriber
-            .subscribe_to(database_topic(&self.database_name, &topic.into()))
-            .await;
-        Ok(())
-    }
-
-    async fn unsubscribe_from(&self, topic: &str) -> Result<(), core::Error> {
-        let topic = format!("{}\u{0}{}", self.database_name, topic);
-        self.subscriber.unsubscribe_from(&topic).await;
-        Ok(())
-    }
-
-    fn receiver(&self) -> &'_ flume::Receiver<std::sync::Arc<circulate::Message>> {
-        self.subscriber.receiver()
-    }
-}

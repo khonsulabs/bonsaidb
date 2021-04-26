@@ -33,7 +33,7 @@ use pliantdb_core::{
     test_util::TestDirectory,
     Error,
 };
-use pliantdb_local::{Configuration, Storage};
+use pliantdb_local::{Configuration, Database};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -52,7 +52,7 @@ impl<'a> Collection for ResizableDocument<'a> {
     }
 }
 
-async fn save_document(doc: &ResizableDocument<'_>, db: &Storage<ResizableDocument<'static>>) {
+async fn save_document(doc: &ResizableDocument<'_>, db: &Database<ResizableDocument<'static>>) {
     db.collection::<ResizableDocument<'static>>()
         .push(doc)
         .await
@@ -68,7 +68,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     for size in [KB, 2 * KB, 8 * KB, 32 * KB, KB * KB].iter() {
         let path = TestDirectory::new(format!("benches-basics-{}.pliantdb", size));
         let db = runtime
-            .block_on(Storage::open_local(&path, &Configuration::default()))
+            .block_on(Database::open_local(&path, &Configuration::default()))
             .unwrap();
         let mut data = Vec::with_capacity(*size);
         data.resize_with(*size, || 7u8);

@@ -950,10 +950,11 @@ macro_rules! define_kv_test_suite {
                 assert_eq!(r2?, KeyStatus::Updated, "b wasn't an update");
 
                 let a = kv.get_key::<u32, _>("a").await?;
+                assert_eq!(a, Some(1));
 
                 // Before checking the value, make sure we haven't elapsed too
                 // much time. If so, just restart the test.
-                if !timing.wait_until(Duration::from_secs_f32(2.5)).await {
+                if !timing.wait_until(Duration::from_secs_f32(3.)).await {
                     println!(
                         "Restarting test {}. Took too long {:?}",
                         line!(),
@@ -962,11 +963,10 @@ macro_rules! define_kv_test_suite {
                     continue;
                 }
 
-                assert_eq!(a, Some(1));
-                assert_eq!(kv.get_key::<u32, _>("b").await?, None);
+                assert_eq!(kv.get_key::<u32, _>("b").await?, None, "b never expired");
 
                 timing.wait_until(Duration::from_secs_f32(5.)).await;
-                assert_eq!(kv.get_key::<u32, _>("a").await?, None);
+                assert_eq!(kv.get_key::<u32, _>("a").await?, None, "a never expired");
                 break;
             }
             harness.shutdown().await?;

@@ -17,7 +17,6 @@
     clippy::option_if_let_else,
 )]
 
-mod admin;
 mod async_io_util;
 /// Command-line interface for the server.
 #[cfg(feature = "cli")]

@@ -297,18 +297,18 @@ impl<K: Key> QueryKey<K> {
         match self {
             Self::Matches(key) => key
                 .as_big_endian_bytes()
-                .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))
+                .map_err(|err| Error::Database(view::Error::KeySerialization(err).to_string()))
                 .map(|v| QueryKey::Matches(v.to_vec())),
             Self::Range(range) => {
                 let start = range
                     .start
                     .as_big_endian_bytes()
-                    .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))?
+                    .map_err(|err| Error::Database(view::Error::KeySerialization(err).to_string()))?
                     .to_vec();
                 let end = range
                     .end
                     .as_big_endian_bytes()
-                    .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))?
+                    .map_err(|err| Error::Database(view::Error::KeySerialization(err).to_string()))?
                     .to_vec();
                 Ok(QueryKey::Range(start..end))
             }
@@ -319,7 +319,7 @@ impl<K: Key> QueryKey<K> {
                         key.as_big_endian_bytes()
                             .map(|key| key.to_vec())
                             .map_err(|err| {
-                                Error::Storage(view::Error::KeySerialization(err).to_string())
+                                Error::Database(view::Error::KeySerialization(err).to_string())
                             })
                     })
                     .collect::<Result<Vec<_>, Error>>()?;
@@ -336,14 +336,14 @@ impl QueryKey<Vec<u8>> {
     pub fn deserialized<K: Key>(&self) -> Result<QueryKey<K>, Error> {
         match self {
             Self::Matches(key) => K::from_big_endian_bytes(key)
-                .map_err(|err| Error::Storage(view::Error::KeySerialization(err).to_string()))
+                .map_err(|err| Error::Database(view::Error::KeySerialization(err).to_string()))
                 .map(QueryKey::Matches),
             Self::Range(range) => {
                 let start = K::from_big_endian_bytes(&range.start).map_err(|err| {
-                    Error::Storage(view::Error::KeySerialization(err).to_string())
+                    Error::Database(view::Error::KeySerialization(err).to_string())
                 })?;
                 let end = K::from_big_endian_bytes(&range.end).map_err(|err| {
-                    Error::Storage(view::Error::KeySerialization(err).to_string())
+                    Error::Database(view::Error::KeySerialization(err).to_string())
                 })?;
                 Ok(QueryKey::Range(start..end))
             }
@@ -352,7 +352,7 @@ impl QueryKey<Vec<u8>> {
                     .iter()
                     .map(|key| {
                         K::from_big_endian_bytes(key).map_err(|err| {
-                            Error::Storage(view::Error::KeySerialization(err).to_string())
+                            Error::Database(view::Error::KeySerialization(err).to_string())
                         })
                     })
                     .collect::<Result<Vec<_>, Error>>()?;

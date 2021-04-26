@@ -132,7 +132,7 @@ impl<DB: Schema> Connection for RemoteDatabase<DB> {
                 .iter()
                 .map(map::Serialized::deserialized::<V::Key, V::Value>)
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|err| pliantdb_core::Error::Storage(err.to_string()))?),
+                .map_err(|err| pliantdb_core::Error::Database(err.to_string()))?),
             Response::Error(err) => Err(err),
             other => Err(pliantdb_core::Error::Networking(
                 pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
@@ -169,7 +169,7 @@ impl<DB: Schema> Connection for RemoteDatabase<DB> {
                 .into_iter()
                 .map(networking::MappedDocument::deserialized::<V::Key, V::Value>)
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|err| pliantdb_core::Error::Storage(err.to_string()))?),
+                .map_err(|err| pliantdb_core::Error::Database(err.to_string()))?),
             Response::Error(err) => Err(err),
             other => Err(pliantdb_core::Error::Networking(
                 pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
@@ -243,7 +243,7 @@ impl<DB: Schema> Connection for RemoteDatabase<DB> {
                 .map(|map| {
                     Ok(MappedValue {
                         key: V::Key::from_big_endian_bytes(&map.key).map_err(|err| {
-                            pliantdb_core::Error::Storage(
+                            pliantdb_core::Error::Database(
                                 view::Error::KeySerialization(err).to_string(),
                             )
                         })?,

@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     sync::Arc,
 };
@@ -11,7 +12,7 @@ use pliantdb_jobs::{manager::Manager, task::Handle};
 use tokio::sync::RwLock;
 
 use crate::{
-    storage::Storage,
+    database::Database,
     views::{
         integrity_scanner::{IntegrityScan, IntegrityScanner},
         mapper::{Map, Mapper},
@@ -25,10 +26,12 @@ pub struct TaskManager {
     statuses: Arc<RwLock<Statuses>>,
 }
 
+type ViewKey = (Arc<Cow<'static, str>>, CollectionName, ViewName);
+
 #[derive(Default, Debug)]
 pub struct Statuses {
-    completed_integrity_checks: HashSet<(CollectionName, ViewName)>,
-    view_update_last_status: HashMap<(CollectionName, ViewName), u64>,
+    completed_integrity_checks: HashSet<ViewKey>,
+    view_update_last_status: HashMap<ViewKey, u64>,
 }
 
 impl TaskManager {
@@ -42,7 +45,7 @@ impl TaskManager {
     pub async fn update_view_if_needed<DB: Schema>(
         &self,
         view: &dyn view::Serialized,
-        storage: &Storage<DB>,
+        storage: &Database<DB>,
     ) -> Result<(), crate::Error> {
         let view_name = view.view_name();
         if let Some(job) = self.spawn_integrity_check(view, storage).await? {
@@ -56,10 +59,11 @@ impl TaskManager {
                 // they mapped. If that value is current, we don't need to go
                 // through the jobs system at all.
                 let statuses = self.statuses.read().await;
-                if let Some(last_transaction_indexed) = statuses
-                    .view_update_last_status
-                    .get(&(view.collection()?, view.view_name()?))
-                {
+                if let Some(last_transaction_indexed) = statuses.view_update_last_status.get(&(
+                    storage.data.name.clone(),
+                    view.collection()?,
+                    view.view_name()?,
+                )) {
                     last_transaction_indexed < &current_transaction_id
                 } else {
                     true
@@ -74,6 +78,7 @@ impl TaskManager {
                         .lookup_or_enqueue(Mapper {
                             storage: storage.clone(),
                             map: Map {
+                                database: storage.data.name.clone(),
                                 collection: view.collection()?,
                                 view_name: view_name.clone()?,
                             },
@@ -100,30 +105,36 @@ impl TaskManager {
 
     pub async fn view_integrity_checked(
         &self,
+        database: Arc<Cow<'static, str>>,
         collection: CollectionName,
         view_name: ViewName,
     ) -> bool {
         let statuses = self.statuses.read().await;
         statuses
             .completed_integrity_checks
-            .contains(&(collection.clone(), view_name))
+            .contains(&(database, collection.clone(), view_name))
     }
 
     pub async fn spawn_integrity_check<DB: Schema>(
         &self,
         view: &dyn view::Serialized,
-        storage: &Storage<DB>,
+        database: &Database<DB>,
     ) -> Result<Option<Handle<(), Task>>, crate::Error> {
         let view_name = view.view_name()?;
         if !self
-            .view_integrity_checked(view.collection()?, view_name.clone())
+            .view_integrity_checked(
+                database.data.name.clone(),
+                view.collection()?,
+                view_name.clone(),
+            )
             .await
         {
             let job = self
                 .jobs
                 .lookup_or_enqueue(IntegrityScanner {
-                    storage: storage.clone(),
+                    database: database.clone(),
                     scan: IntegrityScan {
+                        database: database.data.name.clone(),
                         view_version: view.version(),
                         collection: view.collection()?,
                         view_name,
@@ -138,17 +149,19 @@ impl TaskManager {
 
     pub async fn mark_integrity_check_complete(
         &self,
+        database: Arc<Cow<'static, str>>,
         collection: CollectionName,
         view_name: ViewName,
     ) {
         let mut statuses = self.statuses.write().await;
         statuses
             .completed_integrity_checks
-            .insert((collection, view_name));
+            .insert((database, collection, view_name));
     }
 
     pub async fn mark_view_updated(
         &self,
+        database: Arc<Cow<'static, str>>,
         collection: CollectionName,
         view_name: ViewName,
         transaction_id: u64,
@@ -156,13 +169,13 @@ impl TaskManager {
         let mut statuses = self.statuses.write().await;
         statuses
             .view_update_last_status
-            .insert((collection, view_name), transaction_id);
+            .insert((database, collection, view_name), transaction_id);
     }
 
     #[cfg(feature = "keyvalue")]
-    pub async fn spawn_key_value_expiration_loader<DB: Schema>(
+    pub async fn spawn_key_value_expiration_loader(
         &self,
-        storage: &Storage<DB>,
+        storage: &crate::Storage,
     ) -> Handle<(), Task> {
         self.jobs
             .enqueue(crate::storage::kv::ExpirationLoader {

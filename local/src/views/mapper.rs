@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 
 use async_trait::async_trait;
 use pliantdb_core::{
@@ -13,7 +13,7 @@ use sled::{
 };
 
 use crate::{
-    storage::{document_tree_name, Storage},
+    database::{document_tree_name, Database},
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
         view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
@@ -22,12 +22,13 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Mapper<DB> {
-    pub storage: Storage<DB>,
+    pub storage: Database<DB>,
     pub map: Map,
 }
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Map {
+    pub database: Arc<Cow<'static, str>>,
     pub collection: CollectionName,
     pub view_name: ViewName,
 }
@@ -44,40 +45,56 @@ where
         let documents = self
             .storage
             .data
-            .sled
-            .open_tree(document_tree_name(&self.map.collection))?;
+            .storage
+            .sled()
+            .open_tree(document_tree_name(
+                &self.storage.data.name,
+                &self.map.collection,
+            ))?;
 
-        let view_entries = self.storage.data.sled.open_tree(view_entries_tree_name(
-            &self.map.collection,
-            &self.map.view_name,
-        ))?;
-
-        let document_map = self
+        let view_entries = self
             .storage
             .data
-            .sled
-            .open_tree(view_document_map_tree_name(
+            .storage
+            .sled()
+            .open_tree(view_entries_tree_name(
+                &self.storage.data.name,
                 &self.map.collection,
                 &self.map.view_name,
             ))?;
 
-        let invalidated_entries =
+        let document_map =
             self.storage
                 .data
-                .sled
-                .open_tree(view_invalidated_docs_tree_name(
+                .storage
+                .sled()
+                .open_tree(view_document_map_tree_name(
+                    &self.storage.data.name,
                     &self.map.collection,
                     &self.map.view_name,
                 ))?;
 
-        let omitted_entries = self
-            .storage
-            .data
-            .sled
-            .open_tree(view_omitted_docs_tree_name(
-                &self.map.collection,
-                &self.map.view_name,
-            ))?;
+        let invalidated_entries =
+            self.storage
+                .data
+                .storage
+                .sled()
+                .open_tree(view_invalidated_docs_tree_name(
+                    &self.storage.data.name,
+                    &self.map.collection,
+                    &self.map.view_name,
+                ))?;
+
+        let omitted_entries =
+            self.storage
+                .data
+                .storage
+                .sled()
+                .open_tree(view_omitted_docs_tree_name(
+                    &self.storage.data.name,
+                    &self.map.collection,
+                    &self.map.view_name,
+                ))?;
         let transaction_id = self
             .storage
             .last_transaction_id()
@@ -102,8 +119,10 @@ where
 
         self.storage
             .data
-            .tasks
+            .storage
+            .tasks()
             .mark_view_updated(
+                self.map.database.clone(),
                 self.map.collection.clone(),
                 self.map.view_name.clone(),
                 transaction_id,
@@ -120,7 +139,7 @@ fn map_view<DB: Schema>(
     documents: &Tree,
     omitted_entries: &Tree,
     view_entries: &Tree,
-    storage: &Storage<DB>,
+    storage: &Database<DB>,
     map_request: &Map,
 ) -> anyhow::Result<()> {
     // Only do any work if there are invalidated documents to process
@@ -174,7 +193,7 @@ struct DocumentRequest<'a, DB> {
     documents: &'a TransactionalTree,
     omitted_entries: &'a TransactionalTree,
     view_entries: &'a TransactionalTree,
-    storage: &'a Storage<DB>,
+    storage: &'a Database<DB>,
 }
 
 impl<'a, DB: Schema> DocumentRequest<'a, DB> {

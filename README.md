@@ -84,7 +84,7 @@ After you have your collection(s) defined, you can open up a database and insert
 
 ```rust
     let db =
-        Storage::<Shape>::open_local("view-examples.pliantdb", &Configuration::default()).await?;
+        Database::<Shape>::open_local("view-examples.pliantdb", &Configuration::default()).await?;
 
     // Insert a new document into the Shape collection.
     db.collection::<Shape>().push(&Shape::new(3)).await?;

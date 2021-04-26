@@ -9,24 +9,24 @@ use pliantdb_core::{
 };
 
 use super::*;
-use crate::Storage;
+use crate::Database;
 
 struct TestHarness {
     _directory: TestDirectory,
-    db: Storage<Basic>,
+    db: Database<Basic>,
 }
 
 impl TestHarness {
     async fn new(test: HarnessTest) -> anyhow::Result<Self> {
         let directory = TestDirectory::new(format!("local-{}", test));
-        let db = Storage::<Basic>::open_local(&directory, &Configuration::default()).await?;
+        let db = Database::<Basic>::open_local(&directory, &Configuration::default()).await?;
         Ok(Self {
             _directory: directory,
             db,
         })
     }
 
-    async fn connect(&self) -> anyhow::Result<Storage<Basic>> {
+    async fn connect(&self) -> anyhow::Result<Database<Basic>> {
         Ok(self.db.clone())
     }
 
@@ -50,21 +50,31 @@ fn integrity_checks() -> anyhow::Result<()> {
 
     // Add a doc with no views installed
     {
-        let rt = tokio::runtime::Runtime::new()?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
         rt.block_on(async {
-            let db =
-                Storage::<BasicCollectionWithNoViews>::open_local(&path, &Configuration::default())
-                    .await?;
-            let collection = db.collection::<BasicCollectionWithNoViews>();
-            collection.push(&Basic::default().with_parent_id(1)).await?;
+            {
+                let db = Database::<BasicCollectionWithNoViews>::open_local(
+                    &path,
+                    &Configuration::default(),
+                )
+                .await?;
+                let collection = db.collection::<BasicCollectionWithNoViews>();
+                collection.push(&Basic::default().with_parent_id(1)).await?;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await; // TODO need to be able to shut down a local database, including background jobs.
             Result::<(), anyhow::Error>::Ok(())
-        })?;
+        })
+        .unwrap();
     }
-    // Connect with a new view
+    // Connect with a new view and see the automatic update with a query
     {
-        let rt = tokio::runtime::Runtime::new()?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
         rt.block_on(async {
-            let db = Storage::<BasicCollectionWithOnlyBrokenParentId>::open_local(
+            let db = Database::<BasicCollectionWithOnlyBrokenParentId>::open_local(
                 &path,
                 &Configuration::default(),
             )
@@ -84,14 +94,18 @@ fn integrity_checks() -> anyhow::Result<()> {
 
             // Regular query should show the correct data
             assert_eq!(db.view::<BasicByBrokenParentId>().query().await?.len(), 1);
+            tokio::time::sleep(Duration::from_millis(100)).await; // TODO need to be able to shut down a local database, including background jobs.
             Result::<(), anyhow::Error>::Ok(())
-        })?;
+        })
+        .unwrap();
     }
     // Connect with a fixed view, and wait for the integrity scanner to work
     {
-        let rt = tokio::runtime::Runtime::new()?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
         rt.block_on(async {
-            let db = Storage::<Basic>::open_local(
+            let db = Database::<Basic>::open_local(
                 &path,
                 &Configuration {
                     views: config::Views {
@@ -118,7 +132,10 @@ fn integrity_checks() -> anyhow::Result<()> {
 
             panic!("Integrity checker didn't run in the allocated time")
         })
+        .unwrap()
     }
+
+    Ok(())
 }
 
 #[test]
@@ -134,7 +151,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
-                let db = Storage::<()>::open_local(&path, &Configuration::default()).await?;
+                let db = Database::<()>::open_local(&path, &Configuration::default()).await?;
 
                 db.set_key("a", &0_u32)
                     .expire_in(Duration::from_secs(3))
@@ -147,7 +164,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             let retry = rt.block_on(async {
-                let db = Storage::<()>::open_local(&path, &Configuration::default()).await?;
+                let db = Database::<()>::open_local(&path, &Configuration::default()).await?;
 
                 if timing.elapsed() > Duration::from_secs(1) {
                     return Ok(true);

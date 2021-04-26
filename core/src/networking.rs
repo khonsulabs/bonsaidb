@@ -235,10 +235,11 @@ impl MappedDocument {
     pub fn deserialized<K: Key, V: Serialize + DeserializeOwned>(
         self,
     ) -> Result<map::MappedDocument<K, V>, crate::Error> {
-        let key = Key::from_big_endian_bytes(&self.key)
-            .map_err(|err| crate::Error::Storage(view::Error::KeySerialization(err).to_string()))?;
+        let key = Key::from_big_endian_bytes(&self.key).map_err(|err| {
+            crate::Error::Database(view::Error::KeySerialization(err).to_string())
+        })?;
         let value = serde_cbor::from_slice(&self.value)
-            .map_err(|err| crate::Error::Storage(view::Error::from(err).to_string()))?;
+            .map_err(|err| crate::Error::Database(view::Error::from(err).to_string()))?;
 
         Ok(map::MappedDocument {
             document: self.source,
@@ -289,19 +290,6 @@ pub trait ServerConnection: Send + Sync {
 /// A networking error.
 #[derive(Clone, thiserror::Error, Debug, Serialize, Deserialize)]
 pub enum Error {
-    /// An invalid database name was specified. See
-    /// [`ServerConnection::create_database()`] for database name requirements.
-    #[error("invalid database name: {0}")]
-    InvalidDatabaseName(String),
-
-    /// The database name given was not found.
-    #[error("database '{0}' was not found")]
-    DatabaseNotFound(String),
-
-    /// The database name already exists.
-    #[error("a database with name '{0}' already exists")]
-    DatabaseNameAlreadyTaken(String),
-
     /// The server responded with a message that wasn't expected for the request
     /// sent.
     #[error("unexpected response: {0}")]
@@ -310,28 +298,4 @@ pub enum Error {
     /// The connection was interrupted.
     #[error("unexpected disconnection")]
     Disconnected,
-
-    /// The database named `database_name` was created with a different schema
-    /// (`stored_schema`) than provided (`schema`).
-    #[error(
-        "database '{database_name}' was created with schema '{stored_schema}', not '{schema}'"
-    )]
-    SchemaMismatch {
-        /// The name of the database being accessed.
-        database_name: String,
-
-        /// The schema provided for the database.
-        schema: SchemaName,
-
-        /// The schema stored for the database.
-        stored_schema: SchemaName,
-    },
-
-    /// The [`SchemaName`] returned has already been registered with this server.
-    #[error("schema '{0}' was already registered")]
-    SchemaAlreadyRegistered(SchemaName),
-
-    /// The [`SchemaName`] requested was not registered with this server.
-    #[error("schema '{0}' is not registered with this server")]
-    SchemaNotRegistered(SchemaName),
 }

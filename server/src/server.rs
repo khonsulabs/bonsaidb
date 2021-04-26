@@ -41,7 +41,7 @@ use pliantdb_core::{
     transaction::{Executed, OperationResult, Transaction},
 };
 use pliantdb_jobs::{manager::Manager, Job};
-use pliantdb_local::{Internal, Storage};
+use pliantdb_local::{Database, Internal, Storage};
 use schema::SchemaName;
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;
@@ -66,68 +66,33 @@ struct Data {
     #[cfg(feature = "websockets")]
     websocket_shutdown: RwLock<Option<Sender<()>>>,
     directory: PathBuf,
-    admin: Storage<Admin>,
-    schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
-    open_databases: RwLock<HashMap<String, Arc<Box<dyn OpenDatabase>>>>,
-    available_databases: RwLock<HashMap<String, SchemaName>>,
+    storage: Storage,
     request_processor: Manager,
-    storage_configuration: pliantdb_local::Configuration,
     #[cfg(feature = "pubsub")]
     relay: Relay,
 }
 
 impl Server {
-    /// Creates or opens a [`Server`] with its data stored in `directory`.
-    /// `schemas` is a collection of [`SchemaName`] to [`Schematic`] pairs. [`SchemaName`]s are used as an identifier of a specific `Schema`, which the Server uses to
     pub async fn open(directory: &Path, configuration: Configuration) -> Result<Self, Error> {
-        let admin =
-            Storage::open_local(directory.join("admin.pliantdb"), &configuration.storage).await?;
-
-        let available_databases = admin
-            .view::<ByName>()
-            .query()
-            .await?
-            .into_iter()
-            .map(|map| (map.key, map.value))
-            .collect();
-
         let request_processor = Manager::default();
         for _ in 0..configuration.request_workers {
             request_processor.spawn_worker();
         }
 
+        let storage = Storage::open_local(directory, configuration.storage).await?;
+
         Ok(Self {
             data: Arc::new(Data {
-                admin,
+                storage,
                 directory: directory.to_owned(),
-                available_databases: RwLock::new(available_databases),
-                schemas: RwLock::default(),
                 endpoint: RwLock::default(),
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
-                open_databases: RwLock::default(),
                 request_processor,
-                storage_configuration: configuration.storage,
                 #[cfg(feature = "pubsub")]
                 relay: Relay::default(),
             }),
         })
-    }
-
-    /// Registers a schema for use within the server.
-    pub async fn register_schema<DB: Schema>(&self) -> Result<(), Error> {
-        let mut schemas = self.data.schemas.write().await;
-        if schemas
-            .insert(
-                DB::schema_name()?,
-                Box::new(ServerSchemaOpener::<DB>::new(self.clone())?),
-            )
-            .is_none()
-        {
-            Ok(())
-        } else {
-            Err(Error::SchemaAlreadyRegistered(DB::schema_name()?))
-        }
     }
 
     /// Retrieves a database. This function only verifies that the database exists
@@ -196,11 +161,14 @@ impl Server {
         }
     }
 
-    pub(crate) async fn open_database<DB: Schema>(&self, name: &str) -> Result<Storage<DB>, Error> {
+    pub(crate) async fn open_database<DB: Schema>(
+        &self,
+        name: &str,
+    ) -> Result<Database<DB>, Error> {
         let db = self.open_database_without_schema(name).await?;
         let storage = db
             .as_any()
-            .downcast_ref::<Storage<DB>>()
+            .downcast_ref::<Database<DB>>()
             .expect("schema did not match");
         Ok(storage.clone())
     }
@@ -208,18 +176,6 @@ impl Server {
     #[cfg(feature = "pubsub")]
     pub(crate) fn relay(&self) -> &'_ Relay {
         &self.data.relay
-    }
-
-    fn validate_name(name: &str) -> Result<(), Error> {
-        if name
-            .chars()
-            .enumerate()
-            .all(|(index, c)| c.is_ascii_alphanumeric() || (index > 0 && (c == '.' || c == '-')))
-        {
-            Ok(())
-        } else {
-            Err(Error::InvalidDatabaseName(name.to_owned()))
-        }
     }
 
     fn database_path(&self, name: &str) -> PathBuf {
@@ -1014,373 +970,6 @@ impl Server {
         open_databases.clear();
 
         Ok(())
-    }
-}
-
-#[async_trait]
-impl networking::ServerConnection for Server {
-    async fn create_database(
-        &self,
-        name: &str,
-        schema: SchemaName,
-    ) -> Result<(), pliantdb_core::Error> {
-        Self::validate_name(name)?;
-
-        {
-            let schemas = self.data.schemas.read().await;
-            if !schemas.contains_key(&schema) {
-                return Err(pliantdb_core::Error::Networking(
-                    networking::Error::SchemaNotRegistered(schema),
-                ));
-            }
-        }
-
-        let mut available_databases = self.data.available_databases.write().await;
-        if !self
-            .data
-            .admin
-            .view::<database::ByName>()
-            .with_key(name.to_ascii_lowercase())
-            .query()
-            .await?
-            .is_empty()
-        {
-            return Err(pliantdb_core::Error::Networking(
-                networking::Error::DatabaseNameAlreadyTaken(name.to_string()),
-            ));
-        }
-
-        self.data
-            .admin
-            .collection::<Database>()
-            .push(&networking::Database {
-                name: name.to_string(),
-                schema: schema.clone(),
-            })
-            .await?;
-        available_databases.insert(name.to_string(), schema);
-
-        Ok(())
-    }
-
-    async fn delete_database(&self, name: &str) -> Result<(), pliantdb_core::Error> {
-        let mut open_databases = self.data.open_databases.write().await;
-        open_databases.remove(name);
-
-        let mut available_databases = self.data.available_databases.write().await;
-
-        let file_path = self.database_path(name);
-        let files_existed = file_path.exists();
-        if file_path.exists() {
-            tokio::fs::remove_dir_all(file_path)
-                .await
-                .map_err(|err| pliantdb_core::Error::Io(err.to_string()))?;
-        }
-
-        if let Some(entry) = self
-            .data
-            .admin
-            .view::<database::ByName>()
-            .with_key(name.to_ascii_lowercase())
-            .query_with_docs()
-            .await?
-            .first()
-        {
-            self.data.admin.delete(&entry.document).await?;
-            available_databases.remove(name);
-
-            Ok(())
-        } else if files_existed {
-            // There's no way to atomically remove files AND ensure the admin
-            // database is updated. Instead, if this method is called again and
-            // the folder is still found, we will try to delete it again without
-            // returning an error. Thus, if you get an error from
-            // delete_database, you can try again until you get a success
-            // returned.
-            Ok(())
-        } else {
-            return Err(pliantdb_core::Error::Networking(
-                networking::Error::DatabaseNotFound(name.to_string()),
-            ));
-        }
-    }
-
-    async fn list_databases(&self) -> Result<Vec<networking::Database>, pliantdb_core::Error> {
-        let available_databases = self.data.available_databases.read().await;
-        Ok(available_databases
-            .iter()
-            .map(|(name, schema)| networking::Database {
-                name: name.to_string(),
-                schema: schema.clone(),
-            })
-            .collect())
-    }
-
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, pliantdb_core::Error> {
-        let available_databases = self.data.available_databases.read().await;
-        Ok(available_databases.values().unique().cloned().collect())
-    }
-}
-
-#[async_trait]
-pub trait OpenDatabase: Send + Sync + Debug + 'static {
-    fn as_any(&self) -> &'_ dyn Any;
-
-    async fn get_from_collection_id(
-        &self,
-        id: u64,
-        collection: &CollectionName,
-    ) -> Result<Option<Document<'static>>, pliantdb_core::Error>;
-
-    async fn get_multiple_from_collection_id(
-        &self,
-        ids: &[u64],
-        collection: &CollectionName,
-    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error>;
-
-    async fn apply_transaction(
-        &self,
-        transaction: Transaction<'static>,
-    ) -> Result<Vec<OperationResult>, pliantdb_core::Error>;
-
-    async fn query(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<map::Serialized>, pliantdb_core::Error>;
-
-    async fn query_with_docs(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error>;
-
-    async fn reduce(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<u8>, pliantdb_core::Error>;
-
-    async fn reduce_grouped(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error>;
-
-    async fn list_executed_transactions(
-        &self,
-        starting_id: Option<u64>,
-        result_limit: Option<usize>,
-    ) -> Result<Vec<Executed<'static>>, pliantdb_core::Error>;
-
-    async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error>;
-
-    #[cfg(feature = "keyvalue")]
-    async fn execute_key_operation(&self, op: KeyOperation)
-        -> Result<Output, pliantdb_core::Error>;
-}
-
-#[async_trait]
-impl<DB> OpenDatabase for Storage<DB>
-where
-    DB: Schema,
-{
-    fn as_any(&self) -> &'_ dyn Any {
-        self
-    }
-
-    async fn get_from_collection_id(
-        &self,
-        id: u64,
-        collection: &CollectionName,
-    ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
-        Internal::get_from_collection_id(self, id, collection).await
-    }
-
-    async fn get_multiple_from_collection_id(
-        &self,
-        ids: &[u64],
-        collection: &CollectionName,
-    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
-        Internal::get_multiple_from_collection_id(self, ids, collection).await
-    }
-
-    async fn apply_transaction(
-        &self,
-        transaction: Transaction<'static>,
-    ) -> Result<Vec<OperationResult>, pliantdb_core::Error> {
-        <Self as Connection>::apply_transaction(self, transaction).await
-    }
-
-    async fn query(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<map::Serialized>, pliantdb_core::Error> {
-        if let Some(view) = self.schematic().view_by_name(view) {
-            let mut results = Vec::new();
-            self.for_each_in_view(view, key, access_policy, |key, entry| {
-                for mapping in entry.mappings {
-                    results.push(map::Serialized {
-                        source: mapping.source,
-                        key: key.to_vec(),
-                        value: mapping.value,
-                    });
-                }
-                Ok(())
-            })
-            .await?;
-
-            Ok(results)
-        } else {
-            Err(pliantdb_core::Error::CollectionNotFound)
-        }
-    }
-
-    async fn query_with_docs(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error> {
-        let results = OpenDatabase::query(self, view, key, access_policy).await?;
-        let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
-
-        let mut documents = Internal::get_multiple_from_collection_id(
-            self,
-            &results.iter().map(|m| m.source).collect::<Vec<_>>(),
-            &view.collection()?,
-        )
-        .await?
-        .into_iter()
-        .map(|doc| (doc.header.id, doc))
-        .collect::<HashMap<_, _>>();
-
-        Ok(results
-            .into_iter()
-            .filter_map(|map| {
-                if let Some(source) = documents.remove(&map.source) {
-                    Some(networking::MappedDocument {
-                        key: map.key,
-                        value: map.value,
-                        source,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect())
-    }
-
-    async fn reduce(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<u8>, pliantdb_core::Error> {
-        self.reduce_in_view(view, key, access_policy).await
-    }
-
-    async fn reduce_grouped(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error> {
-        self.grouped_reduce_in_view(view, key, access_policy).await
-    }
-
-    async fn list_executed_transactions(
-        &self,
-        starting_id: Option<u64>,
-        result_limit: Option<usize>,
-    ) -> Result<Vec<Executed<'static>>, pliantdb_core::Error> {
-        Connection::list_executed_transactions(self, starting_id, result_limit).await
-    }
-
-    async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
-        Connection::last_transaction_id(self).await
-    }
-
-    #[cfg(feature = "keyvalue")]
-    async fn execute_key_operation(
-        &self,
-        op: KeyOperation,
-    ) -> Result<Output, pliantdb_core::Error> {
-        Kv::execute_key_operation(self, op).await
-    }
-}
-
-#[test]
-fn name_validation_tests() {
-    assert!(matches!(Server::validate_name("azAZ09.-"), Ok(())));
-    assert!(matches!(
-        Server::validate_name(".alphaunmericfirstrequired"),
-        Err(Error::InvalidDatabaseName(_))
-    ));
-    assert!(matches!(
-        Server::validate_name("-alphaunmericfirstrequired"),
-        Err(Error::InvalidDatabaseName(_))
-    ));
-    assert!(matches!(
-        Server::validate_name("\u{2661}"),
-        Err(Error::InvalidDatabaseName(_))
-    ));
-}
-
-#[tokio::test]
-async fn opening_databases_test() -> Result<(), Error> {
-    Ok(())
-}
-
-#[async_trait]
-trait DatabaseOpener: Send + Sync + Debug {
-    fn schematic(&self) -> &'_ Schematic;
-    async fn open(&self, name: &str) -> Result<Arc<Box<dyn OpenDatabase>>, Error>;
-}
-
-#[derive(Debug)]
-struct ServerSchemaOpener<DB: Schema> {
-    server: Server,
-    schematic: Schematic,
-    _phantom: PhantomData<DB>,
-}
-
-impl<DB> ServerSchemaOpener<DB>
-where
-    DB: Schema,
-{
-    fn new(server: Server) -> Result<Self, Error> {
-        let schematic = DB::schematic()?;
-        Ok(Self {
-            server,
-            schematic,
-            _phantom: PhantomData::default(),
-        })
-    }
-}
-
-#[async_trait]
-impl<DB> DatabaseOpener for ServerSchemaOpener<DB>
-where
-    DB: Schema,
-{
-    fn schematic(&self) -> &'_ Schematic {
-        &self.schematic
-    }
-
-    async fn open(&self, name: &str) -> Result<Arc<Box<dyn OpenDatabase>>, Error> {
-        let db = Storage::<DB>::open_local(
-            self.server.database_path(name),
-            &self.server.data.storage_configuration,
-        )
-        .await?;
-        Ok(Arc::new(Box::new(db)))
     }
 }
 

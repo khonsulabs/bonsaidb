@@ -7,20 +7,6 @@ use schema::{InvalidNameError, SchemaName};
 /// An error occurred while interacting with a [`Server`](crate::Server).
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// An invalid database name was specified. See
-    /// [`ServerConnection::create_database()`](pliantdb_core::networking::ServerConnection::create_database)
-    /// for database name requirements.
-    #[error("invalid database name: {0}")]
-    InvalidDatabaseName(String),
-
-    /// The database name given was not found.
-    #[error("database '{0}' was not found")]
-    DatabaseNotFound(String),
-
-    /// The database name already exists.
-    #[error("a database with name '{0}' already exists")]
-    DatabaseNameAlreadyTaken(String),
-
     /// An error occurred from the QUIC transport layer.
     #[error("a networking error occurred: '{0}'")]
     Transport(String),
@@ -64,7 +50,7 @@ pub enum Error {
 
     /// An error occurred while interacting with a local database.
     #[error("an error occurred interacting with a database: {0}")]
-    Storage(#[from] pliantdb_local::Error),
+    Database(#[from] pliantdb_local::Error),
 }
 
 impl From<Error> for core::Error {
@@ -72,7 +58,7 @@ impl From<Error> for core::Error {
         // without it, there's no way to get this to_string() easily.
         #[allow(clippy::clippy::match_wildcard_for_single_variants)]
         match other {
-            Error::Storage(storage) => Self::Storage(storage.to_string()),
+            Error::Database(storage) => Self::Database(storage.to_string()),
             Error::Core(core) => core,
             Error::Io(io) => Self::Io(io.to_string()),
             Error::Transport(networking) => Self::Transport(networking),

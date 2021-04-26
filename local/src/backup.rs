@@ -39,7 +39,7 @@ use tokio::{
 
 use crate::{
     config::Configuration,
-    storage::{document_tree_name, Storage},
+    database::{document_tree_name, Database},
 };
 
 /// The command line interface for `pliantdb local-backup`.
@@ -114,7 +114,7 @@ impl Command {
             anyhow::bail!("database_path does not exist");
         }
 
-        let db = Storage::<()>::open_local(&database_path, &Configuration::default()).await?;
+        let db = Database::<()>::open_local(&database_path, &Configuration::default()).await?;
 
         let output_directory = if let Some(output_directory) = output_directory {
             output_directory.clone()
@@ -159,7 +159,7 @@ impl Command {
     }
 
     async fn load(&self, database_path: &Path, backup: &Path) -> anyhow::Result<()> {
-        let db = Storage::<()>::open_local(database_path, &Configuration::default()).await?;
+        let db = Database::<()>::open_local(database_path, &Configuration::default()).await?;
         let (sender, receiver) = flume::bounded(100);
 
         let document_restorer = tokio::task::spawn_blocking(|| restore_documents(receiver, db));
@@ -238,7 +238,7 @@ async fn write_documents(
 #[allow(clippy::clippy::needless_pass_by_value)] // it's not needless, it's to avoid a borrow that would need to span a 'static lifetime
 fn restore_documents<DB: Schema>(
     receiver: Receiver<Document<'static>>,
-    db: Storage<DB>,
+    db: Database<DB>,
 ) -> anyhow::Result<()> {
     while let Ok(doc) = receiver.recv() {
         let tree = db
@@ -274,7 +274,7 @@ mod tests {
         // which is why we're creating a nested scope here.
         let test_doc = {
             let database_directory = TestDirectory::new("backup-restore.pliantdb");
-            let db = Storage::<Basic>::open_local(&database_directory, &Configuration::default())
+            let db = Database::<Basic>::open_local(&database_directory, &Configuration::default())
                 .await?;
             let test_doc = db
                 .collection::<Basic>()
@@ -308,7 +308,7 @@ mod tests {
         .await?;
 
         let db =
-            Storage::<Basic>::open_local(&database_directory, &Configuration::default()).await?;
+            Database::<Basic>::open_local(&database_directory, &Configuration::default()).await?;
         let doc = db
             .get::<Basic>(test_doc.id)
             .await?
