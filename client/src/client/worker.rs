@@ -17,11 +17,15 @@ use crate::{
 /// error occurs, any queries that come in while reconnecting will have the
 /// error replayed to them.
 pub async fn reconnecting_client_loop(
-    url: Url,
+    mut url: Url,
     certificate: Certificate,
     request_receiver: Receiver<PendingRequest>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
+    if url.port().is_none() && url.scheme() == "pliantdb" {
+        let _ = url.set_port(Some(5645));
+    }
+
     while let Ok(request) = request_receiver.recv_async().await {
         if let Err((responder, err)) = connect_and_process(
             &url,

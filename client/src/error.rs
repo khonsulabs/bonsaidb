@@ -40,7 +40,10 @@ impl From<flume::RecvError> for Error {
 
 impl From<Error> for core::Error {
     fn from(other: Error) -> Self {
-        Self::Client(other.to_string())
+        match other {
+            Error::Core(err) => err,
+            other => Self::Client(other.to_string()),
+        }
     }
 }
 

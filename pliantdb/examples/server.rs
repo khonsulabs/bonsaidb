@@ -75,13 +75,10 @@ async fn main() -> anyhow::Result<()> {
 
     // To connect over QUIC, use the pliantdb scheme.
     tasks.push(do_some_database_work(
-        Client::new(
-            Url::parse("pliantdb://localhost:5645")?,
-            Some(certificate),
-        )
-        .await?
-        .database::<Shape>("my-database")
-        .await?,
+        Client::new(Url::parse("pliantdb://localhost")?, Some(certificate))
+            .await?
+            .database::<Shape>("my-database")
+            .await?,
         "pliantdb",
     ));
 
