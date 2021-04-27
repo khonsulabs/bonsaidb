@@ -21,5 +21,4 @@ Because of this model, it makes it easy to transition a local database to a netw
 * You need a [highly-available][HA] setup.
 * You need/want to split load between multiple machines.
 
-
 [HA]: https://en.wikipedia.org/wiki/High_availability

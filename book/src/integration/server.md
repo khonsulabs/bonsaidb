@@ -52,7 +52,7 @@ This is using a pinned certificate to connect. Other methods are supported, but 
 
 ## Common Traits
 
-* [`Server`][server] implements [`ServerConnection`](../traits/server_connection.md). 
+* [`Server`][server] implements [`ServerConnection`](../traits/server_connection.md).
 * [`Server::database()`](https://pliantdb.dev/main/pliantdb/server/struct.Server.html#method.database) returns a local [`Database`](https://pliantdb.dev/main/pliantdb/local/struct.Database.html), which implements [`Connection`](../traits/connection.md), [`Kv`](../traits/kv.md), and [`PubSub`](../traits/kv.md). Local access in the server executable doesn't go over the network.
 * [`Client`][client] implements [`ServerConnection`](../traits/server_connection.md).
 * [`Client::database()`](https://pliantdb.dev/main/pliantdb/client/struct.Client.html#method.database) returns a [`RemoteDatabase`](https://pliantdb.dev/main/pliantdb/client/struct.RemoteDatabase.html), which implements [`Connection`](../traits/connection.md), [`Kv`](../traits/kv.md), and [`PubSub`](../traits/kv.md).

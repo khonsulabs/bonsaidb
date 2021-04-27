@@ -1,6 +1,6 @@
 # Integrating PliantDb Locally
 
-`PliantDb` supports multiple [databases](../about/concepts/database.md) and multiple [schemas](../about/concepts/schema.md). However, for many applications, you only need a single database. 
+`PliantDb` supports multiple [databases](../about/concepts/database.md) and multiple [schemas](../about/concepts/schema.md). However, for many applications, you only need a single database.
 
 If you're only wanting a single database, the setup is straightforward: (from [`pliantdb/examples/basic-local.rs`](https://github.com/khonsulabs/pliantdb/blob/main/pliantdb/examples/basic-local.rs))
 
