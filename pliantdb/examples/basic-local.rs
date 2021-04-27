@@ -27,17 +27,21 @@ impl Collection for Message {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
-    let db = Database::<Message>::open_local("basic.pliantdb", &Configuration::default()).await?;
-    let messages = db.collection::<Message>();
+async fn main() -> anyhow::Result<()> {
+    let db = Database::<Message>::open_local(
+        "basic.pliantdb",
+        &Configuration::default(),
+    )
+    .await?;
 
     // Insert a new `Message` into the collection. The `push()` method used
     // below is made available through the `Connection` trait. While this
-    // example is connecting to a locally-stored database, with `PliantDB` all
+    // example is connecting to a locally-stored database, with `PliantDb` all
     // database access is made through this single trait so that your code
     // doesn't need to change if you migrate from a local database to a remote
     // database -- just change how you establish your connection.
-    let new_doc_info = messages
+    let new_doc_info = db
+        .collection::<Message>()
         .push(&Message {
             contents: String::from("Hello, World!"),
             timestamp: SystemTime::now(),
@@ -45,7 +49,8 @@ async fn main() -> Result<(), anyhow::Error> {
         .await?;
 
     // Retrieve the message using the id returned from the previous call
-    let message = messages
+    let message = db
+        .collection::<Message>()
         .get(new_doc_info.id)
         .await?
         .expect("couldn't retrieve stored item")

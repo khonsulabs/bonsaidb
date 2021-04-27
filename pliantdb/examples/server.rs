@@ -6,7 +6,6 @@ use pliantdb::{
     client::{url::Url, Client},
     core::{
         connection::{Connection, ServerConnection},
-        schema::Schema,
         Error,
     },
     server::{Configuration, Server},
@@ -18,7 +17,12 @@ use support::schema::{Shape, ShapesByNumberOfSides};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let server = Server::open(Path::new("server-data.pliantdb"), Configuration::default()).await?;
+    // ANCHOR: setup
+    let server = Server::open(
+        Path::new("server-data.pliantdb"),
+        Configuration::default(),
+    )
+    .await?;
     if server.certificate().await.is_err() {
         server
             .install_self_signed_certificate("example-server", true)
@@ -26,10 +30,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let certificate = server.certificate().await?;
     server.register_schema::<Shape>().await?;
-    match server
-        .create_database("my-database", Shape::schema_name()?)
-        .await
-    {
+    match server.create_database::<Shape>("my-database").await {
         Ok(()) => {}
         Err(Error::DatabaseNameAlreadyTaken(_)) => {}
         Err(err) => panic!(
@@ -37,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
             err
         ),
     }
+    // ANCHOR_END: setup
 
     // If websockets are enabled, we'll also listen for websocket traffic. The
     // QUIC-based connection should be overall better to use than WebSockets,
@@ -44,7 +46,9 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "websockets")]
     {
         let server = server.clone();
-        tokio::spawn(async move { server.listen_for_websockets_on("localhost:8080").await });
+        tokio::spawn(async move {
+            server.listen_for_websockets_on("localhost:8080").await
+        });
     }
 
     // Spawn our QUIC-based protocol listener.
@@ -70,10 +74,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // To connect over QUIC, use the pliantdb scheme.
-    // TODO update example once fabruic doesn't require server
     tasks.push(do_some_database_work(
         Client::new(
-            Url::parse("pliantdb://localhost?server=example-server")?,
+            Url::parse("pliantdb://localhost:5645")?,
             Some(certificate),
         )
         .await?
@@ -86,7 +89,7 @@ async fn main() -> anyhow::Result<()> {
     futures::future::join_all(tasks)
         .await
         .into_iter()
-        .collect::<Result<(), anyhow::Error>>()?;
+        .collect::<anyhow::Result<()>>()?;
 
     // Shut the server down gracefully (or forcefully after 5 seconds).
     server.shutdown(Some(Duration::from_secs(5))).await?;
@@ -107,7 +110,8 @@ async fn do_some_database_work<'a, C: Connection>(
         database
             .collection::<Shape>()
             .push(&Shape::new(sides))
-            .await?;
+            .await
+            .unwrap();
     }
 
     println!("Client {} finished", client_name);

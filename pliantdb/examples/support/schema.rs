@@ -1,8 +1,8 @@
 use pliantdb_core::{
     document::Document,
     schema::{
-        view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
-        Schematic, View,
+        view, Collection, CollectionName, InvalidNameError, MapResult,
+        MappedValue, Name, Schematic, View,
     },
     Error,
 };
@@ -47,7 +47,10 @@ impl View for ShapesByNumberOfSides {
         Name::new("by-number-of-sides")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(
+        &self,
+        document: &Document<'_>,
+    ) -> MapResult<Self::Key, Self::Value> {
         let shape = document.contents::<Shape>()?;
         Ok(Some(document.emit_key_and_value(shape.sides, 1)))
     }

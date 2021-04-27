@@ -4,7 +4,6 @@ use pliantdb::{
     client::{url::Url, Client},
     core::{
         connection::ServerConnection,
-        schema::Schema,
         test_util::{self, Basic, TestDirectory},
     },
     server::{Configuration, Server},
@@ -42,7 +41,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
 async fn test_one_client(client: Client, database_name: String) -> anyhow::Result<()> {
     for _ in 0u32..50 {
         client
-            .create_database(&database_name, Basic::schema_name()?)
+            .create_database::<Basic>(&database_name)
             .await
             .unwrap();
         let db = client.database::<Basic>(&database_name).await?;

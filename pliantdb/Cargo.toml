@@ -21,6 +21,10 @@ name = "basic-local"
 required-features = ["local"]
 
 [[example]]
+name = "basic-local-multidb"
+required-features = ["local"]
+
+[[example]]
 name = "view-examples"
 required-features = ["local"]
 

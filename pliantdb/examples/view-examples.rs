@@ -3,8 +3,8 @@ use pliantdb::{
         connection::Connection,
         document::Document,
         schema::{
-            view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
-            Schematic, View,
+            view, Collection, CollectionName, InvalidNameError, MapResult,
+            MappedValue, Name, Schematic, View,
         },
         Error,
     },
@@ -46,7 +46,10 @@ impl View for ShapesByNumberOfSides {
         Name::new("by-number-of-sides")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(
+        &self,
+        document: &Document<'_>,
+    ) -> MapResult<Self::Key, Self::Value> {
         let shape = document.contents::<Shape>()?;
         Ok(Some(document.emit_key_and_value(shape.sides, 1)))
     }
@@ -68,16 +71,19 @@ impl Shape {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), anyhow::Error> {
+async fn main() -> anyhow::Result<()> {
     // [md-bakery: begin @ snippet-b]
-    let db =
-        Database::<Shape>::open_local("view-examples.pliantdb", &Configuration::default()).await?;
+    let db = Database::<Shape>::open_local(
+        "view-examples.pliantdb",
+        &Configuration::default(),
+    )
+    .await?;
 
     // Insert a new document into the Shape collection.
     db.collection::<Shape>().push(&Shape::new(3)).await?;
     // [md-bakery: end]
 
-    // Views in `PliantDB` are written using a Map/Reduce approach. In this
+    // Views in `PliantDb` are written using a Map/Reduce approach. In this
     // example, we take a look at how document mapping can be used to filter and
     // retrieve data
     //

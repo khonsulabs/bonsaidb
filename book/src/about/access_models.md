@@ -1,8 +1,8 @@
-# Use cases of PliantDB
+# Use cases of PliantDb
 
 ## Single database model (No networking)
 
-This use case is most similar to utilizing SQLite for your database. In this mode, PliantDB directly interacts with files on your disk to provide your database. Unlike other file-based databases, however, it's easy to migrate to any of these scenarios from this starting position:
+This use case is most similar to utilizing SQLite for your database. In this mode, PliantDb directly interacts with files on your disk to provide your database. Unlike other file-based databases, however, it's easy to migrate to any of these scenarios from this starting position:
 
 ```mermaid
 graph LR
@@ -44,11 +44,11 @@ graph LR
   server-code <--> server
 ```
 
-A working example of this model can be found at [`pliantdb/examples/server.rs`](https://github.com/khonsulabs/pliantdb/blob/main/pliantdb/examples/server.rs). When writing client/server applications that utilize `PliantDB`, you can have the `PliantDB` server running withing your server application. This means that your server still has the ability not use networking to interact with `PliantDB`. Regardless of if you run any other server code, your `PliantDB` server will be accessible through a `Client` over the network.
+A working example of this model can be found at [`pliantdb/examples/server.rs`](https://github.com/khonsulabs/pliantdb/blob/main/pliantdb/examples/server.rs). When writing client/server applications that utilize `PliantDb`, you can have the `PliantDb` server running withing your server application. This means that your server still has the ability not use networking to interact with `PliantDb`. Regardless of if you run any other server code, your `PliantDb` server will be accessible through a `Client` over the network.
 
 ## Coming Later: API Platform model (QUIC or WebSockets)
 
-If you're finding yourself developing an API for your application, and all of the consumers of this API are already connected to `PliantDB`, you may want to take advantage of the `platform` feature. This is not implemented yet, but the vision is that by implementing a few callbacks to handle and respond to your own serde-compatible request type, you can implement a custom API that can be used directly from clients. And, by taking advantage of the permissions model that will be developed, you can even expose this API over the internet safely.
+If you're finding yourself developing an API for your application, and all of the consumers of this API are already connected to `PliantDb`, you may want to take advantage of the `platform` feature. This is not implemented yet, but the vision is that by implementing a few callbacks to handle and respond to your own serde-compatible request type, you can implement a custom API that can be used directly from clients. And, by taking advantage of the permissions model that will be developed, you can even expose this API over the internet safely.
 
 ```mermaid
 graph LR
@@ -92,4 +92,4 @@ graph LR
 
 In this model, the local storage element is hidden; Each server has its own storage. This model is very similar from the viewpoint of your server and client code -- the primary difference is that the server-side connection is being established using the cluster crate. From the client's perspective, the cluster behaves as a single entity -- sending a request to any server node will result in the same result within the cluster.
 
-All features of PliantDB will be designed to work in cluster mode seamlessly. `PubSub` will ensure that subscribers will receive messages regardless of which server they're connected to.
+All features of PliantDb will be designed to work in cluster mode seamlessly. `PubSub` will ensure that subscribers will receive messages regardless of which server they're connected to.

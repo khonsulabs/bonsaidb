@@ -6,7 +6,7 @@
 
 Circulate is a lightweight async [PubSub](https://en.wikipedia.org/wiki/Publish%E2%80%93subscribe_pattern) framework. It currently requires tokio.
 
-This project is written for [PliantDB](https://github.com/khonsulabs/pliantdb). However, it's a general-purpose PubSub implementation that can be utilized in any tokio-based Rust codebase.
+This project is written for [PliantDb](https://github.com/khonsulabs/pliantdb). However, it's a general-purpose PubSub implementation that can be utilized in any tokio-based Rust codebase.
 
 ```rust
 let relay = Relay::default();

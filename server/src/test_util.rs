@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use pliantdb_core::{connection::ServerConnection, schema::Schema, test_util::Basic};
+use pliantdb_core::{connection::ServerConnection, test_util::Basic};
 
 use crate::{Configuration, Server};
 
@@ -15,9 +15,7 @@ pub async fn initialize_basic_server(path: &Path) -> anyhow::Result<Server> {
         .install_self_signed_certificate(BASIC_SERVER_NAME, false)
         .await?;
 
-    server
-        .create_database("tests", Basic::schema_name()?)
-        .await?;
+    server.create_database::<Basic>("tests").await?;
 
     Ok(server)
 }

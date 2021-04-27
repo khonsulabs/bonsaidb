@@ -301,7 +301,7 @@ impl Display for HarnessTest {
 macro_rules! define_connection_test_suite {
     ($harness:ident) => {
         #[tokio::test]
-        async fn server_connection_tests() -> Result<(), anyhow::Error> {
+        async fn server_connection_tests() -> anyhow::Result<()> {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::ServerConnectionTests).await?;
             let db = harness.server();
@@ -310,7 +310,7 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
-        async fn store_retrieve_update_delete() -> Result<(), anyhow::Error> {
+        async fn store_retrieve_update_delete() -> anyhow::Result<()> {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::StoreRetrieveUpdate).await?;
             let db = harness.connect().await?;
@@ -319,7 +319,7 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
-        async fn not_found() -> Result<(), anyhow::Error> {
+        async fn not_found() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::NotFound).await?;
             let db = harness.connect().await?;
 
@@ -328,7 +328,7 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
-        async fn conflict() -> Result<(), anyhow::Error> {
+        async fn conflict() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::Conflict).await?;
             let db = harness.connect().await?;
 
@@ -337,7 +337,7 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
-        async fn bad_update() -> Result<(), anyhow::Error> {
+        async fn bad_update() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::BadUpdate).await?;
             let db = harness.connect().await?;
 
@@ -346,7 +346,7 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
-        async fn no_update() -> Result<(), anyhow::Error> {
+        async fn no_update() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::NoUpdate).await?;
             let db = harness.connect().await?;
 
@@ -355,7 +355,7 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
-        async fn get_multiple() -> Result<(), anyhow::Error> {
+        async fn get_multiple() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::GetMultiple).await?;
             let db = harness.connect().await?;
 
@@ -364,7 +364,7 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
-        async fn list_transactions() -> Result<(), anyhow::Error> {
+        async fn list_transactions() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::ListTransactions).await?;
             let db = harness.connect().await?;
 
@@ -382,7 +382,7 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
-        async fn unassociated_collection() -> Result<(), anyhow::Error> {
+        async fn unassociated_collection() -> anyhow::Result<()> {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::UnassociatedCollection).await?;
             let db = harness.connect().await?;
@@ -411,9 +411,7 @@ macro_rules! define_connection_test_suite {
     };
 }
 
-pub async fn store_retrieve_update_delete_tests<C: Connection>(
-    db: &C,
-) -> Result<(), anyhow::Error> {
+pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     let header = collection.push(&original_value).await?;
@@ -473,7 +471,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(
     Ok(())
 }
 
-pub async fn not_found_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
+pub async fn not_found_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     assert!(db.collection::<Basic>().get(1).await?.is_none());
 
     assert!(db.last_transaction_id().await?.is_none());
@@ -481,7 +479,7 @@ pub async fn not_found_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error>
     Ok(())
 }
 
-pub async fn conflict_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
+pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     let header = collection.push(&original_value).await?;
@@ -513,7 +511,7 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> 
     Ok(())
 }
 
-pub async fn bad_update_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
+pub async fn bad_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let mut doc = Document::with_contents(1, &Basic::default(), Basic::collection_name()?)?;
     match db.update(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
@@ -525,7 +523,7 @@ pub async fn bad_update_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error
     }
 }
 
-pub async fn no_update_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
+pub async fn no_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     let header = collection.push(&original_value).await?;
@@ -541,7 +539,7 @@ pub async fn no_update_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error>
     Ok(())
 }
 
-pub async fn get_multiple_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
+pub async fn get_multiple_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let doc1_value = Basic::new("initial_value");
     let doc1 = collection.push(&doc1_value).await?;
@@ -570,7 +568,7 @@ pub async fn get_multiple_tests<C: Connection>(db: &C) -> Result<(), anyhow::Err
     Ok(())
 }
 
-pub async fn list_transactions_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
+pub async fn list_transactions_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
 
     // create LIST_TRANSACTIONS_MAX_RESULTS + 1 items, giving us just enough
@@ -680,7 +678,7 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn unassociated_collection_tests<C: Connection>(db: &C) -> Result<(), anyhow::Error> {
+pub async fn unassociated_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     assert!(matches!(
         db.collection::<UnassociatedCollection>()
             .push(&Basic::default())
@@ -1082,9 +1080,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
         schema: Basic::schema_name()?
     }));
 
-    server
-        .create_database("another-db", Basic::schema_name()?)
-        .await?;
+    server.create_database::<Basic>("another-db").await?;
     server.delete_database("another-db").await?;
 
     assert!(matches!(
@@ -1093,22 +1089,18 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
     ));
 
     assert!(matches!(
-        server.create_database("tests", Basic::schema_name()?).await,
+        server.create_database::<Basic>("tests").await,
         Err(Error::DatabaseNameAlreadyTaken(_))
     ));
 
     assert!(matches!(
-        dbg!(
-            server
-                .create_database("|invalidname", Basic::schema_name()?)
-                .await
-        ),
+        dbg!(server.create_database::<Basic>("|invalidname").await),
         Err(Error::InvalidDatabaseName(_))
     ));
 
     assert!(matches!(
         server
-            .create_database("another-db", SchemaName::new("unknown", "unknown-schema")?)
+            .create_database::<UnassociatedCollection>("another-db")
             .await,
         Err(Error::SchemaNotRegistered(_))
     ));

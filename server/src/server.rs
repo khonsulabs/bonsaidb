@@ -43,7 +43,7 @@ use tokio::{fs::File, sync::RwLock};
 
 use crate::{async_io_util::FileExt, error::Error, Configuration};
 
-/// A `PliantDB` server.
+/// A `PliantDb` server.
 #[derive(Clone, Debug)]
 pub struct Server {
     data: Arc<Data>,
@@ -446,7 +446,7 @@ impl Server {
     async fn handle_server_request(&self, request: ServerRequest) -> Result<Response, Error> {
         match request {
             ServerRequest::CreateDatabase(database) => {
-                self.create_database(&database.name, database.schema)
+                self.create_database_with_schema(&database.name, database.schema)
                     .await?;
                 Ok(Response::Server(ServerResponse::DatabaseCreated {
                     name: database.name.clone(),
@@ -943,12 +943,15 @@ impl Job for ClientRequest {
 
 #[async_trait]
 impl ServerConnection for Server {
-    async fn create_database(
+    async fn create_database_with_schema(
         &self,
         name: &str,
         schema: SchemaName,
     ) -> Result<(), pliantdb_core::Error> {
-        self.data.storage.create_database(name, schema).await
+        self.data
+            .storage
+            .create_database_with_schema(name, schema)
+            .await
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), pliantdb_core::Error> {

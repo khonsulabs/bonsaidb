@@ -3,7 +3,6 @@ use std::time::Duration;
 use config::Configuration;
 use pliantdb_core::{
     connection::{AccessPolicy, Connection, ServerConnection},
-    schema::Schema,
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
         BasicCollectionWithOnlyBrokenParentId, HarnessTest, TestDirectory,
@@ -23,9 +22,7 @@ impl TestHarness {
         let directory = TestDirectory::new(format!("local-{}", test));
         let storage = Storage::open_local(&directory, &Configuration::default()).await?;
         storage.register_schema::<Basic>().await?;
-        storage
-            .create_database("tests", Basic::schema_name()?)
-            .await?;
+        storage.create_database::<Basic>("tests").await?;
         let db = storage.database("tests").await?;
 
         Ok(Self {

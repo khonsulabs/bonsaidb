@@ -1,4 +1,4 @@
-//! The `PliantDB` Server.
+//! The `PliantDb` Server.
 
 #![forbid(unsafe_code)]
 #![warn(

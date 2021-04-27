@@ -1,16 +1,16 @@
 //! A programmable document database inspired by `CouchDB` written in Rust.
 //!
 //! This crate provides a convenient way to access all functionality of
-//! `PliantDB`. The crates that are re-exported are:
+//! `PliantDb`. The crates that are re-exported are:
 //!
 //! - [`pliantdb-core`](https://docs.rs/pliantdb-core): Common types and traits
-//!   used when interacting with `PliantDB`.
+//!   used when interacting with `PliantDb`.
 //! - [`pliantdb-local`](https://docs.rs/pliantdb-local): Local, file-based
 //!   database implementation.
-//! - [`pliantdb-server`](https://docs.rs/pliantdb-server): Networked `PliantDB`
+//! - [`pliantdb-server`](https://docs.rs/pliantdb-server): Networked `PliantDb`
 //!   server implementation.
 //! - [`pliantdb-client`](https://docs.rs/pliantdb-client): Client to access a
-//!   `PliantDB` server.
+//!   `PliantDb` server.
 //!
 //! ## Feature Flags
 //!
@@ -43,7 +43,7 @@
 //! - `local-pubsub`: Enables `PubSub` for `pliantdb-local`.
 //! - `local-keyvalue`: Enables the key-value store for `pliantdb-local`.
 //!
-//! ### `PliantDB` server
+//! ### `PliantDb` server
 //!
 //! ```toml
 //! [dependencies]
@@ -58,7 +58,7 @@
 //! - `server-pubsub`: Enables `PubSub` for `pliantdb-server`.
 //! - `server-keyvalue`: Enables the key-value store for `pliantdb-server`.
 //!
-//! ### Client for accessing a `PliantDB` server.
+//! ### Client for accessing a `PliantDb` server.
 //!
 //! ```toml
 //! [dependencies]

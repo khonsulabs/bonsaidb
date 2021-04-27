@@ -2,7 +2,7 @@
 
 [Introduction](./introduction.md)
 
-# About PliantDB
+# About PliantDb
 
 - [Concepts](./about/concepts.md)
   - [Document](./about/concepts/document.md)
@@ -13,7 +13,14 @@
   - [Server](./about/concepts/server.md)
   - [Client](./about/concepts/client.md)
   - [PubSub](./about/concepts/pubsub.md)
-- [How can PliantDB be accessed?](./about/access_models.md)
+- [How can PliantDb be accessed?](./about/access_models.md)
+
+# Integration
+
+- [Overview](./integration/overview.md)
+- [Local](./integration/local.md)
+- [Networked](./integration/server.md)
+- [Clustered (upcoming)](./integration/cluster.md)
 
 # Core Traits
 

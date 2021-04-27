@@ -66,7 +66,7 @@ impl<'a> Document<'a> {
     /// Creates a new revision.
     ///
     /// **WARNING: This normally should not be used** outside of implementing a
-    /// backend for `PliantDB`. To update a document, use `set_contents()` and
+    /// backend for `PliantDb`. To update a document, use `set_contents()` and
     /// send the document with the existing `Revision` information.
     #[must_use]
     pub fn create_new_revision(&self, contents: Cow<'a, [u8]>) -> Option<Self> {

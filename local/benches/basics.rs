@@ -9,7 +9,7 @@
 // periodically will drastically improve speed, but it potentially will lead to
 // lost transactions.
 //
-// When operating `PliantDB` in a local or single-server mode, we must recommend
+// When operating `PliantDb` in a local or single-server mode, we must recommend
 // flushing on each write -- the default configuration. Comparatively speaking,
 // this will hurt performance in many benchmarks, including this one below. The
 // purpose of this benchmark is to help test the blocking nature of sled within

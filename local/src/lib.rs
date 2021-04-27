@@ -1,4 +1,4 @@
-//! Local storage backend for `PliantDB`.
+//! Local storage backend for `PliantDb`.
 
 #![forbid(unsafe_code)]
 #![warn(

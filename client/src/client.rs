@@ -34,7 +34,7 @@ type SubscriberMap = Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>;
 #[cfg(feature = "pubsub")]
 use pliantdb_core::{circulate::Message, networking::DatabaseRequest};
 
-/// Client for connecting to a `PliantDB` server.
+/// Client for connecting to a `PliantDb` server.
 #[derive(Clone, Debug)]
 pub struct Client {
     pub(crate) data: Arc<Data>,
@@ -219,7 +219,7 @@ impl Client {
 
 #[async_trait]
 impl ServerConnection for Client {
-    async fn create_database(
+    async fn create_database_with_schema(
         &self,
         name: &str,
         schema: SchemaName,

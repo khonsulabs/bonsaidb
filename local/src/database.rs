@@ -101,7 +101,7 @@ where
         let storage = Storage::open_local(path, configuration).await?;
         storage.register_schema::<DB>().await?;
 
-        match storage.create_database("default", DB::schema_name()?).await {
+        match storage.create_database::<DB>("default").await {
             Ok(_) | Err(pliantdb_core::Error::DatabaseNameAlreadyTaken(_)) => {}
             err => err?,
         }

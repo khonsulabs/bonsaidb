@@ -1,12 +1,12 @@
-# PliantDB
+# PliantDb
 
-![PliantDB is considered experimental and unsupported](https://img.shields.io/badge/status-experimental-blueviolet)
+![PliantDb is considered experimental and unsupported](https://img.shields.io/badge/status-experimental-blueviolet)
 [![crate version](https://img.shields.io/crates/v/pliantdb.svg)](https://crates.io/crates/pliantdb)
 [![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/pliantdb/Tests/main)](https://github.com/khonsulabs/pliantdb/actions?query=workflow:Tests)
 [![HTML Coverage Report for `main` branch](https://khonsulabs.github.io/pliantdb/coverage/badge.svg)](https://khonsulabs.github.io/pliantdb/coverage/)
 [![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://khonsulabs.github.io/pliantdb/main/pliantdb/)
 
-PliantDB aims to be a [Rust](https://rust-lang.org)-written, ACID-compliant, document-database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies.
+PliantDb aims to be a [Rust](https://rust-lang.org)-written, ACID-compliant, document-database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies.
 
 ## Project Goals
 
@@ -147,7 +147,7 @@ pliantdb = { version = "*", default-features = false, features = "local-full" }
 - `local-pubsub`: Enables `PubSub` for `pliantdb-local`.
 - `local-keyvalue`: Enables the key-value store for `pliantdb-local`.
 
-### `PliantDB` server
+### `PliantDb` server
 
 ```toml
 [dependencies]
@@ -162,7 +162,7 @@ pliantdb = { version = "*", default-features = false, features = "server-full" }
 - `server-pubsub`: Enables `PubSub` for `pliantdb-server`.
 - `server-keyvalue`: Enables the key-value store for `pliantdb-server`.
 
-### Client for accessing a `PliantDB` server
+### Client for accessing a `PliantDb` server
 
 ```toml
 [dependencies]
@@ -183,7 +183,7 @@ pliantdb = { version = "*", default-features = false, features = "client-full" }
 
 ### Exporting and restoring databases with direct access
 
-If you have a local `PliantDB` database, you can use the `local-backup` command to save and load backups:
+If you have a local `PliantDb` database, you can use the `local-backup` command to save and load backups:
 
 ```sh
 pliantdb local-backup <database-path> save
@@ -193,9 +193,9 @@ pliantdb local-backup <database-path> save
 pliantdb local-backup <destination-database-path> load <backup-path>
 ```
 
-The format of this export should be easy to work with if you're either transitioning from PliantDB to another solution or needing to do complicated disaster recovery work. It is [described here](https://khonsulabs.github.io/pliantdb/main/pliantdb/local/backup/enum.Command.html#variant.Save).
+The format of this export should be easy to work with if you're either transitioning from PliantDb to another solution or needing to do complicated disaster recovery work. It is [described here](https://khonsulabs.github.io/pliantdb/main/pliantdb/local/backup/enum.Command.html#variant.Save).
 
-## Developing PliantDB
+## Developing PliantDb
 
 ### Pre-commit hook
 

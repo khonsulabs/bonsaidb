@@ -1,4 +1,4 @@
-//! `PliantDB` command line tools.
+//! `PliantDb` command line tools.
 //!
 //! Available commands:
 //!
@@ -12,7 +12,7 @@ pub enum Command {
     /// Back up or restore a local database
     LocalBackup(pliantdb_local::backup::Cli),
 
-    /// Execute a `PliantDB` server command.
+    /// Execute a `PliantDb` server command.
     Server(pliantdb_server::cli::Cli),
 }
 

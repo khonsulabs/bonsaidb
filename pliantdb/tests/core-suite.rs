@@ -6,7 +6,6 @@ use pliantdb::{
     core::{
         connection::ServerConnection,
         fabruic::Certificate,
-        schema::Schema,
         test_util::{Basic, HarnessTest, TestDirectory},
     },
     server::test_util::{initialize_basic_server, BASIC_SERVER_NAME},
@@ -71,9 +70,7 @@ mod websockets {
             let client = Client::new(url, None).await?;
 
             let dbname = format!("websockets-{}", test);
-            client
-                .create_database(&dbname, Basic::schema_name()?)
-                .await?;
+            client.create_database::<Basic>(&dbname).await?;
             let db = client.database::<Basic>(&dbname).await?;
 
             Ok(Self { client, db })
@@ -118,9 +115,7 @@ mod pliant {
             let client = Client::new(url, Some(certificate)).await?;
 
             let dbname = format!("pliant-{}", test);
-            client
-                .create_database(&dbname, Basic::schema_name()?)
-                .await?;
+            client.create_database::<Basic>(&dbname).await?;
             let db = client.database::<Basic>(&dbname).await?;
 
             Ok(Self { client, db })

@@ -1,4 +1,4 @@
-//! Core functionality and types for `PliantDB`.
+//! Core functionality and types for `PliantDb`.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -17,11 +17,11 @@
 )]
 pub use num_traits;
 
-/// Types for interacting with `PliantDB`.
+/// Types for interacting with `PliantDb`.
 pub mod connection;
 /// Types for interacting with `Document`s.
 pub mod document;
-/// Limits used within `PliantDB`.
+/// Limits used within `PliantDb`.
 pub mod limits;
 /// Types for defining database schema.
 pub mod schema;
@@ -34,7 +34,7 @@ pub mod kv;
 #[cfg(feature = "networking")]
 pub use fabruic;
 #[cfg(feature = "networking")]
-/// Types for implementing the `PliantDB` network protocol.
+/// Types for implementing the `PliantDb` network protocol.
 pub mod networking;
 
 #[cfg(feature = "pubsub")]

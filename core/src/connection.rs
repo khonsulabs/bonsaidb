@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     document::{Document, Header},
-    schema::{self, view, Key, Map, MappedDocument, MappedValue, SchemaName},
+    schema::{self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName},
     transaction::{self, Command, Operation, OperationResult, Transaction},
     Error,
 };
@@ -384,10 +384,24 @@ pub enum AccessPolicy {
     NoUpdate,
 }
 
-/// Functions for interacting with a multi-database `PliantDB` instance.
+/// Functions for interacting with a multi-database `PliantDb` instance.
 #[allow(clippy::module_name_repetitions)]
 #[async_trait]
 pub trait ServerConnection: Send + Sync {
+    /// Creates a database named `name` with the `Schema` provided.
+    ///
+    /// ## Errors
+    ///
+    /// * [`Error::InvalidDatabaseName`]: `name` must begin with an alphanumeric
+    ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
+    ///   alphanumeric, a period (`.`), or a hyphen (`-`).
+    /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
+    ///   previous database name. Database names are case insensitive.
+    async fn create_database<DB: Schema>(&self, name: &str) -> Result<(), crate::Error> {
+        self.create_database_with_schema(name, DB::schema_name()?)
+            .await
+    }
+
     /// Creates a database named `name` using the [`SchemaName`] `schema`.
     ///
     /// ## Errors
@@ -397,7 +411,11 @@ pub trait ServerConnection: Send + Sync {
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
     /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
     ///   previous database name. Database names are case insensitive.
-    async fn create_database(&self, name: &str, schema: SchemaName) -> Result<(), crate::Error>;
+    async fn create_database_with_schema(
+        &self,
+        name: &str,
+        schema: SchemaName,
+    ) -> Result<(), crate::Error>;
 
     /// Deletes a database named `name`.
     ///

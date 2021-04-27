@@ -347,7 +347,7 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
 
 #[async_trait]
 impl ServerConnection for Storage {
-    async fn create_database(
+    async fn create_database_with_schema(
         &self,
         name: &str,
         schema: SchemaName,
