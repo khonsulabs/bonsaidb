@@ -1,6 +1,6 @@
 [package]
 name = "pliantdb-jobs"
-version = "0.1.0-dev-2"
+version = "0.1.0-dev.3"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
 description = "Aysnc jobs management for PliantDb."

@@ -1,6 +1,6 @@
 [package]
 name = "pliantdb-server"
-version = "0.1.0-dev-2"
+version = "0.1.0-dev.3"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
 description = "Database server for PliantDb."
@@ -12,7 +12,8 @@ readme = "../README.md"
 homepage = "https://pliantdb.dev/"
 
 [features]
-default = []
+default = ["full"]
+full = ["cli", "websockets", "pubsub", "keyvalue"]
 cli = ["structopt"]
 test-util = ["pliantdb-core/test-util"]
 websockets = ["pliantdb-core/websockets", "tokio-tungstenite", "bincode"]
@@ -20,9 +21,9 @@ pubsub = ["pliantdb-core/pubsub", "pliantdb-local/pubsub"]
 keyvalue = ["pliantdb-core/keyvalue", "pliantdb-local/keyvalue"]
 
 [dependencies]
-pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["networking"] }
-pliantdb-local = { path = "../local", version = "0.1.0-dev-2", features = ["internal-apis"] }
-pliantdb-jobs = { path = "../jobs", version = "0.1.0-dev-2" }
+pliantdb-core = { path = "../core", version = "0.1.0-dev.3", default-features = false, features = ["networking"] }
+pliantdb-local = { path = "../local", version = "0.1.0-dev.3", default-features = false, features = ["internal-apis"] }
+pliantdb-jobs = { path = "../jobs", version = "0.1.0-dev.3" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "1"
@@ -37,7 +38,7 @@ bincode = { version = "1", optional = true }
 cfg-if = "1"
 
 [dev-dependencies]
-pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["test-util"] }
+pliantdb-core = { path = "../core", version = "0.1.0-dev.3", default-features = false, features = ["test-util"] }
 
 [package.metadata.docs.rs]
 all-features = true

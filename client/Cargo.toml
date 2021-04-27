@@ -1,6 +1,6 @@
 [package]
 name = "pliantdb-client"
-version = "0.1.0-dev-2"
+version = "0.1.0-dev.3"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
 description = "Client for accessing PliantDb servers."
@@ -11,7 +11,8 @@ categories = ["database-implementations"]
 readme = "../README.md"
 
 [features]
-default = []
+default = ["full"]
+full = ["websockets", "trusted-dns", "pubsub", "keyvalue"]
 websockets = ["pliantdb-core/websockets", "tokio-tungstenite", "bincode"]
 trusted-dns = ["pliantdb-core/trusted-dns"]
 pubsub = ["pliantdb-core/pubsub"]
@@ -19,7 +20,7 @@ keyvalue = ["pliantdb-core/keyvalue"]
 test-util = []
 
 [dependencies]
-pliantdb-core = { path = "../core", version = "0.1.0-dev-2", features = ["networking"] }
+pliantdb-core = { path = "../core", version = "0.1.0-dev.3", default-features = false, features = ["networking"] }
 thiserror = "1"
 url = "2.2"
 flume = "0.10"
