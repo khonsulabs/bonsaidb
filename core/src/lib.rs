@@ -17,6 +17,9 @@
 )]
 pub use num_traits;
 
+/// Types for creating and validating permissions.
+pub mod permissions;
+
 /// Types for interacting with `PliantDb`.
 pub mod connection;
 /// Types for interacting with `Document`s.

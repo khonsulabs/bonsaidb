@@ -21,6 +21,7 @@ pubsub = ["circulate"]
 keyvalue = ["futures"]
 
 [dependencies]
+pliantdb-macros = { path = "../macros" }
 circulate = { path = "../circulate", version = "0.1.0-dev.1", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
