@@ -45,7 +45,7 @@ pub mod networking;
 pub mod pubsub;
 #[cfg(feature = "pubsub")]
 pub use circulate;
-use schema::{CollectionName, SchemaName};
+use schema::{CollectionName, SchemaName, ViewName};
 use serde::{Deserialize, Serialize};
 
 /// an enumeration of errors that this crate can produce
@@ -134,6 +134,17 @@ pub enum Error {
     /// When updating a document, if a situation is detected where the contents have changed on the server since the `Revision` provided, a Conflict error will be returned.
     #[error("a conflict was detected while updating document id {1} from collection {0}")]
     DocumentConflict(CollectionName, u64),
+
+    /// When saving a document in a collection with unique views, a document emits a key that is already emitted by an existing ocument, this error is returned.
+    #[error("a unique key violation occurred: document `{existing_document_id}` already has the same key as `{conflicting_document_id}` for {view}")]
+    UniqueKeyViolation {
+        /// The name of the view that the unique key violation occurred.
+        view: ViewName,
+        /// The document that caused the violation.
+        conflicting_document_id: u64,
+        /// The document that already uses the same key.
+        existing_document_id: u64,
+    },
 
     /// An invalid name was specified during schema creation.
     #[error("an invalid name was used in a schema: {0}")]

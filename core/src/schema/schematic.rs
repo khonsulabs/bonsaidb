@@ -21,6 +21,7 @@ pub struct Schematic {
     views: HashMap<TypeId, Box<dyn view::Serialized>>,
     views_by_name: HashMap<ViewName, TypeId>,
     views_by_collection: HashMap<CollectionName, Vec<TypeId>>,
+    unique_views_by_collection: HashMap<CollectionName, Vec<TypeId>>,
 }
 
 impl Schematic {
@@ -39,11 +40,19 @@ impl Schematic {
         self.views.insert(TypeId::of::<V>(), Box::new(view));
         // TODO check for name collision
         self.views_by_name.insert(name, TypeId::of::<V>());
+        if V::UNIQUE {
+            let unique_views = self
+                .unique_views_by_collection
+                .entry(collection.clone())
+                .or_insert_with(Vec::new);
+            unique_views.push(TypeId::of::<V>());
+        }
         let views = self
             .views_by_collection
             .entry(collection)
             .or_insert_with(Vec::new);
         views.push(TypeId::of::<V>());
+
         Ok(())
     }
 
@@ -92,6 +101,22 @@ impl Schematic {
                 .collect()
         })
     }
+
+    /// Iterates over all views that are unique that belong to `collection`.
+    #[must_use]
+    pub fn unique_views_in_collection(
+        &self,
+        collection: &CollectionName,
+    ) -> Option<Vec<&'_ dyn view::Serialized>> {
+        self.unique_views_by_collection
+            .get(collection)
+            .map(|view_ids| {
+                view_ids
+                    .iter()
+                    .filter_map(|id| self.views.get(id).map(AsRef::as_ref))
+                    .collect()
+            })
+    }
 }
 
 #[test]
@@ -103,12 +128,12 @@ fn schema_tests() -> anyhow::Result<()> {
     let mut schema = Schematic::default();
     BasicSchema::define_collections(&mut schema)?;
 
-    assert_eq!(schema.collections_by_type_id.len(), 1);
+    assert_eq!(schema.collections_by_type_id.len(), 2);
     assert_eq!(
         schema.collections_by_type_id[&TypeId::of::<Basic>()],
         Basic::collection_name()?
     );
-    assert_eq!(schema.views.len(), 3);
+    assert_eq!(schema.views.len(), 4);
     assert_eq!(
         schema.views[&TypeId::of::<BasicCount>()].view_name()?,
         View::view_name(&BasicCount)?

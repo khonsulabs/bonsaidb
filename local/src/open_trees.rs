@@ -2,7 +2,14 @@ use std::collections::HashMap;
 
 use pliantdb_core::schema::{CollectionName, Schematic};
 
-use crate::{database::document_tree_name, views::view_invalidated_docs_tree_name, Error};
+use crate::{
+    database::document_tree_name,
+    views::{
+        view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
+        view_omitted_docs_tree_name,
+    },
+    Error,
+};
 
 #[derive(Default)]
 pub struct OpenTrees {
@@ -35,7 +42,13 @@ impl OpenTrees {
         if let Some(views) = schema.views_in_collection(collection) {
             for view in views {
                 let view_name = view.view_name()?;
-                self.open_tree(sled, &view_invalidated_docs_tree_name(database, &view_name))?;
+                if view.unique() {
+                    self.open_tree(sled, &view_omitted_docs_tree_name(database, &view_name))?;
+                    self.open_tree(sled, &view_document_map_tree_name(database, &view_name))?;
+                    self.open_tree(sled, &view_entries_tree_name(database, &view_name))?;
+                } else {
+                    self.open_tree(sled, &view_invalidated_docs_tree_name(database, &view_name))?;
+                }
             }
         }
 

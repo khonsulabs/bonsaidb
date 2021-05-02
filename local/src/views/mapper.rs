@@ -4,7 +4,11 @@ use async_trait::async_trait;
 use pliantdb_core::{
     connection::Connection,
     document::Document,
-    schema::{view, view::map, CollectionName, Key, Schema, ViewName},
+    schema::{
+        view,
+        view::{map, Serialized},
+        CollectionName, Key, Schema, ViewName,
+    },
 };
 use pliantdb_jobs::{Job, Keyed};
 use sled::{
@@ -14,6 +18,7 @@ use sled::{
 
 use crate::{
     database::{document_tree_name, Database},
+    error::ResultExt,
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
         view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
@@ -155,66 +160,85 @@ fn map_view<DB: Schema>(
         )
             .transaction(
                 |(invalidated_entries, document_map, documents, omitted_entries, view_entries)| {
+                    let view = storage
+                        .data
+                        .schema
+                        .view_by_name(&map_request.view_name)
+                        .unwrap();
                     for document_id in &invalidated_ids {
                         DocumentRequest {
                             document_id,
                             map_request,
-                            invalidated_entries,
                             document_map,
                             documents,
                             omitted_entries,
                             view_entries,
-                            storage,
+                            view,
                         }
                         .map()?;
+                        invalidated_entries.remove(document_id)?;
                     }
                     Ok(())
                 },
             )
             .map_err(|err| match err {
                 TransactionError::Abort(err) => err,
-                TransactionError::Storage(err) => anyhow::Error::from(err),
+                TransactionError::Storage(err) => pliantdb_core::Error::Database(err.to_string()),
             })?;
     }
 
     Ok(())
 }
 
-struct DocumentRequest<'a, DB> {
-    document_id: &'a IVec,
-    map_request: &'a Map,
+pub struct DocumentRequest<'a> {
+    pub document_id: &'a IVec,
+    pub map_request: &'a Map,
 
-    invalidated_entries: &'a TransactionalTree,
-    document_map: &'a TransactionalTree,
-    documents: &'a TransactionalTree,
-    omitted_entries: &'a TransactionalTree,
-    view_entries: &'a TransactionalTree,
-    storage: &'a Database<DB>,
+    pub document_map: &'a TransactionalTree,
+    pub documents: &'a TransactionalTree,
+    pub omitted_entries: &'a TransactionalTree,
+    pub view_entries: &'a TransactionalTree,
+    pub view: &'a dyn Serialized,
 }
 
-impl<'a, DB: Schema> DocumentRequest<'a, DB> {
-    fn map(&self) -> Result<(), ConflictableTransactionError<anyhow::Error>> {
-        self.invalidated_entries.remove(self.document_id)?;
-
-        let view = self
-            .storage
-            .data
-            .schema
-            .view_by_name(&self.map_request.view_name)
-            .unwrap();
-
+impl<'a> DocumentRequest<'a> {
+    #[allow(clippy::too_many_lines)] // TODO too many lines
+    pub fn map(&self) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
         let (doc_still_exists, map_result) =
             if let Some(document) = self.documents.get(self.document_id)? {
-                let document =
-                    bincode::deserialize::<Document<'_>>(&document).map_to_transaction_error()?;
+                let document = bincode::deserialize::<Document<'_>>(&document)
+                    .map_err_to_core()
+                    .map_to_transaction_error()?;
 
                 // Call the schema map function
-                (true, view.map(&document).map_to_transaction_error()?)
+                (
+                    true,
+                    self.view
+                        .map(&document)
+                        .map_err_to_core()
+                        .map_to_transaction_error()?,
+                )
             } else {
                 (false, None)
             };
 
         if let Some(map::Serialized { source, key, value }) = map_result {
+            // Before altering any data, verify that the key is unique if this is a unique view.
+            if self.view.unique() {
+                if let Some(existing_entry) = self.view_entries.get(&key)? {
+                    let existing_entry = bincode::deserialize::<ViewEntry>(&existing_entry)
+                        .map_err_to_core()
+                        .map_to_transaction_error()?;
+                    if existing_entry.mappings[0].source != source {
+                        return Err(pliantdb_core::Error::UniqueKeyViolation {
+                            view: self.map_request.view_name.clone(),
+                            conflicting_document_id: source,
+                            existing_document_id: existing_entry.mappings[0].source,
+                        })
+                        .map_to_transaction_error();
+                    }
+                }
+            }
             self.omitted_entries.remove(self.document_id)?;
 
             // When map results are returned, the document
@@ -225,14 +249,16 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             let keys: Vec<Cow<'_, [u8]>> = vec![Cow::Borrowed(&key)];
             if let Some(existing_map) = self.document_map.insert(
                 self.document_id,
-                bincode::serialize(&keys).map_to_transaction_error()?,
+                bincode::serialize(&keys)
+                    .map_err_to_core()
+                    .map_to_transaction_error()?,
             )? {
                 remove_existing_view_entries_for_keys(
                     self.document_id,
                     &keys,
                     &existing_map,
                     self.view_entries,
-                    view,
+                    self.view,
                 )?;
             }
 
@@ -242,6 +268,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             // ViewEntry for the key given
             let view_entry = if let Some(existing_entry) = self.view_entries.get(&key)? {
                 let mut entry = bincode::deserialize::<ViewEntry>(&existing_entry)
+                    .map_err_to_core()
                     .map_to_transaction_error()?;
 
                 // attempt to update an existing
@@ -278,22 +305,30 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                     .iter()
                     .map(|m| (key.as_slice(), m.value.as_slice()))
                     .collect::<Vec<_>>();
-                entry.reduced_value = view.reduce(&mappings, false).map_to_transaction_error()?;
+                entry.reduced_value = self
+                    .view
+                    .reduce(&mappings, false)
+                    .map_err_to_core()
+                    .map_to_transaction_error()?;
 
                 entry
             } else {
-                let reduced_value = view
+                let reduced_value = self
+                    .view
                     .reduce(&[(&key, &entry_mapping.value)], false)
+                    .map_err_to_core()
                     .map_to_transaction_error()?;
                 ViewEntry {
-                    view_version: view.version(),
+                    view_version: self.view.version(),
                     mappings: vec![entry_mapping],
                     reduced_value,
                 }
             };
             self.view_entries.insert(
                 key,
-                bincode::serialize(&view_entry).map_to_transaction_error()?,
+                bincode::serialize(&view_entry)
+                    .map_err_to_core()
+                    .map_to_transaction_error()?,
             )?;
         } else {
             // When no entry is emitted, the document map is emptied and a note is made in omitted_entries
@@ -303,7 +338,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                     &[],
                     &existing_map,
                     self.view_entries,
-                    view,
+                    self.view,
                 )?;
             }
 
@@ -342,9 +377,10 @@ fn remove_existing_view_entries_for_keys(
     existing_map: &[u8],
     view_entries: &TransactionalTree,
     view: &dyn view::Serialized,
-) -> Result<(), ConflictableTransactionError<anyhow::Error>> {
-    let existing_keys =
-        bincode::deserialize::<Vec<Cow<'_, [u8]>>>(existing_map).map_to_transaction_error()?;
+) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+    let existing_keys = bincode::deserialize::<Vec<Cow<'_, [u8]>>>(existing_map)
+        .map_err_to_core()
+        .map_to_transaction_error()?;
     if existing_keys == keys {
         // No change
         return Ok(());
@@ -357,8 +393,9 @@ fn remove_existing_view_entries_for_keys(
     );
     // Remove the old key
     if let Some(existing_entry) = view_entries.get(&existing_keys[0])? {
-        let mut entry =
-            bincode::deserialize::<ViewEntry>(&existing_entry).map_to_transaction_error()?;
+        let mut entry = bincode::deserialize::<ViewEntry>(&existing_entry)
+            .map_err_to_core()
+            .map_to_transaction_error()?;
         let document_id = u64::from_big_endian_bytes(document_id).unwrap();
         entry.mappings.retain(|m| m.source != document_id);
 
@@ -370,10 +407,15 @@ fn remove_existing_view_entries_for_keys(
                 .iter()
                 .map(|m| (existing_keys[0].as_ref(), m.value.as_slice()))
                 .collect::<Vec<_>>();
-            entry.reduced_value = view.reduce(&mappings, false).map_to_transaction_error()?;
+            entry.reduced_value = view
+                .reduce(&mappings, false)
+                .map_err_to_core()
+                .map_to_transaction_error()?;
             view_entries.insert(
                 existing_keys[0].as_ref(),
-                bincode::serialize(&entry).map_to_transaction_error()?,
+                bincode::serialize(&entry)
+                    .map_err_to_core()
+                    .map_to_transaction_error()?,
             )?;
         }
     }

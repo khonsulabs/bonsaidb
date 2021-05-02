@@ -1,5 +1,5 @@
 use pliantdb_core::test_util::{
-    self, basic_server_connection_tests, Basic, HarnessTest, TestDirectory,
+    self, basic_server_connection_tests, BasicSchema, HarnessTest, TestDirectory,
 };
 use pliantdb_local::Database;
 
@@ -9,7 +9,7 @@ use crate::{test_util::initialize_basic_server, Server};
 async fn simple_test() -> anyhow::Result<()> {
     let test_dir = TestDirectory::new("simple-test");
     let server = initialize_basic_server(test_dir.as_ref()).await?;
-    let db = server.database::<Basic>("tests").await?;
+    let db = server.database::<BasicSchema>("tests").await?;
     test_util::store_retrieve_update_delete_tests(&db).await
 }
 
@@ -32,8 +32,8 @@ impl TestHarness {
         &self.server
     }
 
-    pub async fn connect(&self) -> anyhow::Result<Database<Basic>> {
-        let db = self.server.database::<Basic>("tests").await?;
+    pub async fn connect(&self) -> anyhow::Result<Database<BasicSchema>> {
+        let db = self.server.database::<BasicSchema>("tests").await?;
         Ok(db)
     }
 

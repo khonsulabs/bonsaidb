@@ -155,15 +155,22 @@ mod tests {
     #[tokio::test]
     async fn basic_expiration() -> anyhow::Result<()> {
         run_test("kv-basic-expiration", |sender, sled| async move {
-            sled.drop_tree(b"atree")?;
-            let tree = sled.open_tree(b"db::atree")?;
-            tree.insert(b"akey", b"somevalue")?;
-            sender.send(ExpirationUpdate {
-                tree_key: TreeKey::new("db", "atree", String::from("akey")),
-                expiration: Some(Timestamp::now() + Duration::from_millis(100)),
-            })?;
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            assert!(tree.get(b"akey")?.is_none());
+            loop {
+                sled.drop_tree(b"atree")?;
+                let tree = sled.open_tree(b"db::atree")?;
+                tree.insert(b"akey", b"somevalue")?;
+                let timing = TimingTest::new(Duration::from_millis(100));
+                sender.send(ExpirationUpdate {
+                    tree_key: TreeKey::new("db", "atree", String::from("akey")),
+                    expiration: Some(Timestamp::now() + Duration::from_millis(100)),
+                })?;
+                if !timing.wait_until(Duration::from_secs(1)).await {
+                    println!("basic_expiration restarting due to timing discrepency");
+                    continue;
+                }
+                assert!(tree.get(b"akey")?.is_none());
+                break;
+            }
 
             Ok(())
         })

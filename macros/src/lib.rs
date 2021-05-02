@@ -11,10 +11,7 @@
     rust_2018_idioms,
 )]
 #![cfg_attr(doc, deny(rustdoc))]
-#![allow(
-    clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
-    clippy::option_if_let_else,
-)]
+#![allow(clippy::option_if_let_else)]
 
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, abort_call_site, proc_macro_error};

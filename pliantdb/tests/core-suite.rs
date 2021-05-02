@@ -6,7 +6,7 @@ use pliantdb::{
     core::{
         connection::ServerConnection,
         fabruic::Certificate,
-        test_util::{Basic, HarnessTest, TestDirectory},
+        test_util::{BasicSchema, HarnessTest, TestDirectory},
     },
     server::test_util::{initialize_basic_server, BASIC_SERVER_NAME},
 };
@@ -60,7 +60,7 @@ mod websockets {
 
     struct WebsocketTestHarness {
         client: Client,
-        db: RemoteDatabase<Basic>,
+        db: RemoteDatabase<BasicSchema>,
     }
 
     impl WebsocketTestHarness {
@@ -70,8 +70,8 @@ mod websockets {
             let client = Client::new(url, None).await?;
 
             let dbname = format!("websockets-{}", test);
-            client.create_database::<Basic>(&dbname).await?;
-            let db = client.database::<Basic>(&dbname).await?;
+            client.create_database::<BasicSchema>(&dbname).await?;
+            let db = client.database::<BasicSchema>(&dbname).await?;
 
             Ok(Self { client, db })
         }
@@ -80,7 +80,7 @@ mod websockets {
             &self.client
         }
 
-        pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<Basic>> {
+        pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
             Ok(self.db.clone())
         }
 
@@ -101,7 +101,7 @@ mod pliant {
     use super::*;
     struct PliantTestHarness {
         client: Client,
-        db: RemoteDatabase<Basic>,
+        db: RemoteDatabase<BasicSchema>,
     }
 
     impl PliantTestHarness {
@@ -115,8 +115,8 @@ mod pliant {
             let client = Client::new(url, Some(certificate)).await?;
 
             let dbname = format!("pliant-{}", test);
-            client.create_database::<Basic>(&dbname).await?;
-            let db = client.database::<Basic>(&dbname).await?;
+            client.create_database::<BasicSchema>(&dbname).await?;
+            let db = client.database::<BasicSchema>(&dbname).await?;
 
             Ok(Self { client, db })
         }
@@ -125,7 +125,7 @@ mod pliant {
             &self.client
         }
 
-        pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<Basic>> {
+        pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
             Ok(self.db.clone())
         }
 

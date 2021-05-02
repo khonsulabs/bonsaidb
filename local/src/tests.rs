@@ -5,7 +5,7 @@ use pliantdb_core::{
     connection::{AccessPolicy, Connection, ServerConnection},
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
-        BasicCollectionWithOnlyBrokenParentId, HarnessTest, TestDirectory,
+        BasicCollectionWithOnlyBrokenParentId, BasicSchema, HarnessTest, TestDirectory,
     },
 };
 
@@ -14,15 +14,15 @@ use crate::Database;
 
 struct TestHarness {
     _directory: TestDirectory,
-    db: Database<Basic>,
+    db: Database<BasicSchema>,
 }
 
 impl TestHarness {
     async fn new(test: HarnessTest) -> anyhow::Result<Self> {
         let directory = TestDirectory::new(format!("local-{}", test));
         let storage = Storage::open_local(&directory, &Configuration::default()).await?;
-        storage.register_schema::<Basic>().await?;
-        storage.create_database::<Basic>("tests").await?;
+        storage.register_schema::<BasicSchema>().await?;
+        storage.create_database::<BasicSchema>("tests").await?;
         let db = storage.database("tests").await?;
 
         Ok(Self {
@@ -35,7 +35,7 @@ impl TestHarness {
         self.db.storage()
     }
 
-    async fn connect(&self) -> anyhow::Result<Database<Basic>> {
+    async fn connect(&self) -> anyhow::Result<Database<BasicSchema>> {
         Ok(self.db.clone())
     }
 
