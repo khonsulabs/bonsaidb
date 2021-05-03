@@ -76,6 +76,10 @@ mod websockets {
             Ok(Self { client, db })
         }
 
+        pub const fn server_name() -> &'static str {
+            "websocket"
+        }
+
         pub fn server(&self) -> &'_ Client {
             &self.client
         }
@@ -119,6 +123,10 @@ mod pliant {
             let db = client.database::<BasicSchema>(&dbname).await?;
 
             Ok(Self { client, db })
+        }
+
+        pub fn server_name() -> &'static str {
+            "pliant"
         }
 
         pub fn server(&self) -> &'_ Client {

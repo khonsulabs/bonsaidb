@@ -202,7 +202,6 @@ pub struct DocumentRequest<'a> {
 }
 
 impl<'a> DocumentRequest<'a> {
-    #[allow(clippy::too_many_lines)] // TODO too many lines
     pub fn map(&self) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
         let (doc_still_exists, map_result) =
             if let Some(document) = self.documents.get(self.document_id)? {
@@ -223,131 +222,150 @@ impl<'a> DocumentRequest<'a> {
             };
 
         if let Some(map::Serialized { source, key, value }) = map_result {
-            // Before altering any data, verify that the key is unique if this is a unique view.
-            if self.view.unique() {
-                if let Some(existing_entry) = self.view_entries.get(&key)? {
-                    let existing_entry = bincode::deserialize::<ViewEntry>(&existing_entry)
-                        .map_err_to_core()
-                        .map_to_transaction_error()?;
-                    if existing_entry.mappings[0].source != source {
-                        return Err(pliantdb_core::Error::UniqueKeyViolation {
-                            view: self.map_request.view_name.clone(),
-                            conflicting_document_id: source,
-                            existing_document_id: existing_entry.mappings[0].source,
-                        })
-                        .map_to_transaction_error();
-                    }
-                }
-            }
-            self.omitted_entries.remove(self.document_id)?;
-
-            // When map results are returned, the document
-            // map will contain an array of keys that the
-            // document returned. Currently we only support
-            // single emits, so it's going to be a
-            // single-entry vec for now.
-            let keys: Vec<Cow<'_, [u8]>> = vec![Cow::Borrowed(&key)];
-            if let Some(existing_map) = self.document_map.insert(
-                self.document_id,
-                bincode::serialize(&keys)
-                    .map_err_to_core()
-                    .map_to_transaction_error()?,
-            )? {
-                remove_existing_view_entries_for_keys(
-                    self.document_id,
-                    &keys,
-                    &existing_map,
-                    self.view_entries,
-                    self.view,
-                )?;
-            }
-
-            let entry_mapping = EntryMapping { source, value };
-
-            // Add a new ViewEntry or update an existing
-            // ViewEntry for the key given
-            let view_entry = if let Some(existing_entry) = self.view_entries.get(&key)? {
-                let mut entry = bincode::deserialize::<ViewEntry>(&existing_entry)
-                    .map_err_to_core()
-                    .map_to_transaction_error()?;
-
-                // attempt to update an existing
-                // entry for this document, if
-                // present
-                let mut found = false;
-                for mapping in &mut entry.mappings {
-                    if mapping.source == source {
-                        found = true;
-                        mapping.value = entry_mapping.value.clone();
-                        break;
-                    }
-                }
-
-                // If an existing mapping wasn't
-                // found, add it
-                if !found {
-                    entry.mappings.push(entry_mapping);
-                }
-
-                // There was a choice to be made here of whether to call
-                // reduce()  with all of the existing values, or call it with
-                // rereduce=true passing only the new value and the old stored
-                // value. In this implementation, it's technically less
-                // efficient, but we can guarantee that every value has only
-                // been reduced once, and potentially re-reduced a single-time.
-                // If we constantly try to update the value to optimize the size
-                // of `mappings`, the fear is that the value computed may lose
-                // precision in some contexts over time. Thus, the decision was
-                // made to always call reduce() with all the mappings within a
-                // single ViewEntry.
-                let mappings = entry
-                    .mappings
-                    .iter()
-                    .map(|m| (key.as_slice(), m.value.as_slice()))
-                    .collect::<Vec<_>>();
-                entry.reduced_value = self
-                    .view
-                    .reduce(&mappings, false)
-                    .map_err_to_core()
-                    .map_to_transaction_error()?;
-
-                entry
-            } else {
-                let reduced_value = self
-                    .view
-                    .reduce(&[(&key, &entry_mapping.value)], false)
-                    .map_err_to_core()
-                    .map_to_transaction_error()?;
-                ViewEntry {
-                    view_version: self.view.version(),
-                    mappings: vec![entry_mapping],
-                    reduced_value,
-                }
-            };
-            self.view_entries.insert(
-                key,
-                bincode::serialize(&view_entry)
-                    .map_err_to_core()
-                    .map_to_transaction_error()?,
-            )?;
+            self.save_mapping(source, key, value)?;
         } else {
-            // When no entry is emitted, the document map is emptied and a note is made in omitted_entries
-            if let Some(existing_map) = self.document_map.remove(self.document_id)? {
-                remove_existing_view_entries_for_keys(
-                    self.document_id,
-                    &[],
-                    &existing_map,
-                    self.view_entries,
-                    self.view,
-                )?;
-            }
+            self.omit_document(doc_still_exists)?;
+        }
 
-            if doc_still_exists {
-                self.omitted_entries
-                    .insert(self.document_id, IVec::default())?;
+        Ok(())
+    }
+
+    fn omit_document(
+        &self,
+        doc_still_exists: bool,
+    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+        // When no entry is emitted, the document map is emptied and a note is made in omitted_entries
+        if let Some(existing_map) = self.document_map.remove(self.document_id)? {
+            remove_existing_view_entries_for_keys(
+                self.document_id,
+                &[],
+                &existing_map,
+                self.view_entries,
+                self.view,
+            )?;
+        }
+
+        if doc_still_exists {
+            self.omitted_entries
+                .insert(self.document_id, IVec::default())?;
+        }
+        Ok(())
+    }
+
+    fn save_mapping(
+        &self,
+        source: u64,
+        key: Vec<u8>,
+        value: Vec<u8>,
+    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+        // Before altering any data, verify that the key is unique if this is a unique view.
+        if self.view.unique() {
+            if let Some(existing_entry) = self.view_entries.get(&key)? {
+                let existing_entry = bincode::deserialize::<ViewEntry>(&existing_entry)
+                    .map_err_to_core()
+                    .map_to_transaction_error()?;
+                if existing_entry.mappings[0].source != source {
+                    return Err(pliantdb_core::Error::UniqueKeyViolation {
+                        view: self.map_request.view_name.clone(),
+                        conflicting_document_id: source,
+                        existing_document_id: existing_entry.mappings[0].source,
+                    })
+                    .map_to_transaction_error();
+                }
             }
         }
 
+        self.omitted_entries.remove(self.document_id)?;
+
+        // When map results are returned, the document
+        // map will contain an array of keys that the
+        // document returned. Currently we only support
+        // single emits, so it's going to be a
+        // single-entry vec for now.
+        let keys: Vec<Cow<'_, [u8]>> = vec![Cow::Borrowed(&key)];
+        if let Some(existing_map) = self.document_map.insert(
+            self.document_id,
+            bincode::serialize(&keys)
+                .map_err_to_core()
+                .map_to_transaction_error()?,
+        )? {
+            remove_existing_view_entries_for_keys(
+                self.document_id,
+                &keys,
+                &existing_map,
+                self.view_entries,
+                self.view,
+            )?;
+        }
+
+        let entry_mapping = EntryMapping { source, value };
+
+        // Add a new ViewEntry or update an existing
+        // ViewEntry for the key given
+        let view_entry = if let Some(existing_entry) = self.view_entries.get(&key)? {
+            let mut entry = bincode::deserialize::<ViewEntry>(&existing_entry)
+                .map_err_to_core()
+                .map_to_transaction_error()?;
+
+            // attempt to update an existing
+            // entry for this document, if
+            // present
+            let mut found = false;
+            for mapping in &mut entry.mappings {
+                if mapping.source == source {
+                    found = true;
+                    mapping.value = entry_mapping.value.clone();
+                    break;
+                }
+            }
+
+            // If an existing mapping wasn't
+            // found, add it
+            if !found {
+                entry.mappings.push(entry_mapping);
+            }
+
+            // There was a choice to be made here of whether to call
+            // reduce()  with all of the existing values, or call it with
+            // rereduce=true passing only the new value and the old stored
+            // value. In this implementation, it's technically less
+            // efficient, but we can guarantee that every value has only
+            // been reduced once, and potentially re-reduced a single-time.
+            // If we constantly try to update the value to optimize the size
+            // of `mappings`, the fear is that the value computed may lose
+            // precision in some contexts over time. Thus, the decision was
+            // made to always call reduce() with all the mappings within a
+            // single ViewEntry.
+            let mappings = entry
+                .mappings
+                .iter()
+                .map(|m| (key.as_slice(), m.value.as_slice()))
+                .collect::<Vec<_>>();
+            entry.reduced_value = self
+                .view
+                .reduce(&mappings, false)
+                .map_err_to_core()
+                .map_to_transaction_error()?;
+
+            entry
+        } else {
+            let reduced_value = self
+                .view
+                .reduce(&[(&key, &entry_mapping.value)], false)
+                .map_err_to_core()
+                .map_to_transaction_error()?;
+            ViewEntry {
+                view_version: self.view.version(),
+                mappings: vec![entry_mapping],
+                reduced_value,
+            }
+        };
+        self.view_entries.insert(
+            key,
+            bincode::serialize(&view_entry)
+                .map_err_to_core()
+                .map_to_transaction_error()?,
+        )?;
         Ok(())
     }
 }

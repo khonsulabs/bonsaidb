@@ -31,6 +31,10 @@ impl TestHarness {
         })
     }
 
+    const fn server_name() -> &'static str {
+        "local"
+    }
+
     fn server(&self) -> &'_ Storage {
         self.db.storage()
     }

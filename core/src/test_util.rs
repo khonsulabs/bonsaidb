@@ -345,7 +345,11 @@ macro_rules! define_connection_test_suite {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::ServerConnectionTests).await?;
             let db = harness.server();
-            $crate::test_util::basic_server_connection_tests(db.clone()).await?;
+            $crate::test_util::basic_server_connection_tests(
+                db.clone(),
+                &format!("server-connection-tests-{}", $harness::server_name()),
+            )
+            .await?;
             harness.shutdown().await
         }
 
@@ -1159,7 +1163,10 @@ impl TimingTest {
     }
 }
 
-pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> anyhow::Result<()> {
+pub async fn basic_server_connection_tests<C: ServerConnection>(
+    server: C,
+    newdb_name: &str,
+) -> anyhow::Result<()> {
     let schemas = server.list_available_schemas().await?;
     assert_eq!(schemas, vec![Basic::schema_name()?]);
 
@@ -1169,11 +1176,11 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
         schema: Basic::schema_name()?
     }));
 
-    server.create_database::<Basic>("another-db").await?;
-    server.delete_database("another-db").await?;
+    server.create_database::<Basic>(newdb_name).await?;
+    server.delete_database(newdb_name).await?;
 
     assert!(matches!(
-        server.delete_database("another-db").await,
+        server.delete_database(newdb_name).await,
         Err(Error::DatabaseNotFound(_))
     ));
 
@@ -1189,7 +1196,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
 
     assert!(matches!(
         server
-            .create_database::<UnassociatedCollection>("another-db")
+            .create_database::<UnassociatedCollection>(newdb_name)
             .await,
         Err(Error::SchemaNotRegistered(_))
     ));
