@@ -1,10 +1,10 @@
+use serde::{Deserialize, Serialize};
+
+use super::Statement;
 use crate::{
     schema::{Collection, CollectionName, InvalidNameError, Name, Schematic, View},
     Error,
 };
-use serde::{Deserialize, Serialize};
-
-use super::Statement;
 
 /// A named group of permissions statements.
 #[derive(Debug, Serialize, Deserialize)]

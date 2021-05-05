@@ -32,8 +32,13 @@ use pliantdb_core::{
         ServerRequestDispatcher, ServerResponse,
     },
     permissions::{
-        Action, DatabaseAction, DocumentAction, KvAction, PermissionDenied, Permissions,
-        PliantAction, PubSubAction, ResourceName, ServerAction, TransactionAction, ViewAction,
+        pliant::{
+            collection_resource_name, database_resource_name, document_resource_name,
+            kv_key_resource_name, pubsub_topic_resource_name, view_resource_name, DatabaseAction,
+            DocumentAction, KvAction, PliantAction, PubSubAction, ServerAction, TransactionAction,
+            ViewAction,
+        },
+        Action, PermissionDenied, Permissions, ResourceName,
     },
     schema,
     schema::{CollectionName, Schema, ViewName},
@@ -563,49 +568,6 @@ impl ServerConnection for Server {
     }
 }
 
-fn database_resource_name(name: &'_ str) -> ResourceName<'_> {
-    ResourceName::named("pliantdb").and(name)
-}
-
-fn collection_resource_name<'a>(
-    database: &'a str,
-    collection: &'a CollectionName,
-) -> ResourceName<'a> {
-    database_resource_name(database).and(collection.to_string())
-}
-
-fn document_resource_name<'a>(
-    database: &'a str,
-    collection: &'a CollectionName,
-    id: u64,
-) -> ResourceName<'a> {
-    collection_resource_name(database, collection)
-        .and("document")
-        .and(id)
-}
-
-fn view_resource_name<'a>(database: &'a str, view: &'a ViewName) -> ResourceName<'a> {
-    database_resource_name(database)
-        .and(view.collection.to_string())
-        .and("view")
-        .and(view.name.as_ref())
-}
-
-fn pubsub_topic_resource_name<'a>(database: &'a str, topic: &'a str) -> ResourceName<'a> {
-    database_resource_name(database).and("pubsub").and(topic)
-}
-
-fn kv_key_resource_name<'a>(
-    database: &'a str,
-    namespace: Option<&'a str>,
-    key: &'a str,
-) -> ResourceName<'a> {
-    database_resource_name(database)
-        .and("pubsub")
-        .and(namespace.unwrap_or(""))
-        .and(key)
-}
-
 struct ServerDispatcher<'s> {
     server: &'s Server,
     #[cfg(feature = "pubsub")]
@@ -838,8 +800,7 @@ impl<'s> pliantdb_core::networking::GetMultipleHandler for DatabaseDispatcher<'s
     ) -> Result<(), pliantdb_core::Error> {
         for &id in ids {
             let document_name = document_resource_name(&dispatcher.name, collection, id);
-            let action =
-                PliantAction::Database(DatabaseAction::Document(DocumentAction::GetMultiple));
+            let action = PliantAction::Database(DatabaseAction::Document(DocumentAction::Get));
             if !permissions.allowed_to(&document_name, &action) {
                 return Err(pliantdb_core::Error::from(PermissionDenied {
                     resource: document_name.to_owned(),

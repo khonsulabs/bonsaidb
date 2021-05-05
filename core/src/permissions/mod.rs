@@ -1,16 +1,13 @@
 /// Schema types for permission groups.
 pub mod group;
+/// Types used for granting permissions within `PliantDb`.
+pub mod pliant;
 /// Schema types for roles.
 pub mod role;
 
-mod actions;
-
-pub use self::{
-    actions::{
-        DatabaseAction, DocumentAction, KvAction, PliantAction, PubSubAction, ServerAction,
-        TransactionAction, ViewAction,
-    },
-    group::PermissionGroup,
-    role::Role,
+pub use actionable::{
+    Action, ActionName, ActionNameList, Actionable, Identifier, PermissionDenied, Permissions,
+    ResourceName, Statement,
 };
-pub use actionable::*;
+
+pub use self::{group::PermissionGroup, role::Role};

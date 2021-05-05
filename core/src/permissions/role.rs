@@ -1,8 +1,9 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{
     schema::{Collection, CollectionName, InvalidNameError, Name, Schematic, View},
     Error,
 };
-use serde::{Deserialize, Serialize};
 
 /// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::permissions::PermissionGroup)s.
 #[derive(Debug, Serialize, Deserialize)]

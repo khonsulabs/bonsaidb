@@ -130,7 +130,7 @@ where
 pub trait Serialized: Send + Sync + Debug {
     /// Wraps returing [`<View::Collection as Collection>::collection_name()`](crate::schema::Collection::collection_name)
     fn collection(&self) -> Result<CollectionName, InvalidNameError>;
-    /// Wraps [`View::UNIQUE`]
+    /// Wraps [`View::unique`]
     fn unique(&self) -> bool;
     /// Wraps [`View::version`]
     fn version(&self) -> u64;
