@@ -57,7 +57,9 @@ pub trait View: Send + Sync + Debug + 'static {
     /// update and an
     /// [`Error::UniqueKeyViolation`](crate::Error::UniqueKeyViolation) will be
     /// returned.
-    const UNIQUE: bool = false;
+    fn unique(&self) -> bool {
+        false
+    }
 
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
     fn version(&self) -> u64;
@@ -151,7 +153,7 @@ where
     }
 
     fn unique(&self) -> bool {
-        T::UNIQUE
+        self.unique()
     }
 
     fn version(&self) -> u64 {

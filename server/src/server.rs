@@ -27,12 +27,17 @@ use pliantdb_core::{
     networking::{
         self,
         fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey},
-        DatabaseRequest, DatabaseResponse, Payload, Request, Response, ServerRequest,
-        ServerResponse,
+        CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
+        DeleteDatabaseHandler, Payload, Request, RequestDispatcher, Response, ServerRequest,
+        ServerRequestDispatcher, ServerResponse,
+    },
+    permissions::{
+        Action, DatabaseAction, DocumentAction, KvAction, PermissionDenied, Permissions,
+        PliantAction, PubSubAction, ResourceName, ServerAction, TransactionAction, ViewAction,
     },
     schema,
     schema::{CollectionName, Schema, ViewName},
-    transaction::Transaction,
+    transaction::{Command, Transaction},
 };
 use pliantdb_jobs::{manager::Manager, Job};
 use pliantdb_local::{Database, OpenDatabase, Storage};
@@ -421,418 +426,6 @@ impl Server {
         Ok(())
     }
 
-    pub(crate) async fn handle_request(
-        &self,
-        request: Request,
-        #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        #[cfg(feature = "pubsub")] response_sender: &flume::Sender<Payload<Response>>,
-    ) -> Result<Response, Error> {
-        match request {
-            Request::Server(request) => self.handle_server_request(request).await,
-            Request::Database { database, request } => {
-                self.handle_database_request(
-                    database,
-                    request,
-                    #[cfg(feature = "pubsub")]
-                    subscribers,
-                    #[cfg(feature = "pubsub")]
-                    response_sender,
-                )
-                .await
-            }
-        }
-    }
-
-    async fn handle_server_request(&self, request: ServerRequest) -> Result<Response, Error> {
-        match request {
-            ServerRequest::CreateDatabase(database) => {
-                self.create_database_with_schema(&database.name, database.schema)
-                    .await?;
-                Ok(Response::Server(ServerResponse::DatabaseCreated {
-                    name: database.name.clone(),
-                }))
-            }
-            ServerRequest::DeleteDatabase { name } => {
-                self.delete_database(&name).await?;
-                Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
-            }
-            ServerRequest::ListDatabases => Ok(Response::Server(ServerResponse::Databases(
-                self.list_databases().await?,
-            ))),
-            ServerRequest::ListAvailableSchemas => Ok(Response::Server(
-                ServerResponse::AvailableSchemas(self.list_available_schemas().await?),
-            )),
-        }
-    }
-
-    #[allow(clippy::too_many_lines)]
-    #[cfg_attr(not(feature = "pubsub"), allow(clippy::match_same_arms))]
-    async fn handle_database_request(
-        &self,
-        database: String,
-        request: DatabaseRequest,
-        #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        #[cfg(feature = "pubsub")] response_sender: &flume::Sender<Payload<Response>>,
-    ) -> Result<Response, Error> {
-        match request {
-            DatabaseRequest::Get { collection, id } => {
-                self.handle_database_get_request(database, collection, id)
-                    .await
-            }
-            DatabaseRequest::GetMultiple { collection, ids } => {
-                self.handle_database_get_multiple_request(database, collection, ids)
-                    .await
-            }
-            DatabaseRequest::Query {
-                view,
-                key,
-                access_policy,
-                with_docs,
-            } => {
-                self.handle_database_query(database, &view, key, access_policy, with_docs)
-                    .await
-            }
-            DatabaseRequest::Reduce {
-                view,
-                key,
-                access_policy,
-                grouped,
-            } => {
-                self.handle_database_reduce(database, &view, key, access_policy, grouped)
-                    .await
-            }
-
-            DatabaseRequest::ApplyTransaction { transaction } => {
-                self.handle_database_apply_transaction(database, transaction)
-                    .await
-            }
-
-            DatabaseRequest::ListExecutedTransactions {
-                starting_id,
-                result_limit,
-            } => {
-                self.handle_database_list_executed_transactions(database, starting_id, result_limit)
-                    .await
-            }
-            DatabaseRequest::LastTransactionId => {
-                self.handle_database_last_transaction_id(database).await
-            }
-
-            DatabaseRequest::CreateSubscriber => {
-                cfg_if! {
-                    if #[cfg(feature = "pubsub")] {
-                        self.handle_database_create_subscriber(subscribers, response_sender)
-                        .await
-                    } else {
-                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
-                    }
-                }
-            }
-            DatabaseRequest::Publish { topic, payload } => {
-                cfg_if! {
-                    if #[cfg(feature = "pubsub")] {
-                        self.handle_database_publish(database, topic, payload).await
-                    } else {
-                        drop((topic, payload));
-                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
-                    }
-                }
-            }
-            DatabaseRequest::PublishToAll { topics, payload } => {
-                cfg_if! {
-                    if #[cfg(feature = "pubsub")] {
-                        self.handle_database_publish_to_all(database, topics, payload)
-                            .await
-                    } else {
-                        drop((topics, payload));
-                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
-                    }
-                }
-            }
-            DatabaseRequest::SubscribeTo {
-                subscriber_id,
-                topic,
-            } => {
-                cfg_if! {
-                    if #[cfg(feature = "pubsub")] {
-                        self.handle_database_subscribe_to(subscriber_id, topic, subscribers)
-                            .await
-                    } else {
-                        let _ = (subscriber_id, topic);
-                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
-                    }
-                }
-            }
-            DatabaseRequest::UnsubscribeFrom {
-                subscriber_id,
-                topic,
-            } => {
-                cfg_if! {
-                    if #[cfg(feature = "pubsub")] {
-                        self.handle_database_unsubscribe_from(subscriber_id, topic, subscribers)
-                            .await
-                    } else {
-                        let _ = (subscriber_id, topic);
-                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
-                    }
-                }
-            }
-            DatabaseRequest::UnregisterSubscriber { subscriber_id } => {
-                cfg_if! {
-                    if #[cfg(feature = "pubsub")] {
-                        self.handle_database_unregister_subscriber(subscriber_id, subscribers)
-                            .await
-                    } else {
-                        let _ = subscriber_id;
-                        Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
-                    }
-                }
-            }
-            DatabaseRequest::ExecuteKeyOperation(op) => {
-                cfg_if! {
-                    if #[cfg(feature = "keyvalue")] {
-                        self.handle_database_kv_request(database, op).await
-                    } else {
-                        let _ = op;
-                        Err(Error::Request(Arc::new(anyhow::anyhow!("keyvalue is not enabled on this server"))))
-                    }
-                }
-            }
-        }
-    }
-
-    async fn handle_database_get_request(
-        &self,
-        database: String,
-        collection: CollectionName,
-        id: u64,
-    ) -> Result<Response, Error> {
-        let db = self.database_without_schema(&database).await?;
-        let document = db
-            .get_from_collection_id(id, &collection)
-            .await?
-            .ok_or(Error::Core(pliantdb_core::Error::DocumentNotFound(
-                collection, id,
-            )))?;
-        Ok(Response::Database(DatabaseResponse::Documents(vec![
-            document,
-        ])))
-    }
-
-    async fn handle_database_get_multiple_request(
-        &self,
-        database: String,
-        collection: CollectionName,
-        ids: Vec<u64>,
-    ) -> Result<Response, Error> {
-        let db = self.database_without_schema(&database).await?;
-        let documents = db
-            .get_multiple_from_collection_id(&ids, &collection)
-            .await?;
-        Ok(Response::Database(DatabaseResponse::Documents(documents)))
-    }
-
-    async fn handle_database_query(
-        &self,
-        database: String,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-        with_docs: bool,
-    ) -> Result<Response, Error> {
-        let db = self.database_without_schema(&database).await?;
-        if with_docs {
-            let mappings = db.query_with_docs(view, key, access_policy).await?;
-            Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
-                mappings,
-            )))
-        } else {
-            let mappings = db.query(view, key, access_policy).await?;
-            Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
-        }
-    }
-
-    async fn handle_database_reduce(
-        &self,
-        database: String,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-        grouped: bool,
-    ) -> Result<Response, Error> {
-        let db = self.database_without_schema(&database).await?;
-        if grouped {
-            let values = db.reduce_grouped(view, key, access_policy).await?;
-            Ok(Response::Database(DatabaseResponse::ViewGroupedReduction(
-                values,
-            )))
-        } else {
-            let value = db.reduce(view, key, access_policy).await?;
-            Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
-        }
-    }
-
-    async fn handle_database_apply_transaction(
-        &self,
-        database: String,
-        transaction: Transaction<'static>,
-    ) -> Result<Response, Error> {
-        let db = self.database_without_schema(&database).await?;
-        let results = db.apply_transaction(transaction).await?;
-        Ok(Response::Database(DatabaseResponse::TransactionResults(
-            results,
-        )))
-    }
-
-    async fn handle_database_list_executed_transactions(
-        &self,
-        database: String,
-        starting_id: Option<u64>,
-        result_limit: Option<usize>,
-    ) -> Result<Response, Error> {
-        let db = self.database_without_schema(&database).await?;
-        Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
-            db.list_executed_transactions(starting_id, result_limit)
-                .await?,
-        )))
-    }
-
-    async fn handle_database_last_transaction_id(
-        &self,
-        database: String,
-    ) -> Result<Response, Error> {
-        let db = self.database_without_schema(&database).await?;
-        Ok(Response::Database(DatabaseResponse::LastTransactionId(
-            db.last_transaction_id().await?,
-        )))
-    }
-
-    #[cfg(feature = "pubsub")]
-    async fn handle_database_create_subscriber(
-        &self,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        response_sender: &flume::Sender<Payload<Response>>,
-    ) -> Result<Response, Error> {
-        let subscriber = self.data.relay.create_subscriber().await;
-
-        let mut subscribers = subscribers.write().await;
-        let subscriber_id = subscriber.id();
-        let receiver = subscriber.receiver().clone();
-        subscribers.insert(subscriber_id, subscriber);
-
-        let task_self = self.clone();
-        let response_sender = response_sender.clone();
-        tokio::spawn(async move {
-            task_self
-                .forward_notifications_for(subscriber_id, receiver, response_sender.clone())
-                .await
-        });
-
-        Ok(Response::Database(DatabaseResponse::SubscriberCreated {
-            subscriber_id,
-        }))
-    }
-
-    #[cfg(feature = "pubsub")]
-    async fn handle_database_publish(
-        &self,
-        database: String,
-        topic: String,
-        payload: Vec<u8>,
-    ) -> Result<Response, Error> {
-        self.data
-            .relay
-            .publish_message(Message {
-                topic: database_topic(&database, &topic),
-                payload,
-            })
-            .await;
-        Ok(Response::Ok)
-    }
-
-    #[cfg(feature = "pubsub")]
-    async fn handle_database_publish_to_all(
-        &self,
-        database: String,
-        topics: Vec<String>,
-        payload: Vec<u8>,
-    ) -> Result<Response, Error> {
-        self.data
-            .relay
-            .publish_serialized_to_all(
-                topics
-                    .iter()
-                    .map(|topic| database_topic(&database, topic))
-                    .collect(),
-                payload,
-            )
-            .await;
-        Ok(Response::Ok)
-    }
-
-    #[cfg(feature = "pubsub")]
-    async fn handle_database_subscribe_to(
-        &self,
-        subscriber_id: u64,
-        topic: String,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-    ) -> Result<Response, Error> {
-        let subscribers = subscribers.read().await;
-        if let Some(subscriber) = subscribers.get(&subscriber_id) {
-            subscriber.subscribe_to(topic).await;
-            Ok(Response::Ok)
-        } else {
-            Ok(Response::Error(pliantdb_core::Error::Server(String::from(
-                "invalid subscriber id",
-            ))))
-        }
-    }
-
-    #[cfg(feature = "pubsub")]
-    async fn handle_database_unsubscribe_from(
-        &self,
-        subscriber_id: u64,
-        topic: String,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-    ) -> Result<Response, Error> {
-        let subscribers = subscribers.read().await;
-        if let Some(subscriber) = subscribers.get(&subscriber_id) {
-            subscriber.unsubscribe_from(&topic).await;
-            Ok(Response::Ok)
-        } else {
-            Ok(Response::Error(pliantdb_core::Error::Server(String::from(
-                "invalid subscriber id",
-            ))))
-        }
-    }
-
-    #[cfg(feature = "pubsub")]
-    async fn handle_database_unregister_subscriber(
-        &self,
-        subscriber_id: u64,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-    ) -> Result<Response, Error> {
-        let mut subscribers = subscribers.write().await;
-        if subscribers.remove(&subscriber_id).is_none() {
-            Ok(Response::Error(pliantdb_core::Error::Server(String::from(
-                "invalid subscriber id",
-            ))))
-        } else {
-            Ok(Response::Ok)
-        }
-    }
-
-    #[cfg(feature = "keyvalue")]
-    async fn handle_database_kv_request(
-        &self,
-        database: String,
-        op: KeyOperation,
-    ) -> Result<Response, Error> {
-        let db = self.database_without_schema(&database).await?;
-        let result = db.execute_key_operation(op).await?;
-        Ok(Response::Database(DatabaseResponse::KvOutput(result)))
-    }
-
     #[cfg(feature = "pubsub")]
     async fn forward_notifications_for(
         &self,
@@ -927,17 +520,20 @@ impl Job for ClientRequest {
 
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
         let request = self.request.take().unwrap();
-        Ok(self
-            .server
-            .handle_request(
-                request,
+        Ok(RequestDispatcher::dispatch(
+            &ServerDispatcher {
+                server: &self.server,
                 #[cfg(feature = "pubsub")]
-                self.subscribers.clone(),
+                subscribers: &self.subscribers,
                 #[cfg(feature = "pubsub")]
-                &self.sender,
-            )
-            .await
-            .unwrap_or_else(|err| Response::Error(err.into())))
+                response_sender: &self.sender,
+            },
+            // TODO need real permissions
+            &Permissions::default(),
+            request,
+        )
+        .await
+        .unwrap_or_else(Response::Error))
     }
 }
 
@@ -964,5 +560,765 @@ impl ServerConnection for Server {
 
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, pliantdb_core::Error> {
         self.data.storage.list_available_schemas().await
+    }
+}
+
+fn database_resource_name(name: &'_ str) -> ResourceName<'_> {
+    ResourceName::named("pliantdb").and(name)
+}
+
+fn collection_resource_name<'a>(
+    database: &'a str,
+    collection: &'a CollectionName,
+) -> ResourceName<'a> {
+    database_resource_name(database).and(collection.to_string())
+}
+
+fn document_resource_name<'a>(
+    database: &'a str,
+    collection: &'a CollectionName,
+    id: u64,
+) -> ResourceName<'a> {
+    collection_resource_name(database, collection)
+        .and("document")
+        .and(id)
+}
+
+fn view_resource_name<'a>(database: &'a str, view: &'a ViewName) -> ResourceName<'a> {
+    database_resource_name(database)
+        .and(view.collection.to_string())
+        .and("view")
+        .and(view.name.as_ref())
+}
+
+fn pubsub_topic_resource_name<'a>(database: &'a str, topic: &'a str) -> ResourceName<'a> {
+    database_resource_name(database).and("pubsub").and(topic)
+}
+
+fn kv_key_resource_name<'a>(
+    database: &'a str,
+    namespace: Option<&'a str>,
+    key: &'a str,
+) -> ResourceName<'a> {
+    database_resource_name(database)
+        .and("pubsub")
+        .and(namespace.unwrap_or(""))
+        .and(key)
+}
+
+struct ServerDispatcher<'s> {
+    server: &'s Server,
+    #[cfg(feature = "pubsub")]
+    subscribers: &'s Arc<RwLock<HashMap<u64, Subscriber>>>,
+    #[cfg(feature = "pubsub")]
+    response_sender: &'s flume::Sender<Payload<Response>>,
+}
+
+impl<'s> RequestDispatcher for ServerDispatcher<'s> {
+    type Output = Response;
+    type Error = pliantdb_core::Error;
+
+    type ServerHandler = Self;
+    type DatabaseHandler = Self;
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::ServerHandler for ServerDispatcher<'s> {
+    type Dispatcher = Self;
+
+    async fn handle(
+        server: &Self,
+        permissions: &Permissions,
+        request: ServerRequest,
+    ) -> Result<Response, pliantdb_core::Error> {
+        ServerRequestDispatcher::dispatch(server, permissions, request).await
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::DatabaseHandler for ServerDispatcher<'s> {
+    type Dispatcher = Self;
+
+    async fn handle(
+        dispatcher: &Self,
+        permissions: &Permissions,
+        database_name: String,
+        request: DatabaseRequest,
+    ) -> Result<Response, pliantdb_core::Error> {
+        let database = dispatcher
+            .server
+            .database_without_schema(&database_name)
+            .await?;
+        DatabaseDispatcher {
+            name: database_name,
+            database: database.as_ref(),
+            server_dispatcher: dispatcher,
+        }
+        .dispatch(permissions, request)
+        .await
+    }
+}
+
+impl<'s> ServerRequestDispatcher for ServerDispatcher<'s> {
+    type Output = Response;
+    type Error = pliantdb_core::Error;
+
+    type CreateDatabaseHandler = Self;
+    type DeleteDatabaseHandler = Self;
+    type ListDatabasesHandler = Self;
+    type ListAvailableSchemasHandler = Self;
+}
+
+#[async_trait]
+impl<'s> CreateDatabaseHandler for ServerDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name<'a>(
+        _dispatcher: &Self::Dispatcher,
+        database: &'a pliantdb_core::connection::Database,
+    ) -> ResourceName<'a> {
+        database_resource_name(&database.name)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Server(ServerAction::CreateDatabase)
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        database: pliantdb_core::connection::Database,
+    ) -> Result<Response, pliantdb_core::Error> {
+        dispatcher
+            .server
+            .create_database_with_schema(&database.name, database.schema)
+            .await?;
+        Ok(Response::Server(ServerResponse::DatabaseCreated {
+            name: database.name.clone(),
+        }))
+    }
+}
+
+#[async_trait]
+impl<'s> DeleteDatabaseHandler for ServerDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name<'a>(_dispatcher: &Self::Dispatcher, database: &'a String) -> ResourceName<'a> {
+        database_resource_name(database)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Server(ServerAction::DeleteDatabase)
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        name: String,
+    ) -> Result<Response, pliantdb_core::Error> {
+        dispatcher.server.delete_database(&name).await?;
+        Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::ListDatabasesHandler for ServerDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name(_dispatcher: &Self::Dispatcher) -> ResourceName<'static> {
+        ResourceName::default()
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Server(ServerAction::ListDatabases)
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+    ) -> Result<Response, pliantdb_core::Error> {
+        Ok(Response::Server(ServerResponse::Databases(
+            dispatcher.server.list_databases().await?,
+        )))
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::ListAvailableSchemasHandler for ServerDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name(_dispatcher: &Self::Dispatcher) -> ResourceName<'static> {
+        ResourceName::default()
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Server(ServerAction::ListAvailableSchemas)
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+    ) -> Result<Response, pliantdb_core::Error> {
+        Ok(Response::Server(ServerResponse::AvailableSchemas(
+            dispatcher.server.list_available_schemas().await?,
+        )))
+    }
+}
+
+struct DatabaseDispatcher<'s> {
+    name: String,
+    database: &'s dyn OpenDatabase,
+    server_dispatcher: &'s ServerDispatcher<'s>,
+}
+
+impl<'s> DatabaseRequestDispatcher for DatabaseDispatcher<'s> {
+    type Output = Response;
+    type Error = pliantdb_core::Error;
+
+    type GetHandler = Self;
+    type GetMultipleHandler = Self;
+    type QueryHandler = Self;
+    type ReduceHandler = Self;
+    type ApplyTransactionHandler = Self;
+    type ListExecutedTransactionsHandler = Self;
+    type LastTransactionIdHandler = Self;
+    type CreateSubscriberHandler = Self;
+    type PublishHandler = Self;
+    type PublishToAllHandler = Self;
+    type SubscribeToHandler = Self;
+    type UnsubscribeFromHandler = Self;
+    type UnregisterSubscriberHandler = Self;
+    type ExecuteKeyOperationHandler = Self;
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::GetHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name<'a>(
+        dispatcher: &'a Self::Dispatcher,
+        collection: &'a CollectionName,
+        id: &'a u64,
+    ) -> ResourceName<'a> {
+        document_resource_name(&dispatcher.name, collection, *id)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Database(DatabaseAction::Document(DocumentAction::Get))
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        collection: CollectionName,
+        id: u64,
+    ) -> Result<Response, pliantdb_core::Error> {
+        let document = dispatcher
+            .database
+            .get_from_collection_id(id, &collection)
+            .await?
+            .ok_or(Error::Core(pliantdb_core::Error::DocumentNotFound(
+                collection, id,
+            )))?;
+        Ok(Response::Database(DatabaseResponse::Documents(vec![
+            document,
+        ])))
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::GetMultipleHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+
+    async fn verify_permissions(
+        dispatcher: &Self::Dispatcher,
+        permissions: &Permissions,
+        collection: &CollectionName,
+        ids: &Vec<u64>,
+    ) -> Result<(), pliantdb_core::Error> {
+        for &id in ids {
+            let document_name = document_resource_name(&dispatcher.name, collection, id);
+            let action =
+                PliantAction::Database(DatabaseAction::Document(DocumentAction::GetMultiple));
+            if !permissions.allowed_to(&document_name, &action) {
+                return Err(pliantdb_core::Error::from(PermissionDenied {
+                    resource: document_name.to_owned(),
+                    action: action.name(),
+                }));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        collection: CollectionName,
+        ids: Vec<u64>,
+    ) -> Result<Response, pliantdb_core::Error> {
+        let documents = dispatcher
+            .database
+            .get_multiple_from_collection_id(&ids, &collection)
+            .await?;
+        Ok(Response::Database(DatabaseResponse::Documents(documents)))
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::QueryHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name<'a>(
+        dispatcher: &'a Self::Dispatcher,
+        view: &'a ViewName,
+        _key: &'a Option<QueryKey<Vec<u8>>>,
+        _access_policy: &'a AccessPolicy,
+        _with_docs: &'a bool,
+    ) -> ResourceName<'a> {
+        view_resource_name(&dispatcher.name, view)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Database(DatabaseAction::View(ViewAction::Query))
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        view: ViewName,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+        with_docs: bool,
+    ) -> Result<Response, pliantdb_core::Error> {
+        if with_docs {
+            let mappings = dispatcher
+                .database
+                .query_with_docs(&view, key, access_policy)
+                .await?;
+            Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
+                mappings,
+            )))
+        } else {
+            let mappings = dispatcher.database.query(&view, key, access_policy).await?;
+            Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
+        }
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::ReduceHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name<'a>(
+        dispatcher: &'a Self::Dispatcher,
+        view: &'a ViewName,
+        _key: &'a Option<QueryKey<Vec<u8>>>,
+        _access_policy: &'a AccessPolicy,
+        _grouped: &'a bool,
+    ) -> ResourceName<'a> {
+        view_resource_name(&dispatcher.name, view)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Database(DatabaseAction::View(ViewAction::Reduce))
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        view: ViewName,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+        grouped: bool,
+    ) -> Result<Response, pliantdb_core::Error> {
+        if grouped {
+            let values = dispatcher
+                .database
+                .reduce_grouped(&view, key, access_policy)
+                .await?;
+            Ok(Response::Database(DatabaseResponse::ViewGroupedReduction(
+                values,
+            )))
+        } else {
+            let value = dispatcher
+                .database
+                .reduce(&view, key, access_policy)
+                .await?;
+            Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
+        }
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::ApplyTransactionHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+
+    async fn verify_permissions(
+        dispatcher: &Self::Dispatcher,
+        permissions: &Permissions,
+        transaction: &Transaction<'static>,
+    ) -> Result<(), pliantdb_core::Error> {
+        for op in &transaction.operations {
+            let (resource, action) = match &op.command {
+                Command::Insert { .. } => (
+                    collection_resource_name(&dispatcher.name, &op.collection),
+                    PliantAction::Database(DatabaseAction::Document(DocumentAction::Insert)),
+                ),
+                Command::Update { header, .. } => (
+                    document_resource_name(&dispatcher.name, &op.collection, header.id),
+                    PliantAction::Database(DatabaseAction::Document(DocumentAction::Update)),
+                ),
+                Command::Delete { header } => (
+                    document_resource_name(&dispatcher.name, &op.collection, header.id),
+                    PliantAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
+                ),
+            };
+            if !permissions.allowed_to(&resource, &action) {
+                return Err(pliantdb_core::Error::from(PermissionDenied {
+                    resource: resource.to_owned(),
+                    action: action.name(),
+                }));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        transaction: Transaction<'static>,
+    ) -> Result<Response, pliantdb_core::Error> {
+        let results = dispatcher.database.apply_transaction(transaction).await?;
+        Ok(Response::Database(DatabaseResponse::TransactionResults(
+            results,
+        )))
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::ListExecutedTransactionsHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name<'a>(
+        dispatcher: &'a Self::Dispatcher,
+        _starting_id: &'a Option<u64>,
+        _result_limit: &'a Option<usize>,
+    ) -> ResourceName<'a> {
+        database_resource_name(&dispatcher.name)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Database(DatabaseAction::Transaction(TransactionAction::ListExecuted))
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        starting_id: Option<u64>,
+        result_limit: Option<usize>,
+    ) -> Result<Response, pliantdb_core::Error> {
+        Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
+            dispatcher
+                .database
+                .list_executed_transactions(starting_id, result_limit)
+                .await?,
+        )))
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::LastTransactionIdHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name(dispatcher: &'_ Self::Dispatcher) -> ResourceName<'_> {
+        database_resource_name(&dispatcher.name)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Database(DatabaseAction::Transaction(TransactionAction::GetLastId))
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+    ) -> Result<Response, pliantdb_core::Error> {
+        Ok(Response::Database(DatabaseResponse::LastTransactionId(
+            dispatcher.database.last_transaction_id().await?,
+        )))
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::CreateSubscriberHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name(dispatcher: &'_ Self::Dispatcher) -> ResourceName<'_> {
+        database_resource_name(&dispatcher.name)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Database(DatabaseAction::PubSub(PubSubAction::CreateSuscriber))
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+    ) -> Result<Response, pliantdb_core::Error> {
+        cfg_if! {
+            if #[cfg(feature = "pubsub")] {
+                let server = dispatcher.server_dispatcher.server;
+                let subscriber = server.data.relay.create_subscriber().await;
+
+                let mut subscribers = dispatcher.server_dispatcher.subscribers.write().await;
+                let subscriber_id = subscriber.id();
+                let receiver = subscriber.receiver().clone();
+                subscribers.insert(subscriber_id, subscriber);
+
+                let task_self = server.clone();
+                let response_sender = dispatcher.server_dispatcher.response_sender.clone();
+                tokio::spawn(async move {
+                    task_self
+                        .forward_notifications_for(subscriber_id, receiver, response_sender.clone())
+                        .await
+                });
+
+                Ok(Response::Database(DatabaseResponse::SubscriberCreated {
+                    subscriber_id,
+                }))
+            } else {
+                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::PublishHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name<'a>(
+        dispatcher: &'a Self::Dispatcher,
+        topic: &'a String,
+        _payload: &'a Vec<u8>,
+    ) -> ResourceName<'a> {
+        pubsub_topic_resource_name(&dispatcher.name, topic)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Database(DatabaseAction::PubSub(PubSubAction::Publish))
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        topic: String,
+        payload: Vec<u8>,
+    ) -> Result<Response, pliantdb_core::Error> {
+        cfg_if! {
+            if #[cfg(feature = "pubsub")] {
+                dispatcher
+                    .server_dispatcher
+                    .server
+                    .data
+                    .relay
+                    .publish_message(Message {
+                        topic: database_topic(&dispatcher.name, &topic),
+                        payload,
+                    })
+                    .await;
+                Ok(Response::Ok)
+            } else {
+                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::PublishToAllHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+
+    async fn verify_permissions(
+        dispatcher: &Self::Dispatcher,
+        permissions: &Permissions,
+        topics: &Vec<String>,
+        _payload: &Vec<u8>,
+    ) -> Result<(), pliantdb_core::Error> {
+        for topic in topics {
+            let topic_name = pubsub_topic_resource_name(&dispatcher.name, topic);
+            let action = PliantAction::Database(DatabaseAction::PubSub(PubSubAction::Publish));
+            if !permissions.allowed_to(&topic_name, &action) {
+                return Err(pliantdb_core::Error::from(PermissionDenied {
+                    resource: topic_name.to_owned(),
+                    action: action.name(),
+                }));
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        topics: Vec<String>,
+        payload: Vec<u8>,
+    ) -> Result<Response, pliantdb_core::Error> {
+        cfg_if! {
+            if #[cfg(feature = "pubsub")] {
+                dispatcher
+                    .server_dispatcher
+                    .server
+                    .data
+                    .relay
+                    .publish_serialized_to_all(
+                        topics
+                            .iter()
+                            .map(|topic| database_topic(&dispatcher.name, topic))
+                            .collect(),
+                        payload,
+                    )
+                    .await;
+                Ok(Response::Ok)
+            } else {
+                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::SubscribeToHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name<'a>(
+        dispatcher: &'a Self::Dispatcher,
+        _subscriber_id: &'a u64,
+        topic: &'a String,
+    ) -> ResourceName<'a> {
+        pubsub_topic_resource_name(&dispatcher.name, topic)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Database(DatabaseAction::PubSub(PubSubAction::SubscribeTo))
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        subscriber_id: u64,
+        topic: String,
+    ) -> Result<Response, pliantdb_core::Error> {
+        cfg_if! {
+            if #[cfg(feature = "pubsub")] {
+                let subscribers = dispatcher.server_dispatcher.subscribers.read().await;
+                if let Some(subscriber) = subscribers.get(&subscriber_id) {
+                    subscriber.subscribe_to(topic).await;
+                    Ok(Response::Ok)
+                } else {
+                    Ok(Response::Error(pliantdb_core::Error::Server(String::from(
+                        "invalid subscriber id",
+                    ))))
+                }
+            } else {
+                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::UnsubscribeFromHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name<'a>(
+        dispatcher: &'a Self::Dispatcher,
+        _subscriber_id: &'a u64,
+        topic: &'a String,
+    ) -> ResourceName<'a> {
+        pubsub_topic_resource_name(&dispatcher.name, topic)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Database(DatabaseAction::PubSub(PubSubAction::UnsubscribeFrom))
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        subscriber_id: u64,
+        topic: String,
+    ) -> Result<Response, pliantdb_core::Error> {
+        cfg_if! {
+            if #[cfg(feature = "pubsub")] {
+                let subscribers = dispatcher.server_dispatcher.subscribers.read().await;
+                if let Some(subscriber) = subscribers.get(&subscriber_id) {
+                    subscriber.unsubscribe_from(&topic).await;
+                    Ok(Response::Ok)
+                } else {
+                    Ok(Response::Error(pliantdb_core::Error::Server(String::from(
+                        "invalid subscriber id",
+                    ))))
+                }
+            } else {
+                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::UnregisterSubscriberHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+
+    async fn handle(
+        dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
+        subscriber_id: u64,
+    ) -> Result<Response, pliantdb_core::Error> {
+        cfg_if! {
+            if #[cfg(feature = "pubsub")] {
+                let mut subscribers = dispatcher.server_dispatcher.subscribers.write().await;
+                if subscribers.remove(&subscriber_id).is_none() {
+                    Ok(Response::Error(pliantdb_core::Error::Server(String::from(
+                        "invalid subscriber id",
+                    ))))
+                } else {
+                    Ok(Response::Ok)
+                }
+            } else {
+                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl<'s> pliantdb_core::networking::ExecuteKeyOperationHandler for DatabaseDispatcher<'s> {
+    type Dispatcher = Self;
+    type Action = PliantAction;
+
+    fn resource_name<'a>(
+        dispatcher: &'a Self::Dispatcher,
+        op: &'a KeyOperation,
+    ) -> ResourceName<'a> {
+        kv_key_resource_name(&dispatcher.name, op.namespace.as_deref(), &op.key)
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Database(DatabaseAction::Kv(KvAction::ExecuteOperation))
+    }
+
+    async fn handle_protected(
+        dispatcher: &Self::Dispatcher,
+        op: KeyOperation,
+    ) -> Result<Response, pliantdb_core::Error> {
+        cfg_if! {
+            if #[cfg(feature = "keyvalue")] {
+                let result = dispatcher.database.execute_key_operation(op).await?;
+                Ok(Response::Database(DatabaseResponse::KvOutput(result)))
+            } else {
+                Err(Error::Request(Arc::new(anyhow::anyhow!("keyvalue is not enabled on this server"))))
+            }
+        }
     }
 }

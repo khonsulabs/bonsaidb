@@ -21,7 +21,10 @@ pubsub = ["pliantdb-core/pubsub", "pliantdb-local/pubsub"]
 keyvalue = ["pliantdb-core/keyvalue", "pliantdb-local/keyvalue"]
 
 [dependencies]
-pliantdb-core = { path = "../core", version = "0.1.0-dev.3", default-features = false, features = ["networking"] }
+pliantdb-core = { path = "../core", version = "0.1.0-dev.3", default-features = false, features = [
+    "networking",
+    "actionable-traits",
+] }
 pliantdb-local = { path = "../local", version = "0.1.0-dev.3", default-features = false, features = ["internal-apis"] }
 pliantdb-jobs = { path = "../jobs", version = "0.1.0-dev.3" }
 serde = { version = "1", features = ["derive"] }

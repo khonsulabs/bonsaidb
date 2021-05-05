@@ -213,7 +213,10 @@ impl View for UniqueValue {
     type Collection = Unique;
     type Key = u32;
     type Value = ();
-    const UNIQUE: bool = true;
+
+    fn unique(&self) -> bool {
+        true
+    }
 
     fn version(&self) -> u64 {
         1

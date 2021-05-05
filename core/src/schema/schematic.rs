@@ -37,10 +37,11 @@ impl Schematic {
     pub fn define_view<V: View + 'static>(&mut self, view: V) -> Result<(), Error> {
         let name = view.view_name()?;
         let collection = view.collection()?;
+        let unique = view.unique();
         self.views.insert(TypeId::of::<V>(), Box::new(view));
         // TODO check for name collision
         self.views_by_name.insert(name, TypeId::of::<V>());
-        if V::UNIQUE {
+        if unique {
             let unique_views = self
                 .unique_views_by_collection
                 .entry(collection.clone())

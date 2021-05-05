@@ -19,6 +19,7 @@ websockets = []
 trusted-dns = ["fabruic/trust-dns"]
 pubsub = ["circulate"]
 keyvalue = ["futures"]
+actionable-traits = []
 
 [dependencies]
 pliantdb-macros = { path = "../macros" }
@@ -34,6 +35,7 @@ futures = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["time"], optional = true }
 fabruic = { version = "0.0.1-dev.2", optional = true, features = ["dangerous"] }
 num-traits = "0.2"
+actionable = { git = "https://github.com/khonsulabs/actionable.git", branch = "main" }
 
 [dev-dependencies]
 hex-literal = "0.3"

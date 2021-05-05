@@ -149,6 +149,10 @@ pub enum Error {
     /// An invalid name was specified during schema creation.
     #[error("an invalid name was used in a schema: {0}")]
     InvalidName(#[from] schema::InvalidNameError),
+
+    /// Permission was denied.
+    #[error("permission error: {0}")]
+    PermissionDenied(#[from] actionable::PermissionDenied),
 }
 
 impl From<serde_cbor::Error> for Error {

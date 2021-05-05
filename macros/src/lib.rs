@@ -34,15 +34,13 @@ pub fn permissions_action_derive(input: TokenStream) -> TokenStream {
                 let ident_as_string = ident.to_string();
                 match variant.fields.len() {
                     0 => {
-                        fields.push(
-                            quote! { Self::#ident => ActionName::from(vec![#ident_as_string]) },
-                        );
+                        fields.push(quote! { Self::#ident => ActionName(vec![::std::borrow::Cow::Borrowed(#ident_as_string)]) });
                     }
                     1 => {
                         fields.push(quote! {
                             Self::#ident(subaction) => {
                                 let mut name = Action::name(subaction);
-                                name.0.insert(0, #ident_as_string);
+                                name.0.insert(0, ::std::borrow::Cow::Borrowed(#ident_as_string));
                                 name
                             }
                         });
