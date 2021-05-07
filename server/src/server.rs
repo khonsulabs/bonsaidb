@@ -34,9 +34,9 @@ use pliantdb_core::{
     permissions::{
         pliant::{
             collection_resource_name, database_resource_name, document_resource_name,
-            kv_key_resource_name, pubsub_topic_resource_name, view_resource_name, DatabaseAction,
-            DocumentAction, KvAction, PliantAction, PubSubAction, ServerAction, TransactionAction,
-            ViewAction,
+            kv_key_resource_name, pliant_resource_name, pubsub_topic_resource_name,
+            view_resource_name, DatabaseAction, DocumentAction, KvAction, PliantAction,
+            PubSubAction, ServerAction, TransactionAction, ViewAction,
         },
         Action, PermissionDenied, Permissions, ResourceName,
     },
@@ -67,6 +67,7 @@ struct Data {
     directory: PathBuf,
     storage: Storage,
     request_processor: Manager,
+    default_permissions: Permissions,
     #[cfg(feature = "pubsub")]
     relay: Relay,
 }
@@ -89,6 +90,7 @@ impl Server {
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
                 request_processor,
+                default_permissions: configuration.default_permissions,
                 #[cfg(feature = "pubsub")]
                 relay: Relay::default(),
             }),
@@ -533,8 +535,7 @@ impl Job for ClientRequest {
                 #[cfg(feature = "pubsub")]
                 response_sender: &self.sender,
             },
-            // TODO need real permissions
-            &Permissions::default(),
+            &self.server.data.default_permissions,
             request,
         )
         .await
@@ -649,6 +650,7 @@ impl<'s> CreateDatabaseHandler for ServerDispatcher<'s> {
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         database: pliantdb_core::connection::Database,
     ) -> Result<Response, pliantdb_core::Error> {
         dispatcher
@@ -676,6 +678,7 @@ impl<'s> DeleteDatabaseHandler for ServerDispatcher<'s> {
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         name: String,
     ) -> Result<Response, pliantdb_core::Error> {
         dispatcher.server.delete_database(&name).await?;
@@ -689,7 +692,7 @@ impl<'s> pliantdb_core::networking::ListDatabasesHandler for ServerDispatcher<'s
     type Action = PliantAction;
 
     fn resource_name(_dispatcher: &Self::Dispatcher) -> ResourceName<'static> {
-        ResourceName::default()
+        pliant_resource_name()
     }
 
     fn action() -> Self::Action {
@@ -698,6 +701,7 @@ impl<'s> pliantdb_core::networking::ListDatabasesHandler for ServerDispatcher<'s
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
     ) -> Result<Response, pliantdb_core::Error> {
         Ok(Response::Server(ServerResponse::Databases(
             dispatcher.server.list_databases().await?,
@@ -711,7 +715,7 @@ impl<'s> pliantdb_core::networking::ListAvailableSchemasHandler for ServerDispat
     type Action = PliantAction;
 
     fn resource_name(_dispatcher: &Self::Dispatcher) -> ResourceName<'static> {
-        ResourceName::default()
+        pliant_resource_name()
     }
 
     fn action() -> Self::Action {
@@ -720,6 +724,7 @@ impl<'s> pliantdb_core::networking::ListAvailableSchemasHandler for ServerDispat
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
     ) -> Result<Response, pliantdb_core::Error> {
         Ok(Response::Server(ServerResponse::AvailableSchemas(
             dispatcher.server.list_available_schemas().await?,
@@ -772,6 +777,7 @@ impl<'s> pliantdb_core::networking::GetHandler for DatabaseDispatcher<'s> {
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         collection: CollectionName,
         id: u64,
     ) -> Result<Response, pliantdb_core::Error> {
@@ -846,6 +852,7 @@ impl<'s> pliantdb_core::networking::QueryHandler for DatabaseDispatcher<'s> {
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         view: ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
@@ -887,6 +894,7 @@ impl<'s> pliantdb_core::networking::ReduceHandler for DatabaseDispatcher<'s> {
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         view: ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
@@ -975,6 +983,7 @@ impl<'s> pliantdb_core::networking::ListExecutedTransactionsHandler for Database
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
     ) -> Result<Response, pliantdb_core::Error> {
@@ -1002,6 +1011,7 @@ impl<'s> pliantdb_core::networking::LastTransactionIdHandler for DatabaseDispatc
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
     ) -> Result<Response, pliantdb_core::Error> {
         Ok(Response::Database(DatabaseResponse::LastTransactionId(
             dispatcher.database.last_transaction_id().await?,
@@ -1024,6 +1034,7 @@ impl<'s> pliantdb_core::networking::CreateSubscriberHandler for DatabaseDispatch
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
     ) -> Result<Response, pliantdb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
@@ -1072,6 +1083,7 @@ impl<'s> pliantdb_core::networking::PublishHandler for DatabaseDispatcher<'s> {
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         topic: String,
         payload: Vec<u8>,
     ) -> Result<Response, pliantdb_core::Error> {
@@ -1166,6 +1178,7 @@ impl<'s> pliantdb_core::networking::SubscribeToHandler for DatabaseDispatcher<'s
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         subscriber_id: u64,
         topic: String,
     ) -> Result<Response, pliantdb_core::Error> {
@@ -1206,6 +1219,7 @@ impl<'s> pliantdb_core::networking::UnsubscribeFromHandler for DatabaseDispatche
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         subscriber_id: u64,
         topic: String,
     ) -> Result<Response, pliantdb_core::Error> {
@@ -1271,6 +1285,7 @@ impl<'s> pliantdb_core::networking::ExecuteKeyOperationHandler for DatabaseDispa
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         op: KeyOperation,
     ) -> Result<Response, pliantdb_core::Error> {
         cfg_if! {
