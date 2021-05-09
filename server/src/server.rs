@@ -15,8 +15,6 @@ use flume::Sender;
 #[cfg(feature = "websockets")]
 use futures::SinkExt;
 use futures::{Future, StreamExt, TryFutureExt};
-#[cfg(feature = "keyvalue")]
-use pliantdb_core::kv::KeyOperation;
 #[cfg(feature = "pubsub")]
 use pliantdb_core::{
     circulate::{Message, Relay, Subscriber},
@@ -24,6 +22,7 @@ use pliantdb_core::{
 };
 use pliantdb_core::{
     connection::{self, AccessPolicy, QueryKey, ServerConnection},
+    kv::KeyOperation,
     networking::{
         self,
         fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey},
@@ -1035,6 +1034,7 @@ impl<'s> pliantdb_core::networking::CreateSubscriberHandler for DatabaseDispatch
         PliantAction::Database(DatabaseAction::PubSub(PubSubAction::CreateSuscriber))
     }
 
+    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
         _permissions: &Permissions,
@@ -1061,7 +1061,7 @@ impl<'s> pliantdb_core::networking::CreateSubscriberHandler for DatabaseDispatch
                     subscriber_id,
                 }))
             } else {
-                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
@@ -1084,6 +1084,7 @@ impl<'s> pliantdb_core::networking::PublishHandler for DatabaseDispatcher<'s> {
         PliantAction::Database(DatabaseAction::PubSub(PubSubAction::Publish))
     }
 
+    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
         _permissions: &Permissions,
@@ -1104,7 +1105,7 @@ impl<'s> pliantdb_core::networking::PublishHandler for DatabaseDispatcher<'s> {
                     .await;
                 Ok(Response::Ok)
             } else {
-                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
@@ -1134,6 +1135,7 @@ impl<'s> pliantdb_core::networking::PublishToAllHandler for DatabaseDispatcher<'
         Ok(())
     }
 
+    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
         _permissions: &Permissions,
@@ -1157,7 +1159,7 @@ impl<'s> pliantdb_core::networking::PublishToAllHandler for DatabaseDispatcher<'
                     .await;
                 Ok(Response::Ok)
             } else {
-                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
@@ -1180,6 +1182,7 @@ impl<'s> pliantdb_core::networking::SubscribeToHandler for DatabaseDispatcher<'s
         PliantAction::Database(DatabaseAction::PubSub(PubSubAction::SubscribeTo))
     }
 
+    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
         _permissions: &Permissions,
@@ -1198,7 +1201,7 @@ impl<'s> pliantdb_core::networking::SubscribeToHandler for DatabaseDispatcher<'s
                     ))))
                 }
             } else {
-                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
@@ -1221,6 +1224,7 @@ impl<'s> pliantdb_core::networking::UnsubscribeFromHandler for DatabaseDispatche
         PliantAction::Database(DatabaseAction::PubSub(PubSubAction::UnsubscribeFrom))
     }
 
+    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
         _permissions: &Permissions,
@@ -1239,7 +1243,7 @@ impl<'s> pliantdb_core::networking::UnsubscribeFromHandler for DatabaseDispatche
                     ))))
                 }
             } else {
-                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
@@ -1249,6 +1253,7 @@ impl<'s> pliantdb_core::networking::UnsubscribeFromHandler for DatabaseDispatche
 impl<'s> pliantdb_core::networking::UnregisterSubscriberHandler for DatabaseDispatcher<'s> {
     type Dispatcher = Self;
 
+    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle(
         dispatcher: &Self::Dispatcher,
         _permissions: &Permissions,
@@ -1265,7 +1270,7 @@ impl<'s> pliantdb_core::networking::UnregisterSubscriberHandler for DatabaseDisp
                     Ok(Response::Ok)
                 }
             } else {
-                Err(Error::Request(Arc::new(anyhow::anyhow!("pubsub is not enabled on this server"))))
+                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
@@ -1287,6 +1292,7 @@ impl<'s> pliantdb_core::networking::ExecuteKeyOperationHandler for DatabaseDispa
         PliantAction::Database(DatabaseAction::Kv(KvAction::ExecuteOperation))
     }
 
+    #[cfg_attr(not(feature = "keyvalue"), allow(unused_variables))]
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
         _permissions: &Permissions,
@@ -1297,7 +1303,7 @@ impl<'s> pliantdb_core::networking::ExecuteKeyOperationHandler for DatabaseDispa
                 let result = dispatcher.database.execute_key_operation(op).await?;
                 Ok(Response::Database(DatabaseResponse::KvOutput(result)))
             } else {
-                Err(Error::Request(Arc::new(anyhow::anyhow!("keyvalue is not enabled on this server"))))
+                Err(pliantdb_core::Error::Server(String::from("keyvalue is not enabled on this server")))
             }
         }
     }
