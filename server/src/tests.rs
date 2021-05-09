@@ -1,6 +1,4 @@
-use pliantdb_core::test_util::{
-    self, basic_server_connection_tests, Basic, HarnessTest, TestDirectory,
-};
+use pliantdb_core::test_util::{self, BasicSchema, HarnessTest, TestDirectory};
 use pliantdb_local::Database;
 
 use crate::{test_util::initialize_basic_server, Server};
@@ -9,7 +7,7 @@ use crate::{test_util::initialize_basic_server, Server};
 async fn simple_test() -> anyhow::Result<()> {
     let test_dir = TestDirectory::new("simple-test");
     let server = initialize_basic_server(test_dir.as_ref()).await?;
-    let db = server.database::<Basic>("tests").await?;
+    let db = server.database::<BasicSchema>("tests").await?;
     test_util::store_retrieve_update_delete_tests(&db).await
 }
 
@@ -28,12 +26,16 @@ impl TestHarness {
         })
     }
 
+    pub const fn server_name() -> &'static str {
+        "server"
+    }
+
     pub const fn server(&self) -> &'_ Server {
         &self.server
     }
 
-    pub async fn connect(&self) -> anyhow::Result<Database<Basic>> {
-        let db = self.server.database::<Basic>("tests").await?;
+    pub async fn connect(&self) -> anyhow::Result<Database<BasicSchema>> {
+        let db = self.server.database::<BasicSchema>("tests").await?;
         Ok(db)
     }
 
@@ -49,11 +51,3 @@ pliantdb_core::define_pubsub_test_suite!(TestHarness);
 
 #[cfg(feature = "keyvalue")]
 pliantdb_core::define_kv_test_suite!(TestHarness);
-
-#[tokio::test]
-async fn basic_server_tests() -> anyhow::Result<()> {
-    let test_dir = TestDirectory::new("handle-requests");
-    let server = initialize_basic_server(test_dir.as_ref()).await?;
-
-    basic_server_connection_tests(server).await
-}

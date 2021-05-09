@@ -25,6 +25,10 @@ impl View for ByName {
     type Key = String;
     type Value = schema::SchemaName;
 
+    fn unique(&self) -> bool {
+        true
+    }
+
     fn version(&self) -> u64 {
         1
     }

@@ -72,6 +72,12 @@ impl Display for Name {
     }
 }
 
+impl AsRef<str> for Name {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
 /// The owner of a schema item. This should represent the company, group, or
 /// individual that created the item in question. This value is used for
 /// namespacing. Changing this after values are in use is not supported without

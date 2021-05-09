@@ -25,10 +25,14 @@ pub struct Payload<T> {
 
 /// A request made to a server.
 #[derive(Clone, Deserialize, Serialize, Debug)]
+#[cfg_attr(feature = "actionable-traits", derive(actionable::Actionable))]
 pub enum Request {
     /// A server-related request.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     Server(ServerRequest),
+
     /// A database-related request.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     Database {
         /// The name of the database.
         database: String,
@@ -39,24 +43,31 @@ pub enum Request {
 
 /// A server-related request.
 #[derive(Clone, Deserialize, Serialize, Debug)]
+#[cfg_attr(feature = "actionable-traits", derive(actionable::Actionable))]
 pub enum ServerRequest {
     /// Creates a database.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     CreateDatabase(Database),
     /// Deletes the database named `name`
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     DeleteDatabase {
         /// The name of the database to delete.
         name: String,
     },
     /// Lists all databases.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     ListDatabases,
     /// Lists available schemas.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     ListAvailableSchemas,
 }
 
 /// A database-related request.
 #[derive(Clone, Deserialize, Serialize, Debug)]
+#[cfg_attr(feature = "actionable-traits", derive(actionable::Actionable))]
 pub enum DatabaseRequest {
     /// Retrieve a single document.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     Get {
         /// The collection of the document.
         collection: CollectionName,
@@ -64,6 +75,7 @@ pub enum DatabaseRequest {
         id: u64,
     },
     /// Retrieve multiple documents.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
     GetMultiple {
         /// The collection of the documents.
         collection: CollectionName,
@@ -71,6 +83,7 @@ pub enum DatabaseRequest {
         ids: Vec<u64>,
     },
     /// Queries a view.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     Query {
         /// The name of the view.
         view: ViewName,
@@ -84,6 +97,7 @@ pub enum DatabaseRequest {
         with_docs: bool,
     },
     /// Reduces a view.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     Reduce {
         /// The name of the view.
         view: ViewName,
@@ -97,11 +111,13 @@ pub enum DatabaseRequest {
         grouped: bool,
     },
     /// Applies a transaction.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
     ApplyTransaction {
         /// The trasnaction to apply.
         transaction: Transaction<'static>,
     },
     /// Lists executed transactions.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     ListExecutedTransactions {
         /// The starting transaction id.
         starting_id: Option<u64>,
@@ -109,10 +125,13 @@ pub enum DatabaseRequest {
         result_limit: Option<usize>,
     },
     /// Queries the last transaction id.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     LastTransactionId,
     /// Creates a `PubSub` [`Subscriber`](crate::pubsub::Subscriber)
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     CreateSubscriber,
     /// Publishes `payload` to all subscribers of `topic`.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     Publish {
         /// The topics to publish to.
         topic: String,
@@ -120,6 +139,7 @@ pub enum DatabaseRequest {
         payload: Vec<u8>,
     },
     /// Publishes `payload` to all subscribers of all `topics`.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
     PublishToAll {
         /// The topics to publish to.
         topics: Vec<String>,
@@ -127,6 +147,7 @@ pub enum DatabaseRequest {
         payload: Vec<u8>,
     },
     /// Subscribes `subscriber_id` to messages for `topic`.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     SubscribeTo {
         /// The id of the [`Subscriber`](crate::pubsub::Subscriber).
         subscriber_id: u64,
@@ -134,6 +155,7 @@ pub enum DatabaseRequest {
         topic: String,
     },
     /// Unsubscribes `subscriber_id` from messages for `topic`.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     UnsubscribeFrom {
         /// The id of the [`Subscriber`](crate::pubsub::Subscriber).
         subscriber_id: u64,
@@ -141,11 +163,13 @@ pub enum DatabaseRequest {
         topic: String,
     },
     /// Unregisters the subscriber.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     UnregisterSubscriber {
         /// The id of the [`Subscriber`](crate::pubsub::Subscriber).
         subscriber_id: u64,
     },
     /// Excutes a key-value store operation.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     ExecuteKeyOperation(KeyOperation),
 }
 

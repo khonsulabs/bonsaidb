@@ -1,6 +1,15 @@
 [workspace]
 
-members = ["pliantdb", "core", "local", "jobs", "client", "server", "circulate"]
+members = [
+    "circulate",
+    "client",
+    "core",
+    "jobs",
+    "local",
+    "macros",
+    "pliantdb",
+    "server",
+]
 
 [patch.crates-io]
 # fabruic = { path = "../fabruic", version = "0.0.1-dev.2" }

@@ -50,6 +50,17 @@ pub trait View: Send + Sync + Debug + 'static {
     /// An associated type that can be stored with each entry in the view.
     type Value: Serialize + for<'de> Deserialize<'de> + Send + Sync;
 
+    /// If true, no two documents may emit the same key. Unique views are
+    /// updated when the document is saved, allowing for this check to be done
+    /// atomically. When a document is updated, all unique views will be
+    /// updated, and if any of them fail, the document will not be allowed to
+    /// update and an
+    /// [`Error::UniqueKeyViolation`](crate::Error::UniqueKeyViolation) will be
+    /// returned.
+    fn unique(&self) -> bool {
+        false
+    }
+
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
     fn version(&self) -> u64;
 
@@ -119,6 +130,8 @@ where
 pub trait Serialized: Send + Sync + Debug {
     /// Wraps returing [`<View::Collection as Collection>::collection_name()`](crate::schema::Collection::collection_name)
     fn collection(&self) -> Result<CollectionName, InvalidNameError>;
+    /// Wraps [`View::unique`]
+    fn unique(&self) -> bool;
     /// Wraps [`View::version`]
     fn version(&self) -> u64;
     /// Wraps [`View::view_name`]
@@ -137,6 +150,10 @@ where
 {
     fn collection(&self) -> Result<CollectionName, InvalidNameError> {
         <<Self as View>::Collection as Collection>::collection_name()
+    }
+
+    fn unique(&self) -> bool {
+        self.unique()
     }
 
     fn version(&self) -> u64 {

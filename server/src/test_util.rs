@@ -2,20 +2,35 @@
 
 use std::path::Path;
 
-use pliantdb_core::{connection::ServerConnection, test_util::Basic};
+use pliantdb_core::{
+    connection::ServerConnection,
+    permissions::{ActionNameList, Permissions, ResourceName, Statement},
+    test_util::BasicSchema,
+};
 
 use crate::{Configuration, Server};
 
 pub const BASIC_SERVER_NAME: &str = "basic-server";
 
 pub async fn initialize_basic_server(path: &Path) -> anyhow::Result<Server> {
-    let server = Server::open(path, Configuration::default()).await?;
-    server.register_schema::<Basic>().await?;
+    let server = Server::open(
+        path,
+        Configuration {
+            default_permissions: Permissions::from(vec![Statement {
+                resources: vec![ResourceName::any()],
+                actions: ActionNameList::All,
+                allowed: true,
+            }]),
+            ..Configuration::default()
+        },
+    )
+    .await?;
+    server.register_schema::<BasicSchema>().await?;
     server
         .install_self_signed_certificate(BASIC_SERVER_NAME, false)
         .await?;
 
-    server.create_database::<Basic>("tests").await?;
+    server.create_database::<BasicSchema>("tests").await?;
 
     Ok(server)
 }

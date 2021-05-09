@@ -4,6 +4,7 @@ use pliantdb::{
     client::{url::Url, Client},
     core::{
         connection::ServerConnection,
+        permissions::{ActionNameList, Permissions, ResourceName, Statement},
         test_util::{self, Basic, TestDirectory},
     },
     server::{Configuration, Server},
@@ -12,7 +13,18 @@ use pliantdb::{
 #[tokio::test]
 async fn simultaneous_connections() -> anyhow::Result<()> {
     let dir = TestDirectory::new("simultaneous-connections.pliantdb");
-    let server = Server::open(dir.as_ref(), Configuration::default()).await?;
+    let server = Server::open(
+        dir.as_ref(),
+        Configuration {
+            default_permissions: Permissions::from(vec![Statement {
+                resources: vec![ResourceName::any()],
+                actions: ActionNameList::All,
+                allowed: true,
+            }]),
+            ..Configuration::default()
+        },
+    )
+    .await?;
     server
         .install_self_signed_certificate("test", false)
         .await?;

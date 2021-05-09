@@ -186,7 +186,49 @@ impl Schema for BasicSchema {
     }
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_collection::<Basic>()
+        schema.define_collection::<Basic>()?;
+        schema.define_collection::<Unique>()
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
+pub struct Unique {
+    pub value: u32,
+}
+
+impl Collection for Unique {
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        CollectionName::new("khonsulabs", "unique")
+    }
+
+    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
+        schema.define_view(UniqueValue)
+    }
+}
+
+#[derive(Debug)]
+pub struct UniqueValue;
+
+impl View for UniqueValue {
+    type Collection = Unique;
+    type Key = u32;
+    type Value = ();
+
+    fn unique(&self) -> bool {
+        true
+    }
+
+    fn version(&self) -> u64 {
+        1
+    }
+
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("unique-value")
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+        let entry = document.contents::<Unique>()?;
+        Ok(Some(document.emit_key(entry.value)))
     }
 }
 
@@ -271,6 +313,7 @@ pub enum HarnessTest {
     UnassociatedCollection,
     ViewUpdate,
     ViewAccessPolicies,
+    UniqueViews,
     PubSubSimple,
     PubSubMultipleSubscribers,
     PubSubDropAndSend,
@@ -305,7 +348,11 @@ macro_rules! define_connection_test_suite {
             let harness =
                 $harness::new($crate::test_util::HarnessTest::ServerConnectionTests).await?;
             let db = harness.server();
-            $crate::test_util::basic_server_connection_tests(db.clone()).await?;
+            $crate::test_util::basic_server_connection_tests(
+                db.clone(),
+                &format!("server-connection-tests-{}", $harness::server_name()),
+            )
+            .await?;
             harness.shutdown().await
         }
 
@@ -406,6 +453,15 @@ macro_rules! define_connection_test_suite {
             let db = harness.connect().await?;
 
             $crate::test_util::view_access_policy_tests(&db).await?;
+            harness.shutdown().await
+        }
+
+        #[tokio::test]
+        async fn unique_views() -> anyhow::Result<()> {
+            let harness = $harness::new($crate::test_util::HarnessTest::UniqueViews).await?;
+            let db = harness.connect().await?;
+
+            $crate::test_util::unique_view_tests(&db).await?;
             harness.shutdown().await
         }
     };
@@ -838,6 +894,46 @@ pub async fn view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<(
     panic!("view never updated")
 }
 
+pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+    let first_doc = db.collection::<Unique>().push(&Unique { value: 1 }).await?;
+
+    if let Err(Error::UniqueKeyViolation {
+        view,
+        existing_document_id,
+        conflicting_document_id,
+    }) = db.collection::<Unique>().push(&Unique { value: 1 }).await
+    {
+        assert_eq!(view, UniqueValue.view_name()?);
+        assert_eq!(existing_document_id, first_doc.id);
+        // We can't predict the conflicting document id since it's generated
+        // inside of the transaction, but we can assert that it's different than
+        // the document that was previously stored.
+        assert_ne!(conflicting_document_id, existing_document_id);
+    } else {
+        unreachable!("unique key violation not triggered")
+    }
+
+    let second_doc = db.collection::<Unique>().push(&Unique { value: 2 }).await?;
+    let mut second_doc = db.collection::<Unique>().get(second_doc.id).await?.unwrap();
+    let mut contents = second_doc.contents::<Unique>()?;
+    contents.value = 1;
+    second_doc.set_contents(&contents)?;
+    if let Err(Error::UniqueKeyViolation {
+        view,
+        existing_document_id,
+        conflicting_document_id,
+    }) = db.update(&mut second_doc).await
+    {
+        assert_eq!(view, UniqueValue.view_name()?);
+        assert_eq!(existing_document_id, first_doc.id);
+        assert_eq!(conflicting_document_id, second_doc.header.id);
+    } else {
+        unreachable!("unique key violation not triggered")
+    }
+
+    Ok(())
+}
+
 /// Defines the Kv test suite
 #[macro_export]
 macro_rules! define_kv_test_suite {
@@ -945,7 +1041,7 @@ macro_rules! define_kv_test_suite {
                         .expire_in(Duration::from_secs(100))
                         .keep_existing_expiration()
                 );
-                if timing.elapsed() > Duration::from_secs(2) {
+                if timing.elapsed() > Duration::from_secs(1) {
                     println!(
                         "Restarting test {}. Took too long {:?}",
                         line!(),
@@ -958,7 +1054,7 @@ macro_rules! define_kv_test_suite {
                 assert_eq!(r2?, KeyStatus::Updated, "b wasn't an update");
 
                 let a = kv.get_key::<u32, _>("a").await?;
-                assert_eq!(a, Some(1));
+                assert_eq!(a, Some(1), "a shouldn't have expired yet");
 
                 // Before checking the value, make sure we haven't elapsed too
                 // much time. If so, just restart the test.
@@ -1070,7 +1166,10 @@ impl TimingTest {
     }
 }
 
-pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> anyhow::Result<()> {
+pub async fn basic_server_connection_tests<C: ServerConnection>(
+    server: C,
+    newdb_name: &str,
+) -> anyhow::Result<()> {
     let schemas = server.list_available_schemas().await?;
     assert_eq!(schemas, vec![Basic::schema_name()?]);
 
@@ -1080,11 +1179,11 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
         schema: Basic::schema_name()?
     }));
 
-    server.create_database::<Basic>("another-db").await?;
-    server.delete_database("another-db").await?;
+    server.create_database::<Basic>(newdb_name).await?;
+    server.delete_database(newdb_name).await?;
 
     assert!(matches!(
-        server.delete_database("another-db").await,
+        server.delete_database(newdb_name).await,
         Err(Error::DatabaseNotFound(_))
     ));
 
@@ -1100,7 +1199,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(server: C) -> an
 
     assert!(matches!(
         server
-            .create_database::<UnassociatedCollection>("another-db")
+            .create_database::<UnassociatedCollection>(newdb_name)
             .await,
         Err(Error::SchemaNotRegistered(_))
     ));
