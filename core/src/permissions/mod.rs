@@ -6,8 +6,8 @@ pub mod pliant;
 pub mod role;
 
 pub use actionable::{
-    Action, ActionName, ActionNameList, Actionable, Identifier, PermissionDenied, Permissions,
-    ResourceName, Statement,
+    Action, ActionName, ActionNameList, Actionable, Dispatcher, Identifier, PermissionDenied,
+    Permissions, ResourceName, Statement,
 };
 
 pub use self::{group::PermissionGroup, role::Role};

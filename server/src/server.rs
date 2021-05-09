@@ -34,11 +34,11 @@ use pliantdb_core::{
     permissions::{
         pliant::{
             collection_resource_name, database_resource_name, document_resource_name,
-            kv_key_resource_name, pliant_resource_name, pubsub_topic_resource_name,
+            kv_key_resource_name, pliantdb_resource_name, pubsub_topic_resource_name,
             view_resource_name, DatabaseAction, DocumentAction, KvAction, PliantAction,
             PubSubAction, ServerAction, TransactionAction, ViewAction,
         },
-        Action, PermissionDenied, Permissions, ResourceName,
+        Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
     },
     schema,
     schema::{CollectionName, Schema, ViewName},
@@ -527,17 +527,14 @@ impl Job for ClientRequest {
 
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
         let request = self.request.take().unwrap();
-        Ok(RequestDispatcher::dispatch(
-            &ServerDispatcher {
-                server: &self.server,
-                #[cfg(feature = "pubsub")]
-                subscribers: &self.subscribers,
-                #[cfg(feature = "pubsub")]
-                response_sender: &self.sender,
-            },
-            &self.server.data.default_permissions,
-            request,
-        )
+        Ok(ServerDispatcher {
+            server: &self.server,
+            #[cfg(feature = "pubsub")]
+            subscribers: &self.subscribers,
+            #[cfg(feature = "pubsub")]
+            response_sender: &self.sender,
+        }
+        .dispatch(&self.server.data.default_permissions, request)
         .await
         .unwrap_or_else(Response::Error))
     }
@@ -569,6 +566,8 @@ impl ServerConnection for Server {
     }
 }
 
+#[derive(Dispatcher, Debug)]
+#[dispatcher(input = "Request, ServerRequest")]
 struct ServerDispatcher<'s> {
     server: &'s Server,
     #[cfg(feature = "pubsub")]
@@ -594,7 +593,7 @@ impl<'s> pliantdb_core::networking::ServerHandler for ServerDispatcher<'s> {
         permissions: &Permissions,
         request: ServerRequest,
     ) -> Result<Response, pliantdb_core::Error> {
-        ServerRequestDispatcher::dispatch(server, permissions, request).await
+        server.dispatch(permissions, request).await
     }
 }
 
@@ -692,7 +691,7 @@ impl<'s> pliantdb_core::networking::ListDatabasesHandler for ServerDispatcher<'s
     type Action = PliantAction;
 
     fn resource_name(_dispatcher: &Self::Dispatcher) -> ResourceName<'static> {
-        pliant_resource_name()
+        pliantdb_resource_name()
     }
 
     fn action() -> Self::Action {
@@ -715,7 +714,7 @@ impl<'s> pliantdb_core::networking::ListAvailableSchemasHandler for ServerDispat
     type Action = PliantAction;
 
     fn resource_name(_dispatcher: &Self::Dispatcher) -> ResourceName<'static> {
-        pliant_resource_name()
+        pliantdb_resource_name()
     }
 
     fn action() -> Self::Action {
@@ -732,6 +731,8 @@ impl<'s> pliantdb_core::networking::ListAvailableSchemasHandler for ServerDispat
     }
 }
 
+#[derive(Dispatcher, Debug)]
+#[dispatcher(input = "DatabaseRequest")]
 struct DatabaseDispatcher<'s> {
     name: String,
     database: &'s dyn OpenDatabase,
@@ -820,6 +821,7 @@ impl<'s> pliantdb_core::networking::GetMultipleHandler for DatabaseDispatcher<'s
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         collection: CollectionName,
         ids: Vec<u64>,
     ) -> Result<Response, pliantdb_core::Error> {
@@ -955,6 +957,7 @@ impl<'s> pliantdb_core::networking::ApplyTransactionHandler for DatabaseDispatch
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         transaction: Transaction<'static>,
     ) -> Result<Response, pliantdb_core::Error> {
         let results = dispatcher.database.apply_transaction(transaction).await?;
@@ -1133,6 +1136,7 @@ impl<'s> pliantdb_core::networking::PublishToAllHandler for DatabaseDispatcher<'
 
     async fn handle_protected(
         dispatcher: &Self::Dispatcher,
+        _permissions: &Permissions,
         topics: Vec<String>,
         payload: Vec<u8>,
     ) -> Result<Response, pliantdb_core::Error> {

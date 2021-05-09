@@ -21,7 +21,7 @@ pub async fn initialize_basic_server(path: &Path) -> anyhow::Result<Server> {
                 actions: ActionNameList::All,
                 allowed: true,
             }]),
-            ..Default::default()
+            ..Configuration::default()
         },
     )
     .await?;

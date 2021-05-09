@@ -13,14 +13,14 @@ use crate::schema::{CollectionName, ViewName};
 
 /// Creates a resource name with the database `name`.
 #[must_use]
-pub fn pliant_resource_name<'a>() -> ResourceName<'a> {
+pub fn pliantdb_resource_name<'a>() -> ResourceName<'a> {
     ResourceName::named("pliantdb")
 }
 
 /// Creates a resource name with the database `name`.
 #[must_use]
 pub fn database_resource_name(name: &'_ str) -> ResourceName<'_> {
-    pliant_resource_name().and(name)
+    pliantdb_resource_name().and(name)
 }
 
 /// Creates a resource name for a `collection` within a `database`.
