@@ -1,3 +1,11 @@
+// When generating docs with either keyvalue or pubsub features disabled, there
+// will be broken links in these docs. Instead of failing to generate docs with
+// these feaures disabled, we downgrade the `broken_intra_doc_links` lint to a
+// warning.
+#![cfg_attr(
+    all(doc, not(all(feature = "keyvalue", feature = "pubsub"))),
+    warn(broken_intra_doc_links)
+)]
 use actionable::{Action, ResourceName};
 use serde::{Deserialize, Serialize};
 
