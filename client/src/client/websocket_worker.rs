@@ -3,7 +3,11 @@ use futures::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use pliantdb_core::networking::{Payload, Response};
+use pliantdb_core::{
+    networking::{Payload, Response},
+    permissions::Action,
+};
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use url::Url;
@@ -15,9 +19,12 @@ use crate::{
     Error,
 };
 
-pub async fn reconnecting_client_loop(
+pub async fn reconnecting_client_loop<
+    R: Action + Serialize + for<'de> Deserialize<'de>,
+    O: Serialize + for<'de> Deserialize<'de> + Send,
+>(
     url: Url,
-    mut request_receiver: Receiver<PendingRequest>,
+    mut request_receiver: Receiver<PendingRequest<R, O>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Ok(request) = request_receiver.recv_async().await {
@@ -63,10 +70,13 @@ pub async fn reconnecting_client_loop(
     Ok(())
 }
 
-async fn request_sender(
-    request_receiver: &mut Receiver<PendingRequest>,
+async fn request_sender<
+    R: Action + Serialize + for<'de> Deserialize<'de>,
+    O: Serialize + for<'de> Deserialize<'de> + Send,
+>(
+    request_receiver: &mut Receiver<PendingRequest<R, O>>,
     mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    outstanding_requests: OutstandingRequestMapHandle,
+    outstanding_requests: OutstandingRequestMapHandle<O>,
 ) -> Result<(), Error> {
     while let Ok(pending) = request_receiver.recv_async().await {
         {
@@ -85,16 +95,16 @@ async fn request_sender(
 }
 
 #[allow(clippy::collapsible_else_if)] // not possible due to cfg statement
-async fn response_processor(
+async fn response_processor<O: for<'de> Deserialize<'de> + Send>(
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-    outstanding_requests: OutstandingRequestMapHandle,
+    outstanding_requests: OutstandingRequestMapHandle<O>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Some(message) = receiver.next().await {
         let message = message?;
         match message {
             Message::Binary(response) => {
-                let payload = bincode::deserialize::<Payload<Response>>(&response)?;
+                let payload = bincode::deserialize::<Payload<Response<O>>>(&response)?;
 
                 if let Some(payload_id) = payload.id {
                     let responder = {

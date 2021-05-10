@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pliantdb_core::{
+    backend::Backend,
     circulate::Message,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     pubsub::{database_topic, PubSub, Subscriber},
@@ -12,11 +13,12 @@ use serde::Serialize;
 use crate::Client;
 
 #[async_trait]
-impl<DB> PubSub for super::RemoteDatabase<DB>
+impl<DB, B> PubSub for super::RemoteDatabase<DB, B>
 where
     DB: Schema,
+    B: Backend,
 {
-    type Subscriber = RemoteSubscriber;
+    type Subscriber = RemoteSubscriber<B>;
 
     async fn create_subscriber(&self) -> Result<Self::Subscriber, pliantdb_core::Error> {
         match self
@@ -93,15 +95,15 @@ where
 }
 
 #[derive(Debug)]
-pub struct RemoteSubscriber {
-    client: Client,
+pub struct RemoteSubscriber<B: Backend> {
+    client: Client<B>,
     database: Arc<String>,
     id: u64,
     receiver: flume::Receiver<Arc<Message>>,
 }
 
 #[async_trait]
-impl Subscriber for RemoteSubscriber {
+impl<B: Backend> Subscriber for RemoteSubscriber<B> {
     async fn subscribe_to<S: Into<String> + Send>(
         &self,
         topic: S,
@@ -150,7 +152,7 @@ impl Subscriber for RemoteSubscriber {
     }
 }
 
-impl Drop for RemoteSubscriber {
+impl<B: Backend> Drop for RemoteSubscriber<B> {
     fn drop(&mut self) {
         let client = self.client.clone();
         let database = self.database.to_string();

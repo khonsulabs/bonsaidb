@@ -26,7 +26,7 @@ pub struct Payload<T> {
 /// A request made to a server.
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[cfg_attr(feature = "actionable-traits", derive(actionable::Actionable))]
-pub enum Request {
+pub enum Request<T> {
     /// A server-related request.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     Server(ServerRequest),
@@ -39,6 +39,13 @@ pub enum Request {
         /// The request made to the database.
         request: DatabaseRequest,
     },
+
+    /// A database-related request.
+    #[cfg_attr(
+        feature = "actionable-traits",
+        actionable(protection = "none", subaction)
+    )]
+    Api(T),
 }
 
 /// A server-related request.
@@ -175,13 +182,15 @@ pub enum DatabaseRequest {
 
 /// A response from a server.
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub enum Response {
+pub enum Response<T> {
     /// A request succeded but provided no output.
     Ok,
     /// A response to a [`ServerRequest`].
     Server(ServerResponse),
     /// A response to a [`DatabaseRequest`].
     Database(DatabaseResponse),
+    /// A response to an Api request.
+    Api(T),
     /// An error occurred processing a request.
     Error(crate::Error),
 }
