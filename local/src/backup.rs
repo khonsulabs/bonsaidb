@@ -162,6 +162,11 @@ impl Command {
                     "Exporting {}",
                     String::from_utf8(collection_tree.to_vec()).unwrap()
                 );
+
+                let collection_name = String::from_utf8(collection_tree.to_vec())?;
+                let collection_name =
+                    CollectionName::try_from(collection_name.split("::").last().unwrap())?;
+
                 let database = Arc::new(database);
                 let tree = db.sled().open_tree(&collection_tree)?;
                 for result in tree.iter() {
@@ -169,6 +174,7 @@ impl Command {
                     let document = bincode::deserialize::<Document<'_>>(&document)?;
                     sender.send(BackupEntry::Document {
                         database: database.clone(),
+                        collection: collection_name.clone(),
                         document: document.to_owned(),
                     })?;
                 }
@@ -262,12 +268,12 @@ impl Command {
                                     id,
                                     revision: Revision::with_id(revision, &contents),
                                 }),
-                                collection: collection.clone(),
                                 contents: Cow::Owned(contents),
                             };
                             sender
                                 .send_async(BackupEntry::Document {
                                     database: database.clone(),
+                                    collection: collection.clone(),
                                     document: doc,
                                 })
                                 .await?;
@@ -286,6 +292,7 @@ impl Command {
 enum BackupEntry {
     Document {
         database: Arc<String>,
+        collection: CollectionName,
         document: Document<'static>,
     },
     Transaction {
@@ -301,10 +308,13 @@ async fn write_documents(receiver: Receiver<BackupEntry>, backup: PathBuf) -> an
 
     while let Ok(entry) = receiver.recv_async().await {
         match entry {
-            BackupEntry::Document { database, document } => {
-                let collection_directory = backup
-                    .join(database.as_ref())
-                    .join(document.collection.to_string());
+            BackupEntry::Document {
+                database,
+                collection,
+                document,
+            } => {
+                let collection_directory =
+                    backup.join(database.as_ref()).join(collection.to_string());
                 if !collection_directory.exists() {
                     tokio::fs::create_dir_all(&collection_directory).await?;
                 }
@@ -339,10 +349,14 @@ async fn write_documents(receiver: Receiver<BackupEntry>, backup: PathBuf) -> an
 fn restore_documents(receiver: Receiver<BackupEntry>, storage: Storage) -> anyhow::Result<()> {
     while let Ok(entry) = receiver.recv() {
         match entry {
-            BackupEntry::Document { database, document } => {
+            BackupEntry::Document {
+                database,
+                collection,
+                document,
+            } => {
                 let tree = storage
                     .sled()
-                    .open_tree(document_tree_name(&database, &document.collection))?;
+                    .open_tree(document_tree_name(&database, &collection))?;
                 tree.insert(
                     document.header.id.as_big_endian_bytes()?,
                     bincode::serialize(&document)?,

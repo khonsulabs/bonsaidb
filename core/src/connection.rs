@@ -43,10 +43,10 @@ pub trait Connection: Send + Sync {
     /// Updates an existing document in the connected [`schema::Schema`] for the
     /// [`Collection`] `C`. Upon success, `doc.revision` will be updated with
     /// the new revision.
-    async fn update(&self, doc: &mut Document<'_>) -> Result<(), Error> {
+    async fn update<C: schema::Collection>(&self, doc: &mut Document<'_>) -> Result<(), Error> {
         let mut tx = Transaction::default();
         tx.push(Operation {
-            collection: doc.collection.clone(),
+            collection: C::collection_name()?,
             command: Command::Update {
                 header: Cow::Owned(doc.header.as_ref().clone()),
                 contents: Cow::Owned(doc.contents.to_vec()),
@@ -75,10 +75,10 @@ pub trait Connection: Send + Sync {
     ) -> Result<Vec<Document<'static>>, Error>;
 
     /// Removes a `Document` from the database.
-    async fn delete(&self, doc: &Document<'_>) -> Result<(), Error> {
+    async fn delete<C: schema::Collection>(&self, doc: &Document<'_>) -> Result<(), Error> {
         let mut tx = Transaction::default();
         tx.push(Operation {
-            collection: doc.collection.clone(),
+            collection: C::collection_name()?,
             command: Command::Delete {
                 header: Cow::Owned(doc.header.as_ref().clone()),
             },

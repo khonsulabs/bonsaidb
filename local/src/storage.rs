@@ -412,7 +412,7 @@ impl ServerConnection for Storage {
             .await?
             .first()
         {
-            admin.delete(&entry.document).await?;
+            admin.delete::<DatabaseRecord>(&entry.document).await?;
             available_databases.remove(name);
 
             Ok(())

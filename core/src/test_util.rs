@@ -483,7 +483,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     // Update the value
     value.value = String::from("updated_value");
     doc.set_contents(&value)?;
-    db.update(&mut doc).await?;
+    db.update::<Basic>(&mut doc).await?;
 
     // update should cause the revision to be changed
     assert_ne!(doc.header.revision, old_revision);
@@ -509,7 +509,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         assert_eq!(transaction.changed_documents[0].deleted, false);
     }
 
-    db.delete(&doc).await?;
+    db.delete::<Basic>(&doc).await?;
     assert!(collection.get(header.id).await?.is_none());
     let transactions = db
         .list_executed_transactions(Some(transactions.last().as_ref().unwrap().id + 1), None)
@@ -547,13 +547,13 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let mut value = doc.contents::<Basic>()?;
     value.value = String::from("updated_value");
     doc.set_contents(&value)?;
-    db.update(&mut doc).await?;
+    db.update::<Basic>(&mut doc).await?;
 
     // To generate a conflict, let's try to do the same update again by
     // reverting the header
     doc.header = Cow::Owned(header);
     match db
-        .update(&mut doc)
+        .update::<Basic>(&mut doc)
         .await
         .expect_err("conflict should have generated an error")
     {
@@ -568,8 +568,8 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 }
 
 pub async fn bad_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    let mut doc = Document::with_contents(1, &Basic::default(), Basic::collection_name()?)?;
-    match db.update(&mut doc).await {
+    let mut doc = Document::with_contents(1, &Basic::default())?;
+    match db.update::<Basic>(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
             assert_eq!(collection, Basic::collection_name()?);
             assert_eq!(id, 1);
@@ -588,7 +588,7 @@ pub async fn no_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         .get(header.id)
         .await?
         .expect("couldn't retrieve stored item");
-    db.update(&mut doc).await?;
+    db.update::<Basic>(&mut doc).await?;
 
     assert_eq!(doc.header.as_ref(), &header);
 
@@ -807,7 +807,7 @@ pub async fn view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let mut basic = doc.contents::<Basic>()?;
     basic.parent_id = None;
     doc.set_contents(&basic)?;
-    db.update(&mut doc).await?;
+    db.update::<Basic>(&mut doc).await?;
 
     let a_children = db
         .view::<BasicByParentId>()
@@ -825,7 +825,7 @@ pub async fn view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     assert_eq!(db.view::<BasicByParentId>().reduce().await?, 2);
 
     // Test deleting a record and ensuring it goes away
-    db.delete(&doc).await?;
+    db.delete::<Basic>(&doc).await?;
 
     let all_entries = db.view::<BasicByParentId>().query().await?;
     assert_eq!(all_entries.len(), 1);
@@ -922,7 +922,7 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         view,
         existing_document_id,
         conflicting_document_id,
-    }) = db.update(&mut second_doc).await
+    }) = db.update::<Unique>(&mut second_doc).await
     {
         assert_eq!(view, UniqueValue.view_name()?);
         assert_eq!(existing_document_id, first_doc.id);
