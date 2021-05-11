@@ -587,7 +587,7 @@ impl<B: Backend> ServerConnection for Server<B> {
 }
 
 #[derive(Dispatcher, Debug)]
-#[dispatcher(input = "Request<<B::CustomApi as CustomApi>::Request>, ServerRequest")]
+#[dispatcher(input = Request<<B::CustomApi as CustomApi>::Request>, input = ServerRequest)]
 struct ServerDispatcher<'s, B: Backend> {
     server: &'s Server<B>,
     #[cfg(feature = "pubsub")]
@@ -772,7 +772,7 @@ impl<'s, B: Backend> pliantdb_core::networking::ListAvailableSchemasHandler
 }
 
 #[derive(Dispatcher, Debug)]
-#[dispatcher(input = "DatabaseRequest")]
+#[dispatcher(input = DatabaseRequest)]
 struct DatabaseDispatcher<'s, B>
 where
     B: Backend,
