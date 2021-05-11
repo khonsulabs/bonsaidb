@@ -1,4 +1,4 @@
-//! Tests a single server with multiple simultaneous connections.
+//! Tests invoking an API defined in a custom backend.
 
 use pliantdb::{
     client::{url::Url, Client},
