@@ -3,9 +3,7 @@
 use pliantdb::{
     client::{url::Url, Client},
     core::{
-        permissions::{
-            ActionNameList, Actionable, Dispatcher, Permissions, ResourceName, Statement,
-        },
+        permissions::{Actionable, Dispatcher, Permissions},
         test_util::{Basic, TestDirectory},
     },
     server::{Configuration, Server},
@@ -46,11 +44,7 @@ async fn custom_api() -> anyhow::Result<()> {
     let server = Server::<CustomBackend>::open(
         dir.as_ref(),
         Configuration {
-            default_permissions: Permissions::from(vec![Statement {
-                resources: vec![ResourceName::any()],
-                actions: ActionNameList::All,
-                allowed: true,
-            }]),
+            default_permissions: Permissions::allow_all(),
             ..Configuration::default_with_dispatcher(CustomBackend)
         },
     )
