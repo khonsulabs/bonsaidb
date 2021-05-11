@@ -811,11 +811,7 @@ fn execute_insert(
     contents: Cow<'_, [u8]>,
 ) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
     let documents = &trees[tree_index_map[&document_tree_name(database, &operation.collection)]];
-    let doc = Document::new(
-        documents.generate_id()?,
-        contents,
-        operation.collection.clone(),
-    );
+    let doc = Document::new(documents.generate_id()?, contents);
     save_doc(documents, &doc)?;
     let serialized: Vec<u8> = bincode::serialize(&doc)
         .map_err_to_core()

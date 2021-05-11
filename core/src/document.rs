@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{CollectionName, Key, Map};
+use crate::schema::{Key, Map};
 
 mod revision;
 pub use revision::Revision;
@@ -20,9 +20,6 @@ pub struct Header {
 /// Contains a serialized document in the database.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Document<'a> {
-    /// The `Id` of the `Collection` this document belongs to.
-    pub collection: CollectionName,
-
     /// The header of the document, which contains the id and `Revision`.
     pub header: Cow<'a, Header>,
 
@@ -33,23 +30,18 @@ pub struct Document<'a> {
 impl<'a> Document<'a> {
     /// Creates a new document with `contents`.
     #[must_use]
-    pub fn new(id: u64, contents: Cow<'a, [u8]>, collection: CollectionName) -> Self {
+    pub fn new(id: u64, contents: Cow<'a, [u8]>) -> Self {
         let revision = Revision::new(&contents);
         Self {
             header: Cow::Owned(Header { id, revision }),
             contents,
-            collection,
         }
     }
 
     /// Creates a new document with serialized bytes from `contents`.
-    pub fn with_contents<S: Serialize>(
-        id: u64,
-        contents: &S,
-        collection: CollectionName,
-    ) -> Result<Self, serde_cbor::Error> {
+    pub fn with_contents<S: Serialize>(id: u64, contents: &S) -> Result<Self, serde_cbor::Error> {
         let contents = Cow::from(serde_cbor::to_vec(contents)?);
-        Ok(Self::new(id, contents, collection))
+        Ok(Self::new(id, contents))
     }
 
     /// Retrieves `contents` through deserialization into the type `D`.
@@ -79,7 +71,6 @@ impl<'a> Document<'a> {
                     revision,
                 }),
                 contents,
-                collection: self.collection.clone(),
             })
     }
 
@@ -115,7 +106,6 @@ impl<'a> Document<'a> {
     #[must_use]
     pub fn to_owned(&self) -> Document<'static> {
         Document::<'static> {
-            collection: self.collection.clone(),
             header: Cow::Owned(self.header.as_ref().clone()),
             contents: Cow::Owned(self.contents.as_ref().to_vec()),
         }
@@ -124,12 +114,9 @@ impl<'a> Document<'a> {
 
 #[test]
 fn emissions_tests() -> Result<(), crate::Error> {
-    use crate::{
-        schema::{Collection, Map},
-        test_util::Basic,
-    };
+    use crate::{schema::Map, test_util::Basic};
 
-    let doc = Document::with_contents(1, &Basic::default(), Basic::collection_name()?)?;
+    let doc = Document::with_contents(1, &Basic::default())?;
 
     assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));
 
