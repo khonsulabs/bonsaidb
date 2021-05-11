@@ -3,10 +3,7 @@ use futures::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use pliantdb_core::{
-    networking::{Payload, Response},
-    permissions::Action,
-};
+use pliantdb_core::networking::{Payload, Response};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
@@ -20,7 +17,7 @@ use crate::{
 };
 
 pub async fn reconnecting_client_loop<
-    R: Action + Serialize + for<'de> Deserialize<'de>,
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de>,
     O: Serialize + for<'de> Deserialize<'de> + Send,
 >(
     url: Url,
@@ -71,7 +68,7 @@ pub async fn reconnecting_client_loop<
 }
 
 async fn request_sender<
-    R: Action + Serialize + for<'de> Deserialize<'de>,
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de>,
     O: Serialize + for<'de> Deserialize<'de> + Send,
 >(
     request_receiver: &mut Receiver<PendingRequest<R, O>>,

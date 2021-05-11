@@ -17,7 +17,6 @@ use pliantdb_core::{
     connection::{Database, ServerConnection},
     fabruic::Certificate,
     networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
-    permissions::Action,
     schema::{Schema, SchemaName, Schematic},
 };
 use tokio::{sync::Mutex, task::JoinHandle};
@@ -212,6 +211,20 @@ impl<B: Backend> Client<B> {
         result_receiver.recv_async().await?
     }
 
+    /// Sends an api `request`.
+    pub async fn send_api_request(
+        &self,
+        request: <B::CustomApi as CustomApi>::Request,
+    ) -> Result<<B::CustomApi as CustomApi>::Response, Error> {
+        match self.send_request(Request::Api(request)).await? {
+            Response::Api(response) => Ok(response),
+            Response::Error(err) => Err(Error::Core(err)),
+            other => Err(Error::Network(networking::Error::UnexpectedResponse(
+                format!("{:?}", other),
+            ))),
+        }
+    }
+
     #[cfg(feature = "test-util")]
     #[doc(hidden)]
     #[must_use]
@@ -306,7 +319,7 @@ type OutstandingRequestMap<O> = HashMap<u32, Sender<Result<Response<O>, Error>>>
 type OutstandingRequestMapHandle<O> = Arc<Mutex<OutstandingRequestMap<O>>>;
 
 #[derive(Debug)]
-pub struct PendingRequest<R: Action, O> {
+pub struct PendingRequest<R, O> {
     request: Payload<Request<R>>,
     responder: Sender<Result<Response<O>, Error>>,
 }

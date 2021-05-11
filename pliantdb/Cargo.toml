@@ -48,6 +48,10 @@ required-features = ["server", "client", "test-util"]
 name = "simultaneous-connections"
 required-features = ["server", "client"]
 
+[[test]]
+name = "custom-api"
+required-features = ["server", "client"]
+
 [features]
 default = []
 full = ["local-full", "server-full", "client-full"]
@@ -111,6 +115,7 @@ rand = "0.8"
 url = "2.2"
 once_cell = "1"
 flume = "0.10"
+actionable = "0.1.0-dev.2"
 
 [package.metadata.docs.rs]
 all-features = true

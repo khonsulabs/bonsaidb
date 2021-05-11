@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use actionable::Action;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +26,7 @@ pub trait Backend: Debug + Send + Sync + 'static {
 /// * [`Actionable`](crate::permissions::Actionable) (derive macro)
 pub trait CustomApi: Debug + Send + Sync {
     /// The type that represents an API request. This type is what clients will send to the server.
-    type Request: Action + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug;
+    type Request: Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug;
     /// The type that represents an API response. This type will be sent to clients from the server.
     type Response: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug;
 

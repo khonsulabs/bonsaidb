@@ -1,11 +1,8 @@
 use flume::{Receiver, Sender};
 use futures::StreamExt;
-use pliantdb_core::{
-    networking::{
-        fabruic::{self, Certificate, Endpoint},
-        Payload, Request, Response,
-    },
-    permissions::Action,
+use pliantdb_core::networking::{
+    fabruic::{self, Certificate, Endpoint},
+    Payload, Request, Response,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -21,7 +18,7 @@ use crate::{
 /// error occurs, any queries that come in while reconnecting will have the
 /// error replayed to them.
 pub async fn reconnecting_client_loop<
-    R: Action + Serialize + for<'de> Deserialize<'de> + 'static,
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     O: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
 >(
     mut url: Url,
@@ -55,7 +52,7 @@ pub async fn reconnecting_client_loop<
 }
 
 async fn connect_and_process<
-    R: Action + Serialize + for<'de> Deserialize<'de> + 'static,
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     O: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
 >(
     url: &Url,
@@ -96,7 +93,7 @@ async fn connect_and_process<
 }
 
 async fn process_requests<
-    R: Action + Serialize + for<'de> Deserialize<'de>,
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de>,
     O: Send + Sync + Serialize + for<'de> Deserialize<'de>,
 >(
     outstanding_requests: OutstandingRequestMapHandle<O>,
@@ -162,7 +159,7 @@ pub async fn process<O: Send>(
 }
 
 async fn connect<
-    R: Action + Serialize + for<'de> Deserialize<'de> + 'static,
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     O: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
 >(
     url: &Url,
