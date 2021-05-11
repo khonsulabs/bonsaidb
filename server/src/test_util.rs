@@ -3,9 +3,7 @@
 use std::path::Path;
 
 use pliantdb_core::{
-    connection::ServerConnection,
-    permissions::{ActionNameList, Permissions, ResourceName, Statement},
-    test_util::BasicSchema,
+    connection::ServerConnection, permissions::Permissions, test_util::BasicSchema,
 };
 
 use crate::{Configuration, Server};
@@ -16,11 +14,7 @@ pub async fn initialize_basic_server(path: &Path) -> anyhow::Result<Server> {
     let server = Server::open(
         path,
         Configuration {
-            default_permissions: Permissions::from(vec![Statement {
-                resources: vec![ResourceName::any()],
-                actions: ActionNameList::All,
-                allowed: true,
-            }]),
+            default_permissions: Permissions::allow_all(),
             ..Configuration::default()
         },
     )

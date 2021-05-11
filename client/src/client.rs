@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 use std::{
     any::TypeId,
     collections::HashMap,
+    marker::PhantomData,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
@@ -12,6 +13,7 @@ use std::{
 use async_trait::async_trait;
 use flume::Sender;
 use pliantdb_core::{
+    backend::{Backend, CustomApi},
     connection::{Database, ServerConnection},
     fabruic::Certificate,
     networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
@@ -35,14 +37,26 @@ type SubscriberMap = Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>;
 use pliantdb_core::{circulate::Message, networking::DatabaseRequest};
 
 /// Client for connecting to a `PliantDb` server.
-#[derive(Clone, Debug)]
-pub struct Client {
-    pub(crate) data: Arc<Data>,
+#[derive(Debug)]
+pub struct Client<B: Backend = ()> {
+    pub(crate) data: Arc<Data<B>>,
 }
 
+impl<B: Backend> Clone for Client<B> {
+    fn clone(&self) -> Self {
+        Self {
+            data: self.data.clone(),
+        }
+    }
+}
+
+#[allow(type_alias_bounds)] // Causes compilation errors without it
+type BackendPendingRequest<B: Backend> =
+    PendingRequest<<B::CustomApi as CustomApi>::Request, <B::CustomApi as CustomApi>::Response>;
+
 #[derive(Debug)]
-pub struct Data {
-    request_sender: Sender<PendingRequest>,
+pub struct Data<B: Backend> {
+    request_sender: Sender<BackendPendingRequest<B>>,
     worker: CancellableHandle<Result<(), Error>>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     request_id: AtomicU32,
@@ -50,9 +64,10 @@ pub struct Data {
     subscribers: SubscriberMap,
     #[cfg(feature = "test-util")]
     background_task_running: Arc<AtomicBool>,
+    _backend: PhantomData<B>,
 }
 
-impl Client {
+impl<B: Backend> Client<B> {
     /// Initialize a client connecting to `url` with `certificate` being used to
     /// validate and encrypt the connection. This client can be shared by
     /// cloning it. All requests are done asynchronously over the same
@@ -113,6 +128,7 @@ impl Client {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                _backend: PhantomData::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -147,6 +163,7 @@ impl Client {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                _backend: PhantomData::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -160,7 +177,7 @@ impl Client {
     /// Returns a structure representing a remote database. No validations are
     /// done when this method is executed. The server will validate the schema
     /// and database name when a [`Connection`](pliantdb_core::connection::Connection) function is called.
-    pub async fn database<DB: Schema>(&self, name: &str) -> Result<RemoteDatabase<DB>, Error> {
+    pub async fn database<DB: Schema>(&self, name: &str) -> Result<RemoteDatabase<DB, B>, Error> {
         let mut schemas = self.data.schemas.lock().await;
         let type_id = TypeId::of::<DB>();
         let schematic = if let Some(schematic) = schemas.get(&type_id) {
@@ -177,7 +194,10 @@ impl Client {
         ))
     }
 
-    async fn send_request(&self, request: Request) -> Result<Response, Error> {
+    async fn send_request(
+        &self,
+        request: Request<<B::CustomApi as CustomApi>::Request>,
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
@@ -189,6 +209,20 @@ impl Client {
         })?;
 
         result_receiver.recv_async().await?
+    }
+
+    /// Sends an api `request`.
+    pub async fn send_api_request(
+        &self,
+        request: <B::CustomApi as CustomApi>::Request,
+    ) -> Result<<B::CustomApi as CustomApi>::Response, Error> {
+        match self.send_request(Request::Api(request)).await? {
+            Response::Api(response) => Ok(response),
+            Response::Error(err) => Err(Error::Core(err)),
+            other => Err(Error::Network(networking::Error::UnexpectedResponse(
+                format!("{:?}", other),
+            ))),
+        }
     }
 
     #[cfg(feature = "test-util")]
@@ -281,13 +315,13 @@ impl ServerConnection for Client {
     }
 }
 
-type OutstandingRequestMap = HashMap<u32, Sender<Result<Response, Error>>>;
-type OutstandingRequestMapHandle = Arc<Mutex<OutstandingRequestMap>>;
+type OutstandingRequestMap<O> = HashMap<u32, Sender<Result<Response<O>, Error>>>;
+type OutstandingRequestMapHandle<O> = Arc<Mutex<OutstandingRequestMap<O>>>;
 
 #[derive(Debug)]
-pub struct PendingRequest {
-    request: Payload<Request>,
-    responder: Sender<Result<Response, Error>>,
+pub struct PendingRequest<R, O> {
+    request: Payload<Request<R>>,
+    responder: Sender<Result<Response<O>, Error>>,
 }
 
 #[derive(Debug)]

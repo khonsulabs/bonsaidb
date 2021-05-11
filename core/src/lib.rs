@@ -34,6 +34,9 @@ pub mod transaction;
 /// Types for utilizing a lightweight atomic Key-Value store.
 pub mod kv;
 
+/// Traits for tailoring a server.
+pub mod backend;
+
 #[cfg(feature = "networking")]
 pub use fabruic;
 #[cfg(feature = "networking")]

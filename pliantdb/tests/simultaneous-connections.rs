@@ -4,7 +4,7 @@ use pliantdb::{
     client::{url::Url, Client},
     core::{
         connection::ServerConnection,
-        permissions::{ActionNameList, Permissions, ResourceName, Statement},
+        permissions::Permissions,
         test_util::{self, Basic, TestDirectory},
     },
     server::{Configuration, Server},
@@ -16,11 +16,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
     let server = Server::open(
         dir.as_ref(),
         Configuration {
-            default_permissions: Permissions::from(vec![Statement {
-                resources: vec![ResourceName::any()],
-                actions: ActionNameList::All,
-                allowed: true,
-            }]),
+            default_permissions: Permissions::allow_all(),
             ..Configuration::default()
         },
     )

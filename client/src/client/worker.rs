@@ -4,6 +4,7 @@ use pliantdb_core::networking::{
     fabruic::{self, Certificate, Endpoint},
     Payload, Request, Response,
 };
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 #[cfg(feature = "pubsub")]
@@ -16,10 +17,13 @@ use crate::{
 /// This function will establish a connection and try to keep it active. If an
 /// error occurs, any queries that come in while reconnecting will have the
 /// error replayed to them.
-pub async fn reconnecting_client_loop(
+pub async fn reconnecting_client_loop<
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    O: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+>(
     mut url: Url,
     certificate: Certificate,
-    request_receiver: Receiver<PendingRequest>,
+    request_receiver: Receiver<PendingRequest<R, O>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     if url.port().is_none() && url.scheme() == "pliantdb" {
@@ -47,13 +51,16 @@ pub async fn reconnecting_client_loop(
     Ok(())
 }
 
-async fn connect_and_process(
+async fn connect_and_process<
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    O: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+>(
     url: &Url,
     certificate: &Certificate,
-    initial_request: PendingRequest,
-    request_receiver: &Receiver<PendingRequest>,
+    initial_request: PendingRequest<R, O>,
+    request_receiver: &Receiver<PendingRequest<R, O>>,
     #[cfg(feature = "pubsub")] subscribers: &SubscriberMap,
-) -> Result<(), (Option<Sender<Result<Response, Error>>>, Error)> {
+) -> Result<(), (Option<Sender<Result<Response<O>, Error>>>, Error)> {
     let (_connection, payload_sender, payload_receiver) = connect(url, certificate)
         .await
         .map_err(|err| (Some(initial_request.responder.clone()), err))?;
@@ -85,10 +92,13 @@ async fn connect_and_process(
     Ok(())
 }
 
-async fn process_requests(
-    outstanding_requests: OutstandingRequestMapHandle,
-    request_receiver: &Receiver<PendingRequest>,
-    payload_sender: fabruic::Sender<Payload<Request>>,
+async fn process_requests<
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    O: Send + Sync + Serialize + for<'de> Deserialize<'de>,
+>(
+    outstanding_requests: OutstandingRequestMapHandle<O>,
+    request_receiver: &Receiver<PendingRequest<R, O>>,
+    payload_sender: fabruic::Sender<Payload<Request<R>>>,
 ) -> Result<(), Error> {
     while let Ok(client_request) = request_receiver.recv_async().await {
         let mut outstanding_requests = outstanding_requests.lock().await;
@@ -103,9 +113,9 @@ async fn process_requests(
     Err(Error::Disconnected)
 }
 
-pub async fn process(
-    outstanding_requests: OutstandingRequestMapHandle,
-    mut payload_receiver: fabruic::Receiver<Payload<Response>>,
+pub async fn process<O: Send>(
+    outstanding_requests: OutstandingRequestMapHandle<O>,
+    mut payload_receiver: fabruic::Receiver<Payload<Response<O>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
@@ -148,14 +158,17 @@ pub async fn process(
     Err(Error::Disconnected)
 }
 
-async fn connect(
+async fn connect<
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    O: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+>(
     url: &Url,
     certificate: &Certificate,
 ) -> Result<
     (
         fabruic::Connection<()>,
-        fabruic::Sender<Payload<Request>>,
-        fabruic::Receiver<Payload<Response>>,
+        fabruic::Sender<Payload<Request<R>>>,
+        fabruic::Receiver<Payload<Response<O>>>,
     ),
     Error,
 > {
