@@ -602,9 +602,6 @@ impl<'s, B: Backend> RequestDispatcher for ServerDispatcher<'s, B> {
     type Output = Response<<B::CustomApi as CustomApi>::Response>;
     type Error = pliantdb_core::Error;
 
-    type ServerHandler = Self;
-    type DatabaseHandler = Self;
-
     async fn handle_subaction(
         &self,
         permissions: &Permissions,
@@ -624,35 +621,28 @@ impl<'s, B: Backend> RequestDispatcher for ServerDispatcher<'s, B> {
 
 #[async_trait]
 impl<'s, B: Backend> pliantdb_core::networking::ServerHandler for ServerDispatcher<'s, B> {
-    type Dispatcher = Self;
-
     async fn handle(
-        server: &Self,
+        &self,
         permissions: &Permissions,
         request: ServerRequest,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        ServerRequestDispatcher::dispatch_to_handlers(server, permissions, request).await
+        ServerRequestDispatcher::dispatch_to_handlers(self, permissions, request).await
     }
 }
 
 #[async_trait]
 impl<'s, B: Backend> pliantdb_core::networking::DatabaseHandler for ServerDispatcher<'s, B> {
-    type Dispatcher = Self;
-
     async fn handle(
-        dispatcher: &Self,
+        &self,
         permissions: &Permissions,
         database_name: String,
         request: DatabaseRequest,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        let database = dispatcher
-            .server
-            .database_without_schema(&database_name)
-            .await?;
+        let database = self.server.database_without_schema(&database_name).await?;
         DatabaseDispatcher {
             name: database_name,
             database: database.as_ref(),
-            server_dispatcher: dispatcher,
+            server_dispatcher: self,
         }
         .dispatch(permissions, request)
         .await
@@ -662,20 +652,14 @@ impl<'s, B: Backend> pliantdb_core::networking::DatabaseHandler for ServerDispat
 impl<'s, B: Backend> ServerRequestDispatcher for ServerDispatcher<'s, B> {
     type Output = Response<<B::CustomApi as CustomApi>::Response>;
     type Error = pliantdb_core::Error;
-
-    type CreateDatabaseHandler = Self;
-    type DeleteDatabaseHandler = Self;
-    type ListDatabasesHandler = Self;
-    type ListAvailableSchemasHandler = Self;
 }
 
 #[async_trait]
 impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
     fn resource_name<'a>(
-        _dispatcher: &Self::Dispatcher,
+        &self,
         database: &'a pliantdb_core::connection::Database,
     ) -> ResourceName<'a> {
         database_resource_name(&database.name)
@@ -686,12 +670,11 @@ impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
     }
 
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         database: pliantdb_core::connection::Database,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        dispatcher
-            .server
+        self.server
             .create_database_with_schema(&database.name, database.schema)
             .await?;
         Ok(Response::Server(ServerResponse::DatabaseCreated {
@@ -702,10 +685,9 @@ impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
 
 #[async_trait]
 impl<'s, B: Backend> DeleteDatabaseHandler for ServerDispatcher<'s, B> {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
-    fn resource_name<'a>(_dispatcher: &Self::Dispatcher, database: &'a String) -> ResourceName<'a> {
+    fn resource_name<'a>(&self, database: &'a String) -> ResourceName<'a> {
         database_resource_name(database)
     }
 
@@ -714,21 +696,20 @@ impl<'s, B: Backend> DeleteDatabaseHandler for ServerDispatcher<'s, B> {
     }
 
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         name: String,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        dispatcher.server.delete_database(&name).await?;
+        self.server.delete_database(&name).await?;
         Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
     }
 }
 
 #[async_trait]
 impl<'s, B: Backend> pliantdb_core::networking::ListDatabasesHandler for ServerDispatcher<'s, B> {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
-    fn resource_name(_dispatcher: &Self::Dispatcher) -> ResourceName<'static> {
+    fn resource_name(&self) -> ResourceName<'static> {
         pliantdb_resource_name()
     }
 
@@ -737,11 +718,11 @@ impl<'s, B: Backend> pliantdb_core::networking::ListDatabasesHandler for ServerD
     }
 
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         Ok(Response::Server(ServerResponse::Databases(
-            dispatcher.server.list_databases().await?,
+            self.server.list_databases().await?,
         )))
     }
 }
@@ -750,10 +731,9 @@ impl<'s, B: Backend> pliantdb_core::networking::ListDatabasesHandler for ServerD
 impl<'s, B: Backend> pliantdb_core::networking::ListAvailableSchemasHandler
     for ServerDispatcher<'s, B>
 {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
-    fn resource_name(_dispatcher: &Self::Dispatcher) -> ResourceName<'static> {
+    fn resource_name(&self) -> ResourceName<'static> {
         pliantdb_resource_name()
     }
 
@@ -762,11 +742,11 @@ impl<'s, B: Backend> pliantdb_core::networking::ListAvailableSchemasHandler
     }
 
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         Ok(Response::Server(ServerResponse::AvailableSchemas(
-            dispatcher.server.list_available_schemas().await?,
+            self.server.list_available_schemas().await?,
         )))
     }
 }
@@ -785,34 +765,18 @@ where
 impl<'s, B: Backend> DatabaseRequestDispatcher for DatabaseDispatcher<'s, B> {
     type Output = Response<<B::CustomApi as CustomApi>::Response>;
     type Error = pliantdb_core::Error;
-
-    type GetHandler = Self;
-    type GetMultipleHandler = Self;
-    type QueryHandler = Self;
-    type ReduceHandler = Self;
-    type ApplyTransactionHandler = Self;
-    type ListExecutedTransactionsHandler = Self;
-    type LastTransactionIdHandler = Self;
-    type CreateSubscriberHandler = Self;
-    type PublishHandler = Self;
-    type PublishToAllHandler = Self;
-    type SubscribeToHandler = Self;
-    type UnsubscribeFromHandler = Self;
-    type UnregisterSubscriberHandler = Self;
-    type ExecuteKeyOperationHandler = Self;
 }
 
 #[async_trait]
 impl<'s, B: Backend> pliantdb_core::networking::GetHandler for DatabaseDispatcher<'s, B> {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
     fn resource_name<'a>(
-        dispatcher: &'a Self::Dispatcher,
+        &'a self,
         collection: &'a CollectionName,
         id: &'a u64,
     ) -> ResourceName<'a> {
-        document_resource_name(&dispatcher.name, collection, *id)
+        document_resource_name(&self.name, collection, *id)
     }
 
     fn action() -> Self::Action {
@@ -820,12 +784,12 @@ impl<'s, B: Backend> pliantdb_core::networking::GetHandler for DatabaseDispatche
     }
 
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         collection: CollectionName,
         id: u64,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        let document = dispatcher
+        let document = self
             .database
             .get_from_collection_id(id, &collection)
             .await?
@@ -840,16 +804,14 @@ impl<'s, B: Backend> pliantdb_core::networking::GetHandler for DatabaseDispatche
 
 #[async_trait]
 impl<'s, B: Backend> pliantdb_core::networking::GetMultipleHandler for DatabaseDispatcher<'s, B> {
-    type Dispatcher = Self;
-
     async fn verify_permissions(
-        dispatcher: &Self::Dispatcher,
+        &self,
         permissions: &Permissions,
         collection: &CollectionName,
         ids: &Vec<u64>,
     ) -> Result<(), pliantdb_core::Error> {
         for &id in ids {
-            let document_name = document_resource_name(&dispatcher.name, collection, id);
+            let document_name = document_resource_name(&self.name, collection, id);
             let action = PliantAction::Database(DatabaseAction::Document(DocumentAction::Get));
             if !permissions.allowed_to(&document_name, &action) {
                 return Err(pliantdb_core::Error::from(PermissionDenied {
@@ -863,12 +825,12 @@ impl<'s, B: Backend> pliantdb_core::networking::GetMultipleHandler for DatabaseD
     }
 
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         collection: CollectionName,
         ids: Vec<u64>,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        let documents = dispatcher
+        let documents = self
             .database
             .get_multiple_from_collection_id(&ids, &collection)
             .await?;
@@ -878,17 +840,16 @@ impl<'s, B: Backend> pliantdb_core::networking::GetMultipleHandler for DatabaseD
 
 #[async_trait]
 impl<'s, B: Backend> pliantdb_core::networking::QueryHandler for DatabaseDispatcher<'s, B> {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
     fn resource_name<'a>(
-        dispatcher: &'a Self::Dispatcher,
+        &'a self,
         view: &'a ViewName,
         _key: &'a Option<QueryKey<Vec<u8>>>,
         _access_policy: &'a AccessPolicy,
         _with_docs: &'a bool,
     ) -> ResourceName<'a> {
-        view_resource_name(&dispatcher.name, view)
+        view_resource_name(&self.name, view)
     }
 
     fn action() -> Self::Action {
@@ -896,7 +857,7 @@ impl<'s, B: Backend> pliantdb_core::networking::QueryHandler for DatabaseDispatc
     }
 
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         view: ViewName,
         key: Option<QueryKey<Vec<u8>>>,
@@ -904,7 +865,7 @@ impl<'s, B: Backend> pliantdb_core::networking::QueryHandler for DatabaseDispatc
         with_docs: bool,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         if with_docs {
-            let mappings = dispatcher
+            let mappings = self
                 .database
                 .query_with_docs(&view, key, access_policy)
                 .await?;
@@ -912,7 +873,7 @@ impl<'s, B: Backend> pliantdb_core::networking::QueryHandler for DatabaseDispatc
                 mappings,
             )))
         } else {
-            let mappings = dispatcher.database.query(&view, key, access_policy).await?;
+            let mappings = self.database.query(&view, key, access_policy).await?;
             Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
         }
     }
@@ -920,17 +881,16 @@ impl<'s, B: Backend> pliantdb_core::networking::QueryHandler for DatabaseDispatc
 
 #[async_trait]
 impl<'s, B: Backend> pliantdb_core::networking::ReduceHandler for DatabaseDispatcher<'s, B> {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
     fn resource_name<'a>(
-        dispatcher: &'a Self::Dispatcher,
+        &'a self,
         view: &'a ViewName,
         _key: &'a Option<QueryKey<Vec<u8>>>,
         _access_policy: &'a AccessPolicy,
         _grouped: &'a bool,
     ) -> ResourceName<'a> {
-        view_resource_name(&dispatcher.name, view)
+        view_resource_name(&self.name, view)
     }
 
     fn action() -> Self::Action {
@@ -938,7 +898,7 @@ impl<'s, B: Backend> pliantdb_core::networking::ReduceHandler for DatabaseDispat
     }
 
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         view: ViewName,
         key: Option<QueryKey<Vec<u8>>>,
@@ -946,7 +906,7 @@ impl<'s, B: Backend> pliantdb_core::networking::ReduceHandler for DatabaseDispat
         grouped: bool,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         if grouped {
-            let values = dispatcher
+            let values = self
                 .database
                 .reduce_grouped(&view, key, access_policy)
                 .await?;
@@ -954,10 +914,7 @@ impl<'s, B: Backend> pliantdb_core::networking::ReduceHandler for DatabaseDispat
                 values,
             )))
         } else {
-            let value = dispatcher
-                .database
-                .reduce(&view, key, access_policy)
-                .await?;
+            let value = self.database.reduce(&view, key, access_policy).await?;
             Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
         }
     }
@@ -967,25 +924,23 @@ impl<'s, B: Backend> pliantdb_core::networking::ReduceHandler for DatabaseDispat
 impl<'s, B: Backend> pliantdb_core::networking::ApplyTransactionHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Dispatcher = Self;
-
     async fn verify_permissions(
-        dispatcher: &Self::Dispatcher,
+        &self,
         permissions: &Permissions,
         transaction: &Transaction<'static>,
     ) -> Result<(), pliantdb_core::Error> {
         for op in &transaction.operations {
             let (resource, action) = match &op.command {
                 Command::Insert { .. } => (
-                    collection_resource_name(&dispatcher.name, &op.collection),
+                    collection_resource_name(&self.name, &op.collection),
                     PliantAction::Database(DatabaseAction::Document(DocumentAction::Insert)),
                 ),
                 Command::Update { header, .. } => (
-                    document_resource_name(&dispatcher.name, &op.collection, header.id),
+                    document_resource_name(&self.name, &op.collection, header.id),
                     PliantAction::Database(DatabaseAction::Document(DocumentAction::Update)),
                 ),
                 Command::Delete { header } => (
-                    document_resource_name(&dispatcher.name, &op.collection, header.id),
+                    document_resource_name(&self.name, &op.collection, header.id),
                     PliantAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
                 ),
             };
@@ -1001,11 +956,11 @@ impl<'s, B: Backend> pliantdb_core::networking::ApplyTransactionHandler
     }
 
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         transaction: Transaction<'static>,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        let results = dispatcher.database.apply_transaction(transaction).await?;
+        let results = self.database.apply_transaction(transaction).await?;
         Ok(Response::Database(DatabaseResponse::TransactionResults(
             results,
         )))
@@ -1016,15 +971,14 @@ impl<'s, B: Backend> pliantdb_core::networking::ApplyTransactionHandler
 impl<'s, B: Backend> pliantdb_core::networking::ListExecutedTransactionsHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
     fn resource_name<'a>(
-        dispatcher: &'a Self::Dispatcher,
+        &'a self,
         _starting_id: &'a Option<u64>,
         _result_limit: &'a Option<usize>,
     ) -> ResourceName<'a> {
-        database_resource_name(&dispatcher.name)
+        database_resource_name(&self.name)
     }
 
     fn action() -> Self::Action {
@@ -1032,14 +986,13 @@ impl<'s, B: Backend> pliantdb_core::networking::ListExecutedTransactionsHandler
     }
 
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
-            dispatcher
-                .database
+            self.database
                 .list_executed_transactions(starting_id, result_limit)
                 .await?,
         )))
@@ -1050,11 +1003,10 @@ impl<'s, B: Backend> pliantdb_core::networking::ListExecutedTransactionsHandler
 impl<'s, B: Backend> pliantdb_core::networking::LastTransactionIdHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
-    fn resource_name(dispatcher: &'_ Self::Dispatcher) -> ResourceName<'_> {
-        database_resource_name(&dispatcher.name)
+    fn resource_name(&self) -> ResourceName<'_> {
+        database_resource_name(&self.name)
     }
 
     fn action() -> Self::Action {
@@ -1062,11 +1014,11 @@ impl<'s, B: Backend> pliantdb_core::networking::LastTransactionIdHandler
     }
 
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         Ok(Response::Database(DatabaseResponse::LastTransactionId(
-            dispatcher.database.last_transaction_id().await?,
+            self.database.last_transaction_id().await?,
         )))
     }
 }
@@ -1075,11 +1027,10 @@ impl<'s, B: Backend> pliantdb_core::networking::LastTransactionIdHandler
 impl<'s, B: Backend> pliantdb_core::networking::CreateSubscriberHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
-    fn resource_name(dispatcher: &'_ Self::Dispatcher) -> ResourceName<'_> {
-        database_resource_name(&dispatcher.name)
+    fn resource_name(&self) -> ResourceName<'_> {
+        database_resource_name(&self.name)
     }
 
     fn action() -> Self::Action {
@@ -1088,21 +1039,21 @@ impl<'s, B: Backend> pliantdb_core::networking::CreateSubscriberHandler
 
     #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
-                let server = dispatcher.server_dispatcher.server;
+                let server = self.server_dispatcher.server;
                 let subscriber = server.data.relay.create_subscriber().await;
 
-                let mut subscribers = dispatcher.server_dispatcher.subscribers.write().await;
+                let mut subscribers = self.server_dispatcher.subscribers.write().await;
                 let subscriber_id = subscriber.id();
                 let receiver = subscriber.receiver().clone();
                 subscribers.insert(subscriber_id, subscriber);
 
                 let task_self = server.clone();
-                let response_sender = dispatcher.server_dispatcher.response_sender.clone();
+                let response_sender = self.server_dispatcher.response_sender.clone();
                 tokio::spawn(async move {
                     task_self
                         .forward_notifications_for(subscriber_id, receiver, response_sender.clone())
@@ -1121,15 +1072,10 @@ impl<'s, B: Backend> pliantdb_core::networking::CreateSubscriberHandler
 
 #[async_trait]
 impl<'s, B: Backend> pliantdb_core::networking::PublishHandler for DatabaseDispatcher<'s, B> {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
-    fn resource_name<'a>(
-        dispatcher: &'a Self::Dispatcher,
-        topic: &'a String,
-        _payload: &'a Vec<u8>,
-    ) -> ResourceName<'a> {
-        pubsub_topic_resource_name(&dispatcher.name, topic)
+    fn resource_name<'a>(&'a self, topic: &'a String, _payload: &'a Vec<u8>) -> ResourceName<'a> {
+        pubsub_topic_resource_name(&self.name, topic)
     }
 
     fn action() -> Self::Action {
@@ -1138,20 +1084,20 @@ impl<'s, B: Backend> pliantdb_core::networking::PublishHandler for DatabaseDispa
 
     #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         topic: String,
         payload: Vec<u8>,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
-                dispatcher
+                self
                     .server_dispatcher
                     .server
                     .data
                     .relay
                     .publish_message(Message {
-                        topic: database_topic(&dispatcher.name, &topic),
+                        topic: database_topic(&self.name, &topic),
                         payload,
                     })
                     .await;
@@ -1165,16 +1111,14 @@ impl<'s, B: Backend> pliantdb_core::networking::PublishHandler for DatabaseDispa
 
 #[async_trait]
 impl<'s, B: Backend> pliantdb_core::networking::PublishToAllHandler for DatabaseDispatcher<'s, B> {
-    type Dispatcher = Self;
-
     async fn verify_permissions(
-        dispatcher: &Self::Dispatcher,
+        &self,
         permissions: &Permissions,
         topics: &Vec<String>,
         _payload: &Vec<u8>,
     ) -> Result<(), pliantdb_core::Error> {
         for topic in topics {
-            let topic_name = pubsub_topic_resource_name(&dispatcher.name, topic);
+            let topic_name = pubsub_topic_resource_name(&self.name, topic);
             let action = PliantAction::Database(DatabaseAction::PubSub(PubSubAction::Publish));
             if !permissions.allowed_to(&topic_name, &action) {
                 return Err(pliantdb_core::Error::from(PermissionDenied {
@@ -1189,14 +1133,14 @@ impl<'s, B: Backend> pliantdb_core::networking::PublishToAllHandler for Database
 
     #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         topics: Vec<String>,
         payload: Vec<u8>,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
-                dispatcher
+                self
                     .server_dispatcher
                     .server
                     .data
@@ -1204,7 +1148,7 @@ impl<'s, B: Backend> pliantdb_core::networking::PublishToAllHandler for Database
                     .publish_serialized_to_all(
                         topics
                             .iter()
-                            .map(|topic| database_topic(&dispatcher.name, topic))
+                            .map(|topic| database_topic(&self.name, topic))
                             .collect(),
                         payload,
                     )
@@ -1219,15 +1163,10 @@ impl<'s, B: Backend> pliantdb_core::networking::PublishToAllHandler for Database
 
 #[async_trait]
 impl<'s, B: Backend> pliantdb_core::networking::SubscribeToHandler for DatabaseDispatcher<'s, B> {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
-    fn resource_name<'a>(
-        dispatcher: &'a Self::Dispatcher,
-        _subscriber_id: &'a u64,
-        topic: &'a String,
-    ) -> ResourceName<'a> {
-        pubsub_topic_resource_name(&dispatcher.name, topic)
+    fn resource_name<'a>(&'a self, _subscriber_id: &'a u64, topic: &'a String) -> ResourceName<'a> {
+        pubsub_topic_resource_name(&self.name, topic)
     }
 
     fn action() -> Self::Action {
@@ -1236,14 +1175,14 @@ impl<'s, B: Backend> pliantdb_core::networking::SubscribeToHandler for DatabaseD
 
     #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         subscriber_id: u64,
         topic: String,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
-                let subscribers = dispatcher.server_dispatcher.subscribers.read().await;
+                let subscribers = self.server_dispatcher.subscribers.read().await;
                 if let Some(subscriber) = subscribers.get(&subscriber_id) {
                     subscriber.subscribe_to(topic).await;
                     Ok(Response::Ok)
@@ -1263,15 +1202,10 @@ impl<'s, B: Backend> pliantdb_core::networking::SubscribeToHandler for DatabaseD
 impl<'s, B: Backend> pliantdb_core::networking::UnsubscribeFromHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
-    fn resource_name<'a>(
-        dispatcher: &'a Self::Dispatcher,
-        _subscriber_id: &'a u64,
-        topic: &'a String,
-    ) -> ResourceName<'a> {
-        pubsub_topic_resource_name(&dispatcher.name, topic)
+    fn resource_name<'a>(&'a self, _subscriber_id: &'a u64, topic: &'a String) -> ResourceName<'a> {
+        pubsub_topic_resource_name(&self.name, topic)
     }
 
     fn action() -> Self::Action {
@@ -1280,14 +1214,14 @@ impl<'s, B: Backend> pliantdb_core::networking::UnsubscribeFromHandler
 
     #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         subscriber_id: u64,
         topic: String,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
-                let subscribers = dispatcher.server_dispatcher.subscribers.read().await;
+                let subscribers = self.server_dispatcher.subscribers.read().await;
                 if let Some(subscriber) = subscribers.get(&subscriber_id) {
                     subscriber.unsubscribe_from(&topic).await;
                     Ok(Response::Ok)
@@ -1307,17 +1241,15 @@ impl<'s, B: Backend> pliantdb_core::networking::UnsubscribeFromHandler
 impl<'s, B: Backend> pliantdb_core::networking::UnregisterSubscriberHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Dispatcher = Self;
-
     #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         subscriber_id: u64,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
-                let mut subscribers = dispatcher.server_dispatcher.subscribers.write().await;
+                let mut subscribers = self.server_dispatcher.subscribers.write().await;
                 if subscribers.remove(&subscriber_id).is_none() {
                     Ok(Response::Error(pliantdb_core::Error::Server(String::from(
                         "invalid subscriber id",
@@ -1336,14 +1268,10 @@ impl<'s, B: Backend> pliantdb_core::networking::UnregisterSubscriberHandler
 impl<'s, B: Backend> pliantdb_core::networking::ExecuteKeyOperationHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Dispatcher = Self;
     type Action = PliantAction;
 
-    fn resource_name<'a>(
-        dispatcher: &'a Self::Dispatcher,
-        op: &'a KeyOperation,
-    ) -> ResourceName<'a> {
-        kv_key_resource_name(&dispatcher.name, op.namespace.as_deref(), &op.key)
+    fn resource_name<'a>(&'a self, op: &'a KeyOperation) -> ResourceName<'a> {
+        kv_key_resource_name(&self.name, op.namespace.as_deref(), &op.key)
     }
 
     fn action() -> Self::Action {
@@ -1352,13 +1280,13 @@ impl<'s, B: Backend> pliantdb_core::networking::ExecuteKeyOperationHandler
 
     #[cfg_attr(not(feature = "keyvalue"), allow(unused_variables))]
     async fn handle_protected(
-        dispatcher: &Self::Dispatcher,
+        &self,
         _permissions: &Permissions,
         op: KeyOperation,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "keyvalue")] {
-                let result = dispatcher.database.execute_key_operation(op).await?;
+                let result = self.database.execute_key_operation(op).await?;
                 Ok(Response::Database(DatabaseResponse::KvOutput(result)))
             } else {
                 Err(pliantdb_core::Error::Server(String::from("keyvalue is not enabled on this server")))

@@ -1,5 +1,7 @@
 //! Tests invoking an API defined in a custom backend.
 
+use std::path::Path;
+
 use pliantdb::{
     client::{url::Url, Client},
     core::{
@@ -67,20 +69,12 @@ async fn custom_api() -> anyhow::Result<()> {
 
 impl CustomRequestDispatcher for CustomBackend {
     type Output = CustomResponse;
-
     type Error = anyhow::Error;
-
-    type PingHandler = Self;
 }
 
 #[actionable::async_trait]
 impl PingHandler for CustomBackend {
-    type Dispatcher = Self;
-
-    async fn handle(
-        _dispatcher: &Self::Dispatcher,
-        _permissions: &Permissions,
-    ) -> Result<CustomResponse, anyhow::Error> {
+    async fn handle(&self, _permissions: &Permissions) -> Result<CustomResponse, anyhow::Error> {
         Ok(CustomResponse::Pong)
     }
 }
