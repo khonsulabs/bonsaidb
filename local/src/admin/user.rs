@@ -1,23 +1,26 @@
-use serde::{Deserialize, Serialize};
-
-use crate::{
-    schema::{Collection, CollectionName, InvalidNameError, Name, Schematic, View},
+use pliantdb_core::{
+    document::Document,
+    schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
     Error,
 };
+use serde::{Deserialize, Serialize};
 
-/// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::permissions::PermissionGroup)s.
+/// An assignable role, which grants permissions based on the associated
+/// [`PermissionGroup`](crate::permissions::PermissionGroup)s.
 #[derive(Debug, Serialize, Deserialize)]
 #[allow(clippy::module_name_repetitions)]
-pub struct Role {
+pub struct User {
     /// The name of the role. Must be unique.
     pub name: String,
-    /// The IDs of the permission groups this role belongs to.
+    /// The IDs of the user groups this user belongs to.
     pub groups: Vec<u64>,
+    /// The IDs of the roles this user has been assigned.
+    pub roles: Vec<u64>,
 }
 
-impl Collection for Role {
+impl Collection for User {
     fn collection_name() -> Result<CollectionName, InvalidNameError> {
-        CollectionName::new("khonsulabs", "role")
+        CollectionName::new("khonsulabs", "user")
     }
 
     fn define_views(schema: &mut Schematic) -> Result<(), Error> {
@@ -30,7 +33,7 @@ impl Collection for Role {
 pub struct ByName;
 
 impl View for ByName {
-    type Collection = Role;
+    type Collection = User;
     type Key = String;
     type Value = ();
 
@@ -46,11 +49,8 @@ impl View for ByName {
         Name::new("by-name")
     }
 
-    fn map(
-        &self,
-        document: &crate::document::Document<'_>,
-    ) -> crate::schema::MapResult<Self::Key, Self::Value> {
-        let role = document.contents::<Role>()?;
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+        let role = document.contents::<User>()?;
         Ok(Some(document.emit_key(role.name)))
     }
 }

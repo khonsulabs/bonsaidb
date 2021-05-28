@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
-
-use super::Statement;
-use crate::{
-    schema::{Collection, CollectionName, InvalidNameError, Name, Schematic, View},
+use pliantdb_core::{
+    document::Document,
+    permissions::Statement,
+    schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
     Error,
 };
+use serde::{Deserialize, Serialize};
 
 /// A named group of permissions statements.
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,10 +47,7 @@ impl View for ByName {
         Name::new("by-name")
     }
 
-    fn map(
-        &self,
-        document: &crate::document::Document<'_>,
-    ) -> crate::schema::MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let group = document.contents::<PermissionGroup>()?;
         Ok(Some(document.emit_key(group.name)))
     }

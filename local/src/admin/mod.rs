@@ -1,10 +1,12 @@
 use pliantdb_core::{
-    permissions::{PermissionGroup, Role},
     schema::{InvalidNameError, Schema, SchemaName, Schematic},
     Error,
 };
 
 pub mod database;
+pub mod group;
+pub mod role;
+pub mod user;
 
 #[derive(Debug)]
 pub struct Admin;
@@ -16,8 +18,9 @@ impl Schema for Admin {
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
         schema.define_collection::<database::Database>()?;
-        schema.define_collection::<PermissionGroup>()?;
-        schema.define_collection::<Role>()?;
+        schema.define_collection::<group::PermissionGroup>()?;
+        schema.define_collection::<role::Role>()?;
+        schema.define_collection::<user::User>()?;
 
         Ok(())
     }
