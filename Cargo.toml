@@ -9,6 +9,7 @@ members = [
     "macros",
     "pliantdb",
     "server",
+    "xtask",
 ]
 
 [patch.crates-io]
