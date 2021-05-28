@@ -240,12 +240,13 @@ impl<B: Backend> Client<B> {
 
     #[cfg(feature = "pubsub")]
     pub(crate) async fn unregister_subscriber(&self, database: String, id: u64) {
-        let _ = self
-            .send_request(Request::Database {
+        drop(
+            self.send_request(Request::Database {
                 database,
                 request: DatabaseRequest::UnregisterSubscriber { subscriber_id: id },
             })
-            .await;
+            .await,
+        );
         let mut subscribers = self.data.subscribers.lock().await;
         subscribers.remove(&id);
     }

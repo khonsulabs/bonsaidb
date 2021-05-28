@@ -347,10 +347,10 @@ impl<B: Backend> Server<B> {
                     self.handle_request_through_worker(
                         payload.wrapped,
                         move |response| async move {
-                            let _ = task_sender.send(Payload {
+                            drop(task_sender.send(Payload {
                                 id,
                                 wrapped: response,
-                            });
+                            }));
 
                             Ok(())
                         },
@@ -363,7 +363,7 @@ impl<B: Backend> Server<B> {
                 }
                 Message::Close(_) => break,
                 Message::Ping(payload) => {
-                    let _ = message_sender.send(Message::Pong(payload));
+                    drop(message_sender.send(Message::Pong(payload)));
                 }
                 other => {
                     eprintln!("[server] unexpected message: {:?}", other);
@@ -432,10 +432,10 @@ impl<B: Backend> Server<B> {
             self.handle_request_through_worker(
                 wrapped,
                 move |response| async move {
-                    let _ = task_sender.send(Payload {
+                    drop(task_sender.send(Payload {
                         id,
                         wrapped: response,
-                    });
+                    }));
 
                     Ok(())
                 },

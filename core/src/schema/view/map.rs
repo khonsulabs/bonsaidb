@@ -296,6 +296,7 @@ fn vec_key_encoding_tests() -> anyhow::Result<()> {
 }
 
 #[test]
+#[allow(clippy::use_self)] // Weird interaction with num_derive
 fn enum_derive_tests() -> anyhow::Result<()> {
     #[derive(Clone, num_derive::ToPrimitive, num_derive::FromPrimitive)]
     enum SomeEnum {

@@ -42,7 +42,7 @@ pub async fn reconnecting_client_loop<
         .await
         {
             if let Some(responder) = responder {
-                let _ = responder.try_send(Err(err));
+                drop(responder.try_send(Err(err)));
             }
             continue;
         }
@@ -127,7 +127,7 @@ pub async fn process<O: Send>(
                     .remove(&payload_id)
                     .expect("missing responder")
             };
-            let _ = responder.send(Ok(payload.wrapped));
+            drop(responder.send(Ok(payload.wrapped)));
         } else {
             #[cfg(feature = "pubsub")]
             {

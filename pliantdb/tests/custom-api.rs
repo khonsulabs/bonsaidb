@@ -1,7 +1,5 @@
 //! Tests invoking an API defined in a custom backend.
 
-use std::path::Path;
-
 use pliantdb::{
     client::{url::Url, Client},
     core::{

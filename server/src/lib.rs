@@ -10,7 +10,7 @@
     future_incompatible,
     rust_2018_idioms,
 )]
-#![cfg_attr(doc, deny(rustdoc))]
+#![cfg_attr(doc, deny(rustdoc::all))]
 #![allow(
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::missing_panics_doc, // TODO clippy::missing_panics_doc

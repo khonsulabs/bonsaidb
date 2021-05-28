@@ -28,7 +28,7 @@ pub async fn reconnecting_client_loop<
         let (stream, _) = match tokio_tungstenite::connect_async(&url).await {
             Ok(result) => result,
             Err(err) => {
-                let _ = request.responder.send(Err(Error::WebSocket(err)));
+                drop(request.responder.send(Err(Error::WebSocket(err))));
                 continue;
             }
         };
@@ -42,7 +42,7 @@ pub async fn reconnecting_client_loop<
                 .send(Message::Binary(bincode::serialize(&request.request)?))
                 .await
             {
-                let _ = request.responder.send(Err(Error::WebSocket(err)));
+                drop(request.responder.send(Err(Error::WebSocket(err))));
                 continue;
             }
             outstanding_requests.insert(
@@ -110,7 +110,7 @@ async fn response_processor<O: for<'de> Deserialize<'de> + Send>(
                             .remove(&payload_id)
                             .expect("missing responder")
                     };
-                    let _ = responder.send(Ok(payload.wrapped));
+                    drop(responder.send(Ok(payload.wrapped)));
                 } else {
                     #[cfg(feature = "pubsub")]
                     if let Response::Database(
