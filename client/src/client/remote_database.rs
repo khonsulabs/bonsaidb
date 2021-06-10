@@ -2,8 +2,8 @@ use std::{marker::PhantomData, sync::Arc};
 
 use async_trait::async_trait;
 use pliantdb_core::{
-    backend::Backend,
     connection::{AccessPolicy, Connection, QueryKey},
+    custom_api::CustomApi,
     document::Document,
     networking::{self, DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
@@ -24,14 +24,14 @@ mod kv;
 
 /// A database on a remote server.
 #[derive(Debug)]
-pub struct RemoteDatabase<DB: Schema, B: Backend = ()> {
-    client: Client<B>,
+pub struct RemoteDatabase<DB: Schema, A: CustomApi = ()> {
+    client: Client<A>,
     name: Arc<String>,
     schema: Arc<Schematic>,
     _phantom: PhantomData<DB>,
 }
 
-impl<DB: Schema, B: Backend> Clone for RemoteDatabase<DB, B> {
+impl<DB: Schema, A: CustomApi> Clone for RemoteDatabase<DB, A> {
     fn clone(&self) -> Self {
         Self {
             client: self.client.clone(),
@@ -42,8 +42,8 @@ impl<DB: Schema, B: Backend> Clone for RemoteDatabase<DB, B> {
     }
 }
 
-impl<DB: Schema, B: Backend> RemoteDatabase<DB, B> {
-    pub(crate) fn new(client: Client<B>, name: String, schema: Arc<Schematic>) -> Self {
+impl<DB: Schema, A: CustomApi> RemoteDatabase<DB, A> {
+    pub(crate) fn new(client: Client<A>, name: String, schema: Arc<Schematic>) -> Self {
         Self {
             client,
             name: Arc::new(name),
@@ -54,7 +54,7 @@ impl<DB: Schema, B: Backend> RemoteDatabase<DB, B> {
 }
 
 #[async_trait]
-impl<DB: Schema, B: Backend> Connection for RemoteDatabase<DB, B> {
+impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
     async fn get<C: Collection>(
         &self,
         id: u64,

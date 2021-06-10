@@ -18,6 +18,7 @@
 )]
 
 mod async_io_util;
+mod backend;
 /// Command-line interface for the server.
 #[cfg(feature = "cli")]
 pub mod cli;
@@ -25,7 +26,12 @@ mod config;
 mod error;
 mod server;
 
-pub use self::{config::Configuration, error::Error, server::Server};
+pub use self::{
+    backend::Backend,
+    config::Configuration,
+    error::Error,
+    server::{CustomServer, Server},
+};
 
 #[cfg(test)]
 mod tests;

@@ -3,12 +3,12 @@
 use pliantdb::{
     client::{url::Url, Client},
     core::{
+        custom_api::CustomApi,
         permissions::{Actionable, Dispatcher, Permissions},
         test_util::{Basic, TestDirectory},
     },
-    server::{Configuration, Server},
+    server::{Backend, Configuration, CustomServer},
 };
-use pliantdb_core::backend::{Backend, CustomApi};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Dispatcher)]
@@ -17,14 +17,14 @@ struct CustomBackend;
 
 impl Backend for CustomBackend {
     type CustomApi = Self;
+
+    type CustomApiDispatcher = Self;
 }
 
 impl CustomApi for CustomBackend {
     type Request = CustomRequest;
 
     type Response = CustomResponse;
-
-    type Dispatcher = Self;
 }
 
 #[derive(Serialize, Deserialize, Debug, Actionable)]
@@ -41,14 +41,15 @@ enum CustomResponse {
 #[tokio::test]
 async fn custom_api() -> anyhow::Result<()> {
     let dir = TestDirectory::new("custom_api.pliantdb");
-    let server = Server::<CustomBackend>::open(
+    let server = CustomServer::<CustomBackend>::open(
         dir.as_ref(),
         Configuration {
             default_permissions: Permissions::allow_all(),
-            ..Configuration::default_with_dispatcher(CustomBackend)
+            ..Configuration::default()
         },
     )
     .await?;
+    server.set_custom_api_dispatcher(CustomBackend).await;
     server
         .install_self_signed_certificate("test", false)
         .await?;

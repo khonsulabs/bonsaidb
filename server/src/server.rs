@@ -16,9 +16,14 @@ use flume::Sender;
 #[cfg(feature = "websockets")]
 use futures::SinkExt;
 use futures::{Future, StreamExt, TryFutureExt};
+#[cfg(feature = "pubsub")]
 use pliantdb_core::{
-    backend::{Backend, CustomApi},
+    circulate::{Message, Relay, Subscriber},
+    pubsub::database_topic,
+};
+use pliantdb_core::{
     connection::{self, AccessPolicy, QueryKey, ServerConnection},
+    custom_api::CustomApi,
     kv::KeyOperation,
     networking::{
         self,
@@ -40,11 +45,6 @@ use pliantdb_core::{
     schema::{CollectionName, Schema, ViewName},
     transaction::{Command, Transaction},
 };
-#[cfg(feature = "pubsub")]
-use pliantdb_core::{
-    circulate::{Message, Relay, Subscriber},
-    pubsub::database_topic,
-};
 use pliantdb_jobs::{manager::Manager, Job};
 use pliantdb_local::{Database, OpenDatabase, Storage};
 use schema::SchemaName;
@@ -52,15 +52,19 @@ use schema::SchemaName;
 use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
 
-use crate::{async_io_util::FileExt, error::Error, Configuration};
+use crate::{async_io_util::FileExt, error::Error, Backend, Configuration};
 
 /// A `PliantDb` server.
 #[derive(Debug)]
-pub struct Server<B: Backend = ()> {
+#[allow(clippy::module_name_repetitions)]
+pub struct CustomServer<B: Backend> {
     data: Arc<Data<B>>,
 }
 
-impl<B: Backend> Clone for Server<B> {
+/// A `PliantDb` server without a custom bakend.
+pub type Server = CustomServer<()>;
+
+impl<B: Backend> Clone for CustomServer<B> {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
@@ -69,7 +73,7 @@ impl<B: Backend> Clone for Server<B> {
 }
 
 #[derive(Debug)]
-struct Data<B: Backend> {
+struct Data<B: Backend = ()> {
     endpoint: RwLock<Option<Endpoint>>,
     #[cfg(feature = "websockets")]
     websocket_shutdown: RwLock<Option<Sender<()>>>,
@@ -77,15 +81,15 @@ struct Data<B: Backend> {
     storage: Storage,
     request_processor: Manager,
     default_permissions: Permissions,
-    custom_api: <B::CustomApi as CustomApi>::Dispatcher,
+    custom_api: RwLock<Option<B::CustomApiDispatcher>>,
     #[cfg(feature = "pubsub")]
     relay: Relay,
     _backend: PhantomData<B>,
 }
 
-impl<B: Backend> Server<B> {
+impl<B: Backend> CustomServer<B> {
     /// Opens a server using `directory` for storage.
-    pub async fn open(directory: &Path, configuration: Configuration<B>) -> Result<Self, Error> {
+    pub async fn open(directory: &Path, configuration: Configuration) -> Result<Self, Error> {
         let request_processor = Manager::default();
         for _ in 0..configuration.request_workers {
             request_processor.spawn_worker();
@@ -102,12 +106,18 @@ impl<B: Backend> Server<B> {
                 websocket_shutdown: RwLock::default(),
                 request_processor,
                 default_permissions: configuration.default_permissions,
-                custom_api: configuration.custom_api_dispatcher,
+                custom_api: RwLock::default(),
                 #[cfg(feature = "pubsub")]
                 relay: Relay::default(),
                 _backend: PhantomData::default(),
             }),
         })
+    }
+
+    /// Opens a server using `directory` for storage.
+    pub async fn set_custom_api_dispatcher(&self, dispatcher: B::CustomApiDispatcher) {
+        let mut server_dispatcher = self.data.custom_api.write().await;
+        *server_dispatcher = Some(dispatcher);
     }
 
     /// Retrieves a database. This function only verifies that the database exists
@@ -503,7 +513,7 @@ impl<B: Backend> Server<B> {
     }
 }
 
-impl<B: Backend> Deref for Server<B> {
+impl<B: Backend> Deref for CustomServer<B> {
     type Target = Storage;
 
     fn deref(&self) -> &Self::Target {
@@ -514,7 +524,7 @@ impl<B: Backend> Deref for Server<B> {
 #[derive(Debug)]
 struct ClientRequest<B: Backend> {
     request: Option<Request<<B::CustomApi as CustomApi>::Request>>,
-    server: Server<B>,
+    server: CustomServer<B>,
     #[cfg(feature = "pubsub")]
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
     #[cfg(feature = "pubsub")]
@@ -524,7 +534,7 @@ struct ClientRequest<B: Backend> {
 impl<B: Backend> ClientRequest<B> {
     pub fn new(
         request: Request<<B::CustomApi as CustomApi>::Request>,
-        server: Server<B>,
+        server: CustomServer<B>,
         #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
         #[cfg(feature = "pubsub")] sender: flume::Sender<
             Payload<Response<<B::CustomApi as CustomApi>::Response>>,
@@ -561,7 +571,7 @@ impl<B: Backend> Job for ClientRequest<B> {
 }
 
 #[async_trait]
-impl<B: Backend> ServerConnection for Server<B> {
+impl<B: Backend> ServerConnection for CustomServer<B> {
     async fn create_database_with_schema(
         &self,
         name: &str,
@@ -589,7 +599,7 @@ impl<B: Backend> ServerConnection for Server<B> {
 #[derive(Dispatcher, Debug)]
 #[dispatcher(input = Request<<B::CustomApi as CustomApi>::Request>, input = ServerRequest)]
 struct ServerDispatcher<'s, B: Backend> {
-    server: &'s Server<B>,
+    server: &'s CustomServer<B>,
     #[cfg(feature = "pubsub")]
     subscribers: &'s Arc<RwLock<HashMap<u64, Subscriber>>>,
     #[cfg(feature = "pubsub")]
@@ -607,15 +617,20 @@ impl<'s, B: Backend> RequestDispatcher for ServerDispatcher<'s, B> {
         permissions: &Permissions,
         subaction: Self::Subaction,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        self.server
-            .data
-            .custom_api
-            .dispatch(permissions, subaction)
-            .await
-            .map(Response::Api)
-            .map_err(|err| {
-                pliantdb_core::Error::Server(format!("error executing custom api: {:?}", err))
-            })
+        let dispatcher = self.server.data.custom_api.read().await;
+        if let Some(dispatcher) = dispatcher.as_ref() {
+            dispatcher
+                .dispatch(permissions, subaction)
+                .await
+                .map(Response::Api)
+                .map_err(|err| {
+                    pliantdb_core::Error::Server(format!("error executing custom api: {:?}", err))
+                })
+        } else {
+            Err(pliantdb_core::Error::Server(String::from(
+                "No dispatcher to handle request",
+            )))
+        }
     }
 }
 

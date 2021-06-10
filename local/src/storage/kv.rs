@@ -334,10 +334,6 @@ impl Job for ExpirationLoader {
                 }
                 false
             }) {
-                println!(
-                    "found existing tree to expire: {:?}",
-                    String::from_utf8(kv_tree.to_vec()).unwrap()
-                );
                 for row in storage.data.sled.open_tree(&kv_tree)?.iter() {
                     let (key, entry) = row?;
                     if let Ok(entry) = bincode::deserialize::<Entry>(&entry) {

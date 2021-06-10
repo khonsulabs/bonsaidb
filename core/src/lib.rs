@@ -35,7 +35,7 @@ pub mod transaction;
 pub mod kv;
 
 /// Traits for tailoring a server.
-pub mod backend;
+pub mod custom_api;
 
 #[cfg(feature = "networking")]
 pub use fabruic;

@@ -3,7 +3,6 @@ use std::sync::atomic::AtomicBool;
 use std::{
     any::TypeId,
     collections::HashMap,
-    marker::PhantomData,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
@@ -13,8 +12,8 @@ use std::{
 use async_trait::async_trait;
 use flume::Sender;
 use pliantdb_core::{
-    backend::{Backend, CustomApi},
     connection::{Database, ServerConnection},
+    custom_api::CustomApi,
     fabruic::Certificate,
     networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
     schema::{Schema, SchemaName, Schematic},
@@ -38,11 +37,11 @@ use pliantdb_core::{circulate::Message, networking::DatabaseRequest};
 
 /// Client for connecting to a `PliantDb` server.
 #[derive(Debug)]
-pub struct Client<B: Backend = ()> {
-    pub(crate) data: Arc<Data<B>>,
+pub struct Client<A: CustomApi = ()> {
+    pub(crate) data: Arc<Data<A>>,
 }
 
-impl<B: Backend> Clone for Client<B> {
+impl<A: CustomApi> Clone for Client<A> {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
@@ -51,12 +50,12 @@ impl<B: Backend> Clone for Client<B> {
 }
 
 #[allow(type_alias_bounds)] // Causes compilation errors without it
-type BackendPendingRequest<B: Backend> =
-    PendingRequest<<B::CustomApi as CustomApi>::Request, <B::CustomApi as CustomApi>::Response>;
+type BackendPendingRequest<A: CustomApi> =
+    PendingRequest<<A as CustomApi>::Request, <A as CustomApi>::Response>;
 
 #[derive(Debug)]
-pub struct Data<B: Backend> {
-    request_sender: Sender<BackendPendingRequest<B>>,
+pub struct Data<A: CustomApi> {
+    request_sender: Sender<BackendPendingRequest<A>>,
     worker: CancellableHandle<Result<(), Error>>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     request_id: AtomicU32,
@@ -64,10 +63,9 @@ pub struct Data<B: Backend> {
     subscribers: SubscriberMap,
     #[cfg(feature = "test-util")]
     background_task_running: Arc<AtomicBool>,
-    _backend: PhantomData<B>,
 }
 
-impl<B: Backend> Client<B> {
+impl<A: CustomApi> Client<A> {
     /// Initialize a client connecting to `url` with `certificate` being used to
     /// validate and encrypt the connection. This client can be shared by
     /// cloning it. All requests are done asynchronously over the same
@@ -128,7 +126,6 @@ impl<B: Backend> Client<B> {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
-                _backend: PhantomData::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -163,7 +160,6 @@ impl<B: Backend> Client<B> {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
-                _backend: PhantomData::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -177,7 +173,7 @@ impl<B: Backend> Client<B> {
     /// Returns a structure representing a remote database. No validations are
     /// done when this method is executed. The server will validate the schema
     /// and database name when a [`Connection`](pliantdb_core::connection::Connection) function is called.
-    pub async fn database<DB: Schema>(&self, name: &str) -> Result<RemoteDatabase<DB, B>, Error> {
+    pub async fn database<DB: Schema>(&self, name: &str) -> Result<RemoteDatabase<DB, A>, Error> {
         let mut schemas = self.data.schemas.lock().await;
         let type_id = TypeId::of::<DB>();
         let schematic = if let Some(schematic) = schemas.get(&type_id) {
@@ -196,8 +192,8 @@ impl<B: Backend> Client<B> {
 
     async fn send_request(
         &self,
-        request: Request<<B::CustomApi as CustomApi>::Request>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, Error> {
+        request: Request<<A as CustomApi>::Request>,
+    ) -> Result<Response<<A as CustomApi>::Response>, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
@@ -214,8 +210,8 @@ impl<B: Backend> Client<B> {
     /// Sends an api `request`.
     pub async fn send_api_request(
         &self,
-        request: <B::CustomApi as CustomApi>::Request,
-    ) -> Result<<B::CustomApi as CustomApi>::Response, Error> {
+        request: <A as CustomApi>::Request,
+    ) -> Result<<A as CustomApi>::Response, Error> {
         match self.send_request(Request::Api(request)).await? {
             Response::Api(response) => Ok(response),
             Response::Error(err) => Err(Error::Core(err)),
