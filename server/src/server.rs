@@ -46,13 +46,19 @@ use pliantdb_core::{
     transaction::{Command, Transaction},
 };
 use pliantdb_jobs::{manager::Manager, Job};
-use pliantdb_local::{Database, OpenDatabase, Storage};
+use pliantdb_local::{OpenDatabase, Storage};
 use schema::SchemaName;
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
 
 use crate::{async_io_util::FileExt, error::Error, Backend, Configuration};
+
+mod database;
+pub use database::ServerDatabase;
+
+#[cfg(feature = "pubsub")]
+pub use self::database::ServerSubscriber;
 
 /// A `PliantDb` server.
 #[derive(Debug)]
@@ -84,6 +90,8 @@ struct Data<B: Backend = ()> {
     custom_api: RwLock<Option<B::CustomApiDispatcher>>,
     #[cfg(feature = "pubsub")]
     relay: Relay,
+    #[cfg(feature = "pubsub")]
+    subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
     _backend: PhantomData<B>,
 }
 
@@ -109,6 +117,8 @@ impl<B: Backend> CustomServer<B> {
                 custom_api: RwLock::default(),
                 #[cfg(feature = "pubsub")]
                 relay: Relay::default(),
+                #[cfg(feature = "pubsub")]
+                subscribers: Arc::default(),
                 _backend: PhantomData::default(),
             }),
         })
@@ -120,10 +130,13 @@ impl<B: Backend> CustomServer<B> {
         *server_dispatcher = Some(dispatcher);
     }
 
-    /// Retrieves a database. This function only verifies that the database exists
-    pub async fn database<DB: Schema>(&self, name: &'_ str) -> Result<Database<DB>, Error> {
+    /// Retrieves a database. This function only verifies that the database exists.
+    pub async fn database<DB: Schema>(
+        &self,
+        name: &'_ str,
+    ) -> Result<ServerDatabase<'_, B, DB>, Error> {
         let db = self.data.storage.database(name).await?;
-        Ok(db)
+        Ok(ServerDatabase { server: self, db })
     }
 
     pub(crate) async fn database_without_schema(
@@ -343,9 +356,6 @@ impl<B: Backend> CustomServer<B> {
             Result::<(), anyhow::Error>::Ok(())
         });
 
-        #[cfg(feature = "pubsub")]
-        let subscribers: Arc<RwLock<HashMap<u64, Subscriber>>> = Arc::default();
-
         while let Some(payload) = receiver.next().await {
             match payload? {
                 Message::Binary(binary) => {
@@ -365,7 +375,7 @@ impl<B: Backend> CustomServer<B> {
                             Ok(())
                         },
                         #[cfg(feature = "pubsub")]
-                        subscribers.clone(),
+                        self.data.subscribers.clone(),
                         #[cfg(feature = "pubsub")]
                         response_sender.clone(),
                     )
@@ -425,8 +435,6 @@ impl<B: Backend> CustomServer<B> {
         sender: fabruic::Sender<Payload<Response<<B::CustomApi as CustomApi>::Response>>>,
         mut receiver: fabruic::Receiver<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
     ) -> Result<(), Error> {
-        #[cfg(feature = "pubsub")]
-        let subscribers: Arc<RwLock<HashMap<u64, Subscriber>>> = Arc::default();
         let (payload_sender, payload_receiver) = flume::unbounded();
         tokio::spawn(async move {
             while let Ok(payload) = payload_receiver.recv_async().await {
@@ -450,7 +458,7 @@ impl<B: Backend> CustomServer<B> {
                     Ok(())
                 },
                 #[cfg(feature = "pubsub")]
-                subscribers.clone(),
+                self.data.subscribers.clone(),
                 #[cfg(feature = "pubsub")]
                 payload_sender.clone(),
             )
@@ -510,6 +518,88 @@ impl<B: Backend> CustomServer<B> {
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "pubsub")]
+    async fn publish_message(&self, database: &str, topic: &str, payload: Vec<u8>) {
+        self.data
+            .relay
+            .publish_message(Message {
+                topic: database_topic(database, topic),
+                payload,
+            })
+            .await
+    }
+
+    #[cfg(feature = "pubsub")]
+    async fn publish_serialized_to_all(&self, database: &str, topics: &[String], payload: Vec<u8>) {
+        self.data
+            .relay
+            .publish_serialized_to_all(
+                topics
+                    .iter()
+                    .map(|topic| database_topic(database, topic))
+                    .collect(),
+                payload,
+            )
+            .await;
+    }
+
+    #[cfg(feature = "pubsub")]
+    async fn create_subscriber(&self, database: String) -> ServerSubscriber<B> {
+        let subscriber = self.data.relay.create_subscriber().await;
+
+        let mut subscribers = self.data.subscribers.write().await;
+        let subscriber_id = subscriber.id();
+        let receiver = subscriber.receiver().clone();
+        subscribers.insert(subscriber_id, subscriber);
+
+        ServerSubscriber {
+            server: self.clone(),
+            database,
+            receiver,
+            id: subscriber_id,
+        }
+    }
+
+    #[cfg(feature = "pubsub")]
+    async fn subscribe_to<S: Into<String> + Send>(
+        &self,
+        subscriber_id: u64,
+        database: &str,
+        topic: S,
+    ) -> Result<(), pliantdb_core::Error> {
+        let subscribers = self.data.subscribers.read().await;
+        if let Some(subscriber) = subscribers.get(&subscriber_id) {
+            subscriber
+                .subscribe_to(database_topic(database, &topic.into()))
+                .await;
+            Ok(())
+        } else {
+            Err(pliantdb_core::Error::Server(String::from(
+                "invalid subscriber id",
+            )))
+        }
+    }
+
+    #[cfg(feature = "pubsub")]
+    async fn unsubscribe_from(
+        &self,
+        subscriber_id: u64,
+        database: &str,
+        topic: &str,
+    ) -> Result<(), pliantdb_core::Error> {
+        let subscribers = self.data.subscribers.read().await;
+        if let Some(subscriber) = subscribers.get(&subscriber_id) {
+            subscriber
+                .unsubscribe_from(&database_topic(database, topic))
+                .await;
+            Ok(())
+        } else {
+            Err(pliantdb_core::Error::Server(String::from(
+                "invalid subscriber id",
+            )))
+        }
     }
 }
 
@@ -1060,21 +1150,16 @@ impl<'s, B: Backend> pliantdb_core::networking::CreateSubscriberHandler
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
                 let server = self.server_dispatcher.server;
-                let subscriber = server.data.relay.create_subscriber().await;
-
-                let mut subscribers = self.server_dispatcher.subscribers.write().await;
-                let subscriber_id = subscriber.id();
-                let receiver = subscriber.receiver().clone();
-                subscribers.insert(subscriber_id, subscriber);
+                let subscriber = server.create_subscriber(self.name.clone()).await;
+                let subscriber_id = subscriber.id;
 
                 let task_self = server.clone();
                 let response_sender = self.server_dispatcher.response_sender.clone();
                 tokio::spawn(async move {
                     task_self
-                        .forward_notifications_for(subscriber_id, receiver, response_sender.clone())
+                        .forward_notifications_for(subscriber.id, subscriber.receiver, response_sender.clone())
                         .await
                 });
-
                 Ok(Response::Database(DatabaseResponse::SubscriberCreated {
                     subscriber_id,
                 }))
@@ -1109,12 +1194,7 @@ impl<'s, B: Backend> pliantdb_core::networking::PublishHandler for DatabaseDispa
                 self
                     .server_dispatcher
                     .server
-                    .data
-                    .relay
-                    .publish_message(Message {
-                        topic: database_topic(&self.name, &topic),
-                        payload,
-                    })
+                    .publish_message(&self.name, &topic, payload)
                     .await;
                 Ok(Response::Ok)
             } else {
@@ -1158,13 +1238,9 @@ impl<'s, B: Backend> pliantdb_core::networking::PublishToAllHandler for Database
                 self
                     .server_dispatcher
                     .server
-                    .data
-                    .relay
                     .publish_serialized_to_all(
-                        topics
-                            .iter()
-                            .map(|topic| database_topic(&self.name, topic))
-                            .collect(),
+                        &self.name,
+                        &topics,
                         payload,
                     )
                     .await;
@@ -1197,15 +1273,7 @@ impl<'s, B: Backend> pliantdb_core::networking::SubscribeToHandler for DatabaseD
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
-                let subscribers = self.server_dispatcher.subscribers.read().await;
-                if let Some(subscriber) = subscribers.get(&subscriber_id) {
-                    subscriber.subscribe_to(topic).await;
-                    Ok(Response::Ok)
-                } else {
-                    Ok(Response::Error(pliantdb_core::Error::Server(String::from(
-                        "invalid subscriber id",
-                    ))))
-                }
+                self.server_dispatcher.server.subscribe_to(subscriber_id, &self.name, topic).await.map(|_| Response::Ok)
             } else {
                 Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
@@ -1236,15 +1304,7 @@ impl<'s, B: Backend> pliantdb_core::networking::UnsubscribeFromHandler
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
-                let subscribers = self.server_dispatcher.subscribers.read().await;
-                if let Some(subscriber) = subscribers.get(&subscriber_id) {
-                    subscriber.unsubscribe_from(&topic).await;
-                    Ok(Response::Ok)
-                } else {
-                    Ok(Response::Error(pliantdb_core::Error::Server(String::from(
-                        "invalid subscriber id",
-                    ))))
-                }
+                self.server_dispatcher.server.unsubscribe_from(subscriber_id, &self.name, &topic).await.map(|_| Response::Ok)
             } else {
                 Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }

@@ -5,7 +5,7 @@ use pliantdb_core::{
     circulate::Message,
     custom_api::CustomApi,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
-    pubsub::{database_topic, PubSub, Subscriber},
+    pubsub::{PubSub, Subscriber},
     schema::Schema,
 };
 use serde::Serialize;
@@ -114,7 +114,7 @@ impl<A: CustomApi> Subscriber for RemoteSubscriber<A> {
                 database: self.database.to_string(),
                 request: DatabaseRequest::SubscribeTo {
                     subscriber_id: self.id,
-                    topic: database_topic(&self.database, &topic.into()),
+                    topic: topic.into(),
                 },
             })
             .await?
@@ -134,7 +134,7 @@ impl<A: CustomApi> Subscriber for RemoteSubscriber<A> {
                 database: self.database.to_string(),
                 request: DatabaseRequest::UnsubscribeFrom {
                     subscriber_id: self.id,
-                    topic: database_topic(&self.database, topic),
+                    topic: topic.to_string(),
                 },
             })
             .await?

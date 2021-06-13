@@ -26,11 +26,14 @@ mod config;
 mod error;
 mod server;
 
+#[cfg(feature = "pubsub")]
+pub use server::ServerSubscriber;
+
 pub use self::{
     backend::Backend,
     config::Configuration,
     error::Error,
-    server::{CustomServer, Server},
+    server::{CustomServer, Server, ServerDatabase},
 };
 
 #[cfg(test)]

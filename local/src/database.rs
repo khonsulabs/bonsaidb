@@ -96,6 +96,12 @@ where
         Ok(db)
     }
 
+    /// Returns the name of the database.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.data.name.as_ref()
+    }
+
     /// Creates a `Storage` with a single-database named "default" with its data stored at `path`.
     pub async fn open_local<P: AsRef<Path> + Send>(
         path: P,
