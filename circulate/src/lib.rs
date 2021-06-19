@@ -96,6 +96,8 @@ impl Relay {
                 id,
                 receiver,
                 relay: self.clone(),
+                #[cfg(not(target_arch = "wasm32"))]
+                tokio: tokio::runtime::Handle::current(),
             }),
         }
     }
@@ -315,6 +317,8 @@ struct SubscriberData {
     id: SubscriberId,
     relay: Relay,
     receiver: flume::Receiver<Arc<Message>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio: tokio::runtime::Handle,
 }
 
 impl Drop for SubscriberData {
@@ -327,8 +331,7 @@ impl Drop for SubscriberData {
         #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(drop_task);
         #[cfg(not(target_arch = "wasm32"))]
-        // TODO Replace with a tokio runtime handle instead of global tokio::spawn
-        tokio::spawn(drop_task);
+        self.tokio.spawn(drop_task);
     }
 }
 
