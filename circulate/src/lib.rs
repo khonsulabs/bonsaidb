@@ -212,7 +212,7 @@ impl Relay {
 
     async fn topic_id(&self, topic: &str) -> Option<TopicId> {
         let topics = self.data.topics.read().await;
-        topics.get(topic).cloned()
+        topics.get(topic).copied()
     }
 
     async fn post_message_to_topic(&self, message: Message, topic: TopicId) {

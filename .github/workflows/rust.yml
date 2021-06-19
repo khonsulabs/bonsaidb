@@ -110,7 +110,7 @@ jobs:
       - name: Install code coverage requirements
         run: |
           rustup component add llvm-tools-preview
-          rustup install nightly-2021-03-25
+          rustup install nightly
           curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
 
       - name: Run code coverage

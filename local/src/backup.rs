@@ -345,7 +345,7 @@ async fn write_documents(receiver: Receiver<BackupEntry>, backup: PathBuf) -> an
     Ok(())
 }
 
-#[allow(clippy::clippy::needless_pass_by_value)] // it's not needless, it's to avoid a borrow that would need to span a 'static lifetime
+#[allow(clippy::needless_pass_by_value)] // it's not needless, it's to avoid a borrow that would need to span a 'static lifetime
 fn restore_documents(receiver: Receiver<BackupEntry>, storage: Storage) -> anyhow::Result<()> {
     while let Ok(entry) = receiver.recv() {
         match entry {
