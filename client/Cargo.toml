@@ -13,7 +13,7 @@ readme = "../README.md"
 [features]
 default = ["full"]
 full = ["websockets", "trusted-dns", "pubsub", "keyvalue"]
-websockets = ["pliantdb-core/websockets", "tokio", "tokio-tungstenite", "bincode"]
+websockets = ["pliantdb-core/websockets", "tokio-tungstenite", "bincode"]
 trusted-dns = ["fabruic/trust-dns"]
 pubsub = ["pliantdb-core/pubsub"]
 keyvalue = ["pliantdb-core/keyvalue"]
@@ -49,7 +49,7 @@ wasm-bindgen = "0.2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 fabruic = { version="0.0.1-dev.2" }
-tokio = { version="1", features=["sync"], optional=true }
+tokio = { version="1", features=["sync"] }
 tokio-tungstenite = { version="0.14", optional=true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
