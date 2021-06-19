@@ -1193,7 +1193,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(
     ));
 
     assert!(matches!(
-        dbg!(server.create_database::<Basic>("|invalidname").await),
+        server.create_database::<Basic>("|invalidname").await,
         Err(Error::InvalidDatabaseName(_))
     ));
 
