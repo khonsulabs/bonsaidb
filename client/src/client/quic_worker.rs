@@ -1,18 +1,14 @@
-use flume::{Receiver, Sender};
+use fabruic::{self, Certificate, Endpoint};
+use flume::Receiver;
 use futures::StreamExt;
-use pliantdb_core::networking::{
-    fabruic::{self, Certificate, Endpoint},
-    Payload, Request, Response,
-};
+use pliantdb_core::networking::{Payload, Request, Response};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use super::PendingRequest;
 #[cfg(feature = "pubsub")]
 use crate::client::SubscriberMap;
-use crate::{
-    client::{OutstandingRequestMapHandle, PendingRequest},
-    Error,
-};
+use crate::{client::OutstandingRequestMapHandle, Error};
 
 /// This function will establish a connection and try to keep it active. If an
 /// error occurs, any queries that come in while reconnecting will have the
@@ -22,7 +18,7 @@ pub async fn reconnecting_client_loop<
     O: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
 >(
     mut url: Url,
-    certificate: Certificate,
+    certificate: Option<Certificate>,
     request_receiver: Receiver<PendingRequest<R, O>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
@@ -31,9 +27,9 @@ pub async fn reconnecting_client_loop<
     }
 
     while let Ok(request) = request_receiver.recv_async().await {
-        if let Err((responder, err)) = connect_and_process(
+        if let Err((failed_request, err)) = connect_and_process(
             &url,
-            &certificate,
+            certificate.as_ref(),
             request,
             &request_receiver,
             #[cfg(feature = "pubsub")]
@@ -41,8 +37,8 @@ pub async fn reconnecting_client_loop<
         )
         .await
         {
-            if let Some(responder) = responder {
-                drop(responder.try_send(Err(err)));
+            if let Some(failed_request) = failed_request {
+                drop(failed_request.responder.send(Err(err)));
             }
             continue;
         }
@@ -56,14 +52,15 @@ async fn connect_and_process<
     O: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
 >(
     url: &Url,
-    certificate: &Certificate,
+    certificate: Option<&Certificate>,
     initial_request: PendingRequest<R, O>,
     request_receiver: &Receiver<PendingRequest<R, O>>,
     #[cfg(feature = "pubsub")] subscribers: &SubscriberMap,
-) -> Result<(), (Option<Sender<Result<Response<O>, Error>>>, Error)> {
-    let (_connection, payload_sender, payload_receiver) = connect(url, certificate)
-        .await
-        .map_err(|err| (Some(initial_request.responder.clone()), err))?;
+) -> Result<(), (Option<PendingRequest<R, O>>, Error)> {
+    let (_connection, payload_sender, payload_receiver) = match connect(url, certificate).await {
+        Ok(result) => result,
+        Err(err) => return Err((Some(initial_request), err)),
+    };
 
     let outstanding_requests = OutstandingRequestMapHandle::default();
     let request_processor = tokio::spawn(process(
@@ -73,13 +70,19 @@ async fn connect_and_process<
         subscribers.clone(),
     ));
 
-    let PendingRequest { request, responder } = initial_request;
-    payload_sender
-        .send(&request)
-        .map_err(|err| (Some(responder.clone()), Error::from(err)))?;
+    if let Err(err) = payload_sender.send(&initial_request.request) {
+        return Err((Some(initial_request), Error::from(err)));
+    }
+
     {
         let mut outstanding_requests = outstanding_requests.lock().await;
-        outstanding_requests.insert(request.id.expect("all requests require ids"), responder);
+        outstanding_requests.insert(
+            initial_request
+                .request
+                .id
+                .expect("all requests require ids"),
+            initial_request,
+        );
     }
 
     // TODO switch to select
@@ -93,66 +96,40 @@ async fn connect_and_process<
 }
 
 async fn process_requests<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de>,
-    O: Send + Sync + Serialize + for<'de> Deserialize<'de>,
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    O: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
 >(
-    outstanding_requests: OutstandingRequestMapHandle<O>,
+    outstanding_requests: OutstandingRequestMapHandle<R, O>,
     request_receiver: &Receiver<PendingRequest<R, O>>,
     payload_sender: fabruic::Sender<Payload<Request<R>>>,
 ) -> Result<(), Error> {
     while let Ok(client_request) = request_receiver.recv_async().await {
         let mut outstanding_requests = outstanding_requests.lock().await;
+        payload_sender.send(&client_request.request)?;
         outstanding_requests.insert(
             client_request.request.id.expect("all requests require ids"),
-            client_request.responder,
+            client_request,
         );
-        payload_sender.send(&client_request.request)?;
     }
 
     // Return an error to make sure try_join returns.
     Err(Error::Disconnected)
 }
 
-pub async fn process<O: Send>(
-    outstanding_requests: OutstandingRequestMapHandle<O>,
+pub async fn process<R: Send + Sync + 'static, O: Send + Sync + 'static>(
+    outstanding_requests: OutstandingRequestMapHandle<R, O>,
     mut payload_receiver: fabruic::Receiver<Payload<Response<O>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
         let payload = payload?;
-        if let Some(payload_id) = payload.id {
-            let responder = {
-                let mut outstanding_requests = outstanding_requests.lock().await;
-                outstanding_requests
-                    .remove(&payload_id)
-                    .expect("missing responder")
-            };
-            drop(responder.send(Ok(payload.wrapped)));
-        } else {
+        super::process_response_payload(
+            payload,
+            &outstanding_requests,
             #[cfg(feature = "pubsub")]
-            {
-                use std::sync::Arc;
-
-                use pliantdb_core::{circulate::Message, networking::DatabaseResponse};
-
-                if let Response::Database(DatabaseResponse::MessageReceived {
-                    subscriber_id,
-                    topic,
-                    payload,
-                }) = payload.wrapped
-                {
-                    let mut subscribers = subscribers.lock().await;
-                    if let Some(sender) = subscribers.get(&subscriber_id) {
-                        if sender.send(Arc::new(Message { topic, payload })).is_err() {
-                            subscribers.remove(&subscriber_id);
-                        }
-                    }
-
-                    continue;
-                }
-            }
-            unreachable!("only MessageReceived is allowed to not have an id")
-        }
+            &subscribers,
+        )
+        .await;
     }
 
     Err(Error::Disconnected)
@@ -163,7 +140,7 @@ async fn connect<
     O: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
 >(
     url: &Url,
-    certificate: &Certificate,
+    certificate: Option<&Certificate>,
 ) -> Result<
     (
         fabruic::Connection<()>,
@@ -174,7 +151,11 @@ async fn connect<
 > {
     let endpoint = Endpoint::new_client()
         .map_err(|err| Error::Core(pliantdb_core::Error::Transport(err.to_string())))?;
-    let connecting = endpoint.connect_pinned(url, certificate, None).await?;
+    let connecting = if let Some(certificate) = certificate {
+        endpoint.connect_pinned(url, certificate, None).await?
+    } else {
+        endpoint.connect(url).await?
+    };
 
     let connection = connecting.accept::<()>().await?;
     let (sender, receiver) = connection.open_stream(&()).await?;

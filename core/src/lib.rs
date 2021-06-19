@@ -38,8 +38,6 @@ pub mod kv;
 pub mod custom_api;
 
 #[cfg(feature = "networking")]
-pub use fabruic;
-#[cfg(feature = "networking")]
 /// Types for implementing the `PliantDb` network protocol.
 pub mod networking;
 

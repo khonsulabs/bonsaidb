@@ -116,6 +116,7 @@ url = "2.2"
 once_cell = "1"
 flume = "0.10"
 actionable = "0.1.0-dev.2"
+fabruic = { version = "0.0.1-dev.2" }
 
 [package.metadata.docs.rs]
 all-features = true

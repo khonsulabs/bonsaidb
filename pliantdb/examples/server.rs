@@ -65,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
     {
         // To connect over websockets, use the websocket scheme.
         tasks.push(do_some_database_work(
-            Client::<()>::new(Url::parse("ws://localhost:8080")?, None)
+            Client::<()>::new(Url::parse("ws://localhost:8080")?)
                 .await?
                 .database::<Shape>("my-database")
                 .await?,
@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
 
     // To connect over QUIC, use the pliantdb scheme.
     tasks.push(do_some_database_work(
-        Client::<()>::new(
+        Client::<()>::new_with_certificate(
             Url::parse("pliantdb://localhost")?,
             Some(certificate),
         )

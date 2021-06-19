@@ -14,9 +14,8 @@ homepage = "https://pliantdb.dev/"
 [features]
 default = []
 test-util = ["futures", "tokio", "networking", "websockets"]
-networking = ["fabruic"]
+networking = []
 websockets = []
-trusted-dns = ["fabruic/trust-dns"]
 pubsub = ["circulate"]
 keyvalue = ["futures"]
 actionable-traits = []
@@ -33,7 +32,6 @@ anyhow = "1"
 sha2 = "0.9"
 futures = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["time"], optional = true }
-fabruic = { version = "0.0.1-dev.2", optional = true, features = ["dangerous"] }
 num-traits = "0.2"
 actionable = "0.1.0-dev.2"
 

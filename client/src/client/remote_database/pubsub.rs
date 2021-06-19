@@ -94,6 +94,7 @@ where
     }
 }
 
+/// A `PubSub` subscriber from a remote server.
 #[derive(Debug)]
 pub struct RemoteSubscriber<A: CustomApi> {
     client: Client<A>,
@@ -157,8 +158,12 @@ impl<A: CustomApi> Drop for RemoteSubscriber<A> {
         let client = self.client.clone();
         let database = self.database.to_string();
         let subscriber_id = self.id;
-        tokio::spawn(async move {
+        let drop_future = async move {
             client.unregister_subscriber(database, subscriber_id).await;
-        });
+        };
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(drop_future);
+        #[cfg(not(target_arch = "wasm32"))]
+        tokio::spawn(drop_future);
     }
 }

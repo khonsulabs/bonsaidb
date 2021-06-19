@@ -11,6 +11,7 @@ use std::{
 
 use async_trait::async_trait;
 use cfg_if::cfg_if;
+use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
 #[cfg(feature = "websockets")]
 use flume::Sender;
 #[cfg(feature = "websockets")]
@@ -26,9 +27,7 @@ use pliantdb_core::{
     custom_api::CustomApi,
     kv::KeyOperation,
     networking::{
-        self,
-        fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey},
-        CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
+        self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
         DeleteDatabaseHandler, Payload, Request, RequestDispatcher, Response, ServerRequest,
         ServerRequestDispatcher, ServerResponse,
     },

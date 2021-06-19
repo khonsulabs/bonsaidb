@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use pliantdb_core::networking::fabruic;
 use pliantdb_local::core::{self, schema};
 use schema::InvalidNameError;
 
