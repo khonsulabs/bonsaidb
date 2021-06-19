@@ -85,7 +85,6 @@ async fn connect_and_process<
         );
     }
 
-    // TODO switch to select
     futures::try_join!(
         process_requests(outstanding_requests, request_receiver, payload_sender),
         async { request_processor.await.map_err(|_| Error::Disconnected)? }
