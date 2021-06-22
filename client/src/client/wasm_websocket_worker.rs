@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use flume::Receiver;
 use pliantdb_core::networking::{Payload, Response};
@@ -14,7 +14,7 @@ use crate::{
     Error,
 };
 
-pub fn reconnecting_client_loop<
+pub fn spawn_client<
     R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
 >(
@@ -22,7 +22,7 @@ pub fn reconnecting_client_loop<
     request_receiver: Receiver<PendingRequest<R, O>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) {
-    wasm_bindgen_futures::spawn_local(spawn_reconnecting_websocket(
+    wasm_bindgen_futures::spawn_local(create_websocket(
         url,
         request_receiver,
         #[cfg(feature = "pubsub")]
@@ -30,7 +30,7 @@ pub fn reconnecting_client_loop<
     ));
 }
 
-async fn spawn_reconnecting_websocket<
+async fn create_websocket<
     R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
 >(
@@ -46,7 +46,6 @@ async fn spawn_reconnecting_websocket<
     // In wasm we're not going to have a real loop. We're going create a
     // websocket and store it in JS. This will allow us to get around Send/Sync
     // issues since each access of the websocket can pull it from js.
-    log::info!("spawning");
     let ws = match WebSocket::new(&url.to_string()) {
         Ok(ws) => ws,
         Err(err) => {
@@ -55,84 +54,109 @@ async fn spawn_reconnecting_websocket<
                     .responder
                     .send(Err(Error::from(WebSocketError::from(err)))),
             );
-            log::info!("Error connecting");
-            reconnecting_client_loop(
+            spawn_client(
                 url,
                 request_receiver,
                 #[cfg(feature = "pubsub")]
                 subscribers,
             );
-            // Since we sent the error to the responder and are attempting to
-            // reconnect we should treat this call as successful.
             return;
         }
     };
-    let onerror_callback = on_error_callback(ws.clone());
-    ws.set_onerror(Some(onerror_callback.as_ref().unchecked_ref()));
+
+    let (connection_request_sender, connection_request_receiver) = flume::unbounded();
+    let (shutdown_sender, shutdown_receiver) = flume::unbounded();
+    forward_request_with_shutdown(
+        request_receiver.clone(),
+        shutdown_receiver,
+        connection_request_sender,
+    );
+
+    let initial_request = Arc::new(Mutex::new(Some(initial_request)));
     ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
     let outstanding_requests = OutstandingRequestMapHandle::default();
+
+    let onopen_callback = on_open_callback(
+        connection_request_receiver,
+        initial_request.clone(),
+        outstanding_requests.clone(),
+        ws.clone(),
+    );
+    ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
+
     let onmessage_callback = on_message_callback(
         outstanding_requests.clone(),
         #[cfg(feature = "pubsub")]
         subscribers.clone(),
     );
+    ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
 
-    let onopen_callback = on_open_callback(
-        url.clone(),
-        request_receiver.clone(),
-        initial_request,
-        outstanding_requests.clone(),
-        ws.clone(),
-        #[cfg(feature = "pubsub")]
-        subscribers.clone(),
-    );
+    let onerror_callback =
+        on_error_callback(ws.clone(), initial_request.clone(), shutdown_sender.clone());
+    ws.set_onerror(Some(onerror_callback.as_ref().unchecked_ref()));
 
     let onclose_callback = on_close_callback(
         url.clone(),
         request_receiver.clone(),
+        shutdown_sender.clone(),
         ws.clone(),
+        initial_request.clone(),
         #[cfg(feature = "pubsub")]
         subscribers.clone(),
     );
-
-    ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
-    ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
     ws.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
+}
 
-    let window = web_sys::window().unwrap();
-    js_sys::Reflect::set(&window, &JsValue::symbol(Some("pliantdb_websocket")), &ws).unwrap();
+fn forward_request_with_shutdown<
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+>(
+    request_receiver: flume::Receiver<PendingRequest<R, O>>,
+    shutdown_receiver: flume::Receiver<()>,
+    request_sender: flume::Sender<PendingRequest<R, O>>,
+) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let mut receive_request = Box::pin(request_receiver.recv_async());
+        let mut receive_shutdown = Box::pin(shutdown_receiver.recv_async());
+        loop {
+            let res = futures::select! {
+                request = receive_request => request,
+                _ = receive_shutdown => Err(flume::RecvError::Disconnected)
+            };
+            if let Ok(request) = res {
+                if request_sender.send(request).is_err() {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    });
 }
 
 fn on_open_callback<
     R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
     O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
 >(
-    url: Arc<Url>,
     request_receiver: Receiver<PendingRequest<R, O>>,
-    initial_request: PendingRequest<R, O>,
+    initial_request: Arc<Mutex<Option<PendingRequest<R, O>>>>,
     requests: OutstandingRequestMapHandle<R, O>,
     ws: WebSocket,
-    #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> JsValue {
     Closure::once_into_js(move || {
-        log::info!("Opened!");
         wasm_bindgen_futures::spawn_local(async move {
-            if send_request(&ws, initial_request, &requests).await {
-                while let Ok(pending) = request_receiver.recv_async().await {
-                    if !send_request(&ws, pending, &requests).await {
-                        break;
+            if let Some(initial_request) = take_initial_request(initial_request) {
+                if send_request(&ws, initial_request, &requests).await {
+                    while let Ok(pending) = request_receiver.recv_async().await {
+                        if !send_request(&ws, pending, &requests).await {
+                            break;
+                        }
                     }
                 }
             }
 
             drop(ws.close());
             drop(ws);
-            reconnecting_client_loop(
-                url,
-                request_receiver,
-                #[cfg(feature = "pubsub")]
-                subscribers,
-            );
         });
     })
 }
@@ -213,16 +237,44 @@ fn on_message_callback<
     .into_js_value()
 }
 
-fn on_error_callback(ws: WebSocket) -> JsValue {
+fn on_error_callback<
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+>(
+    ws: WebSocket,
+    initial_request: Arc<Mutex<Option<PendingRequest<R, O>>>>,
+    shutdown: flume::Sender<()>,
+) -> JsValue {
     Closure::once_into_js(move |e: ErrorEvent| {
-        log::error!(
-            "websocket error '{}'",
-            e.error().as_string().unwrap_or_default()
-        );
         ws.set_onerror(None);
+        let _ = shutdown.send(());
+        if let Some(initial_request) = take_initial_request(initial_request) {
+            drop(
+                initial_request
+                    .responder
+                    .send(Err(Error::from(WebSocketError(
+                        e.error().as_string().unwrap_or_default(),
+                    )))),
+            );
+        } else {
+            log::error!(
+                "websocket error '{}'",
+                e.error().as_string().unwrap_or_default()
+            );
+        }
 
         ws.close().unwrap();
     })
+}
+
+fn take_initial_request<
+    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+>(
+    initial_request: Arc<Mutex<Option<PendingRequest<R, O>>>>,
+) -> Option<PendingRequest<R, O>> {
+    let mut initial_request = initial_request.lock().unwrap();
+    initial_request.take()
 }
 
 fn on_close_callback<
@@ -231,14 +283,30 @@ fn on_close_callback<
 >(
     url: Arc<Url>,
     request_receiver: Receiver<PendingRequest<R, O>>,
+    shutdown: flume::Sender<()>,
     ws: WebSocket,
+    initial_request: Arc<Mutex<Option<PendingRequest<R, O>>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> JsValue {
     Closure::once_into_js(move |c: CloseEvent| {
-        log::error!("websocket closed ({}): {:?}", c.code(), c.reason());
+        let _ = shutdown.send(());
         ws.set_onclose(None);
 
-        reconnecting_client_loop(
+        if let Some(initial_request) = take_initial_request(initial_request) {
+            drop(
+                initial_request
+                    .responder
+                    .send(Err(Error::from(WebSocketError(format!(
+                        "connection closed ({}). Reason: {:?}",
+                        c.code(),
+                        c.reason()
+                    ))))),
+            );
+        } else {
+            log::error!("websocket closed ({}): {:?}", c.code(), c.reason());
+        }
+
+        spawn_client(
             url,
             request_receiver,
             #[cfg(feature = "pubsub")]

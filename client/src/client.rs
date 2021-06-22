@@ -216,7 +216,7 @@ impl<A: CustomApi> Client<A> {
         #[cfg(feature = "pubsub")]
         let subscribers = SubscriberMap::default();
 
-        wasm_websocket_worker::reconnecting_client_loop(
+        wasm_websocket_worker::spawn_client(
             Arc::new(url),
             request_receiver,
             #[cfg(feature = "pubsub")]
