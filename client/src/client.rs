@@ -217,11 +217,11 @@ impl<A: CustomApi> Client<A> {
         let subscribers = SubscriberMap::default();
 
         wasm_websocket_worker::reconnecting_client_loop(
-            url,
+            Arc::new(url),
             request_receiver,
             #[cfg(feature = "pubsub")]
             subscribers.clone(),
-        )?;
+        );
 
         #[cfg(feature = "test-util")]
         let background_task_running = Arc::new(AtomicBool::new(true));
