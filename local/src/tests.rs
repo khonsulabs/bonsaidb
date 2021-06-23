@@ -183,11 +183,11 @@ fn expiration_after_close() -> anyhow::Result<()> {
                     return Ok(true);
                 }
 
-                assert_eq!(db.get_key("a").await?, Some(0_u32));
+                assert_eq!(db.get_key("a").into().await?, Some(0_u32));
 
                 timing.wait_until(Duration::from_secs(4)).await;
 
-                assert!(db.get_key::<u32, _>("a").await?.is_none());
+                assert!(db.get_key("a").await?.is_none());
 
                 Result::<bool, anyhow::Error>::Ok(false)
             })?;

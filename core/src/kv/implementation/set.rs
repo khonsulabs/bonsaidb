@@ -6,8 +6,10 @@ use std::{
 use futures::{Future, FutureExt};
 use serde::{Deserialize, Serialize};
 
-use super::{BuilderState, Command, KeyCheck, KeyOperation, KeyStatus, Kv, Output, Timestamp};
-use crate::Error;
+use super::{
+    BuilderState, Command, KeyCheck, KeyOperation, KeyStatus, Kv, Output, PendingValue, Timestamp,
+};
+use crate::{kv::Value, Error};
 
 /// Executes [`Command::Set`] when awaited. Also offers methods to customize the
 /// options for the operation.
@@ -20,7 +22,7 @@ struct Options<'a, Kv, V> {
     kv: &'a Kv,
     namespace: Option<String>,
     key: String,
-    value: &'a V,
+    value: PendingValue<'a, V>,
     expiration: Option<Timestamp>,
     keep_existing_expiration: bool,
     check: Option<KeyCheck>,
@@ -29,8 +31,14 @@ struct Options<'a, Kv, V> {
 impl<'a, K, V> Builder<'a, K, V>
 where
     K: Kv,
+    V: Serialize + Send + Sync,
 {
-    pub(crate) fn new(kv: &'a K, namespace: Option<String>, key: String, value: &'a V) -> Self {
+    pub(crate) fn new(
+        kv: &'a K,
+        namespace: Option<String>,
+        key: String,
+        value: PendingValue<'a, V>,
+    ) -> Self {
         Self {
             state: BuilderState::Pending(Some(Options {
                 key,
@@ -87,10 +95,7 @@ where
     /// Executes the Set operation, requesting the previous value be returned.
     /// If no change is made, None will be returned.
     #[allow(clippy::missing_panics_doc)]
-    pub async fn returning_previous(self) -> Result<Option<V>, Error>
-    where
-        V: Serialize + for<'de> Deserialize<'de> + Send + Sync,
-    {
+    pub async fn returning_previous(self) -> Result<Option<Value>, Error> {
         if let BuilderState::Pending(Some(builder)) = self.state {
             let Options {
                 kv,
@@ -101,14 +106,13 @@ where
                 keep_existing_expiration,
                 check,
             } = builder;
-            let value = serde_cbor::to_vec(value)?;
 
             let result = kv
                 .execute_key_operation(KeyOperation {
                     namespace,
                     key,
                     command: Command::Set {
-                        value,
+                        value: value.prepare()?,
                         expiration,
                         keep_existing_expiration,
                         check,
@@ -117,10 +121,7 @@ where
                 })
                 .await?;
             match result {
-                Output::Value(value) => Ok(value
-                    .map(|v| serde_cbor::from_slice(&v))
-                    .transpose()
-                    .unwrap()),
+                Output::Value(value) => Ok(value),
                 Output::Status(KeyStatus::NotChanged) => Ok(None),
                 Output::Status(_) => unreachable!("Unexpected output from Set"),
             }
@@ -128,12 +129,24 @@ where
             panic!("Using future after it's been executed")
         }
     }
+
+    /// Executes the Set operation, requesting the previous value be returned.
+    /// If no change is made, None will be returned.
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn returning_previous_as<OtherV: for<'de> Deserialize<'de>>(
+        self,
+    ) -> Result<Option<OtherV>, Error> {
+        self.returning_previous()
+            .await?
+            .map(|value| value.deserialize())
+            .transpose()
+    }
 }
 
 impl<'a, K, V> Future for Builder<'a, K, V>
 where
     K: Kv,
-    V: Serialize,
+    V: Serialize + Send + Sync,
 {
     type Output = Result<KeyStatus, Error>;
 
@@ -153,14 +166,13 @@ where
                     keep_existing_expiration,
                     check,
                 } = builder.take().expect("expected builder to have options");
-                let value = serde_cbor::to_vec(value)?;
                 let future = async move {
                     let result = kv
                         .execute_key_operation(KeyOperation {
                             namespace,
                             key,
                             command: Command::Set {
-                                value,
+                                value: value.prepare()?,
                                 expiration,
                                 keep_existing_expiration,
                                 check,

@@ -322,6 +322,7 @@ pub enum HarnessTest {
     PubSubPublishAll,
     KvBasic,
     KvSet,
+    KvIncrementDecrement,
     KvExpiration,
     KvDeleteExpire,
 }
@@ -337,6 +338,18 @@ impl Display for HarnessTest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(&self, f)
     }
+}
+
+/// Compares two f64's accounting for the epsilon.
+#[macro_export]
+macro_rules! assert_f64_eq {
+    ($a:expr, $b:expr) => {{
+        let a: f64 = $a;
+        let b: f64 = $b;
+        if (a - b).abs() > f64::EPSILON {
+            panic!("{:?} <> {:?}", a, b);
+        }
+    }};
 }
 
 /// Creates a test suite that tests methods available on [`Connection`]
@@ -947,19 +960,25 @@ macro_rules! define_kv_test_suite {
                 db.set_key("akey", &String::from("avalue")).await?,
                 KeyStatus::Inserted
             );
-            assert_eq!(db.get_key("akey").await?, Some(String::from("avalue")));
+            assert_eq!(
+                db.get_key("akey").into().await?,
+                Some(String::from("avalue"))
+            );
             assert_eq!(
                 db.set_key("akey", &String::from("new_value"))
-                    .returning_previous()
+                    .returning_previous_as()
                     .await?,
                 Some(String::from("avalue"))
             );
-            assert_eq!(db.get_key("akey").await?, Some(String::from("new_value")));
             assert_eq!(
-                db.get_key("akey").and_delete().await?,
+                db.get_key("akey").into().await?,
                 Some(String::from("new_value"))
             );
-            assert_eq!(db.get_key::<String, _>("akey").await?, None);
+            assert_eq!(
+                db.get_key("akey").and_delete().into().await?,
+                Some(String::from("new_value"))
+            );
+            assert_eq!(db.get_key("akey").await?, None);
             assert_eq!(
                 db.set_key("akey", &String::from("new_value"))
                     .returning_previous()
@@ -997,7 +1016,176 @@ macro_rules! define_kv_test_suite {
                 kv.set_key("a", &2_u32).only_if_exists().await?,
                 KeyStatus::Updated,
             );
-            assert_eq!(kv.set_key("a", &3_u32).returning_previous().await?, Some(2),);
+            assert_eq!(
+                kv.set_key("a", &3_u32).returning_previous_as().await?,
+                Some(2_u32),
+            );
+
+            harness.shutdown().await?;
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn kv_increment_decrement_tests() -> anyhow::Result<()> {
+            use $crate::kv::{KeyStatus, Kv};
+            let harness =
+                $harness::new($crate::test_util::HarnessTest::KvIncrementDecrement).await?;
+            let db = harness.connect().await?;
+            let kv = db.with_key_namespace("increment_decrement");
+
+            // Empty keys should be equal to 0
+            assert_eq!(kv.increment_key_by("i64", 1_i64).await?, 1_i64);
+            assert_eq!(kv.increment_key_by("u64", 1_u64).await?, 1_u64);
+            $crate::assert_f64_eq!(kv.increment_key_by("f64", 1_f64).await?, 1_f64);
+
+            // Test float incrementing/decrementing an existing value
+            $crate::assert_f64_eq!(kv.increment_key_by("f64", 1_f64).await?, 2_f64);
+            $crate::assert_f64_eq!(kv.decrement_key_by("f64", 2_f64).await?, 0_f64);
+
+            // Empty keys should be equal to 0
+            assert_eq!(kv.decrement_key_by("i64_2", 1_i64).await?, -1_i64);
+            assert_eq!(
+                kv.decrement_key_by("u64_2", 42_u64)
+                    .allow_overflow()
+                    .await?,
+                u64::MAX - 41
+            );
+            assert_eq!(kv.decrement_key_by("u64_3", 42_u64).await?, u64::MIN);
+            $crate::assert_f64_eq!(kv.decrement_key_by("f64_2", 1_f64).await?, -1_f64);
+
+            // Test decrement wrapping with overflow
+            kv.set_numeric_key("i64", i64::MIN).await?;
+            assert_eq!(
+                kv.decrement_key_by("i64", 1_i64).allow_overflow().await?,
+                i64::MAX
+            );
+            assert_eq!(
+                kv.decrement_key_by("u64", 2_u64).allow_overflow().await?,
+                u64::MAX
+            );
+
+            // Test increment wrapping with overflow
+            assert_eq!(
+                kv.increment_key_by("i64", 1_i64).allow_overflow().await?,
+                i64::MIN
+            );
+            assert_eq!(
+                kv.increment_key_by("u64", 1_u64).allow_overflow().await?,
+                u64::MIN
+            );
+
+            // Test saturating increments.
+            kv.set_numeric_key("i64", i64::MAX - 1).await?;
+            kv.set_numeric_key("u64", u64::MAX - 1).await?;
+            assert_eq!(kv.increment_key_by("i64", 2_i64).await?, i64::MAX);
+            assert_eq!(kv.increment_key_by("u64", 2_u64).await?, u64::MAX);
+
+            // Test saturating decrements.
+            kv.set_numeric_key("i64", i64::MIN + 1).await?;
+            kv.set_numeric_key("u64", u64::MIN + 1).await?;
+            assert_eq!(kv.decrement_key_by("i64", 2_i64).await?, i64::MIN);
+            assert_eq!(kv.decrement_key_by("u64", 2_u64).await?, u64::MIN);
+
+            // Test numerical conversion safety using get
+            {
+                // For i64 -> f64, the limit is 2^52 + 1 in either posive or
+                // negative directions.
+                kv.set_numeric_key("i64", (2_i64.pow(f64::MANTISSA_DIGITS)))
+                    .await?;
+                $crate::assert_f64_eq!(
+                    kv.get_key("i64").into_f64().await?.unwrap(),
+                    9_007_199_254_740_992_f64
+                );
+                kv.set_numeric_key("i64", -(2_i64.pow(f64::MANTISSA_DIGITS)))
+                    .await?;
+                $crate::assert_f64_eq!(
+                    kv.get_key("i64").into_f64().await?.unwrap(),
+                    -9_007_199_254_740_992_f64
+                );
+
+                kv.set_numeric_key("i64", (2_i64.pow(f64::MANTISSA_DIGITS) + 1))
+                    .await?;
+                assert!(matches!(kv.get_key("i64").into_f64().await, Err(_)));
+                $crate::assert_f64_eq!(
+                    kv.get_key("i64").into_f64_lossy().await?.unwrap(),
+                    9_007_199_254_740_993_f64
+                );
+                kv.set_numeric_key("i64", -(2_i64.pow(f64::MANTISSA_DIGITS) + 1))
+                    .await?;
+                assert!(matches!(kv.get_key("i64").into_f64().await, Err(_)));
+                $crate::assert_f64_eq!(
+                    kv.get_key("i64").into_f64_lossy().await?.unwrap(),
+                    -9_007_199_254_740_993_f64
+                );
+
+                // For i64 -> u64, the only limit is sign.
+                kv.set_numeric_key("i64", -1_i64).await?;
+                assert!(matches!(kv.get_key("i64").into_u64().await, Err(_)));
+                assert_eq!(
+                    kv.get_key("i64").into_u64_lossy(true).await?.unwrap(),
+                    0_u64
+                );
+                assert_eq!(
+                    kv.get_key("i64").into_u64_lossy(false).await?.unwrap(),
+                    u64::MAX
+                );
+
+                // For f64 -> i64, the limit is fractional numbers. Saturating isn't tested in this conversion path.
+                kv.set_numeric_key("f64", 1.1_f64).await?;
+                assert!(matches!(kv.get_key("f64").into_i64().await, Err(_)));
+                assert_eq!(
+                    kv.get_key("f64").into_i64_lossy(false).await?.unwrap(),
+                    1_i64
+                );
+                kv.set_numeric_key("f64", -1.1_f64).await?;
+                assert!(matches!(kv.get_key("f64").into_i64().await, Err(_)));
+                assert_eq!(
+                    kv.get_key("f64").into_i64_lossy(false).await?.unwrap(),
+                    -1_i64
+                );
+
+                // For f64 -> u64, the limit is fractional numbers or negative numbers. Saturating isn't tested in this conversion path.
+                kv.set_numeric_key("f64", 1.1_f64).await?;
+                assert!(matches!(kv.get_key("f64").into_u64().await, Err(_)));
+                assert_eq!(
+                    kv.get_key("f64").into_u64_lossy(false).await?.unwrap(),
+                    1_u64
+                );
+                kv.set_numeric_key("f64", -1.1_f64).await?;
+                assert!(matches!(kv.get_key("f64").into_u64().await, Err(_)));
+                assert_eq!(
+                    kv.get_key("f64").into_u64_lossy(false).await?.unwrap(),
+                    0_u64
+                );
+
+                // For u64 -> i64, the limit is > i64::MAX
+                kv.set_numeric_key("u64", i64::MAX as u64 + 1).await?;
+                assert!(matches!(kv.get_key("u64").into_i64().await, Err(_)));
+                assert_eq!(
+                    kv.get_key("u64").into_i64_lossy(true).await?.unwrap(),
+                    i64::MAX
+                );
+                assert_eq!(
+                    kv.get_key("u64").into_i64_lossy(false).await?.unwrap(),
+                    i64::MIN
+                );
+            }
+
+            // Test that non-numeric keys won't be changed when attempting to incr/decr
+            kv.set_key("non-numeric", &String::from("test")).await?;
+            assert!(matches!(
+                kv.increment_key_by("non-numeric", 1_i64).await,
+                Err(_)
+            ));
+            assert!(matches!(
+                kv.decrement_key_by("non-numeric", 1_i64).await,
+                Err(_)
+            ));
+            assert_eq!(
+                kv.get_key("non-numeric").into::<String>().await?.unwrap(),
+                String::from("test")
+            );
 
             harness.shutdown().await?;
 
@@ -1053,8 +1241,8 @@ macro_rules! define_kv_test_suite {
                 assert_eq!(r1?, KeyStatus::Updated, "a wasn't an update");
                 assert_eq!(r2?, KeyStatus::Updated, "b wasn't an update");
 
-                let a = kv.get_key::<u32, _>("a").await?;
-                assert_eq!(a, Some(1), "a shouldn't have expired yet");
+                let a = kv.get_key("a").into().await?;
+                assert_eq!(a, Some(1u32), "a shouldn't have expired yet");
 
                 // Before checking the value, make sure we haven't elapsed too
                 // much time. If so, just restart the test.
@@ -1067,10 +1255,10 @@ macro_rules! define_kv_test_suite {
                     continue;
                 }
 
-                assert_eq!(kv.get_key::<u32, _>("b").await?, None, "b never expired");
+                assert_eq!(kv.get_key("b").await?, None, "b never expired");
 
                 timing.wait_until(Duration::from_secs_f32(5.)).await;
-                assert_eq!(kv.get_key::<u32, _>("a").await?, None, "a never expired");
+                assert_eq!(kv.get_key("a").await?, None, "a never expired");
                 break;
             }
             harness.shutdown().await?;
@@ -1119,7 +1307,7 @@ macro_rules! define_kv_test_suite {
                     continue;
                 }
 
-                assert_eq!(kv.get_key::<u32, _>("a").await?, Some(1));
+                assert_eq!(kv.get_key("a").into().await?, Some(1u32));
 
                 break;
             }

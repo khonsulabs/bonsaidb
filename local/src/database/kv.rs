@@ -1,16 +1,16 @@
 use async_trait::async_trait;
 use pliantdb_core::{
-    kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Output, Timestamp},
+    kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Numeric, Output, Timestamp, Value},
     schema::Schema,
 };
 use serde::{Deserialize, Serialize};
-use sled::IVec;
+use sled::{CompareAndSwapError, IVec};
 
 use crate::{error::ResultExt as _, storage::kv::ExpirationUpdate, Database};
 
 #[derive(Serialize, Deserialize)]
 pub struct Entry {
-    pub value: Vec<u8>,
+    pub value: Value,
     pub expiration: Option<Timestamp>,
 }
 
@@ -52,6 +52,20 @@ where
                 op.key,
                 &task_self,
             ),
+            Command::Increment { amount, saturating } => execute_increment_operation(
+                &key_tree(&task_self.data.name, op.namespace),
+                &op.key,
+                &task_self,
+                &amount,
+                saturating,
+            ),
+            Command::Decrement { amount, saturating } => execute_decrement_operation(
+                &key_tree(&task_self.data.name, op.namespace),
+                &op.key,
+                &task_self,
+                &amount,
+                saturating,
+            ),
         })
         .await
         .unwrap()
@@ -66,7 +80,7 @@ fn key_tree(database: &str, namespace: Option<String>) -> String {
 fn execute_set_operation<DB: Schema>(
     tree_name: &str,
     key: String,
-    value: Vec<u8>,
+    value: Value,
     expiration: Option<Timestamp>,
     keep_existing_expiration: bool,
     check: Option<KeyCheck>,
@@ -196,6 +210,130 @@ fn execute_delete_operation<DB: Schema>(
         Ok(Output::Status(KeyStatus::Deleted))
     } else {
         Ok(Output::Status(KeyStatus::NotChanged))
+    }
+}
+
+fn execute_increment_operation<DB: Schema>(
+    tree_name: &str,
+    key: &str,
+    db: &Database<DB>,
+    amount: &Numeric,
+    saturating: bool,
+) -> Result<Output, pliantdb_core::Error> {
+    execute_numeric_operation(tree_name, key, db, amount, saturating, increment)
+}
+
+fn execute_decrement_operation<DB: Schema>(
+    tree_name: &str,
+    key: &str,
+    db: &Database<DB>,
+    amount: &Numeric,
+    saturating: bool,
+) -> Result<Output, pliantdb_core::Error> {
+    execute_numeric_operation(tree_name, key, db, amount, saturating, decrement)
+}
+
+fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Numeric>(
+    tree_name: &str,
+    key: &str,
+    db: &Database<DB>,
+    amount: &Numeric,
+    saturating: bool,
+    op: F,
+) -> Result<Output, pliantdb_core::Error> {
+    let tree = db
+        .data
+        .storage
+        .sled()
+        .open_tree(tree_name.as_bytes())
+        .map_err_to_core()?;
+
+    let mut current = tree.get(key).map_err_to_core()?;
+    loop {
+        let existing_value = current
+            .as_ref()
+            .map(|current| bincode::deserialize::<Value>(current))
+            .transpose()
+            .map_err_to_core()?
+            .unwrap_or(Value::Numeric(Numeric::UnsignedInteger(0)));
+
+        match existing_value {
+            Value::Numeric(existing) => {
+                let result = op(&existing, amount, saturating);
+                let result_bytes =
+                    IVec::from(bincode::serialize(&Value::Numeric(result.clone())).unwrap());
+                match tree
+                    .compare_and_swap(key, current, Some(result_bytes))
+                    .map_err_to_core()?
+                {
+                    Ok(_) => return Ok(Output::Value(Some(Value::Numeric(result)))),
+                    Err(CompareAndSwapError { current: cur, .. }) => {
+                        current = cur;
+                    }
+                }
+            }
+            Value::Bytes(_) => {
+                return Err(pliantdb_core::Error::Database(String::from(
+                    "type of stored `Value` is not `Numeric`",
+                )))
+            }
+        }
+    }
+}
+
+fn increment(existing: &Numeric, amount: &Numeric, saturating: bool) -> Numeric {
+    match amount {
+        Numeric::Integer(amount) => {
+            let existing_value = existing.as_i64_lossy(saturating);
+            let new_value = if saturating {
+                existing_value.saturating_add(*amount)
+            } else {
+                existing_value.wrapping_add(*amount)
+            };
+            Numeric::Integer(new_value)
+        }
+        Numeric::UnsignedInteger(amount) => {
+            let existing_value = existing.as_u64_lossy(saturating);
+            let new_value = if saturating {
+                existing_value.saturating_add(*amount)
+            } else {
+                existing_value.wrapping_add(*amount)
+            };
+            Numeric::UnsignedInteger(new_value)
+        }
+        Numeric::Float(amount) => {
+            let existing_value = existing.as_f64_lossy();
+            let new_value = existing_value + *amount;
+            Numeric::Float(new_value)
+        }
+    }
+}
+
+fn decrement(existing: &Numeric, amount: &Numeric, saturating: bool) -> Numeric {
+    match amount {
+        Numeric::Integer(amount) => {
+            let existing_value = existing.as_i64_lossy(saturating);
+            let new_value = if saturating {
+                existing_value.saturating_sub(*amount)
+            } else {
+                existing_value.wrapping_sub(*amount)
+            };
+            Numeric::Integer(new_value)
+        }
+        Numeric::UnsignedInteger(amount) => {
+            let existing_value = existing.as_u64_lossy(saturating);
+            let new_value = if saturating {
+                existing_value.saturating_sub(*amount)
+            } else {
+                existing_value.wrapping_sub(*amount)
+            };
+            Numeric::UnsignedInteger(new_value)
+        }
+        Numeric::Float(amount) => {
+            let existing_value = existing.as_f64_lossy();
+            let new_value = existing_value - *amount;
+            Numeric::Float(new_value)
+        }
     }
 }
 
