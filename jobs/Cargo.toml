@@ -1,6 +1,6 @@
 [package]
 name = "pliantdb-jobs"
-version = "0.1.0-dev.3"
+version = "0.1.0-dev.4"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
 description = "Aysnc jobs management for PliantDb."
@@ -12,9 +12,9 @@ readme = "../README.md"
 homepage = "https://pliantdb.dev/"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { version="1", features=["derive"] }
 async-trait = "0.1"
 flume = "0.10"
 futures = "0.3"
-tokio = { version = "1", features = ["full"] }
+tokio = { version="1", features=["full"] }
 anyhow = "1"

@@ -1,6 +1,6 @@
 [package]
 name = "pliantdb-core"
-version = "0.1.0-dev.3"
+version = "0.1.0-dev.4"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
 description = "Local storage backend for PliantDb."
@@ -21,8 +21,8 @@ keyvalue = ["futures"]
 actionable-traits = []
 
 [dependencies]
-pliantdb-macros = { path="../macros" }
-circulate = { path="../circulate", version="0.1.0-dev.1", optional=true }
+pliantdb-macros = { path="../macros", version="0.1.0-dev.4" }
+circulate = { path="../circulate", version="0.1.0", optional=true }
 serde = { version="1", features=["derive"] }
 serde_cbor = "0.11"
 async-trait = "0.1"
