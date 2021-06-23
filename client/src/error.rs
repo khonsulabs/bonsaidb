@@ -1,5 +1,4 @@
 use pliantdb_core as core;
-use pliantdb_core::networking::fabruic;
 
 /// Errors related to working with [`Client`](crate::Client)
 #[derive(thiserror::Error, Debug)]
@@ -7,7 +6,7 @@ pub enum Error {
     #[cfg(feature = "websockets")]
     /// An error occurred from the WebSocket transport layer.
     #[error("a transport error occurred: '{0}'")]
-    WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
+    WebSocket(#[from] crate::client::WebSocketError),
 
     /// An error occurred from networking.
     #[error("a networking error occurred: '{0}'")]
@@ -57,18 +56,21 @@ impl From<bincode::Error> for Error {
     }
 }
 
-macro_rules! impl_from_fabruic {
-    ($error:ty) => {
-        impl From<$error> for Error {
-            fn from(other: $error) -> Self {
-                Self::Core(pliantdb_core::Error::Transport(other.to_string()))
+#[cfg(not(target_arch = "wasm32"))]
+mod fabruic_impls {
+    macro_rules! impl_from_fabruic {
+        ($error:ty) => {
+            impl From<$error> for $crate::Error {
+                fn from(other: $error) -> Self {
+                    Self::Core(pliantdb_core::Error::Transport(other.to_string()))
+                }
             }
-        }
-    };
-}
+        };
+    }
 
-impl_from_fabruic!(fabruic::error::Sender);
-impl_from_fabruic!(fabruic::error::Receiver);
-impl_from_fabruic!(fabruic::error::Stream);
-impl_from_fabruic!(fabruic::error::Connecting);
-impl_from_fabruic!(fabruic::error::Connect);
+    impl_from_fabruic!(fabruic::error::Sender);
+    impl_from_fabruic!(fabruic::error::Receiver);
+    impl_from_fabruic!(fabruic::error::Stream);
+    impl_from_fabruic!(fabruic::error::Connecting);
+    impl_from_fabruic!(fabruic::error::Connect);
+}

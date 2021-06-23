@@ -21,6 +21,8 @@ pub use url;
 mod client;
 mod error;
 
+#[cfg(feature = "pubsub")]
+pub use self::client::RemoteSubscriber;
 pub use self::{
     client::{Client, RemoteDatabase},
     error::Error,

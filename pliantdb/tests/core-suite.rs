@@ -1,11 +1,11 @@
 use std::time::Duration;
 
+use fabruic::Certificate;
 use once_cell::sync::Lazy;
 use pliantdb::{
     client::{Client, RemoteDatabase},
     core::{
         connection::ServerConnection,
-        fabruic::Certificate,
         test_util::{BasicSchema, HarnessTest, TestDirectory},
     },
     server::test_util::{initialize_basic_server, BASIC_SERVER_NAME},
@@ -67,7 +67,7 @@ mod websockets {
         pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
             initialize_shared_server().await;
             let url = Url::parse("ws://localhost:6001")?;
-            let client = Client::new(url, None).await?;
+            let client = Client::new(url).await?;
 
             let dbname = format!("websockets-{}", test);
             client.create_database::<BasicSchema>(&dbname).await?;
@@ -116,7 +116,7 @@ mod pliant {
                 "pliantdb://localhost:6000?server={}",
                 BASIC_SERVER_NAME
             ))?;
-            let client = Client::new(url, Some(certificate)).await?;
+            let client = Client::new_with_certificate(url, Some(certificate)).await?;
 
             let dbname = format!("pliant-{}", test);
             client.create_database::<BasicSchema>(&dbname).await?;

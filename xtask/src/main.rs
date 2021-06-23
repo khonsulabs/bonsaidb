@@ -6,13 +6,18 @@ use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 pub enum Commands {
-    GenerateCodeCoverageReport,
+    GenerateCodeCoverageReport {
+        #[structopt(long = "install-dependencies")]
+        install_dependencies: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
     let command = Commands::from_args();
     match command {
-        Commands::GenerateCodeCoverageReport => CodeCoverage::<CoverageConfig>::execute(),
+        Commands::GenerateCodeCoverageReport {
+            install_dependencies,
+        } => CodeCoverage::<CoverageConfig>::execute(install_dependencies),
     }
 }
 

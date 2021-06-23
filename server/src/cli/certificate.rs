@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use pliantdb_core::networking::fabruic::{Certificate, PrivateKey};
+use fabruic::{Certificate, PrivateKey};
 use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
 

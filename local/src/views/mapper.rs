@@ -45,7 +45,7 @@ where
 {
     type Output = u64;
 
-    #[allow(clippy::clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
         let documents = self
             .storage

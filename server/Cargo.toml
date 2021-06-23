@@ -21,29 +21,30 @@ pubsub = ["pliantdb-core/pubsub", "pliantdb-local/pubsub"]
 keyvalue = ["pliantdb-core/keyvalue", "pliantdb-local/keyvalue"]
 
 [dependencies]
-pliantdb-core = { path = "../core", version = "0.1.0-dev.3", default-features = false, features = [
+pliantdb-core = { path="../core", version="0.1.0-dev.3", default-features=false, features=[
     "networking",
     "actionable-traits",
 ] }
-pliantdb-local = { path = "../local", version = "0.1.0-dev.3", default-features = false, features = ["internal-apis"] }
-pliantdb-jobs = { path = "../jobs", version = "0.1.0-dev.3" }
-serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["full"] }
+pliantdb-local = { path="../local", version="0.1.0-dev.3", default-features=false, features=["internal-apis"] }
+pliantdb-jobs = { path="../jobs", version="0.1.0-dev.3" }
+serde = { version="1", features=["derive"] }
+tokio = { version="1", features=["full"] }
 thiserror = "1"
 async-trait = "0.1"
-structopt = { version = "0.3", optional = true }
+structopt = { version="0.3", optional=true }
 anyhow = "1"
 futures = "0.3"
 flume = "0.10"
 itertools = "0.10"
-tokio-tungstenite = { version = "0.14", optional = true }
-bincode = { version = "1", optional = true }
+tokio-tungstenite = { version="0.14", optional=true }
+bincode = { version="1", optional=true }
 cfg-if = "1"
-actionable = "0.1.0-dev.2"
+actionable = "0.1.0-dev.3"
 serde_cbor = "0.11"
+fabruic = { version="0.0.1-dev.2", features=["dangerous"] }
 
 [dev-dependencies]
-pliantdb-core = { path = "../core", version = "0.1.0-dev.3", default-features = false, features = ["test-util"] }
+pliantdb-core = { path="../core", version="0.1.0-dev.3", default-features=false, features=["test-util"] }
 
 [package.metadata.docs.rs]
 all-features = true

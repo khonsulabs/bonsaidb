@@ -506,7 +506,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
             Basic::collection_name()?
         );
         assert_eq!(transaction.changed_documents[0].id, header.id);
-        assert_eq!(transaction.changed_documents[0].deleted, false);
+        assert!(!transaction.changed_documents[0].deleted);
     }
 
     db.delete::<Basic>(&doc).await?;
@@ -522,7 +522,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         Basic::collection_name()?
     );
     assert_eq!(transaction.changed_documents[0].id, header.id);
-    assert_eq!(transaction.changed_documents[0].deleted, true);
+    assert!(transaction.changed_documents[0].deleted);
 
     Ok(())
 }
@@ -1193,7 +1193,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(
     ));
 
     assert!(matches!(
-        dbg!(server.create_database::<Basic>("|invalidname").await),
+        server.create_database::<Basic>("|invalidname").await,
         Err(Error::InvalidDatabaseName(_))
     ));
 
