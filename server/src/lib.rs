@@ -33,7 +33,7 @@ pub use self::{
     backend::Backend,
     config::Configuration,
     error::Error,
-    server::{CustomServer, Server, ServerDatabase},
+    server::{ConnectedClient, CustomServer, Server, ServerDatabase, Transport},
 };
 
 #[cfg(test)]

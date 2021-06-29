@@ -1,18 +1,20 @@
-#[cfg(feature = "pubsub")]
-use std::collections::HashMap;
 use std::{
+    collections::{hash_map, HashMap},
     fmt::Debug,
     marker::PhantomData,
+    net::SocketAddr,
     ops::Deref,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
 use async_trait::async_trait;
 use cfg_if::cfg_if;
 use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
-#[cfg(feature = "websockets")]
 use flume::Sender;
 #[cfg(feature = "websockets")]
 use futures::SinkExt;
@@ -53,11 +55,17 @@ use tokio::{fs::File, sync::RwLock};
 
 use crate::{async_io_util::FileExt, error::Error, Backend, Configuration};
 
+mod connected_client;
 mod database;
-pub use database::ServerDatabase;
-
+use self::connected_client::Disconnector;
 #[cfg(feature = "pubsub")]
 pub use self::database::ServerSubscriber;
+pub use self::{
+    connected_client::{ConnectedClient, Transport},
+    database::ServerDatabase,
+};
+
+static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// A `PliantDb` server.
 #[derive(Debug)]
@@ -79,14 +87,15 @@ impl<B: Backend> Clone for CustomServer<B> {
 
 #[derive(Debug)]
 struct Data<B: Backend = ()> {
+    clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     endpoint: RwLock<Option<Endpoint>>,
-    #[cfg(feature = "websockets")]
-    websocket_shutdown: RwLock<Option<Sender<()>>>,
     directory: PathBuf,
     storage: Storage,
     request_processor: Manager,
     default_permissions: Permissions,
     custom_api: RwLock<Option<B::CustomApiDispatcher>>,
+    #[cfg(feature = "websockets")]
+    websocket_shutdown: RwLock<Option<Sender<()>>>,
     #[cfg(feature = "pubsub")]
     relay: Relay,
     #[cfg(feature = "pubsub")]
@@ -106,6 +115,7 @@ impl<B: Backend> CustomServer<B> {
 
         Ok(Self {
             data: Arc::new(Data {
+                clients: RwLock::default(),
                 storage,
                 directory: directory.to_owned(),
                 endpoint: RwLock::default(),
@@ -238,13 +248,15 @@ impl<B: Backend> CustomServer<B> {
             *endpoint = Some(server.clone());
         }
 
-        // TODO switch to logging
-        println!("Listening on {}", server.local_address()?);
-
         while let Some(result) = server.next().await {
             let connection = result.accept::<()>().await?;
             let task_self = self.clone();
-            tokio::spawn(async move { task_self.handle_connection(connection).await });
+            tokio::spawn(async move {
+                let address = connection.remote_address();
+                if let Err(err) = task_self.handle_pliant_connection(connection).await {
+                    eprintln!("[server] closing connection {}: {:?}", address, err);
+                }
+            });
         }
 
         Ok(())
@@ -273,7 +285,6 @@ impl<B: Backend> CustomServer<B> {
                         continue;
                     }
                     let (connection, remote_addr) = incoming.unwrap();
-                    println!("[server] new connection from {}", remote_addr);
 
                     let task_self = self.clone();
                     tokio::spawn(async move {
@@ -288,7 +299,38 @@ impl<B: Backend> CustomServer<B> {
         Ok(())
     }
 
-    async fn handle_connection(
+    async fn initialize_client(
+        &self,
+        transport: Transport,
+        address: SocketAddr,
+        sender: Sender<<B::CustomApi as CustomApi>::Response>,
+    ) -> Disconnector<B> {
+        let (client, disconnector) = loop {
+            let next_id = CONNECTED_CLIENT_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
+            let mut clients = self.data.clients.write().await;
+            if let hash_map::Entry::Vacant(e) = clients.entry(next_id) {
+                let (client, disconnector) =
+                    ConnectedClient::new(next_id, address, transport, sender, self.clone());
+                e.insert(client.clone());
+                break (client, disconnector);
+            }
+        };
+
+        B::client_connected(client).await;
+
+        disconnector
+    }
+
+    async fn disconnect_client(&self, id: u32) {
+        if let Some(client) = {
+            let mut clients = self.data.clients.write().await;
+            clients.remove(&id)
+        } {
+            B::client_disconnected(client).await
+        }
+    }
+
+    async fn handle_pliant_connection(
         &self,
         mut connection: fabruic::Connection<()>,
     ) -> Result<(), Error> {
@@ -301,18 +343,28 @@ impl<B: Backend> CustomServer<B> {
                 }
             };
 
-            println!(
-                "[server] incoming stream from: {}",
-                connection.remote_address()
-            );
-
             match incoming
                 .accept::<networking::Payload<Response<<B::CustomApi as CustomApi>::Response>>, networking::Payload<Request<<B::CustomApi as CustomApi>::Request>>>()
                 .await
             {
                 Ok((sender, receiver)) => {
+                    let (api_response_sender, api_response_receiver) = flume::unbounded();
+                    let disconnector = self.initialize_client(Transport::Pliant, connection.remote_address(), api_response_sender).await;
+
+                    let task_sender = sender.clone();
+                    tokio::spawn(async move {
+                        while let Ok(response) = api_response_receiver.recv_async().await {
+                            if task_sender.send(&Payload {
+                                id: None,
+                                wrapped: Response::Api(response)
+                            }).is_err() {
+                                break;
+                            }
+                        }
+                    });
+
                     let task_self = self.clone();
-                    tokio::spawn(async move { task_self.handle_stream(sender, receiver).await });
+                    tokio::spawn(async move { task_self.handle_stream(disconnector, sender, receiver).await });
                 }
                 Err(err) => {
                     eprintln!("[server] Error accepting incoming stream: {:?}", err);
@@ -329,11 +381,31 @@ impl<B: Backend> CustomServer<B> {
         connection: tokio::net::TcpStream,
     ) -> Result<(), Error> {
         use tokio_tungstenite::tungstenite::Message;
+        let address = connection.peer_addr()?;
         let stream = tokio_tungstenite::accept_async(connection).await?;
-
         let (mut sender, mut receiver) = stream.split();
         let (response_sender, response_receiver) = flume::unbounded();
         let (message_sender, message_receiver) = flume::unbounded();
+
+        let (api_response_sender, api_response_receiver) = flume::unbounded();
+        let _disconnector = self
+            .initialize_client(Transport::WebSocket, address, api_response_sender)
+            .await;
+        let task_sender = response_sender.clone();
+        tokio::spawn(async move {
+            while let Ok(response) = api_response_receiver.recv_async().await {
+                if task_sender
+                    .send(Payload {
+                        id: None,
+                        wrapped: Response::Api(response),
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+
         tokio::spawn(async move {
             while let Ok(response) = message_receiver.recv_async().await {
                 sender.send(response).await?;
@@ -431,6 +503,7 @@ impl<B: Backend> CustomServer<B> {
 
     async fn handle_stream(
         &self,
+        _client_disconnector: Disconnector<B>,
         sender: fabruic::Sender<Payload<Response<<B::CustomApi as CustomApi>::Response>>>,
         mut receiver: fabruic::Receiver<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
     ) -> Result<(), Error> {

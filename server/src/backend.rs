@@ -3,9 +3,11 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use pliantdb_core::{custom_api::CustomApi, permissions::Dispatcher};
 
+use crate::server::ConnectedClient;
+
 /// Tailors the behavior of a server to your needs.
 #[async_trait]
-pub trait Backend: Debug + Send + Sync + 'static {
+pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// The custom API definition. If you do not wish to have an API, `()` may be provided.
     type CustomApi: CustomApi;
 
@@ -16,6 +18,25 @@ pub trait Backend: Debug + Send + Sync + 'static {
         > + Debug;
 
     // TODO: add client connections events, client errors, etc.
+    /// A client disconnected from the server. This is invoked before authentication has been performed.
+    #[allow(unused_variables)]
+    async fn client_connected(client: ConnectedClient<Self>) {
+        println!(
+            "{:?} client connected from {:?}",
+            client.transport(),
+            client.address()
+        );
+    }
+
+    /// A client disconnected from the server.
+    #[allow(unused_variables)]
+    async fn client_disconnected(client: ConnectedClient<Self>) {
+        println!(
+            "{:?} client disconnected ({:?})",
+            client.transport(),
+            client.address()
+        );
+    }
 }
 
 impl Backend for () {
