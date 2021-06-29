@@ -10,7 +10,7 @@
     future_incompatible,
     rust_2018_idioms,
 )]
-#![cfg_attr(doc, deny(rustdoc))]
+#![cfg_attr(doc, deny(rustdoc::all))]
 #![allow(
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
@@ -21,6 +21,8 @@ pub use url;
 mod client;
 mod error;
 
+#[cfg(feature = "pubsub")]
+pub use self::client::RemoteSubscriber;
 pub use self::{
     client::{Client, RemoteDatabase},
     error::Error,

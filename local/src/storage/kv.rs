@@ -37,7 +37,7 @@ pub fn expiration_thread(
             let remaining_time = *timeout - now;
             let received_update = if let Some(remaining_time) = remaining_time {
                 // Allow flume to receive updates for the remaining time.
-                match updates.recv_timeout(dbg!(remaining_time)) {
+                match updates.recv_timeout(remaining_time) {
                     Ok(update) => Ok(update),
                     Err(flume::RecvTimeoutError::Timeout) => Err(()),
                     Err(flume::RecvTimeoutError::Disconnected) => break,
@@ -334,10 +334,6 @@ impl Job for ExpirationLoader {
                 }
                 false
             }) {
-                println!(
-                    "found existing tree to expire: {:?}",
-                    String::from_utf8(kv_tree.to_vec()).unwrap()
-                );
                 for row in storage.data.sled.open_tree(&kv_tree)?.iter() {
                     let (key, entry) = row?;
                     if let Ok(entry) = bincode::deserialize::<Entry>(&entry) {
@@ -352,13 +348,13 @@ impl Job for ExpirationLoader {
         });
 
         while let Ok((tree, key, expiration)) = receiver.recv_async().await {
-            self.storage.update_key_expiration(dbg!(ExpirationUpdate {
+            self.storage.update_key_expiration(ExpirationUpdate {
                 tree_key: TreeKey {
                     tree: String::from_utf8(tree)?,
                     key: String::from_utf8(key)?,
                 },
                 expiration,
-            }));
+            });
         }
 
         Ok(())

@@ -77,7 +77,7 @@ where
 
                 document_ids
                     .difference(&stored_document_ids)
-                    .cloned()
+                    .copied()
                     .collect::<HashSet<_>>()
             } else {
                 // The view isn't the current version, queue up all documents.

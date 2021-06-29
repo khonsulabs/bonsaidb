@@ -10,7 +10,7 @@
     future_incompatible,
     rust_2018_idioms,
 )]
-#![cfg_attr(doc, deny(rustdoc))]
+#![cfg_attr(doc, deny(rustdoc::all))]
 #![allow(
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
@@ -35,10 +35,8 @@ pub mod transaction;
 pub mod kv;
 
 /// Traits for tailoring a server.
-pub mod backend;
+pub mod custom_api;
 
-#[cfg(feature = "networking")]
-pub use fabruic;
 #[cfg(feature = "networking")]
 /// Types for implementing the `PliantDb` network protocol.
 pub mod networking;

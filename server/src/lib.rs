@@ -10,7 +10,7 @@
     future_incompatible,
     rust_2018_idioms,
 )]
-#![cfg_attr(doc, deny(rustdoc))]
+#![cfg_attr(doc, deny(rustdoc::all))]
 #![allow(
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::missing_panics_doc, // TODO clippy::missing_panics_doc
@@ -18,6 +18,7 @@
 )]
 
 mod async_io_util;
+mod backend;
 /// Command-line interface for the server.
 #[cfg(feature = "cli")]
 pub mod cli;
@@ -25,7 +26,15 @@ mod config;
 mod error;
 mod server;
 
-pub use self::{config::Configuration, error::Error, server::Server};
+#[cfg(feature = "pubsub")]
+pub use server::ServerSubscriber;
+
+pub use self::{
+    backend::Backend,
+    config::Configuration,
+    error::Error,
+    server::{ConnectedClient, CustomServer, Server, ServerDatabase, Transport},
+};
 
 #[cfg(test)]
 mod tests;

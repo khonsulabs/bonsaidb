@@ -107,16 +107,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install code coverage requirements
-        run: |
-          rustup component add llvm-tools-preview
-          rustup install nightly-2021-03-25
-          curl -L https://github.com/mozilla/grcov/releases/latest/download/grcov-linux-x86_64.tar.bz2 | tar jxf -
-          cargo install badgeland
-
       - name: Run code coverage
         run: |
-          PATH=".:$PATH" ./generate-code-coverage.sh
+          cargo xtask generate-code-coverage-report --install-dependencies
 
       - name: Deploy Docs
         if: github.ref == 'refs/heads/main'

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use pliantdb_core::networking::fabruic::{Certificate, PrivateKey};
+use fabruic::{Certificate, PrivateKey};
 use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
 
@@ -31,7 +31,7 @@ pub enum Command {
     /// format.
     ///
     /// This command reads the files `private_key` and `certificate` and
-    /// executes [`Server::install_certificate()`].
+    /// executes [`Server::install_certificate()`](crate::CustomServer::install_certificate).
     Install {
         /// A private key used to generate `certificate` in binary DER format.
         private_key: PathBuf,

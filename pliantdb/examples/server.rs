@@ -2,6 +2,7 @@
 
 use std::{path::Path, time::Duration};
 
+use actionable::Permissions;
 use pliantdb::{
     client::{url::Url, Client},
     core::{
@@ -20,7 +21,10 @@ async fn main() -> anyhow::Result<()> {
     // ANCHOR: setup
     let server = Server::open(
         Path::new("server-data.pliantdb"),
-        Configuration::default(),
+        Configuration {
+            default_permissions: Permissions::allow_all(),
+            ..Default::default()
+        },
     )
     .await?;
     if server.certificate().await.is_err() {
@@ -65,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
     {
         // To connect over websockets, use the websocket scheme.
         tasks.push(do_some_database_work(
-            Client::<()>::new(Url::parse("ws://localhost:8080")?, None)
+            Client::<()>::new(Url::parse("ws://localhost:8080")?)
                 .await?
                 .database::<Shape>("my-database")
                 .await?,
@@ -75,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
 
     // To connect over QUIC, use the pliantdb scheme.
     tasks.push(do_some_database_work(
-        Client::<()>::new(
+        Client::<()>::new_with_certificate(
             Url::parse("pliantdb://localhost")?,
             Some(certificate),
         )

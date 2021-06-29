@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use pliantdb_core::networking::fabruic;
 use pliantdb_local::core::{self, schema};
 use schema::InvalidNameError;
 
@@ -36,7 +35,7 @@ pub enum Error {
 impl From<Error> for core::Error {
     fn from(other: Error) -> Self {
         // without it, there's no way to get this to_string() easily.
-        #[allow(clippy::clippy::match_wildcard_for_single_variants)]
+        #[allow(clippy::match_wildcard_for_single_variants)]
         match other {
             Error::Database(storage) => Self::Database(storage.to_string()),
             Error::Core(core) => core,

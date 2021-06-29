@@ -1,16 +1,16 @@
 use async_trait::async_trait;
 use pliantdb_core::{
-    backend::Backend,
+    custom_api::CustomApi,
     kv::Kv,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     schema::Schema,
 };
 
 #[async_trait]
-impl<DB, B> Kv for super::RemoteDatabase<DB, B>
+impl<DB, A> Kv for super::RemoteDatabase<DB, A>
 where
     DB: Schema,
-    B: Backend,
+    A: CustomApi,
 {
     async fn execute_key_operation(
         &self,

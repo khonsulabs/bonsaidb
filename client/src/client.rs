@@ -3,32 +3,37 @@ use std::sync::atomic::AtomicBool;
 use std::{
     any::TypeId,
     collections::HashMap,
-    marker::PhantomData,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
     },
 };
 
+use async_lock::Mutex;
 use async_trait::async_trait;
 use flume::Sender;
 use pliantdb_core::{
-    backend::{Backend, CustomApi},
     connection::{Database, ServerConnection},
-    fabruic::Certificate,
+    custom_api::CustomApi,
     networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
     schema::{Schema, SchemaName, Schematic},
 };
-use tokio::{sync::Mutex, task::JoinHandle};
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::task::JoinHandle;
 use url::Url;
 
 pub use self::remote_database::RemoteDatabase;
+#[cfg(feature = "pubsub")]
+pub use self::remote_database::RemoteSubscriber;
 use crate::error::Error;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod quic_worker;
 mod remote_database;
-#[cfg(feature = "websockets")]
-mod websocket_worker;
-mod worker;
+#[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
+mod tungstenite_worker;
+#[cfg(all(feature = "websockets", target_arch = "wasm32"))]
+mod wasm_websocket_worker;
 
 #[cfg(feature = "pubsub")]
 type SubscriberMap = Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>;
@@ -36,13 +41,19 @@ type SubscriberMap = Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>;
 #[cfg(feature = "pubsub")]
 use pliantdb_core::{circulate::Message, networking::DatabaseRequest};
 
+#[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
+pub type WebSocketError = tokio_tungstenite::tungstenite::Error;
+
+#[cfg(all(feature = "websockets", target_arch = "wasm32"))]
+pub type WebSocketError = wasm_websocket_worker::WebSocketError;
+
 /// Client for connecting to a `PliantDb` server.
 #[derive(Debug)]
-pub struct Client<B: Backend = ()> {
-    pub(crate) data: Arc<Data<B>>,
+pub struct Client<A: CustomApi = ()> {
+    pub(crate) data: Arc<Data<A>>,
 }
 
-impl<B: Backend> Clone for Client<B> {
+impl<A: CustomApi> Clone for Client<A> {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
@@ -51,12 +62,13 @@ impl<B: Backend> Clone for Client<B> {
 }
 
 #[allow(type_alias_bounds)] // Causes compilation errors without it
-type BackendPendingRequest<B: Backend> =
-    PendingRequest<<B::CustomApi as CustomApi>::Request, <B::CustomApi as CustomApi>::Response>;
+type BackendPendingRequest<A: CustomApi> =
+    PendingRequest<<A as CustomApi>::Request, <A as CustomApi>::Response>;
 
 #[derive(Debug)]
-pub struct Data<B: Backend> {
-    request_sender: Sender<BackendPendingRequest<B>>,
+pub struct Data<A: CustomApi> {
+    request_sender: Sender<BackendPendingRequest<A>>,
+    #[cfg(not(target_arch = "wasm32"))]
     worker: CancellableHandle<Result<(), Error>>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     request_id: AtomicU32,
@@ -64,10 +76,9 @@ pub struct Data<B: Backend> {
     subscribers: SubscriberMap,
     #[cfg(feature = "test-util")]
     background_task_running: Arc<AtomicBool>,
-    _backend: PhantomData<B>,
 }
 
-impl<B: Backend> Client<B> {
+impl<A: CustomApi> Client<A> {
     /// Initialize a client connecting to `url` with `certificate` being used to
     /// validate and encrypt the connection. This client can be shared by
     /// cloning it. All requests are done asynchronously over the same
@@ -83,17 +94,13 @@ impl<B: Backend> Client<B> {
     /// to recover and reconnect, each component of the apps built can adopt a
     /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
     /// the database is to operation.
-    pub async fn new(url: Url, certificate: Option<Certificate>) -> Result<Self, Error> {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn new_with_certificate(
+        url: Url,
+        certificate: Option<fabruic::Certificate>,
+    ) -> Result<Self, Error> {
         match url.scheme() {
-            "pliantdb" => {
-                let certificate = certificate.ok_or_else(|| {
-                    Error::InvalidUrl(String::from(
-                        "certificate must be provided with pliantdb:// urls",
-                    ))
-                })?;
-
-                Ok(Self::new_pliant_client(url, certificate))
-            }
+            "pliantdb" => Ok(Self::new_pliant_client(url, certificate)),
             #[cfg(feature = "websockets")]
             "wss" | "ws" => Self::new_websocket_client(url).await,
             other => {
@@ -102,12 +109,40 @@ impl<B: Backend> Client<B> {
         }
     }
 
-    fn new_pliant_client(url: Url, certificate: Certificate) -> Self {
+    /// Initialize a client connecting to `url` with `certificate` being used to
+    /// validate and encrypt the connection. This client can be shared by
+    /// cloning it. All requests are done asynchronously over the same
+    /// connection.
+    ///
+    /// If the client has an error connecting, the first request made will
+    /// present that error. If the client disconnects while processing requests,
+    /// all requests being processed will exit and return
+    /// [`Error::Disconnected`]. The client will automatically try reconnecting.
+    ///
+    /// The goal of this design of this reconnection strategy is to make it
+    /// easier to build resilliant apps. By allowing existing Client instances
+    /// to recover and reconnect, each component of the apps built can adopt a
+    /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
+    /// the database is to operation.
+    pub async fn new(url: Url) -> Result<Self, Error> {
+        match url.scheme() {
+            #[cfg(not(target_arch = "wasm32"))]
+            "pliantdb" => Ok(Self::new_pliant_client(url, None)),
+            #[cfg(feature = "websockets")]
+            "wss" | "ws" => Self::new_websocket_client(url).await,
+            other => {
+                return Err(Error::InvalidUrl(format!("unsupported scheme {}", other)));
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn new_pliant_client(url: Url, certificate: Option<fabruic::Certificate>) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
         #[cfg(feature = "pubsub")]
         let subscribers = SubscriberMap::default();
-        let worker = tokio::task::spawn(worker::reconnecting_client_loop(
+        let worker = tokio::task::spawn(quic_worker::reconnecting_client_loop(
             url,
             certificate,
             request_receiver,
@@ -128,7 +163,6 @@ impl<B: Backend> Client<B> {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
-                _backend: PhantomData::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -137,13 +171,14 @@ impl<B: Backend> Client<B> {
         }
     }
 
-    #[cfg(feature = "websockets")]
+    #[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
     async fn new_websocket_client(url: Url) -> Result<Self, Error> {
         let (request_sender, request_receiver) = flume::unbounded();
 
         #[cfg(feature = "pubsub")]
         let subscribers = SubscriberMap::default();
-        let worker = tokio::task::spawn(websocket_worker::reconnecting_client_loop(
+
+        let worker = tokio::task::spawn(tungstenite_worker::reconnecting_client_loop(
             url,
             request_receiver,
             #[cfg(feature = "pubsub")]
@@ -156,6 +191,7 @@ impl<B: Backend> Client<B> {
         let client = Self {
             data: Arc::new(Data {
                 request_sender,
+                #[cfg(not(target_arch = "wasm32"))]
                 worker: CancellableHandle {
                     worker,
                     #[cfg(feature = "test-util")]
@@ -163,7 +199,44 @@ impl<B: Backend> Client<B> {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
-                _backend: PhantomData::default(),
+                #[cfg(feature = "pubsub")]
+                subscribers,
+                #[cfg(feature = "test-util")]
+                background_task_running,
+            }),
+        };
+
+        Ok(client)
+    }
+
+    #[cfg(all(feature = "websockets", target_arch = "wasm32"))]
+    async fn new_websocket_client(url: Url) -> Result<Self, Error> {
+        let (request_sender, request_receiver) = flume::unbounded();
+
+        #[cfg(feature = "pubsub")]
+        let subscribers = SubscriberMap::default();
+
+        wasm_websocket_worker::spawn_client(
+            Arc::new(url),
+            request_receiver,
+            #[cfg(feature = "pubsub")]
+            subscribers.clone(),
+        );
+
+        #[cfg(feature = "test-util")]
+        let background_task_running = Arc::new(AtomicBool::new(true));
+
+        let client = Self {
+            data: Arc::new(Data {
+                request_sender,
+                #[cfg(not(target_arch = "wasm32"))]
+                worker: CancellableHandle {
+                    worker,
+                    #[cfg(feature = "test-util")]
+                    background_task_running: background_task_running.clone(),
+                },
+                schemas: Mutex::default(),
+                request_id: AtomicU32::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -177,7 +250,7 @@ impl<B: Backend> Client<B> {
     /// Returns a structure representing a remote database. No validations are
     /// done when this method is executed. The server will validate the schema
     /// and database name when a [`Connection`](pliantdb_core::connection::Connection) function is called.
-    pub async fn database<DB: Schema>(&self, name: &str) -> Result<RemoteDatabase<DB, B>, Error> {
+    pub async fn database<DB: Schema>(&self, name: &str) -> Result<RemoteDatabase<DB, A>, Error> {
         let mut schemas = self.data.schemas.lock().await;
         let type_id = TypeId::of::<DB>();
         let schematic = if let Some(schematic) = schemas.get(&type_id) {
@@ -196,8 +269,8 @@ impl<B: Backend> Client<B> {
 
     async fn send_request(
         &self,
-        request: Request<<B::CustomApi as CustomApi>::Request>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, Error> {
+        request: Request<<A as CustomApi>::Request>,
+    ) -> Result<Response<<A as CustomApi>::Response>, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
@@ -214,8 +287,8 @@ impl<B: Backend> Client<B> {
     /// Sends an api `request`.
     pub async fn send_api_request(
         &self,
-        request: <B::CustomApi as CustomApi>::Request,
-    ) -> Result<<B::CustomApi as CustomApi>::Response, Error> {
+        request: <A as CustomApi>::Request,
+    ) -> Result<<A as CustomApi>::Response, Error> {
         match self.send_request(Request::Api(request)).await? {
             Response::Api(response) => Ok(response),
             Response::Error(err) => Err(Error::Core(err)),
@@ -240,12 +313,13 @@ impl<B: Backend> Client<B> {
 
     #[cfg(feature = "pubsub")]
     pub(crate) async fn unregister_subscriber(&self, database: String, id: u64) {
-        let _ = self
-            .send_request(Request::Database {
+        drop(
+            self.send_request(Request::Database {
                 database,
                 request: DatabaseRequest::UnregisterSubscriber { subscriber_id: id },
             })
-            .await;
+            .await,
+        );
         let mut subscribers = self.data.subscribers.lock().await;
         subscribers.remove(&id);
     }
@@ -315,8 +389,8 @@ impl ServerConnection for Client {
     }
 }
 
-type OutstandingRequestMap<O> = HashMap<u32, Sender<Result<Response<O>, Error>>>;
-type OutstandingRequestMapHandle<O> = Arc<Mutex<OutstandingRequestMap<O>>>;
+type OutstandingRequestMap<R, O> = HashMap<u32, PendingRequest<R, O>>;
+type OutstandingRequestMapHandle<R, O> = Arc<Mutex<OutstandingRequestMap<R, O>>>;
 
 #[derive(Debug)]
 pub struct PendingRequest<R, O> {
@@ -324,6 +398,7 @@ pub struct PendingRequest<R, O> {
     responder: Sender<Result<Response<O>, Error>>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
 struct CancellableHandle<T> {
     worker: JoinHandle<T>,
@@ -331,10 +406,50 @@ struct CancellableHandle<T> {
     background_task_running: Arc<AtomicBool>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl<T> Drop for CancellableHandle<T> {
     fn drop(&mut self) {
         self.worker.abort();
         #[cfg(feature = "test-util")]
         self.background_task_running.store(false, Ordering::Release);
+    }
+}
+
+async fn process_response_payload<R: Send + Sync + 'static, O: Send + Sync + 'static>(
+    payload: Payload<Response<O>>,
+    outstanding_requests: &OutstandingRequestMapHandle<R, O>,
+    #[cfg(feature = "pubsub")] subscribers: &SubscriberMap,
+) {
+    if let Some(payload_id) = payload.id {
+        let request = {
+            let mut outstanding_requests = outstanding_requests.lock().await;
+            outstanding_requests
+                .remove(&payload_id)
+                .expect("missing responder")
+        };
+        drop(request.responder.send(Ok(payload.wrapped)));
+    } else {
+        #[cfg(feature = "pubsub")]
+        if let Response::Database(pliantdb_core::networking::DatabaseResponse::MessageReceived {
+            subscriber_id,
+            topic,
+            payload,
+        }) = payload.wrapped
+        {
+            let mut subscribers = subscribers.lock().await;
+            if let Some(sender) = subscribers.get(&subscriber_id) {
+                if sender
+                    .send(std::sync::Arc::new(pliantdb_core::circulate::Message {
+                        topic,
+                        payload,
+                    }))
+                    .is_err()
+                {
+                    subscribers.remove(&subscriber_id);
+                }
+            }
+        } else {
+            unreachable!("only MessageReceived is allowed to not have an id")
+        }
     }
 }

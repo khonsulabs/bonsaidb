@@ -169,7 +169,7 @@ impl Storage {
         {
             let sender = self.data.kv_expirer.read().unwrap();
             if let Some(sender) = sender.as_ref() {
-                let _ = sender.send(update);
+                drop(sender.send(update));
                 return;
             }
         }
@@ -185,7 +185,7 @@ impl Storage {
             *sender = Some(kv_sender);
         }
 
-        let _ = sender.as_ref().unwrap().send(update);
+        drop(sender.as_ref().unwrap().send(update));
     }
 
     fn validate_name(name: &str) -> Result<(), Error> {

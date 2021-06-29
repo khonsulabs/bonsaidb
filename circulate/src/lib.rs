@@ -10,7 +10,7 @@
     future_incompatible,
     rust_2018_idioms,
 )]
-#![cfg_attr(doc, deny(rustdoc))]
+#![cfg_attr(doc, deny(rustdoc::all))]
 #![allow(clippy::option_if_let_else)]
 
 use std::{
@@ -21,9 +21,9 @@ use std::{
     },
 };
 
+use async_lock::RwLock;
 pub use flume;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 
 /// A `PubSub` message.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -96,6 +96,8 @@ impl Relay {
                 id,
                 receiver,
                 relay: self.clone(),
+                #[cfg(not(target_arch = "wasm32"))]
+                tokio: tokio::runtime::Handle::current(),
             }),
         }
     }
@@ -210,7 +212,7 @@ impl Relay {
 
     async fn topic_id(&self, topic: &str) -> Option<TopicId> {
         let topics = self.data.topics.read().await;
-        topics.get(topic).cloned()
+        topics.get(topic).copied()
     }
 
     async fn post_message_to_topic(&self, message: Message, topic: TopicId) {
@@ -315,139 +317,149 @@ struct SubscriberData {
     id: SubscriberId,
     relay: Relay,
     receiver: flume::Receiver<Arc<Message>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio: tokio::runtime::Handle,
 }
 
 impl Drop for SubscriberData {
     fn drop(&mut self) {
         let id = self.id;
         let relay = self.relay.clone();
-        // TODO Replace with a tokio runtime handle instead of global tokio::spawn
-        tokio::spawn(async move {
+        let drop_task = async move {
             relay.unsubscribe_all(id).await;
-        });
+        };
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(drop_task);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.tokio.spawn(drop_task);
     }
 }
 
-#[tokio::test]
-async fn simple_pubsub_test() -> anyhow::Result<()> {
-    let pubsub = Relay::default();
-    let subscriber = pubsub.create_subscriber().await;
-    subscriber.subscribe_to("mytopic").await;
-    pubsub.publish("mytopic", &String::from("test")).await?;
-    let receiver = subscriber.receiver().clone();
-    let message = receiver.recv_async().await.expect("No message received");
-    assert_eq!(message.topic, "mytopic");
-    assert_eq!(message.payload::<String>()?, "test");
-    // The message should only be received once.
-    assert!(matches!(
-        tokio::task::spawn_blocking(
-            move || receiver.recv_timeout(std::time::Duration::from_millis(100))
-        )
-        .await,
-        Ok(Err(_))
-    ));
-    Ok(())
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[tokio::test]
-async fn multiple_subscribers_test() -> anyhow::Result<()> {
-    let pubsub = Relay::default();
-    let subscriber_a = pubsub.create_subscriber().await;
-    let subscriber_ab = pubsub.create_subscriber().await;
-    subscriber_a.subscribe_to("a").await;
-    subscriber_ab.subscribe_to("a").await;
-    subscriber_ab.subscribe_to("b").await;
+    #[tokio::test]
+    async fn simple_pubsub_test() -> anyhow::Result<()> {
+        let pubsub = Relay::default();
+        let subscriber = pubsub.create_subscriber().await;
+        subscriber.subscribe_to("mytopic").await;
+        pubsub.publish("mytopic", &String::from("test")).await?;
+        let receiver = subscriber.receiver().clone();
+        let message = receiver.recv_async().await.expect("No message received");
+        assert_eq!(message.topic, "mytopic");
+        assert_eq!(message.payload::<String>()?, "test");
+        // The message should only be received once.
+        assert!(matches!(
+            tokio::task::spawn_blocking(
+                move || receiver.recv_timeout(std::time::Duration::from_millis(100))
+            )
+            .await,
+            Ok(Err(_))
+        ));
+        Ok(())
+    }
 
-    pubsub.publish("a", &String::from("a1")).await?;
-    pubsub.publish("b", &String::from("b1")).await?;
-    pubsub.publish("a", &String::from("a2")).await?;
+    #[tokio::test]
+    async fn multiple_subscribers_test() -> anyhow::Result<()> {
+        let pubsub = Relay::default();
+        let subscriber_a = pubsub.create_subscriber().await;
+        let subscriber_ab = pubsub.create_subscriber().await;
+        subscriber_a.subscribe_to("a").await;
+        subscriber_ab.subscribe_to("a").await;
+        subscriber_ab.subscribe_to("b").await;
 
-    // Check subscriber_a for a1 and a2.
-    let message = subscriber_a.receiver().recv_async().await?;
-    assert_eq!(message.payload::<String>()?, "a1");
-    let message = subscriber_a.receiver().recv_async().await?;
-    assert_eq!(message.payload::<String>()?, "a2");
+        pubsub.publish("a", &String::from("a1")).await?;
+        pubsub.publish("b", &String::from("b1")).await?;
+        pubsub.publish("a", &String::from("a2")).await?;
 
-    let message = subscriber_ab.receiver().recv_async().await?;
-    assert_eq!(message.payload::<String>()?, "a1");
-    let message = subscriber_ab.receiver().recv_async().await?;
-    assert_eq!(message.payload::<String>()?, "b1");
-    let message = subscriber_ab.receiver().recv_async().await?;
-    assert_eq!(message.payload::<String>()?, "a2");
+        // Check subscriber_a for a1 and a2.
+        let message = subscriber_a.receiver().recv_async().await?;
+        assert_eq!(message.payload::<String>()?, "a1");
+        let message = subscriber_a.receiver().recv_async().await?;
+        assert_eq!(message.payload::<String>()?, "a2");
 
-    Ok(())
-}
+        let message = subscriber_ab.receiver().recv_async().await?;
+        assert_eq!(message.payload::<String>()?, "a1");
+        let message = subscriber_ab.receiver().recv_async().await?;
+        assert_eq!(message.payload::<String>()?, "b1");
+        let message = subscriber_ab.receiver().recv_async().await?;
+        assert_eq!(message.payload::<String>()?, "a2");
 
-#[tokio::test]
-async fn unsubscribe_test() -> anyhow::Result<()> {
-    let pubsub = Relay::default();
-    let subscriber = pubsub.create_subscriber().await;
-    subscriber.subscribe_to("a").await;
+        Ok(())
+    }
 
-    pubsub.publish("a", &String::from("a1")).await?;
-    subscriber.unsubscribe_from("a").await;
-    pubsub.publish("a", &String::from("a2")).await?;
-    subscriber.subscribe_to("a").await;
-    pubsub.publish("a", &String::from("a3")).await?;
+    #[tokio::test]
+    async fn unsubscribe_test() -> anyhow::Result<()> {
+        let pubsub = Relay::default();
+        let subscriber = pubsub.create_subscriber().await;
+        subscriber.subscribe_to("a").await;
 
-    // Check subscriber_a for a1 and a2.
-    let message = subscriber.receiver().recv_async().await?;
-    assert_eq!(message.payload::<String>()?, "a1");
-    let message = subscriber.receiver().recv_async().await?;
-    assert_eq!(message.payload::<String>()?, "a3");
+        pubsub.publish("a", &String::from("a1")).await?;
+        subscriber.unsubscribe_from("a").await;
+        pubsub.publish("a", &String::from("a2")).await?;
+        subscriber.subscribe_to("a").await;
+        pubsub.publish("a", &String::from("a3")).await?;
 
-    Ok(())
-}
+        // Check subscriber_a for a1 and a2.
+        let message = subscriber.receiver().recv_async().await?;
+        assert_eq!(message.payload::<String>()?, "a1");
+        let message = subscriber.receiver().recv_async().await?;
+        assert_eq!(message.payload::<String>()?, "a3");
 
-#[tokio::test]
-async fn drop_and_send_test() -> anyhow::Result<()> {
-    let pubsub = Relay::default();
-    let subscriber_a = pubsub.create_subscriber().await;
-    let subscriber_to_drop = pubsub.create_subscriber().await;
-    subscriber_a.subscribe_to("a").await;
-    subscriber_to_drop.subscribe_to("a").await;
+        Ok(())
+    }
 
-    pubsub.publish("a", &String::from("a1")).await?;
-    drop(subscriber_to_drop);
-    pubsub.publish("a", &String::from("a2")).await?;
+    #[tokio::test]
+    async fn drop_and_send_test() -> anyhow::Result<()> {
+        let pubsub = Relay::default();
+        let subscriber_a = pubsub.create_subscriber().await;
+        let subscriber_to_drop = pubsub.create_subscriber().await;
+        subscriber_a.subscribe_to("a").await;
+        subscriber_to_drop.subscribe_to("a").await;
 
-    // Check subscriber_a for a1 and a2.
-    let message = subscriber_a.receiver().recv_async().await?;
-    assert_eq!(message.payload::<String>()?, "a1");
-    let message = subscriber_a.receiver().recv_async().await?;
-    assert_eq!(message.payload::<String>()?, "a2");
+        pubsub.publish("a", &String::from("a1")).await?;
+        drop(subscriber_to_drop);
+        pubsub.publish("a", &String::from("a2")).await?;
 
-    let subscribers = pubsub.data.subscribers.read().await;
-    assert_eq!(subscribers.len(), 1);
-    let topics = pubsub.data.topics.read().await;
-    let topic_id = topics.get("a").expect("topic not found");
-    let subscriptions = pubsub.data.subscriptions.read().await;
-    assert_eq!(
-        subscriptions
-            .get(topic_id)
-            .expect("subscriptions not found")
-            .len(),
-        1
-    );
+        // Check subscriber_a for a1 and a2.
+        let message = subscriber_a.receiver().recv_async().await?;
+        assert_eq!(message.payload::<String>()?, "a1");
+        let message = subscriber_a.receiver().recv_async().await?;
+        assert_eq!(message.payload::<String>()?, "a2");
 
-    Ok(())
-}
+        let subscribers = pubsub.data.subscribers.read().await;
+        assert_eq!(subscribers.len(), 1);
+        let topics = pubsub.data.topics.read().await;
+        let topic_id = topics.get("a").expect("topic not found");
+        let subscriptions = pubsub.data.subscriptions.read().await;
+        assert_eq!(
+            subscriptions
+                .get(topic_id)
+                .expect("subscriptions not found")
+                .len(),
+            1
+        );
 
-#[tokio::test]
-async fn drop_cleanup_test() -> anyhow::Result<()> {
-    let pubsub = Relay::default();
-    let subscriber = pubsub.create_subscriber().await;
-    subscriber.subscribe_to("a").await;
-    drop(subscriber);
-    // Drop spawns a task that cleans up. Give it a moment to execute.
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        Ok(())
+    }
 
-    let subscribers = pubsub.data.subscribers.read().await;
-    assert_eq!(subscribers.len(), 0);
-    let subscriptions = pubsub.data.subscriptions.read().await;
-    assert_eq!(subscriptions.len(), 0);
-    let topics = pubsub.data.topics.read().await;
-    assert_eq!(topics.len(), 0);
+    #[tokio::test]
+    async fn drop_cleanup_test() -> anyhow::Result<()> {
+        let pubsub = Relay::default();
+        let subscriber = pubsub.create_subscriber().await;
+        subscriber.subscribe_to("a").await;
+        drop(subscriber);
+        // Drop spawns a task that cleans up. Give it a moment to execute.
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
-    Ok(())
+        let subscribers = pubsub.data.subscribers.read().await;
+        assert_eq!(subscribers.len(), 0);
+        let subscriptions = pubsub.data.subscriptions.read().await;
+        assert_eq!(subscriptions.len(), 0);
+        let topics = pubsub.data.topics.read().await;
+        assert_eq!(topics.len(), 0);
+
+        Ok(())
+    }
 }

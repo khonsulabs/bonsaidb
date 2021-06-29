@@ -1,4 +1,3 @@
-pub use fabruic;
 use schema::SchemaName;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 

@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pliantdb_core::{
-    backend::Backend,
     circulate::Message,
+    custom_api::CustomApi,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
-    pubsub::{database_topic, PubSub, Subscriber},
+    pubsub::{PubSub, Subscriber},
     schema::Schema,
 };
 use serde::Serialize;
@@ -13,12 +13,12 @@ use serde::Serialize;
 use crate::Client;
 
 #[async_trait]
-impl<DB, B> PubSub for super::RemoteDatabase<DB, B>
+impl<DB, A> PubSub for super::RemoteDatabase<DB, A>
 where
     DB: Schema,
-    B: Backend,
+    A: CustomApi,
 {
-    type Subscriber = RemoteSubscriber<B>;
+    type Subscriber = RemoteSubscriber<A>;
 
     async fn create_subscriber(&self) -> Result<Self::Subscriber, pliantdb_core::Error> {
         match self
@@ -94,16 +94,17 @@ where
     }
 }
 
+/// A `PubSub` subscriber from a remote server.
 #[derive(Debug)]
-pub struct RemoteSubscriber<B: Backend> {
-    client: Client<B>,
+pub struct RemoteSubscriber<A: CustomApi> {
+    client: Client<A>,
     database: Arc<String>,
     id: u64,
     receiver: flume::Receiver<Arc<Message>>,
 }
 
 #[async_trait]
-impl<B: Backend> Subscriber for RemoteSubscriber<B> {
+impl<A: CustomApi> Subscriber for RemoteSubscriber<A> {
     async fn subscribe_to<S: Into<String> + Send>(
         &self,
         topic: S,
@@ -114,7 +115,7 @@ impl<B: Backend> Subscriber for RemoteSubscriber<B> {
                 database: self.database.to_string(),
                 request: DatabaseRequest::SubscribeTo {
                     subscriber_id: self.id,
-                    topic: database_topic(&self.database, &topic.into()),
+                    topic: topic.into(),
                 },
             })
             .await?
@@ -134,7 +135,7 @@ impl<B: Backend> Subscriber for RemoteSubscriber<B> {
                 database: self.database.to_string(),
                 request: DatabaseRequest::UnsubscribeFrom {
                     subscriber_id: self.id,
-                    topic: database_topic(&self.database, topic),
+                    topic: topic.to_string(),
                 },
             })
             .await?
@@ -152,13 +153,17 @@ impl<B: Backend> Subscriber for RemoteSubscriber<B> {
     }
 }
 
-impl<B: Backend> Drop for RemoteSubscriber<B> {
+impl<A: CustomApi> Drop for RemoteSubscriber<A> {
     fn drop(&mut self) {
         let client = self.client.clone();
         let database = self.database.to_string();
         let subscriber_id = self.id;
-        tokio::spawn(async move {
+        let drop_future = async move {
             client.unregister_subscriber(database, subscriber_id).await;
-        });
+        };
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(drop_future);
+        #[cfg(not(target_arch = "wasm32"))]
+        tokio::spawn(drop_future);
     }
 }

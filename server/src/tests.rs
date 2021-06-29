@@ -1,7 +1,6 @@
 use pliantdb_core::test_util::{self, BasicSchema, HarnessTest, TestDirectory};
-use pliantdb_local::Database;
 
-use crate::{test_util::initialize_basic_server, Server};
+use crate::{server::ServerDatabase, test_util::initialize_basic_server, Server};
 
 #[tokio::test]
 async fn simple_test() -> anyhow::Result<()> {
@@ -34,7 +33,7 @@ impl TestHarness {
         &self.server
     }
 
-    pub async fn connect(&self) -> anyhow::Result<Database<BasicSchema>> {
+    pub async fn connect(&self) -> anyhow::Result<ServerDatabase<'_, (), BasicSchema>> {
         let db = self.server.database::<BasicSchema>("tests").await?;
         Ok(db)
     }

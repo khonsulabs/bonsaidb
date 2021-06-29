@@ -1,9 +1,9 @@
 [package]
-name = "pliantdb-macros"
-version = "0.1.0-dev.4"
+name = "xtask"
+version = "0.1.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
-description = "Macros for use in `PliantDb`"
+description = "Development-related Tasks"
 repository = "https://github.com/khonsulabs/pliantdb"
 license = "MIT OR Apache-2.0"
 keywords = ["document-database", "database"]
@@ -11,13 +11,6 @@ categories = ["database-implementations"]
 readme = "../README.md"
 homepage = "https://pliantdb.dev/"
 
-[lib]
-proc-macro = true
-
 [dependencies]
-syn = "1"
-quote = "1"
-proc-macro-error = "1"
-
-[dev-dependencies]
-compiletest_rs = "0.7"
+khonsu-tools = { git = "https://github.com/khonsulabs/khonsu-tools.git", branch = "main" }
+structopt = "0.3"

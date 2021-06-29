@@ -25,17 +25,16 @@ async fn main() -> anyhow::Result<()> {
     let old_value = db
         .set_key("mykey", &2_u32)
         .only_if_exists()
-        .returning_previous()
+        .returning_previous_as()
         .await?;
-    assert_eq!(old_value, Some(1));
+    assert_eq!(old_value, Some(1_u32));
 
     // Retrieving is simple too.
-    let value = db.get_key("mykey").await?;
+    let value = db.get_key("mykey").into().await?;
     assert_eq!(value, Some(2_u32));
 
     // Namespacing is built-in as well, so that you can easily separate storage.
-    let value: Option<u32> =
-        db.with_key_namespace("anamespace").get_key("mykey").await?;
+    let value = db.with_key_namespace("anamespace").get_key("mykey").await?;
     assert!(value.is_none());
 
     // Because of the atomic nature of the key-value store, you can use set_key
