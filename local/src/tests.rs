@@ -3,6 +3,7 @@ use std::time::Duration;
 use config::Configuration;
 use pliantdb_core::{
     connection::{AccessPolicy, Connection, ServerConnection},
+    document::KeyId,
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
         BasicCollectionWithOnlyBrokenParentId, BasicSchema, HarnessTest, TestDirectory,
@@ -147,6 +148,61 @@ fn integrity_checks() -> anyhow::Result<()> {
         })
         .unwrap()
     }
+
+    Ok(())
+}
+
+#[test]
+fn encryption() -> anyhow::Result<()> {
+    let path = TestDirectory::new("encryption");
+    let document_header = {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let db = Database::<Basic>::open_local(&path, Configuration::default()).await?;
+
+            let document_header = db
+                .collection::<Basic>()
+                .push_encrypted(&Basic::new("hello"), KeyId::Master)
+                .await?;
+
+            // Retrieve the document, showing that it was stored successfully.
+            let doc = db
+                .collection::<Basic>()
+                .get(document_header.id)
+                .await?
+                .expect("doc not found");
+            assert_eq!(&doc.contents::<Basic>()?.value, "hello");
+
+            Result::<_, anyhow::Error>::Ok(document_header)
+        })?
+    };
+
+    // Verify the header shows that it's encrypted.
+    assert!(matches!(
+        document_header.encryption_key,
+        Some(KeyId::Master)
+    ));
+
+    // By resetting the encryption key, we should be able to force an error in
+    // decryption, which proves that the document was encrypted. To ensure the
+    // server starts up and generates a new key, we must delete the sealing key.
+    std::fs::remove_file(path.join("vault-key"))?;
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async move {
+        let db = Database::<Basic>::open_local(&path, Configuration::default()).await?;
+
+        // Try retrieving the document, but expect an error decrypting.
+        if let Err(pliantdb_core::Error::Database(err)) =
+            db.collection::<Basic>().get(document_header.id).await
+        {
+            assert!(err.contains("vault"))
+        } else {
+            panic!("successfully retrieved encrypted document without keys")
+        }
+
+        Result::<_, anyhow::Error>::Ok(())
+    })?;
 
     Ok(())
 }

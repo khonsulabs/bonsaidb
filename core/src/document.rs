@@ -33,26 +33,13 @@ pub struct Document<'a> {
 impl<'a> Document<'a> {
     /// Creates a new document with `contents`.
     #[must_use]
-    pub fn new(id: u64, contents: Cow<'a, [u8]>) -> Self {
+    pub fn new(id: u64, contents: Cow<'a, [u8]>, encryption_key: Option<KeyId>) -> Self {
         let revision = Revision::new(&contents);
         Self {
             header: Cow::Owned(Header {
                 id,
                 revision,
-                encryption_key: None,
-            }),
-            contents,
-        }
-    }
-    /// Creates a new document with `contents`.
-    #[must_use]
-    pub fn new_encrypted(id: u64, contents: Cow<'a, [u8]>, encryption_key: KeyId) -> Self {
-        let revision = Revision::new(&contents);
-        Self {
-            header: Cow::Owned(Header {
-                id,
-                revision,
-                encryption_key: Some(encryption_key),
+                encryption_key,
             }),
             contents,
         }
@@ -61,7 +48,7 @@ impl<'a> Document<'a> {
     /// Creates a new document with serialized bytes from `contents`.
     pub fn with_contents<S: Serialize>(id: u64, contents: &S) -> Result<Self, serde_cbor::Error> {
         let contents = Cow::from(serde_cbor::to_vec(contents)?);
-        Ok(Self::new(id, contents))
+        Ok(Self::new(id, contents, None))
     }
 
     /// Retrieves `contents` through deserialization into the type `D`.

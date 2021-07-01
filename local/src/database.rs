@@ -8,7 +8,7 @@ use itertools::Itertools;
 use pliantdb_core::kv::{KeyOperation, Kv, Output};
 use pliantdb_core::{
     connection::{AccessPolicy, Connection, QueryKey, ServerConnection},
-    document::{Document, Header},
+    document::{Document, Header, KeyId},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     networking::{self},
     permissions::Permissions,
@@ -402,9 +402,16 @@ where
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
         match &operation.command {
-            Command::Insert { contents } => {
-                self.execute_insert(operation, trees, tree_index_map, contents.clone())
-            }
+            Command::Insert {
+                contents,
+                encryption_key,
+            } => self.execute_insert(
+                operation,
+                trees,
+                tree_index_map,
+                contents.clone(),
+                encryption_key.clone(),
+            ),
             Command::Update { header, contents } => {
                 self.execute_update(operation, trees, tree_index_map, header, contents.clone())
             }
@@ -473,10 +480,11 @@ where
         trees: &[TransactionalTree],
         tree_index_map: &HashMap<String, usize>,
         contents: Cow<'_, [u8]>,
+        encryption_key: Option<KeyId>,
     ) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
         let documents =
             &trees[tree_index_map[&document_tree_name(self.name(), &operation.collection)]];
-        let doc = Document::new(documents.generate_id()?, contents);
+        let doc = Document::new(documents.generate_id()?, contents, encryption_key);
         self.save_doc(documents, &doc)?;
         let serialized: Vec<u8> = self
             .serialize_document(&doc)

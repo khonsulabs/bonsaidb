@@ -2,7 +2,10 @@ use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{document::Header, schema::CollectionName};
+use crate::{
+    document::{Header, KeyId},
+    schema::CollectionName,
+};
 
 /// A list of operations to execute as a single unit. If any operation fails,
 /// all changes are aborted. Reads that happen while the transaction is in
@@ -35,6 +38,9 @@ pub struct Operation<'a> {
 pub enum Command<'a> {
     /// Inserts a new document containing `contents`.
     Insert {
+        /// The encryption key to use for the document.
+        encryption_key: Option<KeyId>,
+
         /// The initial contents of the document.
         contents: Cow<'a, [u8]>,
     },
@@ -43,7 +49,9 @@ pub enum Command<'a> {
     /// the currently stored revision on the `Document`. If it does not, the
     /// command fill fail with a `DocumentConflict` error.
     Update {
-        /// The current header of the `Document`.
+        /// The header of the `Document`. The revision must match the current
+        /// document. Changing the encryption key will encrypt the document with
+        /// the new key.
         header: Cow<'a, Header>,
 
         /// The new contents to store within the `Document`.

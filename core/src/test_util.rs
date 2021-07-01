@@ -4,6 +4,7 @@ use std::{
     borrow::Cow,
     fmt::{Debug, Display},
     io::ErrorKind,
+    ops::Deref,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -256,6 +257,14 @@ impl Drop for TestDirectory {
 
 impl AsRef<Path> for TestDirectory {
     fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Deref for TestDirectory {
+    type Target = PathBuf;
+
+    fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
