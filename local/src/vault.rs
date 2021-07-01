@@ -103,7 +103,10 @@ impl Vault {
                     bincode::serialize(&sealing_key).expect("error serializing sealing key");
 
                 File::create(sealing_key_path)
-                    .and_then(|mut file| async move { file.write_all(&sealing_key_bytes).await })
+                    .and_then(|mut file| async move {
+                        file.write_all(&sealing_key_bytes).await?;
+                        file.shutdown().await
+                    })
                     .await
                     .map_err(|err| {
                         Error::Initializing(format!("error saving sealing key: {:?}", err))
@@ -373,7 +376,10 @@ impl MasterKeyStorage for LocalMasterKeyStorage {
         let key_path = server_folder.join("master_key");
         let bytes = bincode::serialize(key)?;
         File::create(key_path)
-            .and_then(|mut file| async move { file.write_all(&bytes).await })
+            .and_then(|mut file| async move {
+                file.write_all(&bytes).await?;
+                file.shutdown().await
+            })
             .await?;
         Ok(())
     }

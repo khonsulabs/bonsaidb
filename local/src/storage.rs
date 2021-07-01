@@ -116,7 +116,8 @@ impl Storage {
                 File::create(id_path)
                     .and_then(|mut file| async move {
                         let id = id.to_string();
-                        file.write_all(id.as_bytes()).await
+                        file.write_all(id.as_bytes()).await?;
+                        file.shutdown().await
                     })
                     .await
                     .map_err(|err| {
