@@ -11,7 +11,13 @@ use chacha20poly1305::{
     XChaCha20Poly1305,
 };
 use futures::TryFutureExt;
-use pliantdb_core::document::KeyId;
+use pliantdb_core::{
+    document::KeyId,
+    permissions::{
+        pliant::{vault_key_resource_name, EncryptionKeyAction},
+        Action, PermissionDenied, Permissions,
+    },
+};
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -115,7 +121,24 @@ impl Vault {
         }
     }
 
-    pub fn encrypt_payload(&self, key: &KeyId, payload: &[u8]) -> Result<Vec<u8>, Error> {
+    pub fn encrypt_payload(
+        &self,
+        key: &KeyId,
+        payload: &[u8],
+        permissions: Option<&Permissions>,
+    ) -> Result<Vec<u8>, crate::Error> {
+        if let Some(permissions) = permissions {
+            if !permissions.allowed_to(vault_key_resource_name(key), &EncryptionKeyAction::Encrypt)
+            {
+                return Err(crate::Error::Core(pliantdb_core::Error::from(
+                    PermissionDenied {
+                        resource: vault_key_resource_name(key).to_owned(),
+                        action: EncryptionKeyAction::Encrypt.name(),
+                    },
+                )));
+            }
+        }
+
         let key = match key {
             KeyId::Master => &self.master_key,
             KeyId::Id(_) => todo!(),
@@ -124,7 +147,24 @@ impl Vault {
         Ok(payload.to_vec())
     }
 
-    pub fn decrypt_payload(&self, key: &KeyId, payload: &[u8]) -> Result<Vec<u8>, Error> {
+    pub fn decrypt_payload(
+        &self,
+        key: &KeyId,
+        payload: &[u8],
+        permissions: Option<&Permissions>,
+    ) -> Result<Vec<u8>, crate::Error> {
+        if let Some(permissions) = permissions {
+            if !permissions.allowed_to(vault_key_resource_name(key), &EncryptionKeyAction::Decrypt)
+            {
+                return Err(crate::Error::Core(pliantdb_core::Error::from(
+                    PermissionDenied {
+                        resource: vault_key_resource_name(key).to_owned(),
+                        action: EncryptionKeyAction::Decrypt.name(),
+                    },
+                )));
+            }
+        }
+
         let payload = bincode::deserialize::<VaultPayload<'_>>(payload).map_err(|err| {
             Error::Encryption(format!("error deserializing encrypted payload: {:?}", err))
         })?;
@@ -133,7 +173,7 @@ impl Vault {
             KeyId::Master => &self.master_key,
             KeyId::Id(_) => todo!(),
         };
-        key.decrypt_payload(&payload)
+        Ok(key.decrypt_payload(&payload)?)
     }
 }
 
@@ -189,8 +229,6 @@ impl EncryptionKey {
     }
 
     pub fn decrypt_payload(&self, payload: &VaultPayload<'_>) -> Result<Vec<u8>, Error> {
-        // let payload = bincode::deserialize::<VaultPayload<'_>>(payload)
-        //     .map_err(|err| Error::Encryption(format!("invalid encrypted payload: {:?}", err)))?;
         // This is a no-op, but it will cause a compiler error if we introduce additional encryption methods
         let Encryption::XChaCha20Poly1305 = &payload.encryption;
         Ok(
@@ -342,11 +380,11 @@ impl MasterKeyStorage for LocalMasterKeyStorage {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct VaultPayload<'a> {
+struct VaultPayload<'a> {
+    key_version: u32,
     encryption: Encryption,
     payload: Cow<'a, [u8]>,
     nonce: Cow<'a, [u8]>,
-    key_version: u32,
 }
 
 impl<'a> VaultPayload<'a> {
@@ -366,8 +404,10 @@ enum Encryption {
     XChaCha20Poly1305,
 }
 
-#[test]
-fn vault_encryption_test() {
+#[cfg(test)]
+mod tests {
+    use super::*;
+
     #[derive(Debug)]
     struct NullKeyStorage;
     #[async_trait]
@@ -389,12 +429,43 @@ fn vault_encryption_test() {
             unreachable!()
         }
     }
-    let vault = Vault {
-        master_key: EncryptionKey::random(),
-        master_key_storage: Box::new(NullKeyStorage),
-    };
-    let encrypted = vault.encrypt_payload(&KeyId::Master, b"hello").unwrap();
-    let decrypted = vault.decrypt_payload(&KeyId::Master, &encrypted).unwrap();
 
-    assert_eq!(decrypted, b"hello");
+    #[test]
+    fn vault_encryption_test() {
+        let vault = Vault {
+            master_key: EncryptionKey::random(),
+            master_key_storage: Box::new(NullKeyStorage),
+        };
+        let encrypted = vault
+            .encrypt_payload(&KeyId::Master, b"hello", None)
+            .unwrap();
+        let decrypted = vault
+            .decrypt_payload(&KeyId::Master, &encrypted, None)
+            .unwrap();
+
+        assert_eq!(decrypted, b"hello");
+    }
+
+    #[test]
+    fn vault_permissions_test() {
+        let vault = Vault {
+            master_key: EncryptionKey::random(),
+            master_key_storage: Box::new(NullKeyStorage),
+        };
+        assert!(matches!(
+            vault.encrypt_payload(&KeyId::Master, b"hello", Some(&Permissions::default())),
+            Err(crate::Error::Core(pliantdb_core::Error::PermissionDenied(
+                _
+            )))
+        ));
+        let encrypted = vault
+            .encrypt_payload(&KeyId::Master, b"hello", None)
+            .unwrap();
+        assert!(matches!(
+            vault.decrypt_payload(&KeyId::Master, &encrypted, Some(&Permissions::default())),
+            Err(crate::Error::Core(pliantdb_core::Error::PermissionDenied(
+                _
+            )))
+        ));
+    }
 }

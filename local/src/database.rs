@@ -11,6 +11,7 @@ use pliantdb_core::{
     document::{Document, Header},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     networking::{self},
+    permissions::Permissions,
     schema::{
         self,
         view::{self, map},
@@ -53,6 +54,7 @@ pub struct Data<DB> {
     pub name: Arc<Cow<'static, str>>,
     pub(crate) storage: Storage,
     pub(crate) schema: Arc<Schematic>,
+    effective_permissions: Option<Permissions>,
     _schema: PhantomData<DB>,
 }
 
@@ -79,6 +81,7 @@ where
                 name: Arc::new(name.into()),
                 storage,
                 schema,
+                effective_permissions: None,
                 _schema: PhantomData::default(),
             }),
         };
@@ -94,6 +97,18 @@ where
         }
 
         Ok(db)
+    }
+
+    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Self {
+        Self {
+            data: Arc::new(Data {
+                name: self.data.name.clone(),
+                storage: self.data.storage.clone(),
+                schema: self.data.schema.clone(),
+                effective_permissions: Some(effective_permissions),
+                _schema: PhantomData::default(),
+            }),
+        }
     }
 
     /// Returns the name of the database.
@@ -348,7 +363,11 @@ where
             let decrypted_contents = self
                 .storage()
                 .vault()
-                .decrypt_payload(decryption_key, &document.contents)
+                .decrypt_payload(
+                    decryption_key,
+                    &document.contents,
+                    self.data.effective_permissions.as_ref(),
+                )
                 .map_err_to_core()?;
             document.contents = Cow::Owned(decrypted_contents);
         }
@@ -360,7 +379,11 @@ where
             let encrypted_contents = self
                 .storage()
                 .vault()
-                .encrypt_payload(encryption_key, &document.contents)
+                .encrypt_payload(
+                    encryption_key,
+                    &document.contents,
+                    self.data.effective_permissions.as_ref(),
+                )
                 .map_err_to_core()?;
             bincode::serialize(&Document {
                 header: document.header.clone(),
@@ -963,23 +986,34 @@ where
         &self,
         id: u64,
         collection: &CollectionName,
+        permissions: &Permissions,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
-        self.get_from_collection_id(id, collection).await
+        self.with_effective_permissions(permissions.clone())
+            .get_from_collection_id(id, collection)
+            .await
     }
 
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
         collection: &CollectionName,
+        permissions: &Permissions,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
-        self.get_multiple_from_collection_id(ids, collection).await
+        self.with_effective_permissions(permissions.clone())
+            .get_multiple_from_collection_id(ids, collection)
+            .await
     }
 
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
+        permissions: &Permissions,
     ) -> Result<Vec<OperationResult>, pliantdb_core::Error> {
-        <Self as Connection>::apply_transaction(self, transaction).await
+        <Self as Connection>::apply_transaction(
+            &self.with_effective_permissions(permissions.clone()),
+            transaction,
+        )
+        .await
     }
 
     async fn query(
@@ -1013,11 +1047,13 @@ where
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
+        permissions: &Permissions,
     ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error> {
         let results = OpenDatabase::query(self, view, key, access_policy).await?;
         let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
 
         let mut documents = self
+            .with_effective_permissions(permissions.clone())
             .get_multiple_from_collection_id(
                 &results.iter().map(|m| m.source).collect::<Vec<_>>(),
                 &view.collection()?,

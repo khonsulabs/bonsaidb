@@ -29,7 +29,7 @@ struct Data<B: Backend = ()> {
     address: SocketAddr,
     transport: Transport,
     response_sender: Sender<<B::CustomApi as CustomApi>::Response>,
-    permissions: RwLock<Arc<Permissions>>,
+    permissions: RwLock<Permissions>,
 }
 
 impl<B: Backend> Clone for ConnectedClient<B> {
@@ -55,14 +55,14 @@ impl<B: Backend> ConnectedClient<B> {
 
     /// Returns the current permissions for this client. Will reflect the
     /// current state of authentication.
-    pub async fn permissions(&self) -> Arc<Permissions> {
+    pub async fn permissions(&self) -> Permissions {
         let permissions = self.data.permissions.read().await;
         permissions.clone()
     }
 
     pub(crate) async fn set_permissions(&self, new_permissions: Permissions) {
         let mut permissions = self.data.permissions.write().await;
-        *permissions = Arc::new(new_permissions);
+        *permissions = new_permissions;
     }
 
     /// Sends a custom API response to the client.

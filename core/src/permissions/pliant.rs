@@ -9,7 +9,10 @@
 use actionable::{Action, ResourceName};
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{CollectionName, ViewName};
+use crate::{
+    document::KeyId,
+    schema::{CollectionName, ViewName},
+};
 
 /// The base `PliantDb` resource namespace. All database objects have this as
 /// their first name segment.
@@ -71,6 +74,18 @@ pub fn kv_key_resource_name<'a>(
         .and("pubsub")
         .and(namespace.unwrap_or(""))
         .and(key)
+}
+
+/// Creates a resource name for encryption key `key_id`.
+#[must_use]
+pub fn vault_key_resource_name(key_id: &KeyId) -> ResourceName<'_> {
+    pliantdb_resource_name()
+        .and("vault")
+        .and("key")
+        .and(match key_id {
+            KeyId::Master => "master",
+            KeyId::Id(id) => id.as_ref(),
+        })
 }
 
 /// Actions that can be permitted within `PliantDb`.
@@ -204,4 +219,13 @@ pub enum KvAction {
     /// [`Kv::execute_key_operation()`](crate::kv::Kv::execute_key_operation).
     /// See [`kv_key_resource_name()`] for the format of key resource names.
     ExecuteOperation,
+}
+
+/// Actions that use encryption keys.
+#[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
+pub enum EncryptionKeyAction {
+    /// Uses a key to encrypt data.
+    Encrypt,
+    /// Uses a key to decrypt data.
+    Decrypt,
 }

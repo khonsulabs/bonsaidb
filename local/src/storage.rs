@@ -18,6 +18,7 @@ use pliantdb_core::{
     connection::{self, AccessPolicy, Connection, QueryKey, ServerConnection},
     document::Document,
     networking,
+    permissions::Permissions,
     schema::{view::map, CollectionName, MappedValue, Schema, SchemaName, Schematic, ViewName},
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -388,17 +389,20 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         &self,
         id: u64,
         collection: &CollectionName,
+        permissions: &Permissions,
     ) -> Result<Option<Document<'static>>, pliantdb_core::Error>;
 
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
         collection: &CollectionName,
+        permissions: &Permissions,
     ) -> Result<Vec<Document<'static>>, pliantdb_core::Error>;
 
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
+        permissions: &Permissions,
     ) -> Result<Vec<OperationResult>, pliantdb_core::Error>;
 
     async fn query(
@@ -413,6 +417,7 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
+        permissions: &Permissions,
     ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error>;
 
     async fn reduce(

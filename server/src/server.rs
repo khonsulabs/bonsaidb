@@ -94,7 +94,7 @@ struct Data<B: Backend = ()> {
     storage: Storage,
     clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     request_processor: Manager,
-    default_permissions: Arc<Permissions>,
+    default_permissions: Permissions,
     custom_api: RwLock<Option<B::CustomApiDispatcher>>,
     endpoint: RwLock<Option<Endpoint>>,
     #[cfg(feature = "websockets")]
@@ -125,7 +125,7 @@ impl<B: Backend> CustomServer<B> {
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
                 request_processor,
-                default_permissions: Arc::new(configuration.default_permissions),
+                default_permissions: configuration.default_permissions,
                 custom_api: RwLock::default(),
                 #[cfg(feature = "pubsub")]
                 relay: Relay::default(),
@@ -498,7 +498,7 @@ impl<B: Backend> CustomServer<B> {
         &self,
         request: Request<<B::CustomApi as CustomApi>::Request>,
         callback: F,
-        permissions: Arc<Permissions>,
+        permissions: Permissions,
         #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
         #[cfg(feature = "pubsub")] response_sender: flume::Sender<
             Payload<Response<<B::CustomApi as CustomApi>::Response>>,
@@ -715,7 +715,7 @@ impl<B: Backend> Deref for CustomServer<B> {
 #[derive(Debug)]
 struct ClientRequest<B: Backend> {
     request: Option<Request<<B::CustomApi as CustomApi>::Request>>,
-    permissions: Arc<Permissions>,
+    permissions: Permissions,
     server: CustomServer<B>,
     #[cfg(feature = "pubsub")]
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
@@ -727,7 +727,7 @@ impl<B: Backend> ClientRequest<B> {
     pub fn new(
         request: Request<<B::CustomApi as CustomApi>::Request>,
         server: CustomServer<B>,
-        permissions: Arc<Permissions>,
+        permissions: Permissions,
         #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
         #[cfg(feature = "pubsub")] sender: flume::Sender<
             Payload<Response<<B::CustomApi as CustomApi>::Response>>,
@@ -1046,13 +1046,13 @@ impl<'s, B: Backend> pliantdb_core::networking::GetHandler for DatabaseDispatche
 
     async fn handle_protected(
         &self,
-        _permissions: &Permissions,
+        permissions: &Permissions,
         collection: CollectionName,
         id: u64,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         let document = self
             .database
-            .get_from_collection_id(id, &collection)
+            .get_from_collection_id(id, &collection, permissions)
             .await?
             .ok_or(Error::Core(pliantdb_core::Error::DocumentNotFound(
                 collection, id,
@@ -1087,13 +1087,13 @@ impl<'s, B: Backend> pliantdb_core::networking::GetMultipleHandler for DatabaseD
 
     async fn handle_protected(
         &self,
-        _permissions: &Permissions,
+        permissions: &Permissions,
         collection: CollectionName,
         ids: Vec<u64>,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
         let documents = self
             .database
-            .get_multiple_from_collection_id(&ids, &collection)
+            .get_multiple_from_collection_id(&ids, &collection, permissions)
             .await?;
         Ok(Response::Database(DatabaseResponse::Documents(documents)))
     }
@@ -1119,7 +1119,7 @@ impl<'s, B: Backend> pliantdb_core::networking::QueryHandler for DatabaseDispatc
 
     async fn handle_protected(
         &self,
-        _permissions: &Permissions,
+        permissions: &Permissions,
         view: ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
@@ -1128,7 +1128,7 @@ impl<'s, B: Backend> pliantdb_core::networking::QueryHandler for DatabaseDispatc
         if with_docs {
             let mappings = self
                 .database
-                .query_with_docs(&view, key, access_policy)
+                .query_with_docs(&view, key, access_policy, permissions)
                 .await?;
             Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
                 mappings,
@@ -1218,10 +1218,13 @@ impl<'s, B: Backend> pliantdb_core::networking::ApplyTransactionHandler
 
     async fn handle_protected(
         &self,
-        _permissions: &Permissions,
+        permissions: &Permissions,
         transaction: Transaction<'static>,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        let results = self.database.apply_transaction(transaction).await?;
+        let results = self
+            .database
+            .apply_transaction(transaction, permissions)
+            .await?;
         Ok(Response::Database(DatabaseResponse::TransactionResults(
             results,
         )))
