@@ -12,13 +12,11 @@ use pliantdb_core::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{vault, Database};
-
 use super::Admin;
+use crate::{vault, Database};
 
 // TODO validations: this type should prevent changing the key_id.
 #[derive(Debug, Serialize, Deserialize)]
-#[allow(clippy::module_name_repetitions)]
 pub struct EncryptionKeyVersion {
     /// The ID of the key. Multiple keys can exist for the same id.
     pub key_id: String,

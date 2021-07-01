@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 /// A named group of permissions statements.
 #[derive(Debug, Serialize, Deserialize)]
-#[allow(clippy::module_name_repetitions)]
 pub struct PermissionGroup {
     /// The name of the group. Must be unique.
     pub name: String,

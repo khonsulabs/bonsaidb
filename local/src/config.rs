@@ -10,8 +10,9 @@ pub struct Configuration {
     /// one specified here.
     pub unique_id: Option<u64>,
     /// The master key storage to use with the vault. If not specified and
-    /// running in debug mode, [`LocalMasterKeyStorage`] will be used with the
-    /// server's data folder as the path.
+    /// running in debug mode,
+    /// [`LocalMasterKeyStorage`](crate::vault::LocalMasterKeyStorage) will be
+    /// used with the server's data folder as the path.
     pub master_key_storage: Option<Box<dyn AnyMasterKeyStorage>>,
     /// Configuration options related to background tasks.
     pub workers: Tasks,

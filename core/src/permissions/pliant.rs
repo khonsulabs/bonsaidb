@@ -75,8 +75,6 @@ pub fn kv_key_resource_name<'a>(
 
 /// Actions that can be permitted within `PliantDb`.
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
-// Naming by choice despite clippy: without the prefix it would conflict with a common include from the parent module.
-#[allow(clippy::module_name_repetitions)]
 pub enum PliantAction {
     /// Actions that operate on a server
     Server(ServerAction),

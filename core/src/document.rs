@@ -17,7 +17,7 @@ pub struct Header {
     pub revision: Revision,
 
     /// The encryption key to use when saving to disk.
-    pub encryption_key: Option<DecryptionKey>,
+    pub encryption_key: Option<KeyId>,
 }
 
 /// Contains a serialized document in the database.
@@ -46,7 +46,7 @@ impl<'a> Document<'a> {
     }
     /// Creates a new document with `contents`.
     #[must_use]
-    pub fn new_encrypted(id: u64, contents: Cow<'a, [u8]>, encryption_key: DecryptionKey) -> Self {
+    pub fn new_encrypted(id: u64, contents: Cow<'a, [u8]>, encryption_key: KeyId) -> Self {
         let revision = Revision::new(&contents);
         Self {
             header: Cow::Owned(Header {
@@ -131,15 +131,6 @@ impl<'a> Document<'a> {
             contents: Cow::Owned(self.contents.as_ref().to_vec()),
         }
     }
-}
-
-/// A reference to an encryption key.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct DecryptionKey {
-    /// The id of the key.
-    pub id: KeyId,
-    /// The revision number of the key.
-    pub revision: u32,
 }
 
 /// The ID of an encryption key.

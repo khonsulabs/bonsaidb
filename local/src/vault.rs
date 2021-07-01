@@ -1,6 +1,7 @@
 use std::{
+    borrow::Cow,
     convert::TryInto,
-    fmt::Debug,
+    fmt::{Debug, Display},
     path::{Path, PathBuf},
 };
 
@@ -10,6 +11,7 @@ use chacha20poly1305::{
     XChaCha20Poly1305,
 };
 use futures::TryFutureExt;
+use pliantdb_core::document::KeyId;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -20,7 +22,7 @@ use tokio::{
 use crate::storage::StorageId;
 
 #[derive(Debug)]
-pub struct Vault {
+pub(crate) struct Vault {
     master_key: EncryptionKey,
     master_key_storage: Box<dyn AnyMasterKeyStorage>,
 }
@@ -112,11 +114,32 @@ impl Vault {
             }
         }
     }
+
+    pub fn encrypt_payload(&self, key: &KeyId, payload: &[u8]) -> Result<Vec<u8>, Error> {
+        let key = match key {
+            KeyId::Master => &self.master_key,
+            KeyId::Id(_) => todo!(),
+        };
+        let payload = key.encrypt_payload(payload);
+        Ok(payload.to_vec())
+    }
+
+    pub fn decrypt_payload(&self, key: &KeyId, payload: &[u8]) -> Result<Vec<u8>, Error> {
+        let payload = bincode::deserialize::<VaultPayload<'_>>(payload).map_err(|err| {
+            Error::Encryption(format!("error deserializing encrypted payload: {:?}", err))
+        })?;
+        // TODO handle key version
+        let key = match key {
+            KeyId::Master => &self.master_key,
+            KeyId::Id(_) => todo!(),
+        };
+        key.decrypt_payload(&payload)
+    }
 }
 
 #[async_trait]
 pub trait MasterKeyStorage: Send + Sync + Debug + 'static {
-    type Error: std::error::Error;
+    type Error: Display;
     // TODO make this support a serializable document that can contain multiple
     // keys, so that new keys can be added over time as part of a rotation
     // strategy.
@@ -132,7 +155,7 @@ pub trait MasterKeyStorage: Send + Sync + Debug + 'static {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct EncryptionKey([u8; 32]);
+struct EncryptionKey([u8; 32]);
 
 impl EncryptionKey {
     pub fn random() -> Self {
@@ -140,33 +163,41 @@ impl EncryptionKey {
     }
 
     pub fn encrypt_key(&self) -> (Self, EncryptedKey) {
-        let mut rng = thread_rng();
         let wrapping_key = Self::random();
+        let encrypted = wrapping_key.encrypt_payload(&self.0);
+        (wrapping_key, EncryptedKey(encrypted.to_vec()))
+    }
+
+    pub fn encrypt_payload(&self, payload: &[u8]) -> VaultPayload<'static> {
+        let mut rng = thread_rng();
         let nonce: [u8; 24] = rng.gen();
-        let encrypted = XChaCha20Poly1305::new(GenericArray::from_slice(&wrapping_key.0))
+        let encrypted = XChaCha20Poly1305::new(GenericArray::from_slice(&self.0))
             .encrypt(
                 GenericArray::from_slice(&nonce),
                 Payload {
-                    msg: &self.0,
+                    msg: payload,
                     aad: b"",
                 },
             )
             .unwrap();
-        (
-            wrapping_key,
-            EncryptedKey {
-                key: encrypted,
-                nonce,
-            },
-        )
+        VaultPayload {
+            encryption: Encryption::XChaCha20Poly1305,
+            payload: Cow::Owned(encrypted),
+            nonce: Cow::Owned(nonce.to_vec()),
+            key_version: 0, // TODO key version
+        }
     }
 
-    pub fn decrypt_payload(&self, payload: &[u8], nonce: &[u8; 24]) -> Result<Vec<u8>, Error> {
+    pub fn decrypt_payload(&self, payload: &VaultPayload<'_>) -> Result<Vec<u8>, Error> {
+        // let payload = bincode::deserialize::<VaultPayload<'_>>(payload)
+        //     .map_err(|err| Error::Encryption(format!("invalid encrypted payload: {:?}", err)))?;
+        // This is a no-op, but it will cause a compiler error if we introduce additional encryption methods
+        let Encryption::XChaCha20Poly1305 = &payload.encryption;
         Ok(
             XChaCha20Poly1305::new(GenericArray::from_slice(&self.0)).decrypt(
-                GenericArray::from_slice(nonce),
+                GenericArray::from_slice(&payload.nonce),
                 Payload {
-                    msg: payload,
+                    msg: &payload.payload,
                     aad: b"",
                 },
             )?,
@@ -181,14 +212,11 @@ impl Debug for EncryptionKey {
 }
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
-pub struct EncryptedKey {
-    key: Vec<u8>,
-    nonce: [u8; 24],
-}
+pub struct EncryptedKey(Vec<u8>);
 
 impl EncryptedKey {
-    pub fn decrypt(&self, key: &EncryptionKey) -> Result<EncryptionKey, Error> {
-        let decrypted = key.decrypt_payload(&self.key, &self.nonce)?;
+    fn decrypt(&self, key: &EncryptionKey) -> Result<EncryptionKey, Error> {
+        let decrypted = key.decrypt_payload(&VaultPayload::from_slice(&self.0)?)?;
         let decrypted = decrypted
             .try_into()
             .map_err(|err| Error::Encryption(format!("decrypted key length invalid: {:?}", err)))?;
@@ -311,4 +339,62 @@ impl MasterKeyStorage for LocalMasterKeyStorage {
             .await?;
         Ok(())
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct VaultPayload<'a> {
+    encryption: Encryption,
+    payload: Cow<'a, [u8]>,
+    nonce: Cow<'a, [u8]>,
+    key_version: u32,
+}
+
+impl<'a> VaultPayload<'a> {
+    fn from_slice(bytes: &'a [u8]) -> Result<Self, Error> {
+        bincode::deserialize(bytes).map_err(|err| {
+            Error::Encryption(format!("error deserializing encrypted payload: {:?}", err))
+        })
+    }
+
+    fn to_vec(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+enum Encryption {
+    XChaCha20Poly1305,
+}
+
+#[test]
+fn vault_encryption_test() {
+    #[derive(Debug)]
+    struct NullKeyStorage;
+    #[async_trait]
+    impl MasterKeyStorage for NullKeyStorage {
+        type Error = anyhow::Error;
+
+        async fn master_key_for(
+            &self,
+            _server_id: StorageId,
+        ) -> Result<Option<EncryptedKey>, Self::Error> {
+            unreachable!()
+        }
+
+        async fn set_master_key_for(
+            &self,
+            _server_id: StorageId,
+            _key: &EncryptedKey,
+        ) -> Result<(), Self::Error> {
+            unreachable!()
+        }
+    }
+    let vault = Vault {
+        master_key: EncryptionKey::random(),
+        master_key_storage: Box::new(NullKeyStorage),
+    };
+    let encrypted = vault.encrypt_payload(&KeyId::Master, b"hello").unwrap();
+    let decrypted = vault.decrypt_payload(&KeyId::Master, &encrypted).unwrap();
+
+    assert_eq!(decrypted, b"hello");
 }

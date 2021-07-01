@@ -385,7 +385,6 @@ pub enum AccessPolicy {
 }
 
 /// Functions for interacting with a multi-database `PliantDb` instance.
-#[allow(clippy::module_name_repetitions)]
 #[async_trait]
 pub trait ServerConnection: Send + Sync {
     /// Creates a database named `name` with the `Schema` provided.

@@ -30,7 +30,6 @@ use crate::{
     error::{Error, ResultExt as _},
     open_trees::OpenTrees,
     storage::OpenDatabase,
-    vault::Vault,
     views::{
         mapper, view_document_map_tree_name, view_entries_tree_name,
         view_invalidated_docs_tree_name, view_omitted_docs_tree_name, ViewEntry,
@@ -240,11 +239,7 @@ where
                 )
                 .map_err_to_core()?
             {
-                Ok(Some(
-                    bincode::deserialize::<Document<'_>>(&vec)
-                        .map_err_to_core()?
-                        .to_owned(),
-                ))
+                Ok(Some(task_self.deserialize_document(&vec)?.to_owned()))
             } else {
                 Ok(None)
             }
@@ -278,11 +273,7 @@ where
                     )
                     .map_err_to_core()?
                 {
-                    found_docs.push(
-                        bincode::deserialize::<Document<'_>>(&vec)
-                            .map_err_to_core()?
-                            .to_owned(),
-                    );
+                    found_docs.push(task_self.deserialize_document(&vec)?.to_owned());
                 }
             }
 
@@ -354,14 +345,23 @@ where
     ) -> Result<Document<'a>, pliantdb_core::Error> {
         let mut document = bincode::deserialize::<Document<'_>>(bytes).map_err_to_core()?;
         if let Some(decryption_key) = &document.header.encryption_key {
-            todo!()
+            let decrypted_contents = self
+                .storage()
+                .vault()
+                .decrypt_payload(decryption_key, &document.contents)
+                .map_err_to_core()?;
+            document.contents = Cow::Owned(decrypted_contents);
         }
         Ok(document)
     }
 
     fn serialize_document(&self, document: &Document<'_>) -> Result<Vec<u8>, pliantdb_core::Error> {
         if let Some(encryption_key) = &document.header.encryption_key {
-            let encrypted_contents = todo!();
+            let encrypted_contents = self
+                .storage()
+                .vault()
+                .encrypt_payload(encryption_key, &document.contents)
+                .map_err_to_core()?;
             bincode::serialize(&Document {
                 header: document.header.clone(),
                 contents: Cow::from(encrypted_contents),
@@ -370,6 +370,200 @@ where
             bincode::serialize(document)
         }
         .map_err_to_core()
+    }
+
+    fn execute_operation(
+        &self,
+        operation: &Operation<'_>,
+        trees: &[TransactionalTree],
+        tree_index_map: &HashMap<String, usize>,
+    ) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
+        match &operation.command {
+            Command::Insert { contents } => {
+                self.execute_insert(operation, trees, tree_index_map, contents.clone())
+            }
+            Command::Update { header, contents } => {
+                self.execute_update(operation, trees, tree_index_map, header, contents.clone())
+            }
+            Command::Delete { header } => {
+                self.execute_delete(operation, trees, tree_index_map, header)
+            }
+        }
+    }
+
+    fn execute_update(
+        &self,
+        operation: &Operation<'_>,
+        trees: &[TransactionalTree],
+        tree_index_map: &HashMap<String, usize>,
+        header: &Header,
+        contents: Cow<'_, [u8]>,
+    ) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
+        let documents =
+            &trees[tree_index_map[&document_tree_name(self.name(), &operation.collection)]];
+        let document_id = IVec::from(header.id.as_big_endian_bytes().unwrap().as_ref());
+        if let Some(vec) = documents.get(&document_id)? {
+            let doc = self
+                .deserialize_document(&vec)
+                .map_err(ConflictableTransactionError::Abort)?;
+            if doc.header.as_ref() == header {
+                if let Some(updated_doc) = doc.create_new_revision(contents) {
+                    self.save_doc(documents, &updated_doc)?;
+
+                    self.update_unique_views(
+                        &document_id,
+                        operation,
+                        documents,
+                        trees,
+                        tree_index_map,
+                    )?;
+
+                    Ok(OperationResult::DocumentUpdated {
+                        collection: operation.collection.clone(),
+                        header: updated_doc.header.as_ref().clone(),
+                    })
+                } else {
+                    // If no new revision was made, it means an attempt to
+                    // save a document with the same contents was made.
+                    // We'll return a success but not actually give a new
+                    // version
+                    Ok(OperationResult::DocumentUpdated {
+                        collection: operation.collection.clone(),
+                        header: doc.header.as_ref().clone(),
+                    })
+                }
+            } else {
+                Err(ConflictableTransactionError::Abort(
+                    pliantdb_core::Error::DocumentConflict(operation.collection.clone(), header.id),
+                ))
+            }
+        } else {
+            Err(ConflictableTransactionError::Abort(
+                pliantdb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
+            ))
+        }
+    }
+
+    fn execute_insert(
+        &self,
+        operation: &Operation<'_>,
+        trees: &[TransactionalTree],
+        tree_index_map: &HashMap<String, usize>,
+        contents: Cow<'_, [u8]>,
+    ) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
+        let documents =
+            &trees[tree_index_map[&document_tree_name(self.name(), &operation.collection)]];
+        let doc = Document::new(documents.generate_id()?, contents);
+        self.save_doc(documents, &doc)?;
+        let serialized: Vec<u8> = self
+            .serialize_document(&doc)
+            .map_err(ConflictableTransactionError::Abort)?;
+        let document_id = IVec::from(doc.header.id.as_big_endian_bytes().unwrap().as_ref());
+        documents.insert(document_id.as_ref(), serialized)?;
+
+        self.update_unique_views(&document_id, operation, documents, trees, tree_index_map)?;
+
+        Ok(OperationResult::DocumentUpdated {
+            collection: operation.collection.clone(),
+            header: doc.header.as_ref().clone(),
+        })
+    }
+
+    fn execute_delete(
+        &self,
+        operation: &Operation<'_>,
+        trees: &[TransactionalTree],
+        tree_index_map: &HashMap<String, usize>,
+        header: &Header,
+    ) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
+        let documents =
+            &trees[tree_index_map[&document_tree_name(self.name(), &operation.collection)]];
+        let document_id = header.id.as_big_endian_bytes().unwrap();
+        if let Some(vec) = documents.get(&document_id)? {
+            let doc = self
+                .deserialize_document(&vec)
+                .map_err(ConflictableTransactionError::Abort)?;
+            if doc.header.as_ref() == header {
+                documents.remove(document_id.as_ref())?;
+
+                self.update_unique_views(
+                    &IVec::from(document_id.as_ref()),
+                    operation,
+                    documents,
+                    trees,
+                    tree_index_map,
+                )?;
+
+                Ok(OperationResult::DocumentDeleted {
+                    collection: operation.collection.clone(),
+                    id: header.id,
+                })
+            } else {
+                Err(ConflictableTransactionError::Abort(
+                    pliantdb_core::Error::DocumentConflict(operation.collection.clone(), header.id),
+                ))
+            }
+        } else {
+            Err(ConflictableTransactionError::Abort(
+                pliantdb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
+            ))
+        }
+    }
+
+    fn update_unique_views(
+        &self,
+        document_id: &IVec,
+        operation: &Operation<'_>,
+        documents: &TransactionalTree,
+        trees: &[TransactionalTree],
+        tree_index_map: &HashMap<String, usize>,
+    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+        if let Some(unique_views) = self
+            .data
+            .schema
+            .unique_views_in_collection(&operation.collection)
+        {
+            for view in unique_views {
+                let name = view
+                    .view_name()
+                    .map_err_to_core()
+                    .map_err(ConflictableTransactionError::Abort)?;
+                mapper::DocumentRequest {
+                    document_id,
+                    map_request: &mapper::Map {
+                        database: self.data.name.clone(),
+                        collection: operation.collection.clone(),
+                        view_name: name.clone(),
+                    },
+                    document_map: &trees
+                        [tree_index_map[&view_document_map_tree_name(self.name(), &name)]],
+                    documents,
+                    omitted_entries: &trees
+                        [tree_index_map[&view_omitted_docs_tree_name(self.name(), &name)]],
+                    view_entries: &trees
+                        [tree_index_map[&view_entries_tree_name(self.name(), &name)]],
+                    view,
+                }
+                .map()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn save_doc(
+        &self,
+        tree: &TransactionalTree,
+        doc: &Document<'_>,
+    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+        let serialized: Vec<u8> = self
+            .serialize_document(doc)
+            .map_err(ConflictableTransactionError::Abort)?;
+        tree.insert(
+            doc.header.id.as_big_endian_bytes().unwrap().as_ref(),
+            serialized,
+        )?;
+        Ok(())
     }
 }
 
@@ -382,24 +576,27 @@ where
         &self,
         transaction: Transaction<'static>,
     ) -> Result<Vec<OperationResult>, pliantdb_core::Error> {
-        let sled = self.sled().clone();
-        let schema = self.data.schema.clone();
-        let dbname = self.data.name.clone();
+        let task_self = self.clone();
         tokio::task::spawn_blocking(move || {
             let mut open_trees = OpenTrees::default();
-            let transaction_tree_name = transaction_tree_name(&dbname);
+            let transaction_tree_name = transaction_tree_name(task_self.name());
             open_trees
-                .open_tree(&sled, &transaction_tree_name)
+                .open_tree(task_self.sled(), &transaction_tree_name)
                 .map_err_to_core()?;
             for op in &transaction.operations {
-                if !schema.contains_collection_id(&op.collection) {
+                if !task_self.data.schema.contains_collection_id(&op.collection) {
                     return Err(pliantdb_core::Error::CollectionNotFound);
                 }
 
                 match &op.command {
                     Command::Update { .. } | Command::Insert { .. } | Command::Delete { .. } => {
                         open_trees
-                            .open_trees_for_document_change(&sled, &dbname, &op.collection, &schema)
+                            .open_trees_for_document_change(
+                                task_self.sled(),
+                                task_self.name(),
+                                &op.collection,
+                                &task_self.data.schema,
+                            )
                             .map_err_to_core()?;
                     }
                 }
@@ -409,13 +606,8 @@ where
                 let mut results = Vec::new();
                 let mut changed_documents = Vec::new();
                 for op in &transaction.operations {
-                    let result = execute_operation(
-                        &dbname,
-                        op,
-                        trees,
-                        &open_trees.trees_index_by_name,
-                        &schema,
-                    )?;
+                    let result =
+                        task_self.execute_operation(op, trees, &open_trees.trees_index_by_name)?;
 
                     match &result {
                         OperationResult::DocumentUpdated { header, collection } => {
@@ -441,7 +633,7 @@ where
                     .iter()
                     .group_by(|doc| doc.collection.clone())
                 {
-                    if let Some(views) = schema.views_in_collection(&collection) {
+                    if let Some(views) = task_self.data.schema.views_in_collection(&collection) {
                         let changed_documents = changed_documents.collect::<Vec<_>>();
                         for view in views {
                             if !view.unique() {
@@ -451,7 +643,10 @@ where
                                     .map_err(ConflictableTransactionError::Abort)?;
                                 for changed_document in &changed_documents {
                                     let invalidated_docs = &trees[open_trees.trees_index_by_name
-                                        [&view_invalidated_docs_tree_name(&dbname, &view_name)]];
+                                        [&view_invalidated_docs_tree_name(
+                                            task_self.name(),
+                                            &view_name,
+                                        )]];
                                     invalidated_docs.insert(
                                         changed_document.id.as_big_endian_bytes().unwrap().as_ref(),
                                         IVec::default(),
@@ -745,218 +940,6 @@ fn create_view_iterator<'a, K: Key + 'a>(
     } else {
         Ok(Box::new(view_entries.iter()))
     }
-}
-
-fn execute_operation(
-    database: &Arc<Cow<'static, str>>,
-    operation: &Operation<'_>,
-    trees: &[TransactionalTree],
-    tree_index_map: &HashMap<String, usize>,
-    schema: &Schematic,
-) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
-    match &operation.command {
-        Command::Insert { contents } => execute_insert(
-            database,
-            operation,
-            trees,
-            tree_index_map,
-            schema,
-            contents.clone(),
-        ),
-        Command::Update { header, contents } => execute_update(
-            database,
-            operation,
-            trees,
-            tree_index_map,
-            schema,
-            header,
-            contents.clone(),
-        ),
-        Command::Delete { header } => {
-            execute_delete(database, operation, trees, tree_index_map, schema, header)
-        }
-    }
-}
-
-fn execute_update(
-    database: &Arc<Cow<'static, str>>,
-    operation: &Operation<'_>,
-    trees: &[TransactionalTree],
-    tree_index_map: &HashMap<String, usize>,
-    schema: &Schematic,
-    header: &Header,
-    contents: Cow<'_, [u8]>,
-) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
-    let documents = &trees[tree_index_map[&document_tree_name(database, &operation.collection)]];
-    let document_id = IVec::from(header.id.as_big_endian_bytes().unwrap().as_ref());
-    if let Some(vec) = documents.get(&document_id)? {
-        let doc = bincode::deserialize::<Document<'_>>(&vec)
-            .map_err_to_core()
-            .map_err(ConflictableTransactionError::Abort)?;
-        if doc.header.as_ref() == header {
-            if let Some(updated_doc) = doc.create_new_revision(contents) {
-                save_doc(documents, &updated_doc)?;
-
-                update_unique_views(
-                    &document_id,
-                    database,
-                    operation,
-                    documents,
-                    trees,
-                    tree_index_map,
-                    schema,
-                )?;
-
-                Ok(OperationResult::DocumentUpdated {
-                    collection: operation.collection.clone(),
-                    header: updated_doc.header.as_ref().clone(),
-                })
-            } else {
-                // If no new revision was made, it means an attempt to
-                // save a document with the same contents was made.
-                // We'll return a success but not actually give a new
-                // version
-                Ok(OperationResult::DocumentUpdated {
-                    collection: operation.collection.clone(),
-                    header: doc.header.as_ref().clone(),
-                })
-            }
-        } else {
-            Err(ConflictableTransactionError::Abort(
-                pliantdb_core::Error::DocumentConflict(operation.collection.clone(), header.id),
-            ))
-        }
-    } else {
-        Err(ConflictableTransactionError::Abort(
-            pliantdb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
-        ))
-    }
-}
-
-fn execute_insert(
-    database: &Arc<Cow<'static, str>>,
-    operation: &Operation<'_>,
-    trees: &[TransactionalTree],
-    tree_index_map: &HashMap<String, usize>,
-    schema: &Schematic,
-    contents: Cow<'_, [u8]>,
-) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
-    let documents = &trees[tree_index_map[&document_tree_name(database, &operation.collection)]];
-    let doc = Document::new(documents.generate_id()?, contents);
-    save_doc(documents, &doc)?;
-    let serialized: Vec<u8> = bincode::serialize(&doc)
-        .map_err_to_core()
-        .map_err(ConflictableTransactionError::Abort)?;
-    let document_id = IVec::from(doc.header.id.as_big_endian_bytes().unwrap().as_ref());
-    documents.insert(document_id.as_ref(), serialized)?;
-
-    update_unique_views(
-        &document_id,
-        database,
-        operation,
-        documents,
-        trees,
-        tree_index_map,
-        schema,
-    )?;
-
-    Ok(OperationResult::DocumentUpdated {
-        collection: operation.collection.clone(),
-        header: doc.header.as_ref().clone(),
-    })
-}
-
-fn execute_delete(
-    database: &Arc<Cow<'static, str>>,
-    operation: &Operation<'_>,
-    trees: &[TransactionalTree],
-    tree_index_map: &HashMap<String, usize>,
-    schema: &Schematic,
-    header: &Header,
-) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
-    let documents = &trees[tree_index_map[&document_tree_name(database, &operation.collection)]];
-    let document_id = header.id.as_big_endian_bytes().unwrap();
-    if let Some(vec) = documents.get(&document_id)? {
-        let doc = bincode::deserialize::<Document<'_>>(&vec)
-            .map_err_to_core()
-            .map_err(ConflictableTransactionError::Abort)?;
-        if doc.header.as_ref() == header {
-            documents.remove(document_id.as_ref())?;
-
-            update_unique_views(
-                &IVec::from(document_id.as_ref()),
-                database,
-                operation,
-                documents,
-                trees,
-                tree_index_map,
-                schema,
-            )?;
-
-            Ok(OperationResult::DocumentDeleted {
-                collection: operation.collection.clone(),
-                id: header.id,
-            })
-        } else {
-            Err(ConflictableTransactionError::Abort(
-                pliantdb_core::Error::DocumentConflict(operation.collection.clone(), header.id),
-            ))
-        }
-    } else {
-        Err(ConflictableTransactionError::Abort(
-            pliantdb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
-        ))
-    }
-}
-
-fn update_unique_views(
-    document_id: &IVec,
-    database: &Arc<Cow<'static, str>>,
-    operation: &Operation<'_>,
-    documents: &TransactionalTree,
-    trees: &[TransactionalTree],
-    tree_index_map: &HashMap<String, usize>,
-    schema: &Schematic,
-) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
-    if let Some(unique_views) = schema.unique_views_in_collection(&operation.collection) {
-        for view in unique_views {
-            let name = view
-                .view_name()
-                .map_err_to_core()
-                .map_err(ConflictableTransactionError::Abort)?;
-            mapper::DocumentRequest {
-                document_id,
-                map_request: &mapper::Map {
-                    database: database.clone(),
-                    collection: operation.collection.clone(),
-                    view_name: name.clone(),
-                },
-                document_map: &trees[tree_index_map[&view_document_map_tree_name(database, &name)]],
-                documents,
-                omitted_entries: &trees
-                    [tree_index_map[&view_omitted_docs_tree_name(database, &name)]],
-                view_entries: &trees[tree_index_map[&view_entries_tree_name(database, &name)]],
-                view,
-            }
-            .map()?;
-        }
-    }
-
-    Ok(())
-}
-
-fn save_doc(
-    tree: &TransactionalTree,
-    doc: &Document<'_>,
-) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
-    let serialized: Vec<u8> = bincode::serialize(doc)
-        .map_err_to_core()
-        .map_err(ConflictableTransactionError::Abort)?;
-    tree.insert(
-        doc.header.id.as_big_endian_bytes().unwrap().as_ref(),
-        serialized,
-    )?;
-    Ok(())
 }
 
 pub fn transaction_tree_name(database: &str) -> String {

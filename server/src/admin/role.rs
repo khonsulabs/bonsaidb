@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 
 /// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::permissions::PermissionGroup)s.
 #[derive(Debug, Serialize, Deserialize)]
-#[allow(clippy::module_name_repetitions)]
 pub struct Role {
     /// The name of the role. Must be unique.
     pub name: String,

@@ -15,6 +15,7 @@
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::missing_panics_doc, // TODO clippy::missing_panics_doc
     clippy::option_if_let_else,
+    clippy::module_name_repetitions,
 )]
 
 mod admin;

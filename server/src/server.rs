@@ -73,7 +73,6 @@ static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// A `PliantDb` server.
 #[derive(Debug)]
-#[allow(clippy::module_name_repetitions)]
 pub struct CustomServer<B: Backend> {
     data: Arc<Data<B>>,
 }

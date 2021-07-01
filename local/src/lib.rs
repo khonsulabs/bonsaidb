@@ -14,6 +14,7 @@
 #![allow(
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
+    clippy::module_name_repetitions,
 )]
 
 mod admin;
@@ -24,7 +25,7 @@ mod error;
 mod open_trees;
 mod storage;
 mod tasks;
-mod vault;
+pub mod vault;
 mod views;
 
 #[doc(inline)]

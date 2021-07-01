@@ -24,7 +24,7 @@ use pliantdb_core::{
 use pliantdb_jobs::manager::Manager;
 use rand::{thread_rng, Rng};
 use tokio::{
-    fs::File,
+    fs::{self, File},
     io::{AsyncReadExt, AsyncWriteExt},
     sync::RwLock,
 };
@@ -55,7 +55,7 @@ struct Data {
     id: StorageId,
     sled: sled::Db,
     pub(crate) tasks: TaskManager,
-    vault: Arc<Vault>,
+    pub(crate) vault: Arc<Vault>,
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
     pub(crate) check_view_integrity_on_database_open: bool,
@@ -78,6 +78,10 @@ impl Storage {
             manager.spawn_worker();
         }
         let tasks = TaskManager::new(manager);
+
+        fs::create_dir_all(&owned_path)
+            .await
+            .map_err(|err| Error::Other(Arc::new(anyhow::Error::from(err))))?;
 
         let id = StorageId(if let Some(id) = configuration.unique_id {
             // The configuraiton id override is not persisted to disk. This is
@@ -194,6 +198,11 @@ impl Storage {
     #[must_use]
     pub fn unique_id(&self) -> StorageId {
         self.data.id
+    }
+
+    #[must_use]
+    pub(crate) fn vault(&self) -> &Vault {
+        &self.data.vault
     }
 
     /// Registers a schema for use within the server.
@@ -544,7 +553,6 @@ fn name_validation_tests() {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
-#[allow(clippy::module_name_repetitions)]
 pub struct StorageId(u64);
 
 impl StorageId {

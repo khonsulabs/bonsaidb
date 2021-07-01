@@ -14,6 +14,7 @@
 #![allow(
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
+    clippy::module_name_repetitions,
 )]
 pub use num_traits;
 
