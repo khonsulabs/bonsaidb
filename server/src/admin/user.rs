@@ -1,3 +1,4 @@
+use custodian_password::ServerFile;
 use pliantdb_core::{
     document::Document,
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
@@ -16,6 +17,9 @@ pub struct User {
     pub groups: Vec<u64>,
     /// The IDs of the roles this user has been assigned.
     pub roles: Vec<u64>,
+
+    /// An `OPAQUE PAKE` payload.
+    pub password_hash: Option<ServerFile>,
 }
 
 impl Collection for User {

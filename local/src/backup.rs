@@ -123,7 +123,7 @@ impl Command {
             anyhow::bail!("database_path does not exist");
         }
 
-        let db = Storage::open_local(&database_path, &Configuration::default()).await?;
+        let db = Storage::open_local(&database_path, Configuration::default()).await?;
 
         let output_directory = if let Some(output_directory) = output_directory {
             output_directory.clone()
@@ -204,7 +204,7 @@ impl Command {
     }
 
     async fn load(&self, database_path: &Path, backup: &Path) -> anyhow::Result<()> {
-        let storage = Storage::open_local(database_path, &Configuration::default()).await?;
+        let storage = Storage::open_local(database_path, Configuration::default()).await?;
         let (sender, receiver) = flume::bounded(100);
 
         let document_restorer =
@@ -267,6 +267,7 @@ impl Command {
                                 header: Cow::Owned(Header {
                                     id,
                                     revision: Revision::with_id(revision, &contents),
+                                    encryption_key: None, // TODO how to deal with restoring encryption from a backup?
                                 }),
                                 contents: Cow::Owned(contents),
                             };
@@ -399,7 +400,7 @@ mod tests {
         // which is why we're creating a nested scope here.
         let test_doc = {
             let database_directory = TestDirectory::new("backup-restore.pliantdb");
-            let db = Database::<Basic>::open_local(&database_directory, &Configuration::default())
+            let db = Database::<Basic>::open_local(&database_directory, Configuration::default())
                 .await?;
             let test_doc = db
                 .collection::<Basic>()
@@ -433,7 +434,7 @@ mod tests {
         .await?;
 
         let db =
-            Database::<Basic>::open_local(&database_directory, &Configuration::default()).await?;
+            Database::<Basic>::open_local(&database_directory, Configuration::default()).await?;
         let doc = db
             .get::<Basic>(test_doc.id)
             .await?

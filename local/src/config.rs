@@ -1,6 +1,18 @@
+use crate::vault::AnyMasterKeyStorage;
+
 /// Configuration options for [`Storage`](crate::storage::Storage).
-#[derive(Clone, Default, Debug)]
+#[derive(Debug)]
 pub struct Configuration {
+    // TODO this isn't a server anymore.
+    /// The unique id of the server. If not specified, the server will randomly
+    /// generate a unique id on startup. If the server generated an id and this
+    /// value is subsequently set, the generated id will be overridden by the
+    /// one specified here.
+    pub unique_id: Option<u64>,
+    /// The master key storage to use with the vault. If not specified and
+    /// running in debug mode, [`LocalMasterKeyStorage`] will be used with the
+    /// server's data folder as the path.
+    pub master_key_storage: Option<Box<dyn AnyMasterKeyStorage>>,
     /// Configuration options related to background tasks.
     pub workers: Tasks,
 
@@ -8,8 +20,19 @@ pub struct Configuration {
     pub views: Views,
 }
 
+impl Default for Configuration {
+    fn default() -> Self {
+        Self {
+            unique_id: None,
+            master_key_storage: None,
+            workers: Tasks::default(),
+            views: Views::default(),
+        }
+    }
+}
+
 /// Configujration options for background tasks.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Tasks {
     /// Defines how many workers should be spawned to process tasks. Default
     /// value is `16`.

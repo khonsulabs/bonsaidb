@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::schema::{CollectionName, ViewName};
 
-/// Creates a resource name with the database `name`.
+/// The base `PliantDb` resource namespace. All database objects have this as
+/// their first name segment.
 #[must_use]
 pub fn pliantdb_resource_name<'a>() -> ResourceName<'a> {
     ResourceName::named("pliantdb")
@@ -100,6 +101,8 @@ pub enum ServerAction {
     CreateDatabase,
     /// Permits [`ServerConnection::delete_database`](crate::connection::ServerConnection::delete_database).
     DeleteDatabase,
+    CreateUser,
+    Login,
 }
 
 /// Actions that operate on a specific database.

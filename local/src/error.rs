@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use pliantdb_core::schema::{view, InvalidNameError};
 
+use crate::vault;
+
 /// Errors that can occur from interacting with storage.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -24,6 +26,10 @@ pub enum Error {
     /// An error occurred while executing a view
     #[error("error from view: {0}")]
     View(#[from] view::Error),
+
+    /// An error occurred in the secrets storage layer.
+    #[error("a vault error occurred: {0}")]
+    Vault(#[from] vault::Error),
 
     /// An core error occurred.
     #[error("a core error occurred: {0}")]

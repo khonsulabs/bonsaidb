@@ -20,7 +20,7 @@ struct TestHarness {
 impl TestHarness {
     async fn new(test: HarnessTest) -> anyhow::Result<Self> {
         let directory = TestDirectory::new(format!("local-{}", test));
-        let storage = Storage::open_local(&directory, &Configuration::default()).await?;
+        let storage = Storage::open_local(&directory, Configuration::default()).await?;
         storage.register_schema::<BasicSchema>().await?;
         storage.create_database::<BasicSchema>("tests").await?;
         let db = storage.database("tests").await?;
@@ -70,7 +70,7 @@ fn integrity_checks() -> anyhow::Result<()> {
             {
                 let db = Database::<BasicCollectionWithNoViews>::open_local(
                     &path,
-                    &Configuration::default(),
+                    Configuration::default(),
                 )
                 .await?;
                 let collection = db.collection::<BasicCollectionWithNoViews>();
@@ -89,7 +89,7 @@ fn integrity_checks() -> anyhow::Result<()> {
         rt.block_on(async {
             let db = Database::<BasicCollectionWithOnlyBrokenParentId>::open_local(
                 &path,
-                &Configuration::default(),
+                Configuration::default(),
             )
             .await?;
             // Give the integrity scanner time to run if it were to run (it shouldn't in this configuration).
@@ -120,7 +120,7 @@ fn integrity_checks() -> anyhow::Result<()> {
         rt.block_on(async {
             let db = Database::<Basic>::open_local(
                 &path,
-                &Configuration {
+                Configuration {
                     views: config::Views {
                         check_integrity_on_open: true,
                     },
@@ -164,7 +164,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
-                let db = Database::<()>::open_local(&path, &Configuration::default()).await?;
+                let db = Database::<()>::open_local(&path, Configuration::default()).await?;
 
                 db.set_key("a", &0_u32)
                     .expire_in(Duration::from_secs(3))
@@ -177,7 +177,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             let retry = rt.block_on(async {
-                let db = Database::<()>::open_local(&path, &Configuration::default()).await?;
+                let db = Database::<()>::open_local(&path, Configuration::default()).await?;
 
                 if timing.elapsed() > Duration::from_secs(1) {
                     return Ok(true);

@@ -42,6 +42,7 @@ cfg-if = "1"
 actionable = "0.1.0-dev.3"
 serde_cbor = "0.11"
 fabruic = { version="0.0.1-dev.2", features=["dangerous"] }
+custodian-password = { git="https://github.com/khonsulabs/custodian.git", branch="main" }
 
 [dev-dependencies]
 pliantdb-core = { path="../core", version="0.1.0-dev.4", default-features=false, features=["test-util"] }

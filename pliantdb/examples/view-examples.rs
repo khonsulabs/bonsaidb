@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
     // [md-bakery: begin @ snippet-b]
     let db = Database::<Shape>::open_local(
         "view-examples.pliantdb",
-        &Configuration::default(),
+        Configuration::default(),
     )
     .await?;
 

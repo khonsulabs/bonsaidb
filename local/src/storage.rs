@@ -1,6 +1,14 @@
-use std::{any::Any, collections::HashMap, fmt::Debug, marker::PhantomData, path::Path, sync::Arc};
+use std::{
+    any::Any,
+    collections::HashMap,
+    fmt::{Debug, Display},
+    marker::PhantomData,
+    path::Path,
+    sync::Arc,
+};
 
 use async_trait::async_trait;
+use futures::TryFutureExt;
 use itertools::Itertools;
 #[cfg(feature = "pubsub")]
 pub use pliantdb_core::circulate::Relay;
@@ -14,7 +22,12 @@ use pliantdb_core::{
     transaction::{Executed, OperationResult, Transaction},
 };
 use pliantdb_jobs::manager::Manager;
-use tokio::sync::RwLock;
+use rand::{thread_rng, Rng};
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncWriteExt},
+    sync::RwLock,
+};
 
 use crate::{
     admin::{
@@ -24,6 +37,7 @@ use crate::{
     config::Configuration,
     error::ResultExt,
     tasks::TaskManager,
+    vault::{LocalMasterKeyStorage, Vault},
     Database, Error,
 };
 
@@ -38,8 +52,10 @@ pub struct Storage {
 
 #[derive(Debug)]
 struct Data {
+    id: StorageId,
     sled: sled::Db,
     pub(crate) tasks: TaskManager,
+    vault: Arc<Vault>,
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
     pub(crate) check_view_integrity_on_database_open: bool,
@@ -53,7 +69,7 @@ impl Storage {
     /// Creates or opens a multi-database [`Storage`] with its data stored in `directory`.
     pub async fn open_local<P: AsRef<Path> + Send>(
         path: P,
-        configuration: &Configuration,
+        configuration: Configuration,
     ) -> Result<Self, Error> {
         let owned_path = path.as_ref().to_owned();
 
@@ -63,13 +79,72 @@ impl Storage {
         }
         let tasks = TaskManager::new(manager);
 
+        let id = StorageId(if let Some(id) = configuration.unique_id {
+            // The configuraiton id override is not persisted to disk. This is
+            // mostly to prevent someone from accidentally adding this
+            // configuration, realizing it breaks things, and then wanting to
+            // revert. This makes reverting to the old value easier.
+            id
+        } else {
+            // Load/Store a randomly generated id into a file. While the value
+            // is numerical, the file contents are the ascii decimal, making it
+            // easier for a human to view, and if needed, edit.
+            let id_path = owned_path.join("server-id");
+
+            if id_path.exists() {
+                // This value is important enought to not allow launching the
+                // server if the file can't be read or contains unexpected data.
+                let existing_id = String::from_utf8(
+                    File::open(id_path)
+                        .and_then(|mut f| async move {
+                            let mut bytes = Vec::new();
+                            f.read_to_end(&mut bytes).await.map(|_| bytes)
+                        })
+                        .await
+                        .expect("error reading server-id file"),
+                )
+                .expect("server-id contains invalid data");
+
+                existing_id.parse().expect("server-id isn't numeric")
+            } else {
+                let id = { thread_rng().gen::<u64>() };
+                File::create(id_path)
+                    .and_then(|mut file| async move {
+                        let id = id.to_string();
+                        file.write_all(id.as_bytes()).await
+                    })
+                    .await
+                    .map_err(|err| {
+                        Error::Core(pliantdb_core::Error::Configuration(format!(
+                            "Error writing server-id file: {}",
+                            err
+                        )))
+                    })?;
+                id
+            }
+        });
+
+        let vault = Arc::new(
+            Vault::initialize(
+                id,
+                &owned_path,
+                configuration.master_key_storage.unwrap_or_else(|| {
+                    // TODO make this fail in non-debug builds.
+                    Box::new(LocalMasterKeyStorage::new(owned_path.join("master-keys")))
+                }),
+            )
+            .await?,
+        );
+
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
         let storage = tokio::task::spawn_blocking(move || {
             sled::open(owned_path)
                 .map(|sled| Self {
                     data: Arc::new(Data {
+                        id,
                         sled,
                         tasks,
+                        vault,
                         schemas: RwLock::default(),
                         available_databases: RwLock::default(),
                         check_view_integrity_on_database_open,
@@ -106,6 +181,19 @@ impl Storage {
         }
 
         Ok(storage)
+    }
+
+    /// Returns the unique id of the server.
+    ///
+    /// This value is set from the [`Configuration`] or randomly generated when
+    /// creating a server. It shouldn't be changed after a server is in use, as
+    /// doing can cause issues. For example, the vault that manages encrypted
+    /// storage uses the server ID to store the master keys. If the server ID
+    /// changes, the master key storage will need to be updated with the new
+    /// server ID.
+    #[must_use]
+    pub fn unique_id(&self) -> StorageId {
+        self.data.id
     }
 
     /// Registers a schema for use within the server.
@@ -453,4 +541,27 @@ fn name_validation_tests() {
         Storage::validate_name("\u{2661}"),
         Err(Error::Core(pliantdb_core::Error::InvalidDatabaseName(_)))
     ));
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Hash)]
+#[allow(clippy::module_name_repetitions)]
+pub struct StorageId(u64);
+
+impl StorageId {
+    pub const fn as_u64(self) -> u64 {
+        self.0
+    }
+}
+
+impl Debug for StorageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // let formatted_length = format!();
+        write!(f, "{:016x}", self.0)
+    }
+}
+
+impl Display for StorageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self, f)
+    }
 }

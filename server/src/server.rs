@@ -14,6 +14,7 @@ use std::{
 
 use async_trait::async_trait;
 use cfg_if::cfg_if;
+use custodian_password::{LoginRequest, RegistrationRequest};
 use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 #[cfg(feature = "websockets")]
@@ -53,11 +54,14 @@ use schema::SchemaName;
 use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
 
-use crate::{async_io_util::FileExt, error::Error, Backend, Configuration};
+use crate::{
+    admin::Admin, async_io_util::FileExt, backend::ConnectionHandling, error::Error, Backend,
+    Configuration,
+};
 
 mod connected_client;
 mod database;
-use self::connected_client::Disconnector;
+use self::connected_client::OwnedClient;
 #[cfg(feature = "pubsub")]
 pub use self::database::ServerSubscriber;
 pub use self::{
@@ -87,13 +91,13 @@ impl<B: Backend> Clone for CustomServer<B> {
 
 #[derive(Debug)]
 struct Data<B: Backend = ()> {
-    clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
-    endpoint: RwLock<Option<Endpoint>>,
     directory: PathBuf,
     storage: Storage,
+    clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     request_processor: Manager,
-    default_permissions: Permissions,
+    default_permissions: Arc<Permissions>,
     custom_api: RwLock<Option<B::CustomApiDispatcher>>,
+    endpoint: RwLock<Option<Endpoint>>,
     #[cfg(feature = "websockets")]
     websocket_shutdown: RwLock<Option<Sender<()>>>,
     #[cfg(feature = "pubsub")]
@@ -111,7 +115,7 @@ impl<B: Backend> CustomServer<B> {
             request_processor.spawn_worker();
         }
 
-        let storage = Storage::open_local(directory, &configuration.storage).await?;
+        let storage = Storage::open_local(directory, configuration.storage).await?;
 
         Ok(Self {
             data: Arc::new(Data {
@@ -122,7 +126,7 @@ impl<B: Backend> CustomServer<B> {
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
                 request_processor,
-                default_permissions: configuration.default_permissions,
+                default_permissions: Arc::new(configuration.default_permissions),
                 custom_api: RwLock::default(),
                 #[cfg(feature = "pubsub")]
                 relay: Relay::default(),
@@ -131,6 +135,16 @@ impl<B: Backend> CustomServer<B> {
                 _backend: PhantomData::default(),
             }),
         })
+    }
+
+    pub(crate) async fn admin(&self) -> Result<ServerDatabase<'_, B, Admin>, Error> {
+        self.database("admin").await
+    }
+
+    /// Returns the path to the directory that stores this server's data.
+    #[must_use]
+    pub fn directory(&self) -> &'_ PathBuf {
+        &self.data.directory
     }
 
     /// Opens a server using `directory` for storage.
@@ -304,21 +318,25 @@ impl<B: Backend> CustomServer<B> {
         transport: Transport,
         address: SocketAddr,
         sender: Sender<<B::CustomApi as CustomApi>::Response>,
-    ) -> Disconnector<B> {
-        let (client, disconnector) = loop {
+    ) -> Option<OwnedClient<B>> {
+        let client = loop {
             let next_id = CONNECTED_CLIENT_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
             let mut clients = self.data.clients.write().await;
             if let hash_map::Entry::Vacant(e) = clients.entry(next_id) {
-                let (client, disconnector) =
-                    ConnectedClient::new(next_id, address, transport, sender, self.clone());
+                let client = OwnedClient::new(next_id, address, transport, sender, self.clone());
                 e.insert(client.clone());
-                break (client, disconnector);
+                break client;
             }
         };
 
-        B::client_connected(client).await;
-
-        disconnector
+        if matches!(
+            B::client_connected(&client).await,
+            ConnectionHandling::Accept
+        ) {
+            Some(client)
+        } else {
+            None
+        }
     }
 
     async fn disconnect_client(&self, id: u32) {
@@ -349,22 +367,25 @@ impl<B: Backend> CustomServer<B> {
             {
                 Ok((sender, receiver)) => {
                     let (api_response_sender, api_response_receiver) = flume::unbounded();
-                    let disconnector = self.initialize_client(Transport::Pliant, connection.remote_address(), api_response_sender).await;
-
-                    let task_sender = sender.clone();
-                    tokio::spawn(async move {
-                        while let Ok(response) = api_response_receiver.recv_async().await {
-                            if task_sender.send(&Payload {
-                                id: None,
-                                wrapped: Response::Api(response)
-                            }).is_err() {
-                                break;
+                    if let Some(disconnector) = self.initialize_client(Transport::Pliant, connection.remote_address(), api_response_sender).await {
+                        let task_sender = sender.clone();
+                        tokio::spawn(async move {
+                            while let Ok(response) = api_response_receiver.recv_async().await {
+                                if task_sender.send(&Payload {
+                                    id: None,
+                                    wrapped: Response::Api(response)
+                                }).is_err() {
+                                    break;
+                                }
                             }
-                        }
-                    });
+                        });
 
-                    let task_self = self.clone();
-                    tokio::spawn(async move { task_self.handle_stream(disconnector, sender, receiver).await });
+                        let task_self = self.clone();
+                        tokio::spawn(async move { task_self.handle_stream(disconnector, sender, receiver).await });
+                    } else {
+                        eprintln!("[server] Backend rejected connection.");
+                        return Ok(())
+                    }
                 }
                 Err(err) => {
                     eprintln!("[server] Error accepting incoming stream: {:?}", err);
@@ -388,9 +409,14 @@ impl<B: Backend> CustomServer<B> {
         let (message_sender, message_receiver) = flume::unbounded();
 
         let (api_response_sender, api_response_receiver) = flume::unbounded();
-        let _disconnector = self
+        let client = if let Some(client) = self
             .initialize_client(Transport::WebSocket, address, api_response_sender)
-            .await;
+            .await
+        {
+            client
+        } else {
+            return Ok(());
+        };
         let task_sender = response_sender.clone();
         tokio::spawn(async move {
             while let Ok(response) = api_response_receiver.recv_async().await {
@@ -445,6 +471,7 @@ impl<B: Backend> CustomServer<B> {
 
                             Ok(())
                         },
+                        client.permissions().await,
                         #[cfg(feature = "pubsub")]
                         self.data.subscribers.clone(),
                         #[cfg(feature = "pubsub")]
@@ -472,6 +499,7 @@ impl<B: Backend> CustomServer<B> {
         &self,
         request: Request<<B::CustomApi as CustomApi>::Request>,
         callback: F,
+        permissions: Arc<Permissions>,
         #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
         #[cfg(feature = "pubsub")] response_sender: flume::Sender<
             Payload<Response<<B::CustomApi as CustomApi>::Response>>,
@@ -483,6 +511,7 @@ impl<B: Backend> CustomServer<B> {
             .enqueue(ClientRequest::<B>::new(
                 request,
                 self.clone(),
+                permissions,
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "pubsub")]
@@ -503,7 +532,7 @@ impl<B: Backend> CustomServer<B> {
 
     async fn handle_stream(
         &self,
-        _client_disconnector: Disconnector<B>,
+        client: OwnedClient<B>,
         sender: fabruic::Sender<Payload<Response<<B::CustomApi as CustomApi>::Response>>>,
         mut receiver: fabruic::Receiver<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
     ) -> Result<(), Error> {
@@ -529,6 +558,7 @@ impl<B: Backend> CustomServer<B> {
 
                     Ok(())
                 },
+                client.permissions().await,
                 #[cfg(feature = "pubsub")]
                 self.data.subscribers.clone(),
                 #[cfg(feature = "pubsub")]
@@ -686,6 +716,7 @@ impl<B: Backend> Deref for CustomServer<B> {
 #[derive(Debug)]
 struct ClientRequest<B: Backend> {
     request: Option<Request<<B::CustomApi as CustomApi>::Request>>,
+    permissions: Arc<Permissions>,
     server: CustomServer<B>,
     #[cfg(feature = "pubsub")]
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
@@ -697,6 +728,7 @@ impl<B: Backend> ClientRequest<B> {
     pub fn new(
         request: Request<<B::CustomApi as CustomApi>::Request>,
         server: CustomServer<B>,
+        permissions: Arc<Permissions>,
         #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
         #[cfg(feature = "pubsub")] sender: flume::Sender<
             Payload<Response<<B::CustomApi as CustomApi>::Response>>,
@@ -705,6 +737,7 @@ impl<B: Backend> ClientRequest<B> {
         Self {
             request: Some(request),
             server,
+            permissions,
             #[cfg(feature = "pubsub")]
             subscribers,
             #[cfg(feature = "pubsub")]
@@ -925,6 +958,58 @@ impl<'s, B: Backend> pliantdb_core::networking::ListAvailableSchemasHandler
         Ok(Response::Server(ServerResponse::AvailableSchemas(
             self.server.list_available_schemas().await?,
         )))
+    }
+}
+
+#[async_trait]
+impl<'s, B: Backend> pliantdb_core::networking::CreateUserHandler for ServerDispatcher<'s, B> {
+    type Action = PliantAction;
+
+    fn resource_name(
+        &self,
+        _username: &String,
+        _password_request: &RegistrationRequest,
+    ) -> ResourceName<'static> {
+        pliantdb_resource_name()
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Server(ServerAction::CreateUser)
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        username: String,
+        password_request: RegistrationRequest,
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+        todo!()
+    }
+}
+
+#[async_trait]
+impl<'s, B: Backend> pliantdb_core::networking::LoginHandler for ServerDispatcher<'s, B> {
+    type Action = PliantAction;
+
+    fn resource_name(
+        &self,
+        username: &String,
+        password_request: &LoginRequest,
+    ) -> ResourceName<'static> {
+        pliantdb_resource_name()
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Server(ServerAction::Login)
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        username: String,
+        password_request: LoginRequest,
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+        todo!()
     }
 }
 

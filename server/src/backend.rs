@@ -20,12 +20,15 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     // TODO: add client connections events, client errors, etc.
     /// A client disconnected from the server. This is invoked before authentication has been performed.
     #[allow(unused_variables)]
-    async fn client_connected(client: ConnectedClient<Self>) {
+    #[must_use]
+    async fn client_connected(client: &ConnectedClient<Self>) -> ConnectionHandling {
         println!(
             "{:?} client connected from {:?}",
             client.transport(),
             client.address()
         );
+
+        ConnectionHandling::Accept
     }
 
     /// A client disconnected from the server.
@@ -57,4 +60,9 @@ impl actionable::Dispatcher<()> for NoDispatcher {
     async fn dispatch(&self, _permissions: &actionable::Permissions, _request: ()) -> Self::Result {
         Ok(())
     }
+}
+
+pub enum ConnectionHandling {
+    Accept,
+    Reject,
 }

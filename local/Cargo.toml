@@ -35,6 +35,10 @@ anyhow = "1"
 flume = "0.10"
 itertools = "0.10"
 structopt = { version="0.3", optional=true }
+rand = "0.8"
+chacha20poly1305 = { version="0.8", features=["xchacha20poly1305"] }
+byteorder = "1"
+futures = "0.3"
 
 [dev-dependencies]
 pliantdb-core = { path="../core", version="0.1.0-dev.4", features=["test-util"] }

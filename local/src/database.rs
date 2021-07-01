@@ -30,6 +30,7 @@ use crate::{
     error::{Error, ResultExt as _},
     open_trees::OpenTrees,
     storage::OpenDatabase,
+    vault::Vault,
     views::{
         mapper, view_document_map_tree_name, view_entries_tree_name,
         view_invalidated_docs_tree_name, view_omitted_docs_tree_name, ViewEntry,
@@ -105,7 +106,7 @@ where
     /// Creates a `Storage` with a single-database named "default" with its data stored at `path`.
     pub async fn open_local<P: AsRef<Path> + Send>(
         path: P,
-        configuration: &Configuration,
+        configuration: Configuration,
     ) -> Result<Self, Error> {
         let storage = Storage::open_local(path, configuration).await?;
         storage.register_schema::<DB>().await?;
@@ -345,6 +346,30 @@ where
         .await?;
 
         Ok(mappings)
+    }
+
+    fn deserialize_document<'a>(
+        &self,
+        bytes: &'a [u8],
+    ) -> Result<Document<'a>, pliantdb_core::Error> {
+        let mut document = bincode::deserialize::<Document<'_>>(bytes).map_err_to_core()?;
+        if let Some(decryption_key) = &document.header.encryption_key {
+            todo!()
+        }
+        Ok(document)
+    }
+
+    fn serialize_document(&self, document: &Document<'_>) -> Result<Vec<u8>, pliantdb_core::Error> {
+        if let Some(encryption_key) = &document.header.encryption_key {
+            let encrypted_contents = todo!();
+            bincode::serialize(&Document {
+                header: document.header.clone(),
+                contents: Cow::from(encrypted_contents),
+            })
+        } else {
+            bincode::serialize(document)
+        }
+        .map_err_to_core()
     }
 }
 

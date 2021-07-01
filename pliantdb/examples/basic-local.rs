@@ -30,7 +30,7 @@ impl Collection for Message {
 async fn main() -> anyhow::Result<()> {
     let db = Database::<Message>::open_local(
         "basic.pliantdb",
-        &Configuration::default(),
+        Configuration::default(),
     )
     .await?;
 

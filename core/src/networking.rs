@@ -1,3 +1,4 @@
+use custodian_password::{LoginRequest, LoginResponse, RegistrationRequest, RegistrationResponse};
 use schema::SchemaName;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -66,6 +67,20 @@ pub enum ServerRequest {
     /// Lists available schemas.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     ListAvailableSchemas,
+    /// Creates a user.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    CreateUser {
+        /// The unique username of the user to create.
+        username: String,
+        password_request: RegistrationRequest,
+    },
+    /// Authenticates the current session as `username`.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    Login {
+        /// The username of the user to authenticate as.
+        username: String,
+        password_request: LoginRequest,
+    },
 }
 
 /// A database-related request.
@@ -209,8 +224,19 @@ pub enum ServerResponse {
     },
     /// A list of available databases.
     Databases(Vec<Database>),
-    ///A list of availble schemas.
+    /// A list of availble schemas.
     AvailableSchemas(Vec<SchemaName>),
+    /// A user was created.
+    UserCreated {
+        /// The id of the user created.
+        id: u64,
+        password_reponse: Box<RegistrationResponse>,
+    },
+    /// Successfully authenticated.
+    LoggedIn {
+        // TODO actionable needs to make `Permissions` serialize/deserialize: permissions: actionable::Permissions,
+        response: Box<LoginResponse>,
+    },
 }
 
 /// A response to a [`DatabaseRequest`].

@@ -17,6 +17,7 @@
     clippy::option_if_let_else,
 )]
 
+mod admin;
 mod async_io_util;
 mod backend;
 /// Command-line interface for the server.

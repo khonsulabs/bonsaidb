@@ -24,6 +24,7 @@ mod error;
 mod open_trees;
 mod storage;
 mod tasks;
+mod vault;
 mod views;
 
 #[doc(inline)]

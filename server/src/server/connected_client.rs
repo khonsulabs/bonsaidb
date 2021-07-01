@@ -1,7 +1,9 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, ops::Deref, sync::Arc};
 
+use actionable::Permissions;
 use flume::Sender;
 use pliantdb_core::custom_api::CustomApi;
+use tokio::sync::RwLock;
 
 use crate::{Backend, CustomServer};
 
@@ -27,6 +29,7 @@ struct Data<B: Backend = ()> {
     address: SocketAddr,
     transport: Transport,
     response_sender: Sender<<B::CustomApi as CustomApi>::Response>,
+    permissions: RwLock<Arc<Permissions>>,
 }
 
 impl<B: Backend> Clone for ConnectedClient<B> {
@@ -38,26 +41,6 @@ impl<B: Backend> Clone for ConnectedClient<B> {
 }
 
 impl<B: Backend> ConnectedClient<B> {
-    pub(crate) fn new(
-        id: u32,
-        address: SocketAddr,
-        transport: Transport,
-        response_sender: Sender<<B::CustomApi as CustomApi>::Response>,
-        server: CustomServer<B>,
-    ) -> (Self, Disconnector<B>) {
-        (
-            Self {
-                data: Arc::new(Data {
-                    id,
-                    address,
-                    transport,
-                    response_sender,
-                }),
-            },
-            Disconnector::new(id, server),
-        )
-    }
-
     /// Returns the address of the connected client.
     #[must_use]
     pub fn address(&self) -> &SocketAddr {
@@ -70,6 +53,18 @@ impl<B: Backend> ConnectedClient<B> {
         &self.data.transport
     }
 
+    /// Returns the current permissions for this client. Will reflect the
+    /// current state of authentication.
+    pub async fn permissions(&self) -> Arc<Permissions> {
+        let permissions = self.data.permissions.read().await;
+        permissions.clone()
+    }
+
+    pub(crate) async fn set_permissions(&self, new_permissions: Permissions) {
+        let mut permissions = self.data.permissions.write().await;
+        *permissions = Arc::new(new_permissions);
+    }
+
     /// Sends a custom API response to the client.
     pub fn send(
         &self,
@@ -80,27 +75,53 @@ impl<B: Backend> ConnectedClient<B> {
 }
 
 #[derive(Debug)]
-pub struct Disconnector<B: Backend> {
+pub struct OwnedClient<B: Backend> {
+    client: ConnectedClient<B>,
     runtime: tokio::runtime::Handle,
     server: Option<CustomServer<B>>,
-    id: u32,
 }
 
-impl<B: Backend> Disconnector<B> {
-    fn new(id: u32, server: CustomServer<B>) -> Self {
+impl<B: Backend> OwnedClient<B> {
+    pub(crate) fn new(
+        id: u32,
+        address: SocketAddr,
+        transport: Transport,
+        response_sender: Sender<<B::CustomApi as CustomApi>::Response>,
+        server: CustomServer<B>,
+    ) -> Self {
         Self {
-            id,
+            client: ConnectedClient {
+                data: Arc::new(Data {
+                    id,
+                    address,
+                    transport,
+                    response_sender,
+                    permissions: RwLock::new(server.data.default_permissions.clone()),
+                }),
+            },
             runtime: tokio::runtime::Handle::current(),
             server: Some(server),
         }
     }
+
+    pub fn clone(&self) -> ConnectedClient<B> {
+        self.client.clone()
+    }
 }
 
-impl<B: Backend> Drop for Disconnector<B> {
+impl<B: Backend> Drop for OwnedClient<B> {
     fn drop(&mut self) {
-        let id = self.id;
+        let id = self.client.data.id;
         let server = self.server.take().unwrap();
         self.runtime
             .spawn(async move { server.disconnect_client(id).await });
+    }
+}
+
+impl<B: Backend> Deref for OwnedClient<B> {
+    type Target = ConnectedClient<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
     }
 }

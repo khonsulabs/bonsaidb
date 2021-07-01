@@ -35,7 +35,6 @@ pub enum Error {
 impl From<Error> for core::Error {
     fn from(other: Error) -> Self {
         // without it, there's no way to get this to_string() easily.
-        #[allow(clippy::match_wildcard_for_single_variants)]
         match other {
             Error::Database(storage) => Self::Database(storage.to_string()),
             Error::Core(core) => core,
