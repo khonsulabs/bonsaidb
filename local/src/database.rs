@@ -436,8 +436,13 @@ where
             let doc = self
                 .deserialize_document(&vec)
                 .map_err(ConflictableTransactionError::Abort)?;
-            if doc.header.as_ref() == header {
-                if let Some(updated_doc) = doc.create_new_revision(contents) {
+            if doc.header.revision == header.revision {
+                if let Some(mut updated_doc) = doc.create_new_revision(contents) {
+                    // Copy the encryption key if it's been updated.
+                    if updated_doc.header.encryption_key != header.encryption_key {
+                        updated_doc.header.to_mut().encryption_key = header.encryption_key.clone();
+                    }
+
                     self.save_doc(documents, &updated_doc)?;
 
                     self.update_unique_views(
