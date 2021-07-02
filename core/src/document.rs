@@ -123,6 +123,8 @@ impl<'a> Document<'a> {
 /// The ID of an encryption key.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum KeyId {
+    /// A key with no id.
+    None,
     /// The master key of the vault.
     Master,
     /// A specific named key in the vault.

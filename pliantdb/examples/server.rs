@@ -7,8 +7,10 @@ use pliantdb::{
     client::{url::Url, Client},
     core::{
         connection::{Connection, ServerConnection},
+        document::KeyId,
         Error,
     },
+    local::config::Configuration as LocalConfiguration,
     server::{Configuration, Server},
 };
 use rand::{thread_rng, Rng};
@@ -23,6 +25,11 @@ async fn main() -> anyhow::Result<()> {
         Path::new("server-data.pliantdb"),
         Configuration {
             default_permissions: Permissions::allow_all(),
+            // TODO remove this from the example
+            storage: LocalConfiguration {
+                default_encryption_key: Some(KeyId::Master),
+                ..Default::default()
+            },
             ..Default::default()
         },
     )

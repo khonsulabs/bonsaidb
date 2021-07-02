@@ -23,6 +23,7 @@ use crate::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
         view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
     },
+    Storage,
 };
 
 #[derive(Debug)]
@@ -169,6 +170,7 @@ fn map_view<DB: Schema>(
                         DocumentRequest {
                             document_id,
                             map_request,
+                            database: storage,
                             document_map,
                             documents,
                             omitted_entries,
@@ -190,9 +192,10 @@ fn map_view<DB: Schema>(
     Ok(())
 }
 
-pub struct DocumentRequest<'a> {
+pub struct DocumentRequest<'a, DB> {
     pub document_id: &'a IVec,
     pub map_request: &'a Map,
+    pub database: &'a Database<DB>,
 
     pub document_map: &'a TransactionalTree,
     pub documents: &'a TransactionalTree,
@@ -201,12 +204,13 @@ pub struct DocumentRequest<'a> {
     pub view: &'a dyn Serialized,
 }
 
-impl<'a> DocumentRequest<'a> {
+impl<'a, DB: Schema> DocumentRequest<'a, DB> {
     pub fn map(&self) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
         let (doc_still_exists, map_result) =
             if let Some(document) = self.documents.get(self.document_id)? {
-                let document = bincode::deserialize::<Document<'_>>(&document)
-                    .map_err_to_core()
+                let document = self
+                    .database
+                    .deserialize_document(&document)
                     .map_to_transaction_error()?;
 
                 // Call the schema map function
@@ -236,13 +240,7 @@ impl<'a> DocumentRequest<'a> {
     ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
         // When no entry is emitted, the document map is emptied and a note is made in omitted_entries
         if let Some(existing_map) = self.document_map.remove(self.document_id)? {
-            remove_existing_view_entries_for_keys(
-                self.document_id,
-                &[],
-                &existing_map,
-                self.view_entries,
-                self.view,
-            )?;
+            self.remove_existing_view_entries_for_keys(&[], &existing_map)?;
         }
 
         if doc_still_exists {
@@ -250,6 +248,31 @@ impl<'a> DocumentRequest<'a> {
                 .insert(self.document_id, IVec::default())?;
         }
         Ok(())
+    }
+
+    fn serialize_entry(&self, entry: &ViewEntry) -> Result<Vec<u8>, pliantdb_core::Error> {
+        let mut bytes = bincode::serialize(entry).map_err_to_core()?;
+        if let Some(key) = self.database.storage().default_encryption_key() {
+            bytes = self
+                .database
+                .storage()
+                .vault()
+                .encrypt_payload(
+                    &key,
+                    &bytes,
+                    self.database.data.effective_permissions.as_ref(),
+                )
+                .map_err_to_core()?;
+        }
+        Ok(bytes)
+    }
+
+    fn deserialize_entry(&self, bytes: &[u8]) -> Result<ViewEntry, pliantdb_core::Error> {
+        self.database
+            .storage()
+            .vault()
+            .decrypt_serialized(self.database.data.effective_permissions.as_ref(), bytes)
+            .map_err_to_core()
     }
 
     fn save_mapping(
@@ -261,8 +284,8 @@ impl<'a> DocumentRequest<'a> {
         // Before altering any data, verify that the key is unique if this is a unique view.
         if self.view.unique() {
             if let Some(existing_entry) = self.view_entries.get(&key)? {
-                let existing_entry = bincode::deserialize::<ViewEntry>(&existing_entry)
-                    .map_err_to_core()
+                let existing_entry = self
+                    .deserialize_entry(&existing_entry)
                     .map_to_transaction_error()?;
                 if existing_entry.mappings[0].source != source {
                     return Err(pliantdb_core::Error::UniqueKeyViolation {
@@ -289,13 +312,7 @@ impl<'a> DocumentRequest<'a> {
                 .map_err_to_core()
                 .map_to_transaction_error()?,
         )? {
-            remove_existing_view_entries_for_keys(
-                self.document_id,
-                &keys,
-                &existing_map,
-                self.view_entries,
-                self.view,
-            )?;
+            self.remove_existing_view_entries_for_keys(&keys, &existing_map)?;
         }
 
         let entry_mapping = EntryMapping { source, value };
@@ -303,8 +320,8 @@ impl<'a> DocumentRequest<'a> {
         // Add a new ViewEntry or update an existing
         // ViewEntry for the key given
         let view_entry = if let Some(existing_entry) = self.view_entries.get(&key)? {
-            let mut entry = bincode::deserialize::<ViewEntry>(&existing_entry)
-                .map_err_to_core()
+            let mut entry = self
+                .deserialize_entry(&existing_entry)
                 .map_to_transaction_error()?;
 
             // attempt to update an existing
@@ -362,10 +379,57 @@ impl<'a> DocumentRequest<'a> {
         };
         self.view_entries.insert(
             key,
-            bincode::serialize(&view_entry)
-                .map_err_to_core()
+            self.serialize_entry(&view_entry)
                 .map_to_transaction_error()?,
         )?;
+        Ok(())
+    }
+
+    fn remove_existing_view_entries_for_keys(
+        &self,
+        keys: &[Cow<'_, [u8]>],
+        existing_map: &[u8],
+    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+        let existing_keys = bincode::deserialize::<Vec<Cow<'_, [u8]>>>(existing_map)
+            .map_err_to_core()
+            .map_to_transaction_error()?;
+        if existing_keys == keys {
+            // No change
+            return Ok(());
+        }
+
+        assert_eq!(
+            existing_keys.len(),
+            1,
+            "need to add support for multi-emitted keys"
+        );
+        // Remove the old key
+        if let Some(existing_entry) = self.view_entries.get(&existing_keys[0])? {
+            let mut entry = self
+                .deserialize_entry(&existing_entry)
+                .map_to_transaction_error()?;
+            let document_id = u64::from_big_endian_bytes(self.document_id).unwrap();
+            entry.mappings.retain(|m| m.source != document_id);
+
+            if entry.mappings.is_empty() {
+                self.view_entries.remove(existing_keys[0].as_ref())?;
+            } else {
+                let mappings = entry
+                    .mappings
+                    .iter()
+                    .map(|m| (existing_keys[0].as_ref(), m.value.as_slice()))
+                    .collect::<Vec<_>>();
+                entry.reduced_value = self
+                    .view
+                    .reduce(&mappings, false)
+                    .map_err_to_core()
+                    .map_to_transaction_error()?;
+                self.view_entries.insert(
+                    existing_keys[0].as_ref(),
+                    self.serialize_entry(&entry).map_to_transaction_error()?,
+                )?;
+            }
+        }
         Ok(())
     }
 }
@@ -387,55 +451,4 @@ impl<T, E> ToTransactionResult<T, E> for Result<T, E> {
     fn map_to_transaction_error<RE: From<E>>(self) -> Result<T, ConflictableTransactionError<RE>> {
         self.map_err(|err| ConflictableTransactionError::Abort(RE::from(err)))
     }
-}
-
-fn remove_existing_view_entries_for_keys(
-    document_id: &[u8],
-    keys: &[Cow<'_, [u8]>],
-    existing_map: &[u8],
-    view_entries: &TransactionalTree,
-    view: &dyn view::Serialized,
-) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
-    let existing_keys = bincode::deserialize::<Vec<Cow<'_, [u8]>>>(existing_map)
-        .map_err_to_core()
-        .map_to_transaction_error()?;
-    if existing_keys == keys {
-        // No change
-        return Ok(());
-    }
-
-    assert_eq!(
-        existing_keys.len(),
-        1,
-        "need to add support for multi-emitted keys"
-    );
-    // Remove the old key
-    if let Some(existing_entry) = view_entries.get(&existing_keys[0])? {
-        let mut entry = bincode::deserialize::<ViewEntry>(&existing_entry)
-            .map_err_to_core()
-            .map_to_transaction_error()?;
-        let document_id = u64::from_big_endian_bytes(document_id).unwrap();
-        entry.mappings.retain(|m| m.source != document_id);
-
-        if entry.mappings.is_empty() {
-            view_entries.remove(existing_keys[0].as_ref())?;
-        } else {
-            let mappings = entry
-                .mappings
-                .iter()
-                .map(|m| (existing_keys[0].as_ref(), m.value.as_slice()))
-                .collect::<Vec<_>>();
-            entry.reduced_value = view
-                .reduce(&mappings, false)
-                .map_err_to_core()
-                .map_to_transaction_error()?;
-            view_entries.insert(
-                existing_keys[0].as_ref(),
-                bincode::serialize(&entry)
-                    .map_err_to_core()
-                    .map_to_transaction_error()?,
-            )?;
-        }
-    }
-    Ok(())
 }

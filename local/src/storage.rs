@@ -16,7 +16,7 @@ pub use pliantdb_core::circulate::Relay;
 use pliantdb_core::kv::{KeyOperation, Output};
 use pliantdb_core::{
     connection::{self, AccessPolicy, Connection, QueryKey, ServerConnection},
-    document::Document,
+    document::{Document, KeyId},
     networking,
     permissions::Permissions,
     schema::{view::map, CollectionName, MappedValue, Schema, SchemaName, Schematic, ViewName},
@@ -59,6 +59,7 @@ struct Data {
     pub(crate) vault: Arc<Vault>,
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
+    default_encryption_key: Option<KeyId>,
     pub(crate) check_view_integrity_on_database_open: bool,
     #[cfg(feature = "keyvalue")]
     kv_expirer: std::sync::RwLock<Option<flume::Sender<kv::ExpirationUpdate>>>,
@@ -143,6 +144,7 @@ impl Storage {
         );
 
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
+        let default_encryption_key = configuration.default_encryption_key;
         let storage = tokio::task::spawn_blocking(move || {
             sled::open(owned_path)
                 .map(|sled| Self {
@@ -151,6 +153,7 @@ impl Storage {
                         sled,
                         tasks,
                         vault,
+                        default_encryption_key,
                         schemas: RwLock::default(),
                         available_databases: RwLock::default(),
                         check_view_integrity_on_database_open,
@@ -205,6 +208,11 @@ impl Storage {
     #[must_use]
     pub(crate) fn vault(&self) -> &Vault {
         &self.data.vault
+    }
+
+    #[must_use]
+    pub(crate) fn default_encryption_key(&self) -> Option<KeyId> {
+        self.data.default_encryption_key.clone()
     }
 
     /// Registers a schema for use within the server.

@@ -1,19 +1,28 @@
+use pliantdb_core::document::KeyId;
+
 use crate::vault::AnyMasterKeyStorage;
 
 /// Configuration options for [`Storage`](crate::storage::Storage).
 #[derive(Debug)]
 pub struct Configuration {
-    // TODO this isn't a server anymore.
     /// The unique id of the server. If not specified, the server will randomly
     /// generate a unique id on startup. If the server generated an id and this
     /// value is subsequently set, the generated id will be overridden by the
     /// one specified here.
     pub unique_id: Option<u64>,
+
     /// The master key storage to use with the vault. If not specified and
     /// running in debug mode,
     /// [`LocalMasterKeyStorage`](crate::vault::LocalMasterKeyStorage) will be
     /// used with the server's data folder as the path.
     pub master_key_storage: Option<Box<dyn AnyMasterKeyStorage>>,
+
+    /// The default encryption key for the database. If specified, all documents
+    /// will be stored encrypted at-rest using the key specified. Having this
+    /// key specified will also encrypt view entries, although emitted keys will
+    /// still be stored in plain text for performance reasons.
+    pub default_encryption_key: Option<KeyId>,
+
     /// Configuration options related to background tasks.
     pub workers: Tasks,
 
@@ -24,6 +33,7 @@ pub struct Configuration {
 impl Default for Configuration {
     fn default() -> Self {
         Self {
+            default_encryption_key: None,
             unique_id: None,
             master_key_storage: None,
             workers: Tasks::default(),

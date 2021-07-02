@@ -83,8 +83,9 @@ pub fn vault_key_resource_name(key_id: &KeyId) -> ResourceName<'_> {
         .and("vault")
         .and("key")
         .and(match key_id {
-            KeyId::Master => "master",
+            KeyId::Master => "_master",
             KeyId::Id(id) => id.as_ref(),
+            KeyId::None => unreachable!(),
         })
 }
 

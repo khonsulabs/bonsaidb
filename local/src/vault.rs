@@ -126,57 +126,88 @@ impl Vault {
 
     pub fn encrypt_payload(
         &self,
-        key: &KeyId,
+        key_id: &KeyId,
         payload: &[u8],
         permissions: Option<&Permissions>,
     ) -> Result<Vec<u8>, crate::Error> {
         if let Some(permissions) = permissions {
-            if !permissions.allowed_to(vault_key_resource_name(key), &EncryptionKeyAction::Encrypt)
-            {
+            if !permissions.allowed_to(
+                vault_key_resource_name(key_id),
+                &EncryptionKeyAction::Encrypt,
+            ) {
                 return Err(crate::Error::Core(pliantdb_core::Error::from(
                     PermissionDenied {
-                        resource: vault_key_resource_name(key).to_owned(),
+                        resource: vault_key_resource_name(key_id).to_owned(),
                         action: EncryptionKeyAction::Encrypt.name(),
                     },
                 )));
             }
         }
 
-        let key = match key {
+        let key = match key_id {
             KeyId::Master => &self.master_key,
             KeyId::Id(_) => todo!(),
+            KeyId::None => unreachable!(),
         };
-        let payload = key.encrypt_payload(payload);
+        let payload = key.encrypt_payload(key_id.clone(), payload);
         Ok(payload.to_vec())
     }
 
     pub fn decrypt_payload(
         &self,
-        key: &KeyId,
         payload: &[u8],
         permissions: Option<&Permissions>,
     ) -> Result<Vec<u8>, crate::Error> {
+        let payload = bincode::deserialize::<VaultPayload<'_>>(payload).map_err(|err| {
+            Error::Encryption(format!("error deserializing encrypted payload: {:?}", err))
+        })?;
+        self.decrypt(&payload, permissions)
+    }
+
+    fn decrypt(
+        &self,
+        payload: &VaultPayload<'_>,
+        permissions: Option<&Permissions>,
+    ) -> Result<Vec<u8>, crate::Error> {
         if let Some(permissions) = permissions {
-            if !permissions.allowed_to(vault_key_resource_name(key), &EncryptionKeyAction::Decrypt)
-            {
+            if !permissions.allowed_to(
+                vault_key_resource_name(&payload.key_id),
+                &EncryptionKeyAction::Decrypt,
+            ) {
                 return Err(crate::Error::Core(pliantdb_core::Error::from(
                     PermissionDenied {
-                        resource: vault_key_resource_name(key).to_owned(),
+                        resource: vault_key_resource_name(&payload.key_id).to_owned(),
                         action: EncryptionKeyAction::Decrypt.name(),
                     },
                 )));
             }
         }
 
-        let payload = bincode::deserialize::<VaultPayload<'_>>(payload).map_err(|err| {
-            Error::Encryption(format!("error deserializing encrypted payload: {:?}", err))
-        })?;
         // TODO handle key version
-        let key = match key {
+        let key = match &payload.key_id {
             KeyId::Master => &self.master_key,
             KeyId::Id(_) => todo!(),
+            KeyId::None => unreachable!(),
         };
-        Ok(key.decrypt_payload(&payload)?)
+        Ok(key.decrypt_payload(payload)?)
+    }
+
+    /// Deserializes `bytes` using bincode. First, it attempts to deserialize it
+    /// as a VaultPayload for if it's encrypted. If it is, it will attempt to
+    /// deserialize it after decrypting. If it is not a VaultPayload, it will be
+    /// attempted to be deserialized as `D` directly.
+    pub fn decrypt_serialized<D: for<'de> Deserialize<'de>>(
+        &self,
+        permissions: Option<&Permissions>,
+        bytes: &[u8],
+    ) -> Result<D, crate::Error> {
+        match bincode::deserialize::<VaultPayload<'_>>(bytes) {
+            Ok(encrypted) => {
+                let decrypted = self.decrypt(&encrypted, permissions)?;
+                Ok(bincode::deserialize(&decrypted)?)
+            }
+            Err(_) => Ok(bincode::deserialize(bytes)?),
+        }
     }
 }
 
@@ -207,11 +238,11 @@ impl EncryptionKey {
 
     pub fn encrypt_key(&self) -> (Self, EncryptedKey) {
         let wrapping_key = Self::random();
-        let encrypted = wrapping_key.encrypt_payload(&self.0);
+        let encrypted = wrapping_key.encrypt_payload(KeyId::None, &self.0);
         (wrapping_key, EncryptedKey(encrypted.to_vec()))
     }
 
-    pub fn encrypt_payload(&self, payload: &[u8]) -> VaultPayload<'static> {
+    pub fn encrypt_payload(&self, key_id: KeyId, payload: &[u8]) -> VaultPayload<'static> {
         let mut rng = thread_rng();
         let nonce: [u8; 24] = rng.gen();
         let encrypted = XChaCha20Poly1305::new(GenericArray::from_slice(&self.0))
@@ -224,6 +255,7 @@ impl EncryptionKey {
             )
             .unwrap();
         VaultPayload {
+            key_id,
             encryption: Encryption::XChaCha20Poly1305,
             payload: Cow::Owned(encrypted),
             nonce: Cow::Owned(nonce.to_vec()),
@@ -387,6 +419,7 @@ impl MasterKeyStorage for LocalMasterKeyStorage {
 
 #[derive(Serialize, Deserialize)]
 struct VaultPayload<'a> {
+    key_id: KeyId,
     key_version: u32,
     encryption: Encryption,
     payload: Cow<'a, [u8]>,
@@ -445,9 +478,7 @@ mod tests {
         let encrypted = vault
             .encrypt_payload(&KeyId::Master, b"hello", None)
             .unwrap();
-        let decrypted = vault
-            .decrypt_payload(&KeyId::Master, &encrypted, None)
-            .unwrap();
+        let decrypted = vault.decrypt_payload(&encrypted, None).unwrap();
 
         assert_eq!(decrypted, b"hello");
     }
@@ -468,7 +499,7 @@ mod tests {
             .encrypt_payload(&KeyId::Master, b"hello", None)
             .unwrap();
         assert!(matches!(
-            vault.decrypt_payload(&KeyId::Master, &encrypted, Some(&Permissions::default())),
+            vault.decrypt_payload(&encrypted, Some(&Permissions::default())),
             Err(crate::Error::Core(pliantdb_core::Error::PermissionDenied(
                 _
             )))

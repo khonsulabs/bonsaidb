@@ -54,7 +54,7 @@ pub struct Data<DB> {
     pub name: Arc<Cow<'static, str>>,
     pub(crate) storage: Storage,
     pub(crate) schema: Arc<Schematic>,
-    effective_permissions: Option<Permissions>,
+    pub(crate) effective_permissions: Option<Permissions>,
     _schema: PhantomData<DB>,
 }
 
@@ -181,9 +181,17 @@ where
                 .map_err_to_core()?;
 
             for (key, entry) in entries {
-                let entry = bincode::deserialize::<ViewEntry>(&entry)
-                    .map_err(Error::InternalSerialization)
+                let entry = self
+                    .storage()
+                    .vault()
+                    .decrypt_serialized::<ViewEntry>(
+                        self.data.effective_permissions.as_ref(),
+                        &entry,
+                    )
                     .map_err_to_core()?;
+                // let entry = bincode::deserialize::<ViewEntry>(&entry)
+                //     .map_err(Error::InternalSerialization)
+                //     .map_err_to_core()?;
                 callback(key, entry)?;
             }
         }
@@ -354,20 +362,16 @@ where
         Ok(mappings)
     }
 
-    fn deserialize_document<'a>(
+    pub(crate) fn deserialize_document<'a>(
         &self,
         bytes: &'a [u8],
     ) -> Result<Document<'a>, pliantdb_core::Error> {
         let mut document = bincode::deserialize::<Document<'_>>(bytes).map_err_to_core()?;
-        if let Some(decryption_key) = &document.header.encryption_key {
+        if let Some(_decryption_key) = &document.header.encryption_key {
             let decrypted_contents = self
                 .storage()
                 .vault()
-                .decrypt_payload(
-                    decryption_key,
-                    &document.contents,
-                    self.data.effective_permissions.as_ref(),
-                )
+                .decrypt_payload(&document.contents, self.data.effective_permissions.as_ref())
                 .map_err_to_core()?;
             document.contents = Cow::Owned(decrypted_contents);
         }
@@ -410,7 +414,9 @@ where
                 trees,
                 tree_index_map,
                 contents.clone(),
-                encryption_key.clone(),
+                encryption_key
+                    .clone()
+                    .or_else(|| self.data.storage.default_encryption_key()),
             ),
             Command::Update { header, contents } => {
                 self.execute_update(operation, trees, tree_index_map, header, contents.clone())
@@ -565,6 +571,7 @@ where
                     .map_err_to_core()
                     .map_err(ConflictableTransactionError::Abort)?;
                 mapper::DocumentRequest {
+                    database: self,
                     document_id,
                     map_request: &mapper::Map {
                         database: self.data.name.clone(),
