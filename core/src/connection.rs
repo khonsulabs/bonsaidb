@@ -1,6 +1,10 @@
 use std::{borrow::Cow, marker::PhantomData, ops::Range};
 
 use async_trait::async_trait;
+use custodian_password::{
+    ClientConfig, ClientFile, ClientRegistration, RegistrationFinalization, RegistrationRequest,
+    RegistrationResponse,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -448,6 +452,42 @@ pub trait ServerConnection: Send + Sync {
 
     /// Lists the [`SchemaName`]s on this server.
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, crate::Error>;
+
+    /// Creates a user.
+    async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
+
+    /// Sets a user's password using `custodian-password` to register a password using `OPAQUE-PAKE`.
+    async fn set_user_password(
+        &self,
+        username: &str,
+        password_request: RegistrationRequest,
+    ) -> Result<RegistrationResponse, crate::Error>;
+
+    /// Finishes setting a user's password by finishing the `OPAQUE-PAKE`
+    /// registration.
+    async fn finish_set_user_password(
+        &self,
+        username: &str,
+        password_finalization: RegistrationFinalization,
+    ) -> Result<(), crate::Error>;
+
+    /// Sets a user's password with the provided string. The password provided
+    /// will never leave the machine that is calling this function. Internally
+    /// uses `set_user_password` and `finish_set_user_password` in conjunction
+    /// with `custodian-password`.
+    async fn set_user_password_str(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<ClientFile, crate::Error> {
+        let (registration, request) =
+            ClientRegistration::register(&ClientConfig::default(), password)?;
+        let response = self.set_user_password(username, request).await?;
+        let (file, finalization, _export_key) = registration.finish(response)?;
+        self.finish_set_user_password(username, finalization)
+            .await?;
+        Ok(file)
+    }
 }
 
 /// A database on a server.

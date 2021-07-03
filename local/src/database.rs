@@ -99,7 +99,7 @@ where
         Ok(db)
     }
 
-    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Self {
+    pub(crate) fn with_effective_permissions(&self, effective_permissions: Permissions) -> Self {
         Self {
             data: Arc::new(Data {
                 name: self.data.name.clone(),

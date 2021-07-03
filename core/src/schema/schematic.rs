@@ -27,10 +27,15 @@ pub struct Schematic {
 impl Schematic {
     /// Adds the collection `C` and its views.
     pub fn define_collection<C: Collection + 'static>(&mut self) -> Result<(), Error> {
-        self.collections_by_type_id
-            .insert(TypeId::of::<C>(), C::collection_name()?);
-        self.contained_collections.insert(C::collection_name()?);
-        C::define_views(self)
+        let name = C::collection_name()?;
+        if self.contained_collections.contains(&name) {
+            Err(Error::CollectionAlreadyDefined)
+        } else {
+            self.collections_by_type_id
+                .insert(TypeId::of::<C>(), name.clone());
+            self.contained_collections.insert(name);
+            C::define_views(self)
+        }
     }
 
     /// Adds the view `V`.

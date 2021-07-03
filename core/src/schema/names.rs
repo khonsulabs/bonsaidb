@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// A valid schema name. Must be alphanumeric (`a-zA-Z9-0`) or a hyphen (`-`).
 /// Cloning this structure shares the underlying string data, regardless of
 /// whether it's a static string literal or an owned String.
-#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone)]
+#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
 #[serde(try_from = "String")]
 #[serde(into = "String")]
 pub struct Name(Arc<Cow<'static, str>>);
@@ -82,7 +82,7 @@ impl AsRef<str> for Name {
 /// individual that created the item in question. This value is used for
 /// namespacing. Changing this after values are in use is not supported without
 /// manual migrations at this time.
-#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone)]
+#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
 #[serde(transparent)]
 pub struct Authority(Name);
 
@@ -109,7 +109,7 @@ impl Display for Authority {
 }
 
 /// The name of a [`Schema`](super::Schema).
-#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone)]
+#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
 pub struct SchemaName {
     /// The authority of this schema.
     pub authority: Authority,

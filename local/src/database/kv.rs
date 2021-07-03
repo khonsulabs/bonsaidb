@@ -111,10 +111,6 @@ fn execute_set_operation<DB: Schema>(
                     if let Ok(previous_entry) =
                         bincode::deserialize::<Entry>(existing_value.unwrap())
                     {
-                        println!(
-                            "updated expiration for key {:?}: {:?}",
-                            key, previous_entry.expiration
-                        );
                         entry.expiration = previous_entry.expiration;
                     }
                 }

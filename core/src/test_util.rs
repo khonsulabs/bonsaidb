@@ -1367,8 +1367,15 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(
     server: C,
     newdb_name: &str,
 ) -> anyhow::Result<()> {
-    let schemas = server.list_available_schemas().await?;
-    assert_eq!(schemas, vec![Basic::schema_name()?]);
+    let mut schemas = server.list_available_schemas().await?;
+    schemas.sort();
+    assert_eq!(
+        schemas,
+        vec![
+            Basic::schema_name()?,
+            SchemaName::new("khonsulabs", "pliantdb-admin")?
+        ]
+    );
 
     let databases = server.list_databases().await?;
     assert!(databases.contains(&crate::connection::Database {

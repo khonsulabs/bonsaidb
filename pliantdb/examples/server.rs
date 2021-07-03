@@ -69,6 +69,21 @@ async fn main() -> anyhow::Result<()> {
     // Give a moment for the listeners to start.
     tokio::time::sleep(Duration::from_millis(10)).await;
 
+    let client = Client::<()>::new_with_certificate(
+        Url::parse("pliantdb://localhost")?,
+        Some(certificate.clone()),
+    )
+    .await?;
+    match client.create_user("ecton").await {
+        Ok(_) => {}
+        Err(pliantdb_core::Error::UniqueKeyViolation { .. }) => {}
+        Err(other) => anyhow::bail!(other),
+    }
+    let file = client.set_user_password_str("ecton", "hunter2").await?;
+    client
+        .login_with_password_str("ecton", "hunter2", Some(file))
+        .await?;
+
     // To allow this example to run both websockets and QUIC, we're going to gather the clients
     // into a collection and use join_all to wait until they finish.
     let mut tasks = Vec::new();

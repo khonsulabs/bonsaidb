@@ -14,7 +14,6 @@ use std::{
 
 use async_trait::async_trait;
 use cfg_if::cfg_if;
-use custodian_password::{LoginRequest, RegistrationRequest};
 use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 #[cfg(feature = "websockets")]
@@ -27,6 +26,9 @@ use pliantdb_core::{
 };
 use pliantdb_core::{
     connection::{self, AccessPolicy, QueryKey, ServerConnection},
+    custodian_password::{
+        LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
+    },
     custom_api::CustomApi,
     kv::KeyOperation,
     networking::{
@@ -38,8 +40,8 @@ use pliantdb_core::{
         pliant::{
             collection_resource_name, database_resource_name, document_resource_name,
             kv_key_resource_name, pliantdb_resource_name, pubsub_topic_resource_name,
-            view_resource_name, DatabaseAction, DocumentAction, KvAction, PliantAction,
-            PubSubAction, ServerAction, TransactionAction, ViewAction,
+            user_resource_name, view_resource_name, DatabaseAction, DocumentAction, KvAction,
+            PliantAction, PubSubAction, ServerAction, TransactionAction, ViewAction,
         },
         Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
     },
@@ -55,8 +57,7 @@ use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
 
 use crate::{
-    admin::Admin, async_io_util::FileExt, backend::ConnectionHandling, error::Error, Backend,
-    Configuration,
+    async_io_util::FileExt, backend::ConnectionHandling, error::Error, Backend, Configuration,
 };
 
 mod connected_client;
@@ -122,11 +123,11 @@ impl<B: Backend> CustomServer<B> {
                 storage,
                 directory: directory.to_owned(),
                 endpoint: RwLock::default(),
-                #[cfg(feature = "websockets")]
-                websocket_shutdown: RwLock::default(),
                 request_processor,
                 default_permissions: configuration.default_permissions,
                 custom_api: RwLock::default(),
+                #[cfg(feature = "websockets")]
+                websocket_shutdown: RwLock::default(),
                 #[cfg(feature = "pubsub")]
                 relay: Relay::default(),
                 #[cfg(feature = "pubsub")]
@@ -134,10 +135,6 @@ impl<B: Backend> CustomServer<B> {
                 _backend: PhantomData::default(),
             }),
         })
-    }
-
-    pub(crate) async fn admin(&self) -> Result<ServerDatabase<'_, B, Admin>, Error> {
-        self.database("admin").await
     }
 
     /// Returns the path to the directory that stores this server's data.
@@ -470,7 +467,7 @@ impl<B: Backend> CustomServer<B> {
 
                             Ok(())
                         },
-                        client.permissions().await,
+                        client.clone(),
                         #[cfg(feature = "pubsub")]
                         self.data.subscribers.clone(),
                         #[cfg(feature = "pubsub")]
@@ -498,7 +495,7 @@ impl<B: Backend> CustomServer<B> {
         &self,
         request: Request<<B::CustomApi as CustomApi>::Request>,
         callback: F,
-        permissions: Permissions,
+        client: ConnectedClient<B>,
         #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
         #[cfg(feature = "pubsub")] response_sender: flume::Sender<
             Payload<Response<<B::CustomApi as CustomApi>::Response>>,
@@ -510,7 +507,7 @@ impl<B: Backend> CustomServer<B> {
             .enqueue(ClientRequest::<B>::new(
                 request,
                 self.clone(),
-                permissions,
+                client,
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "pubsub")]
@@ -557,7 +554,7 @@ impl<B: Backend> CustomServer<B> {
 
                     Ok(())
                 },
-                client.permissions().await,
+                client.clone(),
                 #[cfg(feature = "pubsub")]
                 self.data.subscribers.clone(),
                 #[cfg(feature = "pubsub")]
@@ -715,7 +712,7 @@ impl<B: Backend> Deref for CustomServer<B> {
 #[derive(Debug)]
 struct ClientRequest<B: Backend> {
     request: Option<Request<<B::CustomApi as CustomApi>::Request>>,
-    permissions: Permissions,
+    client: ConnectedClient<B>,
     server: CustomServer<B>,
     #[cfg(feature = "pubsub")]
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
@@ -727,7 +724,7 @@ impl<B: Backend> ClientRequest<B> {
     pub fn new(
         request: Request<<B::CustomApi as CustomApi>::Request>,
         server: CustomServer<B>,
-        permissions: Permissions,
+        client: ConnectedClient<B>,
         #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
         #[cfg(feature = "pubsub")] sender: flume::Sender<
             Payload<Response<<B::CustomApi as CustomApi>::Response>>,
@@ -736,7 +733,7 @@ impl<B: Backend> ClientRequest<B> {
         Self {
             request: Some(request),
             server,
-            permissions,
+            client,
             #[cfg(feature = "pubsub")]
             subscribers,
             #[cfg(feature = "pubsub")]
@@ -753,12 +750,13 @@ impl<B: Backend> Job for ClientRequest<B> {
         let request = self.request.take().unwrap();
         Ok(ServerDispatcher {
             server: &self.server,
+            client: &self.client,
             #[cfg(feature = "pubsub")]
             subscribers: &self.subscribers,
             #[cfg(feature = "pubsub")]
             response_sender: &self.sender,
         }
-        .dispatch(&self.server.data.default_permissions, request)
+        .dispatch(&self.client.permissions().await, request)
         .await
         .unwrap_or_else(Response::Error))
     }
@@ -788,12 +786,39 @@ impl<B: Backend> ServerConnection for CustomServer<B> {
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, pliantdb_core::Error> {
         self.data.storage.list_available_schemas().await
     }
+
+    async fn create_user(&self, username: &str) -> Result<u64, pliantdb_core::Error> {
+        self.data.storage.create_user(username).await
+    }
+
+    async fn set_user_password(
+        &self,
+        username: &str,
+        password_request: RegistrationRequest,
+    ) -> Result<pliantdb_core::custodian_password::RegistrationResponse, pliantdb_core::Error> {
+        self.data
+            .storage
+            .set_user_password(username, password_request)
+            .await
+    }
+
+    async fn finish_set_user_password(
+        &self,
+        username: &str,
+        password_finalization: RegistrationFinalization,
+    ) -> Result<(), pliantdb_core::Error> {
+        self.data
+            .storage
+            .finish_set_user_password(username, password_finalization)
+            .await
+    }
 }
 
 #[derive(Dispatcher, Debug)]
 #[dispatcher(input = Request<<B::CustomApi as CustomApi>::Request>, input = ServerRequest)]
 struct ServerDispatcher<'s, B: Backend> {
     server: &'s CustomServer<B>,
+    client: &'s ConnectedClient<B>,
     #[cfg(feature = "pubsub")]
     subscribers: &'s Arc<RwLock<HashMap<u64, Subscriber>>>,
     #[cfg(feature = "pubsub")]
@@ -964,12 +989,8 @@ impl<'s, B: Backend> pliantdb_core::networking::ListAvailableSchemasHandler
 impl<'s, B: Backend> pliantdb_core::networking::CreateUserHandler for ServerDispatcher<'s, B> {
     type Action = PliantAction;
 
-    fn resource_name(
-        &self,
-        _username: &String,
-        _password_request: &RegistrationRequest,
-    ) -> ResourceName<'static> {
-        pliantdb_resource_name()
+    fn resource_name(&self, username: &String) -> ResourceName<'static> {
+        user_resource_name(username.to_string())
     }
 
     fn action() -> Self::Action {
@@ -980,26 +1001,29 @@ impl<'s, B: Backend> pliantdb_core::networking::CreateUserHandler for ServerDisp
         &self,
         _permissions: &Permissions,
         username: String,
-        password_request: RegistrationRequest,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        todo!()
+        Ok(Response::Server(ServerResponse::UserCreated {
+            id: self.server.create_user(&username).await?,
+        }))
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::LoginHandler for ServerDispatcher<'s, B> {
+impl<'s, B: Backend> pliantdb_core::networking::LoginWithPasswordHandler
+    for ServerDispatcher<'s, B>
+{
     type Action = PliantAction;
 
     fn resource_name(
         &self,
         username: &String,
-        password_request: &LoginRequest,
+        _password_request: &LoginRequest,
     ) -> ResourceName<'static> {
-        pliantdb_resource_name()
+        user_resource_name(username.clone())
     }
 
     fn action() -> Self::Action {
-        PliantAction::Server(ServerAction::Login)
+        PliantAction::Server(ServerAction::LoginWithPassword)
     }
 
     async fn handle_protected(
@@ -1008,7 +1032,84 @@ impl<'s, B: Backend> pliantdb_core::networking::LoginHandler for ServerDispatche
         username: String,
         password_request: LoginRequest,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        todo!()
+        let (login, response) = self
+            .server
+            .internal_login_with_password(&username, password_request)
+            .await?;
+        self.client.set_pending_password_login(login).await;
+        Ok(Response::Server(ServerResponse::PasswordLoginResponse {
+            response: Box::new(response),
+        }))
+    }
+}
+
+#[async_trait]
+impl<'s, B: Backend> pliantdb_core::networking::FinishPasswordLoginHandler
+    for ServerDispatcher<'s, B>
+{
+    async fn handle(
+        &self,
+        _permissions: &Permissions,
+        password_request: LoginFinalization,
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+        if let Some(login) = self.client.take_pending_password_login().await {
+            login.finish(password_request)?;
+            println!("Successfuly logged in!");
+            Ok(Response::Server(ServerResponse::LoggedIn {}))
+        } else {
+            Err(pliantdb_core::Error::Server(String::from(
+                "no login state found",
+            )))
+        }
+    }
+}
+
+#[async_trait]
+impl<'s, B: Backend> pliantdb_core::networking::SetPasswordHandler for ServerDispatcher<'s, B> {
+    type Action = PliantAction;
+
+    fn resource_name(
+        &self,
+        username: &String,
+        _password_request: &RegistrationRequest,
+    ) -> ResourceName<'static> {
+        user_resource_name(username.to_string())
+    }
+
+    fn action() -> Self::Action {
+        PliantAction::Server(ServerAction::SetPassword)
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        username: String,
+        password_request: RegistrationRequest,
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+        Ok(Response::Server(ServerResponse::FinishSetPassword {
+            password_reponse: Box::new(
+                self.server
+                    .set_user_password(&username, password_request)
+                    .await?,
+            ),
+        }))
+    }
+}
+
+#[async_trait]
+impl<'s, B: Backend> pliantdb_core::networking::FinishSetPasswordHandler
+    for ServerDispatcher<'s, B>
+{
+    async fn handle(
+        &self,
+        _permissions: &Permissions,
+        username: String,
+        password_request: RegistrationFinalization,
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+        self.server
+            .finish_set_user_password(&username, password_request)
+            .await?;
+        Ok(Response::Ok)
     }
 }
 

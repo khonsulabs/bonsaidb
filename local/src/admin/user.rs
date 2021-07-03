@@ -1,5 +1,5 @@
-use custodian_password::ServerFile;
 use pliantdb_core::{
+    custodian_password::{ServerFile, ServerRegistration},
     document::Document,
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
     Error,
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// An assignable role, which grants permissions based on the associated
 /// [`PermissionGroup`](crate::permissions::PermissionGroup)s.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct User {
     /// The name of the role. Must be unique.
     pub name: String,
@@ -19,6 +19,19 @@ pub struct User {
 
     /// An `OPAQUE PAKE` payload.
     pub password_hash: Option<ServerFile>,
+
+    /// A temporary password state. Each call to SetPassword will overwrite the
+    /// previous state.
+    pub pending_password_change_state: Option<ServerRegistration>,
+}
+
+impl User {
+    pub fn named(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ..Self::default()
+        }
+    }
 }
 
 impl Collection for User {

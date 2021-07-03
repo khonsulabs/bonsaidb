@@ -2,8 +2,8 @@ use std::{net::SocketAddr, ops::Deref, sync::Arc};
 
 use actionable::Permissions;
 use flume::Sender;
-use pliantdb_core::custom_api::CustomApi;
-use tokio::sync::RwLock;
+use pliantdb_core::{custodian_password::ServerLogin, custom_api::CustomApi};
+use tokio::sync::{Mutex, RwLock};
 
 use crate::{Backend, CustomServer};
 
@@ -30,6 +30,7 @@ struct Data<B: Backend = ()> {
     transport: Transport,
     response_sender: Sender<<B::CustomApi as CustomApi>::Response>,
     permissions: RwLock<Permissions>,
+    pending_password_login: Mutex<Option<ServerLogin>>,
 }
 
 impl<B: Backend> Clone for ConnectedClient<B> {
@@ -65,6 +66,16 @@ impl<B: Backend> ConnectedClient<B> {
         *permissions = new_permissions;
     }
 
+    pub(crate) async fn set_pending_password_login(&self, new_state: ServerLogin) {
+        let mut pending_password_login = self.data.pending_password_login.lock().await;
+        *pending_password_login = Some(new_state);
+    }
+
+    pub(crate) async fn take_pending_password_login(&self) -> Option<ServerLogin> {
+        let mut pending_password_login = self.data.pending_password_login.lock().await;
+        pending_password_login.take()
+    }
+
     /// Sends a custom API response to the client.
     pub fn send(
         &self,
@@ -97,6 +108,7 @@ impl<B: Backend> OwnedClient<B> {
                     transport,
                     response_sender,
                     permissions: RwLock::new(server.data.default_permissions.clone()),
+                    pending_password_login: Mutex::default(),
                 }),
             },
             runtime: tokio::runtime::Handle::current(),

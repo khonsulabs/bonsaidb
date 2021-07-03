@@ -16,6 +16,7 @@ pub use pliantdb_core::circulate::Relay;
 use pliantdb_core::kv::{KeyOperation, Output};
 use pliantdb_core::{
     connection::{self, AccessPolicy, Connection, QueryKey, ServerConnection},
+    custodian_password::{LoginResponse, ServerLogin, ServerRegistration},
     document::{Document, KeyId},
     networking,
     permissions::Permissions,
@@ -33,6 +34,8 @@ use tokio::{
 use crate::{
     admin::{
         database::{self, ByName, Database as DatabaseRecord},
+        password_config::PasswordConfig,
+        user::{self, User},
         Admin,
     },
     config::Configuration,
@@ -85,51 +88,7 @@ impl Storage {
             .await
             .map_err(|err| Error::Other(Arc::new(anyhow::Error::from(err))))?;
 
-        let id = StorageId(if let Some(id) = configuration.unique_id {
-            // The configuraiton id override is not persisted to disk. This is
-            // mostly to prevent someone from accidentally adding this
-            // configuration, realizing it breaks things, and then wanting to
-            // revert. This makes reverting to the old value easier.
-            id
-        } else {
-            // Load/Store a randomly generated id into a file. While the value
-            // is numerical, the file contents are the ascii decimal, making it
-            // easier for a human to view, and if needed, edit.
-            let id_path = owned_path.join("server-id");
-
-            if id_path.exists() {
-                // This value is important enought to not allow launching the
-                // server if the file can't be read or contains unexpected data.
-                let existing_id = String::from_utf8(
-                    File::open(id_path)
-                        .and_then(|mut f| async move {
-                            let mut bytes = Vec::new();
-                            f.read_to_end(&mut bytes).await.map(|_| bytes)
-                        })
-                        .await
-                        .expect("error reading server-id file"),
-                )
-                .expect("server-id contains invalid data");
-
-                existing_id.parse().expect("server-id isn't numeric")
-            } else {
-                let id = { thread_rng().gen::<u64>() };
-                File::create(id_path)
-                    .and_then(|mut file| async move {
-                        let id = id.to_string();
-                        file.write_all(id.as_bytes()).await?;
-                        file.shutdown().await
-                    })
-                    .await
-                    .map_err(|err| {
-                        Error::Core(pliantdb_core::Error::Configuration(format!(
-                            "Error writing server-id file: {}",
-                            err
-                        )))
-                    })?;
-                id
-            }
-        });
+        let id = Self::lookup_or_create_id(&configuration, &owned_path).await?;
 
         let vault = Arc::new(
             Vault::initialize(
@@ -175,21 +134,89 @@ impl Storage {
             .spawn_key_value_expiration_loader(&storage)
             .await;
 
-        {
-            let available_databases = storage
-                .admin()
-                .await
-                .view::<ByName>()
-                .query()
-                .await?
-                .into_iter()
-                .map(|map| (map.key, map.value))
-                .collect();
-            let mut storage_databases = storage.data.available_databases.write().await;
-            *storage_databases = available_databases;
-        }
+        storage.cache_available_databases().await?;
+
+        storage.create_admin_database_if_needed().await?;
 
         Ok(storage)
+    }
+
+    async fn lookup_or_create_id(
+        configuration: &Configuration,
+        path: &Path,
+    ) -> Result<StorageId, Error> {
+        Ok(StorageId(if let Some(id) = configuration.unique_id {
+            // The configuraiton id override is not persisted to disk. This is
+            // mostly to prevent someone from accidentally adding this
+            // configuration, realizing it breaks things, and then wanting to
+            // revert. This makes reverting to the old value easier.
+            id
+        } else {
+            // Load/Store a randomly generated id into a file. While the value
+            // is numerical, the file contents are the ascii decimal, making it
+            // easier for a human to view, and if needed, edit.
+            let id_path = path.join("server-id");
+
+            if id_path.exists() {
+                // This value is important enought to not allow launching the
+                // server if the file can't be read or contains unexpected data.
+                let existing_id = String::from_utf8(
+                    File::open(id_path)
+                        .and_then(|mut f| async move {
+                            let mut bytes = Vec::new();
+                            f.read_to_end(&mut bytes).await.map(|_| bytes)
+                        })
+                        .await
+                        .expect("error reading server-id file"),
+                )
+                .expect("server-id contains invalid data");
+
+                existing_id.parse().expect("server-id isn't numeric")
+            } else {
+                let id = { thread_rng().gen::<u64>() };
+                File::create(id_path)
+                    .and_then(|mut file| async move {
+                        let id = id.to_string();
+                        file.write_all(id.as_bytes()).await?;
+                        file.shutdown().await
+                    })
+                    .await
+                    .map_err(|err| {
+                        Error::Core(pliantdb_core::Error::Configuration(format!(
+                            "Error writing server-id file: {}",
+                            err
+                        )))
+                    })?;
+                id
+            }
+        }))
+    }
+
+    async fn cache_available_databases(&self) -> Result<(), Error> {
+        let available_databases = self
+            .admin()
+            .await
+            .view::<ByName>()
+            .query()
+            .await?
+            .into_iter()
+            .map(|map| (map.key, map.value))
+            .collect();
+        let mut storage_databases = self.data.available_databases.write().await;
+        *storage_databases = available_databases;
+        Ok(())
+    }
+
+    async fn create_admin_database_if_needed(&self) -> Result<(), Error> {
+        self.register_schema::<Admin>().await?;
+        match self.database::<Admin>("admin").await {
+            Ok(_) => {}
+            Err(Error::Core(pliantdb_core::Error::DatabaseNotFound(_))) => {
+                self.create_database::<Admin>("admin").await?;
+            }
+            Err(err) => return Err(err),
+        }
+        Ok(())
     }
 
     /// Returns the unique id of the server.
@@ -233,7 +260,8 @@ impl Storage {
         }
     }
 
-    /// Retrieves a database. This function only verifies that the database exists
+    /// Retrieves a database. This function checks that the database exists and
+    /// that the schema matches.
     pub async fn database<DB: Schema>(&self, name: &'_ str) -> Result<Database<DB>, Error> {
         let available_databases = self.data.available_databases.read().await;
 
@@ -253,6 +281,21 @@ impl Storage {
             )))
         }
     }
+
+    // pub async fn database_with_foreign_schema<DB: Schema>(
+    //     &self,
+    //     name: &'_ str,
+    // ) -> Result<Database<DB>, Error> {
+    //     let available_databases = self.data.available_databases.read().await;
+
+    //     if let Some(stored_schema) = available_databases.get(name) {
+    //         Ok(Database::new(name.to_owned(), self.clone()).await?)
+    //     } else {
+    //         Err(Error::Core(pliantdb_core::Error::DatabaseNotFound(
+    //             name.to_owned(),
+    //         )))
+    //     }
+    // }
 
     pub(crate) fn sled(&self) -> &'_ sled::Db {
         &self.data.sled
@@ -345,6 +388,35 @@ impl Storage {
                 schema,
             )))
         }
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    /// Authenticates a user.
+    pub async fn internal_login_with_password(
+        &self,
+        username: &str,
+        login_request: pliantdb_core::custodian_password::LoginRequest,
+    ) -> Result<(ServerLogin, LoginResponse), pliantdb_core::Error> {
+        let admin = self.admin().await;
+        let config = PasswordConfig::load(&admin).await?;
+        let result = admin
+            .view::<user::ByName>()
+            .with_key(username.to_owned())
+            .query_with_docs()
+            .await?;
+
+        let existing_password_hash = result
+            .into_iter()
+            .next()
+            .map(|entry| entry.document.contents::<User>())
+            .transpose()?
+            .and_then(|user| user.password_hash);
+        Ok(ServerLogin::login(
+            &config,
+            existing_password_hash,
+            login_request,
+        )?)
     }
 }
 
@@ -546,6 +618,75 @@ impl ServerConnection for Storage {
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, pliantdb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases.values().unique().cloned().collect())
+    }
+
+    async fn create_user(&self, username: &str) -> Result<u64, pliantdb_core::Error> {
+        let result = self
+            .admin()
+            .await
+            .collection::<User>()
+            .push(&User::named(username))
+            .await?;
+        Ok(result.id)
+    }
+
+    async fn set_user_password(
+        &self,
+        username: &str,
+        password_request: pliantdb_core::custodian_password::RegistrationRequest,
+    ) -> Result<pliantdb_core::custodian_password::RegistrationResponse, pliantdb_core::Error> {
+        let admin = self.admin().await;
+        let result = admin
+            .view::<user::ByName>()
+            .with_key(username.to_owned())
+            .query_with_docs()
+            .await
+            .unwrap();
+        if result.is_empty() {
+            Err(pliantdb_core::Error::UserNotFound)
+        } else {
+            let config = PasswordConfig::load(&admin).await.unwrap();
+            let (register, response) = ServerRegistration::register(&config, password_request)?;
+
+            let mut doc = result.into_iter().next().unwrap().document;
+            let mut user = doc.contents::<User>().unwrap();
+            user.pending_password_change_state = Some(register);
+            doc.set_contents(&user)?;
+            admin.update::<User>(&mut doc).await?;
+
+            Ok(response)
+        }
+    }
+
+    async fn finish_set_user_password(
+        &self,
+        username: &str,
+        password_finalization: pliantdb_core::custodian_password::RegistrationFinalization,
+    ) -> Result<(), pliantdb_core::Error> {
+        let admin = self.admin().await;
+        let result = admin
+            .view::<user::ByName>()
+            .with_key(username.to_owned())
+            .query_with_docs()
+            .await?;
+        if result.is_empty() {
+            Err(pliantdb_core::Error::UserNotFound)
+        } else {
+            let mut doc = result.into_iter().next().unwrap().document;
+            let mut user = doc.contents::<User>()?;
+            if let Some(registration) = user.pending_password_change_state.take() {
+                let file = registration.finish(password_finalization)?;
+                user.password_hash = Some(file);
+                doc.set_contents(&user)?;
+                admin.update::<User>(&mut doc).await?;
+
+                Ok(())
+            } else {
+                Err(pliantdb_core::Error::Password(String::from(
+                    "no existing state found",
+                )))
+            }
+        }
     }
 }
 

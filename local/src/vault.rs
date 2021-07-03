@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    collections::HashMap,
     convert::TryInto,
     fmt::{Debug, Display},
     path::{Path, PathBuf},
@@ -29,18 +30,25 @@ use crate::storage::StorageId;
 
 #[derive(Debug)]
 pub(crate) struct Vault {
-    master_key: EncryptionKey,
+    master_keys: HashMap<u32, EncryptionKey>,
+    current_master_key_id: u32,
     master_key_storage: Box<dyn AnyMasterKeyStorage>,
 }
 
+/// Errors relating to encryption and/or secret storage.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    /// An error occurred during encryption or decryption.
     #[error("error with encryption: {0}")]
     Encryption(String),
+    /// An error occurred within the master key storage.
     #[error("error from master key storage: {0}")]
     MasterKeyStorage(String),
+    /// An error occurred initializing the vault.
     #[error("error occurred while initializing: {0}")]
     Initializing(String),
+    /// A previously initialized vault was found, but the master key storage
+    /// doesn't contain the master key.
     #[error("master key not found")]
     MasterKeyNotFound,
 }
@@ -73,13 +81,18 @@ impl Vault {
                 bincode::deserialize::<EncryptionKey>(&sealing_key).map_err(|err| {
                     Error::Initializing(format!("error deserializing sealing key: {:?}", err))
                 })?;
-            if let Some(encrypted_key) = master_key_storage
-                .master_key_for(server_id)
+            if let Some(encrypted_keys) = master_key_storage
+                .master_keys_for(server_id)
                 .await
                 .map_err(|err| Error::MasterKeyStorage(err.to_string()))?
             {
+                let current_master_key_id = *encrypted_keys.keys().max().unwrap();
                 Ok(Self {
-                    master_key: encrypted_key.decrypt(&sealing_key)?,
+                    master_keys: encrypted_keys
+                        .into_iter()
+                        .map(|(id, key)| key.decrypt(&sealing_key).map(|key| (id, key)))
+                        .collect::<Result<_, _>>()?,
+                    current_master_key_id,
                     master_key_storage,
                 })
             } else {
@@ -89,16 +102,21 @@ impl Vault {
             let master_key = EncryptionKey::random();
             let (sealing_key, encrypted_master_key) = master_key.encrypt_key();
             master_key_storage
-                .set_master_key_for(server_id, &encrypted_master_key)
+                .set_master_key_for(server_id, 0, &encrypted_master_key)
                 .await
                 .map_err(|err| Error::MasterKeyStorage(err.to_string()))?;
+            let mut master_keys = HashMap::new();
+            master_keys.insert(0_u32, master_key);
             // Beacuse this is such a critical step, let's verify that we can
             // retrieve the key before we store the sealing key.
             let retrieved = master_key_storage
-                .master_key_for(server_id)
+                .master_keys_for(server_id)
                 .await
                 .map_err(|err| Error::MasterKeyStorage(err.to_string()))?;
-            if retrieved == Some(encrypted_master_key) {
+            if retrieved
+                .map(|r| r.get(&0) == Some(&encrypted_master_key))
+                .unwrap_or_default()
+            {
                 let sealing_key_bytes =
                     bincode::serialize(&sealing_key).expect("error serializing sealing key");
 
@@ -113,7 +131,8 @@ impl Vault {
                     })?;
 
                 Ok(Self {
-                    master_key,
+                    master_keys,
+                    current_master_key_id: 0,
                     master_key_storage,
                 })
             } else {
@@ -122,6 +141,10 @@ impl Vault {
                 )))
             }
         }
+    }
+
+    fn current_master_key(&self) -> &EncryptionKey {
+        self.master_keys.get(&self.current_master_key_id).unwrap()
     }
 
     pub fn encrypt_payload(
@@ -145,7 +168,7 @@ impl Vault {
         }
 
         let key = match key_id {
-            KeyId::Master => &self.master_key,
+            KeyId::Master => self.current_master_key(),
             KeyId::Id(_) => todo!(),
             KeyId::None => unreachable!(),
         };
@@ -185,7 +208,7 @@ impl Vault {
 
         // TODO handle key version
         let key = match &payload.key_id {
-            KeyId::Master => &self.master_key,
+            KeyId::Master => self.current_master_key(),
             KeyId::Id(_) => todo!(),
             KeyId::None => unreachable!(),
         };
@@ -193,8 +216,8 @@ impl Vault {
     }
 
     /// Deserializes `bytes` using bincode. First, it attempts to deserialize it
-    /// as a VaultPayload for if it's encrypted. If it is, it will attempt to
-    /// deserialize it after decrypting. If it is not a VaultPayload, it will be
+    /// as a `VaultPayload` for if it's encrypted. If it is, it will attempt to
+    /// deserialize it after decrypting. If it is not a `VaultPayload`, it will be
     /// attempted to be deserialized as `D` directly.
     pub fn decrypt_serialized<D: for<'de> Deserialize<'de>>(
         &self,
@@ -211,21 +234,26 @@ impl Vault {
     }
 }
 
+/// Stores encrypted keys for a vault.
 #[async_trait]
 pub trait MasterKeyStorage: Send + Sync + Debug + 'static {
+    /// The error type that the functions return.
     type Error: Display;
-    // TODO make this support a serializable document that can contain multiple
-    // keys, so that new keys can be added over time as part of a rotation
-    // strategy.
-    async fn master_key_for(
-        &self,
-        server_id: StorageId,
-    ) -> Result<Option<EncryptedKey>, Self::Error>;
+    /// Store a key. Each server id should have unique storage. The keys are
+    /// uniquely encrypted per storage id and can only be decrypted by keys
+    /// contained in the storage itself.
     async fn set_master_key_for(
         &self,
-        server_id: StorageId,
-        key: &EncryptedKey,
+        storage_id: StorageId,
+        key_id: u32,
+        keys: &EncryptedKey,
     ) -> Result<(), Self::Error>;
+
+    /// Retrieve all previously stored master keys for a given storage id.
+    async fn master_keys_for(
+        &self,
+        storage_id: StorageId,
+    ) -> Result<Option<HashMap<u32, EncryptedKey>>, Self::Error>;
 }
 
 #[derive(Serialize, Deserialize)]
@@ -284,6 +312,7 @@ impl Debug for EncryptionKey {
     }
 }
 
+/// An encrypted encryption key.
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct EncryptedKey(Vec<u8>);
 
@@ -304,12 +333,24 @@ impl Debug for EncryptedKey {
     }
 }
 
+/// A `MasterKeyStorage` trait that wraps the Error type before returning. This
+/// type is used to allow the Vault to operate without any generic parameters.
+/// This trait is auto-implemented for all `MasterKeyStorage` implementors.
 #[async_trait]
 pub trait AnyMasterKeyStorage: Send + Sync + Debug {
-    async fn master_key_for(&self, server_id: StorageId) -> Result<Option<EncryptedKey>, Error>;
+    /// Retrieve all previously stored master keys for a given storage id.
+    async fn master_keys_for(
+        &self,
+        server_id: StorageId,
+    ) -> Result<Option<HashMap<u32, EncryptedKey>>, Error>;
+
+    /// Store a key. Each server id should have unique storage. The keys are
+    /// uniquely encrypted per storage id and can only be decrypted by keys
+    /// contained in the storage itself.
     async fn set_master_key_for(
         &self,
         server_id: StorageId,
+        key_id: u32,
         key: &EncryptedKey,
     ) -> Result<(), Error>;
 }
@@ -319,8 +360,11 @@ impl<T> AnyMasterKeyStorage for T
 where
     T: MasterKeyStorage,
 {
-    async fn master_key_for(&self, server_id: StorageId) -> Result<Option<EncryptedKey>, Error> {
-        MasterKeyStorage::master_key_for(self, server_id)
+    async fn master_keys_for(
+        &self,
+        server_id: StorageId,
+    ) -> Result<Option<HashMap<u32, EncryptedKey>>, Error> {
+        MasterKeyStorage::master_keys_for(self, server_id)
             .await
             .map_err(|err| Error::MasterKeyStorage(err.to_string()))
     }
@@ -328,9 +372,10 @@ where
     async fn set_master_key_for(
         &self,
         server_id: StorageId,
+        key_id: u32,
         key: &EncryptedKey,
     ) -> Result<(), Error> {
-        MasterKeyStorage::set_master_key_for(self, server_id, key)
+        MasterKeyStorage::set_master_key_for(self, server_id, key_id, key)
             .await
             .map_err(|err| Error::MasterKeyStorage(err.to_string()))
     }
@@ -355,6 +400,9 @@ pub struct LocalMasterKeyStorage {
 }
 
 impl LocalMasterKeyStorage {
+    /// Creates a new file-based master key storage, storing files within
+    /// `path`. The path provided shouod be a directory. If it doesn't exist, it
+    /// will be created.
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         Self {
             directory: path.as_ref().to_owned(),
@@ -362,10 +410,14 @@ impl LocalMasterKeyStorage {
     }
 }
 
+/// Errors from local master key storage.
 #[derive(thiserror::Error, Debug)]
 pub enum LocalMasterKeyStorageError {
+    /// An error interacting with the filesystem.
     #[error("io error: {0}")]
     Io(#[from] tokio::io::Error),
+
+    /// An error serializing or deserializing the keys.
     #[error("serialization error: {0}")]
     Serialization(#[from] bincode::Error),
 }
@@ -374,38 +426,52 @@ pub enum LocalMasterKeyStorageError {
 impl MasterKeyStorage for LocalMasterKeyStorage {
     type Error = LocalMasterKeyStorageError;
 
-    async fn master_key_for(
+    async fn master_keys_for(
         &self,
         server_id: StorageId,
-    ) -> Result<Option<EncryptedKey>, Self::Error> {
+    ) -> Result<Option<HashMap<u32, EncryptedKey>>, Self::Error> {
         let server_folder = self.directory.join(server_id.to_string());
         if !server_folder.exists() {
             return Ok(None);
         }
-        let key_path = server_folder.join("master_key");
-        if key_path.exists() {
-            let contents = File::open(key_path)
-                .and_then(|mut f| async move {
-                    let mut bytes = Vec::new();
-                    f.read_to_end(&mut bytes).await.map(|_| bytes)
-                })
-                .await?;
-            Ok(Some(bincode::deserialize(&contents)?))
-        } else {
+        let mut entries = tokio::fs::read_dir(&server_folder).await?;
+        let mut keys = HashMap::new();
+        while let Some(entry) = entries.next_entry().await? {
+            if let Some(name) = entry.file_name().as_os_str().to_str() {
+                let parts = name.split('.').collect::<Vec<_>>();
+                if parts.len() == 3 && parts[0] == "master" && parts[2] == "key" {
+                    let id = match parts[1].parse::<u32>() {
+                        Ok(id) => id,
+                        Err(_) => continue,
+                    };
+                    let contents = File::open(entry.path())
+                        .and_then(|mut f| async move {
+                            let mut bytes = Vec::new();
+                            f.read_to_end(&mut bytes).await.map(|_| bytes)
+                        })
+                        .await?;
+                    keys.insert(id, bincode::deserialize(&contents)?);
+                }
+            }
+        }
+        if keys.is_empty() {
             Ok(None)
+        } else {
+            Ok(Some(keys))
         }
     }
 
     async fn set_master_key_for(
         &self,
         server_id: StorageId,
+        key_id: u32,
         key: &EncryptedKey,
     ) -> Result<(), Self::Error> {
         let server_folder = self.directory.join(server_id.to_string());
         if !server_folder.exists() {
             fs::create_dir_all(&server_folder).await?;
         }
-        let key_path = server_folder.join("master_key");
+        let key_path = server_folder.join(format!("master.{}.key", key_id));
         let bytes = bincode::serialize(key)?;
         File::create(key_path)
             .and_then(|mut file| async move {
@@ -453,28 +519,37 @@ mod tests {
     impl MasterKeyStorage for NullKeyStorage {
         type Error = anyhow::Error;
 
-        async fn master_key_for(
+        async fn master_keys_for(
             &self,
             _server_id: StorageId,
-        ) -> Result<Option<EncryptedKey>, Self::Error> {
+        ) -> Result<Option<HashMap<u32, EncryptedKey>>, Self::Error> {
             unreachable!()
         }
 
         async fn set_master_key_for(
             &self,
             _server_id: StorageId,
+            _key_id: u32,
             _key: &EncryptedKey,
         ) -> Result<(), Self::Error> {
             unreachable!()
         }
     }
 
+    fn random_null_vault() -> Vault {
+        let mut master_keys = HashMap::new();
+        master_keys.insert(0, EncryptionKey::random());
+
+        Vault {
+            master_keys,
+            current_master_key_id: 0,
+            master_key_storage: Box::new(NullKeyStorage),
+        }
+    }
+
     #[test]
     fn vault_encryption_test() {
-        let vault = Vault {
-            master_key: EncryptionKey::random(),
-            master_key_storage: Box::new(NullKeyStorage),
-        };
+        let vault = random_null_vault();
         let encrypted = vault
             .encrypt_payload(&KeyId::Master, b"hello", None)
             .unwrap();
@@ -485,10 +560,7 @@ mod tests {
 
     #[test]
     fn vault_permissions_test() {
-        let vault = Vault {
-            master_key: EncryptionKey::random(),
-            master_key_storage: Box::new(NullKeyStorage),
-        };
+        let vault = random_null_vault();
         assert!(matches!(
             vault.encrypt_payload(&KeyId::Master, b"hello", Some(&Permissions::default())),
             Err(crate::Error::Core(pliantdb_core::Error::PermissionDenied(

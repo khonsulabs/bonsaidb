@@ -6,7 +6,7 @@
     all(doc, not(all(feature = "keyvalue", feature = "pubsub"))),
     warn(broken_intra_doc_links)
 )]
-use actionable::{Action, ResourceName};
+use actionable::{Action, Identifier, ResourceName};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -89,6 +89,12 @@ pub fn vault_key_resource_name(key_id: &KeyId) -> ResourceName<'_> {
         })
 }
 
+/// Creates a resource name for the user with `username`.
+#[must_use]
+pub fn user_resource_name<'a, I: Into<Identifier<'a>>>(username: I) -> ResourceName<'a> {
+    pliantdb_resource_name().and("user").and(username)
+}
+
 /// Actions that can be permitted within `PliantDb`.
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum PliantAction {
@@ -115,8 +121,12 @@ pub enum ServerAction {
     CreateDatabase,
     /// Permits [`ServerConnection::delete_database`](crate::connection::ServerConnection::delete_database).
     DeleteDatabase,
+    /// Permits [`ServerConnection::create_user`](crate::connection::ServerConnection::create_user).
     CreateUser,
-    Login,
+    /// Permits [`ServerConnection::set_user_password`](crate::connection::ServerConnection::set_user_password).
+    SetPassword,
+    /// Permits [`ServerConnection::login_with_password`](crate::connection::ServerConnection::login_with_password).
+    LoginWithPassword,
 }
 
 /// Actions that operate on a specific database.

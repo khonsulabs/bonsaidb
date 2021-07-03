@@ -3,9 +3,7 @@ use std::{borrow::Cow, sync::Arc};
 use async_trait::async_trait;
 use pliantdb_core::{
     connection::Connection,
-    document::Document,
     schema::{
-        view,
         view::{map, Serialized},
         CollectionName, Key, Schema, ViewName,
     },
@@ -23,7 +21,6 @@ use crate::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
         view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
     },
-    Storage,
 };
 
 #[derive(Debug)]
