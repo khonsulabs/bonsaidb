@@ -105,6 +105,15 @@ where
         Ok(())
     }
 
+    /// Removes the document from the collection.
+    pub async fn delete<Cn: Connection>(&self, connection: &Cn) -> Result<(), Error> {
+        let doc = self.to_document()?;
+
+        connection.delete::<C>(&doc).await?;
+
+        Ok(())
+    }
+
     /// Converts this value to a serialized `Document`.
     pub fn to_document(&self) -> Result<Document<'static>, Error> {
         Ok(Document {

@@ -30,7 +30,8 @@ async fn main() -> anyhow::Result<()> {
     // Create a database user, or get its ID if it already existed.
     let user_id = match server.create_user("ecton").await {
         Ok(id) => {
-            // Set the user's password. This uses OPAQUE to ensure the password never leaves the machine that executes `set_user_password_str`.
+            // Set the user's password. This uses OPAQUE to ensure the password
+            // never leaves the machine that executes `set_user_password_str`.
             server.set_user_password_str("ecton", "hunter2").await?;
 
             id
@@ -66,10 +67,6 @@ async fn main() -> anyhow::Result<()> {
         ecton_doc.update(&admin).await?;
     }
     // ANCHOR_END: setup
-
-    // Spawn our QUIC-based protocol listener.
-    let task_server = server.clone();
-    tokio::spawn(async move { task_server.listen_on(5645).await });
 
     // Give a moment for the listeners to start.
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -141,5 +138,10 @@ async fn setup_server() -> anyhow::Result<Server> {
             err
         ),
     }
+
+    // Spawn our QUIC-based protocol listener.
+    let task_server = server.clone();
+    tokio::spawn(async move { task_server.listen_on(5645).await });
+
     Ok(server)
 }
