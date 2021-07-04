@@ -37,6 +37,10 @@ name = "server"
 required-features = ["server", "client"]
 
 [[example]]
+name = "users"
+required-features = ["server", "client"]
+
+[[example]]
 name = "key-value-store"
 required-features = ["local", "local-keyvalue"]
 

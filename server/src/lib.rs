@@ -32,7 +32,7 @@ pub use server::ServerSubscriber;
 
 pub use self::{
     backend::Backend,
-    config::Configuration,
+    config::{Configuration, StorageConfiguration},
     error::Error,
     server::{ConnectedClient, CustomServer, Server, ServerDatabase, Transport},
 };
@@ -44,3 +44,4 @@ mod tests;
 pub mod test_util;
 
 pub use pliantdb_local as local;
+pub use pliantdb_local::admin;

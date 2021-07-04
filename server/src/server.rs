@@ -50,7 +50,10 @@ use pliantdb_core::{
     transaction::{Command, Transaction},
 };
 use pliantdb_jobs::{manager::Manager, Job};
-use pliantdb_local::{admin::User, OpenDatabase, Storage};
+use pliantdb_local::{
+    admin::{Admin, User},
+    OpenDatabase, Storage,
+};
 use schema::SchemaName;
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;
@@ -156,6 +159,12 @@ impl<B: Backend> CustomServer<B> {
     ) -> Result<ServerDatabase<'_, B, DB>, Error> {
         let db = self.data.storage.database(name).await?;
         Ok(ServerDatabase { server: self, db })
+    }
+
+    /// Returns the administration database.
+    pub async fn admin(&self) -> ServerDatabase<'_, B, Admin> {
+        let db = self.data.storage.admin().await;
+        ServerDatabase { server: self, db }
     }
 
     pub(crate) async fn database_without_schema(

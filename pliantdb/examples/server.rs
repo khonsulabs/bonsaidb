@@ -2,16 +2,14 @@
 
 use std::{path::Path, time::Duration};
 
-use actionable::Permissions;
 use pliantdb::{
     client::{url::Url, Client},
     core::{
         connection::{Connection, ServerConnection},
-        document::KeyId,
+        permissions::Permissions,
         schema::Collection,
         Error,
     },
-    local::config::Configuration as LocalConfiguration,
     server::{Configuration, Server},
 };
 use rand::{thread_rng, Rng};
@@ -26,11 +24,6 @@ async fn main() -> anyhow::Result<()> {
         Path::new("server-data.pliantdb"),
         Configuration {
             default_permissions: Permissions::allow_all(),
-            // TODO remove this from the example
-            storage: LocalConfiguration {
-                default_encryption_key: Some(KeyId::Master),
-                ..Default::default()
-            },
             ..Default::default()
         },
     )
@@ -69,21 +62,6 @@ async fn main() -> anyhow::Result<()> {
 
     // Give a moment for the listeners to start.
     tokio::time::sleep(Duration::from_millis(10)).await;
-
-    let client = Client::<()>::new_with_certificate(
-        Url::parse("pliantdb://localhost")?,
-        Some(certificate.clone()),
-    )
-    .await?;
-    match client.create_user("ecton").await {
-        Ok(_) => {}
-        Err(pliantdb_core::Error::UniqueKeyViolation { .. }) => {}
-        Err(other) => anyhow::bail!(other),
-    }
-    let file = client.set_user_password_str("ecton", "hunter2").await?;
-    client
-        .login_with_password_str("ecton", "hunter2", Some(file))
-        .await?;
 
     // To allow this example to run both websockets and QUIC, we're going to gather the clients
     // into a collection and use join_all to wait until they finish.

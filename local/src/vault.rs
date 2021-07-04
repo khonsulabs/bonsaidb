@@ -167,12 +167,12 @@ impl Vault {
             }
         }
 
-        let key = match key_id {
-            KeyId::Master => self.current_master_key(),
+        let (key, version) = match key_id {
+            KeyId::Master => (self.current_master_key(), self.current_master_key_id),
             KeyId::Id(_) => todo!(),
             KeyId::None => unreachable!(),
         };
-        let payload = key.encrypt_payload(key_id.clone(), payload);
+        let payload = key.encrypt_payload(key_id.clone(), version, payload);
         Ok(payload.to_vec())
     }
 
@@ -266,11 +266,16 @@ impl EncryptionKey {
 
     pub fn encrypt_key(&self) -> (Self, EncryptedKey) {
         let wrapping_key = Self::random();
-        let encrypted = wrapping_key.encrypt_payload(KeyId::None, &self.0);
+        let encrypted = wrapping_key.encrypt_payload(KeyId::None, 0, &self.0);
         (wrapping_key, EncryptedKey(encrypted.to_vec()))
     }
 
-    pub fn encrypt_payload(&self, key_id: KeyId, payload: &[u8]) -> VaultPayload<'static> {
+    pub fn encrypt_payload(
+        &self,
+        key_id: KeyId,
+        key_version: u32,
+        payload: &[u8],
+    ) -> VaultPayload<'static> {
         let mut rng = thread_rng();
         let nonce: [u8; 24] = rng.gen();
         let encrypted = XChaCha20Poly1305::new(GenericArray::from_slice(&self.0))
@@ -287,7 +292,7 @@ impl EncryptionKey {
             encryption: Encryption::XChaCha20Poly1305,
             payload: Cow::Owned(encrypted),
             nonce: Cow::Owned(nonce.to_vec()),
-            key_version: 0, // TODO key version
+            key_version,
         }
     }
 
