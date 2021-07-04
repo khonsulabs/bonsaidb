@@ -29,8 +29,14 @@ struct Data<B: Backend = ()> {
     address: SocketAddr,
     transport: Transport,
     response_sender: Sender<<B::CustomApi as CustomApi>::Response>,
-    permissions: RwLock<Permissions>,
-    pending_password_login: Mutex<Option<ServerLogin>>,
+    auth_state: RwLock<AuthenticationState>,
+    pending_password_login: Mutex<Option<(Option<u64>, ServerLogin)>>,
+}
+
+#[derive(Debug, Default)]
+struct AuthenticationState {
+    user_id: Option<u64>,
+    permissions: Permissions,
 }
 
 impl<B: Backend> Clone for ConnectedClient<B> {
@@ -57,21 +63,33 @@ impl<B: Backend> ConnectedClient<B> {
     /// Returns the current permissions for this client. Will reflect the
     /// current state of authentication.
     pub async fn permissions(&self) -> Permissions {
-        let permissions = self.data.permissions.read().await;
-        permissions.clone()
+        let auth_state = self.data.auth_state.read().await;
+        auth_state.permissions.clone()
     }
 
-    pub(crate) async fn set_permissions(&self, new_permissions: Permissions) {
-        let mut permissions = self.data.permissions.write().await;
-        *permissions = new_permissions;
+    /// Returns the unique id of the user this client is connected as. Returns
+    /// None if the connection isn't authenticated.
+    pub async fn user_id(&self) -> Option<u64> {
+        let auth_state = self.data.auth_state.read().await;
+        auth_state.user_id
     }
 
-    pub(crate) async fn set_pending_password_login(&self, new_state: ServerLogin) {
+    pub(crate) async fn logged_in_as(&self, user_id: u64, new_permissions: Permissions) {
+        let mut auth_state = self.data.auth_state.write().await;
+        auth_state.user_id = Some(user_id);
+        auth_state.permissions = new_permissions;
+    }
+
+    pub(crate) async fn set_pending_password_login(
+        &self,
+        user_id: Option<u64>,
+        new_state: ServerLogin,
+    ) {
         let mut pending_password_login = self.data.pending_password_login.lock().await;
-        *pending_password_login = Some(new_state);
+        *pending_password_login = Some((user_id, new_state));
     }
 
-    pub(crate) async fn take_pending_password_login(&self) -> Option<ServerLogin> {
+    pub(crate) async fn take_pending_password_login(&self) -> Option<(Option<u64>, ServerLogin)> {
         let mut pending_password_login = self.data.pending_password_login.lock().await;
         pending_password_login.take()
     }
@@ -107,7 +125,10 @@ impl<B: Backend> OwnedClient<B> {
                     address,
                     transport,
                     response_sender,
-                    permissions: RwLock::new(server.data.default_permissions.clone()),
+                    auth_state: RwLock::new(AuthenticationState {
+                        permissions: server.data.default_permissions.clone(),
+                        user_id: None,
+                    }),
                     pending_password_login: Mutex::default(),
                 }),
             },

@@ -125,7 +125,7 @@ pub enum ServerAction {
     CreateUser,
     /// Permits [`ServerConnection::set_user_password`](crate::connection::ServerConnection::set_user_password).
     SetPassword,
-    /// Permits [`ServerConnection::login_with_password`](crate::connection::ServerConnection::login_with_password).
+    /// Permits the ability to log in with a password.
     LoginWithPassword,
 }
 

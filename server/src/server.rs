@@ -46,11 +46,11 @@ use pliantdb_core::{
         Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
     },
     schema,
-    schema::{CollectionName, Schema, ViewName},
+    schema::{Collection, CollectionName, Schema, ViewName},
     transaction::{Command, Transaction},
 };
 use pliantdb_jobs::{manager::Manager, Job};
-use pliantdb_local::{OpenDatabase, Storage};
+use pliantdb_local::{admin::User, OpenDatabase, Storage};
 use schema::SchemaName;
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;
@@ -1032,11 +1032,11 @@ impl<'s, B: Backend> pliantdb_core::networking::LoginWithPasswordHandler
         username: String,
         password_request: LoginRequest,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        let (login, response) = self
+        let (user_id, login, response) = self
             .server
             .internal_login_with_password(&username, password_request)
             .await?;
-        self.client.set_pending_password_login(login).await;
+        self.client.set_pending_password_login(user_id, login).await;
         Ok(Response::Server(ServerResponse::PasswordLoginResponse {
             response: Box::new(response),
         }))
@@ -1052,10 +1052,18 @@ impl<'s, B: Backend> pliantdb_core::networking::FinishPasswordLoginHandler
         _permissions: &Permissions,
         password_request: LoginFinalization,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
-        if let Some(login) = self.client.take_pending_password_login().await {
+        if let Some((user_id, login)) = self.client.take_pending_password_login().await {
             login.finish(password_request)?;
-            println!("Successfuly logged in!");
-            Ok(Response::Server(ServerResponse::LoggedIn {}))
+            let user_id = user_id.expect("logged in without a user_id");
+            let admin = self.server.data.storage.admin().await;
+            let user = User::get(user_id, &admin)
+                .await?
+                .ok_or(pliantdb_core::Error::UserNotFound)?;
+
+            let permissions = user.contents.effective_permissions(&admin).await?;
+            self.client.logged_in_as(user_id, permissions.clone()).await;
+
+            Ok(Response::Server(ServerResponse::LoggedIn { permissions }))
         } else {
             Err(pliantdb_core::Error::Server(String::from(
                 "no login state found",

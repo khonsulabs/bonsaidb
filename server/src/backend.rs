@@ -40,6 +40,16 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
             client.address()
         );
     }
+
+    /// A client successfully authenticated.
+    #[allow(unused_variables)]
+    async fn client_authenticated(client: ConnectedClient<Self>) {
+        println!(
+            "{:?} client authenticated as user: {}",
+            client.transport(),
+            client.user_id().await.unwrap()
+        );
+    }
 }
 
 impl Backend for () {

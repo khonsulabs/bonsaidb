@@ -52,13 +52,12 @@ async fn insert_a_message<C: Connection>(
     connection: &C,
     value: &str,
 ) -> anyhow::Result<()> {
-    connection
-        .collection::<Message>()
-        .push(&Message {
-            contents: String::from(value),
-            timestamp: SystemTime::now(),
-        })
-        .await?;
+    Message {
+        contents: String::from(value),
+        timestamp: SystemTime::now(),
+    }
+    .insert_into(connection)
+    .await?;
     Ok(())
 }
 // ANCHOR_END: reusable-code

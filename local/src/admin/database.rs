@@ -4,6 +4,7 @@ use pliantdb_core::{
     Error,
 };
 
+/// A database stored in `PliantDb`.
 #[derive(Debug)]
 pub struct Database;
 

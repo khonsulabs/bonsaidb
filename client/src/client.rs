@@ -19,6 +19,7 @@ use pliantdb_core::{
     },
     custom_api::CustomApi,
     networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
+    permissions::Permissions,
     schema::{Schema, SchemaName, Schematic},
 };
 #[cfg(not(target_arch = "wasm32"))]
@@ -73,6 +74,7 @@ pub struct Data<A: CustomApi> {
     request_sender: Sender<BackendPendingRequest<A>>,
     #[cfg(not(target_arch = "wasm32"))]
     worker: CancellableHandle<Result<(), Error>>,
+    effective_permissions: Mutex<Option<Permissions>>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     request_id: AtomicU32,
     #[cfg(feature = "pubsub")]
@@ -166,6 +168,7 @@ impl<A: CustomApi> Client<A> {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                effective_permissions: Mutex::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -202,6 +205,7 @@ impl<A: CustomApi> Client<A> {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                effective_permissions: Mutex::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -240,6 +244,7 @@ impl<A: CustomApi> Client<A> {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                effective_permissions: Mutex::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -303,7 +308,11 @@ impl<A: CustomApi> Client<A> {
             }))
             .await?
         {
-            Response::Server(ServerResponse::LoggedIn {}) => Ok(()),
+            Response::Server(ServerResponse::LoggedIn { permissions }) => {
+                let mut effective_permissions = self.data.effective_permissions.lock().await;
+                *effective_permissions = Some(permissions);
+                Ok(())
+            }
             Response::Error(err) => Err(err),
             other => Err(pliantdb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
@@ -358,6 +367,13 @@ impl<A: CustomApi> Client<A> {
                 format!("{:?}", other),
             ))),
         }
+    }
+
+    /// Returns the current effective permissions for the client. Returns None
+    /// if unauthenticated.
+    pub async fn effective_permissions(&self) -> Option<Permissions> {
+        let effective_permissions = self.data.effective_permissions.lock().await;
+        effective_permissions.clone()
     }
 
     #[cfg(feature = "test-util")]

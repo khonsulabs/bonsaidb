@@ -5,7 +5,7 @@ use pliantdb_core::{
 };
 use serde::{Deserialize, Serialize};
 
-/// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::permissions::PermissionGroup)s.
+/// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::admin::PermissionGroup)s.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Role {
     /// The name of the role. Must be unique.

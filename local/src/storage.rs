@@ -1,6 +1,7 @@
 use std::{
     any::Any,
     collections::HashMap,
+    convert::TryFrom,
     fmt::{Debug, Display},
     marker::PhantomData,
     path::Path,
@@ -20,7 +21,10 @@ use pliantdb_core::{
     document::{Document, KeyId},
     networking,
     permissions::Permissions,
-    schema::{view::map, CollectionName, MappedValue, Schema, SchemaName, Schematic, ViewName},
+    schema::{
+        view::map, CollectionDocument, CollectionName, MappedValue, Schema, SchemaName, Schematic,
+        ViewName,
+    },
     transaction::{Executed, OperationResult, Transaction},
 };
 use pliantdb_jobs::manager::Manager;
@@ -352,7 +356,9 @@ impl Storage {
         }
     }
 
-    async fn admin(&self) -> Database<Admin> {
+    /// Returns the administration database.
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn admin(&self) -> Database<Admin> {
         Database::new("admin", self.clone()).await.unwrap()
     }
 
@@ -397,7 +403,7 @@ impl Storage {
         &self,
         username: &str,
         login_request: pliantdb_core::custodian_password::LoginRequest,
-    ) -> Result<(ServerLogin, LoginResponse), pliantdb_core::Error> {
+    ) -> Result<(Option<u64>, ServerLogin, LoginResponse), pliantdb_core::Error> {
         let admin = self.admin().await;
         let config = PasswordConfig::load(&admin).await?;
         let result = admin
@@ -406,17 +412,15 @@ impl Storage {
             .query_with_docs()
             .await?;
 
-        let existing_password_hash = result
-            .into_iter()
-            .next()
-            .map(|entry| entry.document.contents::<User>())
-            .transpose()?
-            .and_then(|user| user.password_hash);
-        Ok(ServerLogin::login(
-            &config,
-            existing_password_hash,
-            login_request,
-        )?)
+        let (user_id, existing_password_hash) = if let Some(entry) = result.into_iter().next() {
+            let user = entry.document.contents::<User>()?;
+            (Some(entry.document.header.id), user.password_hash)
+        } else {
+            (None, None)
+        };
+
+        let (login, response) = ServerLogin::login(&config, existing_password_hash, login_request)?;
+        Ok((user_id, login, response))
     }
 }
 
@@ -625,7 +629,7 @@ impl ServerConnection for Storage {
             .admin()
             .await
             .collection::<User>()
-            .push(&User::named(username))
+            .push(&User::default_with_username(username))
             .await?;
         Ok(result.id)
     }
@@ -648,11 +652,10 @@ impl ServerConnection for Storage {
             let config = PasswordConfig::load(&admin).await.unwrap();
             let (register, response) = ServerRegistration::register(&config, password_request)?;
 
-            let mut doc = result.into_iter().next().unwrap().document;
-            let mut user = doc.contents::<User>().unwrap();
-            user.pending_password_change_state = Some(register);
-            doc.set_contents(&user)?;
-            admin.update::<User>(&mut doc).await?;
+            let mut doc =
+                CollectionDocument::<User>::try_from(result.into_iter().next().unwrap().document)?;
+            doc.contents.pending_password_change_state = Some(register);
+            doc.update(&admin).await?;
 
             Ok(response)
         }
@@ -672,13 +675,12 @@ impl ServerConnection for Storage {
         if result.is_empty() {
             Err(pliantdb_core::Error::UserNotFound)
         } else {
-            let mut doc = result.into_iter().next().unwrap().document;
-            let mut user = doc.contents::<User>()?;
-            if let Some(registration) = user.pending_password_change_state.take() {
+            let mut doc =
+                CollectionDocument::<User>::try_from(result.into_iter().next().unwrap().document)?;
+            if let Some(registration) = doc.contents.pending_password_change_state.take() {
                 let file = registration.finish(password_finalization)?;
-                user.password_hash = Some(file);
-                doc.set_contents(&user)?;
-                admin.update::<User>(&mut doc).await?;
+                doc.contents.password_hash = Some(file);
+                doc.update(&admin).await?;
 
                 Ok(())
             } else {

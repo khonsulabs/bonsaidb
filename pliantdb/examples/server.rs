@@ -8,6 +8,7 @@ use pliantdb::{
     core::{
         connection::{Connection, ServerConnection},
         document::KeyId,
+        schema::Collection,
         Error,
     },
     local::config::Configuration as LocalConfiguration,
@@ -133,11 +134,7 @@ async fn do_some_database_work<'a, C: Connection>(
             let mut rng = thread_rng();
             rng.gen_range(3..=10)
         };
-        database
-            .collection::<Shape>()
-            .push(&Shape::new(sides))
-            .await
-            .unwrap();
+        Shape::new(sides).insert_into(&database).await?;
     }
 
     println!("Client {} finished", client_name);

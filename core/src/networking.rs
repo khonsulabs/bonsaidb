@@ -1,3 +1,4 @@
+use actionable::Permissions;
 use custodian_password::{
     LoginFinalization, LoginRequest, LoginResponse, RegistrationFinalization, RegistrationRequest,
     RegistrationResponse,
@@ -278,8 +279,8 @@ pub enum ServerResponse {
     },
     /// Successfully authenticated.
     LoggedIn {
-        // TODO actionable needs to make `Permissions` serialize/deserialize:
-    // permissions: actionable::Permissions,
+        /// The effective permissions for the authenticated user.
+        permissions: Permissions,
     },
 }
 

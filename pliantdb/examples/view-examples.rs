@@ -80,7 +80,7 @@ async fn main() -> anyhow::Result<()> {
     .await?;
 
     // Insert a new document into the Shape collection.
-    db.collection::<Shape>().push(&Shape::new(3)).await?;
+    Shape::new(3).insert_into(&db).await?;
     // [md-bakery: end]
 
     // Views in `PliantDb` are written using a Map/Reduce approach. In this
@@ -89,12 +89,12 @@ async fn main() -> anyhow::Result<()> {
     //
     // Let's start by seeding the database with some shapes of various sizes:
     for sides in 3..=20 {
-        db.collection::<Shape>().push(&Shape::new(sides)).await?;
+        Shape::new(sides).insert_into(&db).await?;
     }
 
     // And, let's add a few shapes with the same number of sides
-    db.collection::<Shape>().push(&Shape::new(3)).await?;
-    db.collection::<Shape>().push(&Shape::new(4)).await?;
+    Shape::new(3).insert_into(&db).await?;
+    Shape::new(4).insert_into(&db).await?;
 
     // At this point, our database should have 3 triangles:
     // [md-bakery: begin @ snippet-c]

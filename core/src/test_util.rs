@@ -22,7 +22,7 @@ use crate::{
     Error,
 };
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
 pub struct Basic {
     pub value: String,
     pub category: Option<String>,
@@ -545,6 +545,13 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     );
     assert_eq!(transaction.changed_documents[0].id, header.id);
     assert!(transaction.changed_documents[0].deleted);
+
+    // Use the Collection interface
+    let mut doc = original_value.clone().insert_into(db).await?;
+    doc.contents.category = Some(String::from("updated"));
+    doc.update(db).await?;
+    let reloaded = Basic::get(doc.header.id, db).await?.unwrap();
+    assert_eq!(doc.contents, reloaded.contents);
 
     Ok(())
 }

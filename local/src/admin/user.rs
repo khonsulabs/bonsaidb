@@ -1,17 +1,23 @@
 use pliantdb_core::{
+    connection::Connection,
     custodian_password::{ServerFile, ServerRegistration},
     document::Document,
+    permissions::Permissions,
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
     Error,
 };
 use serde::{Deserialize, Serialize};
 
-/// An assignable role, which grants permissions based on the associated
-/// [`PermissionGroup`](crate::permissions::PermissionGroup)s.
+use crate::{
+    admin::{group, role, Admin},
+    Database,
+};
+
+/// A user that can authenticate with `PliantDb`.
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct User {
     /// The name of the role. Must be unique.
-    pub name: String,
+    pub username: String,
     /// The IDs of the user groups this user belongs to.
     pub groups: Vec<u64>,
     /// The IDs of the roles this user has been assigned.
@@ -26,11 +32,61 @@ pub struct User {
 }
 
 impl User {
-    pub fn named(name: impl Into<String>) -> Self {
+    /// Returns a default user with the given username.
+    pub fn default_with_username(username: impl Into<String>) -> Self {
         Self {
-            name: name.into(),
+            username: username.into(),
             ..Self::default()
         }
+    }
+
+    /// Calculates the effective permissions based on the groups and roles this
+    /// user is assigned.
+    pub async fn effective_permissions(
+        &self,
+        admin: &Database<Admin>,
+    ) -> Result<Permissions, crate::Error> {
+        // List all of the groups that this user belongs to because of role associations.
+        let role_groups = if self.roles.is_empty() {
+            Vec::default()
+        } else {
+            let roles = admin.get_multiple::<role::Role>(&self.groups).await?;
+            let role_groups = roles
+                .into_iter()
+                .map(|doc| doc.contents::<role::Role>().map(|role| role.groups))
+                .collect::<Result<Vec<Vec<u64>>, _>>()?;
+            role_groups
+                .into_iter()
+                .flat_map(Vec::into_iter)
+                .collect::<Vec<u64>>()
+        };
+        // Retrieve all of the groups.
+        let groups = if role_groups.is_empty() {
+            admin
+                .get_multiple::<group::PermissionGroup>(&self.groups)
+                .await?
+        } else {
+            let mut all_groups = role_groups;
+            all_groups.extend(self.groups.iter().copied());
+            all_groups.dedup();
+            admin
+                .get_multiple::<group::PermissionGroup>(&all_groups)
+                .await?
+        };
+
+        // Combine the permissions from all the groups into one.
+        let merged_permissions = Permissions::merged(
+            &groups
+                .into_iter()
+                .map(|group| {
+                    group
+                        .contents::<group::PermissionGroup>()
+                        .map(|group| Permissions::from(group.statements))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+
+        Ok(merged_permissions)
     }
 }
 
@@ -67,6 +123,6 @@ impl View for ByName {
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let role = document.contents::<User>()?;
-        Ok(Some(document.emit_key(role.name)))
+        Ok(Some(document.emit_key(role.username)))
     }
 }

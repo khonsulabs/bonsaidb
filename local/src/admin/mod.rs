@@ -3,13 +3,16 @@ use pliantdb_core::{
     Error,
 };
 
-pub mod database;
-pub mod encryption_key;
-pub mod group;
-pub mod password_config;
-pub mod role;
-pub mod user;
+pub(crate) mod database;
+pub(crate) mod encryption_key;
+pub(crate) mod group;
+pub(crate) mod password_config;
+pub(crate) mod role;
+pub(crate) mod user;
 
+pub use self::{database::Database, group::PermissionGroup, role::Role, user::User};
+
+/// The `PliantDb` administration schema.
 #[derive(Debug)]
 pub struct Admin;
 

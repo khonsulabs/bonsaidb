@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `pliantdb::local::admin` now exposes collections that are used to manage `PliantDb`.
 - Ability to add users, set a user's password, and log in as a user.
 - Each `pliantdb::local::Storage` now has a unique ID. It will be randomly
   generated upon launch. If for some reason a random value isn't desired, it can
@@ -16,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Centralized secrets vault: Enables limited at-rest encryption. Access to keys
   can be controlled via permissions. See `pliantdb::core::vault` for more
   information.
+- For serializable types, `Collection` now defines easier methods for dealing with documents.
+- Server `Backend` trait now defines connection lifecycle functions that can be overridden to customize behavior when clients connect, disconnect, or authenticate.
 
 ### Changed
 
