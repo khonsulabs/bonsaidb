@@ -19,8 +19,8 @@ pub struct Configuration {
 
     /// The default encryption key for the database. If specified, all documents
     /// will be stored encrypted at-rest using the key specified. Having this
-    /// key specified will also encrypt view entries, although emitted keys will
-    /// still be stored in plain text for performance reasons.
+    /// key specified will also encrypt views. Without this, views will be
+    /// stored unencrypted.
     pub default_encryption_key: Option<KeyId>,
 
     /// Configuration options related to background tasks.

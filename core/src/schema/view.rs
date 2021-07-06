@@ -26,6 +26,10 @@ pub enum Error {
     /// Returned when the reduce() function is unimplemented.
     #[error("reduce is unimplemented")]
     ReduceUnimplemented,
+
+    /// Range queries are not supported on collections with encryptable keys.
+    #[error("range queries are not supported on collections with encryptable keys")]
+    RangeQueryNotSupported,
 }
 
 /// A type alias for the result of `View::map()`.
@@ -58,6 +62,12 @@ pub trait View: Send + Sync + Debug + 'static {
     /// [`Error::UniqueKeyViolation`](crate::Error::UniqueKeyViolation) will be
     /// returned.
     fn unique(&self) -> bool {
+        false
+    }
+
+    /// If true, keys will be encrypted if a `default_encryption_key` is
+    /// specified. This prevents the ability to use range-based queries.
+    fn keys_are_encryptable(&self) -> bool {
         false
     }
 
@@ -134,6 +144,8 @@ pub trait Serialized: Send + Sync + Debug {
     fn unique(&self) -> bool;
     /// Wraps [`View::version`]
     fn version(&self) -> u64;
+    /// Wraps [`View::keys_are_encryptable`]
+    fn keys_are_encryptable(&self) -> bool;
     /// Wraps [`View::view_name`]
     fn view_name(&self) -> Result<ViewName, InvalidNameError>;
     /// Wraps [`View::map`]
@@ -191,5 +203,9 @@ where
         };
 
         serde_cbor::to_vec(&reduced_value).map_err(Error::from)
+    }
+
+    fn keys_are_encryptable(&self) -> bool {
+        self.keys_are_encryptable()
     }
 }

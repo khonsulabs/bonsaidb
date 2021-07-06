@@ -1,14 +1,21 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{
+    borrow::Cow,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
+use blake2::{self, Blake2s, Digest};
 use pliantdb_core::{
     connection::Connection,
+    permissions::Permissions,
     schema::{
         view::{map, Serialized},
         CollectionName, Key, Schema, ViewName,
     },
 };
 use pliantdb_jobs::{Job, Keyed};
+use serde::{Deserialize, Serialize};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError, TransactionalTree},
     IVec, Transactional, Tree,
@@ -17,6 +24,7 @@ use sled::{
 use crate::{
     database::{document_tree_name, Database},
     error::ResultExt,
+    vault::Vault,
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
         view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
@@ -223,7 +231,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             };
 
         if let Some(map::Serialized { source, key, value }) = map_result {
-            self.save_mapping(source, key, value)?;
+            self.save_mapping(source, &key, value)?;
         } else {
             self.omit_document(doc_still_exists)?;
         }
@@ -247,8 +255,11 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         Ok(())
     }
 
-    fn serialize_entry(&self, entry: &ViewEntry) -> Result<Vec<u8>, pliantdb_core::Error> {
-        let mut bytes = bincode::serialize(entry).map_err_to_core()?;
+    fn serialize_and_encrypt<S: Serialize>(
+        &self,
+        entry: &S,
+    ) -> Result<Vec<u8>, pliantdb_core::Error> {
+        let mut bytes = bincode::serialize(&entry).map_err_to_core()?;
         if let Some(key) = self.database.storage().default_encryption_key() {
             bytes = self
                 .database
@@ -264,26 +275,53 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         Ok(bytes)
     }
 
-    fn deserialize_entry(&self, bytes: &[u8]) -> Result<ViewEntry, pliantdb_core::Error> {
-        self.database
-            .storage()
-            .vault()
-            .decrypt_serialized(self.database.data.effective_permissions.as_ref(), bytes)
-            .map_err_to_core()
+    fn load_entry_for_key(
+        &self,
+        key: &[u8],
+    ) -> Result<Option<ViewEntryCollection>, ConflictableTransactionError<pliantdb_core::Error>>
+    {
+        load_entry_for_key(
+            key,
+            self.view,
+            self.database.storage().default_encryption_key().is_some(),
+            self.database.storage().vault(),
+            self.database.data.effective_permissions.as_ref(),
+            |key| {
+                self.view_entries
+                    .get(key)
+                    .map_err(ConflictableTransactionError::from)
+            },
+        )
+    }
+
+    fn save_entry_for_key(
+        &self,
+        key: &[u8],
+        entry: &ViewEntryCollection,
+    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+        let bytes = self
+            .serialize_and_encrypt(entry)
+            .map_to_transaction_error()?;
+        if self.view.keys_are_encryptable()
+            && self.database.storage().default_encryption_key().is_some()
+        {
+            let hashed_key = hash_key(key);
+            self.view_entries.insert(&hashed_key, bytes)?;
+        } else {
+            self.view_entries.insert(key, bytes)?;
+        }
+        Ok(())
     }
 
     fn save_mapping(
         &self,
         source: u64,
-        key: Vec<u8>,
+        key: &[u8],
         value: Vec<u8>,
     ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
         // Before altering any data, verify that the key is unique if this is a unique view.
         if self.view.unique() {
-            if let Some(existing_entry) = self.view_entries.get(&key)? {
-                let existing_entry = self
-                    .deserialize_entry(&existing_entry)
-                    .map_to_transaction_error()?;
+            if let Some(existing_entry) = self.load_entry_for_key(key)? {
                 if existing_entry.mappings[0].source != source {
                     return Err(pliantdb_core::Error::UniqueKeyViolation {
                         view: self.map_request.view_name.clone(),
@@ -302,11 +340,10 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         // document returned. Currently we only support
         // single emits, so it's going to be a
         // single-entry vec for now.
-        let keys: Vec<Cow<'_, [u8]>> = vec![Cow::Borrowed(&key)];
+        let keys: Vec<Cow<'_, [u8]>> = vec![Cow::Borrowed(key)];
         if let Some(existing_map) = self.document_map.insert(
             self.document_id,
-            bincode::serialize(&keys)
-                .map_err_to_core()
+            self.serialize_and_encrypt(&keys)
                 .map_to_transaction_error()?,
         )? {
             self.remove_existing_view_entries_for_keys(&keys, &existing_map)?;
@@ -316,11 +353,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
 
         // Add a new ViewEntry or update an existing
         // ViewEntry for the key given
-        let view_entry = if let Some(existing_entry) = self.view_entries.get(&key)? {
-            let mut entry = self
-                .deserialize_entry(&existing_entry)
-                .map_to_transaction_error()?;
-
+        let view_entry = if let Some(mut entry) = self.load_entry_for_key(key)? {
             // attempt to update an existing
             // entry for this document, if
             // present
@@ -353,7 +386,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             let mappings = entry
                 .mappings
                 .iter()
-                .map(|m| (key.as_slice(), m.value.as_slice()))
+                .map(|m| (key, m.value.as_slice()))
                 .collect::<Vec<_>>();
             entry.reduced_value = self
                 .view
@@ -365,20 +398,17 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         } else {
             let reduced_value = self
                 .view
-                .reduce(&[(&key, &entry_mapping.value)], false)
+                .reduce(&[(key, &entry_mapping.value)], false)
                 .map_err_to_core()
                 .map_to_transaction_error()?;
-            ViewEntry {
+            ViewEntryCollection::from(ViewEntry {
+                key: key.to_vec(),
                 view_version: self.view.version(),
                 mappings: vec![entry_mapping],
                 reduced_value,
-            }
+            })
         };
-        self.view_entries.insert(
-            key,
-            self.serialize_entry(&view_entry)
-                .map_to_transaction_error()?,
-        )?;
+        self.save_entry_for_key(key, &view_entry)?;
         Ok(())
     }
 
@@ -387,7 +417,14 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         keys: &[Cow<'_, [u8]>],
         existing_map: &[u8],
     ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
-        let existing_keys = bincode::deserialize::<Vec<Cow<'_, [u8]>>>(existing_map)
+        let existing_keys = self
+            .database
+            .storage()
+            .vault()
+            .decrypt_serialized::<Vec<Cow<'_, [u8]>>>(
+                self.database.data.effective_permissions.as_ref(),
+                existing_map,
+            )
             .map_err_to_core()
             .map_to_transaction_error()?;
         if existing_keys == keys {
@@ -401,32 +438,47 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             "need to add support for multi-emitted keys"
         );
         // Remove the old key
-        if let Some(existing_entry) = self.view_entries.get(&existing_keys[0])? {
-            let mut entry = self
-                .deserialize_entry(&existing_entry)
-                .map_to_transaction_error()?;
+        if let Some(mut entry_collection) = self.load_entry_for_key(&existing_keys[0])? {
             let document_id = u64::from_big_endian_bytes(self.document_id).unwrap();
-            entry.mappings.retain(|m| m.source != document_id);
+            entry_collection
+                .mappings
+                .retain(|m| m.source != document_id);
 
-            if entry.mappings.is_empty() {
-                self.view_entries.remove(existing_keys[0].as_ref())?;
+            if entry_collection.mappings.is_empty() {
+                entry_collection.remove_active_entry();
+                if entry_collection.is_empty() {
+                    // Remove the key
+                    self.view_entries.remove(
+                        entry_collection
+                            .loaded_from
+                            .as_ref()
+                            .map_or(existing_keys[0].as_ref(), |key| &key[..]),
+                    )?;
+                    return Ok(());
+                }
             } else {
-                let mappings = entry
+                let mappings = entry_collection
                     .mappings
                     .iter()
                     .map(|m| (existing_keys[0].as_ref(), m.value.as_slice()))
                     .collect::<Vec<_>>();
-                entry.reduced_value = self
+                entry_collection.reduced_value = self
                     .view
                     .reduce(&mappings, false)
                     .map_err_to_core()
                     .map_to_transaction_error()?;
-                self.view_entries.insert(
-                    existing_keys[0].as_ref(),
-                    self.serialize_entry(&entry).map_to_transaction_error()?,
-                )?;
             }
+
+            self.view_entries.insert(
+                entry_collection
+                    .loaded_from
+                    .as_ref()
+                    .map_or(existing_keys[0].as_ref(), |key| &key[..]),
+                self.serialize_and_encrypt(&entry_collection)
+                    .map_to_transaction_error()?,
+            )?;
         }
+
         Ok(())
     }
 }
@@ -448,4 +500,118 @@ impl<T, E> ToTransactionResult<T, E> for Result<T, E> {
     fn map_to_transaction_error<RE: From<E>>(self) -> Result<T, ConflictableTransactionError<RE>> {
         self.map_err(|err| ConflictableTransactionError::Abort(RE::from(err)))
     }
+}
+
+fn hash_key(key: &[u8]) -> [u8; 32] {
+    let mut hasher = Blake2s::new();
+    hasher.update(key);
+    let mut hash = [0_u8; 32];
+    let res = hasher.finalize();
+    hash.copy_from_slice(&res);
+    hash
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ViewEntryCollection {
+    entries: Vec<ViewEntry>,
+    #[serde(skip)]
+    active_index: usize,
+    #[serde(skip)]
+    loaded_from: Option<[u8; 32]>,
+}
+
+impl From<ViewEntry> for ViewEntryCollection {
+    fn from(entry: ViewEntry) -> Self {
+        Self {
+            entries: vec![entry],
+            active_index: 0,
+            loaded_from: None,
+        }
+    }
+}
+
+impl From<ViewEntryCollection> for ViewEntry {
+    fn from(collection: ViewEntryCollection) -> Self {
+        collection
+            .entries
+            .into_iter()
+            .nth(collection.active_index)
+            .unwrap()
+    }
+}
+
+impl Deref for ViewEntryCollection {
+    type Target = ViewEntry;
+
+    fn deref(&self) -> &Self::Target {
+        &self.entries[self.active_index]
+    }
+}
+
+impl DerefMut for ViewEntryCollection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.entries[self.active_index]
+    }
+}
+
+impl ViewEntryCollection {
+    pub fn remove_active_entry(&mut self) {
+        self.entries.remove(self.active_index);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+pub(crate) fn load_entry_for_key<
+    F: FnOnce(&[u8]) -> Result<Option<IVec>, ConflictableTransactionError<pliantdb_core::Error>>,
+>(
+    key: &[u8],
+    view: &dyn Serialized,
+    encrypt_by_default: bool,
+    vault: &Vault,
+    permissions: Option<&Permissions>,
+    get_entry_fn: F,
+) -> Result<Option<ViewEntryCollection>, ConflictableTransactionError<pliantdb_core::Error>> {
+    if view.keys_are_encryptable() && encrypt_by_default {
+        // When we encrypt the keys, we need to be able to find them
+        // reliably. We're using a hashing function to create buckets where
+        // more than one ViewEntry can be stored. These payloads can be
+        // encrypted using random nonces, and can contain the actual key.
+        // Thus, if a hash collision occurs, the loop will find the correct
+        // entry before returning.
+        let key_hash = hash_key(key);
+        if let Some(bytes) = get_entry_fn(&key_hash)? {
+            let mut collection =
+                deserialize_entry(vault, permissions, &bytes).map_to_transaction_error()?;
+            collection.loaded_from = Some(key_hash);
+            for (index, entry) in collection.entries.iter().enumerate() {
+                if entry.key == key {
+                    collection.active_index = index;
+                    return Ok(Some(collection));
+                }
+            }
+            // No key matched
+            Ok(None)
+        } else {
+            Ok(None)
+        }
+    } else {
+        // Without encryption, the keys are guaranteed to be unique.
+        Ok(get_entry_fn(key)?
+            .map(|bytes| deserialize_entry(vault, permissions, &bytes))
+            .transpose()
+            .map_to_transaction_error()?)
+    }
+}
+
+fn deserialize_entry(
+    vault: &Vault,
+    permissions: Option<&Permissions>,
+    bytes: &[u8],
+) -> Result<ViewEntryCollection, pliantdb_core::Error> {
+    vault
+        .decrypt_serialized(permissions, bytes)
+        .map_err_to_core()
 }

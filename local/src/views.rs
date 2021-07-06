@@ -5,14 +5,15 @@ use serde::{Deserialize, Serialize};
 
 use self::{integrity_scanner::IntegrityScan, mapper::Map};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ViewEntry {
     pub view_version: u64,
+    pub key: Vec<u8>,
     pub mappings: Vec<EntryMapping>,
     pub reduced_value: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct EntryMapping {
     pub source: u64,
     pub value: Vec<u8>,

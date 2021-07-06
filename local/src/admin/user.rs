@@ -100,7 +100,7 @@ impl Collection for User {
     }
 }
 
-/// A unique view of roles by name.
+/// A unique view of users by name.
 #[derive(Debug)]
 pub struct ByName;
 
@@ -115,6 +115,10 @@ impl View for ByName {
 
     fn version(&self) -> u64 {
         1
+    }
+
+    fn keys_are_encryptable(&self) -> bool {
+        true
     }
 
     fn name(&self) -> Result<Name, InvalidNameError> {

@@ -25,6 +25,7 @@ use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncWriteExt},
 };
+use zeroize::Zeroize;
 
 use crate::storage::StorageId;
 
@@ -77,10 +78,11 @@ impl Vault {
                 .map_err(|err| {
                     Error::Initializing(format!("error reading sealing key: {:?}", err))
                 })?;
-            let sealing_key =
+            let mut sealing_key =
                 bincode::deserialize::<EncryptionKey>(&sealing_key).map_err(|err| {
                     Error::Initializing(format!("error deserializing sealing key: {:?}", err))
                 })?;
+            sealing_key.lock_memory();
             if let Some(encrypted_keys) = master_key_storage
                 .master_keys_for(server_id)
                 .await
@@ -257,11 +259,26 @@ pub trait MasterKeyStorage: Send + Sync + Debug + 'static {
 }
 
 #[derive(Serialize, Deserialize)]
-struct EncryptionKey([u8; 32]);
+struct EncryptionKey([u8; 32], #[serde(skip)] Option<region::LockGuard>);
 
 impl EncryptionKey {
+    pub fn new(key: [u8; 32]) -> Self {
+        let mut new_key = Self(key, None);
+        new_key.lock_memory();
+        new_key
+    }
+
+    pub fn lock_memory(&mut self) {
+        if self.1.is_none() {
+            match region::lock(self.0.as_ptr(), self.0.len()) {
+                Ok(guard) => self.1 = Some(guard),
+                Err(err) => eprintln!("Security Warning: Unable to lock memory {:?}", err),
+            }
+        }
+    }
+
     pub fn random() -> Self {
-        Self(thread_rng().gen())
+        Self::new(thread_rng().gen())
     }
 
     pub fn encrypt_key(&self) -> (Self, EncryptedKey) {
@@ -278,9 +295,19 @@ impl EncryptionKey {
     ) -> VaultPayload<'static> {
         let mut rng = thread_rng();
         let nonce: [u8; 24] = rng.gen();
+        self.encrypt_payload_with_nonce(key_id, key_version, payload, &nonce)
+    }
+
+    pub fn encrypt_payload_with_nonce(
+        &self,
+        key_id: KeyId,
+        key_version: u32,
+        payload: &[u8],
+        nonce: &[u8],
+    ) -> VaultPayload<'static> {
         let encrypted = XChaCha20Poly1305::new(GenericArray::from_slice(&self.0))
             .encrypt(
-                GenericArray::from_slice(&nonce),
+                GenericArray::from_slice(nonce),
                 Payload {
                     msg: payload,
                     aad: b"",
@@ -311,6 +338,12 @@ impl EncryptionKey {
     }
 }
 
+impl Drop for EncryptionKey {
+    fn drop(&mut self) {
+        self.0.zeroize();
+    }
+}
+
 impl Debug for EncryptionKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PrivateKey").finish_non_exhaustive()
@@ -318,7 +351,8 @@ impl Debug for EncryptionKey {
 }
 
 /// An encrypted encryption key.
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Zeroize)]
+#[zeroize(drop)]
 pub struct EncryptedKey(Vec<u8>);
 
 impl EncryptedKey {
@@ -327,7 +361,7 @@ impl EncryptedKey {
         let decrypted = decrypted
             .try_into()
             .map_err(|err| Error::Encryption(format!("decrypted key length invalid: {:?}", err)))?;
-        Ok(EncryptionKey(decrypted))
+        Ok(EncryptionKey::new(decrypted))
     }
 }
 

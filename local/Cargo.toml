@@ -39,6 +39,9 @@ rand = "0.8"
 chacha20poly1305 = { version="0.8", features=["xchacha20poly1305"] }
 byteorder = "1"
 futures = "0.3"
+zeroize = "1"
+region = "2"
+blake2 = "0.9"
 
 [dev-dependencies]
 pliantdb-core = { path="../core", version="0.1.0-dev.4", features=["test-util"] }

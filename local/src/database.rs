@@ -31,9 +31,11 @@ use crate::{
     error::{Error, ResultExt as _},
     open_trees::OpenTrees,
     storage::OpenDatabase,
+    vault::Vault,
     views::{
-        mapper, view_document_map_tree_name, view_entries_tree_name,
-        view_invalidated_docs_tree_name, view_omitted_docs_tree_name, ViewEntry,
+        mapper::{self, ViewEntryCollection},
+        view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
+        view_omitted_docs_tree_name, ViewEntry,
     },
     Storage,
 };
@@ -150,7 +152,7 @@ where
     }
 
     async fn for_each_in_view<
-        F: FnMut(IVec, ViewEntry) -> Result<(), pliantdb_core::Error> + Send + Sync,
+        F: FnMut(ViewEntryCollection) -> Result<(), pliantdb_core::Error> + Send + Sync,
     >(
         &self,
         view: &dyn view::Serialized,
@@ -174,25 +176,15 @@ where
             .map_err_to_core()?;
 
         {
-            let iterator = create_view_iterator(&view_entries, key).map_err_to_core()?;
+            let iterator = self
+                .create_view_iterator(&view_entries, key, view)
+                .map_err_to_core()?;
             let entries = iterator
-                .collect::<Result<Vec<_>, sled::Error>>()
-                .map_err(Error::Sled)
+                .collect::<Result<Vec<_>, Error>>()
                 .map_err_to_core()?;
 
-            for (key, entry) in entries {
-                let entry = self
-                    .storage()
-                    .vault()
-                    .decrypt_serialized::<ViewEntry>(
-                        self.data.effective_permissions.as_ref(),
-                        &entry,
-                    )
-                    .map_err_to_core()?;
-                // let entry = bincode::deserialize::<ViewEntry>(&entry)
-                //     .map_err(Error::InternalSerialization)
-                //     .map_err_to_core()?;
-                callback(key, entry)?;
+            for entry in entries {
+                callback(entry)?;
             }
         }
 
@@ -218,7 +210,7 @@ where
 
     async fn for_each_view_entry<
         V: schema::View,
-        F: FnMut(IVec, ViewEntry) -> Result<(), pliantdb_core::Error> + Send + Sync,
+        F: FnMut(ViewEntryCollection) -> Result<(), pliantdb_core::Error> + Send + Sync,
     >(
         &self,
         key: Option<QueryKey<V::Key>>,
@@ -350,9 +342,10 @@ where
             .view_by_name(view_name)
             .ok_or(pliantdb_core::Error::CollectionNotFound)?;
         let mut mappings = Vec::new();
-        self.for_each_in_view(view, key, access_policy, |key, entry| {
+        self.for_each_in_view(view, key, access_policy, |entry| {
+            let entry = ViewEntry::from(entry);
             mappings.push(MappedValue {
-                key: key.to_vec(),
+                key: entry.key,
                 value: entry.reduced_value,
             });
             Ok(())
@@ -608,6 +601,76 @@ where
         )?;
         Ok(())
     }
+    fn create_view_iterator<'a, K: Key + 'a>(
+        &'a self,
+        view_entries: &'a Tree,
+        key: Option<QueryKey<K>>,
+        view: &'a dyn view::Serialized,
+    ) -> Result<ViewEntryIterator<'a>, view::Error> {
+        if let Some(key) = key {
+            match key {
+                QueryKey::Range(range) => {
+                    if view.keys_are_encryptable() {
+                        Err(view::Error::RangeQueryNotSupported)
+                    } else {
+                        let start = range
+                            .start
+                            .as_big_endian_bytes()
+                            .map_err(view::Error::KeySerialization)?;
+                        let end = range
+                            .end
+                            .as_big_endian_bytes()
+                            .map_err(view::Error::KeySerialization)?;
+                        Ok(Box::new(ViewEntryCollectionIterator {
+                            iterator: Box::new(view_entries.range(start..end)),
+                            permissions: self.data.effective_permissions.as_ref(),
+                            vault: self.storage().vault(),
+                        }))
+                    }
+                }
+                QueryKey::Matches(key) => {
+                    let key = key
+                        .as_big_endian_bytes()
+                        .map_err(view::Error::KeySerialization)?
+                        .to_vec();
+
+                    Ok(Box::new(KeyViewEntryIterator {
+                        tree: view_entries,
+                        keys: vec![key].into_iter(),
+                        view,
+                        encrypt_by_default: self.storage().default_encryption_key().is_some(),
+                        permissions: self.data.effective_permissions.as_ref(),
+                        vault: self.storage().vault(),
+                    }))
+                }
+                QueryKey::Multiple(list) => {
+                    let list = list
+                        .into_iter()
+                        .map(|key| {
+                            key.as_big_endian_bytes()
+                                .map(|bytes| bytes.to_vec())
+                                .map_err(view::Error::KeySerialization)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    Ok(Box::new(KeyViewEntryIterator {
+                        tree: view_entries,
+                        keys: list.into_iter(),
+                        view,
+                        encrypt_by_default: self.storage().default_encryption_key().is_some(),
+                        permissions: self.data.effective_permissions.as_ref(),
+                        vault: self.storage().vault(),
+                    }))
+                }
+            }
+        } else {
+            Ok(Box::new(ViewEntryCollectionIterator {
+                iterator: Box::new(view_entries.iter()),
+                permissions: self.data.effective_permissions.as_ref(),
+                vault: self.storage().vault(),
+            }))
+        }
+    }
 }
 
 #[async_trait]
@@ -800,8 +863,9 @@ where
         Self: Sized,
     {
         let mut results = Vec::new();
-        self.for_each_view_entry::<V, _>(key, access_policy, |key, entry| {
-            let key = <V::Key as Key>::from_big_endian_bytes(&key)
+        self.for_each_view_entry::<V, _>(key, access_policy, |collection| {
+            let entry = ViewEntry::from(collection);
+            let key = <V::Key as Key>::from_big_endian_bytes(&entry.key)
                 .map_err(view::Error::KeySerialization)
                 .map_err(Error::from)?;
             for entry in entry.mappings {
@@ -937,51 +1001,64 @@ where
 }
 
 type ViewIterator<'a> = Box<dyn Iterator<Item = Result<(IVec, IVec), sled::Error>> + 'a>;
+type ViewEntryIterator<'a> =
+    Box<dyn Iterator<Item = Result<ViewEntryCollection, crate::Error>> + 'a>;
 
-fn create_view_iterator<'a, K: Key + 'a>(
-    view_entries: &'a Tree,
-    key: Option<QueryKey<K>>,
-) -> Result<ViewIterator<'a>, view::Error> {
-    if let Some(key) = key {
-        match key {
-            QueryKey::Range(range) => {
-                let start = range
-                    .start
-                    .as_big_endian_bytes()
-                    .map_err(view::Error::KeySerialization)?;
-                let end = range
-                    .end
-                    .as_big_endian_bytes()
-                    .map_err(view::Error::KeySerialization)?;
-                Ok(Box::new(view_entries.range(start..end)))
-            }
-            QueryKey::Matches(key) => {
-                let key = key
-                    .as_big_endian_bytes()
-                    .map_err(view::Error::KeySerialization)?;
-                let range_end = key.clone();
-                Ok(Box::new(view_entries.range(key..=range_end)))
-            }
-            QueryKey::Multiple(list) => {
-                let list = list
-                    .into_iter()
-                    .map(|key| {
-                        key.as_big_endian_bytes()
-                            .map(|bytes| bytes.to_vec())
-                            .map_err(view::Error::KeySerialization)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+struct ViewEntryCollectionIterator<'a> {
+    iterator: ViewIterator<'a>,
+    permissions: Option<&'a Permissions>,
+    vault: &'a Vault,
+}
 
-                let iterators = list.into_iter().flat_map(move |key| {
-                    let range_end = key.clone();
-                    view_entries.range(key..=range_end)
-                });
+impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
+    type Item = Result<ViewEntryCollection, crate::Error>;
 
-                Ok(Box::new(iterators))
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iterator.next().map(|item| {
+            item.map_err(crate::Error::from)
+                .and_then(|(_, value)| self.vault.decrypt_serialized(self.permissions, &value))
+        })
+    }
+}
+
+struct KeyViewEntryIterator<'a> {
+    tree: &'a Tree,
+    keys: std::vec::IntoIter<Vec<u8>>,
+    view: &'a dyn view::Serialized,
+    encrypt_by_default: bool,
+    permissions: Option<&'a Permissions>,
+    vault: &'a Vault,
+}
+
+impl<'a> Iterator for KeyViewEntryIterator<'a> {
+    type Item = Result<ViewEntryCollection, crate::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(key) = self.keys.next() {
+            match mapper::load_entry_for_key(
+                &key,
+                self.view,
+                self.encrypt_by_default,
+                self.vault,
+                self.permissions,
+                |key| {
+                    self.tree
+                        .get(&key)
+                        .map_err(ConflictableTransactionError::Storage)
+                },
+            ) {
+                Ok(Some(entry)) => return Some(Ok(entry)),
+                Ok(None) => {}
+                Err(err) => {
+                    return Some(Err(match err {
+                        ConflictableTransactionError::Abort(core) => crate::Error::Core(core),
+                        ConflictableTransactionError::Storage(sled) => crate::Error::Sled(sled),
+                        ConflictableTransactionError::Conflict => unreachable!(),
+                    }))
+                }
             }
         }
-    } else {
-        Ok(Box::new(view_entries.iter()))
+        None
     }
 }
 
@@ -1044,11 +1121,12 @@ where
     ) -> Result<Vec<map::Serialized>, pliantdb_core::Error> {
         if let Some(view) = self.schematic().view_by_name(view) {
             let mut results = Vec::new();
-            self.for_each_in_view(view, key, access_policy, |key, entry| {
+            self.for_each_in_view(view, key, access_policy, |collection| {
+                let entry = ViewEntry::from(collection);
                 for mapping in entry.mappings {
                     results.push(map::Serialized {
                         source: mapping.source,
-                        key: key.to_vec(),
+                        key: entry.key.clone(),
                         value: mapping.value,
                     });
                 }
