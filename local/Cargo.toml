@@ -42,6 +42,8 @@ futures = "0.3"
 zeroize = "1"
 region = "2"
 blake2 = "0.9"
+x25519-xchacha20poly1305 = { git="https://github.com/khonsulabs/x25519-xchacha20poly1305.git", branch="main" }
+x25519-rand = { package="rand", version="0.7" }
 
 [dev-dependencies]
 pliantdb-core = { path="../core", version="0.1.0-dev.4", features=["test-util"] }

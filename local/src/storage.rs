@@ -45,7 +45,7 @@ use crate::{
     config::Configuration,
     error::ResultExt,
     tasks::TaskManager,
-    vault::{LocalMasterKeyStorage, Vault},
+    vault::{self, LocalVaultKeyStorage, Vault},
     Database, Error,
 };
 
@@ -94,17 +94,16 @@ impl Storage {
 
         let id = Self::lookup_or_create_id(&configuration, &owned_path).await?;
 
-        let vault = Arc::new(
-            Vault::initialize(
-                id,
-                &owned_path,
-                configuration.master_key_storage.unwrap_or_else(|| {
-                    // TODO make this fail in non-debug builds.
-                    Box::new(LocalMasterKeyStorage::new(owned_path.join("master-keys")))
-                }),
-            )
-            .await?,
-        );
+        let vault_key_storage = match configuration.vault_key_storage {
+            Some(storage) => storage,
+            None => Box::new(
+                LocalVaultKeyStorage::new(owned_path.join("vault-keys"))
+                    .await
+                    .map_err(|err| Error::Vault(vault::Error::Initializing(err.to_string())))?,
+            ),
+        };
+
+        let vault = Arc::new(Vault::initialize(id, &owned_path, vault_key_storage).await?);
 
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
         let default_encryption_key = configuration.default_encryption_key;
@@ -228,8 +227,8 @@ impl Storage {
     /// This value is set from the [`Configuration`] or randomly generated when
     /// creating a server. It shouldn't be changed after a server is in use, as
     /// doing can cause issues. For example, the vault that manages encrypted
-    /// storage uses the server ID to store the master keys. If the server ID
-    /// changes, the master key storage will need to be updated with the new
+    /// storage uses the server ID to store the vault key. If the server ID
+    /// changes, the vault key storage will need to be updated with the new
     /// server ID.
     #[must_use]
     pub fn unique_id(&self) -> StorageId {

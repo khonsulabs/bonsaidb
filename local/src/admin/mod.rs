@@ -4,7 +4,7 @@ use pliantdb_core::{
 };
 
 pub(crate) mod database;
-pub(crate) mod encryption_key;
+// pub(crate) mod encryption_key;
 pub(crate) mod group;
 pub(crate) mod password_config;
 pub(crate) mod role;
@@ -23,7 +23,7 @@ impl Schema for Admin {
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
         schema.define_collection::<database::Database>()?;
-        schema.define_collection::<encryption_key::EncryptionKeyVersion>()?;
+        // schema.define_collection::<encryption_key::EncryptionKeyVersion>()?;
         schema.define_collection::<group::PermissionGroup>()?;
         schema.define_collection::<role::Role>()?;
         schema.define_collection::<user::User>()?;

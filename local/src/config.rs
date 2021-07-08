@@ -1,6 +1,6 @@
 use pliantdb_core::document::KeyId;
 
-use crate::vault::AnyMasterKeyStorage;
+use crate::vault::AnyVaultKeyStorage;
 
 /// Configuration options for [`Storage`](crate::storage::Storage).
 #[derive(Debug)]
@@ -11,11 +11,10 @@ pub struct Configuration {
     /// one specified here.
     pub unique_id: Option<u64>,
 
-    /// The master key storage to use with the vault. If not specified and
-    /// running in debug mode,
-    /// [`LocalMasterKeyStorage`](crate::vault::LocalMasterKeyStorage) will be
-    /// used with the server's data folder as the path.
-    pub master_key_storage: Option<Box<dyn AnyMasterKeyStorage>>,
+    /// The vault key storage to use. If not specified and running in debug
+    /// mode, [`LocalVaultKeyStorage`](crate::vault::LocalVaultKeyStorage) will
+    /// be used with the server's data folder as the path.
+    pub vault_key_storage: Option<Box<dyn AnyVaultKeyStorage>>,
 
     /// The default encryption key for the database. If specified, all documents
     /// will be stored encrypted at-rest using the key specified. Having this
@@ -35,7 +34,7 @@ impl Default for Configuration {
         Self {
             default_encryption_key: None,
             unique_id: None,
-            master_key_storage: None,
+            vault_key_storage: None,
             workers: Tasks::default(),
             views: Views::default(),
         }

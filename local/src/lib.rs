@@ -25,7 +25,6 @@ mod error;
 mod open_trees;
 mod storage;
 mod tasks;
-/// Encryption and secret management.
 pub mod vault;
 mod views;
 

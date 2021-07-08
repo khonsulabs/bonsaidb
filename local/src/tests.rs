@@ -186,7 +186,7 @@ fn encryption() -> anyhow::Result<()> {
     // By resetting the encryption key, we should be able to force an error in
     // decryption, which proves that the document was encrypted. To ensure the
     // server starts up and generates a new key, we must delete the sealing key.
-    std::fs::remove_file(path.join("vault-key"))?;
+    std::fs::remove_file(path.join("master-keys"))?;
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
