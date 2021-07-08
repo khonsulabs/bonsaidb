@@ -5,6 +5,7 @@ use pliantdb_core::{
     custodian_password::ServerConfig,
     document::{Document, KeyId},
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, View},
+    PASSWORD_CONFIG,
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +20,7 @@ impl PasswordConfig {
             Ok(existing)
         } else {
             let new_config = Self {
-                config: ServerConfig::default(),
+                config: ServerConfig::new(PASSWORD_CONFIG),
             };
             match connection
                 .collection::<Self>()

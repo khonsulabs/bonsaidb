@@ -5,9 +5,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use blake2::{self, Blake2s, Digest};
 use pliantdb_core::{
     connection::Connection,
+    document::KeyId,
     permissions::Permissions,
     schema::{
         view::{map, Serialized},
@@ -255,18 +255,22 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         Ok(())
     }
 
+    fn encryption_key(&self) -> Option<&KeyId> {
+        self.database.view_encryption_key(self.view)
+    }
+
     fn serialize_and_encrypt<S: Serialize>(
         &self,
         entry: &S,
     ) -> Result<Vec<u8>, pliantdb_core::Error> {
         let mut bytes = bincode::serialize(&entry).map_err_to_core()?;
-        if let Some(key) = self.database.storage().default_encryption_key() {
+        if let Some(key) = self.encryption_key() {
             bytes = self
                 .database
                 .storage()
                 .vault()
                 .encrypt_payload(
-                    &key,
+                    key,
                     &bytes,
                     self.database.data.effective_permissions.as_ref(),
                 )
@@ -283,7 +287,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         load_entry_for_key(
             key,
             self.view,
-            self.database.storage().default_encryption_key().is_some(),
+            self.encryption_key().is_some(),
             self.database.storage().vault(),
             self.database.data.effective_permissions.as_ref(),
             |key| {
@@ -302,9 +306,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         let bytes = self
             .serialize_and_encrypt(entry)
             .map_to_transaction_error()?;
-        if self.view.keys_are_encryptable()
-            && self.database.storage().default_encryption_key().is_some()
-        {
+        if self.view.keys_are_encryptable() && self.encryption_key().is_some() {
             let hashed_key = hash_key(key);
             self.view_entries.insert(&hashed_key, bytes)?;
         } else {
@@ -503,12 +505,8 @@ impl<T, E> ToTransactionResult<T, E> for Result<T, E> {
 }
 
 fn hash_key(key: &[u8]) -> [u8; 32] {
-    let mut hasher = Blake2s::new();
-    hasher.update(key);
-    let mut hash = [0_u8; 32];
-    let res = hasher.finalize();
-    hash.copy_from_slice(&res);
-    hash
+    let res = blake3::hash(key);
+    *res.as_bytes()
 }
 
 #[derive(Debug, Serialize, Deserialize)]

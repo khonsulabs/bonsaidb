@@ -241,8 +241,8 @@ impl Storage {
     }
 
     #[must_use]
-    pub(crate) fn default_encryption_key(&self) -> Option<KeyId> {
-        self.data.default_encryption_key.clone()
+    pub(crate) fn default_encryption_key(&self) -> Option<&KeyId> {
+        self.data.default_encryption_key.as_ref()
     }
 
     /// Registers a schema for use within the server.

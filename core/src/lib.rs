@@ -16,8 +16,6 @@
     clippy::option_if_let_else,
     clippy::module_name_repetitions,
 )]
-pub use custodian_password;
-pub use num_traits;
 
 /// Types for creating and validating permissions.
 pub mod permissions;
@@ -46,8 +44,12 @@ pub mod networking;
 #[cfg(feature = "pubsub")]
 /// Types for Publish/Subscribe (`PubSub`) messaging.
 pub mod pubsub;
+
 #[cfg(feature = "pubsub")]
 pub use circulate;
+pub use custodian_password;
+use custodian_password::{Config, Group, Hash, SlowHash};
+pub use num_traits;
 use schema::{CollectionName, SchemaName, ViewName};
 use serde::{Deserialize, Serialize};
 
@@ -192,3 +194,7 @@ impl From<custodian_password::Error> for Error {
         Self::Password(err.to_string())
     }
 }
+
+/// The configuration used for `OPAQUE` password authentication.
+pub const PASSWORD_CONFIG: Config =
+    Config::new(Group::Ristretto255, Hash::Blake3, SlowHash::Argon2id);

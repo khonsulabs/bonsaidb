@@ -41,7 +41,7 @@ byteorder = "1"
 futures = "0.3"
 zeroize = "1"
 region = "2"
-blake2 = "0.9"
+blake3 = "0.3"
 x25519-xchacha20poly1305 = { git="https://github.com/khonsulabs/x25519-xchacha20poly1305.git", branch="main" }
 x25519-rand = { package="rand", version="0.7" }
 

@@ -11,7 +11,7 @@ use crate::{
     document::{Document, Header, KeyId},
     schema::{self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName},
     transaction::{self, Command, Operation, OperationResult, Transaction},
-    Error,
+    Error, PASSWORD_CONFIG,
 };
 
 /// Defines all interactions with a [`schema::Schema`], regardless of whether it is local or remote.
@@ -481,7 +481,7 @@ pub trait ServerConnection: Send + Sync {
         password: &str,
     ) -> Result<ClientFile, crate::Error> {
         let (registration, request) =
-            ClientRegistration::register(&ClientConfig::default(), password)?;
+            ClientRegistration::register(&ClientConfig::new(PASSWORD_CONFIG, None)?, password)?;
         let response = self.set_user_password(username, request).await?;
         let (file, finalization, _export_key) = registration.finish(response)?;
         self.finish_set_user_password(username, finalization)

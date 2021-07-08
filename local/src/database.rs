@@ -408,8 +408,9 @@ where
                 tree_index_map,
                 contents.clone(),
                 encryption_key
-                    .clone()
-                    .or_else(|| self.data.storage.default_encryption_key()),
+                    .as_ref()
+                    .or_else(|| self.collection_encryption_key(&operation.collection))
+                    .cloned(),
             ),
             Command::Update { header, contents } => {
                 self.execute_update(operation, trees, tree_index_map, header, contents.clone())
@@ -638,7 +639,7 @@ where
                         tree: view_entries,
                         keys: vec![key].into_iter(),
                         view,
-                        encrypt_by_default: self.storage().default_encryption_key().is_some(),
+                        encrypt_by_default: self.view_encryption_key(view).is_some(),
                         permissions: self.data.effective_permissions.as_ref(),
                         vault: self.storage().vault(),
                     }))
@@ -657,7 +658,7 @@ where
                         tree: view_entries,
                         keys: list.into_iter(),
                         view,
-                        encrypt_by_default: self.storage().default_encryption_key().is_some(),
+                        encrypt_by_default: self.view_encryption_key(view).is_some(),
                         permissions: self.data.effective_permissions.as_ref(),
                         vault: self.storage().vault(),
                     }))
@@ -670,6 +671,18 @@ where
                 vault: self.storage().vault(),
             }))
         }
+    }
+
+    pub(crate) fn collection_encryption_key(&self, collection: &CollectionName) -> Option<&KeyId> {
+        self.schematic()
+            .encryption_key_for_collection(collection)
+            .or_else(|| self.storage().default_encryption_key())
+    }
+
+    pub(crate) fn view_encryption_key(&self, view: &dyn view::Serialized) -> Option<&KeyId> {
+        view.collection()
+            .ok()
+            .and_then(|name| self.collection_encryption_key(&name))
     }
 }
 

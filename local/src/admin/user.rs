@@ -1,7 +1,7 @@
 use pliantdb_core::{
     connection::Connection,
     custodian_password::{ServerFile, ServerRegistration},
-    document::Document,
+    document::{Document, KeyId},
     permissions::Permissions,
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
     Error,
@@ -91,6 +91,10 @@ impl User {
 }
 
 impl Collection for User {
+    fn default_encryption_key() -> Option<KeyId> {
+        Some(KeyId::Master)
+    }
+
     fn collection_name() -> Result<CollectionName, InvalidNameError> {
         CollectionName::new("khonsulabs", "user")
     }

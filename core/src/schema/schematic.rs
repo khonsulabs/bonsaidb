@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{
+    document::KeyId,
     schema::{
         collection::Collection,
         view::{self, Serialized},
@@ -18,6 +19,7 @@ use crate::{
 pub struct Schematic {
     contained_collections: HashSet<CollectionName>,
     collections_by_type_id: HashMap<TypeId, CollectionName>,
+    collection_encryption_keys: HashMap<CollectionName, KeyId>,
     views: HashMap<TypeId, Box<dyn view::Serialized>>,
     views_by_name: HashMap<ViewName, TypeId>,
     views_by_collection: HashMap<CollectionName, Vec<TypeId>>,
@@ -33,6 +35,9 @@ impl Schematic {
         } else {
             self.collections_by_type_id
                 .insert(TypeId::of::<C>(), name.clone());
+            if let Some(key) = C::default_encryption_key() {
+                self.collection_encryption_keys.insert(name.clone(), key);
+            }
             self.contained_collections.insert(name);
             C::define_views(self)
         }
@@ -122,6 +127,12 @@ impl Schematic {
                     .filter_map(|id| self.views.get(id).map(AsRef::as_ref))
                     .collect()
             })
+    }
+
+    /// Returns a collection's default encryption key, if one was defined.
+    #[must_use]
+    pub fn encryption_key_for_collection(&self, collection: &CollectionName) -> Option<&KeyId> {
+        self.collection_encryption_keys.get(collection)
     }
 }
 

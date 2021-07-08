@@ -21,6 +21,7 @@ use pliantdb_core::{
     networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
     permissions::Permissions,
     schema::{Schema, SchemaName, Schematic},
+    PASSWORD_CONFIG,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::task::JoinHandle;
@@ -330,8 +331,11 @@ impl<A: CustomApi> Client<A> {
         password: &str,
         previous_file: Option<ClientFile>,
     ) -> Result<ClientFile, pliantdb_core::Error> {
-        let (login, request) =
-            ClientLogin::login(&ClientConfig::default(), previous_file, password)?;
+        let (login, request) = ClientLogin::login(
+            &ClientConfig::new(PASSWORD_CONFIG, None)?,
+            previous_file,
+            password,
+        )?;
         let response = self.login_with_password(username, request).await?;
         let (new_file, login_finalization, _export_key) = login.finish(response)?;
         self.finish_login_with_password(login_finalization).await?;

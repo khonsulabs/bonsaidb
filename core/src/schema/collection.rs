@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::names::InvalidNameError;
 use crate::{
     connection::Connection,
-    document::{Document, Header},
+    document::{Document, Header, KeyId},
     schema::{CollectionName, Schematic},
     Error,
 };
@@ -23,6 +23,13 @@ pub trait Collection: Debug + Send + Sync {
 
     /// Defines all `View`s in this collection in `schema`.
     fn define_views(schema: &mut Schematic) -> Result<(), Error>;
+
+    /// If a [`KeyId`] is returned, documents will be encrypted with this key if
+    /// no key is specified during creation.
+    #[must_use]
+    fn default_encryption_key() -> Option<KeyId> {
+        None
+    }
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
     async fn get<C: Connection>(
