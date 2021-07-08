@@ -34,7 +34,7 @@ futures = { version="0.3", optional=true }
 tokio = { version="1", features=["time"], optional=true }
 num-traits = "0.2"
 actionable = "0.1.0-dev.3"
-custodian-password = { git="https://github.com/khonsulabs/custodian.git", branch="feature-flag-fixes", default-features=false, features=["blake3"] }
+custodian-password = { git="https://github.com/khonsulabs/custodian.git", branch="main", default-features=false, features=["blake3"] }
 
 [dev-dependencies]
 hex-literal = "0.3"
