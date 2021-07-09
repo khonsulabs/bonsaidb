@@ -1,4 +1,71 @@
 //! Encryption and secret management.
+//!
+//! `PliantDb`'s vault is the core of encryption and secret management. To offer
+//! this security, `PliantDb` relies on external [`VaultKeyStorage`] to provide
+//! the key needed to decrypt the master keys. After the master keys have been
+//! decrypted, the vault is able to function without [`VaultKeyStorage`]. This
+//! design ensures that if a copy of a database was stolen, the data that is
+//! stored at-rest cannot be decrypted without gaining access to
+//! [`VaultKeyStorage`].
+//!
+//! ## At-Rest Encryption
+//!
+//! At-rest encryption only ensures that if the database files are stolen that
+//! an attacker cannot access the data without the encryption key. `PliantDb`
+//! will regularly decrypt data to process it, and while the data is in-memory,
+//! it is subject to the security of the machine running it. If using `PliantDb`
+//! over a network, the network transport layer's encryption is what ensures
+//! your data's safety -- the document is not e
+//!
+//! ### What can't be encrypted?
+//!
+//! #### Schema
+//!
+//! `PliantDb` makes no effort to encrypt or obscure the names of the
+//! collections, views, or databases.
+//!
+//! #### Views
+//!
+//! `PliantDb` offers range-based queries for views. The keys emitted in views
+//! that rely on these range queries cannot be encrypted. This is controlled by
+//! [`View::keys_are_encryptable()`](pliantdb_core::schema::view::View::keys_are_encryptable).
+//! If a view returns true from that function, range queries will return an
+//! error even if encryption isn't enabled. This ensures that if you choose to
+//! enable encryption at a later date, all data that you expect to be encrypted
+//! will be.
+//!
+//! Even if a view doesn't support encrypting keys, the view entries are still
+//! encrypted. This means the values emitted are still encrypted.
+//!
+//! ## Security Best Practices
+//!
+//! ### Vault Key Storage
+//!
+//! In most situations, do not use [`LocalVaultKeyStorage`] in a production
+//! environment. If you store the vault keys on the same disk as the database,
+//! it's similar to hiding a key to your house under your doormat. It might stop
+//! the casual person from entering your house, but give any attacker a few
+//! minutes, and they'll find the key.
+//!
+//! Instead, you should use a storage location that provides authentication and
+//! encryption. Our recommendation for production enviroments is to find an
+//! Amazon S3-compatible storage service and use `S3VaultKeyStorage` (coming
+//! soon). Eventually, other `PliantDb` servers will be able to operate as key
+//! storage for each other.
+//!
+//! ## Encryption Algorithms Used
+//!
+//! `PliantDb` uses the [`hpke`](https://github.com/rozbb/rust-hpke) crate to
+//! provide Hybrid Public Key Encryption (HPKE) when public key encryption is
+//! being used. This is currently only utilized for encrypting the master keys
+//! with the vault key. Our HPKE uses `X25519+HKDF-SHA256+ChaCha20Poly1305`.
+//! Long term, we plan to offer public key encryption APIs on top of these same
+//! choices.
+//!
+//! For at-rest data encryption, the [`AEAD`
+//! `XChaCha20Poly1305`](https://github.com/RustCrypto/AEADs) implementation is
+//! used directly. This variant of `ChaCha20Poly1305` extends the nonce from 12
+//! bytes to 24 bytes, which allows for random nonces to be used.
 
 use std::{
     borrow::Cow,
