@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    schema::{Collection, CollectionName, InvalidNameError, Name, Schematic, View},
+    document::Document,
+    schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
     Error,
 };
 
-/// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::permissions::PermissionGroup)s.
+/// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::admin::PermissionGroup)s.
 #[derive(Debug, Serialize, Deserialize)]
-#[allow(clippy::module_name_repetitions)]
 pub struct Role {
     /// The name of the role. Must be unique.
     pub name: String,
@@ -46,10 +46,7 @@ impl View for ByName {
         Name::new("by-name")
     }
 
-    fn map(
-        &self,
-        document: &crate::document::Document<'_>,
-    ) -> crate::schema::MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let role = document.contents::<Role>()?;
         Ok(Some(document.emit_key(role.name)))
     }

@@ -1,6 +1,27 @@
+use pliantdb_core::document::KeyId;
+
+use crate::vault::AnyVaultKeyStorage;
+
 /// Configuration options for [`Storage`](crate::storage::Storage).
-#[derive(Clone, Default, Debug)]
+#[derive(Debug)]
 pub struct Configuration {
+    /// The unique id of the server. If not specified, the server will randomly
+    /// generate a unique id on startup. If the server generated an id and this
+    /// value is subsequently set, the generated id will be overridden by the
+    /// one specified here.
+    pub unique_id: Option<u64>,
+
+    /// The vault key storage to use. If not specified and running in debug
+    /// mode, [`LocalVaultKeyStorage`](crate::vault::LocalVaultKeyStorage) will
+    /// be used with the server's data folder as the path.
+    pub vault_key_storage: Option<Box<dyn AnyVaultKeyStorage>>,
+
+    /// The default encryption key for the database. If specified, all documents
+    /// will be stored encrypted at-rest using the key specified. Having this
+    /// key specified will also encrypt views. Without this, views will be
+    /// stored unencrypted.
+    pub default_encryption_key: Option<KeyId>,
+
     /// Configuration options related to background tasks.
     pub workers: Tasks,
 
@@ -8,8 +29,20 @@ pub struct Configuration {
     pub views: Views,
 }
 
+impl Default for Configuration {
+    fn default() -> Self {
+        Self {
+            default_encryption_key: None,
+            unique_id: None,
+            vault_key_storage: None,
+            workers: Tasks::default(),
+            views: Views::default(),
+        }
+    }
+}
+
 /// Configujration options for background tasks.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Tasks {
     /// Defines how many workers should be spawned to process tasks. Default
     /// value is `16`.

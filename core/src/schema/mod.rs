@@ -6,7 +6,7 @@ pub mod view;
 use std::fmt::Debug;
 
 pub use self::{
-    collection::Collection,
+    collection::{Collection, CollectionDocument},
     names::{Authority, CollectionName, InvalidNameError, Name, SchemaName, ViewName},
     schematic::Schematic,
     view::{

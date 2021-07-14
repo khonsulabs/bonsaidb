@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use pliantdb_core::schema::{view, InvalidNameError};
 
+use crate::vault;
+
 /// Errors that can occur from interacting with storage.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -25,6 +27,10 @@ pub enum Error {
     #[error("error from view: {0}")]
     View(#[from] view::Error),
 
+    /// An error occurred in the secrets storage layer.
+    #[error("a vault error occurred: {0}")]
+    Vault(#[from] vault::Error),
+
     /// An core error occurred.
     #[error("a core error occurred: {0}")]
     Core(#[from] pliantdb_core::Error),
@@ -46,22 +52,6 @@ impl From<Error> for pliantdb_core::Error {
 impl From<InvalidNameError> for Error {
     fn from(err: InvalidNameError) -> Self {
         Self::Core(pliantdb_core::Error::from(err))
-    }
-}
-
-pub trait ResultExt {
-    type Output;
-    fn map_err_to_core(self) -> Result<Self::Output, pliantdb_core::Error>;
-}
-
-impl<T, E> ResultExt for Result<T, E>
-where
-    E: Into<Error>,
-{
-    type Output = T;
-
-    fn map_err_to_core(self) -> Result<Self::Output, pliantdb_core::Error> {
-        self.map_err(|err| pliantdb_core::Error::Database(err.into().to_string()))
     }
 }
 

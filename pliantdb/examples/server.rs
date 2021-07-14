@@ -2,11 +2,12 @@
 
 use std::{path::Path, time::Duration};
 
-use actionable::Permissions;
 use pliantdb::{
     client::{url::Url, Client},
     core::{
         connection::{Connection, ServerConnection},
+        permissions::Permissions,
+        schema::Collection,
         Error,
     },
     server::{Configuration, Server},
@@ -111,11 +112,7 @@ async fn do_some_database_work<'a, C: Connection>(
             let mut rng = thread_rng();
             rng.gen_range(3..=10)
         };
-        database
-            .collection::<Shape>()
-            .push(&Shape::new(sides))
-            .await
-            .unwrap();
+        Shape::new(sides).insert_into(&database).await?;
     }
 
     println!("Client {} finished", client_name);

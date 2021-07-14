@@ -1,13 +1,17 @@
 use std::{borrow::Cow, marker::PhantomData, ops::Range};
 
 use async_trait::async_trait;
+use custodian_password::{
+    ClientConfig, ClientFile, ClientRegistration, RegistrationFinalization, RegistrationRequest,
+    RegistrationResponse,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::{Document, Header},
+    document::{Document, Header, KeyId},
     schema::{self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName},
     transaction::{self, Command, Operation, OperationResult, Transaction},
-    Error,
+    Error, PASSWORD_CONFIG,
 };
 
 /// Defines all interactions with a [`schema::Schema`], regardless of whether it is local or remote.
@@ -22,12 +26,17 @@ pub trait Connection: Send + Sync {
     }
 
     /// Inserts a newly created document into the connected [`schema::Schema`] for the [`Collection`] `C`.
-    async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error> {
+    async fn insert<C: schema::Collection>(
+        &self,
+        contents: Vec<u8>,
+        encryption_key: Option<KeyId>,
+    ) -> Result<Header, Error> {
         let mut tx = Transaction::default();
         tx.push(Operation {
             collection: C::collection_name()?,
             command: Command::Insert {
                 contents: Cow::from(contents),
+                encryption_key,
             },
         });
         let results = self.apply_transaction(tx).await?;
@@ -188,7 +197,21 @@ where
     /// Adds a new `Document<Cl>` with the contents `item`.
     pub async fn push<S: Serialize + Sync>(&self, item: &S) -> Result<Header, crate::Error> {
         let contents = serde_cbor::to_vec(item)?;
-        Ok(self.connection.insert::<Cl>(contents).await?)
+        Ok(self.connection.insert::<Cl>(contents, None).await?)
+    }
+
+    /// Adds a new `Document<Cl>` with the contents `item`. Encrypts the
+    /// document using `encryption_key`.
+    pub async fn push_encrypted<S: Serialize + Sync>(
+        &self,
+        item: &S,
+        encryption_key: KeyId,
+    ) -> Result<Header, crate::Error> {
+        let contents = serde_cbor::to_vec(item)?;
+        Ok(self
+            .connection
+            .insert::<Cl>(contents, Some(encryption_key))
+            .await?)
     }
 
     /// Retrieves a `Document<Cl>` with `id` from the connection.
@@ -385,7 +408,6 @@ pub enum AccessPolicy {
 }
 
 /// Functions for interacting with a multi-database `PliantDb` instance.
-#[allow(clippy::module_name_repetitions)]
 #[async_trait]
 pub trait ServerConnection: Send + Sync {
     /// Creates a database named `name` with the `Schema` provided.
@@ -430,6 +452,42 @@ pub trait ServerConnection: Send + Sync {
 
     /// Lists the [`SchemaName`]s on this server.
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, crate::Error>;
+
+    /// Creates a user.
+    async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
+
+    /// Sets a user's password using `custodian-password` to register a password using `OPAQUE-PAKE`.
+    async fn set_user_password(
+        &self,
+        username: &str,
+        password_request: RegistrationRequest,
+    ) -> Result<RegistrationResponse, crate::Error>;
+
+    /// Finishes setting a user's password by finishing the `OPAQUE-PAKE`
+    /// registration.
+    async fn finish_set_user_password(
+        &self,
+        username: &str,
+        password_finalization: RegistrationFinalization,
+    ) -> Result<(), crate::Error>;
+
+    /// Sets a user's password with the provided string. The password provided
+    /// will never leave the machine that is calling this function. Internally
+    /// uses `set_user_password` and `finish_set_user_password` in conjunction
+    /// with `custodian-password`.
+    async fn set_user_password_str(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<ClientFile, crate::Error> {
+        let (registration, request) =
+            ClientRegistration::register(&ClientConfig::new(PASSWORD_CONFIG, None)?, password)?;
+        let response = self.set_user_password(username, request).await?;
+        let (file, finalization, _export_key) = registration.finish(response)?;
+        self.finish_set_user_password(username, finalization)
+            .await?;
+        Ok(file)
+    }
 }
 
 /// A database on a server.

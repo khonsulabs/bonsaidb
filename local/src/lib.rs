@@ -5,7 +5,6 @@
     clippy::cargo,
     missing_docs,
     // clippy::missing_docs_in_private_items,
-    clippy::nursery,
     clippy::pedantic,
     future_incompatible,
     rust_2018_idioms,
@@ -14,9 +13,9 @@
 #![allow(
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
+    clippy::module_name_repetitions,
 )]
 
-mod admin;
 /// Configuration options.
 pub mod config;
 mod database;
@@ -24,6 +23,7 @@ mod error;
 mod open_trees;
 mod storage;
 mod tasks;
+pub mod vault;
 mod views;
 
 #[doc(inline)]

@@ -15,6 +15,7 @@
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::missing_panics_doc, // TODO clippy::missing_panics_doc
     clippy::option_if_let_else,
+    clippy::module_name_repetitions,
 )]
 
 mod async_io_util;
@@ -31,7 +32,7 @@ pub use server::ServerSubscriber;
 
 pub use self::{
     backend::Backend,
-    config::Configuration,
+    config::{Configuration, StorageConfiguration},
     error::Error,
     server::{ConnectedClient, CustomServer, Server, ServerDatabase, Transport},
 };

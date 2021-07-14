@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::{marker::PhantomData, ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
 use pliantdb_core::{
@@ -29,6 +29,21 @@ pub struct RemoteDatabase<DB: Schema, A: CustomApi = ()> {
     name: Arc<String>,
     schema: Arc<Schematic>,
     _phantom: PhantomData<DB>,
+}
+impl<DB: Schema, A: CustomApi> RemoteDatabase<DB, A> {
+    /// Returns the name of the database.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.name.as_ref()
+    }
+}
+
+impl<DB: Schema, A: CustomApi> Deref for RemoteDatabase<DB, A> {
+    type Target = Client<A>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
 }
 
 impl<DB: Schema, A: CustomApi> Clone for RemoteDatabase<DB, A> {

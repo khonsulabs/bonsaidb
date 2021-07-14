@@ -14,12 +14,14 @@
 #![allow(
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
+    clippy::module_name_repetitions,
 )]
-pub use num_traits;
 
 /// Types for creating and validating permissions.
 pub mod permissions;
 
+/// Database administration types and functionality.
+pub mod admin;
 /// Types for interacting with `PliantDb`.
 pub mod connection;
 /// Types for interacting with `Document`s.
@@ -44,9 +46,13 @@ pub mod networking;
 #[cfg(feature = "pubsub")]
 /// Types for Publish/Subscribe (`PubSub`) messaging.
 pub mod pubsub;
+
 #[cfg(feature = "pubsub")]
 pub use circulate;
-use schema::{CollectionName, SchemaName, ViewName};
+pub use custodian_password;
+use custodian_password::{Config, Group, Hash, SlowHash};
+pub use num_traits;
+use schema::{view, CollectionName, SchemaName, ViewName};
 use serde::{Deserialize, Serialize};
 
 /// an enumeration of errors that this crate can produce
@@ -68,12 +74,12 @@ pub enum Error {
         stored_schema: SchemaName,
     },
 
-    /// The [`SchemaName`] returned has already been registered with this server.
+    /// The [`SchemaName`] returned has already been registered.
     #[error("schema '{0}' was already registered")]
     SchemaAlreadyRegistered(SchemaName),
 
-    /// The [`SchemaName`] requested was not registered with this server.
-    #[error("schema '{0}' is not registered with this server")]
+    /// The [`SchemaName`] requested was not registered.
+    #[error("schema '{0}' is not registered")]
     SchemaNotRegistered(SchemaName),
 
     /// An invalid database name was specified. See
@@ -128,6 +134,10 @@ pub enum Error {
     #[error("attempted to access a collection not registered with this schema")]
     CollectionNotFound,
 
+    /// A `Collection` being added already exists. This can be caused by a collection name not being unique.
+    #[error("attempted to define a collection that already has been defined")]
+    CollectionAlreadyDefined,
+
     /// An attempt to update a document that doesn't exist.
     #[error("the requested document id {1} from collection {0} was not found")]
     DocumentNotFound(CollectionName, u64),
@@ -154,6 +164,20 @@ pub enum Error {
     /// Permission was denied.
     #[error("permission error: {0}")]
     PermissionDenied(#[from] actionable::PermissionDenied),
+
+    /// An internal error handling passwords was encountered.
+    #[error("error with password: {0}")]
+    Password(String),
+
+    /// The user specified was not found. This will not be returned in response
+    /// to an invalid username being used during login. It will be returned in
+    /// other APIs that operate upon users.
+    #[error("user not found")]
+    UserNotFound,
+
+    /// The credentials specified are not valid.
+    #[error("invalid credentials")]
+    InvalidCredentials,
 }
 
 impl From<serde_cbor::Error> for Error {
@@ -162,7 +186,23 @@ impl From<serde_cbor::Error> for Error {
     }
 }
 
+impl From<view::Error> for Error {
+    fn from(err: view::Error) -> Self {
+        Self::Database(err.to_string())
+    }
+}
+
 /// Shared schemas and utilities used for unit testing.
 #[cfg(any(feature = "test-util", test))]
 #[allow(missing_docs)]
 pub mod test_util;
+
+impl From<custodian_password::Error> for Error {
+    fn from(err: custodian_password::Error) -> Self {
+        Self::Password(err.to_string())
+    }
+}
+
+/// The configuration used for `OPAQUE` password authentication.
+pub const PASSWORD_CONFIG: Config =
+    Config::new(Group::Ristretto255, Hash::Blake3, SlowHash::Argon2id);

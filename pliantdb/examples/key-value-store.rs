@@ -13,7 +13,7 @@ use pliantdb_local::{config::Configuration, Database};
 async fn main() -> anyhow::Result<()> {
     let db = Database::<()>::open_local(
         "key-value-store.pliantdb",
-        &Configuration::default(),
+        Configuration::default(),
     )
     .await?;
 

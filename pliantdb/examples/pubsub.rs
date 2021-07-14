@@ -8,11 +8,9 @@ use tokio::time::sleep;
 async fn main() -> anyhow::Result<()> {
     // This example is using a database with no collections, because PubSub is a
     // system independent of the data stored in the database.
-    let db = Database::<()>::open_local(
-        "pubsub.pliantdb",
-        &Configuration::default(),
-    )
-    .await?;
+    let db =
+        Database::<()>::open_local("pubsub.pliantdb", Configuration::default())
+            .await?;
 
     let subscriber = db.create_subscriber().await?;
     // Subscribe for messages sent to the topic "pong"

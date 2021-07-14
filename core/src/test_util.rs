@@ -4,6 +4,7 @@ use std::{
     borrow::Cow,
     fmt::{Debug, Display},
     io::ErrorKind,
+    ops::Deref,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -12,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     connection::{AccessPolicy, Connection, ServerConnection},
-    document::Document,
+    document::{Document, KeyId},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
         view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name, Schema,
@@ -21,7 +22,7 @@ use crate::{
     Error,
 };
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
 pub struct Basic {
     pub value: String,
     pub category: Option<String>,
@@ -260,6 +261,14 @@ impl AsRef<Path> for TestDirectory {
     }
 }
 
+impl Deref for TestDirectory {
+    type Target = PathBuf;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Debug)]
 pub struct BasicCollectionWithNoViews;
 
@@ -313,6 +322,7 @@ pub enum HarnessTest {
     UnassociatedCollection,
     ViewUpdate,
     ViewAccessPolicies,
+    Encryption,
     UniqueViews,
     PubSubSimple,
     PubSubMultipleSubscribers,
@@ -477,6 +487,66 @@ macro_rules! define_connection_test_suite {
             $crate::test_util::unique_view_tests(&db).await?;
             harness.shutdown().await
         }
+
+        #[tokio::test]
+        async fn encryption_keys() -> anyhow::Result<()> {
+            use $crate::{
+                document::KeyId,
+                permissions::{
+                    pliant::{
+                        collection_resource_name, encryption_key_resource_name, EncryptionKeyAction,
+                    },
+                    Action, ActionNameList, Identifier, Permissions, Statement,
+                },
+                schema::Collection,
+                test_util::Basic,
+            };
+
+            let harness = $harness::new($crate::test_util::HarnessTest::Encryption).await?;
+            let reader = harness
+                .connect_with_permissions(
+                    vec![
+                        // Grant permissions to decrypt using the master key.
+                        Statement {
+                            resources: vec![encryption_key_resource_name(&KeyId::Master)],
+                            actions: ActionNameList::from(EncryptionKeyAction::Decrypt.name()),
+                        },
+                        // Grant all document permissions
+                        Statement {
+                            resources: vec![collection_resource_name(
+                                Identifier::Any,
+                                &Basic::collection_name()?,
+                            )],
+                            actions: ActionNameList::All,
+                        },
+                    ],
+                    "reader",
+                )
+                .await?;
+            let writer = harness
+                .connect_with_permissions(
+                    vec![
+                        // Grant permissions to decrypt using the master key.
+                        Statement {
+                            resources: vec![encryption_key_resource_name(&KeyId::Master)],
+                            actions: ActionNameList::from(EncryptionKeyAction::Encrypt.name()),
+                        },
+                        // Grant All document permissions
+                        Statement {
+                            resources: vec![collection_resource_name(
+                                Identifier::Any,
+                                &Basic::collection_name()?,
+                            )],
+                            actions: ActionNameList::All,
+                        },
+                    ],
+                    "writer",
+                )
+                .await?;
+
+            $crate::test_util::encryption_tests(&reader, &writer).await?;
+            harness.shutdown().await
+        }
     };
 }
 
@@ -536,6 +606,13 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     );
     assert_eq!(transaction.changed_documents[0].id, header.id);
     assert!(transaction.changed_documents[0].deleted);
+
+    // Use the Collection interface
+    let mut doc = original_value.clone().insert_into(db).await?;
+    doc.contents.category = Some(String::from("updated"));
+    doc.update(db).await?;
+    let reloaded = Basic::get(doc.header.id, db).await?.unwrap();
+    assert_eq!(doc.contents, reloaded.contents);
 
     Ok(())
 }
@@ -942,6 +1019,37 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         assert_eq!(conflicting_document_id, second_doc.header.id);
     } else {
         unreachable!("unique key violation not triggered")
+    }
+
+    Ok(())
+}
+
+pub async fn encryption_tests<C: Connection>(reader: &C, writer: &C) -> anyhow::Result<()> {
+    // Positive flows -- writer can write, reader can read
+    let document_header = writer
+        .collection::<Basic>()
+        .push_encrypted(&Basic::new("encrypted"), KeyId::Master)
+        .await?;
+
+    reader
+        .get::<Basic>(document_header.id)
+        .await
+        .expect("reader unable to get document")
+        .expect("document not found");
+
+    // Negative flows -- writer can't read, reader can't write
+    match reader
+        .collection::<Basic>()
+        .push_encrypted(&Basic::new("encrypted"), KeyId::Master)
+        .await
+    {
+        Err(Error::PermissionDenied(_)) => {}
+        other => panic!("unexpected response from reader: {:?}", other),
+    }
+
+    match writer.get::<Basic>(document_header.id).await {
+        Err(Error::PermissionDenied(_)) => {}
+        other => panic!("unexpected response from writer: {:?}", other),
     }
 
     Ok(())
@@ -1358,8 +1466,15 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(
     server: C,
     newdb_name: &str,
 ) -> anyhow::Result<()> {
-    let schemas = server.list_available_schemas().await?;
-    assert_eq!(schemas, vec![Basic::schema_name()?]);
+    let mut schemas = server.list_available_schemas().await?;
+    schemas.sort();
+    assert_eq!(
+        schemas,
+        vec![
+            Basic::schema_name()?,
+            SchemaName::new("khonsulabs", "pliantdb-admin")?
+        ]
+    );
 
     let databases = server.list_databases().await?;
     assert!(databases.contains(&crate::connection::Database {

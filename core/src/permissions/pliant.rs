@@ -6,12 +6,16 @@
     all(doc, not(all(feature = "keyvalue", feature = "pubsub"))),
     warn(broken_intra_doc_links)
 )]
-use actionable::{Action, ResourceName};
+use actionable::{Action, Identifier, ResourceName};
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{CollectionName, ViewName};
+use crate::{
+    document::KeyId,
+    schema::{CollectionName, ViewName},
+};
 
-/// Creates a resource name with the database `name`.
+/// The base `PliantDb` resource namespace. All database objects have this as
+/// their first name segment.
 #[must_use]
 pub fn pliantdb_resource_name<'a>() -> ResourceName<'a> {
     ResourceName::named("pliantdb")
@@ -19,15 +23,15 @@ pub fn pliantdb_resource_name<'a>() -> ResourceName<'a> {
 
 /// Creates a resource name with the database `name`.
 #[must_use]
-pub fn database_resource_name(name: &'_ str) -> ResourceName<'_> {
+pub fn database_resource_name<'a>(name: impl Into<Identifier<'a>>) -> ResourceName<'a> {
     pliantdb_resource_name().and(name)
 }
 
 /// Creates a resource name for a `collection` within a `database`.
 #[must_use]
 pub fn collection_resource_name<'a>(
-    database: &'a str,
-    collection: &'a CollectionName,
+    database: impl Into<Identifier<'a>>,
+    collection: &CollectionName,
 ) -> ResourceName<'a> {
     database_resource_name(database).and(collection.to_string())
 }
@@ -35,8 +39,8 @@ pub fn collection_resource_name<'a>(
 /// Creates a resource name for a document `id` within `collection` within `database`.
 #[must_use]
 pub fn document_resource_name<'a>(
-    database: &'a str,
-    collection: &'a CollectionName,
+    database: impl Into<Identifier<'a>>,
+    collection: &CollectionName,
     id: u64,
 ) -> ResourceName<'a> {
     collection_resource_name(database, collection)
@@ -72,10 +76,27 @@ pub fn kv_key_resource_name<'a>(
         .and(key)
 }
 
+/// Creates a resource name for encryption key `key_id`.
+#[must_use]
+pub fn encryption_key_resource_name(key_id: &KeyId) -> ResourceName<'_> {
+    pliantdb_resource_name()
+        .and("vault")
+        .and("key")
+        .and(match key_id {
+            KeyId::Master => "_master",
+            KeyId::Id(id) => id.as_ref(),
+            KeyId::None => unreachable!(),
+        })
+}
+
+/// Creates a resource name for the user with `username`.
+#[must_use]
+pub fn user_resource_name<'a, I: Into<Identifier<'a>>>(username: I) -> ResourceName<'a> {
+    pliantdb_resource_name().and("user").and(username)
+}
+
 /// Actions that can be permitted within `PliantDb`.
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
-// Naming by choice despite clippy: without the prefix it would conflict with a common include from the parent module.
-#[allow(clippy::module_name_repetitions)]
 pub enum PliantAction {
     /// Actions that operate on a server
     Server(ServerAction),
@@ -100,6 +121,12 @@ pub enum ServerAction {
     CreateDatabase,
     /// Permits [`ServerConnection::delete_database`](crate::connection::ServerConnection::delete_database).
     DeleteDatabase,
+    /// Permits [`ServerConnection::create_user`](crate::connection::ServerConnection::create_user).
+    CreateUser,
+    /// Permits [`ServerConnection::set_user_password`](crate::connection::ServerConnection::set_user_password).
+    SetPassword,
+    /// Permits the ability to log in with a password.
+    LoginWithPassword,
 }
 
 /// Actions that operate on a specific database.
@@ -203,4 +230,13 @@ pub enum KvAction {
     /// [`Kv::execute_key_operation()`](crate::kv::Kv::execute_key_operation).
     /// See [`kv_key_resource_name()`] for the format of key resource names.
     ExecuteOperation,
+}
+
+/// Actions that use encryption keys.
+#[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
+pub enum EncryptionKeyAction {
+    /// Uses a key to encrypt data.
+    Encrypt,
+    /// Uses a key to decrypt data.
+    Decrypt,
 }

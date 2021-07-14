@@ -2,7 +2,6 @@ use std::time::SystemTime;
 
 use pliantdb::{
     core::{
-        connection::Connection,
         schema::{Collection, CollectionName, InvalidNameError, Schematic},
         Error,
     },
@@ -30,35 +29,33 @@ impl Collection for Message {
 async fn main() -> anyhow::Result<()> {
     let db = Database::<Message>::open_local(
         "basic.pliantdb",
-        &Configuration::default(),
+        Configuration::default(),
     )
     .await?;
 
-    // Insert a new `Message` into the collection. The `push()` method used
-    // below is made available through the `Connection` trait. While this
-    // example is connecting to a locally-stored database, with `PliantDb` all
-    // database access is made through this single trait so that your code
-    // doesn't need to change if you migrate from a local database to a remote
-    // database -- just change how you establish your connection.
-    let new_doc_info = db
-        .collection::<Message>()
-        .push(&Message {
-            contents: String::from("Hello, World!"),
-            timestamp: SystemTime::now(),
-        })
-        .await?;
+    // Insert a new `Message` into the database. `Message` is a `Collection`
+    // implementor, which makes them act in a similar fashion to tables in other
+    // databases. `PliantDb` stores each "row" as a `Document`. This document
+    // will have a unique ID, some other metadata, and your stored value. In
+    // this case, `Message` implements `Serialize` and `Deserialize`, so we can
+    // use convenience methods that return a `CollectionDocument`, moving all
+    // needs of serialization behind the scenes.
+    let document = Message {
+        contents: String::from("Hello, World!"),
+        timestamp: SystemTime::now(),
+    }
+    .insert_into(&db)
+    .await?;
 
-    // Retrieve the message using the id returned from the previous call
-    let message = db
-        .collection::<Message>()
-        .get(new_doc_info.id)
+    // Retrieve the message using the id returned from the previous call. both
+    // `document` and `message_doc` should be identical.
+    let message_doc = Message::get(document.header.id, &db)
         .await?
-        .expect("couldn't retrieve stored item")
-        .contents::<Message>()?;
+        .expect("couldn't retrieve stored item");
 
     println!(
-        "Inserted message '{}' with id {}",
-        message.contents, new_doc_info.id
+        "Inserted message '{:?}' with id {}",
+        message_doc.contents, message_doc.header.id
     );
 
     Ok(())

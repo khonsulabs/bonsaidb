@@ -6,7 +6,7 @@ use pliantdb_core::{
 use serde::{Deserialize, Serialize};
 use sled::{CompareAndSwapError, IVec};
 
-use crate::{error::ResultExt as _, storage::kv::ExpirationUpdate, Database};
+use crate::{storage::kv::ExpirationUpdate, Database, Error};
 
 #[derive(Serialize, Deserialize)]
 pub struct Entry {
@@ -92,7 +92,7 @@ fn execute_set_operation<DB: Schema>(
         .storage
         .sled()
         .open_tree(tree_name.as_bytes())
-        .map_err_to_core()?;
+        .map_err(Error::from)?;
 
     let mut entry = Entry { value, expiration };
     let mut inserted = false;
@@ -111,10 +111,6 @@ fn execute_set_operation<DB: Schema>(
                     if let Ok(previous_entry) =
                         bincode::deserialize::<Entry>(existing_value.unwrap())
                     {
-                        println!(
-                            "updated expiration for key {:?}: {:?}",
-                            key, previous_entry.expiration
-                        );
                         entry.expiration = previous_entry.expiration;
                     }
                 }
@@ -130,7 +126,7 @@ fn execute_set_operation<DB: Schema>(
                 existing_value.map(IVec::from)
             }
         })
-        .map_err_to_core()?;
+        .map_err(Error::from)?;
 
     if updated {
         db.data.storage.update_key_expiration(ExpirationUpdate {
@@ -167,9 +163,9 @@ fn execute_get_operation<DB: Schema>(
         .storage
         .sled()
         .open_tree(tree_name.as_bytes())
-        .map_err_to_core()?;
+        .map_err(Error::from)?;
     let entry = if delete {
-        let entry = tree.remove(key.as_bytes()).map_err_to_core()?;
+        let entry = tree.remove(key.as_bytes()).map_err(Error::from)?;
         if entry.is_some() {
             db.data.storage.update_key_expiration(ExpirationUpdate {
                 tree_key: TreeKey::new(&db.data.name, tree_name, key.to_string()),
@@ -178,13 +174,13 @@ fn execute_get_operation<DB: Schema>(
         }
         entry
     } else {
-        tree.get(key.as_bytes()).map_err_to_core()?
+        tree.get(key.as_bytes()).map_err(Error::from)?
     };
 
     let entry = entry
         .map(|e| bincode::deserialize::<Entry>(&e))
         .transpose()
-        .map_err_to_core()?
+        .map_err(Error::from)?
         .map(|e| e.value);
     Ok(Output::Value(entry))
 }
@@ -199,8 +195,8 @@ fn execute_delete_operation<DB: Schema>(
         .storage
         .sled()
         .open_tree(tree_name.as_bytes())
-        .map_err_to_core()?;
-    let value = tree.remove(&key).map_err_to_core()?;
+        .map_err(Error::from)?;
+    let value = tree.remove(&key).map_err(Error::from)?;
     if value.is_some() {
         db.data.storage.update_key_expiration(ExpirationUpdate {
             tree_key: TreeKey::new(&db.data.name, tree_name, key),
@@ -246,15 +242,15 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
         .storage
         .sled()
         .open_tree(tree_name.as_bytes())
-        .map_err_to_core()?;
+        .map_err(Error::from)?;
 
-    let mut current = tree.get(key).map_err_to_core()?;
+    let mut current = tree.get(key).map_err(Error::from)?;
     loop {
         let existing_value = current
             .as_ref()
             .map(|current| bincode::deserialize::<Value>(current))
             .transpose()
-            .map_err_to_core()?
+            .map_err(Error::from)?
             .unwrap_or(Value::Numeric(Numeric::UnsignedInteger(0)));
 
         match existing_value {
@@ -264,7 +260,7 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
                     IVec::from(bincode::serialize(&Value::Numeric(result.clone())).unwrap());
                 match tree
                     .compare_and_swap(key, current, Some(result_bytes))
-                    .map_err_to_core()?
+                    .map_err(Error::from)?
                 {
                     Ok(_) => return Ok(Output::Value(Some(Value::Numeric(result)))),
                     Err(CompareAndSwapError { current: cur, .. }) => {

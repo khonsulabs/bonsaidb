@@ -14,9 +14,14 @@ use async_trait::async_trait;
 use flume::Sender;
 use pliantdb_core::{
     connection::{Database, ServerConnection},
+    custodian_password::{
+        ClientConfig, ClientFile, ClientLogin, LoginFinalization, LoginRequest, LoginResponse,
+    },
     custom_api::CustomApi,
     networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
+    permissions::Permissions,
     schema::{Schema, SchemaName, Schematic},
+    PASSWORD_CONFIG,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::task::JoinHandle;
@@ -70,6 +75,7 @@ pub struct Data<A: CustomApi> {
     request_sender: Sender<BackendPendingRequest<A>>,
     #[cfg(not(target_arch = "wasm32"))]
     worker: CancellableHandle<Result<(), Error>>,
+    effective_permissions: Mutex<Option<Permissions>>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     request_id: AtomicU32,
     #[cfg(feature = "pubsub")]
@@ -163,6 +169,7 @@ impl<A: CustomApi> Client<A> {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                effective_permissions: Mutex::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -199,6 +206,7 @@ impl<A: CustomApi> Client<A> {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                effective_permissions: Mutex::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -237,6 +245,7 @@ impl<A: CustomApi> Client<A> {
                 },
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
+                effective_permissions: Mutex::default(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
@@ -265,6 +274,72 @@ impl<A: CustomApi> Client<A> {
             name.to_string(),
             schematic,
         ))
+    }
+
+    /// Logs in as a user with a password, using `custodian-password` to login using `OPAQUE-PAKE`.
+    pub async fn login_with_password(
+        &self,
+        username: &str,
+        login_request: LoginRequest,
+    ) -> Result<LoginResponse, pliantdb_core::Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::LoginWithPassword {
+                username: username.to_string(),
+                login_request,
+            }))
+            .await?
+        {
+            Response::Server(ServerResponse::PasswordLoginResponse { response }) => Ok(*response),
+            Response::Error(err) => Err(err),
+            other => Err(pliantdb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    /// Finishes setting a user's password by finishing the `OPAQUE-PAKE`
+    /// login.
+    pub async fn finish_login_with_password(
+        &self,
+        login_finalization: LoginFinalization,
+    ) -> Result<(), pliantdb_core::Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::FinishPasswordLogin {
+                login_finalization,
+            }))
+            .await?
+        {
+            Response::Server(ServerResponse::LoggedIn { permissions }) => {
+                let mut effective_permissions = self.data.effective_permissions.lock().await;
+                *effective_permissions = Some(permissions);
+                Ok(())
+            }
+            Response::Error(err) => Err(err),
+            other => Err(pliantdb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    /// Authenticates as a user with a provided password. The password provided
+    /// will never leave the machine that is calling this function. Internally
+    /// uses `login_with_password` and `finish_login_with_password` in
+    /// conjunction with `custodian-password`.
+    pub async fn login_with_password_str(
+        &self,
+        username: &str,
+        password: &str,
+        previous_file: Option<ClientFile>,
+    ) -> Result<ClientFile, pliantdb_core::Error> {
+        let (login, request) = ClientLogin::login(
+            &ClientConfig::new(PASSWORD_CONFIG, None)?,
+            previous_file,
+            password,
+        )?;
+        let response = self.login_with_password(username, request).await?;
+        let (new_file, login_finalization, _export_key) = login.finish(response)?;
+        self.finish_login_with_password(login_finalization).await?;
+        Ok(new_file)
     }
 
     async fn send_request(
@@ -296,6 +371,13 @@ impl<A: CustomApi> Client<A> {
                 format!("{:?}", other),
             ))),
         }
+    }
+
+    /// Returns the current effective permissions for the client. Returns None
+    /// if unauthenticated.
+    pub async fn effective_permissions(&self) -> Option<Permissions> {
+        let effective_permissions = self.data.effective_permissions.lock().await;
+        effective_permissions.clone()
     }
 
     #[cfg(feature = "test-util")]
@@ -381,6 +463,63 @@ impl ServerConnection for Client {
             .await?
         {
             Response::Server(ServerResponse::AvailableSchemas(schemas)) => Ok(schemas),
+            Response::Error(err) => Err(err),
+            other => Err(pliantdb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn create_user(&self, username: &str) -> Result<u64, pliantdb_core::Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::CreateUser {
+                username: username.to_string(),
+            }))
+            .await?
+        {
+            Response::Server(ServerResponse::UserCreated { id }) => Ok(id),
+            Response::Error(err) => Err(err),
+            other => Err(pliantdb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn set_user_password(
+        &self,
+        username: &str,
+        password_request: pliantdb_core::custodian_password::RegistrationRequest,
+    ) -> Result<pliantdb_core::custodian_password::RegistrationResponse, pliantdb_core::Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::SetPassword {
+                username: username.to_string(),
+                password_request,
+            }))
+            .await?
+        {
+            Response::Server(ServerResponse::FinishSetPassword { password_reponse }) => {
+                Ok(*password_reponse)
+            }
+            Response::Error(err) => Err(err),
+            other => Err(pliantdb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn finish_set_user_password(
+        &self,
+        username: &str,
+        password_finalization: pliantdb_core::custodian_password::RegistrationFinalization,
+    ) -> Result<(), pliantdb_core::Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::FinishSetPassword {
+                username: username.to_string(),
+                password_finalization,
+            }))
+            .await?
+        {
+            Response::Ok => Ok(()),
             Response::Error(err) => Err(err),
             other => Err(pliantdb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),

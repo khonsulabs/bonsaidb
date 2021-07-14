@@ -3,6 +3,8 @@ use std::time::Duration;
 use config::Configuration;
 use pliantdb_core::{
     connection::{AccessPolicy, Connection, ServerConnection},
+    document::KeyId,
+    permissions::{Permissions, Statement},
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
         BasicCollectionWithOnlyBrokenParentId, BasicSchema, HarnessTest, TestDirectory,
@@ -20,7 +22,7 @@ struct TestHarness {
 impl TestHarness {
     async fn new(test: HarnessTest) -> anyhow::Result<Self> {
         let directory = TestDirectory::new(format!("local-{}", test));
-        let storage = Storage::open_local(&directory, &Configuration::default()).await?;
+        let storage = Storage::open_local(&directory, Configuration::default()).await?;
         storage.register_schema::<BasicSchema>().await?;
         storage.create_database::<BasicSchema>("tests").await?;
         let db = storage.database("tests").await?;
@@ -37,6 +39,16 @@ impl TestHarness {
 
     fn server(&self) -> &'_ Storage {
         self.db.storage()
+    }
+
+    async fn connect_with_permissions(
+        &self,
+        permissions: Vec<Statement>,
+        _label: &str,
+    ) -> anyhow::Result<Database<BasicSchema>> {
+        Ok(self
+            .db
+            .with_effective_permissions(Permissions::from(permissions)))
     }
 
     async fn connect(&self) -> anyhow::Result<Database<BasicSchema>> {
@@ -70,7 +82,7 @@ fn integrity_checks() -> anyhow::Result<()> {
             {
                 let db = Database::<BasicCollectionWithNoViews>::open_local(
                     &path,
-                    &Configuration::default(),
+                    Configuration::default(),
                 )
                 .await?;
                 let collection = db.collection::<BasicCollectionWithNoViews>();
@@ -89,7 +101,7 @@ fn integrity_checks() -> anyhow::Result<()> {
         rt.block_on(async {
             let db = Database::<BasicCollectionWithOnlyBrokenParentId>::open_local(
                 &path,
-                &Configuration::default(),
+                Configuration::default(),
             )
             .await?;
             // Give the integrity scanner time to run if it were to run (it shouldn't in this configuration).
@@ -120,7 +132,7 @@ fn integrity_checks() -> anyhow::Result<()> {
         rt.block_on(async {
             let db = Database::<Basic>::open_local(
                 &path,
-                &Configuration {
+                Configuration {
                     views: config::Views {
                         check_integrity_on_open: true,
                     },
@@ -152,6 +164,61 @@ fn integrity_checks() -> anyhow::Result<()> {
 }
 
 #[test]
+fn encryption() -> anyhow::Result<()> {
+    let path = TestDirectory::new("encryption");
+    let document_header = {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async {
+            let db = Database::<Basic>::open_local(&path, Configuration::default()).await?;
+
+            let document_header = db
+                .collection::<Basic>()
+                .push_encrypted(&Basic::new("hello"), KeyId::Master)
+                .await?;
+
+            // Retrieve the document, showing that it was stored successfully.
+            let doc = db
+                .collection::<Basic>()
+                .get(document_header.id)
+                .await?
+                .expect("doc not found");
+            assert_eq!(&doc.contents::<Basic>()?.value, "hello");
+
+            Result::<_, anyhow::Error>::Ok(document_header)
+        })?
+    };
+
+    // Verify the header shows that it's encrypted.
+    assert!(matches!(
+        document_header.encryption_key,
+        Some(KeyId::Master)
+    ));
+
+    // By resetting the encryption key, we should be able to force an error in
+    // decryption, which proves that the document was encrypted. To ensure the
+    // server starts up and generates a new key, we must delete the sealing key.
+    std::fs::remove_file(path.join("master-keys"))?;
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async move {
+        let db = Database::<Basic>::open_local(&path, Configuration::default()).await?;
+
+        // Try retrieving the document, but expect an error decrypting.
+        if let Err(pliantdb_core::Error::Database(err)) =
+            db.collection::<Basic>().get(document_header.id).await
+        {
+            assert!(err.contains("vault"))
+        } else {
+            panic!("successfully retrieved encrypted document without keys")
+        }
+
+        Result::<_, anyhow::Error>::Ok(())
+    })?;
+
+    Ok(())
+}
+
+#[test]
 #[cfg(feature = "keyvalue")]
 fn expiration_after_close() -> anyhow::Result<()> {
     use pliantdb_core::{kv::Kv, test_util::TimingTest};
@@ -164,7 +231,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
-                let db = Database::<()>::open_local(&path, &Configuration::default()).await?;
+                let db = Database::<()>::open_local(&path, Configuration::default()).await?;
 
                 db.set_key("a", &0_u32)
                     .expire_in(Duration::from_secs(3))
@@ -177,7 +244,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             let retry = rt.block_on(async {
-                let db = Database::<()>::open_local(&path, &Configuration::default()).await?;
+                let db = Database::<()>::open_local(&path, Configuration::default()).await?;
 
                 if timing.elapsed() > Duration::from_secs(1) {
                     return Ok(true);

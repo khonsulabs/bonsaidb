@@ -1,11 +1,12 @@
 use pliantdb_core::permissions::Permissions;
+pub use pliantdb_local::config::Configuration as StorageConfiguration;
 
 /// Configuration options for [`Server`](crate::Server)
 pub struct Configuration {
     /// Number of simultaneous requests to be processed. Default value is 16.
     pub request_workers: usize,
     /// Configuration options for individual databases.
-    pub storage: pliantdb_local::config::Configuration,
+    pub storage: StorageConfiguration,
     /// The permissions granted to all connections to this server.
     pub default_permissions: Permissions,
 }

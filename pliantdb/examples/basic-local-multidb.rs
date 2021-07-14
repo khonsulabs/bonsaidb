@@ -29,8 +29,7 @@ impl Collection for Message {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let storage =
-        Storage::open_local("basic.pliantdb", &Configuration::default())
-            .await?;
+        Storage::open_local("basic.pliantdb", Configuration::default()).await?;
     // Before you can create a database, you must register the schema you're
     // wanting to use.
     storage.register_schema::<Message>().await?;
@@ -53,13 +52,12 @@ async fn insert_a_message<C: Connection>(
     connection: &C,
     value: &str,
 ) -> anyhow::Result<()> {
-    connection
-        .collection::<Message>()
-        .push(&Message {
-            contents: String::from(value),
-            timestamp: SystemTime::now(),
-        })
-        .await?;
+    Message {
+        contents: String::from(value),
+        timestamp: SystemTime::now(),
+    }
+    .insert_into(connection)
+    .await?;
     Ok(())
 }
 // ANCHOR_END: reusable-code

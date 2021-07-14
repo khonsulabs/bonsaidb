@@ -23,7 +23,7 @@ keyvalue = ["pliantdb-core/keyvalue"]
 
 [dependencies]
 async-trait = "0.1"
-pliantdb-core = { path="../core", version="0.1.0-dev.4" }
+pliantdb-core = { path="../core", version="0.1.0-dev.4", features=["internal-apis"] }
 pliantdb-jobs = { path="../jobs", version="0.1.0-dev.4" }
 sled = "0.34"
 thiserror = "1"
@@ -35,6 +35,16 @@ anyhow = "1"
 flume = "0.10"
 itertools = "0.10"
 structopt = { version="0.3", optional=true }
+rand = "0.8"
+chacha20poly1305 = { version="0.8", features=["xchacha20poly1305"] }
+byteorder = "1"
+futures = "0.3"
+zeroize = "1"
+region = "2"
+blake3 = "0.3"
+x25519-dalek = { version="1" }
+x25519-rand = { package="rand", version="0.7" }
+hpke = { version="0.6", default-features=false, features=["x25519", "serde_impls"] }
 
 [dev-dependencies]
 pliantdb-core = { path="../core", version="0.1.0-dev.4", features=["test-util"] }

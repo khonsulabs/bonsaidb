@@ -17,7 +17,6 @@ use pliantdb_local::Database;
 use crate::{Backend, CustomServer};
 
 /// A database belonging to a [`CustomServer`].
-#[allow(clippy::module_name_repetitions)]
 pub struct ServerDatabase<'a, B: Backend, DB: Schema> {
     #[cfg_attr(not(feature = "pubsub"), allow(dead_code))]
     pub(crate) server: &'a CustomServer<B>,
