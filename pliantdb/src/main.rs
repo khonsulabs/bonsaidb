@@ -16,6 +16,7 @@
 #![allow(
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
+    clippy::multiple_crate_versions, // TODO custodian-password deps + x25119 deps
 )]
 
 mod cli;
