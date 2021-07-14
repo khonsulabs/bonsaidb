@@ -55,22 +55,6 @@ impl From<InvalidNameError> for Error {
     }
 }
 
-pub trait ResultExt {
-    type Output;
-    fn map_err_to_core(self) -> Result<Self::Output, pliantdb_core::Error>;
-}
-
-impl<T, E> ResultExt for Result<T, E>
-where
-    E: Into<Error>,
-{
-    type Output = T;
-
-    fn map_err_to_core(self) -> Result<Self::Output, pliantdb_core::Error> {
-        self.map_err(|err| pliantdb_core::Error::Database(err.into().to_string()))
-    }
-}
-
 #[test]
 fn test_converting_error() {
     use serde::ser::Error as _;

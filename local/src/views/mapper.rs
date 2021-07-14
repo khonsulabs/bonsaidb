@@ -23,12 +23,12 @@ use sled::{
 
 use crate::{
     database::{document_tree_name, Database},
-    error::ResultExt,
     vault::Vault,
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
         view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
     },
+    Error,
 };
 
 #[derive(Debug)]
@@ -223,7 +223,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                     true,
                     self.view
                         .map(&document)
-                        .map_err_to_core()
+                        .map_err(pliantdb_core::Error::from)
                         .map_to_transaction_error()?,
                 )
             } else {
@@ -263,7 +263,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         &self,
         entry: &S,
     ) -> Result<Vec<u8>, pliantdb_core::Error> {
-        let mut bytes = bincode::serialize(&entry).map_err_to_core()?;
+        let mut bytes = bincode::serialize(&entry).map_err(Error::from)?;
         if let Some(key) = self.encryption_key() {
             bytes = self
                 .database
@@ -274,7 +274,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                     &bytes,
                     self.database.data.effective_permissions.as_ref(),
                 )
-                .map_err_to_core()?;
+                .map_err(Error::from)?;
         }
         Ok(bytes)
     }
@@ -393,7 +393,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             entry.reduced_value = self
                 .view
                 .reduce(&mappings, false)
-                .map_err_to_core()
+                .map_err(pliantdb_core::Error::from)
                 .map_to_transaction_error()?;
 
             entry
@@ -401,7 +401,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             let reduced_value = self
                 .view
                 .reduce(&[(key, &entry_mapping.value)], false)
-                .map_err_to_core()
+                .map_err(pliantdb_core::Error::from)
                 .map_to_transaction_error()?;
             ViewEntryCollection::from(ViewEntry {
                 key: key.to_vec(),
@@ -427,7 +427,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                 self.database.data.effective_permissions.as_ref(),
                 existing_map,
             )
-            .map_err_to_core()
+            .map_err(pliantdb_core::Error::from)
             .map_to_transaction_error()?;
         if existing_keys == keys {
             // No change
@@ -467,7 +467,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                 entry_collection.reduced_value = self
                     .view
                     .reduce(&mappings, false)
-                    .map_err_to_core()
+                    .map_err(pliantdb_core::Error::from)
                     .map_to_transaction_error()?;
             }
 
@@ -611,5 +611,5 @@ fn deserialize_entry(
 ) -> Result<ViewEntryCollection, pliantdb_core::Error> {
     vault
         .decrypt_serialized(permissions, bytes)
-        .map_err_to_core()
+        .map_err(pliantdb_core::Error::from)
 }

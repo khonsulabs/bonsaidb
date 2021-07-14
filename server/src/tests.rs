@@ -1,3 +1,4 @@
+use actionable::{Permissions, Statement};
 use pliantdb_core::test_util::{self, BasicSchema, HarnessTest, TestDirectory};
 
 use crate::{server::ServerDatabase, test_util::initialize_basic_server, Server};
@@ -35,6 +36,18 @@ impl TestHarness {
 
     pub async fn connect(&self) -> anyhow::Result<ServerDatabase<'_, (), BasicSchema>> {
         let db = self.server.database::<BasicSchema>("tests").await?;
+        Ok(db)
+    }
+
+    async fn connect_with_permissions(
+        &self,
+        permissions: Vec<Statement>,
+        _label: &str,
+    ) -> anyhow::Result<ServerDatabase<'_, (), BasicSchema>> {
+        let mut db = self.connect().await?;
+        db.db = db
+            .db
+            .with_effective_permissions(Permissions::from(permissions));
         Ok(db)
     }
 

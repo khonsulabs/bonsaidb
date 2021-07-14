@@ -28,7 +28,7 @@ use sled::{
 
 use crate::{
     config::Configuration,
-    error::{Error, ResultExt as _},
+    error::Error,
     open_trees::OpenTrees,
     storage::OpenDatabase,
     vault::Vault,
@@ -101,7 +101,10 @@ where
         Ok(db)
     }
 
-    pub(crate) fn with_effective_permissions(&self, effective_permissions: Permissions) -> Self {
+    #[cfg(any(feature = "internal-apis", feature = "test-util"))]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Self {
         Self {
             data: Arc::new(Data {
                 name: self.data.name.clone(),
@@ -165,23 +168,17 @@ where
                 .storage
                 .tasks()
                 .update_view_if_needed(view, self)
-                .await
-                .map_err_to_core()?;
+                .await?;
         }
 
         let view_entries = self
             .sled()
             .open_tree(view_entries_tree_name(&self.data.name, &view.view_name()?))
-            .map_err(Error::Sled)
-            .map_err_to_core()?;
+            .map_err(Error::Sled)?;
 
         {
-            let iterator = self
-                .create_view_iterator(&view_entries, key, view)
-                .map_err_to_core()?;
-            let entries = iterator
-                .collect::<Result<Vec<_>, Error>>()
-                .map_err_to_core()?;
+            let iterator = self.create_view_iterator(&view_entries, key, view)?;
+            let entries = iterator.collect::<Result<Vec<_>, Error>>()?;
 
             for entry in entries {
                 callback(entry)?;
@@ -245,14 +242,13 @@ where
                 .storage
                 .sled()
                 .open_tree(document_tree_name(&task_self.data.name, &collection))
-                .map_err_to_core()?;
+                .map_err(Error::from)?;
             if let Some(vec) = tree
                 .get(
                     id.as_big_endian_bytes()
-                        .map_err(view::Error::KeySerialization)
-                        .map_err_to_core()?,
+                        .map_err(view::Error::KeySerialization)?,
                 )
-                .map_err_to_core()?
+                .map_err(Error::from)?
             {
                 Ok(Some(task_self.deserialize_document(&vec)?.to_owned()))
             } else {
@@ -277,16 +273,15 @@ where
                 .storage
                 .sled()
                 .open_tree(document_tree_name(&task_self.data.name, &collection))
-                .map_err_to_core()?;
+                .map_err(Error::from)?;
             let mut found_docs = Vec::new();
             for id in ids {
                 if let Some(vec) = tree
                     .get(
                         id.as_big_endian_bytes()
-                            .map_err(view::Error::KeySerialization)
-                            .map_err_to_core()?,
+                            .map_err(view::Error::KeySerialization)?,
                     )
-                    .map_err_to_core()?
+                    .map_err(Error::from)?
                 {
                     found_docs.push(task_self.deserialize_document(&vec)?.to_owned());
                 }
@@ -323,8 +318,7 @@ where
                     .collect::<Vec<_>>(),
                 true,
             )
-            .map_err(Error::View)
-            .map_err_to_core()?
+            .map_err(Error::View)?
         };
 
         Ok(result)
@@ -359,13 +353,12 @@ where
         &self,
         bytes: &'a [u8],
     ) -> Result<Document<'a>, pliantdb_core::Error> {
-        let mut document = bincode::deserialize::<Document<'_>>(bytes).map_err_to_core()?;
+        let mut document = bincode::deserialize::<Document<'_>>(bytes).map_err(Error::from)?;
         if let Some(_decryption_key) = &document.header.encryption_key {
             let decrypted_contents = self
                 .storage()
                 .vault()
-                .decrypt_payload(&document.contents, self.data.effective_permissions.as_ref())
-                .map_err_to_core()?;
+                .decrypt_payload(&document.contents, self.data.effective_permissions.as_ref())?;
             document.contents = Cow::Owned(decrypted_contents);
         }
         Ok(document)
@@ -373,15 +366,11 @@ where
 
     fn serialize_document(&self, document: &Document<'_>) -> Result<Vec<u8>, pliantdb_core::Error> {
         if let Some(encryption_key) = &document.header.encryption_key {
-            let encrypted_contents = self
-                .storage()
-                .vault()
-                .encrypt_payload(
-                    encryption_key,
-                    &document.contents,
-                    self.data.effective_permissions.as_ref(),
-                )
-                .map_err_to_core()?;
+            let encrypted_contents = self.storage().vault().encrypt_payload(
+                encryption_key,
+                &document.contents,
+                self.data.effective_permissions.as_ref(),
+            )?;
             bincode::serialize(&Document {
                 header: document.header.clone(),
                 contents: Cow::from(encrypted_contents),
@@ -389,7 +378,8 @@ where
         } else {
             bincode::serialize(document)
         }
-        .map_err_to_core()
+        .map_err(Error::from)
+        .map_err(pliantdb_core::Error::from)
     }
 
     fn execute_operation(
@@ -562,7 +552,7 @@ where
             for view in unique_views {
                 let name = view
                     .view_name()
-                    .map_err_to_core()
+                    .map_err(pliantdb_core::Error::from)
                     .map_err(ConflictableTransactionError::Abort)?;
                 mapper::DocumentRequest {
                     database: self,
@@ -701,7 +691,7 @@ where
             let transaction_tree_name = transaction_tree_name(task_self.name());
             open_trees
                 .open_tree(task_self.sled(), &transaction_tree_name)
-                .map_err_to_core()?;
+                .map_err(Error::from)?;
             for op in &transaction.operations {
                 if !task_self.data.schema.contains_collection_id(&op.collection) {
                     return Err(pliantdb_core::Error::CollectionNotFound);
@@ -716,7 +706,7 @@ where
                                 &op.collection,
                                 &task_self.data.schema,
                             )
-                            .map_err_to_core()?;
+                            .map_err(Error::from)?;
                     }
                 }
             }
@@ -758,7 +748,7 @@ where
                             if !view.unique() {
                                 let view_name = view
                                     .view_name()
-                                    .map_err_to_core()
+                                    .map_err(pliantdb_core::Error::from)
                                     .map_err(ConflictableTransactionError::Abort)?;
                                 for changed_document in &changed_documents {
                                     let invalidated_docs = &trees[open_trees.trees_index_by_name
@@ -783,7 +773,8 @@ where
                     changed_documents: Cow::from(changed_documents),
                 };
                 let serialized: Vec<u8> = bincode::serialize(&executed)
-                    .map_err_to_core()
+                    .map_err(Error::from)
+                    .map_err(pliantdb_core::Error::from)
                     .map_err(ConflictableTransactionError::Abort)?;
                 tree.insert(&executed.id.to_be_bytes(), serialized)?;
 
@@ -834,7 +825,7 @@ where
                 let tree = task_self
                     .sled()
                     .open_tree(&transaction_tree_name)
-                    .map_err_to_core()?;
+                    .map_err(Error::from)?;
                 let iter = if let Some(starting_id) = starting_id {
                     tree.range(starting_id.to_be_bytes()..=u64::MAX.to_be_bytes())
                 } else {
@@ -844,10 +835,10 @@ where
                 #[allow(clippy::cast_possible_truncation)] // this value is limited above
                 let mut results = Vec::with_capacity(result_limit);
                 for row in iter {
-                    let (_, vec) = row.map_err_to_core()?;
+                    let (_, vec) = row.map_err(Error::from)?;
                     results.push(
                         bincode::deserialize::<transaction::Executed<'_>>(&vec)
-                            .map_err_to_core()?
+                            .map_err(Error::from)?
                             .to_owned(),
                     );
 
@@ -949,9 +940,7 @@ where
                 access_policy,
             )
             .await?;
-        let value = serde_cbor::from_slice(&result)
-            .map_err(Error::Serialization)
-            .map_err_to_core()?;
+        let value = serde_cbor::from_slice(&result).map_err(Error::Serialization)?;
 
         Ok(value)
     }
@@ -982,8 +971,7 @@ where
             .map(|map| {
                 Ok(MappedValue {
                     key: V::Key::from_big_endian_bytes(&map.key)
-                        .map_err(view::Error::KeySerialization)
-                        .map_err_to_core()?,
+                        .map_err(view::Error::KeySerialization)?,
                     value: serde_cbor::from_slice(&map.value)?,
                 })
             })
@@ -997,12 +985,10 @@ where
             let tree = task_self
                 .sled()
                 .open_tree(&transaction_tree_name)
-                .map_err_to_core()?;
-            if let Some((key, _)) = tree.last().map_err_to_core()? {
+                .map_err(Error::from)?;
+            if let Some((key, _)) = tree.last().map_err(Error::from)? {
                 Ok(Some(
-                    u64::from_big_endian_bytes(&key)
-                        .map_err(view::Error::KeySerialization)
-                        .map_err_to_core()?,
+                    u64::from_big_endian_bytes(&key).map_err(view::Error::KeySerialization)?,
                 ))
             } else {
                 Ok(None)

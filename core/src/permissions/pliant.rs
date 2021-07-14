@@ -23,15 +23,15 @@ pub fn pliantdb_resource_name<'a>() -> ResourceName<'a> {
 
 /// Creates a resource name with the database `name`.
 #[must_use]
-pub fn database_resource_name(name: &'_ str) -> ResourceName<'_> {
+pub fn database_resource_name<'a>(name: impl Into<Identifier<'a>>) -> ResourceName<'a> {
     pliantdb_resource_name().and(name)
 }
 
 /// Creates a resource name for a `collection` within a `database`.
 #[must_use]
 pub fn collection_resource_name<'a>(
-    database: &'a str,
-    collection: &'a CollectionName,
+    database: impl Into<Identifier<'a>>,
+    collection: &CollectionName,
 ) -> ResourceName<'a> {
     database_resource_name(database).and(collection.to_string())
 }
@@ -39,8 +39,8 @@ pub fn collection_resource_name<'a>(
 /// Creates a resource name for a document `id` within `collection` within `database`.
 #[must_use]
 pub fn document_resource_name<'a>(
-    database: &'a str,
-    collection: &'a CollectionName,
+    database: impl Into<Identifier<'a>>,
+    collection: &CollectionName,
     id: u64,
 ) -> ResourceName<'a> {
     collection_resource_name(database, collection)
@@ -78,7 +78,7 @@ pub fn kv_key_resource_name<'a>(
 
 /// Creates a resource name for encryption key `key_id`.
 #[must_use]
-pub fn vault_key_resource_name(key_id: &KeyId) -> ResourceName<'_> {
+pub fn encryption_key_resource_name(key_id: &KeyId) -> ResourceName<'_> {
     pliantdb_resource_name()
         .and("vault")
         .and("key")

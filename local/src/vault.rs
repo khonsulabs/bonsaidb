@@ -90,7 +90,7 @@ use hpke::{
 use pliantdb_core::{
     document::KeyId,
     permissions::{
-        pliant::{vault_key_resource_name, EncryptionKeyAction},
+        pliant::{encryption_key_resource_name, EncryptionKeyAction},
         Action, PermissionDenied, Permissions,
     },
 };
@@ -109,7 +109,7 @@ type PublicKey = <X25519 as KeyExchange>::PublicKey;
 use crate::storage::StorageId;
 
 pub(crate) struct Vault {
-    vault_public_key: PublicKey,
+    _vault_public_key: PublicKey,
     master_keys: HashMap<u32, EncryptionKey>,
     current_master_key_id: u32,
     master_key_storage: Box<dyn AnyVaultKeyStorage>,
@@ -204,7 +204,7 @@ impl Vault {
                 )?;
                 let current_master_key_id = *master_keys.keys().max().unwrap();
                 Ok(Self {
-                    vault_public_key: public_key_from_private(&vault_key),
+                    _vault_public_key: public_key_from_private(&vault_key),
                     master_keys,
                     current_master_key_id,
                     master_key_storage,
@@ -265,7 +265,7 @@ impl Vault {
                     })?;
 
                 Ok(Self {
-                    vault_public_key,
+                    _vault_public_key: vault_public_key,
                     master_keys,
                     current_master_key_id: 0,
                     master_key_storage,
@@ -290,12 +290,12 @@ impl Vault {
     ) -> Result<Vec<u8>, crate::Error> {
         if let Some(permissions) = permissions {
             if !permissions.allowed_to(
-                vault_key_resource_name(key_id),
+                encryption_key_resource_name(key_id),
                 &EncryptionKeyAction::Encrypt,
             ) {
                 return Err(crate::Error::Core(pliantdb_core::Error::from(
                     PermissionDenied {
-                        resource: vault_key_resource_name(key_id).to_owned(),
+                        resource: encryption_key_resource_name(key_id).to_owned(),
                         action: EncryptionKeyAction::Encrypt.name(),
                     },
                 )));
@@ -329,12 +329,12 @@ impl Vault {
     ) -> Result<Vec<u8>, crate::Error> {
         if let Some(permissions) = permissions {
             if !permissions.allowed_to(
-                vault_key_resource_name(&payload.key_id),
+                encryption_key_resource_name(&payload.key_id),
                 &EncryptionKeyAction::Decrypt,
             ) {
                 return Err(crate::Error::Core(pliantdb_core::Error::from(
                     PermissionDenied {
-                        resource: vault_key_resource_name(&payload.key_id).to_owned(),
+                        resource: encryption_key_resource_name(&payload.key_id).to_owned(),
                         action: EncryptionKeyAction::Decrypt.name(),
                     },
                 )));
@@ -661,7 +661,7 @@ mod tests {
         master_keys.insert(0, EncryptionKey::random());
 
         Vault {
-            vault_public_key: PublicKey::from_bytes(&thread_rng().gen::<[u8; 32]>()).unwrap(),
+            _vault_public_key: PublicKey::from_bytes(&thread_rng().gen::<[u8; 32]>()).unwrap(),
             master_keys,
             current_master_key_id: 0,
             master_key_storage: Box::new(NullKeyStorage),

@@ -6,9 +6,14 @@ use pliantdb::{
     client::{Client, RemoteDatabase},
     core::{
         connection::ServerConnection,
+        permissions::Statement,
+        schema::Collection,
         test_util::{BasicSchema, HarnessTest, TestDirectory},
     },
-    server::test_util::{initialize_basic_server, BASIC_SERVER_NAME},
+    server::{
+        admin::{Admin, PermissionGroup, User},
+        test_util::{initialize_basic_server, BASIC_SERVER_NAME},
+    },
 };
 use tokio::sync::Mutex;
 use url::Url;
@@ -60,6 +65,7 @@ mod websockets {
 
     struct WebsocketTestHarness {
         client: Client,
+        url: Url,
         db: RemoteDatabase<BasicSchema>,
     }
 
@@ -67,13 +73,13 @@ mod websockets {
         pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
             initialize_shared_server().await;
             let url = Url::parse("ws://localhost:6001")?;
-            let client = Client::new(url).await?;
+            let client = Client::new(url.clone()).await?;
 
             let dbname = format!("websockets-{}", test);
             client.create_database::<BasicSchema>(&dbname).await?;
             let db = client.database::<BasicSchema>(&dbname).await?;
 
-            Ok(Self { client, db })
+            Ok(Self { client, url, db })
         }
 
         pub const fn server_name() -> &'static str {
@@ -86,6 +92,15 @@ mod websockets {
 
         pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
             Ok(self.db.clone())
+        }
+
+        pub async fn connect_with_permissions(
+            &self,
+            permissions: Vec<Statement>,
+            label: &str,
+        ) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
+            let client = Client::<()>::new_with_certificate(self.url.clone(), None).await?;
+            assume_permissions(client, label, self.db.name(), permissions).await
         }
 
         pub async fn shutdown(&self) -> anyhow::Result<()> {
@@ -105,6 +120,8 @@ mod pliant {
     use super::*;
     struct PliantTestHarness {
         client: Client,
+        url: Url,
+        certificate: Certificate,
         db: RemoteDatabase<BasicSchema>,
     }
 
@@ -116,13 +133,19 @@ mod pliant {
                 "pliantdb://localhost:6000?server={}",
                 BASIC_SERVER_NAME
             ))?;
-            let client = Client::new_with_certificate(url, Some(certificate)).await?;
+            let client =
+                Client::new_with_certificate(url.clone(), Some(certificate.clone())).await?;
 
             let dbname = format!("pliant-{}", test);
             client.create_database::<BasicSchema>(&dbname).await?;
             let db = client.database::<BasicSchema>(&dbname).await?;
 
-            Ok(Self { client, db })
+            Ok(Self {
+                client,
+                url,
+                certificate,
+                db,
+            })
         }
 
         pub fn server_name() -> &'static str {
@@ -137,6 +160,19 @@ mod pliant {
             Ok(self.db.clone())
         }
 
+        pub async fn connect_with_permissions(
+            &self,
+            statements: Vec<Statement>,
+            label: &str,
+        ) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
+            let client = Client::<()>::new_with_certificate(
+                self.url.clone(),
+                Some(self.certificate.clone()),
+            )
+            .await?;
+            assume_permissions(client, label, self.db.name(), statements).await
+        }
+
         pub async fn shutdown(&self) -> anyhow::Result<()> {
             Ok(())
         }
@@ -148,4 +184,57 @@ mod pliant {
 
     #[cfg(feature = "keyvalue")]
     pliantdb_core::define_kv_test_suite!(PliantTestHarness);
+}
+
+async fn assume_permissions(
+    connection: Client,
+    label: &str,
+    database_name: &str,
+    statements: Vec<Statement>,
+) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
+    let username = format!("{}-{}", database_name, label);
+    match connection.create_user(&username).await {
+        Ok(user_id) => {
+            // Set the user's password. This uses OPAQUE to ensure the password
+            // never leaves the machine that executes `set_user_password_str`.
+            connection
+                .set_user_password_str(&username, "hunter2")
+                .await?;
+
+            // Create an administrators permission group, or get its ID if it already existed.
+            let admin = connection.database::<Admin>("admin").await?;
+            let administrator_group_id = match (PermissionGroup {
+                name: String::from(label),
+                statements,
+            }
+            .insert_into(&admin)
+            .await)
+            {
+                Ok(doc) => doc.header.id,
+                Err(pliantdb_core::Error::UniqueKeyViolation {
+                    existing_document_id,
+                    ..
+                }) => existing_document_id,
+                Err(other) => anyhow::bail!(other),
+            };
+
+            // Make our user a member of the administrators group.
+            let mut ecton_doc = User::get(user_id, &admin).await?.unwrap();
+            if !ecton_doc.contents.groups.contains(&administrator_group_id) {
+                ecton_doc.contents.groups.push(administrator_group_id);
+                match ecton_doc.update(&admin).await {
+                    Ok(_) | Err(pliantdb_core::Error::DocumentConflict(_, _)) => {}
+                    Err(err) => anyhow::bail!(err),
+                }
+            }
+        }
+        Err(pliantdb_core::Error::UniqueKeyViolation { .. }) => {}
+        Err(other) => anyhow::bail!(other),
+    };
+
+    connection
+        .login_with_password_str(&username, "hunter2", None)
+        .await?;
+
+    Ok(connection.database::<BasicSchema>(database_name).await?)
 }

@@ -4,6 +4,7 @@ use config::Configuration;
 use pliantdb_core::{
     connection::{AccessPolicy, Connection, ServerConnection},
     document::KeyId,
+    permissions::{Permissions, Statement},
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
         BasicCollectionWithOnlyBrokenParentId, BasicSchema, HarnessTest, TestDirectory,
@@ -38,6 +39,16 @@ impl TestHarness {
 
     fn server(&self) -> &'_ Storage {
         self.db.storage()
+    }
+
+    async fn connect_with_permissions(
+        &self,
+        permissions: Vec<Statement>,
+        _label: &str,
+    ) -> anyhow::Result<Database<BasicSchema>> {
+        Ok(self
+            .db
+            .with_effective_permissions(Permissions::from(permissions)))
     }
 
     async fn connect(&self) -> anyhow::Result<Database<BasicSchema>> {

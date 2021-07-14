@@ -43,7 +43,6 @@ use crate::{
         Admin,
     },
     config::Configuration,
-    error::ResultExt,
     tasks::TaskManager,
     vault::{self, LocalVaultKeyStorage, Vault},
     Database, Error,
@@ -588,7 +587,7 @@ impl ServerConnection for Storage {
         })
         .await
         .unwrap()
-        .map_err_to_core()?;
+        .map_err(Error::from)?;
 
         let admin = self.admin().await;
         if let Some(entry) = admin

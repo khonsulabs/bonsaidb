@@ -50,7 +50,7 @@ pub use circulate;
 pub use custodian_password;
 use custodian_password::{Config, Group, Hash, SlowHash};
 pub use num_traits;
-use schema::{CollectionName, SchemaName, ViewName};
+use schema::{view, CollectionName, SchemaName, ViewName};
 use serde::{Deserialize, Serialize};
 
 /// an enumeration of errors that this crate can produce
@@ -180,6 +180,12 @@ pub enum Error {
 
 impl From<serde_cbor::Error> for Error {
     fn from(err: serde_cbor::Error) -> Self {
+        Self::Database(err.to_string())
+    }
+}
+
+impl From<view::Error> for Error {
+    fn from(err: view::Error) -> Self {
         Self::Database(err.to_string())
     }
 }
