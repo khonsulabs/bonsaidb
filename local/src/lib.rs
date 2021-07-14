@@ -16,8 +16,6 @@
     clippy::module_name_repetitions,
 )]
 
-/// Database administration types and functionality.
-pub mod admin;
 /// Configuration options.
 pub mod config;
 mod database;

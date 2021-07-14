@@ -1,9 +1,10 @@
-use pliantdb_core::{
+use serde::{Deserialize, Serialize};
+
+use crate::{
     document::Document,
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
     Error,
 };
-use serde::{Deserialize, Serialize};
 
 /// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::admin::PermissionGroup)s.
 #[derive(Debug, Serialize, Deserialize)]

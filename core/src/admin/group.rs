@@ -1,10 +1,11 @@
-use pliantdb_core::{
+use serde::{Deserialize, Serialize};
+
+use crate::{
     document::Document,
     permissions::Statement,
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
     Error,
 };
-use serde::{Deserialize, Serialize};
 
 /// A named group of permissions statements.
 #[derive(Debug, Serialize, Deserialize)]

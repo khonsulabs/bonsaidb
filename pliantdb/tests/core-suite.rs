@@ -5,15 +5,13 @@ use once_cell::sync::Lazy;
 use pliantdb::{
     client::{Client, RemoteDatabase},
     core::{
+        admin::{Admin, PermissionGroup, User},
         connection::ServerConnection,
         permissions::Statement,
         schema::Collection,
         test_util::{BasicSchema, HarnessTest, TestDirectory},
     },
-    server::{
-        admin::{Admin, PermissionGroup, User},
-        test_util::{initialize_basic_server, BASIC_SERVER_NAME},
-    },
+    server::test_util::{initialize_basic_server, BASIC_SERVER_NAME},
 };
 use tokio::sync::Mutex;
 use url::Url;

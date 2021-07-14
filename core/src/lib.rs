@@ -20,6 +20,8 @@
 /// Types for creating and validating permissions.
 pub mod permissions;
 
+/// Database administration types and functionality.
+pub mod admin;
 /// Types for interacting with `PliantDb`.
 pub mod connection;
 /// Types for interacting with `Document`s.

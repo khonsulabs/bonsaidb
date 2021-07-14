@@ -44,4 +44,3 @@ mod tests;
 pub mod test_util;
 
 pub use pliantdb_local as local;
-pub use pliantdb_local::admin;

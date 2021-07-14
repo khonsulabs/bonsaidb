@@ -1,16 +1,13 @@
-use pliantdb_core::{
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    admin::{group, role},
     connection::Connection,
     custodian_password::{ServerFile, ServerRegistration},
     document::{Document, KeyId},
     permissions::Permissions,
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
     Error,
-};
-use serde::{Deserialize, Serialize};
-
-use crate::{
-    admin::{group, role, Admin},
-    Database,
 };
 
 /// A user that can authenticate with `PliantDb`.
@@ -42,9 +39,9 @@ impl User {
 
     /// Calculates the effective permissions based on the groups and roles this
     /// user is assigned.
-    pub async fn effective_permissions(
+    pub async fn effective_permissions<C: Connection>(
         &self,
-        admin: &Database<Admin>,
+        admin: &C,
     ) -> Result<Permissions, crate::Error> {
         // List all of the groups that this user belongs to because of role associations.
         let role_groups = if self.roles.is_empty() {

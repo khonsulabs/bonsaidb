@@ -1,13 +1,14 @@
 use std::ops::Deref;
 
-use pliantdb_core::{
+use serde::{Deserialize, Serialize};
+
+use crate::{
     connection::Connection,
     custodian_password::ServerConfig,
     document::{Document, KeyId},
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, View},
     PASSWORD_CONFIG,
 };
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PasswordConfig {
@@ -15,7 +16,8 @@ pub struct PasswordConfig {
 }
 
 impl PasswordConfig {
-    pub async fn load<C: Connection>(connection: &C) -> Result<Self, pliantdb_core::Error> {
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn load<C: Connection>(connection: &C) -> Result<Self, crate::Error> {
         if let Some(existing) = Self::existing_configuration(connection).await? {
             Ok(existing)
         } else {
@@ -28,7 +30,7 @@ impl PasswordConfig {
                 .await
             {
                 Ok(_) => Ok(new_config),
-                Err(pliantdb_core::Error::UniqueKeyViolation { .. }) => {
+                Err(crate::Error::UniqueKeyViolation { .. }) => {
                     // Raced to create it. This shouldn't be possible
                     Ok(Self::existing_configuration(connection).await?.unwrap())
                 }
@@ -39,7 +41,7 @@ impl PasswordConfig {
 
     async fn existing_configuration<C: Connection>(
         connection: &C,
-    ) -> Result<Option<Self>, pliantdb_core::Error> {
+    ) -> Result<Option<Self>, crate::Error> {
         let mapped_document = connection
             .view::<Singleton>()
             .query_with_docs()
@@ -64,13 +66,11 @@ impl Deref for PasswordConfig {
 }
 
 impl Collection for PasswordConfig {
-    fn collection_name() -> Result<pliantdb_core::schema::CollectionName, InvalidNameError> {
+    fn collection_name() -> Result<crate::schema::CollectionName, InvalidNameError> {
         CollectionName::new("khonsulabs", "password-config")
     }
 
-    fn define_views(
-        schema: &mut pliantdb_core::schema::Schematic,
-    ) -> Result<(), pliantdb_core::Error> {
+    fn define_views(schema: &mut crate::schema::Schematic) -> Result<(), crate::Error> {
         schema.define_view(Singleton)?;
         Ok(())
     }

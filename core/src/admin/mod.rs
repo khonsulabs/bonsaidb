@@ -1,14 +1,19 @@
-use pliantdb_core::{
+use crate::{
     schema::{InvalidNameError, Schema, SchemaName, Schematic},
     Error,
 };
 
-pub(crate) mod database;
+#[doc(hidden)]
+pub mod database;
 // pub(crate) mod encryption_key;
-pub(crate) mod group;
-pub(crate) mod password_config;
-pub(crate) mod role;
-pub(crate) mod user;
+#[doc(hidden)]
+pub mod group;
+#[doc(hidden)]
+pub mod password_config;
+#[doc(hidden)]
+pub mod role;
+#[doc(hidden)]
+pub mod user;
 
 pub use self::{database::Database, group::PermissionGroup, role::Role, user::User};
 

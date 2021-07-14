@@ -19,12 +19,8 @@ use flume::Sender;
 #[cfg(feature = "websockets")]
 use futures::SinkExt;
 use futures::{Future, StreamExt, TryFutureExt};
-#[cfg(feature = "pubsub")]
 use pliantdb_core::{
-    circulate::{Message, Relay, Subscriber},
-    pubsub::database_topic,
-};
-use pliantdb_core::{
+    admin::{Admin, User},
     connection::{self, AccessPolicy, QueryKey, ServerConnection},
     custodian_password::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
@@ -49,11 +45,13 @@ use pliantdb_core::{
     schema::{Collection, CollectionName, Schema, ViewName},
     transaction::{Command, Transaction},
 };
-use pliantdb_jobs::{manager::Manager, Job};
-use pliantdb_local::{
-    admin::{Admin, User},
-    OpenDatabase, Storage,
+#[cfg(feature = "pubsub")]
+use pliantdb_core::{
+    circulate::{Message, Relay, Subscriber},
+    pubsub::database_topic,
 };
+use pliantdb_jobs::{manager::Manager, Job};
+use pliantdb_local::{OpenDatabase, Storage};
 use schema::SchemaName;
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;

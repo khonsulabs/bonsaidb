@@ -5,6 +5,7 @@ use std::{path::Path, time::Duration};
 use pliantdb::{
     client::{url::Url, Client},
     core::{
+        admin::{PermissionGroup, User},
         connection::ServerConnection,
         document::KeyId,
         permissions::{
@@ -14,10 +15,7 @@ use pliantdb::{
         schema::Collection,
         Error,
     },
-    server::{
-        admin::{PermissionGroup, User},
-        Configuration, Server, StorageConfiguration,
-    },
+    server::{Configuration, Server, StorageConfiguration},
 };
 
 mod support;

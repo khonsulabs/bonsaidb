@@ -28,3 +28,10 @@
 - [ServerConnection](./traits/server_connection.md)
 - [PubSub/Subscriber](./traits/pubsub.md)
 - [Kv](./traits/kv.md)
+
+# Administration
+
+- [Permissions](./administration/permissions.md)
+  - [Permission Statements](./administration/permission-statements.md)
+  - [Users, Groups, and Roles](./administration/rbac.md)
+- [At-Rest Encryption](./administration/encryption.md)
