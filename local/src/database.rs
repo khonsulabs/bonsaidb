@@ -101,7 +101,11 @@ where
         Ok(db)
     }
 
-    #[cfg(any(feature = "internal-apis", feature = "test-util"))]
+    /// Returns a clone with `effective_permissions`. Replaces any previously applied permissions.
+    ///
+    /// # Unstable
+    ///
+    /// See [this issue](https://github.com/khonsulabs/pliantdb/issues/68).
     #[doc(hidden)]
     #[must_use]
     pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Self {

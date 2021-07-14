@@ -13,11 +13,13 @@ use futures::TryFutureExt;
 use itertools::Itertools;
 #[cfg(feature = "pubsub")]
 pub use pliantdb_core::circulate::Relay;
+#[cfg(feature = "internal-apis")]
+use pliantdb_core::custodian_password::{LoginResponse, ServerLogin};
 #[cfg(feature = "keyvalue")]
 use pliantdb_core::kv::{KeyOperation, Output};
 use pliantdb_core::{
     connection::{self, AccessPolicy, Connection, QueryKey, ServerConnection},
-    custodian_password::{LoginResponse, ServerLogin, ServerRegistration},
+    custodian_password::ServerRegistration,
     document::{Document, KeyId},
     networking,
     permissions::Permissions,
