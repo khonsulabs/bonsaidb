@@ -23,7 +23,7 @@ keyvalue = ["pliantdb-core/keyvalue"]
 
 [dependencies]
 async-trait = "0.1"
-pliantdb-core = { path="../core", version="0.1.0-dev.4", features=["internal-apis"] }
+pliantdb-core = { path="../core", version="0.1.0-dev.4" }
 pliantdb-jobs = { path="../jobs", version="0.1.0-dev.4" }
 sled = "0.34"
 thiserror = "1"

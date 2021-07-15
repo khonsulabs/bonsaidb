@@ -19,7 +19,6 @@ websockets = []
 pubsub = ["circulate"]
 keyvalue = ["futures"]
 actionable-traits = []
-internal-apis = []
 
 [dependencies]
 pliantdb-macros = { path="../macros", version="0.1.0-dev.4" }
