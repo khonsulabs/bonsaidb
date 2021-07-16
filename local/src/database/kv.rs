@@ -97,36 +97,27 @@ fn execute_set_operation<DB: Schema>(
     let mut entry = Entry { value, expiration };
     let mut inserted = false;
     let mut updated = false;
-    let previous_value = kv_tree
-        .fetch_and_update(key.as_bytes(), |existing_value| {
-            let should_update = match check {
-                Some(KeyCheck::OnlyIfPresent) => existing_value.is_some(),
-                Some(KeyCheck::OnlyIfVacant) => existing_value.is_none(),
-                None => true,
-            };
-            if should_update {
-                updated = true;
-                inserted = existing_value.is_none();
-                if keep_existing_expiration && !inserted {
-                    if let Ok(previous_entry) =
-                        bincode::deserialize::<Entry>(existing_value.unwrap())
-                    {
-                        entry.expiration = previous_entry.expiration;
-                    }
+    let previous_value = fetch_and_update_no_copy(&kv_tree, key.as_bytes(), |existing_value| {
+        let should_update = match check {
+            Some(KeyCheck::OnlyIfPresent) => existing_value.is_some(),
+            Some(KeyCheck::OnlyIfVacant) => existing_value.is_none(),
+            None => true,
+        };
+        if should_update {
+            updated = true;
+            inserted = existing_value.is_none();
+            if keep_existing_expiration && !inserted {
+                if let Ok(previous_entry) = bincode::deserialize::<Entry>(existing_value.unwrap()) {
+                    entry.expiration = previous_entry.expiration;
                 }
-                let entry_vec = bincode::serialize(&entry).unwrap();
-                Some(IVec::from(entry_vec))
-            } else {
-                // TODO Investigate if this actually copies, I think IVec
-                // optimizes this under the hood. Ultimately, fetch_and_update
-                // isn't the exact right choice here, but it is implemented as a
-                // loop calling compare_swap. It'd be a lot better for us to
-                // write our own function, and be able to exit without updating
-                // the key.
-                existing_value.map(IVec::from)
             }
-        })
-        .map_err(Error::from)?;
+            let entry_vec = bincode::serialize(&entry).unwrap();
+            Some(IVec::from(entry_vec))
+        } else {
+            existing_value.cloned()
+        }
+    })
+    .map_err(Error::from)?;
 
     if updated {
         db.data.storage.update_key_expiration(ExpirationUpdate {
@@ -344,6 +335,33 @@ impl TreeKey {
         Self {
             tree: format!("{}::{}", database, tree),
             key,
+        }
+    }
+}
+
+/// Alternative to `sled::Tree::fetch_and_update` that allows avoiding a data
+/// copy when storing the existing value.
+/// <https://github.com/spacejam/sled/issues/1353>
+fn fetch_and_update_no_copy<K, F>(
+    tree: &sled::Tree,
+    key: K,
+    mut f: F,
+) -> Result<Option<IVec>, sled::Error>
+where
+    K: AsRef<[u8]>,
+    F: FnMut(Option<&IVec>) -> Option<IVec>,
+{
+    let key_ref = key.as_ref();
+    let mut current = tree.get(key_ref)?;
+
+    loop {
+        let tmp = current.as_ref();
+        let next = f(tmp);
+        match tree.compare_and_swap(key_ref, tmp, next)? {
+            Ok(()) => return Ok(current),
+            Err(CompareAndSwapError { current: cur, .. }) => {
+                current = cur;
+            }
         }
     }
 }
