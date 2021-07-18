@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bonsaidb_core::networking::{Payload, Response};
 use flume::Receiver;
 use futures::{
@@ -9,7 +11,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
-use super::PendingRequest;
+use super::{CustomApiCallback, PendingRequest};
 #[cfg(feature = "pubsub")]
 use crate::client::SubscriberMap;
 use crate::{client::OutstandingRequestMapHandle, Error};
@@ -20,6 +22,7 @@ pub async fn reconnecting_client_loop<
 >(
     url: Url,
     request_receiver: Receiver<PendingRequest<R, O>>,
+    custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Ok(request) = request_receiver.recv_async().await {
@@ -54,11 +57,12 @@ pub async fn reconnecting_client_loop<
             response_processor(
                 receiver,
                 outstanding_requests,
+                custom_api_callback.as_ref(),
                 #[cfg(feature = "pubsub")]
                 subscribers.clone()
             )
         ) {
-            println!("Error on socket {:?}", err);
+            eprintln!("Error on socket {:?}", err);
         }
     }
 
@@ -95,6 +99,7 @@ async fn response_processor<
 >(
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     outstanding_requests: OutstandingRequestMapHandle<R, O>,
+    custom_api_callback: Option<&Arc<dyn CustomApiCallback<O>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Some(message) = receiver.next().await {
@@ -106,13 +111,14 @@ async fn response_processor<
                 super::process_response_payload(
                     payload,
                     &outstanding_requests,
+                    custom_api_callback,
                     #[cfg(feature = "pubsub")]
                     &subscribers,
                 )
                 .await;
             }
             other => {
-                println!("Unexpected websocket message: {:?}", other);
+                eprintln!("Unexpected websocket message: {:?}", other);
             }
         }
     }

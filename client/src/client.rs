@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 use std::{
     any::TypeId,
     collections::HashMap,
+    fmt::Debug,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
@@ -30,7 +31,7 @@ use url::Url;
 pub use self::remote_database::RemoteDatabase;
 #[cfg(feature = "pubsub")]
 pub use self::remote_database::RemoteSubscriber;
-use crate::error::Error;
+use crate::{error::Error, Builder};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod quic_worker;
@@ -84,6 +85,31 @@ pub struct Data<A: CustomApi> {
     background_task_running: Arc<AtomicBool>,
 }
 
+impl Client<()> {
+    /// Initialize a client connecting to `url`. This client can be shared by
+    /// cloning it. All requests are done asynchronously over the same
+    /// connection.
+    ///
+    /// If the client has an error connecting, the first request made will
+    /// present that error. If the client disconnects while processing requests,
+    /// all requests being processed will exit and return
+    /// [`Error::Disconnected`]. The client will automatically try reconnecting.
+    ///
+    /// The goal of this design of this reconnection strategy is to make it
+    /// easier to build resilliant apps. By allowing existing Client instances
+    /// to recover and reconnect, each component of the apps built can adopt a
+    /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
+    /// the database is to operation.
+    pub async fn new(url: Url) -> Result<Self, Error> {
+        Self::new_with_certificate(url, None, None).await
+    }
+
+    /// Returns a builder for a new client connecting to `url`.
+    pub fn build(url: Url) -> Builder<()> {
+        Builder::new(url)
+    }
+}
+
 impl<A: CustomApi> Client<A> {
     /// Initialize a client connecting to `url` with `certificate` being used to
     /// validate and encrypt the connection. This client can be shared by
@@ -101,41 +127,19 @@ impl<A: CustomApi> Client<A> {
     /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
     /// the database is to operation.
     #[cfg(not(target_arch = "wasm32"))]
-    pub async fn new_with_certificate(
+    pub(crate) async fn new_with_certificate(
         url: Url,
         certificate: Option<fabruic::Certificate>,
+        custom_api_callback: Option<Arc<dyn CustomApiCallback<A::Response>>>,
     ) -> Result<Self, Error> {
         match url.scheme() {
-            "bonsaidb" => Ok(Self::new_bonsai_client(url, certificate)),
+            "bonsaidb" => Ok(Self::new_bonsai_client(
+                url,
+                certificate,
+                custom_api_callback,
+            )),
             #[cfg(feature = "websockets")]
-            "wss" | "ws" => Self::new_websocket_client(url).await,
-            other => {
-                return Err(Error::InvalidUrl(format!("unsupported scheme {}", other)));
-            }
-        }
-    }
-
-    /// Initialize a client connecting to `url` with `certificate` being used to
-    /// validate and encrypt the connection. This client can be shared by
-    /// cloning it. All requests are done asynchronously over the same
-    /// connection.
-    ///
-    /// If the client has an error connecting, the first request made will
-    /// present that error. If the client disconnects while processing requests,
-    /// all requests being processed will exit and return
-    /// [`Error::Disconnected`]. The client will automatically try reconnecting.
-    ///
-    /// The goal of this design of this reconnection strategy is to make it
-    /// easier to build resilliant apps. By allowing existing Client instances
-    /// to recover and reconnect, each component of the apps built can adopt a
-    /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
-    /// the database is to operation.
-    pub async fn new(url: Url) -> Result<Self, Error> {
-        match url.scheme() {
-            #[cfg(not(target_arch = "wasm32"))]
-            "bonsaidb" => Ok(Self::new_bonsai_client(url, None)),
-            #[cfg(feature = "websockets")]
-            "wss" | "ws" => Self::new_websocket_client(url).await,
+            "wss" | "ws" => Self::new_websocket_client(url, custom_api_callback).await,
             other => {
                 return Err(Error::InvalidUrl(format!("unsupported scheme {}", other)));
             }
@@ -143,7 +147,11 @@ impl<A: CustomApi> Client<A> {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn new_bonsai_client(url: Url, certificate: Option<fabruic::Certificate>) -> Self {
+    fn new_bonsai_client(
+        url: Url,
+        certificate: Option<fabruic::Certificate>,
+        custom_api_callback: Option<Arc<dyn CustomApiCallback<A::Response>>>,
+    ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
         #[cfg(feature = "pubsub")]
@@ -152,6 +160,7 @@ impl<A: CustomApi> Client<A> {
             url,
             certificate,
             request_receiver,
+            custom_api_callback,
             #[cfg(feature = "pubsub")]
             subscribers.clone(),
         ));
@@ -179,7 +188,10 @@ impl<A: CustomApi> Client<A> {
     }
 
     #[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
-    async fn new_websocket_client(url: Url) -> Result<Self, Error> {
+    async fn new_websocket_client(
+        url: Url,
+        custom_api_callback: Option<Arc<dyn CustomApiCallback<A::Response>>>,
+    ) -> Result<Self, Error> {
         let (request_sender, request_receiver) = flume::unbounded();
 
         #[cfg(feature = "pubsub")]
@@ -188,6 +200,7 @@ impl<A: CustomApi> Client<A> {
         let worker = tokio::task::spawn(tungstenite_worker::reconnecting_client_loop(
             url,
             request_receiver,
+            custom_api_callback,
             #[cfg(feature = "pubsub")]
             subscribers.clone(),
         ));
@@ -218,7 +231,10 @@ impl<A: CustomApi> Client<A> {
     }
 
     #[cfg(all(feature = "websockets", target_arch = "wasm32"))]
-    async fn new_websocket_client(url: Url) -> Result<Self, Error> {
+    async fn new_websocket_client(
+        url: Url,
+        custom_api_callback: Option<Arc<dyn CustomApiCallback<A::Response>>>,
+    ) -> Result<Self, Error> {
         let (request_sender, request_receiver) = flume::unbounded();
 
         #[cfg(feature = "pubsub")]
@@ -557,9 +573,18 @@ impl<T> Drop for CancellableHandle<T> {
 async fn process_response_payload<R: Send + Sync + 'static, O: Send + Sync + 'static>(
     payload: Payload<Response<O>>,
     outstanding_requests: &OutstandingRequestMapHandle<R, O>,
+    custom_api_callback: Option<&Arc<dyn CustomApiCallback<O>>>,
     #[cfg(feature = "pubsub")] subscribers: &SubscriberMap,
 ) {
     if let Some(payload_id) = payload.id {
+        if let Response::Api(response) = &payload.wrapped {
+            if let Some(custom_api_callback) = custom_api_callback {
+                custom_api_callback
+                    .request_response_received(response)
+                    .await;
+            }
+        }
+
         let request = {
             let mut outstanding_requests = outstanding_requests.lock().await;
             outstanding_requests
@@ -568,27 +593,70 @@ async fn process_response_payload<R: Send + Sync + 'static, O: Send + Sync + 'st
         };
         drop(request.responder.send(Ok(payload.wrapped)));
     } else {
-        #[cfg(feature = "pubsub")]
-        if let Response::Database(bonsaidb_core::networking::DatabaseResponse::MessageReceived {
-            subscriber_id,
-            topic,
-            payload,
-        }) = payload.wrapped
-        {
-            let mut subscribers = subscribers.lock().await;
-            if let Some(sender) = subscribers.get(&subscriber_id) {
-                if sender
-                    .send(std::sync::Arc::new(bonsaidb_core::circulate::Message {
-                        topic,
-                        payload,
-                    }))
-                    .is_err()
-                {
-                    subscribers.remove(&subscriber_id);
+        match payload.wrapped {
+            Response::Api(response) => {
+                if let Some(custom_api_callback) = custom_api_callback {
+                    custom_api_callback.response_received(response).await;
                 }
             }
-        } else {
-            unreachable!("only MessageReceived is allowed to not have an id")
+            #[cfg(feature = "pubsub")]
+            Response::Database(bonsaidb_core::networking::DatabaseResponse::MessageReceived {
+                subscriber_id,
+                topic,
+                payload,
+            }) => {
+                let mut subscribers = subscribers.lock().await;
+                if let Some(sender) = subscribers.get(&subscriber_id) {
+                    if sender
+                        .send(std::sync::Arc::new(bonsaidb_core::circulate::Message {
+                            topic,
+                            payload,
+                        }))
+                        .is_err()
+                    {
+                        subscribers.remove(&subscriber_id);
+                    }
+                }
+            }
+            _ => {
+                log::error!("unexpected adhoc response");
+            }
         }
     }
+}
+
+/// A handler of [`CustomApi`] responses.
+#[async_trait]
+pub trait CustomApiCallback<T: Send + Sync>: Send + Sync + 'static {
+    /// An out-of-band `response` was received. This happens when the server
+    /// sends a response that isn't in response to a request.
+    async fn response_received(&self, response: T);
+
+    /// A response was received. Unlike in `response_received` this response
+    /// will be returned to the original requestor. This is invoked before the
+    /// requestor recives the response.
+    #[allow(unused_variables)]
+    async fn request_response_received(&self, response: &T) {
+        // This is provided in case you'd like to see a response always, even if
+        // it is also being handled by the code that made the request.
+    }
+}
+
+#[async_trait]
+impl<F, T> CustomApiCallback<T> for F
+where
+    F: Fn(T) + Send + Sync + 'static,
+    T: Send + Sync + 'static,
+{
+    async fn response_received(&self, response: T) {
+        self(response)
+    }
+}
+
+#[async_trait]
+impl<T> CustomApiCallback<T> for ()
+where
+    T: Send + Sync + 'static,
+{
+    async fn response_received(&self, _response: T) {}
 }

@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   information.
 - For serializable types, `Collection` now defines easier methods for dealing with documents.
 - Server `Backend` trait now defines connection lifecycle functions that can be overridden to customize behavior when clients connect, disconnect, or authenticate.
+- `Client` now has a `build()` method to allow for customizing connections.
+- `CustomApi` responses can now be sent by the server via `ConnectedClient::send()`. The client can now register a callback to receive out-of-band responses.
 
 ### Changed
 

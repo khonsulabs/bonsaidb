@@ -69,11 +69,10 @@ async fn main() -> anyhow::Result<()> {
     // Give a moment for the listeners to start.
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    let client = Client::<()>::new_with_certificate(
-        Url::parse("bonsaidb://localhost")?,
-        Some(server.certificate().await?),
-    )
-    .await?;
+    let client = Client::build(Url::parse("bonsaidb://localhost")?)
+        .with_certificate(server.certificate().await?)
+        .finish()
+        .await?;
     let db = client.database::<Shape>("my-database").await?;
 
     // Before authenticating, inserting a shape shouldn't work.

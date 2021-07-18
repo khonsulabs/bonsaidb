@@ -97,7 +97,7 @@ mod websockets {
             permissions: Vec<Statement>,
             label: &str,
         ) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
-            let client = Client::<()>::new_with_certificate(self.url.clone(), None).await?;
+            let client = Client::new(self.url.clone()).await?;
             assume_permissions(client, label, self.db.name(), permissions).await
         }
 
@@ -131,8 +131,10 @@ mod bonsai {
                 "bonsaidb://localhost:6000?server={}",
                 BASIC_SERVER_NAME
             ))?;
-            let client =
-                Client::new_with_certificate(url.clone(), Some(certificate.clone())).await?;
+            let client = Client::build(url.clone())
+                .with_certificate(certificate.clone())
+                .finish()
+                .await?;
 
             let dbname = format!("bonsai-{}", test);
             client.create_database::<BasicSchema>(&dbname).await?;
@@ -163,11 +165,10 @@ mod bonsai {
             statements: Vec<Statement>,
             label: &str,
         ) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
-            let client = Client::<()>::new_with_certificate(
-                self.url.clone(),
-                Some(self.certificate.clone()),
-            )
-            .await?;
+            let client = Client::build(self.url.clone())
+                .with_certificate(self.certificate.clone())
+                .finish()
+                .await?;
             assume_permissions(client, label, self.db.name(), statements).await
         }
 

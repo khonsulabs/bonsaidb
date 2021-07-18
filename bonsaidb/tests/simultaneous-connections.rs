@@ -28,11 +28,10 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
     server.register_schema::<Basic>().await?;
     tokio::spawn(async move { server.listen_on(12345).await });
 
-    let client = Client::new_with_certificate(
-        Url::parse("bonsaidb://localhost:12345?server=test")?,
-        Some(certificate),
-    )
-    .await?;
+    let client = Client::build(Url::parse("bonsaidb://localhost:12345?server=test")?)
+        .with_certificate(certificate)
+        .finish()
+        .await?;
 
     let mut tasks = Vec::new();
     for i in 0usize..10 {

@@ -20,11 +20,13 @@ pub fn spawn_client<
 >(
     url: Arc<Url>,
     request_receiver: Receiver<PendingRequest<R, O>>,
+    custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) {
     wasm_bindgen_futures::spawn_local(create_websocket(
         url,
         request_receiver,
+        custom_api_callback,
         #[cfg(feature = "pubsub")]
         subscribers,
     ));
@@ -36,6 +38,7 @@ async fn create_websocket<
 >(
     url: Arc<Url>,
     request_receiver: Receiver<PendingRequest<R, O>>,
+    custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) {
     // Receive the next/initial request when we are reconnecting.
@@ -309,6 +312,7 @@ fn on_close_callback<
         spawn_client(
             url,
             request_receiver,
+            custom_api_callback.clone(),
             #[cfg(feature = "pubsub")]
             subscribers,
         );

@@ -31,7 +31,7 @@ mod server;
 pub use server::ServerSubscriber;
 
 pub use self::{
-    backend::Backend,
+    backend::{Backend, ConnectionHandling},
     config::{Configuration, StorageConfiguration},
     error::Error,
     server::{ConnectedClient, CustomServer, Server, ServerDatabase, Transport},

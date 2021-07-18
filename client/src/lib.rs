@@ -18,12 +18,14 @@
 
 pub use url;
 
+mod builder;
 mod client;
 mod error;
 
 #[cfg(feature = "pubsub")]
 pub use self::client::RemoteSubscriber;
 pub use self::{
-    client::{Client, RemoteDatabase},
+    builder::Builder,
+    client::{Client, CustomApiCallback, RemoteDatabase},
     error::Error,
 };

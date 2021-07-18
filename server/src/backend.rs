@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use bonsaidb_core::{custom_api::CustomApi, permissions::Dispatcher};
 
-use crate::server::ConnectedClient;
+use crate::{server::ConnectedClient, CustomServer};
 
 /// Tailors the behavior of a server to your needs.
 #[async_trait]
@@ -21,7 +21,10 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// A client disconnected from the server. This is invoked before authentication has been performed.
     #[allow(unused_variables)]
     #[must_use]
-    async fn client_connected(client: &ConnectedClient<Self>) -> ConnectionHandling {
+    async fn client_connected(
+        client: &ConnectedClient<Self>,
+        server: &CustomServer<Self>,
+    ) -> ConnectionHandling {
         println!(
             "{:?} client connected from {:?}",
             client.transport(),
@@ -33,7 +36,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
 
     /// A client disconnected from the server.
     #[allow(unused_variables)]
-    async fn client_disconnected(client: ConnectedClient<Self>) {
+    async fn client_disconnected(client: ConnectedClient<Self>, server: &CustomServer<Self>) {
         println!(
             "{:?} client disconnected ({:?})",
             client.transport(),
@@ -43,7 +46,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
 
     /// A client successfully authenticated.
     #[allow(unused_variables)]
-    async fn client_authenticated(client: ConnectedClient<Self>) {
+    async fn client_authenticated(client: ConnectedClient<Self>, server: &CustomServer<Self>) {
         println!(
             "{:?} client authenticated as user: {}",
             client.transport(),
@@ -72,7 +75,10 @@ impl actionable::Dispatcher<()> for NoDispatcher {
     }
 }
 
+/// Controls how a server should handle a connection.
 pub enum ConnectionHandling {
+    /// The server should accept this connection.
     Accept,
+    /// The server should reject this connection.
     Reject,
 }

@@ -57,11 +57,11 @@ async fn custom_api() -> anyhow::Result<()> {
     server.register_schema::<Basic>().await?;
     tokio::spawn(async move { server.listen_on(12346).await });
 
-    let client = Client::<CustomBackend>::new_with_certificate(
-        Url::parse("bonsaidb://localhost:12346")?,
-        Some(certificate),
-    )
-    .await?;
+    let client = Client::build(Url::parse("bonsaidb://localhost:12346")?)
+        .with_custom_api::<CustomBackend>()
+        .with_certificate(certificate)
+        .finish()
+        .await?;
 
     let CustomResponse::Pong = client.send_api_request(CustomRequest::Ping).await?;
 

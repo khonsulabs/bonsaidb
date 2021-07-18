@@ -316,6 +316,20 @@ impl<B: Backend> CustomServer<B> {
         Ok(())
     }
 
+    /// Returns all of the currently connected clients.
+    pub async fn connected_clients(&self) -> Vec<ConnectedClient<B>> {
+        let clients = self.data.clients.read().await;
+        clients.values().cloned().collect()
+    }
+
+    /// Sends a custom API response to all connected clients.
+    pub async fn broadcast(&self, response: <B::CustomApi as CustomApi>::Response) {
+        let clients = self.data.clients.read().await;
+        for client in clients.values() {
+            drop(client.send(response.clone()));
+        }
+    }
+
     async fn initialize_client(
         &self,
         transport: Transport,
@@ -333,7 +347,7 @@ impl<B: Backend> CustomServer<B> {
         };
 
         if matches!(
-            B::client_connected(&client).await,
+            B::client_connected(&client, self).await,
             ConnectionHandling::Accept
         ) {
             Some(client)
@@ -347,7 +361,7 @@ impl<B: Backend> CustomServer<B> {
             let mut clients = self.data.clients.write().await;
             clients.remove(&id)
         } {
-            B::client_disconnected(client).await
+            B::client_disconnected(client, self).await
         }
     }
 

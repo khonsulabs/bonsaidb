@@ -47,6 +47,7 @@ pub mod networking;
 /// Types for Publish/Subscribe (`PubSub`) messaging.
 pub mod pubsub;
 
+pub use async_trait;
 #[cfg(feature = "pubsub")]
 pub use circulate;
 pub use custodian_password;
