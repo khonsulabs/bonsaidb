@@ -1,10 +1,10 @@
 [package]
-name = "pliantdb-client"
+name = "bonsaidb-client"
 version = "0.1.0-dev.4"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
-description = "Client for accessing PliantDb servers."
-repository = "https://github.com/khonsulabs/pliantdb"
+description = "Client for accessing BonsaiDb servers."
+repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
 keywords = ["document-database", "database"]
 categories = ["database-implementations"]
@@ -13,14 +13,14 @@ readme = "../README.md"
 [features]
 default = ["full"]
 full = ["websockets", "trusted-dns", "pubsub", "keyvalue"]
-websockets = ["pliantdb-core/websockets", "tokio-tungstenite", "bincode"]
+websockets = ["bonsaidb-core/websockets", "tokio-tungstenite", "bincode"]
 trusted-dns = ["fabruic/trust-dns"]
-pubsub = ["pliantdb-core/pubsub"]
-keyvalue = ["pliantdb-core/keyvalue"]
+pubsub = ["bonsaidb-core/pubsub"]
+keyvalue = ["bonsaidb-core/keyvalue"]
 test-util = []
 
 [dependencies]
-pliantdb-core = { path="../core", version="0.1.0-dev.4", default-features=false, features=["networking"] }
+bonsaidb-core = { path="../core", version="0.1.0-dev.4", default-features=false, features=["networking"] }
 thiserror = "1"
 url = "2.2"
 flume = "0.10"

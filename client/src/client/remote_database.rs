@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
-use pliantdb_core::{
+use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey},
     custom_api::CustomApi,
     document::Document,
@@ -73,7 +73,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
     async fn get<C: Collection>(
         &self,
         id: u64,
-    ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
+    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -88,10 +88,10 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
             Response::Database(DatabaseResponse::Documents(documents)) => {
                 Ok(documents.into_iter().next())
             }
-            Response::Error(pliantdb_core::Error::DocumentNotFound(_, _)) => Ok(None),
+            Response::Error(bonsaidb_core::Error::DocumentNotFound(_, _)) => Ok(None),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
@@ -99,7 +99,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
     async fn get_multiple<C: Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -113,8 +113,8 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
         {
             Response::Database(DatabaseResponse::Documents(documents)) => Ok(documents),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
@@ -123,7 +123,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, pliantdb_core::Error>
+    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -135,7 +135,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                     view: self
                         .schema
                         .view::<V>()
-                        .ok_or(pliantdb_core::Error::CollectionNotFound)?
+                        .ok_or(bonsaidb_core::Error::CollectionNotFound)?
                         .view_name()?,
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
@@ -148,10 +148,10 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                 .iter()
                 .map(map::Serialized::deserialized::<V::Key, V::Value>)
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|err| pliantdb_core::Error::Database(err.to_string()))?),
+                .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
@@ -160,7 +160,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, pliantdb_core::Error>
+    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -172,7 +172,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                     view: self
                         .schema
                         .view::<V>()
-                        .ok_or(pliantdb_core::Error::CollectionNotFound)?
+                        .ok_or(bonsaidb_core::Error::CollectionNotFound)?
                         .view_name()?,
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
@@ -185,10 +185,10 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                 .into_iter()
                 .map(networking::MappedDocument::deserialized::<V::Key, V::Value>)
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|err| pliantdb_core::Error::Database(err.to_string()))?),
+                .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
@@ -197,7 +197,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<V::Value, pliantdb_core::Error>
+    ) -> Result<V::Value, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -209,7 +209,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                     view: self
                         .schema
                         .view::<V>()
-                        .ok_or(pliantdb_core::Error::CollectionNotFound)?
+                        .ok_or(bonsaidb_core::Error::CollectionNotFound)?
                         .view_name()?,
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
@@ -223,8 +223,8 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                 Ok(value)
             }
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
@@ -233,7 +233,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, pliantdb_core::Error>
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -245,7 +245,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                     view: self
                         .schema
                         .view::<V>()
-                        .ok_or(pliantdb_core::Error::CollectionNotFound)?
+                        .ok_or(bonsaidb_core::Error::CollectionNotFound)?
                         .view_name()?,
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
@@ -259,17 +259,17 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                 .map(|map| {
                     Ok(MappedValue {
                         key: V::Key::from_big_endian_bytes(&map.key).map_err(|err| {
-                            pliantdb_core::Error::Database(
+                            bonsaidb_core::Error::Database(
                                 view::Error::KeySerialization(err).to_string(),
                             )
                         })?,
                         value: serde_cbor::from_slice(&map.value)?,
                     })
                 })
-                .collect::<Result<Vec<_>, pliantdb_core::Error>>(),
+                .collect::<Result<Vec<_>, bonsaidb_core::Error>>(),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
@@ -277,7 +277,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
-    ) -> Result<Vec<OperationResult>, pliantdb_core::Error> {
+    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -288,8 +288,8 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
         {
             Response::Database(DatabaseResponse::TransactionResults(results)) => Ok(results),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
@@ -298,7 +298,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<Executed<'static>>, pliantdb_core::Error> {
+    ) -> Result<Vec<Executed<'static>>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -312,13 +312,13 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
         {
             Response::Database(DatabaseResponse::ExecutedTransactions(results)) => Ok(results),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
 
-    async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
+    async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -329,8 +329,8 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
         {
             Response::Database(DatabaseResponse::LastTransactionId(result)) => Ok(result),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }

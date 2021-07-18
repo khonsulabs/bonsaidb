@@ -1,4 +1,4 @@
-//! Core functionality and types for `PliantDb`.
+//! Core functionality and types for `BonsaiDb`.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -22,11 +22,11 @@ pub mod permissions;
 
 /// Database administration types and functionality.
 pub mod admin;
-/// Types for interacting with `PliantDb`.
+/// Types for interacting with `BonsaiDb`.
 pub mod connection;
 /// Types for interacting with `Document`s.
 pub mod document;
-/// Limits used within `PliantDb`.
+/// Limits used within `BonsaiDb`.
 pub mod limits;
 /// Types for defining database schema.
 pub mod schema;
@@ -40,7 +40,7 @@ pub mod kv;
 pub mod custom_api;
 
 #[cfg(feature = "networking")]
-/// Types for implementing the `PliantDb` network protocol.
+/// Types for implementing the `BonsaiDb` network protocol.
 pub mod networking;
 
 #[cfg(feature = "pubsub")]

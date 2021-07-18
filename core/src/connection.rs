@@ -407,7 +407,7 @@ pub enum AccessPolicy {
     NoUpdate,
 }
 
-/// Functions for interacting with a multi-database `PliantDb` instance.
+/// Functions for interacting with a multi-database `BonsaiDb` instance.
 #[async_trait]
 pub trait ServerConnection: Send + Sync {
     /// Creates a database named `name` with the `Schema` provided.

@@ -1,12 +1,12 @@
-# PliantDb
+# BonsaiDb
 
-![PliantDb is considered experimental and unsupported](https://img.shields.io/badge/status-experimental-blueviolet)
-[![crate version](https://img.shields.io/crates/v/pliantdb.svg)](https://crates.io/crates/pliantdb)
-[![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/pliantdb/Tests/main)](https://github.com/khonsulabs/pliantdb/actions?query=workflow:Tests)
-[![HTML Coverage Report for `main` branch](https://khonsulabs.github.io/pliantdb/coverage/badge.svg)](https://khonsulabs.github.io/pliantdb/coverage/)
-[![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://khonsulabs.github.io/pliantdb/main/pliantdb/)
+![BonsaiDb is considered experimental and unsupported](https://img.shields.io/badge/status-experimental-blueviolet)
+[![crate version](https://img.shields.io/crates/v/bonsaidb.svg)](https://crates.io/crates/bonsaidb)
+[![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/main)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
+[![HTML Coverage Report for `main` branch](https://khonsulabs.github.io/bonsaidb/coverage/badge.svg)](https://khonsulabs.github.io/bonsaidb/coverage/)
+[![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://khonsulabs.github.io/bonsaidb/main/bonsaidb/)
 
-PliantDb aims to be a [Rust](https://rust-lang.org)-written, ACID-compliant, document-database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies.
+BonsaiDb aims to be a [Rust](https://rust-lang.org)-written, ACID-compliant, document-database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies.
 
 ## Project Goals
 
@@ -23,28 +23,28 @@ The high-level goals for this project are:
 
 ## ⚠️ Status of this project
 
-**You should not attempt to use this software in anything except for experiments.** This project is under active development (![GitHub commit activity](https://img.shields.io/github/commit-activity/m/khonsulabs/pliantdb)), but at the point of writing this README, the project is too early to be used.
+**You should not attempt to use this software in anything except for experiments.** This project is under active development (![GitHub commit activity](https://img.shields.io/github/commit-activity/m/khonsulabs/bonsaidb)), but at the point of writing this README, the project is too early to be used.
 
 If you're interested in chatting about this project or potentially wanting to contribute, come chat with us on Discord: [![Discord](https://img.shields.io/discord/578968877866811403)](https://discord.khonsulabs.com/).
 
 ## Example
 
-Check out [./pliantdb/examples](./pliantdb/examples) for examples. To get an idea of how it works, this is a simple schema:
+Check out [./bonsaidb/examples](./bonsaidb/examples) for examples. To get an idea of how it works, this is a simple schema:
 
 ```rust: source @ snippet-a
-pliantdb/examples/view-examples.rs
+bonsaidb/examples/view-examples.rs
 ```
 
 After you have your collection(s) defined, you can open up a database and insert documents:
 
 ```rust: source @ snippet-b
-pliantdb/examples/view-examples.rs
+bonsaidb/examples/view-examples.rs
 ```
 
 And query data using the Map-Reduce-powered view:
 
 ```rust: source @ snippet-c
-pliantdb/examples/view-examples.rs
+bonsaidb/examples/view-examples.rs
 ```
 
 ## Why write another database?
@@ -54,89 +54,89 @@ pliantdb/examples/view-examples.rs
 - Specifically for the founding author [@ecton](https://github.com/ecton), the idea for this design dates back to thoughts of fun side-projects while running my last business which was built atop CouchDB. Working on this project is fulfilling a long-time desire of his.
 
 ```rust: source @ snippet-c
-pliantdb/examples/view-examples.rs
+bonsaidb/examples/view-examples.rs
 ```
 
 ## Feature Flags
 
-No feature flags are enabled by default in the `pliantdb` crate. This is
+No feature flags are enabled by default in the `bonsaidb` crate. This is
 because in most Rust executables, you will only need a subset of the
 functionality. If you'd prefer to enable everything, you can use the `full`
 feature:
 
 ```toml
 [dependencies]
-pliantdb = { version = "*", default-features = false, features = "full" }
+bonsaidb = { version = "*", default-features = false, features = "full" }
 ```
 
 - `full`: Enables `local-full`, `server-full`, and `client-full`.
-- `cli`: Enables the `pliantdb` executable.
+- `cli`: Enables the `bonsaidb` executable.
 
 ### Local databases only
 
 ```toml
 [dependencies]
-pliantdb = { version = "*", default-features = false, features = "local-full" }
+bonsaidb = { version = "*", default-features = false, features = "local-full" }
 ```
 
 - `local-full`: Enables `local`, `local-cli`, `local-keyvalue`, and
   `local-pubsub`
-- `local`: Enables the [`local`](https://pliantdb.dev/main/pliantdb/local/) module, which re-exports the crate
-  `pliantdb-local`.
+- `local`: Enables the [`local`](https://bonsaidb.dev/main/bonsaidb/local/) module, which re-exports the crate
+  `bonsaidb-local`.
 - `local-cli`: Enables the `StructOpt` structures for embedding database
   management commands into your own command-line interface.
-- `local-pubsub`: Enables `PubSub` for `pliantdb-local`.
-- `local-keyvalue`: Enables the key-value store for `pliantdb-local`.
+- `local-pubsub`: Enables `PubSub` for `bonsaidb-local`.
+- `local-keyvalue`: Enables the key-value store for `bonsaidb-local`.
 
-### `PliantDb` server
+### `BonsaiDb` server
 
 ```toml
 [dependencies]
-pliantdb = { version = "*", default-features = false, features = "server-full" }
+bonsaidb = { version = "*", default-features = false, features = "server-full" }
 ```
 
 - `server-full`: Enables `server`, `server-websockets`, `server-keyvalue`,
   and `server-pubsub`
-- `server`: Enables the [`server`](https://pliantdb.dev/main/pliantdb/server/) module, which re-exports the crate
-  `pliantdb-server`.
-- `server-websockets`: Enables `WebSocket` support for `pliantdb-server`.
-- `server-pubsub`: Enables `PubSub` for `pliantdb-server`.
-- `server-keyvalue`: Enables the key-value store for `pliantdb-server`.
+- `server`: Enables the [`server`](https://bonsaidb.dev/main/bonsaidb/server/) module, which re-exports the crate
+  `bonsaidb-server`.
+- `server-websockets`: Enables `WebSocket` support for `bonsaidb-server`.
+- `server-pubsub`: Enables `PubSub` for `bonsaidb-server`.
+- `server-keyvalue`: Enables the key-value store for `bonsaidb-server`.
 
-### Client for accessing a `PliantDb` server
+### Client for accessing a `BonsaiDb` server
 
 ```toml
 [dependencies]
-pliantdb = { version = "*", default-features = false, features = "client-full" }
+bonsaidb = { version = "*", default-features = false, features = "client-full" }
 ```
 
 - `client-full`: Enables `client`, `client-trusted-dns`,
   `client-websockets`, `client-keyvalue`, and `client-pubsub`
-- `client`: Enables the [`client`](https://pliantdb.dev/main/pliantdb/client/) module, which re-exports the crate
-  `pliantdb-client`.
+- `client`: Enables the [`client`](https://bonsaidb.dev/main/bonsaidb/client/) module, which re-exports the crate
+  `bonsaidb-client`.
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
   enabled, all DNS resolution is done with the OS's default name resolver.
-- `client-websockets`: Enables `WebSocket` support for `pliantdb-client`.
-- `client-pubsub`: Enables `PubSub` for `pliantdb-client`.
-- `client-keyvalue`: Enables the key-value store for `pliantdb-client`.
+- `client-websockets`: Enables `WebSocket` support for `bonsaidb-client`.
+- `client-pubsub`: Enables `PubSub` for `bonsaidb-client`.
+- `client-keyvalue`: Enables the key-value store for `bonsaidb-client`.
 
 ## Backups
 
 ### Exporting and restoring databases with direct access
 
-If you have a local `PliantDb` database, you can use the `local-backup` command to save and load backups:
+If you have a local `BonsaiDb` database, you can use the `local-backup` command to save and load backups:
 
 ```sh
-pliantdb local-backup <database-path> save
+bonsaidb local-backup <database-path> save
 ```
 
 ```sh
-pliantdb local-backup <destination-database-path> load <backup-path>
+bonsaidb local-backup <destination-database-path> load <backup-path>
 ```
 
-The format of this export should be easy to work with if you're either transitioning from PliantDb to another solution or needing to do complicated disaster recovery work. It is [described here](https://khonsulabs.github.io/pliantdb/main/pliantdb/local/backup/enum.Command.html#variant.Save).
+The format of this export should be easy to work with if you're either transitioning from BonsaiDb to another solution or needing to do complicated disaster recovery work. It is [described here](https://khonsulabs.github.io/bonsaidb/main/bonsaidb/local/backup/enum.Command.html#variant.Save).
 
-## Developing PliantDb
+## Developing BonsaiDb
 
 ### Pre-commit hook
 

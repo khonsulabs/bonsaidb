@@ -17,13 +17,13 @@ pub mod user;
 
 pub use self::{database::Database, group::PermissionGroup, role::Role, user::User};
 
-/// The `PliantDb` administration schema.
+/// The `BonsaiDb` administration schema.
 #[derive(Debug)]
 pub struct Admin;
 
 impl Schema for Admin {
     fn schema_name() -> Result<SchemaName, InvalidNameError> {
-        SchemaName::new("khonsulabs", "pliantdb-admin")
+        SchemaName::new("khonsulabs", "bonsaidb-admin")
     }
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {

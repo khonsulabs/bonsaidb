@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+use bonsaidb_core::networking::{Payload, Response};
 use flume::Receiver;
-use pliantdb_core::networking::{Payload, Response};
 use serde::{Deserialize, Serialize};
 use url::Url;
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};

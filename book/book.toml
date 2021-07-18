@@ -3,7 +3,7 @@ authors = ["Jonathan Johnson"]
 language = "en"
 multilingual = false
 src = "src"
-title = "PliantDb User's Guide"
+title = "BonsaiDb User's Guide"
 
 [preprocessor.mermaid]
 command = "mdbook-mermaid"

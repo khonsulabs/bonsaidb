@@ -1,19 +1,19 @@
-//! `PliantDb` command line tools.
+//! `BonsaiDb` command line tools.
 //!
 //! Available commands:
 //!
-//! - [`local-backup`](pliantdb_local::backup)
-use pliantdb_server::Server;
+//! - [`local-backup`](bonsaidb_local::backup)
+use bonsaidb_server::Server;
 use structopt::StructOpt;
 
-/// The command line interface for `pliantdb`.
+/// The command line interface for `bonsaidb`.
 #[derive(StructOpt, Debug)]
 pub enum Command {
     /// Back up or restore a local database
-    LocalBackup(pliantdb_local::backup::Cli),
+    LocalBackup(bonsaidb_local::backup::Cli),
 
-    /// Execute a `PliantDb` server command.
-    Server(pliantdb_server::cli::Cli),
+    /// Execute a `BonsaiDb` server command.
+    Server(bonsaidb_server::cli::Cli),
 }
 
 impl Command {

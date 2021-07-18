@@ -1,8 +1,8 @@
 /target
 Cargo.lock
 .vscode
-*.pliantdb
-*.pliantdb.backup
+*.bonsaidb
+*.bonsaidb.backup
 *.profraw
 *.profdata
 coverage/

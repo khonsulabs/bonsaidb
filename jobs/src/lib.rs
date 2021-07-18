@@ -1,4 +1,4 @@
-//! Aysnc jobs management for `PliantDb`.
+//! Aysnc jobs management for `BonsaiDb`.
 
 #![forbid(unsafe_code)]
 #![warn(

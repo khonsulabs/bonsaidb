@@ -41,7 +41,7 @@ pub trait BlogPostsByCategory {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let db =
-        Database::<BlogPost>::open_local("example.pliantdb", &Configuration::default()).await?;
+        Database::<BlogPost>::open_local("example.bonsaidb", &Configuration::default()).await?;
     // ANCHOR: query_with_docs
     let rust_posts = db
         .view::<BlogPostsByCategory>()

@@ -10,7 +10,7 @@ use crate::{
     Error,
 };
 
-/// A user that can authenticate with `PliantDb`.
+/// A user that can authenticate with `BonsaiDb`.
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct User {
     /// The name of the role. Must be unique.

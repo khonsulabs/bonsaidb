@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pliantdb_core::{
+use bonsaidb_core::{
     circulate::Message,
     custom_api::CustomApi,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
@@ -20,7 +20,7 @@ where
 {
     type Subscriber = RemoteSubscriber<A>;
 
-    async fn create_subscriber(&self) -> Result<Self::Subscriber, pliantdb_core::Error> {
+    async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -40,8 +40,8 @@ where
                 })
             }
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
@@ -50,7 +50,7 @@ where
         &self,
         topic: S,
         payload: &P,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         let payload = serde_cbor::to_vec(&payload)?;
         match self
             .client
@@ -65,8 +65,8 @@ where
         {
             Response::Ok => Ok(()),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
@@ -75,7 +75,7 @@ where
         &self,
         topics: Vec<String>,
         payload: &P,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         let payload = serde_cbor::to_vec(&payload)?;
         match self
             .client
@@ -87,8 +87,8 @@ where
         {
             Response::Ok => Ok(()),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
@@ -108,7 +108,7 @@ impl<A: CustomApi> Subscriber for RemoteSubscriber<A> {
     async fn subscribe_to<S: Into<String> + Send>(
         &self,
         topic: S,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -122,13 +122,13 @@ impl<A: CustomApi> Subscriber for RemoteSubscriber<A> {
         {
             Response::Ok => Ok(()),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
 
-    async fn unsubscribe_from(&self, topic: &str) -> Result<(), pliantdb_core::Error> {
+    async fn unsubscribe_from(&self, topic: &str) -> Result<(), bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -142,13 +142,13 @@ impl<A: CustomApi> Subscriber for RemoteSubscriber<A> {
         {
             Response::Ok => Ok(()),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
-                pliantdb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
 
-    fn receiver(&self) -> &'_ flume::Receiver<Arc<pliantdb_core::circulate::Message>> {
+    fn receiver(&self) -> &'_ flume::Receiver<Arc<bonsaidb_core::circulate::Message>> {
         &self.receiver
     }
 }

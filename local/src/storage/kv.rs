@@ -1,8 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 
 use async_trait::async_trait;
-use pliantdb_core::kv::Timestamp;
-use pliantdb_jobs::Job;
+use bonsaidb_core::kv::Timestamp;
+use bonsaidb_jobs::Job;
 
 use crate::{
     database::kv::{Entry, TreeKey},
@@ -121,8 +121,8 @@ pub fn expiration_thread(
 mod tests {
     use std::time::Duration;
 
+    use bonsaidb_core::test_util::{TestDirectory, TimingTest};
     use futures::Future;
-    use pliantdb_core::test_util::{TestDirectory, TimingTest};
 
     use super::*;
 

@@ -13,13 +13,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use cfg_if::cfg_if;
-use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
-use flume::Sender;
-#[cfg(feature = "websockets")]
-use futures::SinkExt;
-use futures::{Future, StreamExt, TryFutureExt};
-use pliantdb_core::{
+use bonsaidb_core::{
     admin::{Admin, User},
     connection::{self, AccessPolicy, QueryKey, ServerConnection},
     custodian_password::{
@@ -33,11 +27,11 @@ use pliantdb_core::{
         ServerRequestDispatcher, ServerResponse,
     },
     permissions::{
-        pliant::{
-            collection_resource_name, database_resource_name, document_resource_name,
-            kv_key_resource_name, pliantdb_resource_name, pubsub_topic_resource_name,
-            user_resource_name, view_resource_name, DatabaseAction, DocumentAction, KvAction,
-            PliantAction, PubSubAction, ServerAction, TransactionAction, ViewAction,
+        bonsai::{
+            bonsaidb_resource_name, collection_resource_name, database_resource_name,
+            document_resource_name, kv_key_resource_name, pubsub_topic_resource_name,
+            user_resource_name, view_resource_name, BonsaiAction, DatabaseAction, DocumentAction,
+            KvAction, PubSubAction, ServerAction, TransactionAction, ViewAction,
         },
         Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
     },
@@ -46,12 +40,18 @@ use pliantdb_core::{
     transaction::{Command, Transaction},
 };
 #[cfg(feature = "pubsub")]
-use pliantdb_core::{
+use bonsaidb_core::{
     circulate::{Message, Relay, Subscriber},
     pubsub::database_topic,
 };
-use pliantdb_jobs::{manager::Manager, Job};
-use pliantdb_local::{OpenDatabase, Storage};
+use bonsaidb_jobs::{manager::Manager, Job};
+use bonsaidb_local::{OpenDatabase, Storage};
+use cfg_if::cfg_if;
+use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
+use flume::Sender;
+#[cfg(feature = "websockets")]
+use futures::SinkExt;
+use futures::{Future, StreamExt, TryFutureExt};
 use schema::SchemaName;
 #[cfg(feature = "websockets")]
 use tokio::net::TcpListener;
@@ -73,13 +73,13 @@ pub use self::{
 
 static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-/// A `PliantDb` server.
+/// A `BonsaiDb` server.
 #[derive(Debug)]
 pub struct CustomServer<B: Backend> {
     data: Arc<Data<B>>,
 }
 
-/// A `PliantDb` server without a custom bakend.
+/// A `BonsaiDb` server without a custom bakend.
 pub type Server = CustomServer<()>;
 
 impl<B: Backend> Clone for CustomServer<B> {
@@ -182,7 +182,7 @@ impl<B: Backend> CustomServer<B> {
         let keypair = KeyPair::new_self_signed(server_name);
 
         if self.certificate_path().exists() && !overwrite {
-            return Err(Error::Core(pliantdb_core::Error::Configuration(String::from("Certificate already installed. Enable overwrite if you wish to replace the existing certificate."))));
+            return Err(Error::Core(bonsaidb_core::Error::Configuration(String::from("Certificate already installed. Enable overwrite if you wish to replace the existing certificate."))));
         }
 
         self.install_certificate(keypair.end_entity_certificate(), keypair.private_key())
@@ -202,7 +202,7 @@ impl<B: Backend> CustomServer<B> {
             .and_then(|file| file.write_all(certificate.as_ref()))
             .await
             .map_err(|err| {
-                Error::Core(pliantdb_core::Error::Configuration(format!(
+                Error::Core(bonsaidb_core::Error::Configuration(format!(
                     "Error writing certificate file: {}",
                     err
                 )))
@@ -211,7 +211,7 @@ impl<B: Backend> CustomServer<B> {
             .and_then(|file| file.write_all(fabruic::dangerous::PrivateKey::as_ref(private_key)))
             .await
             .map_err(|err| {
-                Error::Core(pliantdb_core::Error::Configuration(format!(
+                Error::Core(bonsaidb_core::Error::Configuration(format!(
                     "Error writing private key file: {}",
                     err
                 )))
@@ -231,7 +231,7 @@ impl<B: Backend> CustomServer<B> {
             .await
             .map(Certificate::unchecked_from_der)
             .map_err(|err| {
-                Error::Core(pliantdb_core::Error::Configuration(format!(
+                Error::Core(bonsaidb_core::Error::Configuration(format!(
                     "Error reading certificate file: {}",
                     err
                 )))
@@ -251,7 +251,7 @@ impl<B: Backend> CustomServer<B> {
             .await
             .map(PrivateKey::from_der)
             .map_err(|err| {
-                Error::Core(pliantdb_core::Error::Configuration(format!(
+                Error::Core(bonsaidb_core::Error::Configuration(format!(
                     "Error reading private key file: {}",
                     err
                 )))
@@ -270,7 +270,7 @@ impl<B: Backend> CustomServer<B> {
             let task_self = self.clone();
             tokio::spawn(async move {
                 let address = connection.remote_address();
-                if let Err(err) = task_self.handle_pliant_connection(connection).await {
+                if let Err(err) = task_self.handle_bonsai_connection(connection).await {
                     eprintln!("[server] closing connection {}: {:?}", address, err);
                 }
             });
@@ -351,7 +351,7 @@ impl<B: Backend> CustomServer<B> {
         }
     }
 
-    async fn handle_pliant_connection(
+    async fn handle_bonsai_connection(
         &self,
         mut connection: fabruic::Connection<()>,
     ) -> Result<(), Error> {
@@ -370,7 +370,7 @@ impl<B: Backend> CustomServer<B> {
             {
                 Ok((sender, receiver)) => {
                     let (api_response_sender, api_response_receiver) = flume::unbounded();
-                    if let Some(disconnector) = self.initialize_client(Transport::Pliant, connection.remote_address(), api_response_sender).await {
+                    if let Some(disconnector) = self.initialize_client(Transport::Bonsai, connection.remote_address(), api_response_sender).await {
                         let task_sender = sender.clone();
                         tokio::spawn(async move {
                             while let Ok(response) = api_response_receiver.recv_async().await {
@@ -673,7 +673,7 @@ impl<B: Backend> CustomServer<B> {
         subscriber_id: u64,
         database: &str,
         topic: S,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         let subscribers = self.data.subscribers.read().await;
         if let Some(subscriber) = subscribers.get(&subscriber_id) {
             subscriber
@@ -681,7 +681,7 @@ impl<B: Backend> CustomServer<B> {
                 .await;
             Ok(())
         } else {
-            Err(pliantdb_core::Error::Server(String::from(
+            Err(bonsaidb_core::Error::Server(String::from(
                 "invalid subscriber id",
             )))
         }
@@ -693,7 +693,7 @@ impl<B: Backend> CustomServer<B> {
         subscriber_id: u64,
         database: &str,
         topic: &str,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         let subscribers = self.data.subscribers.read().await;
         if let Some(subscriber) = subscribers.get(&subscriber_id) {
             subscriber
@@ -701,7 +701,7 @@ impl<B: Backend> CustomServer<B> {
                 .await;
             Ok(())
         } else {
-            Err(pliantdb_core::Error::Server(String::from(
+            Err(bonsaidb_core::Error::Server(String::from(
                 "invalid subscriber id",
             )))
         }
@@ -775,26 +775,26 @@ impl<B: Backend> ServerConnection for CustomServer<B> {
         &self,
         name: &str,
         schema: SchemaName,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         self.data
             .storage
             .create_database_with_schema(name, schema)
             .await
     }
 
-    async fn delete_database(&self, name: &str) -> Result<(), pliantdb_core::Error> {
+    async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
         self.data.storage.delete_database(name).await
     }
 
-    async fn list_databases(&self) -> Result<Vec<connection::Database>, pliantdb_core::Error> {
+    async fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
         self.data.storage.list_databases().await
     }
 
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, pliantdb_core::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
         self.data.storage.list_available_schemas().await
     }
 
-    async fn create_user(&self, username: &str) -> Result<u64, pliantdb_core::Error> {
+    async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         self.data.storage.create_user(username).await
     }
 
@@ -802,7 +802,7 @@ impl<B: Backend> ServerConnection for CustomServer<B> {
         &self,
         username: &str,
         password_request: RegistrationRequest,
-    ) -> Result<pliantdb_core::custodian_password::RegistrationResponse, pliantdb_core::Error> {
+    ) -> Result<bonsaidb_core::custodian_password::RegistrationResponse, bonsaidb_core::Error> {
         self.data
             .storage
             .set_user_password(username, password_request)
@@ -813,7 +813,7 @@ impl<B: Backend> ServerConnection for CustomServer<B> {
         &self,
         username: &str,
         password_finalization: RegistrationFinalization,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         self.data
             .storage
             .finish_set_user_password(username, password_finalization)
@@ -836,13 +836,13 @@ struct ServerDispatcher<'s, B: Backend> {
 impl<'s, B: Backend> RequestDispatcher for ServerDispatcher<'s, B> {
     type Subaction = <B::CustomApi as CustomApi>::Request;
     type Output = Response<<B::CustomApi as CustomApi>::Response>;
-    type Error = pliantdb_core::Error;
+    type Error = bonsaidb_core::Error;
 
     async fn handle_subaction(
         &self,
         permissions: &Permissions,
         subaction: Self::Subaction,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         let dispatcher = self.server.data.custom_api.read().await;
         if let Some(dispatcher) = dispatcher.as_ref() {
             dispatcher
@@ -850,10 +850,10 @@ impl<'s, B: Backend> RequestDispatcher for ServerDispatcher<'s, B> {
                 .await
                 .map(Response::Api)
                 .map_err(|err| {
-                    pliantdb_core::Error::Server(format!("error executing custom api: {:?}", err))
+                    bonsaidb_core::Error::Server(format!("error executing custom api: {:?}", err))
                 })
         } else {
-            Err(pliantdb_core::Error::Server(String::from(
+            Err(bonsaidb_core::Error::Server(String::from(
                 "No dispatcher to handle request",
             )))
         }
@@ -861,24 +861,24 @@ impl<'s, B: Backend> RequestDispatcher for ServerDispatcher<'s, B> {
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::ServerHandler for ServerDispatcher<'s, B> {
+impl<'s, B: Backend> bonsaidb_core::networking::ServerHandler for ServerDispatcher<'s, B> {
     async fn handle(
         &self,
         permissions: &Permissions,
         request: ServerRequest,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         ServerRequestDispatcher::dispatch_to_handlers(self, permissions, request).await
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::DatabaseHandler for ServerDispatcher<'s, B> {
+impl<'s, B: Backend> bonsaidb_core::networking::DatabaseHandler for ServerDispatcher<'s, B> {
     async fn handle(
         &self,
         permissions: &Permissions,
         database_name: String,
         request: DatabaseRequest,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         let database = self.server.database_without_schema(&database_name).await?;
         DatabaseDispatcher {
             name: database_name,
@@ -892,29 +892,29 @@ impl<'s, B: Backend> pliantdb_core::networking::DatabaseHandler for ServerDispat
 
 impl<'s, B: Backend> ServerRequestDispatcher for ServerDispatcher<'s, B> {
     type Output = Response<<B::CustomApi as CustomApi>::Response>;
-    type Error = pliantdb_core::Error;
+    type Error = bonsaidb_core::Error;
 }
 
 #[async_trait]
 impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
-    type Action = PliantAction;
+    type Action = BonsaiAction;
 
     fn resource_name<'a>(
         &self,
-        database: &'a pliantdb_core::connection::Database,
+        database: &'a bonsaidb_core::connection::Database,
     ) -> ResourceName<'a> {
         database_resource_name(&database.name)
     }
 
     fn action() -> Self::Action {
-        PliantAction::Server(ServerAction::CreateDatabase)
+        BonsaiAction::Server(ServerAction::CreateDatabase)
     }
 
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-        database: pliantdb_core::connection::Database,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+        database: bonsaidb_core::connection::Database,
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         self.server
             .create_database_with_schema(&database.name, database.schema)
             .await?;
@@ -926,42 +926,42 @@ impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
 
 #[async_trait]
 impl<'s, B: Backend> DeleteDatabaseHandler for ServerDispatcher<'s, B> {
-    type Action = PliantAction;
+    type Action = BonsaiAction;
 
     fn resource_name<'a>(&self, database: &'a String) -> ResourceName<'a> {
         database_resource_name(database)
     }
 
     fn action() -> Self::Action {
-        PliantAction::Server(ServerAction::DeleteDatabase)
+        BonsaiAction::Server(ServerAction::DeleteDatabase)
     }
 
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
         name: String,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         self.server.delete_database(&name).await?;
         Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::ListDatabasesHandler for ServerDispatcher<'s, B> {
-    type Action = PliantAction;
+impl<'s, B: Backend> bonsaidb_core::networking::ListDatabasesHandler for ServerDispatcher<'s, B> {
+    type Action = BonsaiAction;
 
     fn resource_name(&self) -> ResourceName<'static> {
-        pliantdb_resource_name()
+        bonsaidb_resource_name()
     }
 
     fn action() -> Self::Action {
-        PliantAction::Server(ServerAction::ListDatabases)
+        BonsaiAction::Server(ServerAction::ListDatabases)
     }
 
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         Ok(Response::Server(ServerResponse::Databases(
             self.server.list_databases().await?,
         )))
@@ -969,23 +969,23 @@ impl<'s, B: Backend> pliantdb_core::networking::ListDatabasesHandler for ServerD
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::ListAvailableSchemasHandler
+impl<'s, B: Backend> bonsaidb_core::networking::ListAvailableSchemasHandler
     for ServerDispatcher<'s, B>
 {
-    type Action = PliantAction;
+    type Action = BonsaiAction;
 
     fn resource_name(&self) -> ResourceName<'static> {
-        pliantdb_resource_name()
+        bonsaidb_resource_name()
     }
 
     fn action() -> Self::Action {
-        PliantAction::Server(ServerAction::ListAvailableSchemas)
+        BonsaiAction::Server(ServerAction::ListAvailableSchemas)
     }
 
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         Ok(Response::Server(ServerResponse::AvailableSchemas(
             self.server.list_available_schemas().await?,
         )))
@@ -993,22 +993,22 @@ impl<'s, B: Backend> pliantdb_core::networking::ListAvailableSchemasHandler
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::CreateUserHandler for ServerDispatcher<'s, B> {
-    type Action = PliantAction;
+impl<'s, B: Backend> bonsaidb_core::networking::CreateUserHandler for ServerDispatcher<'s, B> {
+    type Action = BonsaiAction;
 
     fn resource_name(&self, username: &String) -> ResourceName<'static> {
         user_resource_name(username.to_string())
     }
 
     fn action() -> Self::Action {
-        PliantAction::Server(ServerAction::CreateUser)
+        BonsaiAction::Server(ServerAction::CreateUser)
     }
 
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
         username: String,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         Ok(Response::Server(ServerResponse::UserCreated {
             id: self.server.create_user(&username).await?,
         }))
@@ -1016,10 +1016,10 @@ impl<'s, B: Backend> pliantdb_core::networking::CreateUserHandler for ServerDisp
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::LoginWithPasswordHandler
+impl<'s, B: Backend> bonsaidb_core::networking::LoginWithPasswordHandler
     for ServerDispatcher<'s, B>
 {
-    type Action = PliantAction;
+    type Action = BonsaiAction;
 
     fn resource_name(
         &self,
@@ -1030,7 +1030,7 @@ impl<'s, B: Backend> pliantdb_core::networking::LoginWithPasswordHandler
     }
 
     fn action() -> Self::Action {
-        PliantAction::Server(ServerAction::LoginWithPassword)
+        BonsaiAction::Server(ServerAction::LoginWithPassword)
     }
 
     async fn handle_protected(
@@ -1038,7 +1038,7 @@ impl<'s, B: Backend> pliantdb_core::networking::LoginWithPasswordHandler
         _permissions: &Permissions,
         username: String,
         password_request: LoginRequest,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         let (user_id, login, response) = self
             .server
             .internal_login_with_password(&username, password_request)
@@ -1051,28 +1051,28 @@ impl<'s, B: Backend> pliantdb_core::networking::LoginWithPasswordHandler
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::FinishPasswordLoginHandler
+impl<'s, B: Backend> bonsaidb_core::networking::FinishPasswordLoginHandler
     for ServerDispatcher<'s, B>
 {
     async fn handle(
         &self,
         _permissions: &Permissions,
         password_request: LoginFinalization,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         if let Some((user_id, login)) = self.client.take_pending_password_login().await {
             login.finish(password_request)?;
             let user_id = user_id.expect("logged in without a user_id");
             let admin = self.server.data.storage.admin().await;
             let user = User::get(user_id, &admin)
                 .await?
-                .ok_or(pliantdb_core::Error::UserNotFound)?;
+                .ok_or(bonsaidb_core::Error::UserNotFound)?;
 
             let permissions = user.contents.effective_permissions(&admin).await?;
             self.client.logged_in_as(user_id, permissions.clone()).await;
 
             Ok(Response::Server(ServerResponse::LoggedIn { permissions }))
         } else {
-            Err(pliantdb_core::Error::Server(String::from(
+            Err(bonsaidb_core::Error::Server(String::from(
                 "no login state found",
             )))
         }
@@ -1080,8 +1080,8 @@ impl<'s, B: Backend> pliantdb_core::networking::FinishPasswordLoginHandler
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::SetPasswordHandler for ServerDispatcher<'s, B> {
-    type Action = PliantAction;
+impl<'s, B: Backend> bonsaidb_core::networking::SetPasswordHandler for ServerDispatcher<'s, B> {
+    type Action = BonsaiAction;
 
     fn resource_name(
         &self,
@@ -1092,7 +1092,7 @@ impl<'s, B: Backend> pliantdb_core::networking::SetPasswordHandler for ServerDis
     }
 
     fn action() -> Self::Action {
-        PliantAction::Server(ServerAction::SetPassword)
+        BonsaiAction::Server(ServerAction::SetPassword)
     }
 
     async fn handle_protected(
@@ -1100,7 +1100,7 @@ impl<'s, B: Backend> pliantdb_core::networking::SetPasswordHandler for ServerDis
         _permissions: &Permissions,
         username: String,
         password_request: RegistrationRequest,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         Ok(Response::Server(ServerResponse::FinishSetPassword {
             password_reponse: Box::new(
                 self.server
@@ -1112,7 +1112,7 @@ impl<'s, B: Backend> pliantdb_core::networking::SetPasswordHandler for ServerDis
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::FinishSetPasswordHandler
+impl<'s, B: Backend> bonsaidb_core::networking::FinishSetPasswordHandler
     for ServerDispatcher<'s, B>
 {
     async fn handle(
@@ -1120,7 +1120,7 @@ impl<'s, B: Backend> pliantdb_core::networking::FinishSetPasswordHandler
         _permissions: &Permissions,
         username: String,
         password_request: RegistrationFinalization,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         self.server
             .finish_set_user_password(&username, password_request)
             .await?;
@@ -1141,12 +1141,12 @@ where
 
 impl<'s, B: Backend> DatabaseRequestDispatcher for DatabaseDispatcher<'s, B> {
     type Output = Response<<B::CustomApi as CustomApi>::Response>;
-    type Error = pliantdb_core::Error;
+    type Error = bonsaidb_core::Error;
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::GetHandler for DatabaseDispatcher<'s, B> {
-    type Action = PliantAction;
+impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatcher<'s, B> {
+    type Action = BonsaiAction;
 
     fn resource_name<'a>(
         &'a self,
@@ -1157,7 +1157,7 @@ impl<'s, B: Backend> pliantdb_core::networking::GetHandler for DatabaseDispatche
     }
 
     fn action() -> Self::Action {
-        PliantAction::Database(DatabaseAction::Document(DocumentAction::Get))
+        BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get))
     }
 
     async fn handle_protected(
@@ -1165,12 +1165,12 @@ impl<'s, B: Backend> pliantdb_core::networking::GetHandler for DatabaseDispatche
         permissions: &Permissions,
         collection: CollectionName,
         id: u64,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         let document = self
             .database
             .get_from_collection_id(id, &collection, permissions)
             .await?
-            .ok_or(Error::Core(pliantdb_core::Error::DocumentNotFound(
+            .ok_or(Error::Core(bonsaidb_core::Error::DocumentNotFound(
                 collection, id,
             )))?;
         Ok(Response::Database(DatabaseResponse::Documents(vec![
@@ -1180,18 +1180,18 @@ impl<'s, B: Backend> pliantdb_core::networking::GetHandler for DatabaseDispatche
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::GetMultipleHandler for DatabaseDispatcher<'s, B> {
+impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseDispatcher<'s, B> {
     async fn verify_permissions(
         &self,
         permissions: &Permissions,
         collection: &CollectionName,
         ids: &Vec<u64>,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         for &id in ids {
             let document_name = document_resource_name(&self.name, collection, id);
-            let action = PliantAction::Database(DatabaseAction::Document(DocumentAction::Get));
+            let action = BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get));
             if !permissions.allowed_to(&document_name, &action) {
-                return Err(pliantdb_core::Error::from(PermissionDenied {
+                return Err(bonsaidb_core::Error::from(PermissionDenied {
                     resource: document_name.to_owned(),
                     action: action.name(),
                 }));
@@ -1206,7 +1206,7 @@ impl<'s, B: Backend> pliantdb_core::networking::GetMultipleHandler for DatabaseD
         permissions: &Permissions,
         collection: CollectionName,
         ids: Vec<u64>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         let documents = self
             .database
             .get_multiple_from_collection_id(&ids, &collection, permissions)
@@ -1216,8 +1216,8 @@ impl<'s, B: Backend> pliantdb_core::networking::GetMultipleHandler for DatabaseD
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::QueryHandler for DatabaseDispatcher<'s, B> {
-    type Action = PliantAction;
+impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatcher<'s, B> {
+    type Action = BonsaiAction;
 
     fn resource_name<'a>(
         &'a self,
@@ -1230,7 +1230,7 @@ impl<'s, B: Backend> pliantdb_core::networking::QueryHandler for DatabaseDispatc
     }
 
     fn action() -> Self::Action {
-        PliantAction::Database(DatabaseAction::View(ViewAction::Query))
+        BonsaiAction::Database(DatabaseAction::View(ViewAction::Query))
     }
 
     async fn handle_protected(
@@ -1240,7 +1240,7 @@ impl<'s, B: Backend> pliantdb_core::networking::QueryHandler for DatabaseDispatc
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         with_docs: bool,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         if with_docs {
             let mappings = self
                 .database
@@ -1257,8 +1257,8 @@ impl<'s, B: Backend> pliantdb_core::networking::QueryHandler for DatabaseDispatc
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::ReduceHandler for DatabaseDispatcher<'s, B> {
-    type Action = PliantAction;
+impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispatcher<'s, B> {
+    type Action = BonsaiAction;
 
     fn resource_name<'a>(
         &'a self,
@@ -1271,7 +1271,7 @@ impl<'s, B: Backend> pliantdb_core::networking::ReduceHandler for DatabaseDispat
     }
 
     fn action() -> Self::Action {
-        PliantAction::Database(DatabaseAction::View(ViewAction::Reduce))
+        BonsaiAction::Database(DatabaseAction::View(ViewAction::Reduce))
     }
 
     async fn handle_protected(
@@ -1281,7 +1281,7 @@ impl<'s, B: Backend> pliantdb_core::networking::ReduceHandler for DatabaseDispat
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         grouped: bool,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         if grouped {
             let values = self
                 .database
@@ -1298,31 +1298,31 @@ impl<'s, B: Backend> pliantdb_core::networking::ReduceHandler for DatabaseDispat
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::ApplyTransactionHandler
+impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
     for DatabaseDispatcher<'s, B>
 {
     async fn verify_permissions(
         &self,
         permissions: &Permissions,
         transaction: &Transaction<'static>,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         for op in &transaction.operations {
             let (resource, action) = match &op.command {
                 Command::Insert { .. } => (
                     collection_resource_name(&self.name, &op.collection),
-                    PliantAction::Database(DatabaseAction::Document(DocumentAction::Insert)),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Insert)),
                 ),
                 Command::Update { header, .. } => (
                     document_resource_name(&self.name, &op.collection, header.id),
-                    PliantAction::Database(DatabaseAction::Document(DocumentAction::Update)),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Update)),
                 ),
                 Command::Delete { header } => (
                     document_resource_name(&self.name, &op.collection, header.id),
-                    PliantAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
                 ),
             };
             if !permissions.allowed_to(&resource, &action) {
-                return Err(pliantdb_core::Error::from(PermissionDenied {
+                return Err(bonsaidb_core::Error::from(PermissionDenied {
                     resource: resource.to_owned(),
                     action: action.name(),
                 }));
@@ -1336,7 +1336,7 @@ impl<'s, B: Backend> pliantdb_core::networking::ApplyTransactionHandler
         &self,
         permissions: &Permissions,
         transaction: Transaction<'static>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         let results = self
             .database
             .apply_transaction(transaction, permissions)
@@ -1348,10 +1348,10 @@ impl<'s, B: Backend> pliantdb_core::networking::ApplyTransactionHandler
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::ListExecutedTransactionsHandler
+impl<'s, B: Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Action = PliantAction;
+    type Action = BonsaiAction;
 
     fn resource_name<'a>(
         &'a self,
@@ -1362,7 +1362,7 @@ impl<'s, B: Backend> pliantdb_core::networking::ListExecutedTransactionsHandler
     }
 
     fn action() -> Self::Action {
-        PliantAction::Database(DatabaseAction::Transaction(TransactionAction::ListExecuted))
+        BonsaiAction::Database(DatabaseAction::Transaction(TransactionAction::ListExecuted))
     }
 
     async fn handle_protected(
@@ -1370,7 +1370,7 @@ impl<'s, B: Backend> pliantdb_core::networking::ListExecutedTransactionsHandler
         _permissions: &Permissions,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
             self.database
                 .list_executed_transactions(starting_id, result_limit)
@@ -1380,23 +1380,23 @@ impl<'s, B: Backend> pliantdb_core::networking::ListExecutedTransactionsHandler
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::LastTransactionIdHandler
+impl<'s, B: Backend> bonsaidb_core::networking::LastTransactionIdHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Action = PliantAction;
+    type Action = BonsaiAction;
 
     fn resource_name(&self) -> ResourceName<'_> {
         database_resource_name(&self.name)
     }
 
     fn action() -> Self::Action {
-        PliantAction::Database(DatabaseAction::Transaction(TransactionAction::GetLastId))
+        BonsaiAction::Database(DatabaseAction::Transaction(TransactionAction::GetLastId))
     }
 
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         Ok(Response::Database(DatabaseResponse::LastTransactionId(
             self.database.last_transaction_id().await?,
         )))
@@ -1404,24 +1404,24 @@ impl<'s, B: Backend> pliantdb_core::networking::LastTransactionIdHandler
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::CreateSubscriberHandler
+impl<'s, B: Backend> bonsaidb_core::networking::CreateSubscriberHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Action = PliantAction;
+    type Action = BonsaiAction;
 
     fn resource_name(&self) -> ResourceName<'_> {
         database_resource_name(&self.name)
     }
 
     fn action() -> Self::Action {
-        PliantAction::Database(DatabaseAction::PubSub(PubSubAction::CreateSuscriber))
+        BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::CreateSuscriber))
     }
 
     #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
                 let server = self.server_dispatcher.server;
@@ -1439,22 +1439,22 @@ impl<'s, B: Backend> pliantdb_core::networking::CreateSubscriberHandler
                     subscriber_id,
                 }))
             } else {
-                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::PublishHandler for DatabaseDispatcher<'s, B> {
-    type Action = PliantAction;
+impl<'s, B: Backend> bonsaidb_core::networking::PublishHandler for DatabaseDispatcher<'s, B> {
+    type Action = BonsaiAction;
 
     fn resource_name<'a>(&'a self, topic: &'a String, _payload: &'a Vec<u8>) -> ResourceName<'a> {
         pubsub_topic_resource_name(&self.name, topic)
     }
 
     fn action() -> Self::Action {
-        PliantAction::Database(DatabaseAction::PubSub(PubSubAction::Publish))
+        BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish))
     }
 
     #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
@@ -1463,7 +1463,7 @@ impl<'s, B: Backend> pliantdb_core::networking::PublishHandler for DatabaseDispa
         _permissions: &Permissions,
         topic: String,
         payload: Vec<u8>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
                 self
@@ -1473,25 +1473,25 @@ impl<'s, B: Backend> pliantdb_core::networking::PublishHandler for DatabaseDispa
                     .await;
                 Ok(Response::Ok)
             } else {
-                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::PublishToAllHandler for DatabaseDispatcher<'s, B> {
+impl<'s, B: Backend> bonsaidb_core::networking::PublishToAllHandler for DatabaseDispatcher<'s, B> {
     async fn verify_permissions(
         &self,
         permissions: &Permissions,
         topics: &Vec<String>,
         _payload: &Vec<u8>,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         for topic in topics {
             let topic_name = pubsub_topic_resource_name(&self.name, topic);
-            let action = PliantAction::Database(DatabaseAction::PubSub(PubSubAction::Publish));
+            let action = BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish));
             if !permissions.allowed_to(&topic_name, &action) {
-                return Err(pliantdb_core::Error::from(PermissionDenied {
+                return Err(bonsaidb_core::Error::from(PermissionDenied {
                     resource: topic_name.to_owned(),
                     action: action.name(),
                 }));
@@ -1507,7 +1507,7 @@ impl<'s, B: Backend> pliantdb_core::networking::PublishToAllHandler for Database
         _permissions: &Permissions,
         topics: Vec<String>,
         payload: Vec<u8>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
                 self
@@ -1521,22 +1521,22 @@ impl<'s, B: Backend> pliantdb_core::networking::PublishToAllHandler for Database
                     .await;
                 Ok(Response::Ok)
             } else {
-                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::SubscribeToHandler for DatabaseDispatcher<'s, B> {
-    type Action = PliantAction;
+impl<'s, B: Backend> bonsaidb_core::networking::SubscribeToHandler for DatabaseDispatcher<'s, B> {
+    type Action = BonsaiAction;
 
     fn resource_name<'a>(&'a self, _subscriber_id: &'a u64, topic: &'a String) -> ResourceName<'a> {
         pubsub_topic_resource_name(&self.name, topic)
     }
 
     fn action() -> Self::Action {
-        PliantAction::Database(DatabaseAction::PubSub(PubSubAction::SubscribeTo))
+        BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::SubscribeTo))
     }
 
     #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
@@ -1545,29 +1545,29 @@ impl<'s, B: Backend> pliantdb_core::networking::SubscribeToHandler for DatabaseD
         _permissions: &Permissions,
         subscriber_id: u64,
         topic: String,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
                 self.server_dispatcher.server.subscribe_to(subscriber_id, &self.name, topic).await.map(|_| Response::Ok)
             } else {
-                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::UnsubscribeFromHandler
+impl<'s, B: Backend> bonsaidb_core::networking::UnsubscribeFromHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Action = PliantAction;
+    type Action = BonsaiAction;
 
     fn resource_name<'a>(&'a self, _subscriber_id: &'a u64, topic: &'a String) -> ResourceName<'a> {
         pubsub_topic_resource_name(&self.name, topic)
     }
 
     fn action() -> Self::Action {
-        PliantAction::Database(DatabaseAction::PubSub(PubSubAction::UnsubscribeFrom))
+        BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::UnsubscribeFrom))
     }
 
     #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
@@ -1576,19 +1576,19 @@ impl<'s, B: Backend> pliantdb_core::networking::UnsubscribeFromHandler
         _permissions: &Permissions,
         subscriber_id: u64,
         topic: String,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
                 self.server_dispatcher.server.unsubscribe_from(subscriber_id, &self.name, &topic).await.map(|_| Response::Ok)
             } else {
-                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::UnregisterSubscriberHandler
+impl<'s, B: Backend> bonsaidb_core::networking::UnregisterSubscriberHandler
     for DatabaseDispatcher<'s, B>
 {
     #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
@@ -1596,36 +1596,36 @@ impl<'s, B: Backend> pliantdb_core::networking::UnregisterSubscriberHandler
         &self,
         _permissions: &Permissions,
         subscriber_id: u64,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
                 let mut subscribers = self.server_dispatcher.subscribers.write().await;
                 if subscribers.remove(&subscriber_id).is_none() {
-                    Ok(Response::Error(pliantdb_core::Error::Server(String::from(
+                    Ok(Response::Error(bonsaidb_core::Error::Server(String::from(
                         "invalid subscriber id",
                     ))))
                 } else {
                     Ok(Response::Ok)
                 }
             } else {
-                Err(pliantdb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
             }
         }
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> pliantdb_core::networking::ExecuteKeyOperationHandler
+impl<'s, B: Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
     for DatabaseDispatcher<'s, B>
 {
-    type Action = PliantAction;
+    type Action = BonsaiAction;
 
     fn resource_name<'a>(&'a self, op: &'a KeyOperation) -> ResourceName<'a> {
         kv_key_resource_name(&self.name, op.namespace.as_deref(), &op.key)
     }
 
     fn action() -> Self::Action {
-        PliantAction::Database(DatabaseAction::Kv(KvAction::ExecuteOperation))
+        BonsaiAction::Database(DatabaseAction::Kv(KvAction::ExecuteOperation))
     }
 
     #[cfg_attr(not(feature = "keyvalue"), allow(unused_variables))]
@@ -1633,13 +1633,13 @@ impl<'s, B: Backend> pliantdb_core::networking::ExecuteKeyOperationHandler
         &self,
         _permissions: &Permissions,
         op: KeyOperation,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, pliantdb_core::Error> {
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         cfg_if! {
             if #[cfg(feature = "keyvalue")] {
                 let result = self.database.execute_key_operation(op).await?;
                 Ok(Response::Database(DatabaseResponse::KvOutput(result)))
             } else {
-                Err(pliantdb_core::Error::Server(String::from("keyvalue is not enabled on this server")))
+                Err(bonsaidb_core::Error::Server(String::from("keyvalue is not enabled on this server")))
             }
         }
     }

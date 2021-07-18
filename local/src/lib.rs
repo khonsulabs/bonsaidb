@@ -1,4 +1,4 @@
-//! Local storage backend for `PliantDb`.
+//! Local storage backend for `BonsaiDb`.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -27,7 +27,7 @@ pub mod vault;
 mod views;
 
 #[doc(inline)]
-pub use pliantdb_core as core;
+pub use bonsaidb_core as core;
 
 #[cfg(feature = "pubsub")]
 pub use self::database::pubsub::Subscriber;

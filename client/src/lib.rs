@@ -1,4 +1,4 @@
-//! Client for `pliantdb-server`.
+//! Client for `bonsaidb-server`.
 
 #![forbid(unsafe_code)]
 #![warn(

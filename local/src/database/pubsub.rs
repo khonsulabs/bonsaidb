@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-pub use pliantdb_core::circulate::Relay;
-use pliantdb_core::{
+pub use bonsaidb_core::circulate::Relay;
+use bonsaidb_core::{
     circulate,
     pubsub::{self, database_topic, PubSub},
     schema::Schema,
@@ -16,7 +16,7 @@ where
 {
     type Subscriber = Subscriber;
 
-    async fn create_subscriber(&self) -> Result<Self::Subscriber, pliantdb_core::Error> {
+    async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
         Ok(Subscriber {
             database_name: self.data.name.to_string(),
             subscriber: self.data.storage.relay().create_subscriber().await,
@@ -27,7 +27,7 @@ where
         &self,
         topic: S,
         payload: &P,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         self.data
             .storage
             .relay()
@@ -40,7 +40,7 @@ where
         &self,
         topics: Vec<String>,
         payload: &P,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         self.data
             .storage
             .relay()

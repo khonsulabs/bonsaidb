@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use pliantdb::{
+use bonsaidb::{
     core::{
         connection::{Connection, ServerConnection},
         schema::{Collection, CollectionName, InvalidNameError, Schematic},
@@ -29,7 +29,7 @@ impl Collection for Message {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let storage =
-        Storage::open_local("basic.pliantdb", Configuration::default()).await?;
+        Storage::open_local("basic.bonsaidb", Configuration::default()).await?;
     // Before you can create a database, you must register the schema you're
     // wanting to use.
     storage.register_schema::<Message>().await?;

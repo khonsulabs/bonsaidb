@@ -1,3 +1,3 @@
 # Client
 
-A [Client](https://pliantdb.dev/main/pliantdb/client/struct.Client.html) is used to access a [Server](./server.md) over a network connection.
+A [Client](https://bonsaidb.dev/main/bonsaidb/client/struct.Client.html) is used to access a [Server](./server.md) over a network connection.

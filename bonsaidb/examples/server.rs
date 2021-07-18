@@ -2,7 +2,7 @@
 
 use std::{path::Path, time::Duration};
 
-use pliantdb::{
+use bonsaidb::{
     client::{url::Url, Client},
     core::{
         connection::{Connection, ServerConnection},
@@ -21,7 +21,7 @@ use support::schema::{Shape, ShapesByNumberOfSides};
 async fn main() -> anyhow::Result<()> {
     // ANCHOR: setup
     let server = Server::open(
-        Path::new("server-data.pliantdb"),
+        Path::new("server-data.bonsaidb"),
         Configuration {
             default_permissions: Permissions::allow_all(),
             ..Default::default()
@@ -78,16 +78,16 @@ async fn main() -> anyhow::Result<()> {
         ));
     }
 
-    // To connect over QUIC, use the pliantdb scheme.
+    // To connect over QUIC, use the bonsaidb scheme.
     tasks.push(do_some_database_work(
         Client::<()>::new_with_certificate(
-            Url::parse("pliantdb://localhost")?,
+            Url::parse("bonsaidb://localhost")?,
             Some(certificate),
         )
         .await?
         .database::<Shape>("my-database")
         .await?,
-        "pliantdb",
+        "bonsaidb",
     ));
 
     // Wait for the clients to finish

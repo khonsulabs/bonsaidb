@@ -1,4 +1,4 @@
-# Integrating into a PliantDb Cluster
+# Integrating into a BonsaiDb Cluster
 
 Coming Soon.
 
@@ -18,7 +18,7 @@ Once you have a cluster with at least 3 nodes, you can switch the cluster into q
 
 In quorum mode, your data is divided into shards and those shards replicated throughout the cluster onto at least 3 nodes (configurable). Initially, with just 3 nodes available, the only benefits are having a highly-available cluster with no data loss during when a single node goes down.
 
-As you add more nodes to your cluster, however, you can re-balance your databases to move shards. The author of PliantDb did not enjoy this process in CouchDB when he had to do it and aims to make these tools easy and effortless to use. Ideally, there would be a low-maintenance mode that would allow the cluster to re-shard itself authomatically during allowed maintenance periods, ensuring data is distributed more evenly amongst the cluster.
+As you add more nodes to your cluster, however, you can re-balance your databases to move shards. The author of BonsaiDb did not enjoy this process in CouchDB when he had to do it and aims to make these tools easy and effortless to use. Ideally, there would be a low-maintenance mode that would allow the cluster to re-shard itself authomatically during allowed maintenance periods, ensuring data is distributed more evenly amongst the cluster.
 
 Additional long-term dreams of quorum mode include the ability to customize node selection criteria on a per-database basis. The practical use of node selection is to ensure that at least 3 unique nodes are picked for each shard. However, allowing custom logic to evaluate which nodes should be selected for any database would allow ultimate flexibility. For example, if you have a globally deployed application, and you have some data that is geographically specific, you could locate each region's database on nodes within those locations' data centers.
 

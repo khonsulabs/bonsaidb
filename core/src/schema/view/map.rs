@@ -286,7 +286,7 @@ fn unit_key_encoding_tests() -> anyhow::Result<()> {
 
 #[test]
 fn vec_key_encoding_tests() -> anyhow::Result<()> {
-    const ORIGINAL_VALUE: &[u8] = b"pliantdb";
+    const ORIGINAL_VALUE: &[u8] = b"bonsaidb";
     let vec = Cow::<'_, [u8]>::from(ORIGINAL_VALUE);
     assert_eq!(
         vec.clone(),

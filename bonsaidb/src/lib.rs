@@ -1,79 +1,79 @@
 //! A programmable document database inspired by `CouchDB` written in Rust.
 //!
 //! This crate provides a convenient way to access all functionality of
-//! `PliantDb`. The crates that are re-exported are:
+//! `BonsaiDb`. The crates that are re-exported are:
 //!
-//! - [`pliantdb-core`](https://docs.rs/pliantdb-core): Common types and traits
-//!   used when interacting with `PliantDb`.
-//! - [`pliantdb-local`](https://docs.rs/pliantdb-local): Local, file-based
+//! - [`bonsaidb-core`](https://docs.rs/bonsaidb-core): Common types and traits
+//!   used when interacting with `BonsaiDb`.
+//! - [`bonsaidb-local`](https://docs.rs/bonsaidb-local): Local, file-based
 //!   database implementation.
-//! - [`pliantdb-server`](https://docs.rs/pliantdb-server): Networked `PliantDb`
+//! - [`bonsaidb-server`](https://docs.rs/bonsaidb-server): Networked `BonsaiDb`
 //!   server implementation.
-//! - [`pliantdb-client`](https://docs.rs/pliantdb-client): Client to access a
-//!   `PliantDb` server.
+//! - [`bonsaidb-client`](https://docs.rs/bonsaidb-client): Client to access a
+//!   `BonsaiDb` server.
 //!
 //! ## Feature Flags
 //!
-//! No feature flags are enabled by default in the `pliantdb` crate. This is
+//! No feature flags are enabled by default in the `bonsaidb` crate. This is
 //! because in most Rust executables, you will only need a subset of the
 //! functionality. If you'd prefer to enable everything, you can use the `full`
 //! feature:
 //!
 //! ```toml
 //! [dependencies]
-//! pliantdb = { version = "*", default-features = false, features = "full" }
+//! bonsaidb = { version = "*", default-features = false, features = "full" }
 //! ```
 //!
 //! - `full`: Enables `local-full`, `server-full`, and `client-full`.
-//! - `cli`: Enables the `pliantdb` executable.
+//! - `cli`: Enables the `bonsaidb` executable.
 //!
 //! ### Local databases only
 //!
 //! ```toml
 //! [dependencies]
-//! pliantdb = { version = "*", default-features = false, features = "local-full" }
+//! bonsaidb = { version = "*", default-features = false, features = "local-full" }
 //! ```
 //!
 //! - `local-full`: Enables `local`, `local-cli`, `local-keyvalue`, and
 //!   `local-pubsub`
 //! - `local`: Enables the [`local`] module, which re-exports the crate
-//!   `pliantdb-local`.
+//!   `bonsaidb-local`.
 //! - `local-cli`: Enables the `StructOpt` structures for embedding database
 //!   management commands into your own command-line interface.
-//! - `local-pubsub`: Enables `PubSub` for `pliantdb-local`.
-//! - `local-keyvalue`: Enables the key-value store for `pliantdb-local`.
+//! - `local-pubsub`: Enables `PubSub` for `bonsaidb-local`.
+//! - `local-keyvalue`: Enables the key-value store for `bonsaidb-local`.
 //!
-//! ### `PliantDb` server
+//! ### `BonsaiDb` server
 //!
 //! ```toml
 //! [dependencies]
-//! pliantdb = { version = "*", default-features = false, features = "server-full" }
+//! bonsaidb = { version = "*", default-features = false, features = "server-full" }
 //! ```
 //!
 //! - `server-full`: Enables `server`, `server-websockets`, `server-keyvalue`,
 //!   and `server-pubsub`
 //! - `server`: Enables the [`server`] module, which re-exports the crate
-//!   `pliantdb-server`.
-//! - `server-websockets`: Enables `WebSocket` support for `pliantdb-server`.
-//! - `server-pubsub`: Enables `PubSub` for `pliantdb-server`.
-//! - `server-keyvalue`: Enables the key-value store for `pliantdb-server`.
+//!   `bonsaidb-server`.
+//! - `server-websockets`: Enables `WebSocket` support for `bonsaidb-server`.
+//! - `server-pubsub`: Enables `PubSub` for `bonsaidb-server`.
+//! - `server-keyvalue`: Enables the key-value store for `bonsaidb-server`.
 //!
-//! ### Client for accessing a `PliantDb` server.
+//! ### Client for accessing a `BonsaiDb` server.
 //!
 //! ```toml
 //! [dependencies]
-//! pliantdb = { version = "*", default-features = false, features = "client-full" }
+//! bonsaidb = { version = "*", default-features = false, features = "client-full" }
 //! ```
 //!
 //! - `client-full`: Enables `client`, `client-trusted-dns`,
 //!   `client-websockets`, `client-keyvalue`, and `client-pubsub`
 //! - `client`: Enables the [`client`] module, which re-exports the crate
-//!   `pliantdb-client`.
+//!   `bonsaidb-client`.
 //! - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
 //!   enabled, all DNS resolution is done with the OS's default name resolver.
-//! - `client-websockets`: Enables `WebSocket` support for `pliantdb-client`.
-//! - `client-pubsub`: Enables `PubSub` for `pliantdb-client`.
-//! - `client-keyvalue`: Enables the key-value store for `pliantdb-client`.
+//! - `client-websockets`: Enables `WebSocket` support for `bonsaidb-client`.
+//! - `client-pubsub`: Enables `PubSub` for `bonsaidb-client`.
+//! - `client-keyvalue`: Enables the key-value store for `bonsaidb-client`.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -94,14 +94,14 @@
 
 #[cfg(feature = "client")]
 #[doc(inline)]
-pub use pliantdb_client as client;
+pub use bonsaidb_client as client;
 #[doc(inline)]
-pub use pliantdb_core as core;
+pub use bonsaidb_core as core;
 #[cfg(feature = "local")]
 #[doc(inline)]
-pub use pliantdb_local as local;
+pub use bonsaidb_local as local;
 #[cfg(feature = "server")]
 #[doc(inline)]
-pub use pliantdb_server as server;
+pub use bonsaidb_server as server;
 #[cfg(feature = "cli")]
 pub mod cli;

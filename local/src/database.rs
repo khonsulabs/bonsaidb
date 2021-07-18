@@ -3,10 +3,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use itertools::Itertools;
 #[cfg(feature = "keyvalue")]
-use pliantdb_core::kv::{KeyOperation, Kv, Output};
-use pliantdb_core::{
+use bonsaidb_core::kv::{KeyOperation, Kv, Output};
+use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, ServerConnection},
     document::{Document, Header, KeyId},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
@@ -21,6 +20,7 @@ use pliantdb_core::{
         self, ChangedDocument, Command, Executed, Operation, OperationResult, Transaction,
     },
 };
+use itertools::Itertools;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError, TransactionalTree},
     IVec, Transactional, Tree,
@@ -72,7 +72,7 @@ impl<DB> Database<DB>
 where
     DB: Schema,
 {
-    /// Opens a local file as a pliantdb.
+    /// Opens a local file as a bonsaidb.
     pub(crate) async fn new<S: Into<Cow<'static, str>> + Send>(
         name: S,
         storage: Storage,
@@ -105,7 +105,7 @@ where
     ///
     /// # Unstable
     ///
-    /// See [this issue](https://github.com/khonsulabs/pliantdb/issues/68).
+    /// See [this issue](https://github.com/khonsulabs/bonsaidb/issues/68).
     #[doc(hidden)]
     #[must_use]
     pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Self {
@@ -135,7 +135,7 @@ where
         storage.register_schema::<DB>().await?;
 
         match storage.create_database::<DB>("default").await {
-            Ok(_) | Err(pliantdb_core::Error::DatabaseNameAlreadyTaken(_)) => {}
+            Ok(_) | Err(bonsaidb_core::Error::DatabaseNameAlreadyTaken(_)) => {}
             err => err?,
         }
 
@@ -159,14 +159,14 @@ where
     }
 
     async fn for_each_in_view<
-        F: FnMut(ViewEntryCollection) -> Result<(), pliantdb_core::Error> + Send + Sync,
+        F: FnMut(ViewEntryCollection) -> Result<(), bonsaidb_core::Error> + Send + Sync,
     >(
         &self,
         view: &dyn view::Serialized,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         mut callback: F,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         if matches!(access_policy, AccessPolicy::UpdateBefore) {
             self.data
                 .storage
@@ -211,13 +211,13 @@ where
 
     async fn for_each_view_entry<
         V: schema::View,
-        F: FnMut(ViewEntryCollection) -> Result<(), pliantdb_core::Error> + Send + Sync,
+        F: FnMut(ViewEntryCollection) -> Result<(), bonsaidb_core::Error> + Send + Sync,
     >(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
         callback: F,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         let view = self
             .data
             .schema
@@ -237,7 +237,7 @@ where
         &self,
         id: u64,
         collection: &CollectionName,
-    ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
+    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
         let task_self = self.clone();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
@@ -267,7 +267,7 @@ where
         &self,
         ids: &[u64],
         collection: &CollectionName,
-    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
         let task_self = self.clone();
         let ids = ids.to_vec();
         let collection = collection.clone();
@@ -302,12 +302,12 @@ where
         view_name: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<u8>, pliantdb_core::Error> {
+    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         let view = self
             .data
             .schema
             .view_by_name(view_name)
-            .ok_or(pliantdb_core::Error::CollectionNotFound)?;
+            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
         let mut mappings = self
             .grouped_reduce_in_view(view_name, key, access_policy)
             .await?;
@@ -333,12 +333,12 @@ where
         view_name: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error> {
+    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, bonsaidb_core::Error> {
         let view = self
             .data
             .schema
             .view_by_name(view_name)
-            .ok_or(pliantdb_core::Error::CollectionNotFound)?;
+            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
         let mut mappings = Vec::new();
         self.for_each_in_view(view, key, access_policy, |entry| {
             let entry = ViewEntry::from(entry);
@@ -356,7 +356,7 @@ where
     pub(crate) fn deserialize_document<'a>(
         &self,
         bytes: &'a [u8],
-    ) -> Result<Document<'a>, pliantdb_core::Error> {
+    ) -> Result<Document<'a>, bonsaidb_core::Error> {
         let mut document = bincode::deserialize::<Document<'_>>(bytes).map_err(Error::from)?;
         if let Some(_decryption_key) = &document.header.encryption_key {
             let decrypted_contents = self
@@ -368,7 +368,7 @@ where
         Ok(document)
     }
 
-    fn serialize_document(&self, document: &Document<'_>) -> Result<Vec<u8>, pliantdb_core::Error> {
+    fn serialize_document(&self, document: &Document<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
         if let Some(encryption_key) = &document.header.encryption_key {
             let encrypted_contents = self.storage().vault().encrypt_payload(
                 encryption_key,
@@ -383,7 +383,7 @@ where
             bincode::serialize(document)
         }
         .map_err(Error::from)
-        .map_err(pliantdb_core::Error::from)
+        .map_err(bonsaidb_core::Error::from)
     }
 
     fn execute_operation(
@@ -391,7 +391,7 @@ where
         operation: &Operation<'_>,
         trees: &[TransactionalTree],
         tree_index_map: &HashMap<String, usize>,
-    ) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
+    ) -> Result<OperationResult, ConflictableTransactionError<bonsaidb_core::Error>> {
         match &operation.command {
             Command::Insert {
                 contents,
@@ -422,7 +422,7 @@ where
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
         contents: Cow<'_, [u8]>,
-    ) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
+    ) -> Result<OperationResult, ConflictableTransactionError<bonsaidb_core::Error>> {
         let documents =
             &trees[tree_index_map[&document_tree_name(self.name(), &operation.collection)]];
         let document_id = IVec::from(header.id.as_big_endian_bytes().unwrap().as_ref());
@@ -463,12 +463,12 @@ where
                 }
             } else {
                 Err(ConflictableTransactionError::Abort(
-                    pliantdb_core::Error::DocumentConflict(operation.collection.clone(), header.id),
+                    bonsaidb_core::Error::DocumentConflict(operation.collection.clone(), header.id),
                 ))
             }
         } else {
             Err(ConflictableTransactionError::Abort(
-                pliantdb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
+                bonsaidb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
             ))
         }
     }
@@ -480,7 +480,7 @@ where
         tree_index_map: &HashMap<String, usize>,
         contents: Cow<'_, [u8]>,
         encryption_key: Option<KeyId>,
-    ) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
+    ) -> Result<OperationResult, ConflictableTransactionError<bonsaidb_core::Error>> {
         let documents =
             &trees[tree_index_map[&document_tree_name(self.name(), &operation.collection)]];
         let doc = Document::new(documents.generate_id()?, contents, encryption_key);
@@ -505,7 +505,7 @@ where
         trees: &[TransactionalTree],
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
-    ) -> Result<OperationResult, ConflictableTransactionError<pliantdb_core::Error>> {
+    ) -> Result<OperationResult, ConflictableTransactionError<bonsaidb_core::Error>> {
         let documents =
             &trees[tree_index_map[&document_tree_name(self.name(), &operation.collection)]];
         let document_id = header.id.as_big_endian_bytes().unwrap();
@@ -530,12 +530,12 @@ where
                 })
             } else {
                 Err(ConflictableTransactionError::Abort(
-                    pliantdb_core::Error::DocumentConflict(operation.collection.clone(), header.id),
+                    bonsaidb_core::Error::DocumentConflict(operation.collection.clone(), header.id),
                 ))
             }
         } else {
             Err(ConflictableTransactionError::Abort(
-                pliantdb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
+                bonsaidb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
             ))
         }
     }
@@ -547,7 +547,7 @@ where
         documents: &TransactionalTree,
         trees: &[TransactionalTree],
         tree_index_map: &HashMap<String, usize>,
-    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+    ) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
         if let Some(unique_views) = self
             .data
             .schema
@@ -556,7 +556,7 @@ where
             for view in unique_views {
                 let name = view
                     .view_name()
-                    .map_err(pliantdb_core::Error::from)
+                    .map_err(bonsaidb_core::Error::from)
                     .map_err(ConflictableTransactionError::Abort)?;
                 mapper::DocumentRequest {
                     database: self,
@@ -586,7 +586,7 @@ where
         &self,
         tree: &TransactionalTree,
         doc: &Document<'_>,
-    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+    ) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
         let serialized: Vec<u8> = self
             .serialize_document(doc)
             .map_err(ConflictableTransactionError::Abort)?;
@@ -688,7 +688,7 @@ where
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
-    ) -> Result<Vec<OperationResult>, pliantdb_core::Error> {
+    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
         let task_self = self.clone();
         tokio::task::spawn_blocking(move || {
             let mut open_trees = OpenTrees::default();
@@ -698,7 +698,7 @@ where
                 .map_err(Error::from)?;
             for op in &transaction.operations {
                 if !task_self.data.schema.contains_collection_id(&op.collection) {
-                    return Err(pliantdb_core::Error::CollectionNotFound);
+                    return Err(bonsaidb_core::Error::CollectionNotFound);
                 }
 
                 match &op.command {
@@ -752,7 +752,7 @@ where
                             if !view.unique() {
                                 let view_name = view
                                     .view_name()
-                                    .map_err(pliantdb_core::Error::from)
+                                    .map_err(bonsaidb_core::Error::from)
                                     .map_err(ConflictableTransactionError::Abort)?;
                                 for changed_document in &changed_documents {
                                     let invalidated_docs = &trees[open_trees.trees_index_by_name
@@ -778,7 +778,7 @@ where
                 };
                 let serialized: Vec<u8> = bincode::serialize(&executed)
                     .map_err(Error::from)
-                    .map_err(pliantdb_core::Error::from)
+                    .map_err(bonsaidb_core::Error::from)
                     .map_err(ConflictableTransactionError::Abort)?;
                 tree.insert(&executed.id.to_be_bytes(), serialized)?;
 
@@ -789,19 +789,19 @@ where
                 Err(err) => match err {
                     TransactionError::Abort(err) => Err(err),
                     TransactionError::Storage(err) => {
-                        Err(pliantdb_core::Error::Database(err.to_string()))
+                        Err(bonsaidb_core::Error::Database(err.to_string()))
                     }
                 },
             }
         })
         .await
-        .map_err(|err| pliantdb_core::Error::Database(err.to_string()))?
+        .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?
     }
 
     async fn get<C: schema::Collection>(
         &self,
         id: u64,
-    ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
+    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
         self.get_from_collection_id(id, &C::collection_name()?)
             .await
     }
@@ -809,7 +809,7 @@ where
     async fn get_multiple<C: schema::Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
         self.get_multiple_from_collection_id(ids, &C::collection_name()?)
             .await
     }
@@ -818,7 +818,7 @@ where
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<transaction::Executed<'static>>, pliantdb_core::Error> {
+    ) -> Result<Vec<transaction::Executed<'static>>, bonsaidb_core::Error> {
         let result_limit = result_limit
             .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
             .min(LIST_TRANSACTIONS_MAX_RESULTS);
@@ -866,7 +866,7 @@ where
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, pliantdb_core::Error>
+    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -894,7 +894,7 @@ where
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, pliantdb_core::Error>
+    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -927,7 +927,7 @@ where
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<V::Value, pliantdb_core::Error>
+    ) -> Result<V::Value, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -953,7 +953,7 @@ where
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, pliantdb_core::Error>
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -979,10 +979,10 @@ where
                     value: serde_cbor::from_slice(&map.value)?,
                 })
             })
-            .collect::<Result<Vec<_>, pliantdb_core::Error>>()
+            .collect::<Result<Vec<_>, bonsaidb_core::Error>>()
     }
 
-    async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
+    async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
         let task_self = self.clone();
         let transaction_tree_name = transaction_tree_name(&self.data.name);
         tokio::task::spawn_blocking(move || {
@@ -1087,7 +1087,7 @@ where
         id: u64,
         collection: &CollectionName,
         permissions: &Permissions,
-    ) -> Result<Option<Document<'static>>, pliantdb_core::Error> {
+    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
         self.with_effective_permissions(permissions.clone())
             .get_from_collection_id(id, collection)
             .await
@@ -1098,7 +1098,7 @@ where
         ids: &[u64],
         collection: &CollectionName,
         permissions: &Permissions,
-    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error> {
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
         self.with_effective_permissions(permissions.clone())
             .get_multiple_from_collection_id(ids, collection)
             .await
@@ -1108,7 +1108,7 @@ where
         &self,
         transaction: Transaction<'static>,
         permissions: &Permissions,
-    ) -> Result<Vec<OperationResult>, pliantdb_core::Error> {
+    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
         <Self as Connection>::apply_transaction(
             &self.with_effective_permissions(permissions.clone()),
             transaction,
@@ -1121,7 +1121,7 @@ where
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<map::Serialized>, pliantdb_core::Error> {
+    ) -> Result<Vec<map::Serialized>, bonsaidb_core::Error> {
         if let Some(view) = self.schematic().view_by_name(view) {
             let mut results = Vec::new();
             self.for_each_in_view(view, key, access_policy, |collection| {
@@ -1139,7 +1139,7 @@ where
 
             Ok(results)
         } else {
-            Err(pliantdb_core::Error::CollectionNotFound)
+            Err(bonsaidb_core::Error::CollectionNotFound)
         }
     }
 
@@ -1149,7 +1149,7 @@ where
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         permissions: &Permissions,
-    ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error> {
+    ) -> Result<Vec<networking::MappedDocument>, bonsaidb_core::Error> {
         let results = OpenDatabase::query(self, view, key, access_policy).await?;
         let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
 
@@ -1185,7 +1185,7 @@ where
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<u8>, pliantdb_core::Error> {
+    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         self.reduce_in_view(view, key, access_policy).await
     }
 
@@ -1194,7 +1194,7 @@ where
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error> {
+    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, bonsaidb_core::Error> {
         self.grouped_reduce_in_view(view, key, access_policy).await
     }
 
@@ -1202,11 +1202,11 @@ where
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<Executed<'static>>, pliantdb_core::Error> {
+    ) -> Result<Vec<Executed<'static>>, bonsaidb_core::Error> {
         Connection::list_executed_transactions(self, starting_id, result_limit).await
     }
 
-    async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
+    async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
         Connection::last_transaction_id(self).await
     }
 
@@ -1214,7 +1214,7 @@ where
     async fn execute_key_operation(
         &self,
         op: KeyOperation,
-    ) -> Result<Output, pliantdb_core::Error> {
+    ) -> Result<Output, bonsaidb_core::Error> {
         Kv::execute_key_operation(self, op).await
     }
 }

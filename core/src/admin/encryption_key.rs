@@ -1,7 +1,7 @@
 use std::{borrow::Cow, io::Write};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use pliantdb_core::{
+use bonsaidb_core::{
     connection::Connection,
     document::Document,
     schema::{

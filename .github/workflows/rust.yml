@@ -55,19 +55,19 @@ jobs:
             features: "--no-default-features --features keyvalue,websockets"
           - folder: server
             features: "--no-default-features --features pubsub,keyvalue"
-          - folder: pliantdb
+          - folder: bonsaidb
             features: "--no-default-features --features server,client,test-util"
-          - folder: pliantdb
+          - folder: bonsaidb
             features: "--no-default-features --features server,client,test-util,pubsub"
-          - folder: pliantdb
+          - folder: bonsaidb
             features: "--no-default-features --features server,client,test-util,keyvalue"
-          - folder: pliantdb
+          - folder: bonsaidb
             features: "--no-default-features --features server,client,test-util,websockets"
-          - folder: pliantdb
+          - folder: bonsaidb
             features: "--no-default-features --features server,client,test-util,websockets,pubsub"
-          - folder: pliantdb
+          - folder: bonsaidb
             features: "--no-default-features --features server,client,test-util,websockets,keyvalue"
-          - folder: pliantdb
+          - folder: bonsaidb
             features: "--no-default-features --features server,client,test-util,pubsub,keyvalue"
     steps:
       - uses: actions/checkout@v2

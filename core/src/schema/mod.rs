@@ -32,7 +32,7 @@ pub trait Schema: Send + Sync + Debug + 'static {
     }
 }
 
-/// This trait is only useful for tools like `pliantdb local-backup`. There is no
+/// This trait is only useful for tools like `bonsaidb local-backup`. There is no
 /// real-world use case of connecting to a Database with no schema.
 impl Schema for () {
     fn schema_name() -> Result<SchemaName, InvalidNameError> {

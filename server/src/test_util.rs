@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use pliantdb_core::{
+use bonsaidb_core::{
     connection::ServerConnection, permissions::Permissions, test_util::BasicSchema,
 };
 

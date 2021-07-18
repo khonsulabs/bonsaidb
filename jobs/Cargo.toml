@@ -1,15 +1,15 @@
 [package]
-name = "pliantdb-jobs"
+name = "bonsaidb-jobs"
 version = "0.1.0-dev.4"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
-description = "Aysnc jobs management for PliantDb."
-repository = "https://github.com/khonsulabs/pliantdb"
+description = "Aysnc jobs management for BonsaiDb."
+repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
 keywords = ["document-database", "database"]
 categories = ["database-implementations"]
 readme = "../README.md"
-homepage = "https://pliantdb.dev/"
+homepage = "https://bonsaidb.dev/"
 
 [dependencies]
 serde = { version="1", features=["derive"] }

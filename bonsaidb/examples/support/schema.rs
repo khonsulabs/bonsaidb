@@ -1,4 +1,4 @@
-use pliantdb_core::{
+use bonsaidb_core::{
     document::Document,
     schema::{
         view, Collection, CollectionName, InvalidNameError, MapResult,

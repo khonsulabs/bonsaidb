@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use pliantdb::local::{config::Configuration, Database};
-use pliantdb_core::pubsub::{PubSub, Subscriber};
+use bonsaidb::local::{config::Configuration, Database};
+use bonsaidb_core::pubsub::{PubSub, Subscriber};
 use tokio::time::sleep;
 
 #[tokio::main]
@@ -9,7 +9,7 @@ async fn main() -> anyhow::Result<()> {
     // This example is using a database with no collections, because PubSub is a
     // system independent of the data stored in the database.
     let db =
-        Database::<()>::open_local("pubsub.pliantdb", Configuration::default())
+        Database::<()>::open_local("pubsub.bonsaidb", Configuration::default())
             .await?;
 
     let subscriber = db.create_subscriber().await?;

@@ -1,4 +1,4 @@
-use pliantdb_core::document::KeyId;
+use bonsaidb_core::document::KeyId;
 
 use crate::vault::AnyVaultKeyStorage;
 

@@ -13,7 +13,7 @@ pub enum Command {
     /// have one global self-signed certificate. If `overwrite` is true, any
     /// existing certificate will be overwritten. If `overwrite` is false and a
     /// certificate already exists,
-    /// [`Error::Configuration`](pliantdb_core::Error::Configuration) is
+    /// [`Error::Configuration`](bonsaidb_core::Error::Configuration) is
     /// returned.
     InstallSelfSigned {
         /// The name of the server. If this server has a DNS name, you should

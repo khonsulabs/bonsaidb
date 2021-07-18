@@ -1,8 +1,8 @@
 use std::{net::SocketAddr, ops::Deref, sync::Arc};
 
 use actionable::Permissions;
+use bonsaidb_core::{custodian_password::ServerLogin, custom_api::CustomApi};
 use flume::Sender;
-use pliantdb_core::{custodian_password::ServerLogin, custom_api::CustomApi};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::{Backend, CustomServer};
@@ -10,8 +10,8 @@ use crate::{Backend, CustomServer};
 /// The ways a client can be connected to the server.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Transport {
-    /// A connection over `PliantDb`'s QUIC-based protocol.
-    Pliant,
+    /// A connection over `BonsaiDb`'s QUIC-based protocol.
+    Bonsai,
     /// A connection over WebSockets.
     #[cfg(feature = "websockets")]
     WebSocket,

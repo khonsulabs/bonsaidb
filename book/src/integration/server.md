@@ -1,16 +1,16 @@
-# Integrating the networked PliantDb Server
+# Integrating the networked BonsaiDb Server
 
-To access `PliantDb` over the network, you're going to be writing two pieces of code: the server code and the client code.
+To access `BonsaiDb` over the network, you're going to be writing two pieces of code: the server code and the client code.
 
-## Your PliantDb Server
+## Your BonsaiDb Server
 
-The first step is to create a [`Server`][storage], which uses local [`Storage`][storage] under the hood. This means that if you're already using `PliantDb` in local mode, you can swap your usage of [`Storage`][storage] with [`Server`][server] in your server code without running your database through any tools. Here's the setup code from [`pliantdb/examples/server.rs`](https://github.com/khonsulabs/pliantdb/blob/main/pliantdb/examples/server.rs)
+The first step is to create a [`Server`][storage], which uses local [`Storage`][storage] under the hood. This means that if you're already using `BonsaiDb` in local mode, you can swap your usage of [`Storage`][storage] with [`Server`][server] in your server code without running your database through any tools. Here's the setup code from [`bonsaidb/examples/server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/bonsaidb/examples/server.rs)
 
 ```rust,noplayground,no_run
-{{#include ../../../pliantdb/examples/server.rs:setup}}
+{{#include ../../../bonsaidb/examples/server.rs:setup}}
 ```
 
-Once you have a server initialized, calling [`listen_on`](https://pliantdb.dev/main/pliantdb/server/struct.CustomServer.html#method.listen_on) will begin listening for connections on the port specified. This uses the preferred native protocol which uses UDP. If you find that UDP is not working for your setup or want to put `PliantDb` behind a load balancer that doesn't support UDP, you can enable WebSocket support and call [`listen_for_websockets_on`](https://pliantdb.dev/main/pliantdb/server/struct.CustomServer.html#method.listen_for_websockets_on).
+Once you have a server initialized, calling [`listen_on`](https://bonsaidb.dev/main/bonsaidb/server/struct.CustomServer.html#method.listen_on) will begin listening for connections on the port specified. This uses the preferred native protocol which uses UDP. If you find that UDP is not working for your setup or want to put `BonsaiDb` behind a load balancer that doesn't support UDP, you can enable WebSocket support and call [`listen_for_websockets_on`](https://bonsaidb.dev/main/bonsaidb/server/struct.CustomServer.html#method.listen_for_websockets_on).
 
 You can call both, but since these functions don't return until the server is shut down, you should spawn them instead:
 
@@ -33,14 +33,14 @@ If you're not running any of your own code on the server, and you're only using 
 
 The [`Client`][client] can support both the native protocol and WebSockets. It determines which protocol to use based on the scheme in the URL:
 
-* `pliantdb://host:port` will connect using the native `PliantDb` protocol.
+* `bonsaidb://host:port` will connect using the native `BonsaiDb` protocol.
 * `ws://host:port` will connect using WebSockets.
 
-Here's how to connect, from [`pliantdb/examples/server.rs`](https://github.com/khonsulabs/pliantdb/blob/main/pliantdb/examples/server.rs):
+Here's how to connect, from [`bonsaidb/examples/server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/bonsaidb/examples/server.rs):
 
 ```rust,noplayground,no_run
 Client::new(
-    Url::parse("pliantdb://localhost:5645")?,
+    Url::parse("bonsaidb://localhost:5645")?,
     Some(certificate),
 )
 .await?
@@ -53,10 +53,10 @@ This is using a pinned certificate to connect. Other methods are supported, but 
 ## Common Traits
 
 * [`Server`][server] implements [`ServerConnection`](../traits/server_connection.md).
-* [`Server::database()`](https://pliantdb.dev/main/pliantdb/server/struct.CustomServer.html#method.database) returns a local [`Database`](https://pliantdb.dev/main/pliantdb/local/struct.Database.html), which implements [`Connection`](../traits/connection.md), [`Kv`](../traits/kv.md), and [`PubSub`](../traits/kv.md). Local access in the server executable doesn't go over the network.
+* [`Server::database()`](https://bonsaidb.dev/main/bonsaidb/server/struct.CustomServer.html#method.database) returns a local [`Database`](https://bonsaidb.dev/main/bonsaidb/local/struct.Database.html), which implements [`Connection`](../traits/connection.md), [`Kv`](../traits/kv.md), and [`PubSub`](../traits/kv.md). Local access in the server executable doesn't go over the network.
 * [`Client`][client] implements [`ServerConnection`](../traits/server_connection.md).
-* [`Client::database()`](https://pliantdb.dev/main/pliantdb/client/struct.Client.html#method.database) returns a [`RemoteDatabase`](https://pliantdb.dev/main/pliantdb/client/struct.RemoteDatabase.html), which implements [`Connection`](../traits/connection.md), [`Kv`](../traits/kv.md), and [`PubSub`](../traits/kv.md).
+* [`Client::database()`](https://bonsaidb.dev/main/bonsaidb/client/struct.Client.html#method.database) returns a [`RemoteDatabase`](https://bonsaidb.dev/main/bonsaidb/client/struct.RemoteDatabase.html), which implements [`Connection`](../traits/connection.md), [`Kv`](../traits/kv.md), and [`PubSub`](../traits/kv.md).
 
-[server]: https://pliantdb.dev/main/pliantdb/server/type.Server.html
-[storage]: https://pliantdb.dev/main/pliantdb/local/struct.Storage.html
-[client]: https://pliantdb.dev/main/pliantdb/client/struct.Client.html
+[server]: https://bonsaidb.dev/main/bonsaidb/server/type.Server.html
+[storage]: https://bonsaidb.dev/main/bonsaidb/local/struct.Storage.html
+[client]: https://bonsaidb.dev/main/bonsaidb/client/struct.Client.html

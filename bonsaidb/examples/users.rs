@@ -2,14 +2,14 @@
 
 use std::{path::Path, time::Duration};
 
-use pliantdb::{
+use bonsaidb::{
     client::{url::Url, Client},
     core::{
         admin::{PermissionGroup, User},
         connection::ServerConnection,
         document::KeyId,
         permissions::{
-            pliant::{PliantAction, ServerAction},
+            bonsai::{BonsaiAction, ServerAction},
             Action, ActionNameList, Permissions, ResourceName, Statement,
         },
         schema::Collection,
@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
 
             id
         }
-        Err(pliantdb_core::Error::UniqueKeyViolation {
+        Err(bonsaidb_core::Error::UniqueKeyViolation {
             existing_document_id,
             ..
         }) => existing_document_id,
@@ -51,7 +51,7 @@ async fn main() -> anyhow::Result<()> {
     .await)
     {
         Ok(doc) => doc.header.id,
-        Err(pliantdb_core::Error::UniqueKeyViolation {
+        Err(bonsaidb_core::Error::UniqueKeyViolation {
             existing_document_id,
             ..
         }) => existing_document_id,
@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     let client = Client::<()>::new_with_certificate(
-        Url::parse("pliantdb://localhost")?,
+        Url::parse("bonsaidb://localhost")?,
         Some(server.certificate().await?),
     )
     .await?;
@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Before authenticating, inserting a shape shouldn't work.
     match Shape::new(3).insert_into(&db).await {
-        Err(pliantdb_core::Error::PermissionDenied(denied)) => {
+        Err(bonsaidb_core::Error::PermissionDenied(denied)) => {
             println!(
                 "Permission was correctly denied before logging in: {:?}",
                 denied
@@ -105,11 +105,11 @@ async fn main() -> anyhow::Result<()> {
 
 async fn setup_server() -> anyhow::Result<Server> {
     let server = Server::open(
-        Path::new("users-server-data.pliantdb"),
+        Path::new("users-server-data.bonsaidb"),
         Configuration {
             default_permissions: Permissions::from(vec![Statement {
                 resources: vec![ResourceName::any()],
-                actions: ActionNameList::List(vec![PliantAction::Server(
+                actions: ActionNameList::List(vec![BonsaiAction::Server(
                     ServerAction::LoginWithPassword,
                 )
                 .name()]),

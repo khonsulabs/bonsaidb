@@ -42,7 +42,7 @@ pub type MapResult<K = (), V = ()> = Result<Option<Map<K, V>>, Error>;
 ///
 /// This implementation is under active development, our own docs explaining our
 /// implementation will be written as things are solidified. The guide [has an
-/// overview](https://pliantdb.dev/guide/about/concepts/view.html).
+/// overview](https://bonsaidb.dev/guide/about/concepts/view.html).
 // TODO write our own view docs
 pub trait View: Send + Sync + Debug + 'static {
     /// The collection this view belongs to

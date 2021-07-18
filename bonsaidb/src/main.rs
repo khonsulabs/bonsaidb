@@ -1,6 +1,6 @@
 //! A programmable document database inspired by `CouchDB` written in Rust.
 //!
-//! The `pliantdb` executable
+//! The `bonsaidb` executable
 
 #![forbid(unsafe_code)]
 #![warn(

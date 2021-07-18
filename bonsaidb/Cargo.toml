@@ -1,18 +1,18 @@
 [package]
-name = "pliantdb"
+name = "bonsaidb"
 version = "0.1.0-dev.4"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
 description = "A programmable, ACID-compliant, document-database inspired by CouchDB."
-repository = "https://github.com/khonsulabs/pliantdb"
+repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
 keywords = ["document-database", "database"]
 categories = ["database-implementations", "database"]
 readme = "../README.md"
-homepage = "https://pliantdb.dev/"
+homepage = "https://bonsaidb.dev/"
 
 [[bin]]
-name = "pliantdb"
+name = "bonsaidb"
 path = "src/main.rs"
 required-features = ["cli"]
 
@@ -60,7 +60,7 @@ required-features = ["server", "client"]
 default = []
 full = ["local-full", "server-full", "client-full"]
 local-full = ["local", "local-pubsub", "local-keyvalue", "local-cli"]
-local = ["pliantdb-local"]
+local = ["bonsaidb-local"]
 server-full = [
     "server",
     "server-pubsub",
@@ -68,7 +68,7 @@ server-full = [
     "server-websockets",
     "server-cli",
 ]
-server = ["pliantdb-server"]
+server = ["bonsaidb-server"]
 client-full = [
     "client",
     "client-pubsub",
@@ -76,34 +76,34 @@ client-full = [
     "client-websockets",
     "client-trusted-dns",
 ]
-client = ["pliantdb-client"]
-test-util = ["pliantdb-client/test-util", "pliantdb-server/test-util"]
+client = ["bonsaidb-client"]
+test-util = ["bonsaidb-client/test-util", "bonsaidb-server/test-util"]
 
 cli = ["anyhow", "tokio", "structopt", "local-cli", "server-cli"]
-local-cli = ["pliantdb-local/cli"]
-server-cli = ["pliantdb-server/cli"]
+local-cli = ["bonsaidb-local/cli"]
+server-cli = ["bonsaidb-server/cli"]
 
 websockets = ["server-websockets", "client-websockets"]
-server-websockets = ["pliantdb-server/websockets"]
-client-websockets = ["pliantdb-client/websockets"]
+server-websockets = ["bonsaidb-server/websockets"]
+client-websockets = ["bonsaidb-client/websockets"]
 
-client-trusted-dns = ["pliantdb-client/trusted-dns"]
+client-trusted-dns = ["bonsaidb-client/trusted-dns"]
 
 pubsub = ["server-pubsub", "client-pubsub", "local-pubsub"]
-server-pubsub = ["pliantdb-server/pubsub", "pliantdb-core/pubsub"]
-client-pubsub = ["pliantdb-client/pubsub", "pliantdb-core/pubsub"]
-local-pubsub = ["pliantdb-local/pubsub", "pliantdb-core/pubsub"]
+server-pubsub = ["bonsaidb-server/pubsub", "bonsaidb-core/pubsub"]
+client-pubsub = ["bonsaidb-client/pubsub", "bonsaidb-core/pubsub"]
+local-pubsub = ["bonsaidb-local/pubsub", "bonsaidb-core/pubsub"]
 
 keyvalue = ["server-keyvalue", "client-keyvalue", "local-keyvalue"]
-server-keyvalue = ["pliantdb-server/keyvalue", "pliantdb-core/keyvalue"]
-client-keyvalue = ["pliantdb-client/keyvalue", "pliantdb-core/keyvalue"]
-local-keyvalue = ["pliantdb-local/keyvalue", "pliantdb-core/keyvalue"]
+server-keyvalue = ["bonsaidb-server/keyvalue", "bonsaidb-core/keyvalue"]
+client-keyvalue = ["bonsaidb-client/keyvalue", "bonsaidb-core/keyvalue"]
+local-keyvalue = ["bonsaidb-local/keyvalue", "bonsaidb-core/keyvalue"]
 
 [dependencies]
-pliantdb-core = { path="../core", version="0.1.0-dev.4", default-features=false }
-pliantdb-local = { path="../local", version="0.1.0-dev.4", default-features=false, optional=true }
-pliantdb-client = { path="../client", version="0.1.0-dev.4", default-features=false, optional=true }
-pliantdb-server = { path="../server", version="0.1.0-dev.4", default-features=false, optional=true }
+bonsaidb-core = { path="../core", version="0.1.0-dev.4", default-features=false }
+bonsaidb-local = { path="../local", version="0.1.0-dev.4", default-features=false, optional=true }
+bonsaidb-client = { path="../client", version="0.1.0-dev.4", default-features=false, optional=true }
+bonsaidb-server = { path="../server", version="0.1.0-dev.4", default-features=false, optional=true }
 
 tokio = { version="1", features=["full"], optional=true }
 structopt = { version="0.3", optional=true }
@@ -113,7 +113,7 @@ anyhow = { version="1", optional=true }
 tokio = { version="1", features=["full"] }
 serde = { version="1", features=["derive"] }
 anyhow = "1"
-pliantdb-core = { path="../core", version="0.1.0-dev.4", default-features=false, features=["test-util"] }
+bonsaidb-core = { path="../core", version="0.1.0-dev.4", default-features=false, features=["test-util"] }
 futures = "0.3"
 rand = "0.8"
 url = "2.2"

@@ -9,7 +9,7 @@ use structopt::StructOpt;
 
 use crate::{server::Server, Configuration, CustomServer};
 
-/// Command-line interface for `pliantdb server`.
+/// Command-line interface for `bonsaidb server`.
 #[derive(StructOpt, Debug)]
 pub struct Cli {
     /// The path to the directory where the server should store its data.
@@ -20,7 +20,7 @@ pub struct Cli {
     pub subcommand: Command,
 }
 
-/// Available commands for `pliantdb server`.
+/// Available commands for `bonsaidb server`.
 #[derive(StructOpt, Debug)]
 pub enum Command {
     /// Manage the server's root certificate.

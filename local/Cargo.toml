@@ -1,15 +1,15 @@
 [package]
-name = "pliantdb-local"
+name = "bonsaidb-local"
 version = "0.1.0-dev.4"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
-description = "Local database storage for PliantDb."
-repository = "https://github.com/khonsulabs/pliantdb"
+description = "Local database storage for BonsaiDb."
+repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
 keywords = ["document-database", "database"]
 categories = ["database-implementations", "database"]
 readme = "../README.md"
-homepage = "https://pliantdb.dev/"
+homepage = "https://bonsaidb.dev/"
 
 [lib]
 
@@ -18,13 +18,13 @@ default = ["full"]
 full = ["cli", "pubsub", "keyvalue"]
 cli = ["structopt"]
 internal-apis = []
-pubsub = ["pliantdb-core/pubsub"]
-keyvalue = ["pliantdb-core/keyvalue"]
+pubsub = ["bonsaidb-core/pubsub"]
+keyvalue = ["bonsaidb-core/keyvalue"]
 
 [dependencies]
 async-trait = "0.1"
-pliantdb-core = { path="../core", version="0.1.0-dev.4" }
-pliantdb-jobs = { path="../jobs", version="0.1.0-dev.4" }
+bonsaidb-core = { path="../core", version="0.1.0-dev.4" }
+bonsaidb-jobs = { path="../jobs", version="0.1.0-dev.4" }
 sled = "0.34"
 thiserror = "1"
 tokio = { version="1", features=["full"] }
@@ -47,7 +47,7 @@ x25519-rand = { package="rand", version="0.7" }
 hpke = { version="0.6", default-features=false, features=["x25519", "serde_impls"] }
 
 [dev-dependencies]
-pliantdb-core = { path="../core", version="0.1.0-dev.4", features=["test-util"] }
+bonsaidb-core = { path="../core", version="0.1.0-dev.4", features=["test-util"] }
 futures = "0.3"
 criterion = { version="0.3", features=["async_tokio"] }
 

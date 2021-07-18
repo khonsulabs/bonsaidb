@@ -1,4 +1,4 @@
-//! Macros `PliantDb`.
+//! Macros `BonsaiDb`.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -18,7 +18,7 @@ use proc_macro_error::{abort, abort_call_site, proc_macro_error};
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput};
 
-/// Derives the `pliantdb_core::permissions::Action` trait.
+/// Derives the `bonsaidb_core::permissions::Action` trait.
 #[proc_macro_error]
 #[proc_macro_derive(Action)]
 pub fn permissions_action_derive(input: TokenStream) -> TokenStream {

@@ -9,13 +9,13 @@
 //! To back up an existing local database:
 //!
 //! ```sh
-//! pliantdb local-backup <database_path> save
+//! bonsaidb local-backup <database_path> save
 //! ```
 //!
 //! To restore a backup:
 //!
 //! ```sh
-//! pliantdb local-backup <database_path> load <backup_location>
+//! bonsaidb local-backup <database_path> load <backup_location>
 //! ```
 
 use std::{
@@ -27,12 +27,12 @@ use std::{
     sync::Arc,
 };
 
-use flume::Receiver;
-use pliantdb_core::{
+use bonsaidb_core::{
     document::{Document, Header, Revision},
     schema::{CollectionName, Key},
     transaction::Executed,
 };
+use flume::Receiver;
 use structopt::StructOpt;
 use tokio::{
     fs::File,
@@ -47,7 +47,7 @@ use crate::{
 
 const TRANSACTIONS_FOLDER_NAME: &str = "_transactions";
 
-/// The command line interface for `pliantdb local-backup`.
+/// The command line interface for `bonsaidb local-backup`.
 #[derive(StructOpt, Debug)]
 pub struct Cli {
     /// The path to the database you wish to operate on.
@@ -383,7 +383,7 @@ fn restore_documents(receiver: Receiver<BackupEntry>, storage: Storage) -> anyho
 
 #[cfg(test)]
 mod tests {
-    use pliantdb_core::{
+    use bonsaidb_core::{
         connection::Connection as _,
         test_util::{Basic, TestDirectory},
     };
@@ -393,13 +393,13 @@ mod tests {
 
     #[tokio::test]
     async fn backup_restore() -> anyhow::Result<()> {
-        let backup_destination = TestDirectory::new("backup-restore.pliantdb.backup");
+        let backup_destination = TestDirectory::new("backup-restore.bonsaidb.backup");
 
         // First, create a database that we'll be restoring. `TestDirectory`
         // will automatically erase the database when it drops out of scope,
         // which is why we're creating a nested scope here.
         let test_doc = {
-            let database_directory = TestDirectory::new("backup-restore.pliantdb");
+            let database_directory = TestDirectory::new("backup-restore.bonsaidb");
             let db = Database::<Basic>::open_local(&database_directory, Configuration::default())
                 .await?;
             let test_doc = db
@@ -426,7 +426,7 @@ mod tests {
         };
 
         // `backup_destination` now contains an export of the database, time to try loading it:
-        let database_directory = TestDirectory::new("backup-restore.pliantdb");
+        let database_directory = TestDirectory::new("backup-restore.bonsaidb");
         Command::Load {
             backup: backup_destination.0.clone(),
         }

@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use pliantdb::{
+use bonsaidb::{
     core::{
         schema::{Collection, CollectionName, InvalidNameError, Schematic},
         Error,
@@ -28,14 +28,14 @@ impl Collection for Message {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let db = Database::<Message>::open_local(
-        "basic.pliantdb",
+        "basic.bonsaidb",
         Configuration::default(),
     )
     .await?;
 
     // Insert a new `Message` into the database. `Message` is a `Collection`
     // implementor, which makes them act in a similar fashion to tables in other
-    // databases. `PliantDb` stores each "row" as a `Document`. This document
+    // databases. `BonsaiDb` stores each "row" as a `Document`. This document
     // will have a unique ID, some other metadata, and your stored value. In
     // this case, `Message` implements `Serialize` and `Deserialize`, so we can
     // use convenience methods that return a `CollectionDocument`, moving all

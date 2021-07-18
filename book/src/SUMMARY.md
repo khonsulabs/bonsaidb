@@ -2,7 +2,7 @@
 
 [Introduction](./introduction.md)
 
-# About PliantDb
+# About BonsaiDb
 
 - [Concepts](./about/concepts.md)
   - [Document](./about/concepts/document.md)
@@ -13,7 +13,7 @@
   - [Server](./about/concepts/server.md)
   - [Client](./about/concepts/client.md)
   - [PubSub](./about/concepts/pubsub.md)
-- [How can PliantDb be accessed?](./about/access_models.md)
+- [How can BonsaiDb be accessed?](./about/access_models.md)
 
 # Integration
 

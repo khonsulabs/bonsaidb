@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use pliantdb_core::schema::{view, InvalidNameError};
+use bonsaidb_core::schema::{view, InvalidNameError};
 
 use crate::vault;
 
@@ -33,14 +33,14 @@ pub enum Error {
 
     /// An core error occurred.
     #[error("a core error occurred: {0}")]
-    Core(#[from] pliantdb_core::Error),
+    Core(#[from] bonsaidb_core::Error),
 
     /// An unexpected error occurred.
     #[error("an unexpected error occurred: {0}")]
     Other(#[from] Arc<anyhow::Error>),
 }
 
-impl From<Error> for pliantdb_core::Error {
+impl From<Error> for bonsaidb_core::Error {
     fn from(err: Error) -> Self {
         match err {
             Error::Core(core) => core,
@@ -51,17 +51,17 @@ impl From<Error> for pliantdb_core::Error {
 
 impl From<InvalidNameError> for Error {
     fn from(err: InvalidNameError) -> Self {
-        Self::Core(pliantdb_core::Error::from(err))
+        Self::Core(bonsaidb_core::Error::from(err))
     }
 }
 
 #[test]
 fn test_converting_error() {
     use serde::ser::Error as _;
-    let err: pliantdb_core::Error =
+    let err: bonsaidb_core::Error =
         Error::Serialization(serde_cbor::Error::custom("mymessage")).into();
     match err {
-        pliantdb_core::Error::Database(storage_error) => {
+        bonsaidb_core::Error::Database(storage_error) => {
             assert!(storage_error.contains("mymessage"))
         }
         _ => unreachable!(),

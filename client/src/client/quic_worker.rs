@@ -1,7 +1,7 @@
+use bonsaidb_core::networking::{Payload, Request, Response};
 use fabruic::{self, Certificate, Endpoint};
 use flume::Receiver;
 use futures::StreamExt;
-use pliantdb_core::networking::{Payload, Request, Response};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -22,7 +22,7 @@ pub async fn reconnecting_client_loop<
     request_receiver: Receiver<PendingRequest<R, O>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
-    if url.port().is_none() && url.scheme() == "pliantdb" {
+    if url.port().is_none() && url.scheme() == "bonsaidb" {
         let _ = url.set_port(Some(5645));
     }
 
@@ -149,7 +149,7 @@ async fn connect<
     Error,
 > {
     let endpoint = Endpoint::new_client()
-        .map_err(|err| Error::Core(pliantdb_core::Error::Transport(err.to_string())))?;
+        .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
     let connecting = if let Some(certificate) = certificate {
         endpoint.connect_pinned(url, certificate, None).await?
     } else {

@@ -1,32 +1,32 @@
 [package]
-name = "pliantdb-server"
+name = "bonsaidb-server"
 version = "0.1.0-dev.4"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2018"
-description = "Database server for PliantDb."
-repository = "https://github.com/khonsulabs/pliantdb"
+description = "Database server for BonsaiDb."
+repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
 keywords = ["document-database", "database"]
 categories = ["database-implementations"]
 readme = "../README.md"
-homepage = "https://pliantdb.dev/"
+homepage = "https://bonsaidb.dev/"
 
 [features]
 default = ["full"]
 full = ["cli", "websockets", "pubsub", "keyvalue"]
 cli = ["structopt"]
-test-util = ["pliantdb-core/test-util"]
-websockets = ["pliantdb-core/websockets", "tokio-tungstenite", "bincode"]
-pubsub = ["pliantdb-core/pubsub", "pliantdb-local/pubsub"]
-keyvalue = ["pliantdb-core/keyvalue", "pliantdb-local/keyvalue"]
+test-util = ["bonsaidb-core/test-util"]
+websockets = ["bonsaidb-core/websockets", "tokio-tungstenite", "bincode"]
+pubsub = ["bonsaidb-core/pubsub", "bonsaidb-local/pubsub"]
+keyvalue = ["bonsaidb-core/keyvalue", "bonsaidb-local/keyvalue"]
 
 [dependencies]
-pliantdb-core = { path="../core", version="0.1.0-dev.4", default-features=false, features=[
+bonsaidb-core = { path="../core", version="0.1.0-dev.4", default-features=false, features=[
     "networking",
     "actionable-traits",
 ] }
-pliantdb-local = { path="../local", version="0.1.0-dev.4", default-features=false, features=["internal-apis"] }
-pliantdb-jobs = { path="../jobs", version="0.1.0-dev.4" }
+bonsaidb-local = { path="../local", version="0.1.0-dev.4", default-features=false, features=["internal-apis"] }
+bonsaidb-jobs = { path="../jobs", version="0.1.0-dev.4" }
 serde = { version="1", features=["derive"] }
 tokio = { version="1", features=["full"] }
 thiserror = "1"
@@ -44,7 +44,7 @@ serde_cbor = "0.11"
 fabruic = { version="0.0.1-dev.2", features=["dangerous"] }
 
 [dev-dependencies]
-pliantdb-core = { path="../core", version="0.1.0-dev.4", default-features=false, features=["test-util"] }
+bonsaidb-core = { path="../core", version="0.1.0-dev.4", default-features=false, features=["test-util"] }
 
 [package.metadata.docs.rs]
 all-features = true

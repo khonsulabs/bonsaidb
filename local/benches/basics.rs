@@ -9,7 +9,7 @@
 // periodically will drastically improve speed, but it potentially will lead to
 // lost transactions.
 //
-// When operating `PliantDb` in a local or single-server mode, we must recommend
+// When operating `BonsaiDb` in a local or single-server mode, we must recommend
 // flushing on each write -- the default configuration. Comparatively speaking,
 // this will hurt performance in many benchmarks, including this one below. The
 // purpose of this benchmark is to help test the blocking nature of sled within
@@ -26,14 +26,14 @@
 
 use std::{borrow::Cow, sync::Arc};
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use pliantdb_core::{
+use bonsaidb_core::{
     connection::Connection,
     schema::{Collection, CollectionName, InvalidNameError, Schematic},
     test_util::TestDirectory,
     Error,
 };
-use pliantdb_local::{config::Configuration, Database};
+use bonsaidb_local::{config::Configuration, Database};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -66,7 +66,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     // First set of benchmarks tests inserting documents
     let mut group = c.benchmark_group("save_documents");
     for size in [KB, 2 * KB, 8 * KB, 32 * KB, KB * KB].iter() {
-        let path = TestDirectory::new(format!("benches-basics-{}.pliantdb", size));
+        let path = TestDirectory::new(format!("benches-basics-{}.bonsaidb", size));
         let db = runtime
             .block_on(Database::open_local(&path, Configuration::default()))
             .unwrap();

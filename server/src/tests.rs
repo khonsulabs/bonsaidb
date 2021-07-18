@@ -1,5 +1,5 @@
 use actionable::{Permissions, Statement};
-use pliantdb_core::test_util::{self, BasicSchema, HarnessTest, TestDirectory};
+use bonsaidb_core::test_util::{self, BasicSchema, HarnessTest, TestDirectory};
 
 use crate::{server::ServerDatabase, test_util::initialize_basic_server, Server};
 
@@ -57,9 +57,9 @@ impl TestHarness {
     }
 }
 
-pliantdb_core::define_connection_test_suite!(TestHarness);
+bonsaidb_core::define_connection_test_suite!(TestHarness);
 #[cfg(feature = "pubsub")]
-pliantdb_core::define_pubsub_test_suite!(TestHarness);
+bonsaidb_core::define_pubsub_test_suite!(TestHarness);
 
 #[cfg(feature = "keyvalue")]
-pliantdb_core::define_kv_test_suite!(TestHarness);
+bonsaidb_core::define_kv_test_suite!(TestHarness);

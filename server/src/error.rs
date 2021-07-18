@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use pliantdb_local::core::{self, schema};
+use bonsaidb_local::core::{self, schema};
 use schema::InvalidNameError;
 
 /// An error occurred while interacting with a [`Server`](crate::Server).
@@ -29,7 +29,7 @@ pub enum Error {
 
     /// An error occurred while interacting with a local database.
     #[error("an error occurred interacting with a database: {0}")]
-    Database(#[from] pliantdb_local::Error),
+    Database(#[from] bonsaidb_local::Error),
 }
 
 impl From<Error> for core::Error {
@@ -82,7 +82,7 @@ macro_rules! impl_from_fabruic {
     ($error:ty) => {
         impl From<$error> for Error {
             fn from(other: $error) -> Self {
-                Self::Core(pliantdb_core::Error::Transport(other.to_string()))
+                Self::Core(bonsaidb_core::Error::Transport(other.to_string()))
             }
         }
     };

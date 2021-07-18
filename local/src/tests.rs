@@ -1,7 +1,6 @@
 use std::time::Duration;
 
-use config::Configuration;
-use pliantdb_core::{
+use bonsaidb_core::{
     connection::{AccessPolicy, Connection, ServerConnection},
     document::KeyId,
     permissions::{Permissions, Statement},
@@ -10,6 +9,7 @@ use pliantdb_core::{
         BasicCollectionWithOnlyBrokenParentId, BasicSchema, HarnessTest, TestDirectory,
     },
 };
+use config::Configuration;
 
 use super::*;
 use crate::Database;
@@ -60,13 +60,13 @@ impl TestHarness {
     }
 }
 
-pliantdb_core::define_connection_test_suite!(TestHarness);
+bonsaidb_core::define_connection_test_suite!(TestHarness);
 
 #[cfg(feature = "pubsub")]
-pliantdb_core::define_pubsub_test_suite!(TestHarness);
+bonsaidb_core::define_pubsub_test_suite!(TestHarness);
 
 #[cfg(feature = "keyvalue")]
-pliantdb_core::define_kv_test_suite!(TestHarness);
+bonsaidb_core::define_kv_test_suite!(TestHarness);
 
 #[test]
 fn integrity_checks() -> anyhow::Result<()> {
@@ -204,7 +204,7 @@ fn encryption() -> anyhow::Result<()> {
         let db = Database::<Basic>::open_local(&path, Configuration::default()).await?;
 
         // Try retrieving the document, but expect an error decrypting.
-        if let Err(pliantdb_core::Error::Database(err)) =
+        if let Err(bonsaidb_core::Error::Database(err)) =
             db.collection::<Basic>().get(document_header.id).await
         {
             assert!(err.contains("vault"))
@@ -221,7 +221,7 @@ fn encryption() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "keyvalue")]
 fn expiration_after_close() -> anyhow::Result<()> {
-    use pliantdb_core::{kv::Kv, test_util::TimingTest};
+    use bonsaidb_core::{kv::Kv, test_util::TimingTest};
     loop {
         let path = TestDirectory::new("expiration-after-close");
         // To ensure full cleanup between each block, each runs in its own runtime;

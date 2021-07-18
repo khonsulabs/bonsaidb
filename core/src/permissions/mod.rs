@@ -1,5 +1,5 @@
-/// Types used for granting permissions within `PliantDb`.
-pub mod pliant;
+/// Types used for granting permissions within `BonsaiDb`.
+pub mod bonsai;
 
 pub use actionable::{
     Action, ActionName, ActionNameList, Actionable, Dispatcher, Identifier, PermissionDenied,

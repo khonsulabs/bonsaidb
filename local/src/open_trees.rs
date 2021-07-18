@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use pliantdb_core::schema::{CollectionName, Schematic};
+use bonsaidb_core::schema::{CollectionName, Schematic};
 
 use crate::{
     database::document_tree_name,

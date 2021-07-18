@@ -4,15 +4,15 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 #[cfg(feature = "keyvalue")]
-use pliantdb_core::kv::Kv;
+use bonsaidb_core::kv::Kv;
 #[cfg(feature = "pubsub")]
-use pliantdb_core::{circulate::Message, pubsub::PubSub, pubsub::Subscriber};
-use pliantdb_core::{
+use bonsaidb_core::{circulate::Message, pubsub::PubSub, pubsub::Subscriber};
+use bonsaidb_core::{
     connection::{AccessPolicy, QueryKey},
     schema::{self, Collection, Map, MappedValue, Schema, View},
     transaction::Transaction,
 };
-use pliantdb_local::Database;
+use bonsaidb_local::Database;
 
 use crate::{Backend, CustomServer};
 
@@ -37,7 +37,7 @@ impl<'a, B: Backend, DB: Schema> Deref for ServerDatabase<'a, B, DB> {
 impl<'a, B: Backend, DB: Schema> PubSub for ServerDatabase<'a, B, DB> {
     type Subscriber = ServerSubscriber<B>;
 
-    async fn create_subscriber(&self) -> Result<Self::Subscriber, pliantdb_core::Error> {
+    async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
         Ok(self
             .server
             .create_subscriber(self.db.name().to_string())
@@ -48,7 +48,7 @@ impl<'a, B: Backend, DB: Schema> PubSub for ServerDatabase<'a, B, DB> {
         &self,
         topic: S,
         payload: &P,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         self.server
             .publish_message(self.db.name(), &topic.into(), serde_cbor::to_vec(payload)?)
             .await;
@@ -59,7 +59,7 @@ impl<'a, B: Backend, DB: Schema> PubSub for ServerDatabase<'a, B, DB> {
         &self,
         topics: Vec<String>,
         payload: &P,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         self.server
             .publish_serialized_to_all(self.db.name(), &topics, serde_cbor::to_vec(payload)?)
             .await;
@@ -83,13 +83,13 @@ impl<B: Backend> Subscriber for ServerSubscriber<B> {
     async fn subscribe_to<S: Into<String> + Send>(
         &self,
         topic: S,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         self.server
             .subscribe_to(self.id, &self.database, topic)
             .await
     }
 
-    async fn unsubscribe_from(&self, topic: &str) -> Result<(), pliantdb_core::Error> {
+    async fn unsubscribe_from(&self, topic: &str) -> Result<(), bonsaidb_core::Error> {
         self.server
             .unsubscribe_from(self.id, &self.database, topic)
             .await
@@ -102,20 +102,20 @@ impl<B: Backend> Subscriber for ServerSubscriber<B> {
 
 /// Pass-through implementation
 #[async_trait]
-impl<'a, B: Backend, DB: Schema> pliantdb_core::connection::Connection
+impl<'a, B: Backend, DB: Schema> bonsaidb_core::connection::Connection
     for ServerDatabase<'a, B, DB>
 {
     async fn get<C: Collection>(
         &self,
         id: u64,
-    ) -> Result<Option<pliantdb_core::document::Document<'static>>, pliantdb_core::Error> {
+    ) -> Result<Option<bonsaidb_core::document::Document<'static>>, bonsaidb_core::Error> {
         self.db.get::<C>(id).await
     }
 
     async fn get_multiple<C: Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<pliantdb_core::document::Document<'static>>, pliantdb_core::Error> {
+    ) -> Result<Vec<bonsaidb_core::document::Document<'static>>, bonsaidb_core::Error> {
         self.db.get_multiple::<C>(ids).await
     }
 
@@ -123,7 +123,7 @@ impl<'a, B: Backend, DB: Schema> pliantdb_core::connection::Connection
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, pliantdb_core::Error>
+    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -134,7 +134,7 @@ impl<'a, B: Backend, DB: Schema> pliantdb_core::connection::Connection
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<schema::MappedDocument<V::Key, V::Value>>, pliantdb_core::Error>
+    ) -> Result<Vec<schema::MappedDocument<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -145,7 +145,7 @@ impl<'a, B: Backend, DB: Schema> pliantdb_core::connection::Connection
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<V::Value, pliantdb_core::Error>
+    ) -> Result<V::Value, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -156,7 +156,7 @@ impl<'a, B: Backend, DB: Schema> pliantdb_core::connection::Connection
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, pliantdb_core::Error>
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -166,7 +166,7 @@ impl<'a, B: Backend, DB: Schema> pliantdb_core::connection::Connection
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
-    ) -> Result<Vec<pliantdb_core::transaction::OperationResult>, pliantdb_core::Error> {
+    ) -> Result<Vec<bonsaidb_core::transaction::OperationResult>, bonsaidb_core::Error> {
         self.db.apply_transaction(transaction).await
     }
 
@@ -174,13 +174,13 @@ impl<'a, B: Backend, DB: Schema> pliantdb_core::connection::Connection
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<pliantdb_core::transaction::Executed<'static>>, pliantdb_core::Error> {
+    ) -> Result<Vec<bonsaidb_core::transaction::Executed<'static>>, bonsaidb_core::Error> {
         self.db
             .list_executed_transactions(starting_id, result_limit)
             .await
     }
 
-    async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error> {
+    async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
         self.db.last_transaction_id().await
     }
 }
@@ -191,8 +191,8 @@ impl<'a, B: Backend, DB: Schema> pliantdb_core::connection::Connection
 impl<'a, B: Backend, DB: Schema> Kv for ServerDatabase<'a, B, DB> {
     async fn execute_key_operation(
         &self,
-        op: pliantdb_core::kv::KeyOperation,
-    ) -> Result<pliantdb_core::kv::Output, pliantdb_core::Error> {
+        op: bonsaidb_core::kv::KeyOperation,
+    ) -> Result<bonsaidb_core::kv::Output, bonsaidb_core::Error> {
         self.db.execute_key_operation(op).await
     }
 }

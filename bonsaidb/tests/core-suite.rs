@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use fabruic::Certificate;
-use once_cell::sync::Lazy;
-use pliantdb::{
+use bonsaidb::{
     client::{Client, RemoteDatabase},
     core::{
         admin::{Admin, PermissionGroup, User},
@@ -13,6 +11,8 @@ use pliantdb::{
     },
     server::test_util::{initialize_basic_server, BASIC_SERVER_NAME},
 };
+use fabruic::Certificate;
+use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 use url::Url;
 
@@ -106,35 +106,35 @@ mod websockets {
         }
     }
 
-    pliantdb_core::define_connection_test_suite!(WebsocketTestHarness);
+    bonsaidb_core::define_connection_test_suite!(WebsocketTestHarness);
 
     #[cfg(feature = "pubsub")]
-    pliantdb_core::define_pubsub_test_suite!(WebsocketTestHarness);
+    bonsaidb_core::define_pubsub_test_suite!(WebsocketTestHarness);
     #[cfg(feature = "keyvalue")]
-    pliantdb_core::define_kv_test_suite!(WebsocketTestHarness);
+    bonsaidb_core::define_kv_test_suite!(WebsocketTestHarness);
 }
 
-mod pliant {
+mod bonsai {
     use super::*;
-    struct PliantTestHarness {
+    struct BonsaiTestHarness {
         client: Client,
         url: Url,
         certificate: Certificate,
         db: RemoteDatabase<BasicSchema>,
     }
 
-    impl PliantTestHarness {
+    impl BonsaiTestHarness {
         pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
             let certificate = initialize_shared_server().await;
 
             let url = Url::parse(&format!(
-                "pliantdb://localhost:6000?server={}",
+                "bonsaidb://localhost:6000?server={}",
                 BASIC_SERVER_NAME
             ))?;
             let client =
                 Client::new_with_certificate(url.clone(), Some(certificate.clone())).await?;
 
-            let dbname = format!("pliant-{}", test);
+            let dbname = format!("bonsai-{}", test);
             client.create_database::<BasicSchema>(&dbname).await?;
             let db = client.database::<BasicSchema>(&dbname).await?;
 
@@ -147,7 +147,7 @@ mod pliant {
         }
 
         pub fn server_name() -> &'static str {
-            "pliant"
+            "bonsai"
         }
 
         pub fn server(&self) -> &'_ Client {
@@ -176,12 +176,12 @@ mod pliant {
         }
     }
 
-    pliantdb_core::define_connection_test_suite!(PliantTestHarness);
+    bonsaidb_core::define_connection_test_suite!(BonsaiTestHarness);
     #[cfg(feature = "pubsub")]
-    pliantdb_core::define_pubsub_test_suite!(PliantTestHarness);
+    bonsaidb_core::define_pubsub_test_suite!(BonsaiTestHarness);
 
     #[cfg(feature = "keyvalue")]
-    pliantdb_core::define_kv_test_suite!(PliantTestHarness);
+    bonsaidb_core::define_kv_test_suite!(BonsaiTestHarness);
 }
 
 async fn assume_permissions(
@@ -209,7 +209,7 @@ async fn assume_permissions(
             .await)
             {
                 Ok(doc) => doc.header.id,
-                Err(pliantdb_core::Error::UniqueKeyViolation {
+                Err(bonsaidb_core::Error::UniqueKeyViolation {
                     existing_document_id,
                     ..
                 }) => existing_document_id,
@@ -221,12 +221,12 @@ async fn assume_permissions(
             if !ecton_doc.contents.groups.contains(&administrator_group_id) {
                 ecton_doc.contents.groups.push(administrator_group_id);
                 match ecton_doc.update(&admin).await {
-                    Ok(_) | Err(pliantdb_core::Error::DocumentConflict(_, _)) => {}
+                    Ok(_) | Err(bonsaidb_core::Error::DocumentConflict(_, _)) => {}
                     Err(err) => anyhow::bail!(err),
                 }
             }
         }
-        Err(pliantdb_core::Error::UniqueKeyViolation { .. }) => {}
+        Err(bonsaidb_core::Error::UniqueKeyViolation { .. }) => {}
         Err(other) => anyhow::bail!(other),
     };
 

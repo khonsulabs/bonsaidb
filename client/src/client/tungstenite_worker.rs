@@ -1,9 +1,9 @@
+use bonsaidb_core::networking::{Payload, Response};
 use flume::Receiver;
 use futures::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use pliantdb_core::networking::{Payload, Response};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};

@@ -1,5 +1,5 @@
-use pliantdb_core::permissions::Permissions;
-pub use pliantdb_local::config::Configuration as StorageConfiguration;
+use bonsaidb_core::permissions::Permissions;
+pub use bonsaidb_local::config::Configuration as StorageConfiguration;
 
 /// Configuration options for [`Server`](crate::Server)
 pub struct Configuration {
@@ -17,7 +17,7 @@ impl Default for Configuration {
             // TODO this was arbitrarily picked, it probably should be higher,
             // but it also should probably be based on the cpu's capabilities
             request_workers: 16,
-            storage: pliantdb_local::config::Configuration::default(),
+            storage: bonsaidb_local::config::Configuration::default(),
             default_permissions: Permissions::default(),
         }
     }

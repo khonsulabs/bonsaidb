@@ -9,15 +9,13 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::TryFutureExt;
-use itertools::Itertools;
 #[cfg(feature = "pubsub")]
-pub use pliantdb_core::circulate::Relay;
+pub use bonsaidb_core::circulate::Relay;
 #[cfg(feature = "internal-apis")]
-use pliantdb_core::custodian_password::{LoginResponse, ServerLogin};
+use bonsaidb_core::custodian_password::{LoginResponse, ServerLogin};
 #[cfg(feature = "keyvalue")]
-use pliantdb_core::kv::{KeyOperation, Output};
-use pliantdb_core::{
+use bonsaidb_core::kv::{KeyOperation, Output};
+use bonsaidb_core::{
     admin::{
         database::{self, ByName, Database as DatabaseRecord},
         password_config::PasswordConfig,
@@ -35,7 +33,9 @@ use pliantdb_core::{
     },
     transaction::{Executed, OperationResult, Transaction},
 };
-use pliantdb_jobs::manager::Manager;
+use bonsaidb_jobs::manager::Manager;
+use futures::TryFutureExt;
+use itertools::Itertools;
 use rand::{thread_rng, Rng};
 use tokio::{
     fs::{self, File},
@@ -129,7 +129,7 @@ impl Storage {
                 .map_err(Error::from)
         })
         .await
-        .map_err(|err| pliantdb_core::Error::Database(err.to_string()))??;
+        .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))??;
 
         #[cfg(feature = "keyvalue")]
         storage
@@ -186,7 +186,7 @@ impl Storage {
                     })
                     .await
                     .map_err(|err| {
-                        Error::Core(pliantdb_core::Error::Configuration(format!(
+                        Error::Core(bonsaidb_core::Error::Configuration(format!(
                             "Error writing server-id file: {}",
                             err
                         )))
@@ -215,7 +215,7 @@ impl Storage {
         self.register_schema::<Admin>().await?;
         match self.database::<Admin>("admin").await {
             Ok(_) => {}
-            Err(Error::Core(pliantdb_core::Error::DatabaseNotFound(_))) => {
+            Err(Error::Core(bonsaidb_core::Error::DatabaseNotFound(_))) => {
                 self.create_database::<Admin>("admin").await?;
             }
             Err(err) => return Err(err),
@@ -258,7 +258,7 @@ impl Storage {
         {
             Ok(())
         } else {
-            Err(Error::Core(pliantdb_core::Error::SchemaAlreadyRegistered(
+            Err(Error::Core(bonsaidb_core::Error::SchemaAlreadyRegistered(
                 DB::schema_name()?,
             )))
         }
@@ -273,14 +273,14 @@ impl Storage {
             if stored_schema == &DB::schema_name()? {
                 Ok(Database::new(name.to_owned(), self.clone()).await?)
             } else {
-                Err(Error::Core(pliantdb_core::Error::SchemaMismatch {
+                Err(Error::Core(bonsaidb_core::Error::SchemaMismatch {
                     database_name: name.to_owned(),
                     schema: DB::schema_name()?,
                     stored_schema: stored_schema.clone(),
                 }))
             }
         } else {
-            Err(Error::Core(pliantdb_core::Error::DatabaseNotFound(
+            Err(Error::Core(bonsaidb_core::Error::DatabaseNotFound(
                 name.to_owned(),
             )))
         }
@@ -295,7 +295,7 @@ impl Storage {
     //     if let Some(stored_schema) = available_databases.get(name) {
     //         Ok(Database::new(name.to_owned(), self.clone()).await?)
     //     } else {
-    //         Err(Error::Core(pliantdb_core::Error::DatabaseNotFound(
+    //         Err(Error::Core(bonsaidb_core::Error::DatabaseNotFound(
     //             name.to_owned(),
     //         )))
     //     }
@@ -350,7 +350,7 @@ impl Storage {
         {
             Ok(())
         } else {
-            Err(Error::Core(pliantdb_core::Error::InvalidDatabaseName(
+            Err(Error::Core(bonsaidb_core::Error::InvalidDatabaseName(
                 name.to_owned(),
             )))
         }
@@ -380,7 +380,7 @@ impl Storage {
         {
             Some(entry) => entry.value.clone(),
             None => {
-                return Err(Error::Core(pliantdb_core::Error::DatabaseNotFound(
+                return Err(Error::Core(bonsaidb_core::Error::DatabaseNotFound(
                     name.to_string(),
                 )))
             }
@@ -390,7 +390,7 @@ impl Storage {
         if let Some(schema) = schemas.get(&schema) {
             schema.open(name.to_string(), self.clone()).await
         } else {
-            Err(Error::Core(pliantdb_core::Error::SchemaNotRegistered(
+            Err(Error::Core(bonsaidb_core::Error::SchemaNotRegistered(
                 schema,
             )))
         }
@@ -402,8 +402,8 @@ impl Storage {
     pub async fn internal_login_with_password(
         &self,
         username: &str,
-        login_request: pliantdb_core::custodian_password::LoginRequest,
-    ) -> Result<(Option<u64>, ServerLogin, LoginResponse), pliantdb_core::Error> {
+        login_request: bonsaidb_core::custodian_password::LoginRequest,
+    ) -> Result<(Option<u64>, ServerLogin, LoginResponse), bonsaidb_core::Error> {
         let admin = self.admin().await;
         let config = PasswordConfig::load(&admin).await?;
         let result = admin
@@ -475,27 +475,27 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         id: u64,
         collection: &CollectionName,
         permissions: &Permissions,
-    ) -> Result<Option<Document<'static>>, pliantdb_core::Error>;
+    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error>;
 
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
         collection: &CollectionName,
         permissions: &Permissions,
-    ) -> Result<Vec<Document<'static>>, pliantdb_core::Error>;
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error>;
 
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
         permissions: &Permissions,
-    ) -> Result<Vec<OperationResult>, pliantdb_core::Error>;
+    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error>;
 
     async fn query(
         &self,
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<map::Serialized>, pliantdb_core::Error>;
+    ) -> Result<Vec<map::Serialized>, bonsaidb_core::Error>;
 
     async fn query_with_docs(
         &self,
@@ -503,33 +503,33 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         permissions: &Permissions,
-    ) -> Result<Vec<networking::MappedDocument>, pliantdb_core::Error>;
+    ) -> Result<Vec<networking::MappedDocument>, bonsaidb_core::Error>;
 
     async fn reduce(
         &self,
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<u8>, pliantdb_core::Error>;
+    ) -> Result<Vec<u8>, bonsaidb_core::Error>;
 
     async fn reduce_grouped(
         &self,
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, pliantdb_core::Error>;
+    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, bonsaidb_core::Error>;
 
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<Executed<'static>>, pliantdb_core::Error>;
+    ) -> Result<Vec<Executed<'static>>, bonsaidb_core::Error>;
 
-    async fn last_transaction_id(&self) -> Result<Option<u64>, pliantdb_core::Error>;
+    async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error>;
 
     #[cfg(feature = "keyvalue")]
     async fn execute_key_operation(&self, op: KeyOperation)
-        -> Result<Output, pliantdb_core::Error>;
+        -> Result<Output, bonsaidb_core::Error>;
 }
 
 #[async_trait]
@@ -538,13 +538,13 @@ impl ServerConnection for Storage {
         &self,
         name: &str,
         schema: SchemaName,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         Self::validate_name(name)?;
 
         {
             let schemas = self.data.schemas.read().await;
             if !schemas.contains_key(&schema) {
-                return Err(pliantdb_core::Error::SchemaNotRegistered(schema));
+                return Err(bonsaidb_core::Error::SchemaNotRegistered(schema));
             }
         }
 
@@ -557,7 +557,7 @@ impl ServerConnection for Storage {
             .await?
             .is_empty()
         {
-            return Err(pliantdb_core::Error::DatabaseNameAlreadyTaken(
+            return Err(bonsaidb_core::Error::DatabaseNameAlreadyTaken(
                 name.to_string(),
             ));
         }
@@ -574,7 +574,7 @@ impl ServerConnection for Storage {
         Ok(())
     }
 
-    async fn delete_database(&self, name: &str) -> Result<(), pliantdb_core::Error> {
+    async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
         let mut available_databases = self.data.available_databases.write().await;
 
         let prefix = format!("{}::", name);
@@ -604,11 +604,11 @@ impl ServerConnection for Storage {
 
             Ok(())
         } else {
-            return Err(pliantdb_core::Error::DatabaseNotFound(name.to_string()));
+            return Err(bonsaidb_core::Error::DatabaseNotFound(name.to_string()));
         }
     }
 
-    async fn list_databases(&self) -> Result<Vec<connection::Database>, pliantdb_core::Error> {
+    async fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases
             .iter()
@@ -619,12 +619,12 @@ impl ServerConnection for Storage {
             .collect())
     }
 
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, pliantdb_core::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases.values().unique().cloned().collect())
     }
 
-    async fn create_user(&self, username: &str) -> Result<u64, pliantdb_core::Error> {
+    async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         let result = self
             .admin()
             .await
@@ -637,8 +637,8 @@ impl ServerConnection for Storage {
     async fn set_user_password(
         &self,
         username: &str,
-        password_request: pliantdb_core::custodian_password::RegistrationRequest,
-    ) -> Result<pliantdb_core::custodian_password::RegistrationResponse, pliantdb_core::Error> {
+        password_request: bonsaidb_core::custodian_password::RegistrationRequest,
+    ) -> Result<bonsaidb_core::custodian_password::RegistrationResponse, bonsaidb_core::Error> {
         let admin = self.admin().await;
         let result = admin
             .view::<user::ByName>()
@@ -647,7 +647,7 @@ impl ServerConnection for Storage {
             .await
             .unwrap();
         if result.is_empty() {
-            Err(pliantdb_core::Error::UserNotFound)
+            Err(bonsaidb_core::Error::UserNotFound)
         } else {
             let config = PasswordConfig::load(&admin).await.unwrap();
             let (register, response) = ServerRegistration::register(&config, password_request)?;
@@ -664,8 +664,8 @@ impl ServerConnection for Storage {
     async fn finish_set_user_password(
         &self,
         username: &str,
-        password_finalization: pliantdb_core::custodian_password::RegistrationFinalization,
-    ) -> Result<(), pliantdb_core::Error> {
+        password_finalization: bonsaidb_core::custodian_password::RegistrationFinalization,
+    ) -> Result<(), bonsaidb_core::Error> {
         let admin = self.admin().await;
         let result = admin
             .view::<user::ByName>()
@@ -673,7 +673,7 @@ impl ServerConnection for Storage {
             .query_with_docs()
             .await?;
         if result.is_empty() {
-            Err(pliantdb_core::Error::UserNotFound)
+            Err(bonsaidb_core::Error::UserNotFound)
         } else {
             let mut doc =
                 CollectionDocument::<User>::try_from(result.into_iter().next().unwrap().document)?;
@@ -684,7 +684,7 @@ impl ServerConnection for Storage {
 
                 Ok(())
             } else {
-                Err(pliantdb_core::Error::Password(String::from(
+                Err(bonsaidb_core::Error::Password(String::from(
                     "no existing state found",
                 )))
             }
@@ -697,15 +697,15 @@ fn name_validation_tests() {
     assert!(matches!(Storage::validate_name("azAZ09.-"), Ok(())));
     assert!(matches!(
         Storage::validate_name(".alphaunmericfirstrequired"),
-        Err(Error::Core(pliantdb_core::Error::InvalidDatabaseName(_)))
+        Err(Error::Core(bonsaidb_core::Error::InvalidDatabaseName(_)))
     ));
     assert!(matches!(
         Storage::validate_name("-alphaunmericfirstrequired"),
-        Err(Error::Core(pliantdb_core::Error::InvalidDatabaseName(_)))
+        Err(Error::Core(bonsaidb_core::Error::InvalidDatabaseName(_)))
     ));
     assert!(matches!(
         Storage::validate_name("\u{2661}"),
-        Err(Error::Core(pliantdb_core::Error::InvalidDatabaseName(_)))
+        Err(Error::Core(bonsaidb_core::Error::InvalidDatabaseName(_)))
     ));
 }
 

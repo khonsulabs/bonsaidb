@@ -1,6 +1,6 @@
 //! Tests invoking an API defined in a custom backend.
 
-use pliantdb::{
+use bonsaidb::{
     client::{url::Url, Client},
     core::{
         custom_api::CustomApi,
@@ -40,7 +40,7 @@ enum CustomResponse {
 
 #[tokio::test]
 async fn custom_api() -> anyhow::Result<()> {
-    let dir = TestDirectory::new("custom_api.pliantdb");
+    let dir = TestDirectory::new("custom_api.bonsaidb");
     let server = CustomServer::<CustomBackend>::open(
         dir.as_ref(),
         Configuration {
@@ -58,7 +58,7 @@ async fn custom_api() -> anyhow::Result<()> {
     tokio::spawn(async move { server.listen_on(12346).await });
 
     let client = Client::<CustomBackend>::new_with_certificate(
-        Url::parse("pliantdb://localhost:12346")?,
+        Url::parse("bonsaidb://localhost:12346")?,
         Some(certificate),
     )
     .await?;

@@ -1,8 +1,8 @@
 use std::{borrow::Cow, collections::HashSet, hash::Hash, sync::Arc};
 
 use async_trait::async_trait;
-use pliantdb_core::schema::{view, CollectionName, Key, Schema, ViewName};
-use pliantdb_jobs::{Job, Keyed};
+use bonsaidb_core::schema::{view, CollectionName, Key, Schema, ViewName};
+use bonsaidb_jobs::{Job, Keyed};
 use sled::{IVec, Transactional, Tree};
 
 use super::{

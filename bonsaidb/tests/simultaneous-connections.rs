@@ -1,6 +1,6 @@
 //! Tests a single server with multiple simultaneous connections.
 
-use pliantdb::{
+use bonsaidb::{
     client::{url::Url, Client},
     core::{
         connection::ServerConnection,
@@ -12,7 +12,7 @@ use pliantdb::{
 
 #[tokio::test]
 async fn simultaneous_connections() -> anyhow::Result<()> {
-    let dir = TestDirectory::new("simultaneous-connections.pliantdb");
+    let dir = TestDirectory::new("simultaneous-connections.bonsaidb");
     let server = Server::open(
         dir.as_ref(),
         Configuration {
@@ -29,7 +29,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
     tokio::spawn(async move { server.listen_on(12345).await });
 
     let client = Client::new_with_certificate(
-        Url::parse("pliantdb://localhost:12345?server=test")?,
+        Url::parse("bonsaidb://localhost:12345?server=test")?,
         Some(certificate),
     )
     .await?;

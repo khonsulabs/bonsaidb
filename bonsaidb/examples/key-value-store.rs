@@ -1,18 +1,18 @@
 use std::time::Duration;
 
-use pliantdb_core::kv::{KeyStatus, Kv};
-use pliantdb_local::{config::Configuration, Database};
+use bonsaidb_core::kv::{KeyStatus, Kv};
+use bonsaidb_local::{config::Configuration, Database};
 
-// PliantDb supports a lightweight, atomic key-value store in addition to its
+// BonsaiDb supports a lightweight, atomic key-value store in addition to its
 // acid-compliant transactional storage. This interface is meant to replicate
 // functionality that you might use something like Redis for -- lightweight
-// caching, or fast atomic operations. As with all of PliantDb's core features,
-// the Key-Value store is supported across all methods of accessing PliantDb.
+// caching, or fast atomic operations. As with all of BonsaiDb's core features,
+// the Key-Value store is supported across all methods of accessing BonsaiDb.
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let db = Database::<()>::open_local(
-        "key-value-store.pliantdb",
+        "key-value-store.bonsaidb",
         Configuration::default(),
     )
     .await?;

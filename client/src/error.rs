@@ -1,4 +1,4 @@
-use pliantdb_core as core;
+use bonsaidb_core as core;
 
 /// Errors related to working with [`Client`](crate::Client)
 #[derive(thiserror::Error, Debug)]
@@ -10,7 +10,7 @@ pub enum Error {
 
     /// An error occurred from networking.
     #[error("a networking error occurred: '{0}'")]
-    Network(#[from] pliantdb_core::networking::Error),
+    Network(#[from] bonsaidb_core::networking::Error),
 
     /// An invalid Url was provided.
     #[error("invalid url: '{0}'")]
@@ -62,7 +62,7 @@ mod fabruic_impls {
         ($error:ty) => {
             impl From<$error> for $crate::Error {
                 fn from(other: $error) -> Self {
-                    Self::Core(pliantdb_core::Error::Transport(other.to_string()))
+                    Self::Core(bonsaidb_core::Error::Transport(other.to_string()))
                 }
             }
         };

@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use pliantdb_core::{
+use bonsaidb_core::{
     connection::Connection,
     document::KeyId,
     permissions::Permissions,
@@ -14,7 +14,7 @@ use pliantdb_core::{
         CollectionName, Key, Schema, ViewName,
     },
 };
-use pliantdb_jobs::{Job, Keyed};
+use bonsaidb_jobs::{Job, Keyed};
 use serde::{Deserialize, Serialize};
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError, TransactionalTree},
@@ -190,7 +190,7 @@ fn map_view<DB: Schema>(
             )
             .map_err(|err| match err {
                 TransactionError::Abort(err) => err,
-                TransactionError::Storage(err) => pliantdb_core::Error::Database(err.to_string()),
+                TransactionError::Storage(err) => bonsaidb_core::Error::Database(err.to_string()),
             })?;
     }
 
@@ -210,7 +210,7 @@ pub struct DocumentRequest<'a, DB> {
 }
 
 impl<'a, DB: Schema> DocumentRequest<'a, DB> {
-    pub fn map(&self) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+    pub fn map(&self) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
         let (doc_still_exists, map_result) =
             if let Some(document) = self.documents.get(self.document_id)? {
                 let document = self
@@ -223,7 +223,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                     true,
                     self.view
                         .map(&document)
-                        .map_err(pliantdb_core::Error::from)
+                        .map_err(bonsaidb_core::Error::from)
                         .map_to_transaction_error()?,
                 )
             } else {
@@ -242,7 +242,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
     fn omit_document(
         &self,
         doc_still_exists: bool,
-    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+    ) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
         // When no entry is emitted, the document map is emptied and a note is made in omitted_entries
         if let Some(existing_map) = self.document_map.remove(self.document_id)? {
             self.remove_existing_view_entries_for_keys(&[], &existing_map)?;
@@ -262,7 +262,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
     fn serialize_and_encrypt<S: Serialize>(
         &self,
         entry: &S,
-    ) -> Result<Vec<u8>, pliantdb_core::Error> {
+    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         let mut bytes = bincode::serialize(&entry).map_err(Error::from)?;
         if let Some(key) = self.encryption_key() {
             bytes = self
@@ -282,7 +282,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
     fn load_entry_for_key(
         &self,
         key: &[u8],
-    ) -> Result<Option<ViewEntryCollection>, ConflictableTransactionError<pliantdb_core::Error>>
+    ) -> Result<Option<ViewEntryCollection>, ConflictableTransactionError<bonsaidb_core::Error>>
     {
         load_entry_for_key(
             key,
@@ -302,7 +302,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         &self,
         key: &[u8],
         entry: &ViewEntryCollection,
-    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+    ) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
         let bytes = self
             .serialize_and_encrypt(entry)
             .map_to_transaction_error()?;
@@ -320,12 +320,12 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         source: u64,
         key: &[u8],
         value: Vec<u8>,
-    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+    ) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
         // Before altering any data, verify that the key is unique if this is a unique view.
         if self.view.unique() {
             if let Some(existing_entry) = self.load_entry_for_key(key)? {
                 if existing_entry.mappings[0].source != source {
-                    return Err(pliantdb_core::Error::UniqueKeyViolation {
+                    return Err(bonsaidb_core::Error::UniqueKeyViolation {
                         view: self.map_request.view_name.clone(),
                         conflicting_document_id: source,
                         existing_document_id: existing_entry.mappings[0].source,
@@ -393,7 +393,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             entry.reduced_value = self
                 .view
                 .reduce(&mappings, false)
-                .map_err(pliantdb_core::Error::from)
+                .map_err(bonsaidb_core::Error::from)
                 .map_to_transaction_error()?;
 
             entry
@@ -401,7 +401,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             let reduced_value = self
                 .view
                 .reduce(&[(key, &entry_mapping.value)], false)
-                .map_err(pliantdb_core::Error::from)
+                .map_err(bonsaidb_core::Error::from)
                 .map_to_transaction_error()?;
             ViewEntryCollection::from(ViewEntry {
                 key: key.to_vec(),
@@ -418,7 +418,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         &self,
         keys: &[Cow<'_, [u8]>],
         existing_map: &[u8],
-    ) -> Result<(), ConflictableTransactionError<pliantdb_core::Error>> {
+    ) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
         let existing_keys = self
             .database
             .storage()
@@ -427,7 +427,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                 self.database.data.effective_permissions.as_ref(),
                 existing_map,
             )
-            .map_err(pliantdb_core::Error::from)
+            .map_err(bonsaidb_core::Error::from)
             .map_to_transaction_error()?;
         if existing_keys == keys {
             // No change
@@ -467,7 +467,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                 entry_collection.reduced_value = self
                     .view
                     .reduce(&mappings, false)
-                    .map_err(pliantdb_core::Error::from)
+                    .map_err(bonsaidb_core::Error::from)
                     .map_to_transaction_error()?;
             }
 
@@ -563,7 +563,7 @@ impl ViewEntryCollection {
 }
 
 pub(crate) fn load_entry_for_key<
-    F: FnOnce(&[u8]) -> Result<Option<IVec>, ConflictableTransactionError<pliantdb_core::Error>>,
+    F: FnOnce(&[u8]) -> Result<Option<IVec>, ConflictableTransactionError<bonsaidb_core::Error>>,
 >(
     key: &[u8],
     view: &dyn Serialized,
@@ -571,7 +571,7 @@ pub(crate) fn load_entry_for_key<
     vault: &Vault,
     permissions: Option<&Permissions>,
     get_entry_fn: F,
-) -> Result<Option<ViewEntryCollection>, ConflictableTransactionError<pliantdb_core::Error>> {
+) -> Result<Option<ViewEntryCollection>, ConflictableTransactionError<bonsaidb_core::Error>> {
     if view.keys_are_encryptable() && encrypt_by_default {
         // When we encrypt the keys, we need to be able to find them
         // reliably. We're using a hashing function to create buckets where
@@ -608,8 +608,8 @@ fn deserialize_entry(
     vault: &Vault,
     permissions: Option<&Permissions>,
     bytes: &[u8],
-) -> Result<ViewEntryCollection, pliantdb_core::Error> {
+) -> Result<ViewEntryCollection, bonsaidb_core::Error> {
     vault
         .decrypt_serialized(permissions, bytes)
-        .map_err(pliantdb_core::Error::from)
+        .map_err(bonsaidb_core::Error::from)
 }

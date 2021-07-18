@@ -1,12 +1,12 @@
 # Circulate
 
 [![crate version](https://img.shields.io/crates/v/circulate.svg)](https://crates.io/crates/circulate)
-[![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/pliantdb/Tests/main)](https://github.com/khonsulabs/pliantdb/actions?query=workflow:Tests)
-[![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://khonsulabs.github.io/pliantdb/main/circulate/)
+[![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/main)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
+[![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://khonsulabs.github.io/bonsaidb/main/circulate/)
 
 Circulate is a lightweight async [PubSub](https://en.wikipedia.org/wiki/Publish%E2%80%93subscribe_pattern) framework. It currently requires tokio.
 
-This project is written for [PliantDb](https://github.com/khonsulabs/pliantdb). However, it's a general-purpose PubSub implementation that can be utilized in any tokio-based Rust codebase.
+This project is written for [BonsaiDb](https://github.com/khonsulabs/bonsaidb). However, it's a general-purpose PubSub implementation that can be utilized in any tokio-based Rust codebase.
 
 ```rust
 let relay = Relay::default();

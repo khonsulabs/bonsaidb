@@ -14,17 +14,17 @@ use crate::{
     schema::{CollectionName, ViewName},
 };
 
-/// The base `PliantDb` resource namespace. All database objects have this as
+/// The base `BonsaiDb` resource namespace. All database objects have this as
 /// their first name segment.
 #[must_use]
-pub fn pliantdb_resource_name<'a>() -> ResourceName<'a> {
-    ResourceName::named("pliantdb")
+pub fn bonsaidb_resource_name<'a>() -> ResourceName<'a> {
+    ResourceName::named("bonsaidb")
 }
 
 /// Creates a resource name with the database `name`.
 #[must_use]
 pub fn database_resource_name<'a>(name: impl Into<Identifier<'a>>) -> ResourceName<'a> {
-    pliantdb_resource_name().and(name)
+    bonsaidb_resource_name().and(name)
 }
 
 /// Creates a resource name for a `collection` within a `database`.
@@ -79,7 +79,7 @@ pub fn kv_key_resource_name<'a>(
 /// Creates a resource name for encryption key `key_id`.
 #[must_use]
 pub fn encryption_key_resource_name(key_id: &KeyId) -> ResourceName<'_> {
-    pliantdb_resource_name()
+    bonsaidb_resource_name()
         .and("vault")
         .and("key")
         .and(match key_id {
@@ -92,12 +92,12 @@ pub fn encryption_key_resource_name(key_id: &KeyId) -> ResourceName<'_> {
 /// Creates a resource name for the user with `username`.
 #[must_use]
 pub fn user_resource_name<'a, I: Into<Identifier<'a>>>(username: I) -> ResourceName<'a> {
-    pliantdb_resource_name().and("user").and(username)
+    bonsaidb_resource_name().and("user").and(username)
 }
 
-/// Actions that can be permitted within `PliantDb`.
+/// Actions that can be permitted within `BonsaiDb`.
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
-pub enum PliantAction {
+pub enum BonsaiAction {
     /// Actions that operate on a server
     Server(ServerAction),
     /// Actions that operate on a specific database.

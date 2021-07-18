@@ -1,4 +1,4 @@
-//! The `PliantDb` Server.
+//! The `BonsaiDb` Server.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -43,4 +43,4 @@ mod tests;
 #[cfg(any(feature = "test-util", test))]
 pub mod test_util;
 
-pub use pliantdb_local as local;
+pub use bonsaidb_local as local;

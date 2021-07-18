@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use pliantdb_core::schema::CollectionName;
+use bonsaidb_core::schema::CollectionName;
 use serde::{Deserialize, Serialize};
 
 use self::{integrity_scanner::IntegrityScan, mapper::Map};

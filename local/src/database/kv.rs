@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use pliantdb_core::{
+use bonsaidb_core::{
     kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Numeric, Output, Timestamp, Value},
     schema::Schema,
 };
@@ -22,7 +22,7 @@ where
     async fn execute_key_operation(
         &self,
         op: KeyOperation,
-    ) -> Result<Output, pliantdb_core::Error> {
+    ) -> Result<Output, bonsaidb_core::Error> {
         let task_self = self.clone();
         tokio::task::spawn_blocking(move || match op.command {
             Command::Set {
@@ -86,7 +86,7 @@ fn execute_set_operation<DB: Schema>(
     check: Option<KeyCheck>,
     return_previous_value: bool,
     db: &Database<DB>,
-) -> Result<Output, pliantdb_core::Error> {
+) -> Result<Output, bonsaidb_core::Error> {
     let kv_tree = db
         .data
         .storage
@@ -148,7 +148,7 @@ fn execute_get_operation<DB: Schema>(
     key: &str,
     delete: bool,
     db: &Database<DB>,
-) -> Result<Output, pliantdb_core::Error> {
+) -> Result<Output, bonsaidb_core::Error> {
     let tree = db
         .data
         .storage
@@ -180,7 +180,7 @@ fn execute_delete_operation<DB: Schema>(
     tree_name: &str,
     key: String,
     db: &Database<DB>,
-) -> Result<Output, pliantdb_core::Error> {
+) -> Result<Output, bonsaidb_core::Error> {
     let tree = db
         .data
         .storage
@@ -206,7 +206,7 @@ fn execute_increment_operation<DB: Schema>(
     db: &Database<DB>,
     amount: &Numeric,
     saturating: bool,
-) -> Result<Output, pliantdb_core::Error> {
+) -> Result<Output, bonsaidb_core::Error> {
     execute_numeric_operation(tree_name, key, db, amount, saturating, increment)
 }
 
@@ -216,7 +216,7 @@ fn execute_decrement_operation<DB: Schema>(
     db: &Database<DB>,
     amount: &Numeric,
     saturating: bool,
-) -> Result<Output, pliantdb_core::Error> {
+) -> Result<Output, bonsaidb_core::Error> {
     execute_numeric_operation(tree_name, key, db, amount, saturating, decrement)
 }
 
@@ -227,7 +227,7 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
     amount: &Numeric,
     saturating: bool,
     op: F,
-) -> Result<Output, pliantdb_core::Error> {
+) -> Result<Output, bonsaidb_core::Error> {
     let tree = db
         .data
         .storage
@@ -260,7 +260,7 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
                 }
             }
             Value::Bytes(_) => {
-                return Err(pliantdb_core::Error::Database(String::from(
+                return Err(bonsaidb_core::Error::Database(String::from(
                     "type of stored `Value` is not `Numeric`",
                 )))
             }

@@ -1,7 +1,7 @@
 //! Encryption and secret management.
 //!
-//! `PliantDb`'s vault is the core of encryption and secret management. To offer
-//! this security, `PliantDb` relies on external [`VaultKeyStorage`] to provide
+//! `BonsaiDb`'s vault is the core of encryption and secret management. To offer
+//! this security, `BonsaiDb` relies on external [`VaultKeyStorage`] to provide
 //! the key needed to decrypt the master keys. After the master keys have been
 //! decrypted, the vault is able to function without [`VaultKeyStorage`]. This
 //! design ensures that if a copy of a database was stolen, the data that is
@@ -11,9 +11,9 @@
 //! ## At-Rest Encryption
 //!
 //! At-rest encryption only ensures that if the database files are stolen that
-//! an attacker cannot access the data without the encryption key. `PliantDb`
+//! an attacker cannot access the data without the encryption key. `BonsaiDb`
 //! will regularly decrypt data to process it, and while the data is in-memory,
-//! it is subject to the security of the machine running it. If using `PliantDb`
+//! it is subject to the security of the machine running it. If using `BonsaiDb`
 //! over a network, the network transport layer's encryption is what ensures
 //! your data's safety -- the document is not e
 //!
@@ -21,14 +21,14 @@
 //!
 //! #### Schema
 //!
-//! `PliantDb` makes no effort to encrypt or obscure the names of the
+//! `BonsaiDb` makes no effort to encrypt or obscure the names of the
 //! collections, views, or databases.
 //!
 //! #### Views
 //!
-//! `PliantDb` offers range-based queries for views. The keys emitted in views
+//! `BonsaiDb` offers range-based queries for views. The keys emitted in views
 //! that rely on these range queries cannot be encrypted. This is controlled by
-//! [`View::keys_are_encryptable()`](pliantdb_core::schema::view::View::keys_are_encryptable).
+//! [`View::keys_are_encryptable()`](bonsaidb_core::schema::view::View::keys_are_encryptable).
 //! If a view returns true from that function, range queries will return an
 //! error even if encryption isn't enabled. This ensures that if you choose to
 //! enable encryption at a later date, all data that you expect to be encrypted
@@ -50,12 +50,12 @@
 //! Instead, you should use a storage location that provides authentication and
 //! encryption. Our recommendation for production enviroments is to find an
 //! Amazon S3-compatible storage service and use `S3VaultKeyStorage` (coming
-//! soon). Eventually, other `PliantDb` servers will be able to operate as key
+//! soon). Eventually, other `BonsaiDb` servers will be able to operate as key
 //! storage for each other.
 //!
 //! ## Encryption Algorithms Used
 //!
-//! `PliantDb` uses the [`hpke`](https://github.com/rozbb/rust-hpke) crate to
+//! `BonsaiDb` uses the [`hpke`](https://github.com/rozbb/rust-hpke) crate to
 //! provide Hybrid Public Key Encryption (HPKE) when public key encryption is
 //! being used. This is currently only utilized for encrypting the master keys
 //! with the vault key. Our HPKE uses `X25519+HKDF-SHA256+ChaCha20Poly1305`.
@@ -75,6 +75,13 @@ use std::{
 };
 
 use async_trait::async_trait;
+use bonsaidb_core::{
+    document::KeyId,
+    permissions::{
+        bonsai::{encryption_key_resource_name, EncryptionKeyAction},
+        Action, PermissionDenied, Permissions,
+    },
+};
 use chacha20poly1305::{
     aead::{generic_array::GenericArray, Aead, NewAead, Payload},
     XChaCha20Poly1305,
@@ -86,13 +93,6 @@ use hpke::{
     kem::X25519HkdfSha256,
     kex::{KeyExchange, X25519},
     Deserializable, EncappedKey, Kem, OpModeS, Serializable,
-};
-use pliantdb_core::{
-    document::KeyId,
-    permissions::{
-        pliant::{encryption_key_resource_name, EncryptionKeyAction},
-        Action, PermissionDenied, Permissions,
-    },
 };
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -308,7 +308,7 @@ impl Vault {
                 encryption_key_resource_name(key_id),
                 &EncryptionKeyAction::Encrypt,
             ) {
-                return Err(crate::Error::Core(pliantdb_core::Error::from(
+                return Err(crate::Error::Core(bonsaidb_core::Error::from(
                     PermissionDenied {
                         resource: encryption_key_resource_name(key_id).to_owned(),
                         action: EncryptionKeyAction::Encrypt.name(),
@@ -347,7 +347,7 @@ impl Vault {
                 encryption_key_resource_name(&payload.key_id),
                 &EncryptionKeyAction::Decrypt,
             ) {
-                return Err(crate::Error::Core(pliantdb_core::Error::from(
+                return Err(crate::Error::Core(bonsaidb_core::Error::from(
                     PermissionDenied {
                         resource: encryption_key_resource_name(&payload.key_id).to_owned(),
                         action: EncryptionKeyAction::Decrypt.name(),
@@ -528,7 +528,7 @@ where
 /// Stores vault key locally on disk. This is in general considered insecure,
 /// and shouldn't be used without careful consideration.
 ///
-/// The primary goal of encryption within `PliantDb` is to offer limited
+/// The primary goal of encryption within `BonsaiDb` is to offer limited
 /// encryption at-rest. Within these goals, the primary attack vector being
 /// protected against is an attacker being able to copy the data off of the
 /// disks, either by physically gaining access to the drives or having
@@ -705,7 +705,7 @@ mod tests {
         let vault = random_null_vault();
         assert!(matches!(
             vault.encrypt_payload(&KeyId::Master, b"hello", Some(&Permissions::default()),),
-            Err(crate::Error::Core(pliantdb_core::Error::PermissionDenied(
+            Err(crate::Error::Core(bonsaidb_core::Error::PermissionDenied(
                 _
             )))
         ));
@@ -714,7 +714,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             vault.decrypt_payload(&encrypted, Some(&Permissions::default())),
-            Err(crate::Error::Core(pliantdb_core::Error::PermissionDenied(
+            Err(crate::Error::Core(bonsaidb_core::Error::PermissionDenied(
                 _
             )))
         ));

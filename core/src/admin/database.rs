@@ -4,13 +4,13 @@ use crate::{
     Error,
 };
 
-/// A database stored in `PliantDb`.
+/// A database stored in `BonsaiDb`.
 #[derive(Debug)]
 pub struct Database;
 
 impl Collection for Database {
     fn collection_name() -> Result<CollectionName, InvalidNameError> {
-        CollectionName::new("pliantdb", "databases")
+        CollectionName::new("bonsaidb", "databases")
     }
 
     fn define_views(schema: &mut Schematic) -> Result<(), Error> {

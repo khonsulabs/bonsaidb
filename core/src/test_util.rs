@@ -493,7 +493,7 @@ macro_rules! define_connection_test_suite {
             use $crate::{
                 document::KeyId,
                 permissions::{
-                    pliant::{
+                    bonsai::{
                         collection_resource_name, encryption_key_resource_name, EncryptionKeyAction,
                     },
                     Action, ActionNameList, Identifier, Permissions, Statement,
@@ -1472,7 +1472,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(
         schemas,
         vec![
             Basic::schema_name()?,
-            SchemaName::new("khonsulabs", "pliantdb-admin")?
+            SchemaName::new("khonsulabs", "bonsaidb-admin")?
         ]
     );
 

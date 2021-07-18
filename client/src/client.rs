@@ -11,8 +11,7 @@ use std::{
 
 use async_lock::Mutex;
 use async_trait::async_trait;
-use flume::Sender;
-use pliantdb_core::{
+use bonsaidb_core::{
     connection::{Database, ServerConnection},
     custodian_password::{
         ClientConfig, ClientFile, ClientLogin, LoginFinalization, LoginRequest, LoginResponse,
@@ -23,6 +22,7 @@ use pliantdb_core::{
     schema::{Schema, SchemaName, Schematic},
     PASSWORD_CONFIG,
 };
+use flume::Sender;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::task::JoinHandle;
 use url::Url;
@@ -44,7 +44,7 @@ mod wasm_websocket_worker;
 type SubscriberMap = Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>;
 
 #[cfg(feature = "pubsub")]
-use pliantdb_core::{circulate::Message, networking::DatabaseRequest};
+use bonsaidb_core::{circulate::Message, networking::DatabaseRequest};
 
 #[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
 pub type WebSocketError = tokio_tungstenite::tungstenite::Error;
@@ -52,7 +52,7 @@ pub type WebSocketError = tokio_tungstenite::tungstenite::Error;
 #[cfg(all(feature = "websockets", target_arch = "wasm32"))]
 pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 
-/// Client for connecting to a `PliantDb` server.
+/// Client for connecting to a `BonsaiDb` server.
 #[derive(Debug)]
 pub struct Client<A: CustomApi = ()> {
     pub(crate) data: Arc<Data<A>>,
@@ -106,7 +106,7 @@ impl<A: CustomApi> Client<A> {
         certificate: Option<fabruic::Certificate>,
     ) -> Result<Self, Error> {
         match url.scheme() {
-            "pliantdb" => Ok(Self::new_pliant_client(url, certificate)),
+            "bonsaidb" => Ok(Self::new_bonsai_client(url, certificate)),
             #[cfg(feature = "websockets")]
             "wss" | "ws" => Self::new_websocket_client(url).await,
             other => {
@@ -133,7 +133,7 @@ impl<A: CustomApi> Client<A> {
     pub async fn new(url: Url) -> Result<Self, Error> {
         match url.scheme() {
             #[cfg(not(target_arch = "wasm32"))]
-            "pliantdb" => Ok(Self::new_pliant_client(url, None)),
+            "bonsaidb" => Ok(Self::new_bonsai_client(url, None)),
             #[cfg(feature = "websockets")]
             "wss" | "ws" => Self::new_websocket_client(url).await,
             other => {
@@ -143,7 +143,7 @@ impl<A: CustomApi> Client<A> {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn new_pliant_client(url: Url, certificate: Option<fabruic::Certificate>) -> Self {
+    fn new_bonsai_client(url: Url, certificate: Option<fabruic::Certificate>) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
         #[cfg(feature = "pubsub")]
@@ -258,7 +258,7 @@ impl<A: CustomApi> Client<A> {
 
     /// Returns a structure representing a remote database. No validations are
     /// done when this method is executed. The server will validate the schema
-    /// and database name when a [`Connection`](pliantdb_core::connection::Connection) function is called.
+    /// and database name when a [`Connection`](bonsaidb_core::connection::Connection) function is called.
     pub async fn database<DB: Schema>(&self, name: &str) -> Result<RemoteDatabase<DB, A>, Error> {
         let mut schemas = self.data.schemas.lock().await;
         let type_id = TypeId::of::<DB>();
@@ -281,7 +281,7 @@ impl<A: CustomApi> Client<A> {
         &self,
         username: &str,
         login_request: LoginRequest,
-    ) -> Result<LoginResponse, pliantdb_core::Error> {
+    ) -> Result<LoginResponse, bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::LoginWithPassword {
                 username: username.to_string(),
@@ -291,7 +291,7 @@ impl<A: CustomApi> Client<A> {
         {
             Response::Server(ServerResponse::PasswordLoginResponse { response }) => Ok(*response),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
+            other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
@@ -302,7 +302,7 @@ impl<A: CustomApi> Client<A> {
     pub async fn finish_login_with_password(
         &self,
         login_finalization: LoginFinalization,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::FinishPasswordLogin {
                 login_finalization,
@@ -315,7 +315,7 @@ impl<A: CustomApi> Client<A> {
                 Ok(())
             }
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
+            other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
@@ -330,7 +330,7 @@ impl<A: CustomApi> Client<A> {
         username: &str,
         password: &str,
         previous_file: Option<ClientFile>,
-    ) -> Result<ClientFile, pliantdb_core::Error> {
+    ) -> Result<ClientFile, bonsaidb_core::Error> {
         let (login, request) = ClientLogin::login(
             &ClientConfig::new(PASSWORD_CONFIG, None)?,
             previous_file,
@@ -413,7 +413,7 @@ impl ServerConnection for Client {
         &self,
         name: &str,
         schema: SchemaName,
-    ) -> Result<(), pliantdb_core::Error> {
+    ) -> Result<(), bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::CreateDatabase(Database {
                 name: name.to_string(),
@@ -423,13 +423,13 @@ impl ServerConnection for Client {
         {
             Response::Server(ServerResponse::DatabaseCreated { .. }) => Ok(()),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
+            other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
 
-    async fn delete_database(&self, name: &str) -> Result<(), pliantdb_core::Error> {
+    async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::DeleteDatabase {
                 name: name.to_string(),
@@ -438,39 +438,39 @@ impl ServerConnection for Client {
         {
             Response::Server(ServerResponse::DatabaseDeleted { .. }) => Ok(()),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
+            other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
 
-    async fn list_databases(&self) -> Result<Vec<Database>, pliantdb_core::Error> {
+    async fn list_databases(&self) -> Result<Vec<Database>, bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::ListDatabases))
             .await?
         {
             Response::Server(ServerResponse::Databases(databases)) => Ok(databases),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
+            other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
 
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, pliantdb_core::Error> {
+    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::ListAvailableSchemas))
             .await?
         {
             Response::Server(ServerResponse::AvailableSchemas(schemas)) => Ok(schemas),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
+            other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
     }
 
-    async fn create_user(&self, username: &str) -> Result<u64, pliantdb_core::Error> {
+    async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::CreateUser {
                 username: username.to_string(),
@@ -479,7 +479,7 @@ impl ServerConnection for Client {
         {
             Response::Server(ServerResponse::UserCreated { id }) => Ok(id),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
+            other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
@@ -488,8 +488,8 @@ impl ServerConnection for Client {
     async fn set_user_password(
         &self,
         username: &str,
-        password_request: pliantdb_core::custodian_password::RegistrationRequest,
-    ) -> Result<pliantdb_core::custodian_password::RegistrationResponse, pliantdb_core::Error> {
+        password_request: bonsaidb_core::custodian_password::RegistrationRequest,
+    ) -> Result<bonsaidb_core::custodian_password::RegistrationResponse, bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::SetPassword {
                 username: username.to_string(),
@@ -501,7 +501,7 @@ impl ServerConnection for Client {
                 Ok(*password_reponse)
             }
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
+            other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
@@ -510,8 +510,8 @@ impl ServerConnection for Client {
     async fn finish_set_user_password(
         &self,
         username: &str,
-        password_finalization: pliantdb_core::custodian_password::RegistrationFinalization,
-    ) -> Result<(), pliantdb_core::Error> {
+        password_finalization: bonsaidb_core::custodian_password::RegistrationFinalization,
+    ) -> Result<(), bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::FinishSetPassword {
                 username: username.to_string(),
@@ -521,7 +521,7 @@ impl ServerConnection for Client {
         {
             Response::Ok => Ok(()),
             Response::Error(err) => Err(err),
-            other => Err(pliantdb_core::Error::Networking(
+            other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
@@ -569,7 +569,7 @@ async fn process_response_payload<R: Send + Sync + 'static, O: Send + Sync + 'st
         drop(request.responder.send(Ok(payload.wrapped)));
     } else {
         #[cfg(feature = "pubsub")]
-        if let Response::Database(pliantdb_core::networking::DatabaseResponse::MessageReceived {
+        if let Response::Database(bonsaidb_core::networking::DatabaseResponse::MessageReceived {
             subscriber_id,
             topic,
             payload,
@@ -578,7 +578,7 @@ async fn process_response_payload<R: Send + Sync + 'static, O: Send + Sync + 'st
             let mut subscribers = subscribers.lock().await;
             if let Some(sender) = subscribers.get(&subscriber_id) {
                 if sender
-                    .send(std::sync::Arc::new(pliantdb_core::circulate::Message {
+                    .send(std::sync::Arc::new(bonsaidb_core::circulate::Message {
                         topic,
                         payload,
                     }))

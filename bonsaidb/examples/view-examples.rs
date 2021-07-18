@@ -1,4 +1,4 @@
-use pliantdb::{
+use bonsaidb::{
     core::{
         connection::Connection,
         document::Document,
@@ -74,7 +74,7 @@ impl Shape {
 async fn main() -> anyhow::Result<()> {
     // [md-bakery: begin @ snippet-b]
     let db = Database::<Shape>::open_local(
-        "view-examples.pliantdb",
+        "view-examples.bonsaidb",
         Configuration::default(),
     )
     .await?;
@@ -83,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
     Shape::new(3).insert_into(&db).await?;
     // [md-bakery: end]
 
-    // Views in `PliantDb` are written using a Map/Reduce approach. In this
+    // Views in `BonsaiDb` are written using a Map/Reduce approach. In this
     // example, we take a look at how document mapping can be used to filter and
     // retrieve data
     //

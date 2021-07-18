@@ -27,7 +27,7 @@ impl code_coverage::Config for CoverageConfig {
     fn ignore_paths() -> Vec<String> {
         vec![
             String::from("circulate/examples/*"),
-            String::from("pliantdb/examples/*"),
+            String::from("bonsaidb/examples/*"),
         ]
     }
 }

@@ -1,6 +1,6 @@
 # View
 
-A [View](https://pliantdb.dev/main/pliantdb/core/schema/trait.View.html) is a [map/reduce](https://en.wikipedia.org/wiki/MapReduce)-powered method of quickly accessing information inside of a [Collection](./collection.md). A View can only belong to one Collection.
+A [View](https://bonsaidb.dev/main/bonsaidb/core/schema/trait.View.html) is a [map/reduce](https://en.wikipedia.org/wiki/MapReduce)-powered method of quickly accessing information inside of a [Collection](./collection.md). A View can only belong to one Collection.
 
 Views define two important associated types: a Key type and a Value type. You can think of these as the equivalent entries in a map/dictionary-like collection that supports more than one entry for each Key. The Key is used to filter the View's results, and the Value is used by your application or the `reduce()` function.
 
@@ -18,7 +18,7 @@ While `category` should be an enum, let's first explore using `String` and upgra
 
 ## Map
 
-The first line of the `map` function calls [`Document::contents()`](https://pliantdb.dev/main/pliantdb/core/document/struct.Document.html#method.contents) to deserialize the stored `BlogPost`. The second line returns an emitted Key and Value -- in our case a clone of the post's category and the value `1_u32`. With the map function, we're able to use [`query()`](https://pliantdb.dev/main/pliantdb/core/connection/struct.View.html#method.query) and [`query_with_docs()`](https://pliantdb.dev/main/pliantdb/core/connection/struct.View.html#method.query_with_docs):
+The first line of the `map` function calls [`Document::contents()`](https://bonsaidb.dev/main/bonsaidb/core/document/struct.Document.html#method.contents) to deserialize the stored `BlogPost`. The second line returns an emitted Key and Value -- in our case a clone of the post's category and the value `1_u32`. With the map function, we're able to use [`query()`](https://bonsaidb.dev/main/bonsaidb/core/connection/struct.View.html#method.query) and [`query_with_docs()`](https://bonsaidb.dev/main/bonsaidb/core/connection/struct.View.html#method.query_with_docs):
 
 ```rust,noplayground,no_run
 {{#include ../../view-example-string.rs:query_with_docs}}
@@ -28,7 +28,7 @@ The above queries the [Database](./database.md) for all documents in the `BlogPo
 
 ## Reduce
 
-The second function to learn about is the `reduce()` function. It is responsible for turning an array of Key/Value pairs into a single Value. In some cases, PliantDb might need to call `reduce()` with values that have already been reduced one time. If this is the case, `rereduce` is set to true.
+The second function to learn about is the `reduce()` function. It is responsible for turning an array of Key/Value pairs into a single Value. In some cases, BonsaiDb might need to call `reduce()` with values that have already been reduced one time. If this is the case, `rereduce` is set to true.
 
 In this example, we're using the built-in [`Iterator::sum()`](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.sum) function to turn our Value of `1_u32` into a single `u32` representing the total number of documents.
 
@@ -61,7 +61,7 @@ When a reduce query is issued for a single key, the value can be returned withou
 {{#include ../../view-example-string.rs:reduce_multiple_keys}}
 ```
 
-Once PliantDb has gathered each of the key's reduced values, it needs to further reduce that list into a single value. To accomplish this, the View's `reduce()` function to be invoked with `rereduce` set to `true`, and with mappings containing:
+Once BonsaiDb has gathered each of the key's reduced values, it needs to further reduce that list into a single value. To accomplish this, the View's `reduce()` function to be invoked with `rereduce` set to `true`, and with mappings containing:
 
 | Key             | Value |
 | --------------- | ----- |
@@ -71,19 +71,19 @@ Once PliantDb has gathered each of the key's reduced values, it needs to further
 
 This produces a final value of 4.
 
-## How does PliantDb make this efficient?
+## How does BonsaiDb make this efficient?
 
-When saving Documents, PliantDb does not immediately update related views. It instead notes what documents have been updated since the last time the View was indexed.
+When saving Documents, BonsaiDb does not immediately update related views. It instead notes what documents have been updated since the last time the View was indexed.
 
-When a View is accessed, the queries include an [`AccessPolicy`](https://pliantdb.dev/main/pliantdb/core/connection/enum.AccessPolicy.html). If you aren't overriding it, [`UpdateBefore`](https://pliantdb.dev/main/pliantdb/core/connection/enum.AccessPolicy.html#variant.UpdateBefore) is used. This means that when the query is evaluated, PliantDb will first check if the index is out of date due to any updated data. If it is, it will update the View before evaluating the query.
+When a View is accessed, the queries include an [`AccessPolicy`](https://bonsaidb.dev/main/bonsaidb/core/connection/enum.AccessPolicy.html). If you aren't overriding it, [`UpdateBefore`](https://bonsaidb.dev/main/bonsaidb/core/connection/enum.AccessPolicy.html#variant.UpdateBefore) is used. This means that when the query is evaluated, BonsaiDb will first check if the index is out of date due to any updated data. If it is, it will update the View before evaluating the query.
 
-If you're wanting to get results quickly and are willing to accept data that might not be updated, the access policies [`UpdateAfter`](https://pliantdb.dev/main/pliantdb/core/connection/enum.AccessPolicy.html#variant.UpdateAfter) and [`NoUpdate`](https://pliantdb.dev/main/pliantdb/core/connection/enum.AccessPolicy.html#variant.NoUpdate) can be used depending on your needs.
+If you're wanting to get results quickly and are willing to accept data that might not be updated, the access policies [`UpdateAfter`](https://bonsaidb.dev/main/bonsaidb/core/connection/enum.AccessPolicy.html#variant.UpdateAfter) and [`NoUpdate`](https://bonsaidb.dev/main/bonsaidb/core/connection/enum.AccessPolicy.html#variant.NoUpdate) can be used depending on your needs.
 
-If multiple simulataneous queries are being evaluted for the same View and the View is outdated, PliantDb ensures that only a single view indexer will execute while both queries wait for it to complete.
+If multiple simulataneous queries are being evaluted for the same View and the View is outdated, BonsaiDb ensures that only a single view indexer will execute while both queries wait for it to complete.
 
 ## Using arbitrary types as a View Key
 
-In our previous example, we used `String` for the Key type. The reason is important: Keys must be sortable by [our underlying storage engine](http://sled.rs/), which means special care must be taken. Most serialization types do not guarantee binary sort order. Instead, PliantDb exposes the [`Key`][key] trait. On that documentation page, you can see that PliantDb implements `Key` for many built-in types.
+In our previous example, we used `String` for the Key type. The reason is important: Keys must be sortable by [our underlying storage engine](http://sled.rs/), which means special care must be taken. Most serialization types do not guarantee binary sort order. Instead, BonsaiDb exposes the [`Key`][key] trait. On that documentation page, you can see that BonsaiDb implements `Key` for many built-in types.
 
 ### Using an enum as a View Key
 
@@ -99,13 +99,13 @@ The View code remains unchanged, although the associated Key type can now be set
 {{#include ../../view-example-enum.rs:reduce_one_key}}
 ```
 
-PliantDb will convert the enum to a u64 and use that value as the Key. A u64 was chosen to ensure fairly wide compatibility even with some extreme usages of bitmasks. If you wish to customize this behavior, you can implement `Key` directly.
+BonsaiDb will convert the enum to a u64 and use that value as the Key. A u64 was chosen to ensure fairly wide compatibility even with some extreme usages of bitmasks. If you wish to customize this behavior, you can implement `Key` directly.
 
 ### Implementing the `Key` trait
 
-The [`Key`][key] trait declares two functions: [`as_big_endian_bytes()`](https://pliantdb.dev/main/pliantdb/core/schema/trait.Key.html#tymethod.as_big_endian_bytes) and [`from_big_endian_bytes`](https://pliantdb.dev/main/pliantdb/core/schema/trait.Key.html#tymethod.from_big_endian_bytes). The intention is to convert the type to bytes using a network byte order for numerical types, and for non-numerical types, the bytes need to be stored in binary-sortable order.
+The [`Key`][key] trait declares two functions: [`as_big_endian_bytes()`](https://bonsaidb.dev/main/bonsaidb/core/schema/trait.Key.html#tymethod.as_big_endian_bytes) and [`from_big_endian_bytes`](https://bonsaidb.dev/main/bonsaidb/core/schema/trait.Key.html#tymethod.from_big_endian_bytes). The intention is to convert the type to bytes using a network byte order for numerical types, and for non-numerical types, the bytes need to be stored in binary-sortable order.
 
-Here is how PliantDb implements Key for `EnumKey`:
+Here is how BonsaiDb implements Key for `EnumKey`:
 
 ```rust,noplayground,no_run
 {{#include ../../../../core/src/schema/view/map.rs:impl_key_for_enumkey}}
@@ -113,4 +113,4 @@ Here is how PliantDb implements Key for `EnumKey`:
 
 By implementing `Key` you can take full control of converting your view keys.
 
-[key]: https://pliantdb.dev/main/pliantdb/core/schema/trait.Key.html
+[key]: https://bonsaidb.dev/main/bonsaidb/core/schema/trait.Key.html
