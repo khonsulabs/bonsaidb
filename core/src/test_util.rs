@@ -1144,6 +1144,7 @@ macro_rules! define_kv_test_suite {
 
             // Empty keys should be equal to 0
             assert_eq!(kv.increment_key_by("i64", 1_i64).await?, 1_i64);
+            assert_eq!(kv.get_key("i64").into_i64().await?, Some(1_i64));
             assert_eq!(kv.increment_key_by("u64", 1_u64).await?, 1_u64);
             $crate::assert_f64_eq!(kv.increment_key_by("f64", 1_f64).await?, 1_f64);
 

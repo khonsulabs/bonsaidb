@@ -237,23 +237,27 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
 
     let mut current = tree.get(key).map_err(Error::from)?;
     loop {
-        let existing_value = current
+        let mut entry = current
             .as_ref()
-            .map(|current| bincode::deserialize::<Value>(current))
+            .map(|current| bincode::deserialize::<Entry>(current))
             .transpose()
             .map_err(Error::from)?
-            .unwrap_or(Value::Numeric(Numeric::UnsignedInteger(0)));
+            .unwrap_or(Entry {
+                value: Value::Numeric(Numeric::UnsignedInteger(0)),
+                expiration: None,
+            });
 
-        match existing_value {
+        match entry.value {
             Value::Numeric(existing) => {
-                let result = op(&existing, amount, saturating);
-                let result_bytes =
-                    IVec::from(bincode::serialize(&Value::Numeric(result.clone())).unwrap());
+                let value = Value::Numeric(op(&existing, amount, saturating));
+                entry.value = value.clone();
+
+                let result_bytes = IVec::from(bincode::serialize(&entry).unwrap());
                 match tree
                     .compare_and_swap(key, current, Some(result_bytes))
                     .map_err(Error::from)?
                 {
-                    Ok(_) => return Ok(Output::Value(Some(Value::Numeric(result)))),
+                    Ok(_) => return Ok(Output::Value(Some(value))),
                     Err(CompareAndSwapError { current: cur, .. }) => {
                         current = cur;
                     }
