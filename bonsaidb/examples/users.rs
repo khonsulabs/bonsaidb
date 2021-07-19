@@ -5,7 +5,7 @@ use std::{path::Path, time::Duration};
 use bonsaidb::{
     client::{url::Url, Client},
     core::{
-        admin::{PermissionGroup, User},
+        admin::PermissionGroup,
         connection::ServerConnection,
         document::KeyId,
         permissions::{
@@ -59,11 +59,10 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Make our user a member of the administrators group.
-    let mut ecton_doc = User::get(user_id, &admin).await?.unwrap();
-    if !ecton_doc.contents.groups.contains(&administrator_group_id) {
-        ecton_doc.contents.groups.push(administrator_group_id);
-        ecton_doc.update(&admin).await?;
-    }
+    server
+        .add_permission_group_to_user(user_id, administrator_group_id)
+        .await?;
+
     // ANCHOR_END: setup
 
     // Give a moment for the listeners to start.

@@ -36,7 +36,7 @@ use bonsaidb_core::{
         Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
     },
     schema,
-    schema::{Collection, CollectionName, Schema, ViewName},
+    schema::{Collection, CollectionName, NamedReference, Schema, ViewName},
     transaction::{Command, Transaction},
 };
 #[cfg(feature = "pubsub")]
@@ -812,26 +812,84 @@ impl<B: Backend> ServerConnection for CustomServer<B> {
         self.data.storage.create_user(username).await
     }
 
-    async fn set_user_password(
+    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
-        username: &str,
+        user: U,
         password_request: RegistrationRequest,
     ) -> Result<bonsaidb_core::custodian_password::RegistrationResponse, bonsaidb_core::Error> {
         self.data
             .storage
-            .set_user_password(username, password_request)
+            .set_user_password(user, password_request)
             .await
     }
 
-    async fn finish_set_user_password(
+    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
-        username: &str,
+        user: U,
         password_finalization: RegistrationFinalization,
     ) -> Result<(), bonsaidb_core::Error> {
         self.data
             .storage
-            .finish_set_user_password(username, password_finalization)
+            .finish_set_user_password(user, password_finalization)
             .await
+    }
+
+    async fn add_permission_group_to_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        permission_group: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.data
+            .storage
+            .add_permission_group_to_user(user, permission_group)
+            .await
+    }
+
+    async fn remove_permission_group_from_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        permission_group: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.data
+            .storage
+            .remove_permission_group_from_user(user, permission_group)
+            .await
+    }
+
+    async fn add_role_to_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        role: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.data.storage.add_role_to_user(user, role).await
+    }
+
+    async fn remove_role_from_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        role: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.data.storage.remove_role_from_user(user, role).await
     }
 }
 
@@ -913,11 +971,11 @@ impl<'s, B: Backend> ServerRequestDispatcher for ServerDispatcher<'s, B> {
 impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    fn resource_name<'a>(
-        &self,
+    async fn resource_name<'a>(
+        &'a self,
         database: &'a bonsaidb_core::connection::Database,
-    ) -> ResourceName<'a> {
-        database_resource_name(&database.name)
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(database_resource_name(&database.name))
     }
 
     fn action() -> Self::Action {
@@ -942,8 +1000,11 @@ impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
 impl<'s, B: Backend> DeleteDatabaseHandler for ServerDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    fn resource_name<'a>(&self, database: &'a String) -> ResourceName<'a> {
-        database_resource_name(database)
+    async fn resource_name<'a>(
+        &'a self,
+        database: &'a String,
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(database_resource_name(database))
     }
 
     fn action() -> Self::Action {
@@ -964,8 +1025,8 @@ impl<'s, B: Backend> DeleteDatabaseHandler for ServerDispatcher<'s, B> {
 impl<'s, B: Backend> bonsaidb_core::networking::ListDatabasesHandler for ServerDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    fn resource_name(&self) -> ResourceName<'static> {
-        bonsaidb_resource_name()
+    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(bonsaidb_resource_name())
     }
 
     fn action() -> Self::Action {
@@ -988,8 +1049,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListAvailableSchemasHandler
 {
     type Action = BonsaiAction;
 
-    fn resource_name(&self) -> ResourceName<'static> {
-        bonsaidb_resource_name()
+    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(bonsaidb_resource_name())
     }
 
     fn action() -> Self::Action {
@@ -1010,8 +1071,11 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListAvailableSchemasHandler
 impl<'s, B: Backend> bonsaidb_core::networking::CreateUserHandler for ServerDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    fn resource_name(&self, username: &String) -> ResourceName<'static> {
-        user_resource_name(username.to_string())
+    async fn resource_name<'a>(
+        &'a self,
+        _username: &'a String,
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(bonsaidb_resource_name())
     }
 
     fn action() -> Self::Action {
@@ -1034,13 +1098,17 @@ impl<'s, B: Backend> bonsaidb_core::networking::LoginWithPasswordHandler
     for ServerDispatcher<'s, B>
 {
     type Action = BonsaiAction;
+    async fn resource_name<'a>(
+        &'a self,
+        username: &'a String,
+        _password_request: &'a LoginRequest,
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        let id = NamedReference::from(username.as_str())
+            .id::<User, _>(&self.server.admin().await)
+            .await?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
 
-    fn resource_name(
-        &self,
-        username: &String,
-        _password_request: &LoginRequest,
-    ) -> ResourceName<'static> {
-        user_resource_name(username.clone())
+        Ok(user_resource_name(id))
     }
 
     fn action() -> Self::Action {
@@ -1097,12 +1165,17 @@ impl<'s, B: Backend> bonsaidb_core::networking::FinishPasswordLoginHandler
 impl<'s, B: Backend> bonsaidb_core::networking::SetPasswordHandler for ServerDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    fn resource_name(
-        &self,
-        username: &String,
-        _password_request: &RegistrationRequest,
-    ) -> ResourceName<'static> {
-        user_resource_name(username.to_string())
+    async fn resource_name<'a>(
+        &'a self,
+        user: &'a NamedReference<'static>,
+        _password_request: &'a RegistrationRequest,
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        let id = user
+            .id::<User, _>(&self.server.admin().await)
+            .await?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
+
+        Ok(user_resource_name(id))
     }
 
     fn action() -> Self::Action {
@@ -1112,13 +1185,13 @@ impl<'s, B: Backend> bonsaidb_core::networking::SetPasswordHandler for ServerDis
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-        username: String,
+        user: NamedReference<'static>,
         password_request: RegistrationRequest,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         Ok(Response::Server(ServerResponse::FinishSetPassword {
             password_reponse: Box::new(
                 self.server
-                    .set_user_password(&username, password_request)
+                    .set_user_password(user, password_request)
                     .await?,
             ),
         }))
@@ -1132,12 +1205,98 @@ impl<'s, B: Backend> bonsaidb_core::networking::FinishSetPasswordHandler
     async fn handle(
         &self,
         _permissions: &Permissions,
-        username: String,
+        user: NamedReference<'static>,
         password_request: RegistrationFinalization,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
         self.server
-            .finish_set_user_password(&username, password_request)
+            .finish_set_user_password(user, password_request)
             .await?;
+        Ok(Response::Ok)
+    }
+}
+
+#[async_trait]
+impl<'s, B: Backend> bonsaidb_core::networking::AlterUserPermissionGroupMembershipHandler
+    for ServerDispatcher<'s, B>
+{
+    type Action = BonsaiAction;
+
+    async fn resource_name<'a>(
+        &'a self,
+        user: &'a NamedReference<'static>,
+        _group: &'a NamedReference<'static>,
+        _should_be_member: &'a bool,
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        let id = user
+            .id::<User, _>(&self.server.admin().await)
+            .await?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
+
+        Ok(user_resource_name(id))
+    }
+
+    fn action() -> Self::Action {
+        BonsaiAction::Server(ServerAction::ModifyUserPermissionGroups)
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        user: NamedReference<'static>,
+        group: NamedReference<'static>,
+        should_be_member: bool,
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+        if should_be_member {
+            self.server
+                .add_permission_group_to_user(user, group)
+                .await?;
+        } else {
+            self.server
+                .remove_permission_group_from_user(user, group)
+                .await?;
+        }
+
+        Ok(Response::Ok)
+    }
+}
+
+#[async_trait]
+impl<'s, B: Backend> bonsaidb_core::networking::AlterUserRoleMembershipHandler
+    for ServerDispatcher<'s, B>
+{
+    type Action = BonsaiAction;
+
+    async fn resource_name<'a>(
+        &'a self,
+        user: &'a NamedReference<'static>,
+        _role: &'a NamedReference<'static>,
+        _should_be_member: &'a bool,
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        let id = user
+            .id::<User, _>(&self.server.admin().await)
+            .await?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
+
+        Ok(user_resource_name(id))
+    }
+
+    fn action() -> Self::Action {
+        BonsaiAction::Server(ServerAction::ModifyUserRoles)
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        user: NamedReference<'static>,
+        role: NamedReference<'static>,
+        should_be_member: bool,
+    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+        if should_be_member {
+            self.server.add_role_to_user(user, role).await?;
+        } else {
+            self.server.remove_role_from_user(user, role).await?;
+        }
+
         Ok(Response::Ok)
     }
 }
@@ -1162,12 +1321,12 @@ impl<'s, B: Backend> DatabaseRequestDispatcher for DatabaseDispatcher<'s, B> {
 impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    fn resource_name<'a>(
+    async fn resource_name<'a>(
         &'a self,
         collection: &'a CollectionName,
         id: &'a u64,
-    ) -> ResourceName<'a> {
-        document_resource_name(&self.name, collection, *id)
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(document_resource_name(&self.name, collection, *id))
     }
 
     fn action() -> Self::Action {
@@ -1233,14 +1392,14 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseD
 impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    fn resource_name<'a>(
+    async fn resource_name<'a>(
         &'a self,
         view: &'a ViewName,
         _key: &'a Option<QueryKey<Vec<u8>>>,
         _access_policy: &'a AccessPolicy,
         _with_docs: &'a bool,
-    ) -> ResourceName<'a> {
-        view_resource_name(&self.name, view)
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(view_resource_name(&self.name, view))
     }
 
     fn action() -> Self::Action {
@@ -1274,14 +1433,14 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
 impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    fn resource_name<'a>(
+    async fn resource_name<'a>(
         &'a self,
         view: &'a ViewName,
         _key: &'a Option<QueryKey<Vec<u8>>>,
         _access_policy: &'a AccessPolicy,
         _grouped: &'a bool,
-    ) -> ResourceName<'a> {
-        view_resource_name(&self.name, view)
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(view_resource_name(&self.name, view))
     }
 
     fn action() -> Self::Action {
@@ -1367,12 +1526,12 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
 {
     type Action = BonsaiAction;
 
-    fn resource_name<'a>(
+    async fn resource_name<'a>(
         &'a self,
         _starting_id: &'a Option<u64>,
         _result_limit: &'a Option<usize>,
-    ) -> ResourceName<'a> {
-        database_resource_name(&self.name)
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(database_resource_name(&self.name))
     }
 
     fn action() -> Self::Action {
@@ -1399,8 +1558,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::LastTransactionIdHandler
 {
     type Action = BonsaiAction;
 
-    fn resource_name(&self) -> ResourceName<'_> {
-        database_resource_name(&self.name)
+    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(database_resource_name(&self.name))
     }
 
     fn action() -> Self::Action {
@@ -1423,8 +1582,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateSubscriberHandler
 {
     type Action = BonsaiAction;
 
-    fn resource_name(&self) -> ResourceName<'_> {
-        database_resource_name(&self.name)
+    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(database_resource_name(&self.name))
     }
 
     fn action() -> Self::Action {
@@ -1463,8 +1622,12 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateSubscriberHandler
 impl<'s, B: Backend> bonsaidb_core::networking::PublishHandler for DatabaseDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    fn resource_name<'a>(&'a self, topic: &'a String, _payload: &'a Vec<u8>) -> ResourceName<'a> {
-        pubsub_topic_resource_name(&self.name, topic)
+    async fn resource_name<'a>(
+        &'a self,
+        topic: &'a String,
+        _payload: &'a Vec<u8>,
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(pubsub_topic_resource_name(&self.name, topic))
     }
 
     fn action() -> Self::Action {
@@ -1545,8 +1708,12 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishToAllHandler for Database
 impl<'s, B: Backend> bonsaidb_core::networking::SubscribeToHandler for DatabaseDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    fn resource_name<'a>(&'a self, _subscriber_id: &'a u64, topic: &'a String) -> ResourceName<'a> {
-        pubsub_topic_resource_name(&self.name, topic)
+    async fn resource_name<'a>(
+        &'a self,
+        _subscriber_id: &'a u64,
+        topic: &'a String,
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(pubsub_topic_resource_name(&self.name, topic))
     }
 
     fn action() -> Self::Action {
@@ -1576,8 +1743,12 @@ impl<'s, B: Backend> bonsaidb_core::networking::UnsubscribeFromHandler
 {
     type Action = BonsaiAction;
 
-    fn resource_name<'a>(&'a self, _subscriber_id: &'a u64, topic: &'a String) -> ResourceName<'a> {
-        pubsub_topic_resource_name(&self.name, topic)
+    async fn resource_name<'a>(
+        &'a self,
+        _subscriber_id: &'a u64,
+        topic: &'a String,
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(pubsub_topic_resource_name(&self.name, topic))
     }
 
     fn action() -> Self::Action {
@@ -1634,8 +1805,15 @@ impl<'s, B: Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
 {
     type Action = BonsaiAction;
 
-    fn resource_name<'a>(&'a self, op: &'a KeyOperation) -> ResourceName<'a> {
-        kv_key_resource_name(&self.name, op.namespace.as_deref(), &op.key)
+    async fn resource_name<'a>(
+        &'a self,
+        op: &'a KeyOperation,
+    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+        Ok(kv_key_resource_name(
+            &self.name,
+            op.namespace.as_deref(),
+            &op.key,
+        ))
     }
 
     fn action() -> Self::Action {

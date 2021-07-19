@@ -89,10 +89,10 @@ pub fn encryption_key_resource_name(key_id: &KeyId) -> ResourceName<'_> {
         })
 }
 
-/// Creates a resource name for the user with `username`.
+/// Creates a resource name for `user_id`.
 #[must_use]
-pub fn user_resource_name<'a, I: Into<Identifier<'a>>>(username: I) -> ResourceName<'a> {
-    bonsaidb_resource_name().and("user").and(username)
+pub fn user_resource_name<'a>(user_id: u64) -> ResourceName<'a> {
+    bonsaidb_resource_name().and("user").and(user_id)
 }
 
 /// Actions that can be permitted within `BonsaiDb`.
@@ -127,6 +127,11 @@ pub enum ServerAction {
     SetPassword,
     /// Permits the ability to log in with a password.
     LoginWithPassword,
+    /// Permits [`ServerConnection::add_permission_group_to_user`](crate::connection::ServerConnection::add_permission_group_to_user) and [`ServerConnection::remove_permission_group_from_user`](crate::connection::ServerConnection::remove_permission_group_from_user).
+    ModifyUserPermissionGroups,
+    /// Permits .
+    /// Permits [`ServerConnection::add_role_to_user`](crate::connection::ServerConnection::add_role_to_user) and [`ServerConnection::remove_role_from_user`](crate::connection::ServerConnection::remove_role_from_user).
+    ModifyUserRoles,
 }
 
 /// Actions that operate on a specific database.

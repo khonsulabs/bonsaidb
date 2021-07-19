@@ -20,7 +20,7 @@ use bonsaidb_core::{
     custom_api::CustomApi,
     networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
     permissions::Permissions,
-    schema::{Schema, SchemaName, Schematic},
+    schema::{NamedReference, Schema, SchemaName, Schematic},
     PASSWORD_CONFIG,
 };
 use flume::Sender;
@@ -508,14 +508,14 @@ impl ServerConnection for Client {
         }
     }
 
-    async fn set_user_password(
+    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
-        username: &str,
+        user: U,
         password_request: bonsaidb_core::custodian_password::RegistrationRequest,
     ) -> Result<bonsaidb_core::custodian_password::RegistrationResponse, bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::SetPassword {
-                username: username.to_string(),
+                user: user.into().into_owned(),
                 password_request,
             }))
             .await?
@@ -530,15 +530,123 @@ impl ServerConnection for Client {
         }
     }
 
-    async fn finish_set_user_password(
+    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
-        username: &str,
+        user: U,
         password_finalization: bonsaidb_core::custodian_password::RegistrationFinalization,
     ) -> Result<(), bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::FinishSetPassword {
-                username: username.to_string(),
+                user: user.into().into_owned(),
                 password_finalization,
+            }))
+            .await?
+        {
+            Response::Ok => Ok(()),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn add_permission_group_to_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        permission_group: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        match self
+            .send_request(Request::Server(
+                ServerRequest::AlterUserPermissionGroupMembership {
+                    user: user.into().into_owned(),
+                    group: permission_group.into().into_owned(),
+                    should_be_member: true,
+                },
+            ))
+            .await?
+        {
+            Response::Ok => Ok(()),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn remove_permission_group_from_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        permission_group: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        match self
+            .send_request(Request::Server(
+                ServerRequest::AlterUserPermissionGroupMembership {
+                    user: user.into().into_owned(),
+                    group: permission_group.into().into_owned(),
+                    should_be_member: false,
+                },
+            ))
+            .await?
+        {
+            Response::Ok => Ok(()),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn add_role_to_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        role: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::AlterUserRoleMembership {
+                user: user.into().into_owned(),
+                role: role.into().into_owned(),
+                should_be_member: true,
+            }))
+            .await?
+        {
+            Response::Ok => Ok(()),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn remove_role_from_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        role: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::AlterUserRoleMembership {
+                user: user.into().into_owned(),
+                role: role.into().into_owned(),
+                should_be_member: false,
             }))
             .await?
         {

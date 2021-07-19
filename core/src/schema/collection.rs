@@ -59,6 +59,48 @@ pub trait Collection: Debug + Send + Sync {
     }
 }
 
+/// A collection with a unique name column.
+#[async_trait]
+pub trait NamedCollection: Collection {
+    /// The name view defined for the collection.
+    type ByNameView: crate::schema::View<Key = String>;
+
+    /// Gets a [`CollectionDocument`] with `id` from `connection`.
+    async fn load<'name, N: Into<NamedReference<'name>> + Send + Sync, C: Connection>(
+        id: N,
+        connection: &C,
+    ) -> Result<Option<CollectionDocument<Self>>, Error>
+    where
+        Self: Serialize + for<'de> Deserialize<'de>,
+    {
+        let possible_doc = Self::load_document(id, connection).await?;
+        Ok(possible_doc.map(|doc| doc.try_into()).transpose()?)
+    }
+
+    /// Loads a document from this collection by name, if applicable. Return
+    /// `Ok(None)` if unsupported.
+    #[allow(unused_variables)]
+    async fn load_document<'name, N: Into<NamedReference<'name>> + Send + Sync, C: Connection>(
+        name: N,
+        connection: &C,
+    ) -> Result<Option<Document<'static>>, Error>
+    where
+        Self: Serialize + for<'de> Deserialize<'de>,
+    {
+        match name.into() {
+            NamedReference::Id(id) => connection.get::<Self>(id).await,
+            NamedReference::Name(name) => Ok(connection
+                .view::<Self::ByNameView>()
+                .with_key(name.as_ref().to_owned())
+                .query_with_docs()
+                .await?
+                .into_iter()
+                .next()
+                .map(|entry| entry.document)),
+        }
+    }
+}
+
 /// A document with serializable contents.
 #[derive(Clone, Debug)]
 pub struct CollectionDocument<C: Collection + Serialize + for<'de> Deserialize<'de>> {
@@ -127,5 +169,85 @@ where
             contents: Cow::Owned(serde_cbor::to_vec(&self.contents)?),
             header: self.header.clone(),
         })
+    }
+}
+
+/// A reference to a collection that has a unique name view.
+#[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
+#[must_use]
+pub enum NamedReference<'a> {
+    /// An entity's name.
+    Name(Cow<'a, str>),
+    /// A document id.
+    Id(u64),
+}
+
+impl<'a> From<&'a str> for NamedReference<'a> {
+    fn from(name: &'a str) -> Self {
+        Self::Name(Cow::Borrowed(name))
+    }
+}
+
+impl<'a> From<&'a String> for NamedReference<'a> {
+    fn from(name: &'a String) -> Self {
+        Self::Name(Cow::Borrowed(name.as_str()))
+    }
+}
+
+impl<'a, 'b, 'c> From<&'b Document<'c>> for NamedReference<'a> {
+    fn from(doc: &'b Document<'c>) -> Self {
+        Self::Id(doc.header.id)
+    }
+}
+
+impl<'a, 'b, C: Collection + Serialize + for<'de> Deserialize<'de>> From<&'b CollectionDocument<C>>
+    for NamedReference<'a>
+{
+    fn from(doc: &'b CollectionDocument<C>) -> Self {
+        Self::Id(doc.header.id)
+    }
+}
+
+impl<'a> From<String> for NamedReference<'a> {
+    fn from(name: String) -> Self {
+        Self::Name(Cow::Owned(name))
+    }
+}
+
+impl<'a> From<u64> for NamedReference<'a> {
+    fn from(id: u64) -> Self {
+        Self::Id(id)
+    }
+}
+
+impl<'a> NamedReference<'a> {
+    /// Converts this reference to an owned reference with a `'static` lifetime.
+    pub fn into_owned(self) -> NamedReference<'static> {
+        match self {
+            Self::Name(name) => NamedReference::Name(match name {
+                Cow::Owned(string) => Cow::Owned(string),
+                Cow::Borrowed(borrowed) => Cow::Owned(borrowed.to_owned()),
+            }),
+            Self::Id(id) => NamedReference::Id(id),
+        }
+    }
+
+    /// Returns this reference's id. If the reference is a name, the
+    /// [`NamedCollection::ByNameView`] is queried for the id.
+    pub async fn id<Col: NamedCollection, Cn: Connection>(
+        &self,
+        connection: &Cn,
+    ) -> Result<Option<u64>, Error> {
+        match self {
+            Self::Name(name) => Ok(connection
+                .view::<Col::ByNameView>()
+                .with_key(name.as_ref().to_owned())
+                .query()
+                .await?
+                .into_iter()
+                .next()
+                .map(|e| e.source)),
+            Self::Id(id) => Ok(Some(*id)),
+        }
     }
 }

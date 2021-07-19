@@ -12,12 +12,13 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    admin::{PermissionGroup, Role, User},
     connection::{AccessPolicy, Connection, ServerConnection},
     document::{Document, KeyId},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
-        view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name, Schema,
-        SchemaName, Schematic, View,
+        view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
+        NamedCollection, Schema, SchemaName, Schematic, View,
     },
     Error,
 };
@@ -325,6 +326,7 @@ pub enum HarnessTest {
     Encryption,
     UniqueViews,
     PubSubSimple,
+    UserManagement,
     PubSubMultipleSubscribers,
     PubSubDropAndSend,
     PubSubUnsubscribe,
@@ -489,6 +491,22 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
+        async fn user_management() -> anyhow::Result<()> {
+            let harness = $harness::new($crate::test_util::HarnessTest::UserManagement).await?;
+            let _db = harness.connect().await?;
+            let server = harness.server();
+            let admin = server.database::<$crate::admin::Admin>("admin").await?;
+
+            $crate::test_util::user_management_tests(
+                &admin,
+                server.clone(),
+                $harness::server_name(),
+            )
+            .await?;
+            harness.shutdown().await
+        }
+
+        #[tokio::test]
         async fn encryption_keys() -> anyhow::Result<()> {
             use $crate::{
                 document::KeyId,
@@ -522,7 +540,8 @@ macro_rules! define_connection_test_suite {
                     ],
                     "reader",
                 )
-                .await?;
+                .await
+                .unwrap();
             let writer = harness
                 .connect_with_permissions(
                     vec![
@@ -542,9 +561,12 @@ macro_rules! define_connection_test_suite {
                     ],
                     "writer",
                 )
-                .await?;
+                .await
+                .unwrap();
 
-            $crate::test_util::encryption_tests(&reader, &writer).await?;
+            $crate::test_util::encryption_tests(&reader, &writer)
+                .await
+                .unwrap();
             harness.shutdown().await
         }
     };
@@ -1020,6 +1042,82 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     } else {
         unreachable!("unique key violation not triggered")
     }
+
+    Ok(())
+}
+
+pub async fn user_management_tests<C: Connection, S: ServerConnection>(
+    admin: &C,
+    server: S,
+    server_name: &str,
+) -> anyhow::Result<()> {
+    let username = format!("user-management-tests-{}", server_name);
+    let user_id = server.create_user(&username).await?;
+    // Test the default created user state.
+    {
+        let user = User::get(user_id, admin)
+            .await
+            .unwrap()
+            .expect("user not found");
+        assert_eq!(user.contents.username, username);
+        assert!(user.contents.groups.is_empty());
+        assert!(user.contents.roles.is_empty());
+    }
+
+    let role = Role::named(format!("role-{}", server_name))
+        .insert_into(admin)
+        .await?;
+    let group = PermissionGroup::named(format!("group-{}", server_name))
+        .insert_into(admin)
+        .await?;
+
+    // Add the role and group.
+    server.add_permission_group_to_user(user_id, &group).await?;
+    server.add_role_to_user(user_id, &role).await?;
+
+    // Test the results
+    {
+        let user = User::get(user_id, admin)
+            .await
+            .unwrap()
+            .expect("user not found");
+        assert_eq!(user.contents.groups, vec![group.header.id]);
+        assert_eq!(user.contents.roles, vec![role.header.id]);
+    }
+
+    // Add the same things again (should not do anything). With names this time.
+    server
+        .add_permission_group_to_user(&username, &group)
+        .await?;
+    server.add_role_to_user(&username, &role).await?;
+    {
+        let user = User::load(&username, admin)
+            .await
+            .unwrap()
+            .expect("user not found");
+        assert_eq!(user.contents.groups, vec![group.header.id]);
+        assert_eq!(user.contents.roles, vec![role.header.id]);
+    }
+
+    // Remove the group.
+    server
+        .remove_permission_group_from_user(user_id, &group)
+        .await?;
+    server.remove_role_from_user(user_id, &role).await?;
+    {
+        let user = User::get(user_id, admin)
+            .await
+            .unwrap()
+            .expect("user not found");
+        assert!(user.contents.groups.is_empty());
+        assert!(user.contents.roles.is_empty());
+    }
+
+    // Removing again shouldn't cause an error.
+    server
+        .remove_permission_group_from_user(user_id, &group)
+        .await?;
+    server.remove_role_from_user(user_id, &role).await?;
 
     Ok(())
 }

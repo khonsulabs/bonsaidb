@@ -17,10 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Centralized secrets vault: Enables limited at-rest encryption. Access to keys
   can be controlled via permissions. See `bonsaidb::core::vault` for more
   information.
-- For serializable types, `Collection` now defines easier methods for dealing with documents.
-- Server `Backend` trait now defines connection lifecycle functions that can be overridden to customize behavior when clients connect, disconnect, or authenticate.
+- For serializable types, `Collection` now defines easier methods for dealing
+  with documents. `NamedCollection` allows collections that expose a unique name
+  view to have easy ways to convert between IDs and names.
+- Server `Backend` trait now defines connection lifecycle functions that can be
+  overridden to customize behavior when clients connect, disconnect, or
+  authenticate.
 - `Client` now has a `build()` method to allow for customizing connections.
-- `CustomApi` responses can now be sent by the server via `ConnectedClient::send()`. The client can now register a callback to receive out-of-band responses.
+- `CustomApi` responses can now be sent by the server via
+  `ConnectedClient::send()`. The client can now register a callback to receive
+  out-of-band responses.
 
 ### Changed
 

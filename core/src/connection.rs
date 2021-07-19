@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     document::{Document, Header, KeyId},
-    schema::{self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName},
+    schema::{
+        self, view, Key, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
+    },
     transaction::{self, Command, Operation, OperationResult, Transaction},
     Error, PASSWORD_CONFIG,
 };
@@ -457,17 +459,17 @@ pub trait ServerConnection: Send + Sync {
     async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
 
     /// Sets a user's password using `custodian-password` to register a password using `OPAQUE-PAKE`.
-    async fn set_user_password(
+    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
-        username: &str,
+        user: U,
         password_request: RegistrationRequest,
     ) -> Result<RegistrationResponse, crate::Error>;
 
     /// Finishes setting a user's password by finishing the `OPAQUE-PAKE`
     /// registration.
-    async fn finish_set_user_password(
+    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
-        username: &str,
+        user: U,
         password_finalization: RegistrationFinalization,
     ) -> Result<(), crate::Error>;
 
@@ -475,19 +477,67 @@ pub trait ServerConnection: Send + Sync {
     /// will never leave the machine that is calling this function. Internally
     /// uses `set_user_password` and `finish_set_user_password` in conjunction
     /// with `custodian-password`.
-    async fn set_user_password_str(
+    async fn set_user_password_str<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
-        username: &str,
+        user: U,
         password: &str,
     ) -> Result<ClientFile, crate::Error> {
+        let user = user.into();
         let (registration, request) =
             ClientRegistration::register(&ClientConfig::new(PASSWORD_CONFIG, None)?, password)?;
-        let response = self.set_user_password(username, request).await?;
+        let response = self.set_user_password(user.clone(), request).await?;
         let (file, finalization, _export_key) = registration.finish(response)?;
-        self.finish_set_user_password(username, finalization)
-            .await?;
+        self.finish_set_user_password(user, finalization).await?;
         Ok(file)
     }
+
+    /// Adds a user to a permission group.
+    async fn add_permission_group_to_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        permission_group: G,
+    ) -> Result<(), crate::Error>;
+
+    /// Removes a user from a permission group.
+    async fn remove_permission_group_from_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        permission_group: G,
+    ) -> Result<(), crate::Error>;
+
+    /// Adds a user to a permission group.
+    async fn add_role_to_user<
+        'user,
+        'role,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        R: Into<NamedReference<'role>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        role: R,
+    ) -> Result<(), crate::Error>;
+
+    /// Removes a user from a permission group.
+    async fn remove_role_from_user<
+        'user,
+        'role,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        R: Into<NamedReference<'role>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        role: R,
+    ) -> Result<(), crate::Error>;
 }
 
 /// A database on a server.

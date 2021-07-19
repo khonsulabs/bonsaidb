@@ -1,9 +1,13 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     document::Document,
     permissions::Statement,
-    schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
+    schema::{
+        Collection, CollectionName, InvalidNameError, MapResult, Name, NamedCollection, Schematic,
+        View,
+    },
     Error,
 };
 
@@ -16,6 +20,23 @@ pub struct PermissionGroup {
     pub statements: Vec<Statement>,
 }
 
+impl PermissionGroup {
+    /// Returns a new group with no statements and the name provided.
+    pub fn named<S: Into<String>>(name: S) -> Self {
+        Self {
+            name: name.into(),
+            statements: Vec::new(),
+        }
+    }
+
+    /// Builder-style method. Returns self after replacing the current statements with `statements`.
+    pub fn with_group_ids<I: IntoIterator<Item = Statement>>(mut self, statements: I) -> Self {
+        self.statements = statements.into_iter().collect();
+        self
+    }
+}
+
+#[async_trait]
 impl Collection for PermissionGroup {
     fn collection_name() -> Result<CollectionName, InvalidNameError> {
         CollectionName::new("khonsulabs", "permission-group")
@@ -24,6 +45,10 @@ impl Collection for PermissionGroup {
     fn define_views(schema: &mut Schematic) -> Result<(), Error> {
         schema.define_view(ByName)
     }
+}
+
+impl NamedCollection for PermissionGroup {
+    type ByNameView = ByName;
 }
 
 /// A unique view of permission groups by name.

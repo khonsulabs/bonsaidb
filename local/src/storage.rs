@@ -1,7 +1,6 @@
 use std::{
     any::Any,
     collections::HashMap,
-    convert::TryFrom,
     fmt::{Debug, Display},
     marker::PhantomData,
     path::Path,
@@ -19,17 +18,17 @@ use bonsaidb_core::{
     admin::{
         database::{self, ByName, Database as DatabaseRecord},
         password_config::PasswordConfig,
-        user::{self, User},
-        Admin,
+        user::User,
+        Admin, PermissionGroup, Role,
     },
     connection::{self, AccessPolicy, Connection, QueryKey, ServerConnection},
-    custodian_password::ServerRegistration,
+    custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
     document::{Document, KeyId},
     networking,
     permissions::Permissions,
     schema::{
-        view::map, CollectionDocument, CollectionName, MappedValue, Schema, SchemaName, Schematic,
-        ViewName,
+        view::map, CollectionDocument, CollectionName, MappedValue, NamedCollection,
+        NamedReference, Schema, SchemaName, Schematic, ViewName,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -406,21 +405,46 @@ impl Storage {
     ) -> Result<(Option<u64>, ServerLogin, LoginResponse), bonsaidb_core::Error> {
         let admin = self.admin().await;
         let config = PasswordConfig::load(&admin).await?;
-        let result = admin
-            .view::<user::ByName>()
-            .with_key(username.to_owned())
-            .query_with_docs()
-            .await?;
 
-        let (user_id, existing_password_hash) = if let Some(entry) = result.into_iter().next() {
-            let user = entry.document.contents::<User>()?;
-            (Some(entry.document.header.id), user.password_hash)
-        } else {
-            (None, None)
-        };
+        let (user_id, existing_password_hash) =
+            if let Some(user) = User::load(username, &admin).await? {
+                (Some(user.header.id), user.contents.password_hash)
+            } else {
+                (None, None)
+            };
 
         let (login, response) = ServerLogin::login(&config, existing_password_hash, login_request)?;
         Ok((user_id, login, response))
+    }
+
+    async fn update_user_with_named_id<
+        'user,
+        'other,
+        Col: NamedCollection,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        O: Into<NamedReference<'other>> + Send + Sync,
+        F: FnOnce(&mut CollectionDocument<User>, u64) -> bool,
+    >(
+        &self,
+        user: U,
+        other: O,
+        callback: F,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let user = user.into();
+        let other = other.into();
+        let admin = self.admin().await;
+        let (user, other) =
+            futures::try_join!(User::load(user, &admin), other.id::<Col, _>(&admin),)?;
+        match (user, other) {
+            (Some(mut user), Some(other)) => {
+                if callback(&mut user, other) {
+                    user.update(&admin).await?;
+                }
+                Ok(())
+            }
+            // TODO make this a generic not found with a name parameter.
+            _ => Err(bonsaidb_core::Error::UserNotFound),
+        }
     }
 }
 
@@ -634,61 +658,136 @@ impl ServerConnection for Storage {
         Ok(result.id)
     }
 
-    async fn set_user_password(
+    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
-        username: &str,
-        password_request: bonsaidb_core::custodian_password::RegistrationRequest,
+        user: U,
+        password_request: RegistrationRequest,
     ) -> Result<bonsaidb_core::custodian_password::RegistrationResponse, bonsaidb_core::Error> {
         let admin = self.admin().await;
-        let result = admin
-            .view::<user::ByName>()
-            .with_key(username.to_owned())
-            .query_with_docs()
-            .await
-            .unwrap();
-        if result.is_empty() {
-            Err(bonsaidb_core::Error::UserNotFound)
-        } else {
-            let config = PasswordConfig::load(&admin).await.unwrap();
-            let (register, response) = ServerRegistration::register(&config, password_request)?;
 
-            let mut doc =
-                CollectionDocument::<User>::try_from(result.into_iter().next().unwrap().document)?;
-            doc.contents.pending_password_change_state = Some(register);
-            doc.update(&admin).await?;
+        match User::load(user, &admin).await? {
+            Some(mut doc) => {
+                let config = PasswordConfig::load(&admin).await.unwrap();
+                let (register, response) = ServerRegistration::register(&config, password_request)?;
 
-            Ok(response)
+                doc.contents.pending_password_change_state = Some(register);
+                doc.update(&admin).await?;
+
+                Ok(response)
+            }
+            None => Err(bonsaidb_core::Error::UserNotFound),
         }
     }
 
-    async fn finish_set_user_password(
+    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
-        username: &str,
-        password_finalization: bonsaidb_core::custodian_password::RegistrationFinalization,
+        user: U,
+        password_finalization: RegistrationFinalization,
     ) -> Result<(), bonsaidb_core::Error> {
+        let user = user.into();
         let admin = self.admin().await;
-        let result = admin
-            .view::<user::ByName>()
-            .with_key(username.to_owned())
-            .query_with_docs()
-            .await?;
-        if result.is_empty() {
-            Err(bonsaidb_core::Error::UserNotFound)
-        } else {
-            let mut doc =
-                CollectionDocument::<User>::try_from(result.into_iter().next().unwrap().document)?;
-            if let Some(registration) = doc.contents.pending_password_change_state.take() {
-                let file = registration.finish(password_finalization)?;
-                doc.contents.password_hash = Some(file);
-                doc.update(&admin).await?;
+        match User::load(user, &admin).await? {
+            Some(mut doc) => {
+                if let Some(registration) = doc.contents.pending_password_change_state.take() {
+                    let file = registration.finish(password_finalization)?;
+                    doc.contents.password_hash = Some(file);
+                    doc.update(&admin).await?;
 
-                Ok(())
-            } else {
-                Err(bonsaidb_core::Error::Password(String::from(
-                    "no existing state found",
-                )))
+                    Ok(())
+                } else {
+                    Err(bonsaidb_core::Error::Password(String::from(
+                        "no existing state found",
+                    )))
+                }
             }
+            None => Err(bonsaidb_core::Error::UserNotFound),
         }
+    }
+
+    async fn add_permission_group_to_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        permission_group: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.update_user_with_named_id::<PermissionGroup, _, _, _>(
+            user,
+            permission_group,
+            |user, permission_group_id| {
+                if user.contents.groups.contains(&permission_group_id) {
+                    false
+                } else {
+                    user.contents.groups.push(permission_group_id);
+                    true
+                }
+            },
+        )
+        .await
+    }
+
+    async fn remove_permission_group_from_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        permission_group: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.update_user_with_named_id::<PermissionGroup, _, _, _>(
+            user,
+            permission_group,
+            |user, permission_group_id| {
+                let old_len = user.contents.groups.len();
+                user.contents.groups.retain(|id| id != &permission_group_id);
+                old_len != user.contents.groups.len()
+            },
+        )
+        .await
+    }
+
+    async fn add_role_to_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        role: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.update_user_with_named_id::<PermissionGroup, _, _, _>(user, role, |user, role_id| {
+            if user.contents.roles.contains(&role_id) {
+                false
+            } else {
+                user.contents.roles.push(role_id);
+                true
+            }
+        })
+        .await
+    }
+
+    async fn remove_role_from_user<
+        'user,
+        'group,
+        U: Into<NamedReference<'user>> + Send + Sync,
+        G: Into<NamedReference<'group>> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        role: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.update_user_with_named_id::<Role, _, _, _>(user, role, |user, role_id| {
+            let old_len = user.contents.roles.len();
+            user.contents.roles.retain(|id| id != &role_id);
+            old_len != user.contents.roles.len()
+        })
+        .await
     }
 }
 

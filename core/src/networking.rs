@@ -13,7 +13,7 @@ use crate::{
     schema::{
         self,
         view::{self, map},
-        CollectionName, Key, MappedValue, ViewName,
+        CollectionName, Key, MappedValue, NamedReference, ViewName,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -98,8 +98,8 @@ pub enum ServerRequest {
     /// Sets a user's password.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     SetPassword {
-        /// The username of the user to set the password for.
-        username: String,
+        /// The username or id of the user to set the password for.
+        user: NamedReference<'static>,
 
         /// A registration request for a password.
         password_request: RegistrationRequest,
@@ -108,11 +108,37 @@ pub enum ServerRequest {
     /// Finishes setting the password for a user.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     FinishSetPassword {
-        /// The username of the user to set the password for.
-        username: String,
+        /// The username or id of the user to set the password for.
+        user: NamedReference<'static>,
 
         /// The finalization payload for the password change.
         password_finalization: RegistrationFinalization,
+    },
+
+    /// Alter's a user's membership in a permission group.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    AlterUserPermissionGroupMembership {
+        /// The username or id of the user.
+        user: NamedReference<'static>,
+
+        /// The name or id of the group.
+        group: NamedReference<'static>,
+
+        /// Whether the user should be in the group.
+        should_be_member: bool,
+    },
+
+    /// Alter's a user's role
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    AlterUserRoleMembership {
+        /// The username or id of the user.
+        user: NamedReference<'static>,
+
+        /// The name or id of the role.
+        role: NamedReference<'static>,
+
+        /// Whether the user should have the role.
+        should_be_member: bool,
     },
 }
 

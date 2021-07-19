@@ -3,7 +3,7 @@ use std::time::Duration;
 use bonsaidb::{
     client::{Client, RemoteDatabase},
     core::{
-        admin::{Admin, PermissionGroup, User},
+        admin::{Admin, PermissionGroup},
         connection::ServerConnection,
         permissions::Statement,
         schema::Collection,
@@ -198,7 +198,8 @@ async fn assume_permissions(
             // never leaves the machine that executes `set_user_password_str`.
             connection
                 .set_user_password_str(&username, "hunter2")
-                .await?;
+                .await
+                .unwrap();
 
             // Create an administrators permission group, or get its ID if it already existed.
             let admin = connection.database::<Admin>("admin").await?;
@@ -218,22 +219,19 @@ async fn assume_permissions(
             };
 
             // Make our user a member of the administrators group.
-            let mut ecton_doc = User::get(user_id, &admin).await?.unwrap();
-            if !ecton_doc.contents.groups.contains(&administrator_group_id) {
-                ecton_doc.contents.groups.push(administrator_group_id);
-                match ecton_doc.update(&admin).await {
-                    Ok(_) | Err(bonsaidb_core::Error::DocumentConflict(_, _)) => {}
-                    Err(err) => anyhow::bail!(err),
-                }
-            }
+            connection
+                .add_permission_group_to_user(user_id, administrator_group_id)
+                .await
+                .unwrap();
         }
         Err(bonsaidb_core::Error::UniqueKeyViolation { .. }) => {}
-        Err(other) => anyhow::bail!(other),
+        Err(other) => anyhow::bail!(dbg!(other)),
     };
 
     connection
         .login_with_password_str(&username, "hunter2", None)
-        .await?;
+        .await
+        .unwrap();
 
     Ok(connection.database::<BasicSchema>(database_name).await?)
 }

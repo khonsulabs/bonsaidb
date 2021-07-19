@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -6,7 +7,10 @@ use crate::{
     custodian_password::{ServerFile, ServerRegistration},
     document::{Document, KeyId},
     permissions::Permissions,
-    schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, Schematic, View},
+    schema::{
+        Collection, CollectionName, InvalidNameError, MapResult, Name, NamedCollection, Schematic,
+        View,
+    },
     Error,
 };
 
@@ -87,6 +91,7 @@ impl User {
     }
 }
 
+#[async_trait]
 impl Collection for User {
     fn default_encryption_key() -> Option<KeyId> {
         Some(KeyId::Master)
@@ -99,6 +104,10 @@ impl Collection for User {
     fn define_views(schema: &mut Schematic) -> Result<(), Error> {
         schema.define_view(ByName)
     }
+}
+
+impl NamedCollection for User {
+    type ByNameView = ByName;
 }
 
 /// A unique view of users by name.
