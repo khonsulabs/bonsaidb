@@ -8,7 +8,7 @@ use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
 
 #[cfg(feature = "pubsub")]
-use crate::client::SubscriberMap;
+use crate::client::{CustomApiCallback, SubscriberMap};
 use crate::{
     client::{OutstandingRequestMapHandle, PendingRequest},
     Error,
@@ -60,6 +60,7 @@ async fn create_websocket<
             spawn_client(
                 url,
                 request_receiver,
+                custom_api_callback.clone(),
                 #[cfg(feature = "pubsub")]
                 subscribers,
             );
@@ -89,6 +90,7 @@ async fn create_websocket<
 
     let onmessage_callback = on_message_callback(
         outstanding_requests.clone(),
+        custom_api_callback.clone(),
         #[cfg(feature = "pubsub")]
         subscribers.clone(),
     );
@@ -104,6 +106,7 @@ async fn create_websocket<
         shutdown_sender.clone(),
         ws.clone(),
         initial_request.clone(),
+        custom_api_callback.clone(),
         #[cfg(feature = "pubsub")]
         subscribers.clone(),
     );
@@ -207,6 +210,7 @@ fn on_message_callback<
     O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
 >(
     outstanding_requests: OutstandingRequestMapHandle<R, O>,
+    custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> JsValue {
     Closure::wrap(Box::new(move |e: MessageEvent| {
@@ -224,10 +228,12 @@ fn on_message_callback<
             let outstanding_requests = outstanding_requests.clone();
             #[cfg(feature = "pubsub")]
             let subscribers = subscribers.clone();
+            let custom_api_callback = custom_api_callback.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 super::process_response_payload::<R, O>(
                     payload,
                     &outstanding_requests,
+                    custom_api_callback.as_ref(),
                     #[cfg(feature = "pubsub")]
                     &subscribers,
                 )
@@ -289,6 +295,7 @@ fn on_close_callback<
     shutdown: flume::Sender<()>,
     ws: WebSocket,
     initial_request: Arc<Mutex<Option<PendingRequest<R, O>>>>,
+    custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> JsValue {
     Closure::once_into_js(move |c: CloseEvent| {

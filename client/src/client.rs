@@ -101,7 +101,13 @@ impl Client<()> {
     /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
     /// the database is to operation.
     pub async fn new(url: Url) -> Result<Self, Error> {
-        Self::new_with_certificate(url, None, None).await
+        Self::new_from_parts(
+            url,
+            #[cfg(not(target_arch = "wasm32"))]
+            None,
+            None,
+        )
+        .await
     }
 
     /// Returns a builder for a new client connecting to `url`.
@@ -126,13 +132,13 @@ impl<A: CustomApi> Client<A> {
     /// to recover and reconnect, each component of the apps built can adopt a
     /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
     /// the database is to operation.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) async fn new_with_certificate(
+    pub(crate) async fn new_from_parts(
         url: Url,
-        certificate: Option<fabruic::Certificate>,
         custom_api_callback: Option<Arc<dyn CustomApiCallback<A::Response>>>,
+        #[cfg(not(target_arch = "wasm32"))] certificate: Option<fabruic::Certificate>,
     ) -> Result<Self, Error> {
         match url.scheme() {
+            #[cfg(not(target_arch = "wasm32"))]
             "bonsaidb" => Ok(Self::new_bonsai_client(
                 url,
                 certificate,
@@ -243,6 +249,7 @@ impl<A: CustomApi> Client<A> {
         wasm_websocket_worker::spawn_client(
             Arc::new(url),
             request_receiver,
+            custom_api_callback.clone(),
             #[cfg(feature = "pubsub")]
             subscribers.clone(),
         );

@@ -1,6 +1,7 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use bonsaidb_core::custom_api::CustomApi;
+#[cfg(not(target_arch = "wasm32"))]
 use fabruic::Certificate;
 use url::Url;
 
@@ -10,8 +11,9 @@ use crate::{client::CustomApiCallback, Client, Error};
 #[must_use]
 pub struct Builder<A: CustomApi = ()> {
     url: Url,
-    certificate: Option<fabruic::Certificate>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A::Response>>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    certificate: Option<fabruic::Certificate>,
     _api: PhantomData<A>,
 }
 
@@ -20,8 +22,9 @@ impl Builder<()> {
     pub(crate) fn new(url: Url) -> Self {
         Self {
             url,
-            certificate: None,
             custom_api_callback: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            certificate: None,
             _api: PhantomData::default(),
         }
     }
@@ -32,8 +35,9 @@ impl Builder<()> {
     pub fn with_custom_api<A: CustomApi>(self) -> Builder<A> {
         Builder {
             url: self.url,
-            certificate: self.certificate,
             custom_api_callback: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            certificate: self.certificate,
             _api: PhantomData::default(),
         }
     }
@@ -46,8 +50,9 @@ impl Builder<()> {
     ) -> Builder<A> {
         Builder {
             url: self.url,
-            certificate: self.certificate,
             custom_api_callback: Some(Arc::new(callback)),
+            #[cfg(not(target_arch = "wasm32"))]
+            certificate: self.certificate,
             _api: PhantomData::default(),
         }
     }
@@ -55,6 +60,7 @@ impl Builder<()> {
 
 impl<A: CustomApi> Builder<A> {
     /// Connects to a server using a pinned `certificate`. Only supported with `BonsaiDb` protocol-based connections.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_certificate(mut self, certificate: Certificate) -> Self {
         self.certificate = Some(certificate);
         self
@@ -62,7 +68,12 @@ impl<A: CustomApi> Builder<A> {
 
     /// Finishes building the client.
     pub async fn finish(self) -> Result<Client<A>, Error> {
-        Client::<A>::new_with_certificate(self.url, self.certificate, self.custom_api_callback)
-            .await
+        Client::<A>::new_from_parts(
+            self.url,
+            self.custom_api_callback,
+            #[cfg(not(target_arch = "wasm32"))]
+            self.certificate,
+        )
+        .await
     }
 }
