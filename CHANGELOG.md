@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- [`View::unique()`](https://bonsaidb.dev/main/bonsaidb/core/schema/trait.View.html#method.unique)
+- [`View::unique()`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.View.html#method.unique)
   has been added, allowing for a `View` to restrict saving documents when
   multiple documents would end up with the same key emitted for this view. For
   example, if you have a `User` collection and want to ensure each `User` has a
@@ -44,15 +44,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Permissions support has been added across the platform with granular access.
   The
-  [`bonsaidb::core::permissions`](https://bonsaidb.dev/main/bonsaidb/core/permissions/)
+  [`bonsaidb::core::permissions`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/)
   module contains the data types involved. More documentation and examples are
   to-come -- users and roles haven't been added yet.
 
 - The initial underpinnings of customizing the `BonsaiDb` server have been
   added. First, there's the
-  [`Backend`](https://bonsaidb.dev/main/bonsaidb/server/trait.Backend.html)
+  [`Backend`](https://dev.bonsaidb.io/main/bonsaidb/server/trait.Backend.html)
   trait. Right now, its only purpose is to allow defining a
-  [`CustomApi`](https://bonsaidb.dev/main/bonsaidb/core/custom_api/trait.CustomApi.html).
+  [`CustomApi`](https://dev.bonsaidb.io/main/bonsaidb/core/custom_api/trait.CustomApi.html).
   This allows applications built with `BonsaiDb` to extend the network protocol
   with `Request` and `Response` types that just need to support `serde`. For a
   full example, [check out this in-development `Gooey`

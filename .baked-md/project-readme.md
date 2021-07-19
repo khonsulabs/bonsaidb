@@ -81,7 +81,7 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 
 - `local-full`: Enables `local`, `local-cli`, `local-keyvalue`, and
   `local-pubsub`
-- `local`: Enables the [`local`](https://bonsaidb.dev/main/bonsaidb/local/) module, which re-exports the crate
+- `local`: Enables the [`local`](https://dev.bonsaidb.io/main/bonsaidb/local/) module, which re-exports the crate
   `bonsaidb-local`.
 - `local-cli`: Enables the `StructOpt` structures for embedding database
   management commands into your own command-line interface.
@@ -97,7 +97,7 @@ bonsaidb = { version = "*", default-features = false, features = "server-full" }
 
 - `server-full`: Enables `server`, `server-websockets`, `server-keyvalue`,
   and `server-pubsub`
-- `server`: Enables the [`server`](https://bonsaidb.dev/main/bonsaidb/server/) module, which re-exports the crate
+- `server`: Enables the [`server`](https://dev.bonsaidb.io/main/bonsaidb/server/) module, which re-exports the crate
   `bonsaidb-server`.
 - `server-websockets`: Enables `WebSocket` support for `bonsaidb-server`.
 - `server-pubsub`: Enables `PubSub` for `bonsaidb-server`.
@@ -112,7 +112,7 @@ bonsaidb = { version = "*", default-features = false, features = "client-full" }
 
 - `client-full`: Enables `client`, `client-trusted-dns`,
   `client-websockets`, `client-keyvalue`, and `client-pubsub`
-- `client`: Enables the [`client`](https://bonsaidb.dev/main/bonsaidb/client/) module, which re-exports the crate
+- `client`: Enables the [`client`](https://dev.bonsaidb.io/main/bonsaidb/client/) module, which re-exports the crate
   `bonsaidb-client`.
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
   enabled, all DNS resolution is done with the OS's default name resolver.

@@ -15,7 +15,7 @@ A working example of how to use a local database can be found at [`bonsaidb/exam
 
 ## Multi-database model (No networking)
 
-This model is most similar to using multiple SQLite databases. In this mode, you interact with a [`Storage`](https://bonsaidb.dev/main/bonsaidb/local/struct.Storage.html) that you spawn within your code.
+This model is most similar to using multiple SQLite databases. In this mode, you interact with a [`Storage`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html) that you spawn within your code.
 
 ```mermaid
 graph LR
@@ -25,11 +25,11 @@ graph LR
   server <--> local
 ```
 
-If you look at the source behind [`Database::open_local`](https://bonsaidb.dev/main/bonsaidb/local/struct.Storage.html#method.open_local), you'll see that the single-database model is using `Storage` under the hood.
+If you look at the source behind [`Database::open_local`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html#method.open_local), you'll see that the single-database model is using `Storage` under the hood.
 
 ## Server model (QUIC or WebSockets)
 
-This model is most similar to using other document databases, like CouchDB or MongoDB. In this mode, you interact with a [`Client`](https://bonsaidb.dev/main/bonsaidb/client/struct.Client.html) that connects via either QUIC or WebSockets with a server. From the server code's perspective, this model is the same as the multi-database model, except that the server is listening for and responding to network traffic.
+This model is most similar to using other document databases, like CouchDB or MongoDB. In this mode, you interact with a [`Client`](https://dev.bonsaidb.io/main/bonsaidb/client/struct.Client.html) that connects via either QUIC or WebSockets with a server. From the server code's perspective, this model is the same as the multi-database model, except that the server is listening for and responding to network traffic.
 
 ```mermaid
 graph LR

@@ -12,4 +12,4 @@ command = "mdbook-mermaid"
 additional-js = ["mermaid.min.js", "mermaid-init.js"]
 
 [output.linkcheck]
-follow-web-links = false
+follow-web-links = true

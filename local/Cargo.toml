@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 keywords = ["document-database", "database"]
 categories = ["database-implementations", "database"]
 readme = "../README.md"
-homepage = "https://bonsaidb.dev/"
+homepage = "https://dev.bonsaidb.io/"
 
 [lib]
 

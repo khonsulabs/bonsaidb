@@ -11,7 +11,7 @@ let db = Database::<Message>::open_local(
 ).await?;
 ```
 
-Under the hood, `BonsaiDb` is creating a multi-database [`Storage`](https://bonsaidb.dev/main/bonsaidb/local/struct.Storage.html) with a local [`Database`](https://bonsaidb.dev/main/bonsaidb/local/struct.Database.html) named `default` for you. If you need to switch to a multi-database model, you can open the storage and access the `default` database: (adapted from [`bonsaidb/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/bonsaidb/examples/basic-local-multidb.rs))
+Under the hood, `BonsaiDb` is creating a multi-database [`Storage`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html) with a local [`Database`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Database.html) named `default` for you. If you need to switch to a multi-database model, you can open the storage and access the `default` database: (adapted from [`bonsaidb/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/bonsaidb/examples/basic-local-multidb.rs))
 
 ```rust,noplayground,no_run
 let storage = Storage::open_local(
@@ -28,8 +28,8 @@ You can register multiple schemas so that databases can be purpose-built.
 
 To help your code transition between different modes of accessing `BonsaiDb`, you can use these common traits to make your methods accept any style of `BonsaiDb` access.
 
-* [`Database`](https://bonsaidb.dev/main/bonsaidb/local/struct.Database.html) implements [`Connection`](../traits/connection.md), [`Kv`](../traits/kv.md), and [`PubSub`](../traits/kv.md).
-* [`Storage`](https://bonsaidb.dev/main/bonsaidb/local/struct.Storage.html) implements [`ServerConnection`](../traits/server_connection.md).
+* [`Database`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Database.html) implements [`Connection`](../traits/connection.md), [`Kv`](../traits/kv.md), and [`PubSub`](../traits/kv.md).
+* [`Storage`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html) implements [`ServerConnection`](../traits/server_connection.md).
 
 For example, [`bonsaidb/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/bonsaidb/examples/basic-local-multidb.rs) uses this helper method to insert a record:
 
