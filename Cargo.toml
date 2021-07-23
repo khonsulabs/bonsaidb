@@ -14,8 +14,8 @@ members = [
 
 [patch.crates-io]
 # fabruic = { path = "../fabruic", version = "0.0.1-dev.2" }
-actionable = { git="https://github.com/khonsulabs/actionable.git", branch="main" }
-# actionable = { path="../actionable/actionable", version="0.1.0-dev.3" }
+# actionable = { git="https://github.com/khonsulabs/actionable.git", branch="main" }
+# actionable = { path="../actionable/actionable", version="0.1.0-dev.4" }
 
 # [patch."https://github.com/khonsulabs/custodian.git"]
 # custodian-password = { path="../custodian/password", branch="main" }

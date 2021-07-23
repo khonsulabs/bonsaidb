@@ -39,7 +39,7 @@ itertools = "0.10"
 tokio-tungstenite = { version="0.14", optional=true }
 bincode = { version="1", optional=true }
 cfg-if = "1"
-actionable = "0.1.0-dev.3"
+actionable = "0.1.0-dev.4"
 serde_cbor = "0.11"
 fabruic = { version="0.0.1-dev.2", features=["dangerous"] }
 
