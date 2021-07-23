@@ -7,7 +7,7 @@ use bonsaidb::{
         permissions::{Actionable, Dispatcher, Permissions},
         test_util::{Basic, TestDirectory},
     },
-    server::{Backend, Configuration, CustomServer},
+    server::{Backend, Configuration, ConnectedClient, CustomServer},
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,13 @@ impl Backend for CustomBackend {
     type CustomApi = Self;
 
     type CustomApiDispatcher = Self;
+
+    fn dispatcher_for(
+        _server: &CustomServer<Self>,
+        _client: &ConnectedClient<Self>,
+    ) -> Self::CustomApiDispatcher {
+        CustomBackend
+    }
 }
 
 impl CustomApi for CustomBackend {
@@ -49,7 +56,6 @@ async fn custom_api() -> anyhow::Result<()> {
         },
     )
     .await?;
-    server.set_custom_api_dispatcher(CustomBackend).await;
     server
         .install_self_signed_certificate("test", false)
         .await?;

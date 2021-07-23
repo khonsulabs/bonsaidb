@@ -17,6 +17,14 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
             Result = anyhow::Result<<Self::CustomApi as CustomApi>::Response>,
         > + Debug;
 
+    /// Returns a dispatcher to handle custom api requests. The `server` and
+    /// `client` parameters are provided to allow the dispatcher to have access
+    /// to them when handling the individual actions.
+    fn dispatcher_for(
+        server: &CustomServer<Self>,
+        client: &ConnectedClient<Self>,
+    ) -> Self::CustomApiDispatcher;
+
     // TODO: add client connections events, client errors, etc.
     /// A client disconnected from the server. This is invoked before authentication has been performed.
     #[allow(unused_variables)]
@@ -58,6 +66,13 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
 impl Backend for () {
     type CustomApi = ();
     type CustomApiDispatcher = NoDispatcher;
+
+    fn dispatcher_for(
+        _server: &CustomServer<Self>,
+        _client: &ConnectedClient<Self>,
+    ) -> Self::CustomApiDispatcher {
+        NoDispatcher
+    }
 }
 
 // This needs to be pub because of the impl, but the user doesn't need to know

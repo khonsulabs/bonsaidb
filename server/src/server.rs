@@ -97,7 +97,6 @@ struct Data<B: Backend = ()> {
     clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     request_processor: Manager,
     default_permissions: Permissions,
-    custom_api: RwLock<Option<B::CustomApiDispatcher>>,
     endpoint: RwLock<Option<Endpoint>>,
     #[cfg(feature = "websockets")]
     websocket_shutdown: RwLock<Option<Sender<()>>>,
@@ -126,7 +125,6 @@ impl<B: Backend> CustomServer<B> {
                 endpoint: RwLock::default(),
                 request_processor,
                 default_permissions: configuration.default_permissions,
-                custom_api: RwLock::default(),
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
                 #[cfg(feature = "pubsub")]
@@ -142,12 +140,6 @@ impl<B: Backend> CustomServer<B> {
     #[must_use]
     pub fn directory(&self) -> &'_ PathBuf {
         &self.data.directory
-    }
-
-    /// Opens a server using `directory` for storage.
-    pub async fn set_custom_api_dispatcher(&self, dispatcher: B::CustomApiDispatcher) {
-        let mut server_dispatcher = self.data.custom_api.write().await;
-        *server_dispatcher = Some(dispatcher);
     }
 
     /// Retrieves a database. This function only verifies that the database exists.
@@ -915,20 +907,14 @@ impl<'s, B: Backend> RequestDispatcher for ServerDispatcher<'s, B> {
         permissions: &Permissions,
         subaction: Self::Subaction,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
-        let dispatcher = self.server.data.custom_api.read().await;
-        if let Some(dispatcher) = dispatcher.as_ref() {
-            dispatcher
-                .dispatch(permissions, subaction)
-                .await
-                .map(Response::Api)
-                .map_err(|err| {
-                    bonsaidb_core::Error::Server(format!("error executing custom api: {:?}", err))
-                })
-        } else {
-            Err(bonsaidb_core::Error::Server(String::from(
-                "No dispatcher to handle request",
-            )))
-        }
+        let dispatcher = B::dispatcher_for(self.server, self.client);
+        dispatcher
+            .dispatch(permissions, subaction)
+            .await
+            .map(Response::Api)
+            .map_err(|err| {
+                bonsaidb_core::Error::Server(format!("error executing custom api: {:?}", err))
+            })
     }
 }
 
