@@ -157,7 +157,7 @@ fn integrity_checks() -> anyhow::Result<()> {
 
             panic!("Integrity checker didn't run in the allocated time")
         })
-        .unwrap()
+        .unwrap();
     }
 
     Ok(())
@@ -207,9 +207,9 @@ fn encryption() -> anyhow::Result<()> {
         if let Err(bonsaidb_core::Error::Database(err)) =
             db.collection::<Basic>().get(document_header.id).await
         {
-            assert!(err.contains("vault"))
+            assert!(err.contains("vault"));
         } else {
-            panic!("successfully retrieved encrypted document without keys")
+            panic!("successfully retrieved encrypted document without keys");
         }
 
         Result::<_, anyhow::Error>::Ok(())

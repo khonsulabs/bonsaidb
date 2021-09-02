@@ -1022,7 +1022,7 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         // the document that was previously stored.
         assert_ne!(conflicting_document_id, existing_document_id);
     } else {
-        unreachable!("unique key violation not triggered")
+        unreachable!("unique key violation not triggered");
     }
 
     let second_doc = db.collection::<Unique>().push(&Unique { value: 2 }).await?;
@@ -1040,7 +1040,7 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         assert_eq!(existing_document_id, first_doc.id);
         assert_eq!(conflicting_document_id, second_doc.header.id);
     } else {
-        unreachable!("unique key violation not triggered")
+        unreachable!("unique key violation not triggered");
     }
 
     Ok(())

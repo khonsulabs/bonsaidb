@@ -764,7 +764,7 @@ where
     T: Send + Sync + 'static,
 {
     async fn response_received(&self, response: T) {
-        self(response)
+        self(response);
     }
 }
 

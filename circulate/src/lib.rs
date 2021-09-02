@@ -288,7 +288,7 @@ impl Subscriber {
         self.data
             .relay
             .add_subscriber_to_topic(self.data.id, topic.into())
-            .await
+            .await;
     }
 
     /// Unsubscribe from [`Message`]s published to `topic`.
@@ -296,7 +296,7 @@ impl Subscriber {
         self.data
             .relay
             .remove_subscriber_from_topic(self.data.id, topic)
-            .await
+            .await;
     }
 
     /// Returns the receiver to receive [`Message`]s.

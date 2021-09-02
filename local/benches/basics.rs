@@ -78,7 +78,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         let doc = &doc;
         group.throughput(Throughput::Bytes(*size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(*size as u64), size, |b, _| {
-            b.to_async(&runtime).iter(|| save_document(&doc, &db));
+            b.to_async(&runtime).iter(|| save_document(doc, &db));
         });
     }
     group.finish();

@@ -353,7 +353,7 @@ impl<B: Backend> CustomServer<B> {
             let mut clients = self.data.clients.write().await;
             clients.remove(&id)
         } {
-            B::client_disconnected(client, self).await
+            B::client_disconnected(client, self).await;
         }
     }
 
@@ -639,7 +639,7 @@ impl<B: Backend> CustomServer<B> {
                 topic: database_topic(database, topic),
                 payload,
             })
-            .await
+            .await;
     }
 
     #[cfg(feature = "pubsub")]
@@ -1592,7 +1592,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateSubscriberHandler
                 tokio::spawn(async move {
                     task_self
                         .forward_notifications_for(subscriber.id, subscriber.receiver, response_sender.clone())
-                        .await
+                        .await;
                 });
                 Ok(Response::Database(DatabaseResponse::SubscriberCreated {
                     subscriber_id,

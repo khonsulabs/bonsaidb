@@ -72,14 +72,16 @@ where
         result: Result<T, anyhow::Error>,
     ) {
         let mut jobs = self.jobs.write().await;
-        jobs.job_completed(id, key, result).await
+        jobs.job_completed(id, key, result).await;
     }
 
     /// Spawns a worker. In general, you shouldn't need to call this function
     /// directly.
     pub fn spawn_worker(&self) {
         let manager = self.clone();
-        tokio::spawn(async move { manager.execute_jobs().await });
+        tokio::spawn(async move {
+            manager.execute_jobs().await;
+        });
     }
 
     async fn execute_jobs(&self) {
@@ -88,7 +90,7 @@ where
             jobs.queue()
         };
         while let Ok(mut job) = receiver.recv_async().await {
-            job.execute().await
+            job.execute().await;
         }
     }
 }

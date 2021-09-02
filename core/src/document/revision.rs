@@ -91,5 +91,5 @@ fn revision_tests() {
             id: 2,
             sha256: original_digest
         })
-    )
+    );
 }

@@ -550,7 +550,7 @@ impl LocalVaultKeyStorage {
     pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self, tokio::io::Error> {
         let directory = path.as_ref().to_owned();
         if !directory.exists() {
-            fs::create_dir_all(&directory).await?
+            fs::create_dir_all(&directory).await?;
         }
         Ok(Self { directory })
     }

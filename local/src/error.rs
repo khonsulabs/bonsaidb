@@ -62,7 +62,7 @@ fn test_converting_error() {
         Error::Serialization(serde_cbor::Error::custom("mymessage")).into();
     match err {
         bonsaidb_core::Error::Database(storage_error) => {
-            assert!(storage_error.contains("mymessage"))
+            assert!(storage_error.contains("mymessage"));
         }
         _ => unreachable!(),
     }
