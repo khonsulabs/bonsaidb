@@ -6,7 +6,7 @@ use std::{
     ops::Deref,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicU32, AtomicUsize, Ordering},
         Arc,
     },
     time::Duration,
@@ -98,6 +98,7 @@ struct Data<B: Backend = ()> {
     request_processor: Manager,
     default_permissions: Permissions,
     endpoint: RwLock<Option<Endpoint>>,
+    client_simultaneous_request_limit: usize,
     #[cfg(feature = "websockets")]
     websocket_shutdown: RwLock<Option<Sender<()>>>,
     #[cfg(feature = "pubsub")]
@@ -125,6 +126,7 @@ impl<B: Backend> CustomServer<B> {
                 endpoint: RwLock::default(),
                 request_processor,
                 default_permissions: configuration.default_permissions,
+                client_simultaneous_request_limit: configuration.client_simultaneous_request_limit,
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
                 #[cfg(feature = "pubsub")]
@@ -462,31 +464,24 @@ impl<B: Backend> CustomServer<B> {
             Result::<(), anyhow::Error>::Ok(())
         });
 
+        let (request_sender, request_receiver) =
+            flume::bounded::<Payload<Request<<B::CustomApi as CustomApi>::Request>>>(
+                self.data.client_simultaneous_request_limit,
+            );
+        let task_self = self.clone();
+        tokio::spawn(async move {
+            task_self
+                .handle_client_requests(client.clone(), request_receiver, response_sender)
+                .await;
+        });
+
         while let Some(payload) = receiver.next().await {
             match payload? {
                 Message::Binary(binary) => {
                     let payload = bincode::deserialize::<
                         Payload<Request<<B::CustomApi as CustomApi>::Request>>,
                     >(&binary)?;
-                    let id = payload.id;
-                    let task_sender = response_sender.clone();
-                    self.handle_request_through_worker(
-                        payload.wrapped,
-                        move |response| async move {
-                            drop(task_sender.send(Payload {
-                                id,
-                                wrapped: response,
-                            }));
-
-                            Ok(())
-                        },
-                        client.clone(),
-                        #[cfg(feature = "pubsub")]
-                        self.data.subscribers.clone(),
-                        #[cfg(feature = "pubsub")]
-                        response_sender.clone(),
-                    )
-                    .await?;
+                    drop(request_sender.send_async(payload).await);
                 }
                 Message::Close(_) => break,
                 Message::Ping(payload) => {
@@ -499,6 +494,65 @@ impl<B: Backend> CustomServer<B> {
         }
 
         Ok(())
+    }
+
+    async fn handle_client_requests(
+        &self,
+        client: ConnectedClient<B>,
+        request_receiver: flume::Receiver<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
+        response_sender: flume::Sender<Payload<Response<<B::CustomApi as CustomApi>::Response>>>,
+    ) {
+        let (request_completion_sender, request_completion_receiver) = flume::unbounded::<()>();
+        let requests_in_queue = Arc::new(AtomicUsize::new(0));
+        loop {
+            let current_requests = requests_in_queue.load(Ordering::SeqCst);
+            if current_requests == self.data.client_simultaneous_request_limit {
+                // Wait for requests to finish.
+                let _ = request_completion_receiver.recv_async().await;
+                // Clear the queue
+                while request_completion_receiver.try_recv().is_ok() {}
+            } else if requests_in_queue
+                .compare_exchange(
+                    current_requests,
+                    current_requests + 1,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
+                .is_ok()
+            {
+                let payload = match request_receiver.recv_async().await {
+                    Ok(payload) => payload,
+                    Err(_) => break,
+                };
+                let id = payload.id;
+                let task_sender = response_sender.clone();
+
+                let request_completion_sender = request_completion_sender.clone();
+                let requests_in_queue = requests_in_queue.clone();
+                self.handle_request_through_worker(
+                    payload.wrapped,
+                    move |response| async move {
+                        drop(task_sender.send(Payload {
+                            id,
+                            wrapped: response,
+                        }));
+
+                        requests_in_queue.fetch_sub(1, Ordering::SeqCst);
+
+                        let _ = request_completion_sender.send(());
+
+                        Ok(())
+                    },
+                    client.clone(),
+                    #[cfg(feature = "pubsub")]
+                    self.data.subscribers.clone(),
+                    #[cfg(feature = "pubsub")]
+                    response_sender.clone(),
+                )
+                .await
+                .unwrap();
+            }
+        }
     }
 
     async fn handle_request_through_worker<
@@ -554,26 +608,38 @@ impl<B: Backend> CustomServer<B> {
             }
         });
 
-        while let Some(payload) = receiver.next().await {
-            let Payload { id, wrapped } = payload?;
-            let task_sender = payload_sender.clone();
-            self.handle_request_through_worker(
-                wrapped,
-                move |response| async move {
-                    drop(task_sender.send(Payload {
-                        id,
-                        wrapped: response,
-                    }));
+        let (request_sender, request_receiver) =
+            flume::bounded::<Payload<Request<<B::CustomApi as CustomApi>::Request>>>(
+                self.data.client_simultaneous_request_limit,
+            );
+        let task_self = self.clone();
+        tokio::spawn(async move {
+            task_self
+                .handle_client_requests(client.clone(), request_receiver, payload_sender)
+                .await;
+        });
 
-                    Ok(())
-                },
-                client.clone(),
-                #[cfg(feature = "pubsub")]
-                self.data.subscribers.clone(),
-                #[cfg(feature = "pubsub")]
-                payload_sender.clone(),
-            )
-            .await?;
+        while let Some(payload) = receiver.next().await {
+            drop(request_sender.send_async(payload?).await);
+            // let Payload { id, wrapped } = ;
+            // let task_sender = payload_sender.clone();
+            // self.handle_request_through_worker(
+            //     wrapped,
+            //     move |response| async move {
+            //         drop(task_sender.send(Payload {
+            //             id,
+            //             wrapped: response,
+            //         }));
+
+            //         Ok(())
+            //     },
+            //     client.clone(),
+            //     #[cfg(feature = "pubsub")]
+            //     self.data.subscribers.clone(),
+            //     #[cfg(feature = "pubsub")]
+            //     payload_sender.clone(),
+            // )
+            // .await?;
         }
 
         Ok(())
