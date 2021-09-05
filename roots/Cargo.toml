@@ -2,6 +2,13 @@
 name = "bonsaidb-roots"
 version = "0.1.0"
 edition = "2018"
+description = "ACID-compliant, append-only B-Tree storage inspired by Couchstore."
+repository = "https://github.com/khonsulabs/bonsaidb"
+license = "MIT OR Apache-2.0"
+keywords = ["btree", "database"]
+categories = ["database-implementations"]
+readme = "./README.md"
+homepage = "https://dev.bonsaidb.io/"
 
 [features]
 default = ["uring"]
@@ -16,3 +23,8 @@ async-trait = "0.1"
 cfg-if = "1"
 byteorder = "1"
 futures = "0.3"
+flume = "0.10"
+
+[profile.release]
+lto = true
+codegen-units = 1

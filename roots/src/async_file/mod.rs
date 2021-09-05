@@ -2,6 +2,7 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use cfg_if::cfg_if;
+use futures::Future;
 
 use crate::{try_with_buffer_result, Error};
 
@@ -172,13 +173,15 @@ macro_rules! try_with_buffer_result {
 }
 
 #[async_trait(?Send)]
-pub trait AsyncFileManager<F: AsyncFile>: Clone + Default {
+pub trait AsyncFileManager<F: AsyncFile>: Send + Clone + Default {
     type FileHandle: OpenableFile<F>;
     // async fn read(&self, path: impl AsRef<Path> + Send + 'async_trait) -> Result<Self::FileHandle, Error>;
     async fn append(
         &self,
         path: impl AsRef<Path> + Send + 'async_trait,
     ) -> Result<Self::FileHandle, Error>;
+
+    fn run<Fut: Future<Output = ()>>(future: Fut);
 }
 
 #[async_trait(?Send)]
@@ -190,7 +193,7 @@ pub trait OpenableFile<F: AsyncFile> {
 
 #[async_trait(?Send)]
 pub trait FileWriter<F: AsyncFile> {
-    async fn write(&self, file: &mut F) -> Result<(), Error>;
+    async fn write(&mut self, file: &mut F) -> Result<(), Error>;
 }
 
 #[derive(Default, Clone)]
@@ -206,11 +209,21 @@ impl AsyncFileManager<File> for FileManager {
     ) -> Result<Self::FileHandle, Error> {
         File::append(path).await
     }
+
+    fn run<Fut: Future<Output = ()>>(future: Fut) {
+        cfg_if! {
+            if #[cfg(feature = "uring")] {
+                tokio_uring::start(future);
+            } else {
+                tokio::runtime::Runtime::new().block_on(future);
+            }
+        }
+    }
 }
 
 #[async_trait(?Send)]
 impl OpenableFile<File> for File {
-    async fn write<W: FileWriter<File>>(&mut self, writer: W) -> Result<(), Error> {
+    async fn write<W: FileWriter<File>>(&mut self, mut writer: W) -> Result<(), Error> {
         writer.write(self).await
     }
 

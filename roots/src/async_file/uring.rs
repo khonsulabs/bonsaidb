@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use async_trait::async_trait;
+use futures::Future;
 use tokio_uring::{
     buf::IoBuf,
     fs::{File, OpenOptions},
@@ -74,11 +75,15 @@ impl AsyncFileManager<UringFile> for UringFileManager {
     ) -> Result<Self::FileHandle, Error> {
         UringFile::append(path).await
     }
+
+    fn run<Fut: Future<Output = ()>>(future: Fut) {
+        tokio_uring::start(future);
+    }
 }
 
 #[async_trait(?Send)]
 impl OpenableFile<UringFile> for UringFile {
-    async fn write<W: FileWriter<UringFile>>(&mut self, writer: W) -> Result<(), Error> {
+    async fn write<W: FileWriter<UringFile>>(&mut self, mut writer: W) -> Result<(), Error> {
         writer.write(self).await
     }
 

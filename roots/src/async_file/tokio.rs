@@ -7,6 +7,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use futures::Future;
 use tokio::{
     fs::{self, File, OpenOptions},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
@@ -123,6 +124,10 @@ impl AsyncFileManager<TokioFile> for TokioFileManager {
             }
         }
     }
+
+    fn run<Fut: Future<Output = ()>>(future: Fut) {
+        tokio::runtime::Runtime::new().unwrap().block_on(future);
+    }
 }
 // TODO async file manager: For uring, does nothing. For tokio, manages access to open files.
 
@@ -130,7 +135,7 @@ pub struct OpenTokioFile(Arc<Mutex<TokioFile>>);
 
 #[async_trait(?Send)]
 impl OpenableFile<TokioFile> for OpenTokioFile {
-    async fn write<W: FileWriter<TokioFile>>(&mut self, writer: W) -> Result<(), Error> {
+    async fn write<W: FileWriter<TokioFile>>(&mut self, mut writer: W) -> Result<(), Error> {
         let mut file = self.0.lock().await;
         writer.write(&mut file).await
     }

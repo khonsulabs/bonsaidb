@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    fmt::Display,
     marker::PhantomData,
     path::{Path, PathBuf},
     sync::Arc,
@@ -13,7 +14,7 @@ mod async_file;
 mod transactions;
 mod tree;
 
-pub trait Vault: 'static {
+pub trait Vault: Send + Sync + 'static {
     fn current_key_id(&self) -> u32;
     fn encrypt(&self, payload: &[u8]) -> Vec<u8>;
     fn decrypt(&self, payload: &[u8]) -> Vec<u8>;
@@ -107,7 +108,7 @@ impl<F: AsyncFile> Clone for Roots<F> {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
-    Message(Cow<'static, str>),
+    Message(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("an unrecoverable error with the data on disk has been found: {0}")]
@@ -115,8 +116,8 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn message<S: Into<Cow<'static, str>>>(message: S) -> Self {
-        Self::Message(message.into())
+    pub fn message<S: Display>(message: S) -> Self {
+        Self::Message(message.to_string())
     }
 }
 
@@ -129,12 +130,8 @@ pub struct OpenRoots<F: AsyncFile> {
 }
 
 impl<F: AsyncFile> OpenRoots<F> {
-    pub async fn transaction<'t>(
-        &'t mut self,
-        trees: &[&[u8]],
-        tree_locks: &'t mut TreeLocks,
-    ) -> OpenTransaction<'t, F> {
-        let handle = self.transactions.new_transaction(trees, tree_locks).await;
+    pub async fn transaction<'t>(&'t mut self, trees: &[&[u8]]) -> OpenTransaction<'t, F> {
+        let handle = self.transactions.new_transaction(trees).await;
         OpenTransaction {
             roots: self,
             handle,
