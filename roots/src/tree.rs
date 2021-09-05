@@ -1,4 +1,4 @@
-//! Append-only BTree implementation
+//! Append-only B-Tree implementation
 //!
 //! The file format is inspired by
 //! [Couchstore](https://github.com/couchbase/couchstore). The main difference
@@ -139,7 +139,7 @@ pub struct Header {
 
 impl Header {
     pub const fn encryption_key(&self) -> u32 {
-        self.encryption_key & 0x7FFFFFFF
+        self.encryption_key & 0x7FFF_FFFF
     }
 }
 
@@ -153,11 +153,11 @@ pub struct BlockHeader {
 
 impl BlockHeader {
     pub const fn is_file_header(&self) -> bool {
-        self.type_and_encryption_key & 0xF0000000 != 0
+        self.type_and_encryption_key & 0xF000_0000 != 0
     }
 
     pub const fn encryption_key_id(&self) -> u32 {
-        self.type_and_encryption_key & 0x7FFFFFFF
+        self.type_and_encryption_key & 0x7FFF_FFFF
     }
 }
 

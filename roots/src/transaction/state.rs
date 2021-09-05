@@ -11,6 +11,8 @@ use tokio::sync::{Mutex, MutexGuard};
 
 use super::{LogEntry, TransactionChanges, TransactionHandle, TreeLock, TreeLocks};
 
+const UNINITIALIZED_ID: u64 = 0;
+
 #[derive(Clone, Debug)]
 pub struct State {
     state: Arc<ActiveState>,
@@ -25,12 +27,12 @@ struct ActiveState {
 
 impl Default for State {
     fn default() -> Self {
-        Self::new(0, 0)
+        Self::new(UNINITIALIZED_ID, 0)
     }
 }
 
 impl State {
-    pub fn new(current_transaction_id: u64, log_position: u64) -> Self {
+    fn new(current_transaction_id: u64, log_position: u64) -> Self {
         Self {
             state: Arc::new(ActiveState {
                 tree_locks: Mutex::default(),
@@ -38,6 +40,20 @@ impl State {
                 log_position: Mutex::new(log_position),
             }),
         }
+    }
+
+    pub async fn initialize(&self, current_transaction_id: u64, log_position: u64) {
+        let mut state_position = self.state.log_position.lock().await;
+        self.state
+            .current_transaction_id
+            .compare_exchange(
+                UNINITIALIZED_ID,
+                current_transaction_id,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .expect("state already initialized");
+        *state_position = log_position;
     }
 
     pub fn current_transaction_id(&self) -> u64 {

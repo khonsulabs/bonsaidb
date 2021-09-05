@@ -8,6 +8,7 @@ use tokio::fs;
 
 use crate::{transaction::TransactionManager, AsyncFile, Error, File, Vault};
 
+/// A multi-tree transactional B-Tree database.
 pub struct Roots<F: AsyncFile = File> {
     data: Arc<Data<F>>,
 }
@@ -21,7 +22,7 @@ struct Data<F: AsyncFile> {
 }
 
 impl<F: AsyncFile> Roots<F> {
-    pub async fn new<P: Into<PathBuf>>(
+    async fn new<P: Into<PathBuf> + Send>(
         path: P,
         vault: Option<Arc<dyn Vault>>,
     ) -> Result<Self, Error> {
@@ -49,21 +50,33 @@ impl<F: AsyncFile> Roots<F> {
         })
     }
 
-    pub async fn initialize_unencrypted<P: Into<PathBuf>>(path: P) -> Result<Self, Error> {
-        Self::new(path, None).await
+    /// Intializes a new instance pointing to `directory`. This function opens
+    /// an existing database if it's found, otherwise it uses the directory
+    /// given as a database.
+    pub async fn initialize_unencrypted<P: Into<PathBuf> + Send>(
+        directory: P,
+    ) -> Result<Self, Error> {
+        Self::new(directory, None).await
     }
 
-    pub async fn initialize_encrypted<P: Into<PathBuf>, V: Vault>(
+    /// Intializes a new instance pointing to `directory`. This function opens
+    /// an existing database if it's found, otherwise it uses the directory
+    /// given as a database. All data written will be encrypted using `vault`.
+    pub async fn initialize_encrypted<P: Into<PathBuf> + Send, V: Vault>(
         path: P,
         vault: V,
     ) -> Result<Self, Error> {
         Self::new(path, Some(Arc::new(vault))).await
     }
 
+    /// Returns the path to the database directory.
+    #[must_use]
     pub fn path(&self) -> &Path {
         &self.data.path
     }
 
+    /// Returns the vault used to encrypt this database.
+    #[must_use]
     pub fn vault(&self) -> Option<Arc<dyn Vault>> {
         self.data.vault.clone()
     }

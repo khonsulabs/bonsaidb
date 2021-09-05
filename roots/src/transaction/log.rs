@@ -8,12 +8,11 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use tokio::fs::OpenOptions;
 use zerocopy::{AsBytes, FromBytes, LayoutVerified, Unaligned, U64};
 
+use super::{State, TransactionHandle};
 use crate::{
     async_file::{AsyncFile, AsyncFileManager, FileWriter, OpenableFile},
     Error, Vault,
 };
-
-use super::{State, TransactionHandle};
 
 const PAGE_SIZE: usize = 1024;
 
@@ -23,6 +22,7 @@ pub struct TransactionLog<F: AsyncFile> {
     log: <F::Manager as AsyncFileManager<F>>::FileHandle,
 }
 
+#[allow(clippy::future_not_send)]
 impl<F: AsyncFile> TransactionLog<F> {
     pub async fn open(
         log_path: &Path,
@@ -31,7 +31,7 @@ impl<F: AsyncFile> TransactionLog<F> {
         file_manager: &F::Manager,
     ) -> Result<Self, Error> {
         let log = file_manager.append(log_path).await?;
-        Ok(Self { vault, log, state })
+        Ok(Self { vault, state, log })
     }
 
     pub async fn total_size(&self) -> u64 {
@@ -39,7 +39,11 @@ impl<F: AsyncFile> TransactionLog<F> {
         *state
     }
 
-    pub async fn load_state(log_path: &Path, vault: Option<&dyn Vault>) -> Result<State, Error> {
+    pub async fn initialize_state(
+        state: &State,
+        log_path: &Path,
+        vault: Option<&dyn Vault>,
+    ) -> Result<(), Error> {
         let mut log_length = log_path.metadata()?.len();
         if log_length == 0 {
             return Err(Error::message("empty transaction log"));
@@ -74,10 +78,11 @@ impl<F: AsyncFile> TransactionLog<F> {
                 (Ok(_), buffer) => buffer,
                 (Err(err), _) => return Err(err),
             };
+            #[allow(clippy::match_on_vec_items)]
             match scratch_buffer[0] {
                 0 => {
                     if block_start == 0 {
-                        panic!("transaction log contained data, but no valid pages were found")
+                        panic!("transaction log contained data, but no valid pages were found");
                     }
                     block_start -= PAGE_SIZE as u64;
                     continue;
@@ -110,7 +115,8 @@ impl<F: AsyncFile> TransactionLog<F> {
             }
         };
 
-        Ok(State::new(last_transaction_id + 1, log_length))
+        state.initialize(last_transaction_id + 1, log_length).await;
+        Ok(())
     }
 
     pub async fn push(&mut self, handles: Vec<TransactionHandle<'_>>) -> Result<(), Error> {
@@ -169,13 +175,16 @@ impl<'a, F: AsyncFile> FileWriter<F> for LogWriter<'a, F> {
                     // The first page has the length of the payload as the next 3 bytes.
                     let length = u32::try_from(bytes.len())
                         .map_err(|_| Error::message("transaction too large"))?;
-                    if length & 0xFF000000 != 0 {
+                    if length & 0xFF00_0000 != 0 {
                         return Err(Error::message("transaction too large"));
                     }
                     scratch_buffer[0] = 1;
-                    scratch_buffer[1] = (length >> 16) as u8;
-                    scratch_buffer[2] = (length >> 8) as u8;
-                    scratch_buffer[3] = (length & 0xFF) as u8;
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        scratch_buffer[1] = (length >> 16) as u8;
+                        scratch_buffer[2] = (length >> 8) as u8;
+                        scratch_buffer[3] = (length & 0xFF) as u8;
+                    }
                     4
                 } else {
                     // Set page_header to have a 0 byte for future pages written.
@@ -296,7 +305,7 @@ impl<'a> Eq for Entries<'a> {}
 
 impl<'a> PartialEq for Entries<'a> {
     fn eq(&self, other: &Self) -> bool {
-        self.deref() == other.deref()
+        **self == **other
     }
 }
 
@@ -359,6 +368,7 @@ fn serialization_tests() {
 }
 
 #[cfg(test)]
+#[allow(clippy::semicolon_if_nothing_returned, clippy::future_not_send)]
 mod tests {
     use futures::future::join_all;
 
@@ -379,7 +389,7 @@ mod tests {
     fn uring_log_file_tests() {
         tokio_uring::start(async {
             log_file_tests::<crate::async_file::uring::UringFile>("uring_log_file", None).await;
-        })
+        });
     }
 
     #[tokio::test]
@@ -400,7 +410,7 @@ mod tests {
                 Some(Arc::new(RotatorVault::new(13))),
             )
             .await;
-        })
+        });
     }
 
     async fn log_file_tests<F: AsyncFile>(file_name: &str, vault: Option<Arc<dyn Vault>>) {
@@ -412,9 +422,10 @@ mod tests {
                 let directory: &Path = &temp_dir;
                 directory.join("transactions")
             };
-            let state = TransactionLog::<F>::load_state(&log_path, vault.as_deref())
+            let state = State::default();
+            TransactionLog::<F>::initialize_state(&state, &log_path, vault.as_deref())
                 .await
-                .unwrap_or_default();
+                .unwrap();
             let mut transactions =
                 TransactionLog::<F>::open(&log_path, state, vault.clone(), &file_manager)
                     .await
@@ -436,9 +447,12 @@ mod tests {
 
         if vault.is_some() {
             // Test that we can't open it without encryption
-            assert!(TransactionLog::<F>::load_state(&temp_dir, None)
-                .await
-                .is_err());
+            let state = State::default();
+            assert!(
+                TransactionLog::<F>::initialize_state(&state, &temp_dir, None)
+                    .await
+                    .is_err()
+            );
         }
     }
 
@@ -453,7 +467,7 @@ mod tests {
         tokio_uring::start(async {
             log_manager_tests::<crate::async_file::uring::UringFile>("uring_log_manager", None)
                 .await;
-        })
+        });
     }
 
     async fn log_manager_tests<F: AsyncFile>(file_name: &str, vault: Option<Arc<dyn Vault>>) {

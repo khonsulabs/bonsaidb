@@ -15,8 +15,9 @@ use tokio::{
 };
 
 use super::{AsyncFile, AsyncFileManager, FileWriter, OpenableFile};
-use crate::{try_with_buffer, Error};
+use crate::Error;
 
+/// An open file that uses [`tokio::fs`].
 pub struct TokioFile {
     position: u64,
     file: File,
@@ -115,13 +116,12 @@ impl AsyncFileManager<TokioFile> for TokioFileManager {
         path: impl AsRef<Path> + Send + 'async_trait,
     ) -> Result<Self::FileHandle, Error> {
         let mut open_files = self.open_files.lock().await;
-        match open_files.get(path.as_ref()) {
-            Some(open_file) => Ok(OpenTokioFile(open_file.clone())),
-            None => {
-                let file = Arc::new(Mutex::new(TokioFile::append(path.as_ref()).await?));
-                open_files.insert(path.as_ref().to_path_buf(), file.clone());
-                Ok(OpenTokioFile(file))
-            }
+        if let Some(open_file) = open_files.get(path.as_ref()) {
+            Ok(OpenTokioFile(open_file.clone()))
+        } else {
+            let file = Arc::new(Mutex::new(TokioFile::append(path.as_ref()).await?));
+            open_files.insert(path.as_ref().to_path_buf(), file.clone());
+            Ok(OpenTokioFile(file))
         }
     }
 

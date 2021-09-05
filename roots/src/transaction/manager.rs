@@ -9,12 +9,11 @@ use std::{
 
 use tokio::sync::Mutex;
 
+use super::{LogEntry, State, TransactionLog};
 use crate::{
     async_file::{AsyncFile, AsyncFileManager},
     Error, Vault,
 };
-
-use super::{LogEntry, State, TransactionLog};
 
 #[derive(Clone)]
 pub struct TransactionManager {
@@ -30,29 +29,28 @@ impl TransactionManager {
     ) -> Result<Self, Error> {
         let (transaction_sender, receiver) = flume::bounded(32);
         let log_path = Self::log_path(directory);
-        let state = match TransactionLog::<F>::load_state(&log_path, vault.as_deref()).await {
-            Ok(state) => state,
-            Err(Error::DataIntegrity(err)) => return Err(Error::DataIntegrity(err)),
-            _ => State::default(),
-        };
 
-        let thread_state = state.clone();
+        let (state_sender, state_receiver) = flume::bounded(1);
         std::thread::Builder::new()
             .name(String::from("bonsaidb-txlog"))
             .spawn(move || {
                 transaction_writer_thread::<F>(
-                    thread_state,
+                    state_sender,
                     log_path,
                     receiver,
                     file_manager,
                     vault,
-                )
+                );
             })
             .map_err(Error::message)?;
 
+        let state = state_receiver
+            .recv_async()
+            .await
+            .expect("failed to initialize")?;
         Ok(Self {
-            transaction_sender,
             state,
+            transaction_sender,
         })
     }
 
@@ -69,7 +67,7 @@ impl TransactionManager {
     }
 
     pub fn state(&self) -> &State {
-        self.deref()
+        &**self
     }
 }
 
@@ -82,19 +80,35 @@ impl Deref for TransactionManager {
 }
 
 // TODO: when an error happens, we should try to recover.
+#[allow(clippy::needless_pass_by_value)]
 fn transaction_writer_thread<F: AsyncFile>(
-    state: State,
+    state_sender: flume::Sender<Result<State, Error>>,
     log_path: PathBuf,
     transactions: flume::Receiver<(TransactionHandle<'static>, flume::Sender<()>)>,
     file_manager: F::Manager,
     vault: Option<Arc<dyn Vault>>,
 ) {
+    const BATCH: usize = 16;
+
     F::Manager::run(async {
+        let state = State::default();
+        let result = {
+            match TransactionLog::<F>::initialize_state(&state, &log_path, vault.as_deref()).await {
+                Err(Error::DataIntegrity(err)) => Err(Error::DataIntegrity(err)),
+                _ => Ok(()),
+            }
+        };
+        if let Err(err) = result {
+            drop(state_sender.send(Err(err)));
+            return;
+        }
+
+        drop(state_sender.send(Ok(state.clone())));
+
         let mut log = TransactionLog::<F>::open(&log_path, state, vault, &file_manager)
             .await
             .unwrap();
 
-        const BATCH: usize = 16;
         while let Ok(transaction) = transactions.recv_async().await {
             let mut transaction_batch = Vec::with_capacity(BATCH);
             transaction_batch.push(transaction.0);
@@ -115,7 +129,7 @@ fn transaction_writer_thread<F: AsyncFile>(
                 let _ = completion_sender.send(());
             }
         }
-    })
+    });
 }
 
 pub struct TransactionHandle<'a> {
@@ -151,31 +165,36 @@ impl TreeLock {
                 .is_ok()
             {
                 break;
-            } else {
-                let unblocked_receiver = {
-                    let mut blocked = self.data.blocked.lock().await;
-                    // Now that we've acquired this lock, it's possible the lock has
-                    // been released. If there are already others waiting, we want
-                    // to yield to allow those that were waiting before us to be
-                    // woken up first (potentially).
-                    if blocked.is_empty()
-                        && self
-                            .data
-                            .locked
-                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                            .is_ok()
-                    {
-                        break;
-                    }
-                    let (unblocked_sender, unblocked_receiver) = flume::bounded(1);
-                    blocked.push(unblocked_sender);
-                    unblocked_receiver
-                };
-                let _ = unblocked_receiver.recv_async().await;
             }
+
+            let unblocked_receiver = {
+                let mut blocked = self.data.blocked.lock().await;
+                // Now that we've acquired this lock, it's possible the lock has
+                // been released. If there are no others waiting, we can re-lock
+                // it. If there werealready others waiting, we want to allow
+                // them to have a chance to wake up first, so we assume that the
+                // lock is locked without checking.
+                if blocked.is_empty()
+                    && self
+                        .data
+                        .locked
+                        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                        .is_ok()
+                {
+                    break;
+                }
+
+                // Add a new sender to the blocked list, and return it so that
+                // we can wait for it to be signalled.
+                let (unblocked_sender, unblocked_receiver) = flume::bounded(1);
+                blocked.push(unblocked_sender);
+                unblocked_receiver
+            };
+            // Wait for our unblocked signal to be triggered before trying to acquire the lock again.
+            let _ = unblocked_receiver.recv_async().await;
         }
 
-        TreeLockHandle(TreeLock {
+        TreeLockHandle(Self {
             data: self.data.clone(),
         })
     }

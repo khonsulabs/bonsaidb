@@ -49,16 +49,12 @@ pub struct RotatorVault {
 }
 
 impl RotatorVault {
-    pub fn new(rotation_amount: u8) -> Self {
+    pub const fn new(rotation_amount: u8) -> Self {
         Self { rotation_amount }
     }
 }
 
 impl Vault for RotatorVault {
-    fn current_key_id(&self) -> u32 {
-        self.rotation_amount as u32
-    }
-
     fn encrypt(&self, payload: &[u8]) -> Vec<u8> {
         let mut output = Vec::with_capacity(payload.len() + 1);
         output.push(self.rotation_amount);

@@ -10,6 +10,7 @@ use tokio_uring::{
 use super::{AsyncFile, AsyncFileManager, FileWriter, OpenableFile};
 use crate::Error;
 
+/// An open file that uses `tokio-uring`. Requires feature `uring`.
 pub struct UringFile(File);
 
 #[async_trait(?Send)]
@@ -82,8 +83,8 @@ impl AsyncFileManager<UringFile> for UringFileManager {
 }
 
 #[async_trait(?Send)]
-impl OpenableFile<UringFile> for UringFile {
-    async fn write<W: FileWriter<UringFile>>(&mut self, mut writer: W) -> Result<(), Error> {
+impl OpenableFile<Self> for UringFile {
+    async fn write<W: FileWriter<Self>>(&mut self, mut writer: W) -> Result<(), Error> {
         writer.write(self).await
     }
 
