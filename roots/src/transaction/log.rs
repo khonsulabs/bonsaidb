@@ -1,24 +1,11 @@
 use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashMap},
-    convert::TryFrom,
-    io::Write,
-    marker::PhantomData,
-    mem::size_of,
-    ops::Deref,
-    path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
-    },
+    borrow::Cow, collections::BTreeMap, convert::TryFrom, io::Write, marker::PhantomData,
+    mem::size_of, ops::Deref, path::Path, sync::Arc,
 };
 
 use async_trait::async_trait;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use tokio::{
-    fs::OpenOptions,
-    sync::{Mutex, MutexGuard},
-};
+use tokio::fs::OpenOptions;
 use zerocopy::{AsBytes, FromBytes, LayoutVerified, Unaligned, U64};
 
 use crate::{
@@ -26,120 +13,20 @@ use crate::{
     Error, Vault,
 };
 
+use super::{State, TransactionHandle};
+
 const PAGE_SIZE: usize = 1024;
 
-#[derive(Clone)]
-pub struct TransactionManager {
-    state: TransactionState,
-    transaction_sender: flume::Sender<(TransactionHandle<'static>, flume::Sender<()>)>,
-}
-
-impl TransactionManager {
-    pub async fn spawn<F: AsyncFile>(
-        directory: &Path,
-        file_manager: F::Manager,
-        vault: Option<Arc<dyn Vault>>,
-    ) -> Result<Self, Error> {
-        let (transaction_sender, receiver) = flume::bounded(32);
-        let log_path = Self::log_path(directory);
-        let state = match Transactions::<F>::load_state(&log_path, vault.as_deref()).await {
-            Ok(state) => state,
-            Err(Error::DataIntegrity(err)) => return Err(Error::DataIntegrity(err)),
-            _ => TransactionState::default(),
-        };
-
-        let thread_state = state.clone();
-        std::thread::Builder::new()
-            .name(String::from("bonsaidb-txlog"))
-            .spawn(move || {
-                transaction_writer_thread::<F>(
-                    thread_state,
-                    log_path,
-                    receiver,
-                    file_manager,
-                    vault,
-                )
-            })
-            .map_err(Error::message)?;
-
-        Ok(Self {
-            transaction_sender,
-            state,
-        })
-    }
-
-    pub async fn push(&self, transaction: TransactionHandle<'static>) {
-        let (completion_sender, completion_receiver) = flume::bounded(1);
-        self.transaction_sender
-            .send((transaction, completion_sender))
-            .unwrap();
-        completion_receiver.recv_async().await.unwrap();
-    }
-
-    fn log_path(directory: &Path) -> PathBuf {
-        directory.join("transactions")
-    }
-
-    pub fn state(&self) -> &TransactionState {
-        self.deref()
-    }
-}
-
-impl Deref for TransactionManager {
-    type Target = TransactionState;
-
-    fn deref(&self) -> &Self::Target {
-        &self.state
-    }
-}
-
-// TODO: when an error happens, we should try to recover.
-fn transaction_writer_thread<F: AsyncFile>(
-    state: TransactionState,
-    log_path: PathBuf,
-    transactions: flume::Receiver<(TransactionHandle<'static>, flume::Sender<()>)>,
-    file_manager: F::Manager,
+pub struct TransactionLog<F: AsyncFile> {
     vault: Option<Arc<dyn Vault>>,
-) {
-    F::Manager::run(async {
-        let mut log = Transactions::<F>::open(&log_path, state, vault, &file_manager)
-            .await
-            .unwrap();
-
-        const BATCH: usize = 16;
-        while let Ok(transaction) = transactions.recv_async().await {
-            let mut transaction_batch = Vec::with_capacity(BATCH);
-            transaction_batch.push(transaction.0);
-            let mut completion_senders = Vec::with_capacity(BATCH);
-            completion_senders.push(transaction.1);
-            for _ in 0..BATCH - 1 {
-                match transactions.try_recv() {
-                    Ok((transaction, sender)) => {
-                        transaction_batch.push(transaction);
-                        completion_senders.push(sender);
-                    }
-                    // At this point either type of error we want to finish writing the transactions we have.
-                    Err(_) => break,
-                }
-            }
-            log.push(transaction_batch).await.unwrap();
-            for completion_sender in completion_senders {
-                let _ = completion_sender.send(());
-            }
-        }
-    })
-}
-
-pub struct Transactions<F: AsyncFile> {
-    vault: Option<Arc<dyn Vault>>,
-    state: TransactionState,
+    state: State,
     log: <F::Manager as AsyncFileManager<F>>::FileHandle,
 }
 
-impl<F: AsyncFile> Transactions<F> {
+impl<F: AsyncFile> TransactionLog<F> {
     pub async fn open(
         log_path: &Path,
-        state: TransactionState,
+        state: State,
         vault: Option<Arc<dyn Vault>>,
         file_manager: &F::Manager,
     ) -> Result<Self, Error> {
@@ -152,10 +39,7 @@ impl<F: AsyncFile> Transactions<F> {
         *state
     }
 
-    pub async fn load_state(
-        log_path: &Path,
-        vault: Option<&dyn Vault>,
-    ) -> Result<TransactionState, Error> {
+    pub async fn load_state(log_path: &Path, vault: Option<&dyn Vault>) -> Result<State, Error> {
         let mut log_length = log_path.metadata()?.len();
         if log_length == 0 {
             return Err(Error::message("empty transaction log"));
@@ -218,7 +102,7 @@ impl<F: AsyncFile> Transactions<F> {
                         Some(vault) => Cow::Owned(vault.decrypt(payload)),
                         None => Cow::Borrowed(payload),
                     };
-                    let transaction = Transaction::deserialize(&decrypted)
+                    let transaction = LogEntry::deserialize(&decrypted)
                         .map_err(|err| Error::DataIntegrity(Box::new(err)))?;
                     break transaction.id;
                 }
@@ -226,7 +110,7 @@ impl<F: AsyncFile> Transactions<F> {
             }
         };
 
-        Ok(TransactionState::new(last_transaction_id + 1, log_length))
+        Ok(State::new(last_transaction_id + 1, log_length))
     }
 
     pub async fn push(&mut self, handles: Vec<TransactionHandle<'_>>) -> Result<(), Error> {
@@ -253,13 +137,13 @@ impl<F: AsyncFile> Transactions<F> {
         self.state.new_transaction(trees).await
     }
 
-    pub fn state(&self) -> TransactionState {
+    pub fn state(&self) -> State {
         self.state.clone()
     }
 }
 
 struct LogWriter<'a, F> {
-    state: TransactionState,
+    state: State,
     handles: Vec<TransactionHandle<'a>>,
     vault: Option<Arc<dyn Vault>>,
     _file: PhantomData<F>,
@@ -322,14 +206,14 @@ impl<'a, F: AsyncFile> FileWriter<F> for LogWriter<'a, F> {
 }
 
 #[derive(Eq, PartialEq, Debug)]
-pub struct Transaction<'a> {
+pub struct LogEntry<'a> {
     pub id: u64,
-    pub changes: TransactionEntries<'a>,
+    pub changes: TransactionChanges<'a>,
 }
 
-pub type TransactionEntries<'a> = BTreeMap<Cow<'a, [u8]>, Entries<'a>>;
+pub type TransactionChanges<'a> = BTreeMap<Cow<'a, [u8]>, Entries<'a>>;
 
-impl<'a> Transaction<'a> {
+impl<'a> LogEntry<'a> {
     pub fn serialize(&self) -> Result<Vec<u8>, Error> {
         let mut buffer = Vec::new();
         // Transaction ID
@@ -429,7 +313,7 @@ fn convert_usize<T: TryFrom<usize>>(value: usize) -> Result<T, Error> {
 
 #[test]
 fn serialization_tests() {
-    let mut transaction = Transaction {
+    let mut transaction = LogEntry {
         id: 1,
         changes: BTreeMap::default(),
     };
@@ -441,11 +325,11 @@ fn serialization_tests() {
         }]),
     );
     let serialized = transaction.serialize().unwrap();
-    let deserialized = Transaction::deserialize(&serialized).unwrap();
+    let deserialized = LogEntry::deserialize(&serialized).unwrap();
     assert_eq!(transaction, deserialized);
 
     // Multiple trees
-    let mut transaction = Transaction {
+    let mut transaction = LogEntry {
         id: 1,
         changes: BTreeMap::default(),
     };
@@ -470,7 +354,7 @@ fn serialization_tests() {
         ]),
     );
     let serialized = transaction.serialize().unwrap();
-    let deserialized = Transaction::deserialize(&serialized).unwrap();
+    let deserialized = LogEntry::deserialize(&serialized).unwrap();
     assert_eq!(transaction, deserialized);
 }
 
@@ -482,6 +366,7 @@ mod tests {
     use crate::{
         async_file::{tokio::TokioFile, AsyncFile},
         test_util::RotatorVault,
+        transaction::TransactionManager,
     };
 
     #[tokio::test]
@@ -523,12 +408,15 @@ mod tests {
         let file_manager = <F::Manager as Default>::default();
         tokio::fs::create_dir(&temp_dir).await.unwrap();
         for id in 0..100_000 {
-            let log_path = TransactionManager::log_path(&temp_dir);
-            let state = Transactions::<F>::load_state(&log_path, vault.as_deref())
+            let log_path = {
+                let directory: &Path = &temp_dir;
+                directory.join("transactions")
+            };
+            let state = TransactionLog::<F>::load_state(&log_path, vault.as_deref())
                 .await
                 .unwrap_or_default();
             let mut transactions =
-                Transactions::<F>::open(&log_path, state, vault.clone(), &file_manager)
+                TransactionLog::<F>::open(&log_path, state, vault.clone(), &file_manager)
                     .await
                     .unwrap();
             assert_eq!(transactions.current_transaction_id(), id);
@@ -548,7 +436,7 @@ mod tests {
 
         if vault.is_some() {
             // Test that we can't open it without encryption
-            assert!(Transactions::<F>::load_state(&temp_dir, None)
+            assert!(TransactionLog::<F>::load_state(&temp_dir, None)
                 .await
                 .is_err());
         }
@@ -598,162 +486,5 @@ mod tests {
 
         assert_eq!(manager.current_transaction_id(), 100_000);
         // TODO test scanning the file
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct TransactionState {
-    state: Arc<ActiveState>,
-}
-
-impl Default for TransactionState {
-    fn default() -> Self {
-        Self::new(0, 0)
-    }
-}
-
-impl TransactionState {
-    pub fn new(current_transaction_id: u64, log_position: u64) -> Self {
-        Self {
-            state: Arc::new(ActiveState {
-                tree_locks: Mutex::default(),
-                current_transaction_id: AtomicU64::new(current_transaction_id),
-                log_position: Mutex::new(log_position),
-            }),
-        }
-    }
-
-    pub fn current_transaction_id(&self) -> u64 {
-        self.state.current_transaction_id.load(Ordering::SeqCst)
-    }
-    async fn fetch_tree_locks<'a>(&'a self, trees: &'a [&[u8]], locks: &mut TreeLocks) {
-        let mut tree_locks = self.state.tree_locks.lock().await;
-        for tree in trees {
-            if let Some(lock) = tree_locks.get(&Cow::Borrowed(*tree)) {
-                locks.push(lock.lock().await);
-            } else {
-                let lock = TreeLock::new();
-                let locked = lock.lock().await;
-                tree_locks.insert(Cow::Owned(tree.to_vec()), lock);
-                locks.push(locked);
-            }
-        }
-    }
-
-    #[allow(clippy::needless_lifetimes)] // lies! I can't seem to get rid of the lifetimes.
-    pub async fn new_transaction(&self, trees: &[&[u8]]) -> TransactionHandle<'static> {
-        let mut locked_trees = Vec::with_capacity(trees.len());
-        self.fetch_tree_locks(trees, &mut locked_trees).await;
-
-        TransactionHandle {
-            locked_trees,
-            transaction: Transaction {
-                id: self
-                    .state
-                    .current_transaction_id
-                    .fetch_add(1, Ordering::SeqCst),
-                changes: TransactionEntries::default(),
-            },
-        }
-    }
-}
-
-impl TransactionState {
-    async fn lock_for_write(&self) -> MutexGuard<'_, u64> {
-        self.state.log_position.lock().await
-    }
-}
-
-#[derive(Debug)]
-pub struct ActiveState {
-    current_transaction_id: AtomicU64,
-    tree_locks: Mutex<HashMap<Cow<'static, [u8]>, TreeLock>>,
-    log_position: Mutex<u64>,
-}
-
-pub struct TransactionHandle<'a> {
-    pub transaction: Transaction<'a>,
-    pub locked_trees: TreeLocks,
-}
-
-pub type TreeLocks = Vec<TreeLockHandle>;
-
-#[derive(Debug)]
-pub struct TreeLock {
-    data: Arc<TreeLockData>,
-}
-
-impl TreeLock {
-    pub fn new() -> Self {
-        Self {
-            data: Arc::new(TreeLockData {
-                locked: AtomicBool::new(false),
-                rt: tokio::runtime::Handle::current(),
-                blocked: Mutex::default(),
-            }),
-        }
-    }
-    pub async fn lock(&self) -> TreeLockHandle {
-        // Loop until we acquire a lock
-        loop {
-            // Try to acquire the lock without any possibility of blocking
-            if self
-                .data
-                .locked
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                break;
-            } else {
-                let unblocked_receiver = {
-                    let mut blocked = self.data.blocked.lock().await;
-                    // Now that we've acquired this lock, it's possible the lock has
-                    // been released. If there are already others waiting, we want
-                    // to yield to allow those that were waiting before us to be
-                    // woken up first (potentially).
-                    if blocked.is_empty()
-                        && self
-                            .data
-                            .locked
-                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                            .is_ok()
-                    {
-                        break;
-                    }
-                    let (unblocked_sender, unblocked_receiver) = flume::bounded(1);
-                    blocked.push(unblocked_sender);
-                    unblocked_receiver
-                };
-                let _ = unblocked_receiver.recv_async().await;
-            }
-        }
-
-        TreeLockHandle(TreeLock {
-            data: self.data.clone(),
-        })
-    }
-}
-
-#[derive(Debug)]
-struct TreeLockData {
-    locked: AtomicBool,
-    rt: tokio::runtime::Handle,
-    blocked: Mutex<Vec<flume::Sender<()>>>,
-}
-
-#[derive(Debug)]
-pub struct TreeLockHandle(TreeLock);
-
-impl Drop for TreeLockHandle {
-    fn drop(&mut self) {
-        self.0.data.locked.store(false, Ordering::SeqCst);
-
-        let data = self.0.data.clone();
-        self.0.data.rt.spawn(async move {
-            let mut blocked = data.blocked.lock().await;
-            for blocked in blocked.drain(..) {
-                let _ = blocked.send(());
-            }
-        });
     }
 }

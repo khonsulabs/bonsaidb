@@ -1,7 +1,7 @@
 mod async_file;
 mod error;
 mod roots;
-mod transactions;
+mod transaction;
 mod tree;
 mod vault;
 

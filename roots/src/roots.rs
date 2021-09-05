@@ -6,7 +6,7 @@ use std::{
 
 use tokio::fs;
 
-use crate::{transactions::TransactionManager, AsyncFile, Error, File, Vault};
+use crate::{transaction::TransactionManager, AsyncFile, Error, File, Vault};
 
 pub struct Roots<F: AsyncFile = File> {
     data: Arc<Data<F>>,
@@ -67,6 +67,8 @@ impl<F: AsyncFile> Roots<F> {
     pub fn vault(&self) -> Option<Arc<dyn Vault>> {
         self.data.vault.clone()
     }
+
+    // pub async fn execute(&self, transaction: PreparedTransaction) -> Result<
 }
 
 impl<F: AsyncFile> Clone for Roots<F> {
