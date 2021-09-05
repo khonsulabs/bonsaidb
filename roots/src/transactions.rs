@@ -15,7 +15,6 @@ use std::{
 
 use async_trait::async_trait;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use futures::{stream::FuturesUnordered, StreamExt};
 use tokio::{
     fs::OpenOptions,
     sync::{Mutex, MutexGuard},
@@ -24,7 +23,7 @@ use zerocopy::{AsBytes, FromBytes, LayoutVerified, Unaligned, U64};
 
 use crate::{
     async_file::{AsyncFile, AsyncFileManager, FileWriter, OpenableFile},
-    Error, OpenRoots, Vault,
+    Error, Vault,
 };
 
 const PAGE_SIZE: usize = 1024;
@@ -80,6 +79,10 @@ impl TransactionManager {
     fn log_path(directory: &Path) -> PathBuf {
         directory.join("transactions")
     }
+
+    pub fn state(&self) -> &TransactionState {
+        self.deref()
+    }
 }
 
 impl Deref for TransactionManager {
@@ -99,7 +102,7 @@ fn transaction_writer_thread<F: AsyncFile>(
     vault: Option<Arc<dyn Vault>>,
 ) {
     F::Manager::run(async {
-        let mut log = Transactions::<F>::open(&log_path, state, file_manager, vault)
+        let mut log = Transactions::<F>::open(&log_path, state, vault, &file_manager)
             .await
             .unwrap();
 
@@ -128,7 +131,6 @@ fn transaction_writer_thread<F: AsyncFile>(
 }
 
 pub struct Transactions<F: AsyncFile> {
-    file_manager: F::Manager,
     vault: Option<Arc<dyn Vault>>,
     state: TransactionState,
     log: <F::Manager as AsyncFileManager<F>>::FileHandle,
@@ -138,16 +140,11 @@ impl<F: AsyncFile> Transactions<F> {
     pub async fn open(
         log_path: &Path,
         state: TransactionState,
-        file_manager: F::Manager,
         vault: Option<Arc<dyn Vault>>,
+        file_manager: &F::Manager,
     ) -> Result<Self, Error> {
         let log = file_manager.append(log_path).await?;
-        Ok(Self {
-            vault,
-            log,
-            state,
-            file_manager,
-        })
+        Ok(Self { vault, log, state })
     }
 
     pub async fn total_size(&self) -> u64 {
@@ -525,13 +522,13 @@ mod tests {
         let temp_dir = crate::test_util::TestDirectory::new(file_name);
         let file_manager = <F::Manager as Default>::default();
         tokio::fs::create_dir(&temp_dir).await.unwrap();
-        for id in 0..1_000_000 {
+        for id in 0..100_000 {
             let log_path = TransactionManager::log_path(&temp_dir);
             let state = Transactions::<F>::load_state(&log_path, vault.as_deref())
                 .await
                 .unwrap_or_default();
             let mut transactions =
-                Transactions::<F>::open(&log_path, state, file_manager.clone(), vault.clone())
+                Transactions::<F>::open(&log_path, state, vault.clone(), &file_manager)
                     .await
                     .unwrap();
             assert_eq!(transactions.current_transaction_id(), id);
@@ -583,7 +580,7 @@ mod tests {
         for _ in 0..10 {
             let manager = manager.clone();
             handles.push(tokio::spawn(async move {
-                for id in 0..100_000 {
+                for id in 0..10_000 {
                     let mut tx = manager.new_transaction(&[id.as_bytes()]).await;
 
                     tx.transaction.changes.insert(
@@ -599,7 +596,7 @@ mod tests {
         }
         join_all(handles).await;
 
-        assert_eq!(manager.current_transaction_id(), 1_000_000);
+        assert_eq!(manager.current_transaction_id(), 100_000);
         // TODO test scanning the file
     }
 }
@@ -759,9 +756,4 @@ impl Drop for TreeLockHandle {
             }
         });
     }
-}
-
-pub struct OpenTransaction<'a, F: AsyncFile> {
-    pub handle: TransactionHandle<'a>,
-    pub roots: &'a mut OpenRoots<F>,
 }

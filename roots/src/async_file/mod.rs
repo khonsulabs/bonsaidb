@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use cfg_if::cfg_if;
 use futures::Future;
 
-use crate::{try_with_buffer_result, Error};
+use crate::{error::Error, try_with_buffer_result};
 
 pub mod tokio;
 #[cfg(feature = "uring")]

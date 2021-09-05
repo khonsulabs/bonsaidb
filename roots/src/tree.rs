@@ -109,7 +109,18 @@
 //!
 //! - 64 bits: Number of Records
 
-use crate::async_file::AsyncFile;
+use std::sync::Arc;
+
+use crate::{
+    async_file::{AsyncFile, AsyncFileManager},
+    Vault,
+};
+
+pub struct Tree<F: AsyncFile> {
+    file: <F::Manager as AsyncFileManager<F>>::FileHandle,
+    file_manager: F::Manager,
+    vault: Option<Arc<dyn Vault>>,
+}
 
 const fn magic_code(version: u8) -> u32 {
     ('b' as u32) << 24 | ('d' as u32) << 16 | ('b' as u32) << 8 | version as u32
@@ -155,8 +166,4 @@ impl BlockHeader {
 pub struct ChunkHeader {
     crc: u32,
     length: u32,
-}
-
-pub struct Tree<F: AsyncFile> {
-    file: F,
 }
