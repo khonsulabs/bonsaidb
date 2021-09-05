@@ -246,7 +246,7 @@ impl AsyncFileManager<File> for FileManager {
             if #[cfg(feature = "uring")] {
                 tokio_uring::start(future);
             } else {
-                tokio::runtime::Runtime::new().block_on(future);
+                ::tokio::runtime::Runtime::new().unwrap().block_on(future);
             }
         }
     }
