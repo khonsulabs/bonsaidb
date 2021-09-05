@@ -9,6 +9,7 @@ members = [
     "macros",
     "bonsaidb",
     "server",
+    "roots",
     "xtask",
 ]
 
