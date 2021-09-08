@@ -92,17 +92,17 @@ impl TryFrom<u8> for PageHeader {
     }
 }
 
-pub struct TreeFile<F: AsyncFile> {
+pub struct TreeFile<F: AsyncFile, const MAX_ORDER: usize> {
     file: <F::Manager as AsyncFileManager<F>>::FileHandle,
-    state: State,
+    state: State<MAX_ORDER>,
     vault: Option<Arc<dyn Vault>>,
 }
 
 #[allow(clippy::future_not_send)]
-impl<F: AsyncFile> TreeFile<F> {
+impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     pub async fn open(
         file: <F::Manager as AsyncFileManager<F>>::FileHandle,
-        state: State,
+        state: State<MAX_ORDER>,
         vault: Option<Arc<dyn Vault>>,
     ) -> Result<Self, Error> {
         Ok(Self { file, state, vault })
@@ -110,7 +110,7 @@ impl<F: AsyncFile> TreeFile<F> {
 
     /// Attempts to load the last saved state of this tree into `state`.
     pub async fn initialize_state(
-        state: &State,
+        state: &State<MAX_ORDER>,
         file_path: &Path,
         vault: Option<&dyn Vault>,
     ) -> Result<(), Error> {
@@ -201,16 +201,18 @@ impl<F: AsyncFile> TreeFile<F> {
     }
 }
 
-struct DocumentWriter<'a> {
-    state: &'a State,
+struct DocumentWriter<'a, const MAX_ORDER: usize> {
+    state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
     key: &'a [u8],
     document: &'a [u8],
 }
 
 #[async_trait(?Send)]
-impl<'a, F: AsyncFile> FileOp<F> for DocumentWriter<'a> {
+impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, MAX_ORDER> {
     type Output = u64;
+
+    #[allow(clippy::shadow_unrelated)] // It is related, but clippy can't tell.
     async fn write(&mut self, file: &mut F) -> Result<Self::Output, Error> {
         let mut state = self.state.lock().await;
 
@@ -258,14 +260,14 @@ impl<'a, F: AsyncFile> FileOp<F> for DocumentWriter<'a> {
     }
 }
 
-struct DocumentReader<'a> {
-    state: &'a State,
+struct DocumentReader<'a, const MAX_ORDER: usize> {
+    state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
     key: &'a [u8],
 }
 
 #[async_trait(?Send)]
-impl<'a, F: AsyncFile> FileOp<F> for DocumentReader<'a> {
+impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentReader<'a, MAX_ORDER> {
     type Output = Option<Vec<u8>>;
     async fn write(&mut self, file: &mut F) -> Result<Self::Output, Error> {
         let state = self.state.lock().await;
@@ -274,7 +276,7 @@ impl<'a, F: AsyncFile> FileOp<F> for DocumentReader<'a> {
 }
 
 #[allow(clippy::future_not_send)]
-impl<'a> DocumentWriter<'a> {}
+impl<'a, const MAX_ORDER: usize> DocumentWriter<'a, MAX_ORDER> {}
 
 struct PagedWriter<'a, F: AsyncFile> {
     file: &'a mut F,
@@ -432,21 +434,29 @@ async fn read_chunk<F: AsyncFile>(
 }
 
 #[derive(Default, Debug)]
-pub struct TreeRoot<'a> {
+pub struct TreeRoot<'a, const MAX_ORDER: usize> {
     transaction_id: u64,
     sequence: u64,
-    by_sequence_root: BTreeEntry<'a, BySequenceIndex<'a>, BySequenceStats>,
-    by_id_root: BTreeEntry<'a, ByIdIndex, ByIdStats>,
+    by_sequence_root: BTreeEntry<'a, BySequenceIndex<'a>, BySequenceStats, MAX_ORDER>,
+    by_id_root: BTreeEntry<'a, ByIdIndex, ByIdStats, MAX_ORDER>,
 }
 
-enum ChangeResult<'a, I: BinarySerialization<'a>, R: BinarySerialization<'a>> {
+enum ChangeResult<
+    'a,
+    I: BinarySerialization<'a>,
+    R: BinarySerialization<'a>,
+    const MAX_ORDER: usize,
+> {
     Unchanged,
-    Replace(BTreeEntry<'a, I, R>),
-    Split(BTreeEntry<'a, I, R>, BTreeEntry<'a, I, R>),
+    Replace(BTreeEntry<'a, I, R, MAX_ORDER>),
+    Split(
+        BTreeEntry<'a, I, R, MAX_ORDER>,
+        BTreeEntry<'a, I, R, MAX_ORDER>,
+    ),
 }
 
-impl<'a> Ownable for TreeRoot<'a> {
-    type Output = TreeRoot<'static>;
+impl<'a, const MAX_ORDER: usize> Ownable for TreeRoot<'a, MAX_ORDER> {
+    type Output = TreeRoot<'static, MAX_ORDER>;
 
     fn to_owned_lifetime(&self) -> Self::Output {
         TreeRoot {
@@ -459,7 +469,7 @@ impl<'a> Ownable for TreeRoot<'a> {
 }
 
 #[allow(clippy::future_not_send)]
-impl<'a> TreeRoot<'a> {
+impl<'a, const MAX_ORDER: usize> TreeRoot<'a, MAX_ORDER> {
     async fn insert<F: AsyncFile>(
         &mut self,
         key: &[u8],
@@ -596,8 +606,8 @@ pub trait BinarySerialization<'a>: Sized {
     fn deserialize_from(reader: &mut &'a [u8]) -> Result<Self, Error>;
 }
 
-impl<'a, I: BinarySerialization<'a>, R: BinarySerialization<'a>> BinarySerialization<'a>
-    for BTreeEntry<'a, I, R>
+impl<'a, I: BinarySerialization<'a>, R: BinarySerialization<'a>, const MAX_ORDER: usize>
+    BinarySerialization<'a> for BTreeEntry<'a, I, R, MAX_ORDER>
 {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut bytes_written = 0;
@@ -648,21 +658,18 @@ impl<'a, I: BinarySerialization<'a>, R: BinarySerialization<'a>> BinarySerializa
 
 /// A B-Tree entry that stores a list of key-`I` pairs.
 #[derive(Clone, Debug)]
-pub enum BTreeEntry<'a, I, R> {
+pub enum BTreeEntry<'a, I, R, const MAX_ORDER: usize> {
     /// An inline value. Overall, the B-Tree entry is a key-value pair.
     Leaf(Vec<KeyEntry<'a, I>>),
     /// An interior node that contains pointers to other nodes.
     Interior(Vec<Interior<'a, R>>),
 }
 
-impl<'a, I, R> Default for BTreeEntry<'a, I, R> {
+impl<'a, I, R, const MAX_ORDER: usize> Default for BTreeEntry<'a, I, R, MAX_ORDER> {
     fn default() -> Self {
         Self::Leaf(Vec::new())
     }
 }
-
-/// The upper limit of the number of elements each node can directly contain.
-const BTREE_ORDER: usize = 1_000;
 
 pub trait Reducer<I> {
     fn reduce(indexes: &[&I]) -> Self;
@@ -676,8 +683,10 @@ impl<I> Reducer<I> for () {
     fn rereduce(_reductions: &[&Self]) -> Self {}
 }
 
-impl<'a, I: Ownable, R: Ownable> Ownable for BTreeEntry<'a, I, R> {
-    type Output = BTreeEntry<'static, I::Output, R::Output>;
+impl<'a, I: Ownable, R: Ownable, const MAX_ORDER: usize> Ownable
+    for BTreeEntry<'a, I, R, MAX_ORDER>
+{
+    type Output = BTreeEntry<'static, I::Output, R::Output, MAX_ORDER>;
 
     fn to_owned_lifetime(&self) -> Self::Output {
         match self {
@@ -692,15 +701,19 @@ impl<'a, I: Ownable, R: Ownable> Ownable for BTreeEntry<'a, I, R> {
 }
 
 #[allow(clippy::future_not_send)]
-impl<'a, I: Clone + BinarySerialization<'a>, R: Clone + Reducer<I> + BinarySerialization<'a>>
-    BTreeEntry<'a, I, R>
+impl<
+        'a,
+        I: Clone + BinarySerialization<'a>,
+        R: Clone + Reducer<I> + BinarySerialization<'a>,
+        const MAX_ORDER: usize,
+    > BTreeEntry<'a, I, R, MAX_ORDER>
 {
     async fn insert<F: AsyncFile>(
         &self,
         key: &[u8],
         index: I,
         writer: &mut PagedWriter<'_, F>,
-    ) -> Result<ChangeResult<'a, I, R>, Error> {
+    ) -> Result<ChangeResult<'a, I, R, MAX_ORDER>, Error> {
         match self {
             BTreeEntry::Leaf(children) => {
                 let new_leaf = KeyEntry {
@@ -717,7 +730,7 @@ impl<'a, I: Clone + BinarySerialization<'a>, R: Clone + Reducer<I> + BinarySeria
                     }
                 }
 
-                if children.len() >= BTREE_ORDER {
+                if children.len() >= MAX_ORDER {
                     // We need to split this leaf into two leafs, moving a new interior node using the middle element.
                     // E.g., children.len() == 13, midpoint = (13 + 1) / 2 = 7
                     let midpoint = (children.len() + 1) / 2;
@@ -894,7 +907,7 @@ async fn test() {
     {
         let state = State::default();
         let file = manager.append(temp_dir.join("tree")).await.unwrap();
-        let mut tree = TreeFile::<TokioFile>::open(file, state, None)
+        let mut tree = TreeFile::<TokioFile, 10>::open(file, state, None)
             .await
             .unwrap();
         tree.push(b"test", b"hello world").await.unwrap();
@@ -909,12 +922,12 @@ async fn test() {
         let file_path = temp_dir.join("tree");
 
         let state = State::default();
-        TreeFile::<TokioFile>::initialize_state(&state, &file_path, None)
+        TreeFile::<TokioFile, 10>::initialize_state(&state, &file_path, None)
             .await
             .unwrap();
 
         let file = manager.append(&file_path).await.unwrap();
-        let mut tree = TreeFile::<TokioFile>::open(file, state, None)
+        let mut tree = TreeFile::<TokioFile, 10>::open(file, state, None)
             .await
             .unwrap();
         let value = tree.get(b"test").await.unwrap();
