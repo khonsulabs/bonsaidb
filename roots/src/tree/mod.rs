@@ -896,41 +896,59 @@ trait Ownable {
 
 trait NoLifetime: Clone {}
 
-#[tokio::test]
-async fn test() {
+#[cfg(test)]
+mod tests {
+    use super::*;
     use crate::async_file::tokio::{TokioFile, TokioFileManager};
 
-    let manager = TokioFileManager::default();
-    let temp_dir = crate::test_util::TestDirectory::new("btree-tests");
-    tokio::fs::create_dir(&temp_dir).await.unwrap();
+    async fn insert_one_record<const MAX_ORDER: usize>(
+        manager: &TokioFileManager,
+        file_path: &Path,
+        id: u64,
+    ) {
+        let id_bytes = id.to_be_bytes();
+        {
+            let state = State::default();
+            if id > 1 {
+                TreeFile::<TokioFile, MAX_ORDER>::initialize_state(&state, file_path, None)
+                    .await
+                    .unwrap();
+            }
+            let file = manager.append(file_path).await.unwrap();
+            let mut tree = TreeFile::<TokioFile, MAX_ORDER>::open(file, state, None)
+                .await
+                .unwrap();
+            tree.push(&id_bytes, b"hello world").await.unwrap();
 
-    {
-        let state = State::default();
-        let file = manager.append(temp_dir.join("tree")).await.unwrap();
-        let mut tree = TreeFile::<TokioFile, 10>::open(file, state, None)
-            .await
-            .unwrap();
-        tree.push(b"test", b"hello world").await.unwrap();
+            // This shouldn't have to scan the file, as the data fits in memory.
+            let value = tree.get(&id_bytes).await.unwrap();
+            assert_eq!(&value.unwrap(), b"hello world");
+        }
 
-        // This shouldn't have to scan the file, as the data fits in memory.
-        let value = tree.get(b"test").await.unwrap();
-        assert_eq!(&value.unwrap(), b"hello world");
+        // Try loading the file up and retrieving the data.
+        {
+            let state = State::default();
+            TreeFile::<TokioFile, MAX_ORDER>::initialize_state(&state, file_path, None)
+                .await
+                .unwrap();
+
+            let file = manager.append(&file_path).await.unwrap();
+            let mut tree = TreeFile::<TokioFile, MAX_ORDER>::open(file, state, None)
+                .await
+                .unwrap();
+            let value = tree.get(&id_bytes).await.unwrap();
+            assert_eq!(&value.unwrap(), b"hello world");
+        }
     }
 
-    // Try loading the file up and retrieving the data.
-    {
+    #[tokio::test]
+    async fn test() {
+        let manager = TokioFileManager::default();
+        let temp_dir = crate::test_util::TestDirectory::new("btree-tests");
+        tokio::fs::create_dir(&temp_dir).await.unwrap();
         let file_path = temp_dir.join("tree");
-
-        let state = State::default();
-        TreeFile::<TokioFile, 10>::initialize_state(&state, &file_path, None)
-            .await
-            .unwrap();
-
-        let file = manager.append(&file_path).await.unwrap();
-        let mut tree = TreeFile::<TokioFile, 10>::open(file, state, None)
-            .await
-            .unwrap();
-        let value = tree.get(b"test").await.unwrap();
-        assert_eq!(&value.unwrap(), b"hello world");
+        for i in 1..10 {
+            insert_one_record::<10>(&manager, &file_path, i).await;
+        }
     }
 }

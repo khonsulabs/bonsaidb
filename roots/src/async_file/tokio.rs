@@ -82,7 +82,7 @@ impl AsyncFile for TokioFile {
         len: usize,
     ) -> (Result<usize, Error>, Vec<u8>) {
         // Seek to the appropriate location
-        let delta = i64::try_from(self.position).unwrap() - i64::try_from(position).unwrap();
+        let delta = i64::try_from(position).unwrap() - i64::try_from(self.position).unwrap();
         if delta != 0 {
             self.position =
                 try_with_buffer!(buffer, self.file.seek(SeekFrom::Current(delta)).await);
