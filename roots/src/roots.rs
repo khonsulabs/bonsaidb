@@ -6,7 +6,7 @@ use std::{
 
 use tokio::fs;
 
-use crate::{transaction::TransactionManager, AsyncFile, Error, File, Vault};
+use crate::{context::Context, transaction::TransactionManager, AsyncFile, Error, File, Vault};
 
 /// A multi-tree transactional B-Tree database.
 pub struct Roots<F: AsyncFile = File> {
@@ -14,8 +14,7 @@ pub struct Roots<F: AsyncFile = File> {
 }
 
 struct Data<F: AsyncFile> {
-    file_manager: F::Manager,
-    vault: Option<Arc<dyn Vault>>,
+    context: Context<F::Manager>,
     transactions: TransactionManager,
     path: PathBuf,
     _file: PhantomData<F>,
@@ -37,12 +36,14 @@ impl<F: AsyncFile + 'static> Roots<F> {
         }
 
         let file_manager = <F::Manager as Default>::default();
-        let transactions =
-            TransactionManager::spawn::<F>(&path, file_manager.clone(), vault.clone()).await?;
+        let context = Context {
+            file_manager,
+            vault,
+        };
+        let transactions = TransactionManager::spawn::<F>(&path, context.clone()).await?;
         Ok(Self {
             data: Arc::new(Data {
-                file_manager,
-                vault,
+                context,
                 path,
                 transactions,
                 _file: PhantomData,
@@ -77,8 +78,8 @@ impl<F: AsyncFile + 'static> Roots<F> {
 
     /// Returns the vault used to encrypt this database.
     #[must_use]
-    pub fn vault(&self) -> Option<Arc<dyn Vault>> {
-        self.data.vault.clone()
+    pub fn context(&self) -> &Context<F::Manager> {
+        &self.data.context
     }
 
     // pub async fn execute(&self, transaction: PreparedTransaction) -> Result<

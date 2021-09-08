@@ -44,6 +44,7 @@ impl Deref for TestDirectory {
     }
 }
 
+#[derive(Debug)]
 pub struct RotatorVault {
     rotation_amount: u8,
 }

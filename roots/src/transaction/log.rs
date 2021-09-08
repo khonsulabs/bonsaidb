@@ -11,7 +11,7 @@ use zerocopy::{AsBytes, FromBytes, LayoutVerified, Unaligned, U64};
 use super::{State, TransactionHandle};
 use crate::{
     async_file::{AsyncFile, AsyncFileManager, FileOp, OpenableFile},
-    Error, Vault,
+    Context, Error, Vault,
 };
 
 const PAGE_SIZE: usize = 1024;
@@ -27,11 +27,14 @@ impl<F: AsyncFile> TransactionLog<F> {
     pub async fn open(
         log_path: &Path,
         state: State,
-        vault: Option<Arc<dyn Vault>>,
-        file_manager: &F::Manager,
+        context: Context<F::Manager>,
     ) -> Result<Self, Error> {
-        let log = file_manager.append(log_path).await?;
-        Ok(Self { vault, state, log })
+        let log = context.file_manager.append(log_path).await?;
+        Ok(Self {
+            vault: context.vault,
+            state,
+            log,
+        })
     }
 
     pub async fn total_size(&self) -> u64 {
@@ -42,10 +45,9 @@ impl<F: AsyncFile> TransactionLog<F> {
     pub async fn initialize_state(
         state: &State,
         log_path: &Path,
-        vault: Option<&dyn Vault>,
-        file_manager: &F::Manager,
+        context: &Context<F::Manager>,
     ) -> Result<(), Error> {
-        let mut log_length = file_manager.file_length(log_path).await?;
+        let mut log_length = context.file_manager.file_length(log_path).await?;
         if log_length == 0 {
             return Err(Error::message("empty transaction log"));
         }
@@ -67,11 +69,11 @@ impl<F: AsyncFile> TransactionLog<F> {
             file.sync_all().await?;
         }
 
-        let mut file = file_manager.read(log_path).await?;
+        let mut file = context.file_manager.read(log_path).await?;
         file.write(StateInitializer {
             state,
             log_length,
-            vault: vault.as_deref(),
+            vault: context.vault(),
             _file: PhantomData,
         })
         .await
@@ -444,6 +446,10 @@ mod tests {
     async fn log_file_tests<F: AsyncFile>(file_name: &str, vault: Option<Arc<dyn Vault>>) {
         let temp_dir = crate::test_util::TestDirectory::new(file_name);
         let file_manager = <F::Manager as Default>::default();
+        let context = Context {
+            file_manager,
+            vault,
+        };
         tokio::fs::create_dir(&temp_dir).await.unwrap();
         let log_path = {
             let directory: &Path = &temp_dir;
@@ -452,20 +458,13 @@ mod tests {
 
         for id in 0..1_000 {
             let state = State::default();
-            let result = TransactionLog::<F>::initialize_state(
-                &state,
-                &log_path,
-                vault.as_deref(),
-                &file_manager,
-            )
-            .await;
+            let result = TransactionLog::<F>::initialize_state(&state, &log_path, &context).await;
             if id > 0 {
                 result.unwrap();
             }
-            let mut transactions =
-                TransactionLog::<F>::open(&log_path, state, vault.clone(), &file_manager)
-                    .await
-                    .unwrap();
+            let mut transactions = TransactionLog::<F>::open(&log_path, state, context.clone())
+                .await
+                .unwrap();
             assert_eq!(transactions.current_transaction_id(), id);
             let mut tx = transactions.new_transaction(&[b"hello"]).await;
 
@@ -481,11 +480,11 @@ mod tests {
             transactions.close().await.unwrap();
         }
 
-        if vault.is_some() {
+        if context.vault.is_some() {
             // Test that we can't open it without encryption
             let state = State::default();
             assert!(
-                TransactionLog::<F>::initialize_state(&state, &temp_dir, None, &file_manager,)
+                TransactionLog::<F>::initialize_state(&state, &temp_dir, &context)
                     .await
                     .is_err()
             );
@@ -518,10 +517,13 @@ mod tests {
         let temp_dir = crate::test_util::TestDirectory::new(file_name);
         tokio::fs::create_dir(&temp_dir).await.unwrap();
         let file_manager = <F::Manager as Default>::default();
-        let manager =
-            TransactionManager::spawn::<F>(&temp_dir, file_manager.clone(), vault.clone())
-                .await
-                .unwrap();
+        let context = Context {
+            file_manager,
+            vault,
+        };
+        let manager = TransactionManager::spawn::<F>(&temp_dir, context)
+            .await
+            .unwrap();
         let mut handles = Vec::new();
         for _ in 0..10 {
             let manager = manager.clone();

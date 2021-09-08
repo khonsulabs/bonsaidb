@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use super::{LogEntry, State, TransactionLog};
 use crate::{
     async_file::{AsyncFile, AsyncFileManager},
-    Error, Vault,
+    Context, Error,
 };
 
 #[derive(Clone)]
@@ -24,8 +24,7 @@ pub struct TransactionManager {
 impl TransactionManager {
     pub async fn spawn<F: AsyncFile + 'static>(
         directory: &Path,
-        file_manager: F::Manager,
-        vault: Option<Arc<dyn Vault>>,
+        context: Context<F::Manager>,
     ) -> Result<Self, Error> {
         let (transaction_sender, receiver) = flume::bounded(32);
         let log_path = Self::log_path(directory);
@@ -34,13 +33,7 @@ impl TransactionManager {
         std::thread::Builder::new()
             .name(String::from("bonsaidb-txlog"))
             .spawn(move || {
-                transaction_writer_thread::<F>(
-                    state_sender,
-                    log_path,
-                    receiver,
-                    file_manager,
-                    vault,
-                );
+                transaction_writer_thread::<F>(state_sender, log_path, receiver, context);
             })
             .map_err(Error::message)?;
 
@@ -85,22 +78,14 @@ fn transaction_writer_thread<F: AsyncFile>(
     state_sender: flume::Sender<Result<State, Error>>,
     log_path: PathBuf,
     transactions: flume::Receiver<(TransactionHandle<'static>, flume::Sender<()>)>,
-    file_manager: F::Manager,
-    vault: Option<Arc<dyn Vault>>,
+    context: Context<F::Manager>,
 ) {
     const BATCH: usize = 16;
 
     F::Manager::run(async {
         let state = State::default();
         let result = {
-            match TransactionLog::<F>::initialize_state(
-                &state,
-                &log_path,
-                vault.as_deref(),
-                &file_manager,
-            )
-            .await
-            {
+            match TransactionLog::<F>::initialize_state(&state, &log_path, &context).await {
                 Err(Error::DataIntegrity(err)) => Err(Error::DataIntegrity(err)),
                 _ => Ok(()),
             }
@@ -112,7 +97,7 @@ fn transaction_writer_thread<F: AsyncFile>(
 
         drop(state_sender.send(Ok(state.clone())));
 
-        let mut log = TransactionLog::<F>::open(&log_path, state, vault, &file_manager)
+        let mut log = TransactionLog::<F>::open(&log_path, state, context)
             .await
             .unwrap();
 
