@@ -14,7 +14,7 @@ use tokio::{
     sync::Mutex,
 };
 
-use super::{AsyncFile, AsyncFileManager, FileWriter, OpenableFile};
+use super::{AsyncFile, AsyncFileManager, FileOp, OpenableFile};
 use crate::Error;
 
 /// An open file that uses [`tokio::fs`].
@@ -45,6 +45,7 @@ impl AsyncFile for TokioFile {
             file: OpenOptions::new()
                 .write(true)
                 .append(true)
+                .read(true)
                 .create(true)
                 .open(path)
                 .await?,
@@ -135,7 +136,7 @@ pub struct OpenTokioFile(Arc<Mutex<TokioFile>>);
 
 #[async_trait(?Send)]
 impl OpenableFile<TokioFile> for OpenTokioFile {
-    async fn write<W: FileWriter<TokioFile>>(&mut self, mut writer: W) -> Result<(), Error> {
+    async fn write<W: FileOp<TokioFile>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
         let mut file = self.0.lock().await;
         writer.write(&mut file).await
     }

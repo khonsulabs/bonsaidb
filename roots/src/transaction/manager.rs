@@ -22,7 +22,7 @@ pub struct TransactionManager {
 }
 
 impl TransactionManager {
-    pub async fn spawn<F: AsyncFile>(
+    pub async fn spawn<F: AsyncFile + 'static>(
         directory: &Path,
         file_manager: F::Manager,
         vault: Option<Arc<dyn Vault>>,

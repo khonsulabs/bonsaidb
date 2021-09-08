@@ -16,7 +16,10 @@
     clippy::option_if_let_else,
     clippy::module_name_repetitions,
 )]
+// TODO
+#![allow(dead_code)]
 
+#[macro_use]
 mod async_file;
 mod error;
 mod roots;

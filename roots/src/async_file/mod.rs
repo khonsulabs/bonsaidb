@@ -37,7 +37,7 @@ pub mod uring;
 /// read/write APIs take ownership of the buffer -- to satisfy the requirements
 /// of tokio-uring.
 #[async_trait(?Send)]
-pub trait AsyncFile: Sized + 'static {
+pub trait AsyncFile: Sized {
     /// The file manager that synchronizes file access across threads.
     type Manager: AsyncFileManager<Self>;
 
@@ -217,14 +217,16 @@ pub trait AsyncFileManager<F: AsyncFile>: Send + Sync + Clone + Default {
 
 #[async_trait(?Send)]
 pub trait OpenableFile<F: AsyncFile> {
-    async fn write<W: FileWriter<F>>(&mut self, writer: W) -> Result<(), Error>;
+    async fn write<W: FileOp<F>>(&mut self, operator: W) -> Result<W::Output, Error>;
+    // async fn read<W: FileOp<F>>(&mut self, operator: W) -> Result<W::Output, Error>;
 
     async fn close(self) -> Result<(), Error>;
 }
 
 #[async_trait(?Send)]
-pub trait FileWriter<F: AsyncFile> {
-    async fn write(&mut self, file: &mut F) -> Result<(), Error>;
+pub trait FileOp<F: AsyncFile> {
+    type Output;
+    async fn write(&mut self, file: &mut F) -> Result<Self::Output, Error>;
 }
 
 #[derive(Default, Clone)]
@@ -254,7 +256,7 @@ impl AsyncFileManager<File> for FileManager {
 
 #[async_trait(?Send)]
 impl OpenableFile<Self> for File {
-    async fn write<W: FileWriter<Self>>(&mut self, mut writer: W) -> Result<(), Error> {
+    async fn write<W: FileOp<Self>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
         writer.write(self).await
     }
 

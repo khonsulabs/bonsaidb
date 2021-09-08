@@ -1,0 +1,101 @@
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+
+use super::{BinarySerialization, NoLifetime, Reducer};
+use crate::Error;
+
+#[derive(Clone, Debug)]
+pub struct ByIdIndex {
+    pub sequence_id: u64,
+    pub document_size: u32,
+    pub position: u64,
+}
+
+impl NoLifetime for ByIdIndex {}
+
+impl<'a> BinarySerialization<'a> for ByIdIndex {
+    fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
+        writer.write_u64::<BigEndian>(self.sequence_id)?;
+        writer.write_u32::<BigEndian>(self.document_size)?;
+        writer.write_u64::<BigEndian>(self.position)?;
+        Ok(20)
+    }
+
+    fn deserialize_from(reader: &mut &'a [u8]) -> Result<Self, Error> {
+        let sequence_id = reader.read_u64::<BigEndian>()?;
+        let document_size = reader.read_u32::<BigEndian>()?;
+        let position = reader.read_u64::<BigEndian>()?;
+        Ok(Self {
+            sequence_id,
+            document_size,
+            position,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ByIdStats {
+    pub alive_documents: u64,
+    pub deleted_documents: u64,
+    pub total_size: u64,
+}
+
+impl NoLifetime for ByIdStats {}
+
+impl<'a> BinarySerialization<'a> for ByIdStats {
+    fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
+        writer.write_u64::<BigEndian>(self.alive_documents)?;
+        writer.write_u64::<BigEndian>(self.deleted_documents)?;
+        writer.write_u64::<BigEndian>(self.total_size)?;
+        Ok(8)
+    }
+
+    fn deserialize_from(reader: &mut &'a [u8]) -> Result<Self, Error> {
+        let alive_documents = reader.read_u64::<BigEndian>()?;
+        let deleted_documents = reader.read_u64::<BigEndian>()?;
+        let total_size = reader.read_u64::<BigEndian>()?;
+        Ok(Self {
+            alive_documents,
+            deleted_documents,
+            total_size,
+        })
+    }
+}
+
+impl Reducer<ByIdIndex> for ByIdStats {
+    fn reduce(values: &[&ByIdIndex]) -> Self {
+        let (alive_documents, deleted_documents, total_size) = values
+            .iter()
+            .map(|index| {
+                if index.position > 0 {
+                    // Alive document
+                    (1, 0, u64::from(index.document_size))
+                } else {
+                    // Deleted
+                    (0, 1, 0)
+                }
+            })
+            .reduce(
+                |(total_alive, total_deleted, total_size), (alive, deleted, size)| {
+                    (
+                        total_alive + alive,
+                        total_deleted + deleted,
+                        total_size + size,
+                    )
+                },
+            )
+            .unwrap();
+        Self {
+            alive_documents,
+            deleted_documents,
+            total_size,
+        }
+    }
+
+    fn rereduce(values: &[&Self]) -> Self {
+        Self {
+            alive_documents: values.iter().map(|v| v.alive_documents).sum(),
+            deleted_documents: values.iter().map(|v| v.deleted_documents).sum(),
+            total_size: values.iter().map(|v| v.total_size).sum(),
+        }
+    }
+}

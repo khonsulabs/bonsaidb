@@ -21,7 +21,7 @@ struct Data<F: AsyncFile> {
     _file: PhantomData<F>,
 }
 
-impl<F: AsyncFile> Roots<F> {
+impl<F: AsyncFile + 'static> Roots<F> {
     async fn new<P: Into<PathBuf> + Send>(
         path: P,
         vault: Option<Arc<dyn Vault>>,

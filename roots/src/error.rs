@@ -16,11 +16,44 @@ pub enum Error {
     /// An unrecoverable data integrity error was encountered.
     #[error("an unrecoverable error with the data on disk has been found: {0}")]
     DataIntegrity(Box<Self>),
+    /// A key was too large.
+    #[error("key too large")]
+    KeyTooLarge,
+    /// A document ID was too many bytes.
+    #[error("document id too large")]
+    IdTooLarge,
+    /// An internal error occurred. These errors are not intended to be
+    /// recoverable and represent some internal error condition.
+    #[error("an internal error occurred: {0}")]
+    Internal(InternalError),
 }
 
 impl Error {
     /// Returns a new [`Error::Message`] instance with the message provided.
-    pub fn message<S: Display>(message: S) -> Self {
+    pub(crate) fn message<S: Display>(message: S) -> Self {
         Self::Message(message.to_string())
     }
+
+    pub(crate) fn data_integrity(error: impl Into<Self>) -> Self {
+        Self::DataIntegrity(Box::new(error.into()))
+    }
+}
+
+impl From<&'static str> for Error {
+    fn from(message: &'static str) -> Self {
+        Self::message(message)
+    }
+}
+
+impl From<String> for Error {
+    fn from(message: String) -> Self {
+        Self::message(message)
+    }
+}
+
+/// An internal database error.
+#[derive(Debug, Error)]
+pub enum InternalError {
+    #[error("the b-tree header is too large")]
+    HeaderTooLarge,
 }

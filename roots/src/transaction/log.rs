@@ -10,7 +10,7 @@ use zerocopy::{AsBytes, FromBytes, LayoutVerified, Unaligned, U64};
 
 use super::{State, TransactionHandle};
 use crate::{
-    async_file::{AsyncFile, AsyncFileManager, FileWriter, OpenableFile},
+    async_file::{AsyncFile, AsyncFileManager, FileOp, OpenableFile},
     Error, Vault,
 };
 
@@ -107,8 +107,8 @@ impl<F: AsyncFile> TransactionLog<F> {
                         Some(vault) => Cow::Owned(vault.decrypt(payload)),
                         None => Cow::Borrowed(payload),
                     };
-                    let transaction = LogEntry::deserialize(&decrypted)
-                        .map_err(|err| Error::DataIntegrity(Box::new(err)))?;
+                    let transaction =
+                        LogEntry::deserialize(&decrypted).map_err(Error::data_integrity)?;
                     break transaction.id;
                 }
                 _ => unreachable!("corrupt transaction log"),
@@ -156,7 +156,8 @@ struct LogWriter<'a, F> {
 }
 
 #[async_trait(?Send)]
-impl<'a, F: AsyncFile> FileWriter<F> for LogWriter<'a, F> {
+impl<'a, F: AsyncFile> FileOp<F> for LogWriter<'a, F> {
+    type Output = ();
     async fn write(&mut self, log: &mut F) -> Result<(), Error> {
         let mut log_position = self.state.lock_for_write().await;
         let mut scratch_buffer = Vec::new();
@@ -417,15 +418,17 @@ mod tests {
         let temp_dir = crate::test_util::TestDirectory::new(file_name);
         let file_manager = <F::Manager as Default>::default();
         tokio::fs::create_dir(&temp_dir).await.unwrap();
-        for id in 0..100_000 {
+        for id in 0..1_000 {
             let log_path = {
                 let directory: &Path = &temp_dir;
                 directory.join("transactions")
             };
             let state = State::default();
-            TransactionLog::<F>::initialize_state(&state, &log_path, vault.as_deref())
-                .await
-                .unwrap();
+            let result =
+                TransactionLog::<F>::initialize_state(&state, &log_path, vault.as_deref()).await;
+            if id > 0 {
+                result.unwrap();
+            }
             let mut transactions =
                 TransactionLog::<F>::open(&log_path, state, vault.clone(), &file_manager)
                     .await
@@ -470,7 +473,10 @@ mod tests {
         });
     }
 
-    async fn log_manager_tests<F: AsyncFile>(file_name: &str, vault: Option<Arc<dyn Vault>>) {
+    async fn log_manager_tests<F: AsyncFile + 'static>(
+        file_name: &str,
+        vault: Option<Arc<dyn Vault>>,
+    ) {
         let temp_dir = crate::test_util::TestDirectory::new(file_name);
         tokio::fs::create_dir(&temp_dir).await.unwrap();
         let file_manager = <F::Manager as Default>::default();
@@ -482,7 +488,7 @@ mod tests {
         for _ in 0..10 {
             let manager = manager.clone();
             handles.push(tokio::spawn(async move {
-                for id in 0..10_000 {
+                for id in 0..1_000 {
                     let mut tx = manager.new_transaction(&[id.as_bytes()]).await;
 
                     tx.transaction.changes.insert(
@@ -498,7 +504,7 @@ mod tests {
         }
         join_all(handles).await;
 
-        assert_eq!(manager.current_transaction_id(), 100_000);
+        assert_eq!(manager.current_transaction_id(), 10_000);
         // TODO test scanning the file
     }
 }
