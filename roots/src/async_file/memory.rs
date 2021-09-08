@@ -13,9 +13,8 @@ use tokio::sync::{Mutex, RwLock};
 use super::{AsyncFile, AsyncFileManager, FileOp, OpenableFile};
 use crate::Error;
 
-/// A fake "file" represented by an in-memory buffer. This shouldn't only be
-/// used in testing, as this database format is not optimized for memory
-/// efficiency.
+/// A fake "file" represented by an in-memory buffer. This should only be used
+/// in testing, as this database format is not optimized for memory efficiency.
 pub struct MemoryFile {
     buffer: Arc<RwLock<Vec<u8>>>,
 }
