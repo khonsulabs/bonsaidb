@@ -129,6 +129,15 @@ impl AsyncFileManager<TokioFile> for TokioFileManager {
     fn run<Fut: Future<Output = ()>>(future: Fut) {
         tokio::runtime::Runtime::new().unwrap().block_on(future);
     }
+
+    async fn read(
+        &self,
+        path: impl AsRef<Path> + Send + 'async_trait,
+    ) -> Result<Self::FileHandle, Error> {
+        // Readers we don't cache
+        let file = Arc::new(Mutex::new(TokioFile::read(path).await?));
+        Ok(OpenTokioFile(file))
+    }
 }
 // TODO async file manager: For uring, does nothing. For tokio, manages access to open files.
 

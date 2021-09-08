@@ -26,6 +26,7 @@ macro_rules! try_with_buffer_result {
     }};
 }
 
+pub mod memory;
 pub mod tokio;
 #[cfg(feature = "uring")]
 pub mod uring;
@@ -206,11 +207,24 @@ impl AsyncFile for File {
 #[async_trait(?Send)]
 pub trait AsyncFileManager<F: AsyncFile>: Send + Sync + Clone + Default {
     type FileHandle: OpenableFile<F>;
-    // async fn read(&self, path: impl AsRef<Path> + Send + 'async_trait) -> Result<Self::FileHandle, Error>;
+    async fn read(
+        &self,
+        path: impl AsRef<Path> + Send + 'async_trait,
+    ) -> Result<Self::FileHandle, Error>;
     async fn append(
         &self,
         path: impl AsRef<Path> + Send + 'async_trait,
     ) -> Result<Self::FileHandle, Error>;
+
+    async fn file_length(
+        &self,
+        path: impl AsRef<Path> + Send + 'async_trait,
+    ) -> Result<u64, Error> {
+        ::tokio::fs::metadata(path)
+            .await
+            .map_err(Error::from)
+            .map(|metadata| metadata.len())
+    }
 
     fn run<Fut: Future<Output = ()>>(future: Fut);
 }
@@ -251,6 +265,13 @@ impl AsyncFileManager<File> for FileManager {
                 ::tokio::runtime::Runtime::new().unwrap().block_on(future);
             }
         }
+    }
+
+    async fn read(
+        &self,
+        path: impl AsRef<Path> + Send + 'async_trait,
+    ) -> Result<Self::FileHandle, Error> {
+        File::read(path).await
     }
 }
 

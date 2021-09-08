@@ -78,6 +78,13 @@ impl AsyncFileManager<UringFile> for UringFileManager {
         UringFile::append(path).await
     }
 
+    async fn read(
+        &self,
+        path: impl AsRef<Path> + Send + 'async_trait,
+    ) -> Result<Self::FileHandle, Error> {
+        UringFile::read(path).await
+    }
+
     fn run<Fut: Future<Output = ()>>(future: Fut) {
         tokio_uring::start(future);
     }

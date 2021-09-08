@@ -25,6 +25,7 @@ byteorder = "1"
 futures = "0.3"
 flume = "0.10"
 crc = "2"
+once_cell = "1"
 
 [profile.release]
 lto = true

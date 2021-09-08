@@ -585,10 +585,6 @@ impl<'a> TreeRoot<'a> {
     }
 }
 
-enum Flags {
-    Encrypted = 1,
-}
-
 pub trait BinarySerialization<'a>: Sized {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error>;
     fn serialize(&self) -> Result<Vec<u8>, Error> {

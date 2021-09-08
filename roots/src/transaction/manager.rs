@@ -93,7 +93,14 @@ fn transaction_writer_thread<F: AsyncFile>(
     F::Manager::run(async {
         let state = State::default();
         let result = {
-            match TransactionLog::<F>::initialize_state(&state, &log_path, vault.as_deref()).await {
+            match TransactionLog::<F>::initialize_state(
+                &state,
+                &log_path,
+                vault.as_deref(),
+                &file_manager,
+            )
+            .await
+            {
                 Err(Error::DataIntegrity(err)) => Err(Error::DataIntegrity(err)),
                 _ => Ok(()),
             }

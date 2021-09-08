@@ -43,8 +43,9 @@ impl<F: AsyncFile> TransactionLog<F> {
         state: &State,
         log_path: &Path,
         vault: Option<&dyn Vault>,
+        file_manager: &F::Manager,
     ) -> Result<(), Error> {
-        let mut log_length = log_path.metadata()?.len();
+        let mut log_length = file_manager.file_length(log_path).await?;
         if log_length == 0 {
             return Err(Error::message("empty transaction log"));
         }
@@ -66,10 +67,57 @@ impl<F: AsyncFile> TransactionLog<F> {
             file.sync_all().await?;
         }
 
-        let mut log = F::read(log_path).await?;
+        let mut file = file_manager.read(log_path).await?;
+        file.write(StateInitializer {
+            state,
+            log_length,
+            vault: vault.as_deref(),
+            _file: PhantomData,
+        })
+        .await
+    }
 
+    pub async fn push(&mut self, handles: Vec<TransactionHandle<'_>>) -> Result<(), Error> {
+        self.log
+            .write(LogWriter {
+                state: self.state.clone(),
+                vault: self.vault.clone(),
+                handles,
+                _file: PhantomData,
+            })
+            .await
+    }
+
+    pub async fn close(self) -> Result<(), Error> {
+        self.log.close().await
+    }
+
+    pub fn current_transaction_id(&self) -> u64 {
+        self.state.current_transaction_id()
+    }
+
+    #[allow(clippy::needless_lifetimes)] // lies! I can't seem to get rid of the lifetimes.
+    pub async fn new_transaction<'a>(&self, trees: &[&[u8]]) -> TransactionHandle<'a> {
+        self.state.new_transaction(trees).await
+    }
+
+    pub fn state(&self) -> State {
+        self.state.clone()
+    }
+}
+
+struct StateInitializer<'a, F> {
+    state: &'a State,
+    log_length: u64,
+    vault: Option<&'a dyn Vault>,
+    _file: PhantomData<F>,
+}
+#[async_trait(?Send)]
+impl<'a, F: AsyncFile> FileOp<F> for StateInitializer<'a, F> {
+    type Output = ();
+    async fn write(&mut self, log: &mut F) -> Result<(), Error> {
         // Scan back block by block until we find a page header with a value of 1.
-        let mut block_start = log_length - PAGE_SIZE as u64;
+        let mut block_start = self.log_length - PAGE_SIZE as u64;
         let mut scratch_buffer = Vec::new();
         scratch_buffer.resize(4, 0);
         let last_transaction_id = loop {
@@ -103,7 +151,7 @@ impl<F: AsyncFile> TransactionLog<F> {
                         (Err(err), _) => return Err(err),
                     };
                     let payload = &scratch_buffer[0..length];
-                    let decrypted = match vault {
+                    let decrypted = match &self.vault {
                         Some(vault) => Cow::Owned(vault.decrypt(payload)),
                         None => Cow::Borrowed(payload),
                     };
@@ -115,36 +163,10 @@ impl<F: AsyncFile> TransactionLog<F> {
             }
         };
 
-        state.initialize(last_transaction_id + 1, log_length).await;
+        self.state
+            .initialize(last_transaction_id + 1, self.log_length)
+            .await;
         Ok(())
-    }
-
-    pub async fn push(&mut self, handles: Vec<TransactionHandle<'_>>) -> Result<(), Error> {
-        self.log
-            .write(LogWriter {
-                state: self.state.clone(),
-                vault: self.vault.clone(),
-                handles,
-                _file: PhantomData,
-            })
-            .await
-    }
-
-    pub async fn close(self) -> Result<(), Error> {
-        self.log.close().await
-    }
-
-    pub fn current_transaction_id(&self) -> u64 {
-        self.state.current_transaction_id()
-    }
-
-    #[allow(clippy::needless_lifetimes)] // lies! I can't seem to get rid of the lifetimes.
-    pub async fn new_transaction<'a>(&self, trees: &[&[u8]]) -> TransactionHandle<'a> {
-        self.state.new_transaction(trees).await
-    }
-
-    pub fn state(&self) -> State {
-        self.state.clone()
     }
 }
 
@@ -375,7 +397,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        async_file::{tokio::TokioFile, AsyncFile},
+        async_file::{memory::MemoryFile, tokio::TokioFile, AsyncFile},
         test_util::RotatorVault,
         transaction::TransactionManager,
     };
@@ -383,6 +405,11 @@ mod tests {
     #[tokio::test]
     async fn tokio_log_file_tests() {
         log_file_tests::<TokioFile>("tokio_log_file", None).await;
+    }
+
+    #[tokio::test]
+    async fn memory_log_file_tests() {
+        log_file_tests::<MemoryFile>("memory_log_file", None).await;
     }
 
     #[test]
@@ -418,14 +445,20 @@ mod tests {
         let temp_dir = crate::test_util::TestDirectory::new(file_name);
         let file_manager = <F::Manager as Default>::default();
         tokio::fs::create_dir(&temp_dir).await.unwrap();
+        let log_path = {
+            let directory: &Path = &temp_dir;
+            directory.join("transactions")
+        };
+
         for id in 0..1_000 {
-            let log_path = {
-                let directory: &Path = &temp_dir;
-                directory.join("transactions")
-            };
             let state = State::default();
-            let result =
-                TransactionLog::<F>::initialize_state(&state, &log_path, vault.as_deref()).await;
+            let result = TransactionLog::<F>::initialize_state(
+                &state,
+                &log_path,
+                vault.as_deref(),
+                &file_manager,
+            )
+            .await;
             if id > 0 {
                 result.unwrap();
             }
@@ -452,7 +485,7 @@ mod tests {
             // Test that we can't open it without encryption
             let state = State::default();
             assert!(
-                TransactionLog::<F>::initialize_state(&state, &temp_dir, None)
+                TransactionLog::<F>::initialize_state(&state, &temp_dir, None, &file_manager,)
                     .await
                     .is_err()
             );
@@ -462,6 +495,11 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn tokio_log_manager_tests() {
         log_manager_tests::<TokioFile>("tokio_log_manager", None).await;
+    }
+
+    #[tokio::test]
+    async fn memory_log_manager_tests() {
+        log_manager_tests::<MemoryFile>("memory_log_manager", None).await;
     }
 
     #[test]
