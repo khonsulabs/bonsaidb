@@ -1,6 +1,6 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::{BinarySerialization, NoLifetime, Reducer};
+use super::{BinaryDeserialization, BinarySerialization, NoLifetime, PossiblyOwnedBuffer, Reducer};
 use crate::Error;
 
 #[derive(Clone, Debug)]
@@ -12,15 +12,17 @@ pub struct ByIdIndex {
 
 impl NoLifetime for ByIdIndex {}
 
-impl<'a> BinarySerialization<'a> for ByIdIndex {
+impl BinarySerialization for ByIdIndex {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         writer.write_u64::<BigEndian>(self.sequence_id)?;
         writer.write_u32::<BigEndian>(self.document_size)?;
         writer.write_u64::<BigEndian>(self.position)?;
         Ok(20)
     }
+}
 
-    fn deserialize_from(reader: &mut &'a [u8]) -> Result<Self, Error> {
+impl<'a> BinaryDeserialization<'a> for ByIdIndex {
+    fn deserialize_from(reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error> {
         let sequence_id = reader.read_u64::<BigEndian>()?;
         let document_size = reader.read_u32::<BigEndian>()?;
         let position = reader.read_u64::<BigEndian>()?;
@@ -41,15 +43,17 @@ pub struct ByIdStats {
 
 impl NoLifetime for ByIdStats {}
 
-impl<'a> BinarySerialization<'a> for ByIdStats {
+impl BinarySerialization for ByIdStats {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         writer.write_u64::<BigEndian>(self.alive_documents)?;
         writer.write_u64::<BigEndian>(self.deleted_documents)?;
         writer.write_u64::<BigEndian>(self.total_size)?;
-        Ok(8)
+        Ok(24)
     }
+}
 
-    fn deserialize_from(reader: &mut &'a [u8]) -> Result<Self, Error> {
+impl<'a> BinaryDeserialization<'a> for ByIdStats {
+    fn deserialize_from(reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error> {
         let alive_documents = reader.read_u64::<BigEndian>()?;
         let deleted_documents = reader.read_u64::<BigEndian>()?;
         let total_size = reader.read_u64::<BigEndian>()?;

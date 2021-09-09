@@ -16,8 +16,9 @@
     clippy::option_if_let_else,
     clippy::module_name_repetitions,
 )]
-// TODO
+// TODO remove allow(dead_code)
 #![allow(dead_code)]
+#![cfg_attr(test, allow(clippy::future_not_send))]
 
 #[macro_use]
 mod async_file;

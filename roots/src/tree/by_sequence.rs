@@ -2,7 +2,9 @@ use std::{borrow::Cow, convert::TryFrom};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::{BinarySerialization, NoLifetime, Ownable, Reducer};
+use super::{
+    BinaryDeserialization, BinarySerialization, NoLifetime, Ownable, PossiblyOwnedBuffer, Reducer,
+};
 use crate::Error;
 
 #[derive(Clone, Debug)]
@@ -12,17 +14,7 @@ pub struct BySequenceIndex<'a> {
     pub position: u64,
 }
 
-impl<T> Ownable for T
-where
-    T: NoLifetime,
-{
-    type Output = Self;
-    fn to_owned_lifetime(&self) -> Self::Output {
-        self.clone()
-    }
-}
-
-impl<'a> Ownable for BySequenceIndex<'a> {
+impl<'a> Ownable<'a> for BySequenceIndex<'a> {
     type Output = BySequenceIndex<'static>;
 
     fn to_owned_lifetime(&self) -> Self::Output {
@@ -34,7 +26,7 @@ impl<'a> Ownable for BySequenceIndex<'a> {
     }
 }
 
-impl<'a> BinarySerialization<'a> for BySequenceIndex<'a> {
+impl<'a> BinarySerialization for BySequenceIndex<'a> {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut bytes_written = 0;
         writer.write_u32::<BigEndian>(self.document_size)?;
@@ -50,8 +42,10 @@ impl<'a> BinarySerialization<'a> for BySequenceIndex<'a> {
         bytes_written += document_id_length as usize;
         Ok(bytes_written)
     }
+}
 
-    fn deserialize_from(reader: &mut &'a [u8]) -> Result<Self, Error> {
+impl<'a> BinaryDeserialization<'a> for BySequenceIndex<'a> {
+    fn deserialize_from(reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error> {
         let document_size = reader.read_u32::<BigEndian>()?;
         let position = reader.read_u64::<BigEndian>()?;
         let document_id_length = reader.read_u16::<BigEndian>()? as usize;
@@ -62,11 +56,10 @@ impl<'a> BinarySerialization<'a> for BySequenceIndex<'a> {
                 reader.len()
             )));
         }
-        let (document_id, remainder) = reader.split_at(document_id_length);
-        *reader = remainder;
+        let document_id = reader.read_bytes_as_cow(document_id_length);
 
         Ok(Self {
-            document_id: Cow::Borrowed(document_id),
+            document_id,
             document_size,
             position,
         })
@@ -80,13 +73,15 @@ pub struct BySequenceStats {
 
 impl NoLifetime for BySequenceStats {}
 
-impl<'a> BinarySerialization<'a> for BySequenceStats {
+impl BinarySerialization for BySequenceStats {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         writer.write_u64::<BigEndian>(self.number_of_records)?;
         Ok(8)
     }
+}
 
-    fn deserialize_from(reader: &mut &'a [u8]) -> Result<Self, Error> {
+impl<'a> BinaryDeserialization<'a> for BySequenceStats {
+    fn deserialize_from(reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error> {
         let number_of_records = reader.read_u64::<BigEndian>()?;
         Ok(Self { number_of_records })
     }

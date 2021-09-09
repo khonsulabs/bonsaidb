@@ -2,7 +2,7 @@ use std::{borrow::Cow, convert::TryFrom};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::{BinarySerialization, Ownable};
+use super::{BinaryDeserialization, BinarySerialization, Ownable, PossiblyOwnedBuffer};
 use crate::Error;
 
 #[derive(Clone, Debug)]
@@ -15,8 +15,8 @@ pub struct Interior<'a, R> {
     pub stats: R,
 }
 
-impl<'a, R: Ownable> Ownable for Interior<'a, R> {
-    type Output = Interior<'static, <R as Ownable>::Output>;
+impl<'a, R: Ownable<'a>> Ownable<'a> for Interior<'a, R> {
+    type Output = Interior<'static, <R as Ownable<'a>>::Output>;
 
     fn to_owned_lifetime(&self) -> Self::Output {
         Interior {
@@ -27,7 +27,7 @@ impl<'a, R: Ownable> Ownable for Interior<'a, R> {
     }
 }
 
-impl<'a, R: BinarySerialization<'a>> BinarySerialization<'a> for Interior<'a, R> {
+impl<'a, R: BinarySerialization> BinarySerialization for Interior<'a, R> {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut bytes_written = 0;
         // Write the key
@@ -43,8 +43,10 @@ impl<'a, R: BinarySerialization<'a>> BinarySerialization<'a> for Interior<'a, R>
 
         Ok(bytes_written)
     }
+}
 
-    fn deserialize_from(reader: &mut &'a [u8]) -> Result<Self, Error> {
+impl<'a, R: BinaryDeserialization<'a>> BinaryDeserialization<'a> for Interior<'a, R> {
+    fn deserialize_from(reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error> {
         let key_len = reader.read_u16::<BigEndian>()? as usize;
         if key_len > reader.len() {
             return Err(Error::data_integrity(format!(
@@ -53,14 +55,13 @@ impl<'a, R: BinarySerialization<'a>> BinarySerialization<'a> for Interior<'a, R>
                 reader.len()
             )));
         }
-        let (key, remainder) = reader.split_at(key_len);
-        *reader = remainder;
+        let key = reader.read_bytes_as_cow(key_len);
 
         let position = reader.read_u64::<BigEndian>()?;
         let stats = R::deserialize_from(reader)?;
 
         Ok(Self {
-            key: Cow::Borrowed(key),
+            key,
             position,
             stats,
         })

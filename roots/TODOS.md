@@ -3,6 +3,7 @@
 This is a temporary place to track TODOs for this project, until it's at the stage that it can be integrated into BonsaiDb.
 
 - [x] Refactor to const generics for B-Tree order
+- [x] Tree get for Interior
 - [ ] Tree insert for Interior
 - [ ] Root split handling
 - [ ] Ability to scan ranges of keys

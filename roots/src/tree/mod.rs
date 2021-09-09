@@ -37,11 +37,20 @@
 //!
 //! A data block may contain more than one chunk.
 
-use std::{borrow::Cow, convert::TryFrom, fmt::Debug, path::Path, sync::Arc};
+use std::{
+    borrow::Cow,
+    convert::TryFrom,
+    fmt::Debug,
+    io::{self, ErrorKind, Read},
+    ops::Deref,
+    path::Path,
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use byteorder::{BigEndian, ByteOrder, ReadBytesExt, WriteBytesExt};
 use crc::{Crc, CRC_32_BZIP2};
+use futures::{future::LocalBoxFuture, FutureExt};
 use tokio::fs::OpenOptions;
 
 use crate::{
@@ -433,7 +442,7 @@ async fn read_chunk<F: AsyncFile>(
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct TreeRoot<'a, const MAX_ORDER: usize> {
     transaction_id: u64,
     sequence: u64,
@@ -441,21 +450,16 @@ pub struct TreeRoot<'a, const MAX_ORDER: usize> {
     by_id_root: BTreeEntry<'a, ByIdIndex, ByIdStats, MAX_ORDER>,
 }
 
-enum ChangeResult<
-    'a,
-    I: BinarySerialization<'a>,
-    R: BinarySerialization<'a>,
-    const MAX_ORDER: usize,
-> {
+enum ChangeResult<I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> {
     Unchanged,
-    Replace(BTreeEntry<'a, I, R, MAX_ORDER>),
+    Replace(BTreeEntry<'static, I, R, MAX_ORDER>),
     Split(
-        BTreeEntry<'a, I, R, MAX_ORDER>,
-        BTreeEntry<'a, I, R, MAX_ORDER>,
+        BTreeEntry<'static, I, R, MAX_ORDER>,
+        BTreeEntry<'static, I, R, MAX_ORDER>,
     ),
 }
 
-impl<'a, const MAX_ORDER: usize> Ownable for TreeRoot<'a, MAX_ORDER> {
+impl<'a, const MAX_ORDER: usize> Ownable<'a> for TreeRoot<'a, MAX_ORDER> {
     type Output = TreeRoot<'static, MAX_ORDER>;
 
     fn to_owned_lifetime(&self) -> Self::Output {
@@ -537,7 +541,7 @@ impl<'a, const MAX_ORDER: usize> TreeRoot<'a, MAX_ORDER> {
         file: &'a mut F,
         vault: Option<&'a dyn Vault>,
     ) -> Result<Option<Vec<u8>>, Error> {
-        match self.by_id_root.get(key).await? {
+        match self.by_id_root.get(key, file, vault).await? {
             Some(entry) => {
                 let contents = read_chunk(entry.position, file, vault).await?;
                 Ok(Some(contents))
@@ -559,10 +563,11 @@ impl<'a, const MAX_ORDER: usize> TreeRoot<'a, MAX_ORDER> {
                 bytes.len()
             )));
         }
-        let (mut by_sequence, mut by_id) = bytes.split_at(by_sequence_size);
+        let (by_sequence, by_id) = bytes.split_at(by_sequence_size);
 
-        let by_sequence_root = BTreeEntry::deserialize_from(&mut by_sequence)?;
-        let by_id_root = BTreeEntry::deserialize_from(&mut by_id)?;
+        let by_sequence_root =
+            BTreeEntry::deserialize_from(&mut PossiblyOwnedBuffer::from(by_sequence))?;
+        let by_id_root = BTreeEntry::deserialize_from(&mut PossiblyOwnedBuffer::from(by_id))?;
 
         Ok(Self {
             transaction_id,
@@ -595,19 +600,82 @@ impl<'a, const MAX_ORDER: usize> TreeRoot<'a, MAX_ORDER> {
     }
 }
 
-pub trait BinarySerialization<'a>: Sized {
+pub trait BinaryDeserialization<'a>: Sized {
+    fn deserialize_from(reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error>;
+}
+
+/// A wrapper around a `Cow<'a, [u8]>` wrapper that implements Read, and has a
+/// convenience method to take a slice of bytes as a `Cow<'a, [u8]>`.
+pub struct PossiblyOwnedBuffer<'a> {
+    buffer: Cow<'a, [u8]>,
+    position: usize,
+}
+
+impl<'a> PossiblyOwnedBuffer<'a> {
+    pub fn read_bytes_as_cow(&mut self, count: usize) -> Cow<'a, [u8]> {
+        let start = self.position;
+        let end = self.position + count;
+        self.position = end;
+        match &self.buffer {
+            Cow::Owned(vec) => Cow::Owned(vec[start..end].to_vec()),
+            Cow::Borrowed(slice) => Cow::Borrowed(&slice[start..end]),
+        }
+    }
+}
+
+impl<'a> From<&'a [u8]> for PossiblyOwnedBuffer<'a> {
+    fn from(buffer: &'a [u8]) -> Self {
+        Self {
+            buffer: Cow::Borrowed(buffer),
+            position: 0,
+        }
+    }
+}
+
+impl<'a> From<Vec<u8>> for PossiblyOwnedBuffer<'a> {
+    fn from(buffer: Vec<u8>) -> Self {
+        Self {
+            buffer: Cow::Owned(buffer),
+            position: 0,
+        }
+    }
+}
+
+impl<'a> Deref for PossiblyOwnedBuffer<'a> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.buffer[self.position..]
+    }
+}
+
+impl<'a> Read for PossiblyOwnedBuffer<'a> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let end = self.buffer.len().min(self.position + buf.len());
+        let bytes_read = end - self.position;
+
+        if bytes_read == 0 {
+            return Err(io::Error::from(ErrorKind::UnexpectedEof));
+        }
+
+        buf.copy_from_slice(&self.buffer[self.position..end]);
+        self.position = end;
+
+        Ok(bytes_read)
+    }
+}
+
+pub trait BinarySerialization: Sized {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error>;
     fn serialize(&self) -> Result<Vec<u8>, Error> {
         let mut buffer = Vec::new();
         self.serialize_to(&mut buffer)?;
         Ok(buffer)
     }
-
-    fn deserialize_from(reader: &mut &'a [u8]) -> Result<Self, Error>;
 }
 
-impl<'a, I: BinarySerialization<'a>, R: BinarySerialization<'a>, const MAX_ORDER: usize>
-    BinarySerialization<'a> for BTreeEntry<'a, I, R, MAX_ORDER>
+impl<'a, I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> BinarySerialization
+    for BTreeEntry<'a, I, R, MAX_ORDER>
 {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut bytes_written = 0;
@@ -631,8 +699,12 @@ impl<'a, I: BinarySerialization<'a>, R: BinarySerialization<'a>, const MAX_ORDER
 
         Ok(bytes_written)
     }
+}
 
-    fn deserialize_from(reader: &mut &'a [u8]) -> Result<Self, Error> {
+impl<'a, I: BinaryDeserialization<'a>, R: BinaryDeserialization<'a>, const MAX_ORDER: usize>
+    BinaryDeserialization<'a> for BTreeEntry<'a, I, R, MAX_ORDER>
+{
+    fn deserialize_from(reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error> {
         let node_header = reader.read_u8()?;
         match node_header {
             0 => {
@@ -683,7 +755,7 @@ impl<I> Reducer<I> for () {
     fn rereduce(_reductions: &[&Self]) -> Self {}
 }
 
-impl<'a, I: Ownable, R: Ownable, const MAX_ORDER: usize> Ownable
+impl<'a, I: Ownable<'a>, R: Ownable<'a>, const MAX_ORDER: usize> Ownable<'a>
     for BTreeEntry<'a, I, R, MAX_ORDER>
 {
     type Output = BTreeEntry<'static, I::Output, R::Output, MAX_ORDER>;
@@ -703,8 +775,10 @@ impl<'a, I: Ownable, R: Ownable, const MAX_ORDER: usize> Ownable
 #[allow(clippy::future_not_send)]
 impl<
         'a,
-        I: Clone + BinarySerialization<'a>,
-        R: Clone + Reducer<I> + BinarySerialization<'a>,
+        I: Ownable<'a, Output = IO> + Clone + BinarySerialization + BinaryDeserialization<'a>,
+        IO: Ownable<'static, Output = IO> + Clone + BinarySerialization,
+        R: Ownable<'a, Output = RO> + Reducer<I> + BinarySerialization + BinaryDeserialization<'a>,
+        RO: Ownable<'static, Output = RO> + Reducer<IO> + BinarySerialization,
         const MAX_ORDER: usize,
     > BTreeEntry<'a, I, R, MAX_ORDER>
 {
@@ -713,14 +787,18 @@ impl<
         key: &[u8],
         index: I,
         writer: &mut PagedWriter<'_, F>,
-    ) -> Result<ChangeResult<'a, I, R, MAX_ORDER>, Error> {
+    ) -> Result<ChangeResult<IO, RO, MAX_ORDER>, Error> {
         match self {
             BTreeEntry::Leaf(children) => {
                 let new_leaf = KeyEntry {
                     key: Cow::Owned(key.to_vec()),
                     index,
-                };
-                let mut children = children.iter().map(KeyEntry::to_owned).collect::<Vec<_>>();
+                }
+                .to_owned_lifetime();
+                let mut children = children
+                    .iter()
+                    .map(KeyEntry::to_owned_lifetime)
+                    .collect::<Vec<_>>();
                 match children.binary_search_by_key(&key, |child| &child.key) {
                     Ok(matching_index) => {
                         children[matching_index] = new_leaf;
@@ -738,21 +816,24 @@ impl<
 
                     // Calculate the statistics
                     let lower_half_stats =
-                        R::reduce(&lower_half.iter().map(|l| &l.index).collect::<Vec<_>>());
+                        RO::reduce(&lower_half.iter().map(|l| &l.index).collect::<Vec<_>>());
                     let upper_half_stats =
-                        R::reduce(&upper_half.iter().map(|l| &l.index).collect::<Vec<_>>());
+                        RO::reduce(&upper_half.iter().map(|l| &l.index).collect::<Vec<_>>());
 
                     // Write the two leafs as chunks
                     let lower_half_position = writer.current_position();
                     writer
                         .write_chunk(
-                            &Self::Leaf(lower_half.iter().map(KeyEntry::to_owned).collect())
+                            &BTreeEntry::<IO, RO, MAX_ORDER>::Leaf(lower_half.to_vec())
                                 .serialize()?,
                         )
                         .await?;
                     let upper_half_position = writer.current_position();
                     writer
-                        .write_chunk(&Self::Leaf(upper_half.to_vec()).serialize()?)
+                        .write_chunk(
+                            &BTreeEntry::<IO, RO, MAX_ORDER>::Leaf(upper_half.to_vec())
+                                .serialize()?,
+                        )
                         .await?;
 
                     Ok(ChangeResult::Replace(BTreeEntry::Interior(vec![
@@ -795,21 +876,44 @@ impl<
         }
     }
 
-    async fn get(&self, key: &[u8]) -> Result<Option<I>, Error> {
-        match self {
-            BTreeEntry::Leaf(children) => {
-                match children.binary_search_by_key(&key, |child| &child.key) {
-                    Ok(matching) => {
-                        let entry = &children[matching];
-                        Ok(Some(entry.index.clone()))
+    fn get<'f, F: AsyncFile>(
+        &'f self,
+        key: &'f [u8],
+        file: &'f mut F,
+        vault: Option<&'f dyn Vault>,
+    ) -> LocalBoxFuture<'f, Result<Option<IO>, Error>> {
+        async move {
+            match self {
+                BTreeEntry::Leaf(children) => {
+                    match children.binary_search_by_key(&key, |child| &child.key) {
+                        Ok(matching) => {
+                            let entry = &children[matching];
+                            Ok(Some(entry.index.to_owned_lifetime()))
+                        }
+                        Err(_) => Ok(None),
                     }
-                    Err(_) => Ok(None),
+                }
+                BTreeEntry::Interior(children) => {
+                    let containing_node_index = children
+                        .binary_search_by_key(&key, |child| &child.key)
+                        .unwrap_or_else(|not_found| not_found + 1);
+
+                    // This isn't guaranteed to succeed because we add one. If
+                    // the key being searched for isn't contained, it will be
+                    // greater than any of the node's keys.
+                    if let Some(child) = children.get(containing_node_index) {
+                        let chunk = read_chunk(child.position, file, vault).await?;
+                        let mut reader = PossiblyOwnedBuffer::from(chunk);
+                        let entry =
+                            BTreeEntry::<'_, I, R, MAX_ORDER>::deserialize_from(&mut reader)?;
+                        entry.get(key, file, vault).await
+                    } else {
+                        Ok(None)
+                    }
                 }
             }
-            BTreeEntry::Interior(_children) => {
-                todo!()
-            }
         }
+        .boxed_local()
     }
 }
 
@@ -833,8 +937,8 @@ impl<'a, I: Clone> Clone for KeyEntry<'a, I> {
     }
 }
 
-impl<'a, I: Ownable> Ownable for KeyEntry<'a, I> {
-    type Output = KeyEntry<'static, <I as Ownable>::Output>;
+impl<'a, I: Ownable<'a>> Ownable<'a> for KeyEntry<'a, I> {
+    type Output = KeyEntry<'static, <I as Ownable<'a>>::Output>;
 
     fn to_owned_lifetime(&self) -> Self::Output {
         KeyEntry {
@@ -844,7 +948,7 @@ impl<'a, I: Ownable> Ownable for KeyEntry<'a, I> {
     }
 }
 
-impl<'a, I: BinarySerialization<'a>> BinarySerialization<'a> for KeyEntry<'a, I> {
+impl<'a, I: BinarySerialization> BinarySerialization for KeyEntry<'a, I> {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut bytes_written = 0;
         // Write the key
@@ -857,8 +961,10 @@ impl<'a, I: BinarySerialization<'a>> BinarySerialization<'a> for KeyEntry<'a, I>
         bytes_written += self.index.serialize_to(writer)?;
         Ok(bytes_written)
     }
+}
 
-    fn deserialize_from(reader: &mut &'a [u8]) -> Result<Self, Error> {
+impl<'a, I: BinaryDeserialization<'a>> BinaryDeserialization<'a> for KeyEntry<'a, I> {
+    fn deserialize_from(reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error> {
         let key_len = reader.read_u16::<BigEndian>()? as usize;
         if key_len > reader.len() {
             return Err(Error::data_integrity(format!(
@@ -867,34 +973,42 @@ impl<'a, I: BinarySerialization<'a>> BinarySerialization<'a> for KeyEntry<'a, I>
                 reader.len()
             )));
         }
-        let (key, remainder) = reader.split_at(key_len);
-        *reader = remainder;
+        let key = reader.read_bytes_as_cow(key_len);
 
         let value = I::deserialize_from(reader)?;
 
-        Ok(Self {
-            key: Cow::Borrowed(key),
-            index: value,
-        })
+        Ok(Self { key, index: value })
     }
 }
 
-impl<'a> BinarySerialization<'a> for () {
+impl BinarySerialization for () {
     fn serialize_to<W: WriteBytesExt>(&self, _writer: &mut W) -> Result<usize, Error> {
         Ok(0)
     }
+}
 
-    fn deserialize_from(_reader: &mut &'a [u8]) -> Result<Self, Error> {
+impl<'a> BinaryDeserialization<'a> for () {
+    fn deserialize_from(_reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error> {
         Ok(())
     }
 }
 
-trait Ownable {
-    type Output;
+pub trait Ownable<'a>: Clone {
+    type Output: Ownable<'static, Output = Self::Output>;
     fn to_owned_lifetime(&self) -> Self::Output;
 }
 
-trait NoLifetime: Clone {}
+pub trait NoLifetime: Clone {}
+
+impl<'a, T> Ownable<'a> for T
+where
+    T: NoLifetime,
+{
+    type Output = Self;
+    fn to_owned_lifetime(&self) -> Self::Output {
+        self.clone()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -904,12 +1018,12 @@ mod tests {
     async fn insert_one_record<const MAX_ORDER: usize>(
         manager: &TokioFileManager,
         file_path: &Path,
-        id: u64,
+        id: &mut u64,
     ) {
         let id_bytes = id.to_be_bytes();
         {
             let state = State::default();
-            if id > 1 {
+            if dbg!(*id) > 0 {
                 TreeFile::<TokioFile, MAX_ORDER>::initialize_state(&state, file_path, None)
                     .await
                     .unwrap();
@@ -939,16 +1053,31 @@ mod tests {
             let value = tree.get(&id_bytes).await.unwrap();
             assert_eq!(&value.unwrap(), b"hello world");
         }
+        *id += 1;
     }
 
     #[tokio::test]
     async fn test() {
+        const ORDER: usize = 3;
+
         let manager = TokioFileManager::default();
         let temp_dir = crate::test_util::TestDirectory::new("btree-tests");
         tokio::fs::create_dir(&temp_dir).await.unwrap();
         let file_path = temp_dir.join("tree");
-        for i in 1..10 {
-            insert_one_record::<10>(&manager, &file_path, i).await;
+        let mut id = 0_u64;
+        // Insert up to the limit of a LEAF, which is ORDER - 1.
+        for _ in 0..ORDER - 1 {
+            insert_one_record::<ORDER>(&manager, &file_path, &mut id).await;
+        }
+        println!("Successfully inserted up to ORDER - 1 nodes.");
+
+        // The next record will split the node
+        insert_one_record::<ORDER>(&manager, &file_path, &mut id).await;
+        println!("Successfully introduced one layer of depth.");
+
+        // Inserting will now have to go through the interior node. We'll insert to the next depth.
+        for _ in 0..ORDER.pow(2) as u64 - id - 1 {
+            insert_one_record::<ORDER>(&manager, &file_path, &mut id).await;
         }
     }
 }
