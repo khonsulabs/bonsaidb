@@ -585,10 +585,6 @@ impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
     }
 }
 
-pub trait BinaryDeserialization: Sized {
-    fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error>;
-}
-
 /// A wrapper around a `Cow<'a, [u8]>` wrapper that implements Read, and has a
 /// convenience method to take a slice of bytes as a `Cow<'a, [u8]>`.
 #[derive(Debug, Clone)]
@@ -656,6 +652,7 @@ pub trait BinarySerialization: Sized {
         self.serialize_to(&mut buffer)?;
         Ok(buffer)
     }
+    fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error>;
 }
 
 impl<I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> BinarySerialization
@@ -683,11 +680,7 @@ impl<I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> Bin
 
         Ok(bytes_written)
     }
-}
 
-impl<I: BinaryDeserialization, R: BinaryDeserialization, const MAX_ORDER: usize>
-    BinaryDeserialization for BTreeEntry<I, R, MAX_ORDER>
-{
     fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error> {
         let node_header = reader.read_u8()?;
         match node_header {
@@ -741,8 +734,8 @@ impl<I> Reducer<I> for () {
 
 #[allow(clippy::future_not_send)]
 impl<
-        I: Clone + BinarySerialization + BinaryDeserialization,
-        R: Clone + Reducer<I> + BinarySerialization + BinaryDeserialization,
+        I: Clone + BinarySerialization,
+        R: Clone + Reducer<I> + BinarySerialization,
         const MAX_ORDER: usize,
     > BTreeEntry<I, R, MAX_ORDER>
 {
@@ -894,9 +887,7 @@ impl<I: BinarySerialization> BinarySerialization for KeyEntry<I> {
         bytes_written += self.index.serialize_to(writer)?;
         Ok(bytes_written)
     }
-}
 
-impl<I: BinaryDeserialization> BinaryDeserialization for KeyEntry<I> {
     fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error> {
         let key_len = reader.read_u16::<BigEndian>()? as usize;
         if key_len > reader.len() {
@@ -918,9 +909,7 @@ impl BinarySerialization for () {
     fn serialize_to<W: WriteBytesExt>(&self, _writer: &mut W) -> Result<usize, Error> {
         Ok(0)
     }
-}
 
-impl<'a> BinaryDeserialization for () {
     fn deserialize_from(_reader: &mut ScratchBuffer) -> Result<Self, Error> {
         Ok(())
     }

@@ -1,6 +1,6 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::{BinaryDeserialization, BinarySerialization, Reducer, ScratchBuffer};
+use super::{BinarySerialization, Reducer, ScratchBuffer};
 use crate::Error;
 
 #[derive(Clone, Debug)]
@@ -17,9 +17,7 @@ impl BinarySerialization for ByIdIndex {
         writer.write_u64::<BigEndian>(self.position)?;
         Ok(20)
     }
-}
 
-impl<'a> BinaryDeserialization for ByIdIndex {
     fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error> {
         let sequence_id = reader.read_u64::<BigEndian>()?;
         let document_size = reader.read_u32::<BigEndian>()?;
@@ -46,9 +44,7 @@ impl BinarySerialization for ByIdStats {
         writer.write_u64::<BigEndian>(self.total_size)?;
         Ok(24)
     }
-}
 
-impl<'a> BinaryDeserialization for ByIdStats {
     fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error> {
         let alive_documents = reader.read_u64::<BigEndian>()?;
         let deleted_documents = reader.read_u64::<BigEndian>()?;

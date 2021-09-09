@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::{BinaryDeserialization, BinarySerialization, ScratchBuffer};
+use super::{BinarySerialization, ScratchBuffer};
 use crate::Error;
 
 #[derive(Clone, Debug)]
@@ -31,9 +31,7 @@ impl<R: BinarySerialization> BinarySerialization for Interior<R> {
 
         Ok(bytes_written)
     }
-}
 
-impl<R: BinaryDeserialization> BinaryDeserialization for Interior<R> {
     fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error> {
         let key_len = reader.read_u16::<BigEndian>()? as usize;
         if key_len > reader.len() {
