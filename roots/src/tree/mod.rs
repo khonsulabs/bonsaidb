@@ -175,9 +175,9 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
                 }
                 PageHeader::Header => {
                     let contents = read_chunk(block_start + 1, &mut tree, vault.as_deref()).await?;
-                    let root = TreeRoot::deserialize(&contents)
+                    let root = TreeRoot::deserialize(ScratchBuffer::from(contents))
                         .map_err(|err| Error::DataIntegrity(Box::new(err)))?;
-                    break root.to_owned_lifetime();
+                    break root;
                 }
             }
         };
@@ -443,37 +443,21 @@ async fn read_chunk<F: AsyncFile>(
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct TreeRoot<'a, const MAX_ORDER: usize> {
+pub struct TreeRoot<const MAX_ORDER: usize> {
     transaction_id: u64,
     sequence: u64,
-    by_sequence_root: BTreeEntry<'a, BySequenceIndex<'a>, BySequenceStats, MAX_ORDER>,
-    by_id_root: BTreeEntry<'a, ByIdIndex, ByIdStats, MAX_ORDER>,
+    by_sequence_root: BTreeEntry<BySequenceIndex, BySequenceStats, MAX_ORDER>,
+    by_id_root: BTreeEntry<ByIdIndex, ByIdStats, MAX_ORDER>,
 }
 
 enum ChangeResult<I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> {
     Unchanged,
-    Replace(BTreeEntry<'static, I, R, MAX_ORDER>),
-    Split(
-        BTreeEntry<'static, I, R, MAX_ORDER>,
-        BTreeEntry<'static, I, R, MAX_ORDER>,
-    ),
-}
-
-impl<'a, const MAX_ORDER: usize> Ownable<'a> for TreeRoot<'a, MAX_ORDER> {
-    type Output = TreeRoot<'static, MAX_ORDER>;
-
-    fn to_owned_lifetime(&self) -> Self::Output {
-        TreeRoot {
-            transaction_id: self.transaction_id,
-            sequence: self.sequence,
-            by_sequence_root: self.by_sequence_root.to_owned_lifetime(),
-            by_id_root: self.by_id_root.to_owned_lifetime(),
-        }
-    }
+    Replace(BTreeEntry<I, R, MAX_ORDER>),
+    Split(BTreeEntry<I, R, MAX_ORDER>, BTreeEntry<I, R, MAX_ORDER>),
 }
 
 #[allow(clippy::future_not_send)]
-impl<'a, const MAX_ORDER: usize> TreeRoot<'a, MAX_ORDER> {
+impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
     async fn insert<F: AsyncFile>(
         &mut self,
         key: &[u8],
@@ -492,7 +476,7 @@ impl<'a, const MAX_ORDER: usize> TreeRoot<'a, MAX_ORDER> {
             .insert(
                 &new_sequence.to_be_bytes(),
                 BySequenceIndex {
-                    document_id: Cow::Owned(key.to_vec()),
+                    document_id: ScratchBuffer::from(key.to_vec()),
                     document_size,
                     position: document_position,
                 },
@@ -538,8 +522,8 @@ impl<'a, const MAX_ORDER: usize> TreeRoot<'a, MAX_ORDER> {
     async fn get<F: AsyncFile>(
         &self,
         key: &[u8],
-        file: &'a mut F,
-        vault: Option<&'a dyn Vault>,
+        file: &mut F,
+        vault: Option<&dyn Vault>,
     ) -> Result<Option<Vec<u8>>, Error> {
         match self.by_id_root.get(key, file, vault).await? {
             Some(entry) => {
@@ -550,7 +534,7 @@ impl<'a, const MAX_ORDER: usize> TreeRoot<'a, MAX_ORDER> {
         }
     }
 
-    pub fn deserialize(mut bytes: &'a [u8]) -> Result<Self, Error> {
+    pub fn deserialize(mut bytes: ScratchBuffer) -> Result<Self, Error> {
         let transaction_id = bytes.read_u64::<BigEndian>()?;
         let sequence = bytes.read_u64::<BigEndian>()?;
         let by_sequence_size = bytes.read_u32::<BigEndian>()? as usize;
@@ -562,12 +546,13 @@ impl<'a, const MAX_ORDER: usize> TreeRoot<'a, MAX_ORDER> {
                 by_id_size,
                 bytes.len()
             )));
-        }
-        let (by_sequence, by_id) = bytes.split_at(by_sequence_size);
+        };
 
-        let by_sequence_root =
-            BTreeEntry::deserialize_from(&mut PossiblyOwnedBuffer::from(by_sequence))?;
-        let by_id_root = BTreeEntry::deserialize_from(&mut PossiblyOwnedBuffer::from(by_id))?;
+        let mut by_sequence_bytes = bytes.read_bytes(by_sequence_size)?;
+        let mut by_id_bytes = bytes.read_bytes(by_id_size)?;
+
+        let by_sequence_root = BTreeEntry::deserialize_from(&mut by_sequence_bytes)?;
+        let by_id_root = BTreeEntry::deserialize_from(&mut by_id_bytes)?;
 
         Ok(Self {
             transaction_id,
@@ -600,56 +585,55 @@ impl<'a, const MAX_ORDER: usize> TreeRoot<'a, MAX_ORDER> {
     }
 }
 
-pub trait BinaryDeserialization<'a>: Sized {
-    fn deserialize_from(reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error>;
+pub trait BinaryDeserialization: Sized {
+    fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error>;
 }
 
 /// A wrapper around a `Cow<'a, [u8]>` wrapper that implements Read, and has a
 /// convenience method to take a slice of bytes as a `Cow<'a, [u8]>`.
-pub struct PossiblyOwnedBuffer<'a> {
-    buffer: Cow<'a, [u8]>,
+#[derive(Debug, Clone)]
+pub struct ScratchBuffer {
+    buffer: Arc<Vec<u8>>,
+    end: usize,
     position: usize,
 }
 
-impl<'a> PossiblyOwnedBuffer<'a> {
-    pub fn read_bytes_as_cow(&mut self, count: usize) -> Cow<'a, [u8]> {
+impl ScratchBuffer {
+    pub fn read_bytes(&mut self, count: usize) -> Result<Self, std::io::Error> {
         let start = self.position;
         let end = self.position + count;
-        self.position = end;
-        match &self.buffer {
-            Cow::Owned(vec) => Cow::Owned(vec[start..end].to_vec()),
-            Cow::Borrowed(slice) => Cow::Borrowed(&slice[start..end]),
+        if end > self.end {
+            Err(std::io::Error::from(ErrorKind::UnexpectedEof))
+        } else {
+            self.position = end;
+            Ok(Self {
+                buffer: self.buffer.clone(),
+                end,
+                position: start,
+            })
         }
     }
 }
 
-impl<'a> From<&'a [u8]> for PossiblyOwnedBuffer<'a> {
-    fn from(buffer: &'a [u8]) -> Self {
-        Self {
-            buffer: Cow::Borrowed(buffer),
-            position: 0,
-        }
-    }
-}
-
-impl<'a> From<Vec<u8>> for PossiblyOwnedBuffer<'a> {
+impl From<Vec<u8>> for ScratchBuffer {
     fn from(buffer: Vec<u8>) -> Self {
         Self {
-            buffer: Cow::Owned(buffer),
+            end: buffer.len(),
+            buffer: Arc::new(buffer),
             position: 0,
         }
     }
 }
 
-impl<'a> Deref for PossiblyOwnedBuffer<'a> {
+impl Deref for ScratchBuffer {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.buffer[self.position..]
+        &self.buffer[self.position..self.end]
     }
 }
 
-impl<'a> Read for PossiblyOwnedBuffer<'a> {
+impl Read for ScratchBuffer {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let end = self.buffer.len().min(self.position + buf.len());
         let bytes_read = end - self.position;
@@ -674,8 +658,8 @@ pub trait BinarySerialization: Sized {
     }
 }
 
-impl<'a, I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> BinarySerialization
-    for BTreeEntry<'a, I, R, MAX_ORDER>
+impl<I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> BinarySerialization
+    for BTreeEntry<I, R, MAX_ORDER>
 {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut bytes_written = 0;
@@ -701,10 +685,10 @@ impl<'a, I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize>
     }
 }
 
-impl<'a, I: BinaryDeserialization<'a>, R: BinaryDeserialization<'a>, const MAX_ORDER: usize>
-    BinaryDeserialization<'a> for BTreeEntry<'a, I, R, MAX_ORDER>
+impl<I: BinaryDeserialization, R: BinaryDeserialization, const MAX_ORDER: usize>
+    BinaryDeserialization for BTreeEntry<I, R, MAX_ORDER>
 {
-    fn deserialize_from(reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error> {
         let node_header = reader.read_u8()?;
         match node_header {
             0 => {
@@ -730,14 +714,14 @@ impl<'a, I: BinaryDeserialization<'a>, R: BinaryDeserialization<'a>, const MAX_O
 
 /// A B-Tree entry that stores a list of key-`I` pairs.
 #[derive(Clone, Debug)]
-pub enum BTreeEntry<'a, I, R, const MAX_ORDER: usize> {
+pub enum BTreeEntry<I, R, const MAX_ORDER: usize> {
     /// An inline value. Overall, the B-Tree entry is a key-value pair.
-    Leaf(Vec<KeyEntry<'a, I>>),
+    Leaf(Vec<KeyEntry<I>>),
     /// An interior node that contains pointers to other nodes.
-    Interior(Vec<Interior<'a, R>>),
+    Interior(Vec<Interior<R>>),
 }
 
-impl<'a, I, R, const MAX_ORDER: usize> Default for BTreeEntry<'a, I, R, MAX_ORDER> {
+impl<I, R, const MAX_ORDER: usize> Default for BTreeEntry<I, R, MAX_ORDER> {
     fn default() -> Self {
         Self::Leaf(Vec::new())
     }
@@ -755,50 +739,26 @@ impl<I> Reducer<I> for () {
     fn rereduce(_reductions: &[&Self]) -> Self {}
 }
 
-impl<'a, I: Ownable<'a>, R: Ownable<'a>, const MAX_ORDER: usize> Ownable<'a>
-    for BTreeEntry<'a, I, R, MAX_ORDER>
-{
-    type Output = BTreeEntry<'static, I::Output, R::Output, MAX_ORDER>;
-
-    fn to_owned_lifetime(&self) -> Self::Output {
-        match self {
-            Self::Leaf(children) => {
-                BTreeEntry::Leaf(children.iter().map(|c| c.to_owned_lifetime()).collect())
-            }
-            Self::Interior(children) => {
-                BTreeEntry::Interior(children.iter().map(|c| c.to_owned_lifetime()).collect())
-            }
-        }
-    }
-}
-
 #[allow(clippy::future_not_send)]
 impl<
-        'a,
-        I: Ownable<'a, Output = IO> + Clone + BinarySerialization + BinaryDeserialization<'a>,
-        IO: Ownable<'static, Output = IO> + Clone + BinarySerialization,
-        R: Ownable<'a, Output = RO> + Reducer<I> + BinarySerialization + BinaryDeserialization<'a>,
-        RO: Ownable<'static, Output = RO> + Reducer<IO> + BinarySerialization,
+        I: Clone + BinarySerialization + BinaryDeserialization,
+        R: Clone + Reducer<I> + BinarySerialization + BinaryDeserialization,
         const MAX_ORDER: usize,
-    > BTreeEntry<'a, I, R, MAX_ORDER>
+    > BTreeEntry<I, R, MAX_ORDER>
 {
     async fn insert<F: AsyncFile>(
         &self,
         key: &[u8],
         index: I,
         writer: &mut PagedWriter<'_, F>,
-    ) -> Result<ChangeResult<IO, RO, MAX_ORDER>, Error> {
+    ) -> Result<ChangeResult<I, R, MAX_ORDER>, Error> {
         match self {
             BTreeEntry::Leaf(children) => {
                 let new_leaf = KeyEntry {
-                    key: Cow::Owned(key.to_vec()),
+                    key: ScratchBuffer::from(key.to_vec()),
                     index,
-                }
-                .to_owned_lifetime();
-                let mut children = children
-                    .iter()
-                    .map(KeyEntry::to_owned_lifetime)
-                    .collect::<Vec<_>>();
+                };
+                let mut children = children.iter().map(KeyEntry::clone).collect::<Vec<_>>();
                 match children.binary_search_by_key(&key, |child| &child.key) {
                     Ok(matching_index) => {
                         children[matching_index] = new_leaf;
@@ -816,40 +776,34 @@ impl<
 
                     // Calculate the statistics
                     let lower_half_stats =
-                        RO::reduce(&lower_half.iter().map(|l| &l.index).collect::<Vec<_>>());
+                        R::reduce(&lower_half.iter().map(|l| &l.index).collect::<Vec<_>>());
                     let upper_half_stats =
-                        RO::reduce(&upper_half.iter().map(|l| &l.index).collect::<Vec<_>>());
+                        R::reduce(&upper_half.iter().map(|l| &l.index).collect::<Vec<_>>());
 
                     // Write the two leafs as chunks
                     let lower_half_position = writer.current_position();
                     writer
-                        .write_chunk(
-                            &BTreeEntry::<IO, RO, MAX_ORDER>::Leaf(lower_half.to_vec())
-                                .serialize()?,
-                        )
+                        .write_chunk(&Self::Leaf(lower_half.to_vec()).serialize()?)
                         .await?;
                     let upper_half_position = writer.current_position();
                     writer
-                        .write_chunk(
-                            &BTreeEntry::<IO, RO, MAX_ORDER>::Leaf(upper_half.to_vec())
-                                .serialize()?,
-                        )
+                        .write_chunk(&Self::Leaf(upper_half.to_vec()).serialize()?)
                         .await?;
 
-                    Ok(ChangeResult::Replace(BTreeEntry::Interior(vec![
+                    Ok(ChangeResult::Replace(Self::Interior(vec![
                         Interior {
-                            key: Cow::Owned(lower_half.last().unwrap().key.to_vec()),
+                            key: lower_half.last().unwrap().key.clone(),
                             position: lower_half_position,
                             stats: lower_half_stats,
                         },
                         Interior {
-                            key: Cow::Owned(upper_half.last().unwrap().key.to_vec()),
+                            key: upper_half.last().unwrap().key.clone(),
                             position: upper_half_position,
                             stats: upper_half_stats,
                         },
                     ])))
                 } else {
-                    Ok(ChangeResult::Replace(BTreeEntry::Leaf(children)))
+                    Ok(ChangeResult::Replace(Self::Leaf(children)))
                 }
             }
             BTreeEntry::Interior(_pointers) => {
@@ -881,14 +835,14 @@ impl<
         key: &'f [u8],
         file: &'f mut F,
         vault: Option<&'f dyn Vault>,
-    ) -> LocalBoxFuture<'f, Result<Option<IO>, Error>> {
+    ) -> LocalBoxFuture<'f, Result<Option<I>, Error>> {
         async move {
             match self {
                 BTreeEntry::Leaf(children) => {
                     match children.binary_search_by_key(&key, |child| &child.key) {
                         Ok(matching) => {
                             let entry = &children[matching];
-                            Ok(Some(entry.index.to_owned_lifetime()))
+                            Ok(Some(entry.index.clone()))
                         }
                         Err(_) => Ok(None),
                     }
@@ -903,9 +857,8 @@ impl<
                     // greater than any of the node's keys.
                     if let Some(child) = children.get(containing_node_index) {
                         let chunk = read_chunk(child.position, file, vault).await?;
-                        let mut reader = PossiblyOwnedBuffer::from(chunk);
-                        let entry =
-                            BTreeEntry::<'_, I, R, MAX_ORDER>::deserialize_from(&mut reader)?;
+                        let mut reader = ScratchBuffer::from(chunk);
+                        let entry = Self::deserialize_from(&mut reader)?;
                         entry.get(key, file, vault).await
                     } else {
                         Ok(None)
@@ -922,33 +875,13 @@ pub struct MappedKey<'a> {
     pub contents: &'a [u8],
 }
 
-#[derive(Debug)]
-pub struct KeyEntry<'a, I> {
-    key: Cow<'a, [u8]>,
+#[derive(Debug, Clone)]
+pub struct KeyEntry<I> {
+    key: ScratchBuffer,
     index: I,
 }
 
-impl<'a, I: Clone> Clone for KeyEntry<'a, I> {
-    fn clone(&self) -> Self {
-        Self {
-            key: self.key.clone(),
-            index: self.index.clone(),
-        }
-    }
-}
-
-impl<'a, I: Ownable<'a>> Ownable<'a> for KeyEntry<'a, I> {
-    type Output = KeyEntry<'static, <I as Ownable<'a>>::Output>;
-
-    fn to_owned_lifetime(&self) -> Self::Output {
-        KeyEntry {
-            key: Cow::Owned(self.key.to_vec()),
-            index: self.index.to_owned_lifetime(),
-        }
-    }
-}
-
-impl<'a, I: BinarySerialization> BinarySerialization for KeyEntry<'a, I> {
+impl<I: BinarySerialization> BinarySerialization for KeyEntry<I> {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut bytes_written = 0;
         // Write the key
@@ -963,8 +896,8 @@ impl<'a, I: BinarySerialization> BinarySerialization for KeyEntry<'a, I> {
     }
 }
 
-impl<'a, I: BinaryDeserialization<'a>> BinaryDeserialization<'a> for KeyEntry<'a, I> {
-    fn deserialize_from(reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error> {
+impl<I: BinaryDeserialization> BinaryDeserialization for KeyEntry<I> {
+    fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error> {
         let key_len = reader.read_u16::<BigEndian>()? as usize;
         if key_len > reader.len() {
             return Err(Error::data_integrity(format!(
@@ -973,7 +906,7 @@ impl<'a, I: BinaryDeserialization<'a>> BinaryDeserialization<'a> for KeyEntry<'a
                 reader.len()
             )));
         }
-        let key = reader.read_bytes_as_cow(key_len);
+        let key = reader.read_bytes(key_len)?;
 
         let value = I::deserialize_from(reader)?;
 
@@ -987,26 +920,9 @@ impl BinarySerialization for () {
     }
 }
 
-impl<'a> BinaryDeserialization<'a> for () {
-    fn deserialize_from(_reader: &mut PossiblyOwnedBuffer<'a>) -> Result<Self, Error> {
+impl<'a> BinaryDeserialization for () {
+    fn deserialize_from(_reader: &mut ScratchBuffer) -> Result<Self, Error> {
         Ok(())
-    }
-}
-
-pub trait Ownable<'a>: Clone {
-    type Output: Ownable<'static, Output = Self::Output>;
-    fn to_owned_lifetime(&self) -> Self::Output;
-}
-
-pub trait NoLifetime: Clone {}
-
-impl<'a, T> Ownable<'a> for T
-where
-    T: NoLifetime,
-{
-    type Output = Self;
-    fn to_owned_lifetime(&self) -> Self::Output {
-        self.clone()
     }
 }
 
