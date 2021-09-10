@@ -39,10 +39,11 @@
 
 use std::{
     borrow::Cow,
+    cmp::Ordering,
     convert::TryFrom,
-    fmt::Debug,
+    fmt::{Debug, Write},
     io::{self, ErrorKind, Read},
-    ops::Deref,
+    ops::{Deref, DerefMut},
     path::Path,
     sync::Arc,
 };
@@ -56,7 +57,7 @@ use tokio::fs::OpenOptions;
 use crate::{
     async_file::{AsyncFile, AsyncFileManager, FileOp, OpenableFile},
     error::InternalError,
-    Error, Vault,
+    Context, Error, Vault,
 };
 
 mod by_id;
@@ -80,7 +81,9 @@ const fn magic_code(version: u8) -> u32 {
 const CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_BZIP2);
 
 enum PageHeader {
-    Continuation = 0,
+    // Using a strange value so that errors in the page writing/reading
+    // algorithm are easier to detect.
+    Continuation = 0xF1,
     Header = 1,
     Data = 2,
 }
@@ -90,7 +93,7 @@ impl TryFrom<u8> for PageHeader {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Self::Continuation),
+            0xF1 => Ok(Self::Continuation),
             1 => Ok(Self::Header),
             2 => Ok(Self::Data),
             _ => Err(Error::data_integrity(format!(
@@ -121,14 +124,14 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     pub async fn initialize_state(
         state: &State<MAX_ORDER>,
         file_path: &Path,
-        vault: Option<&dyn Vault>,
+        context: &Context<F::Manager>,
     ) -> Result<(), Error> {
         let mut state = state.lock().await;
         if state.initialized() {
             return Ok(());
         }
 
-        let mut file_length = file_path.metadata()?.len();
+        let mut file_length = context.file_manager.file_length(file_path).await?;
         if file_length == 0 {
             return Err(Error::message("empty transaction log"));
         }
@@ -174,7 +177,7 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
                     continue;
                 }
                 PageHeader::Header => {
-                    let contents = read_chunk(block_start + 1, &mut tree, vault.as_deref()).await?;
+                    let contents = read_chunk(block_start + 1, &mut tree, context.vault()).await?;
                     let root = TreeRoot::deserialize(ScratchBuffer::from(contents))
                         .map_err(|err| Error::DataIntegrity(Box::new(err)))?;
                     break root;
@@ -187,7 +190,7 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     }
 
     /// Returns the sequence that wrote this document.
-    pub async fn push(&mut self, key: &[u8], document: &[u8]) -> Result<u64, Error> {
+    pub async fn push(&mut self, key: ScratchBuffer, document: &[u8]) -> Result<u64, Error> {
         self.file
             .write(DocumentWriter {
                 state: &self.state,
@@ -213,7 +216,7 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
 struct DocumentWriter<'a, const MAX_ORDER: usize> {
     state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
-    key: &'a [u8],
+    key: ScratchBuffer,
     document: &'a [u8],
 }
 
@@ -233,14 +236,13 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, 
         )
         .await?;
 
-        let document_position = data_block.current_position();
-        data_block.write_chunk(self.document).await?;
+        let document_position = data_block.write_chunk(self.document).await?;
 
         // Now that we have the document data's position, we can update the by_sequence and by_id indexes.
         state
             .header
             .insert(
-                self.key,
+                self.key.clone(),
                 u32::try_from(self.document.len()).unwrap(),
                 document_position,
                 &mut data_block,
@@ -295,6 +297,20 @@ struct PagedWriter<'a, F: AsyncFile> {
     offset: usize,
 }
 
+impl<'a, F: AsyncFile> Deref for PagedWriter<'a, F> {
+    type Target = F;
+
+    fn deref(&self) -> &Self::Target {
+        self.file
+    }
+}
+
+impl<'a, F: AsyncFile> DerefMut for PagedWriter<'a, F> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.file
+    }
+}
+
 #[allow(clippy::future_not_send)]
 impl<'a, F: AsyncFile> PagedWriter<'a, F> {
     async fn new(
@@ -328,7 +344,10 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
         } else {
             // This won't fully fit within the scratch buffer. First, fill the remainder of scratch and write it.
             let (fill_amount, mut remaining) = data.split_at(scratch_remaining);
-            self.scratch[self.offset..PAGE_SIZE].copy_from_slice(fill_amount);
+            if !fill_amount.is_empty() {
+                self.scratch[self.offset..PAGE_SIZE].copy_from_slice(fill_amount);
+                self.offset = PAGE_SIZE;
+            }
             self.commit().await?;
 
             // If the data is large enough to span multiple pages, continue to do so.
@@ -336,6 +355,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
                 let (one_page, after) = remaining.split_at(PAGE_SIZE - 1);
                 remaining = after;
                 self.scratch[self.offset..PAGE_SIZE].copy_from_slice(one_page);
+                self.offset = PAGE_SIZE;
                 self.commit().await?;
             }
 
@@ -349,7 +369,10 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
         Ok(bytes_written)
     }
 
-    async fn write_chunk(&mut self, contents: &[u8]) -> Result<(), Error> {
+    /// Writes a chunk of data to the file, after possibly encrypting it.
+    /// Returns the position that this chunk can be read from in the file.
+    #[allow(clippy::cast_possible_truncation)]
+    async fn write_chunk(&mut self, contents: &[u8]) -> Result<u64, Error> {
         let possibly_encrypted = self.vault.as_ref().map_or_else(
             || Cow::Borrowed(contents),
             |vault| Cow::Owned(vault.encrypt(contents)),
@@ -357,12 +380,37 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
         let length = u32::try_from(possibly_encrypted.len())
             .map_err(|_| Error::data_integrity("chunk too large"))?;
         let crc = CRC32.checksum(&possibly_encrypted);
+        let mut position = self.current_position();
+        // Ensure that the chunk header can be read contiguously
+        let position_relative_to_page = position % PAGE_SIZE as u64;
+        if position_relative_to_page + 8 > PAGE_SIZE as u64 {
+            // Write the number of zeroes required to pad the current position
+            // such that our header's 8 bytes will not be interrupted by a page
+            // header.
+            let bytes_needed = if position_relative_to_page == 0 {
+                1
+            } else {
+                PAGE_SIZE - position_relative_to_page as usize
+            };
+            let zeroes = [0; 8];
+            self.write(&zeroes[0..bytes_needed]).await?;
+            position = self.current_position();
+        }
+
+        if position % PAGE_SIZE as u64 == 0 {
+            // A page header will be written before our first byte.
+            position += 1;
+        }
 
         self.write_u32::<BigEndian>(length).await?;
         self.write_u32::<BigEndian>(crc).await?;
         self.write(&possibly_encrypted).await?;
 
-        Ok(())
+        Ok(position)
+    }
+
+    async fn read_chunk(&mut self, position: u64) -> Result<Vec<u8>, Error> {
+        read_chunk(position, self.file, self.vault).await
     }
 
     async fn write_u8(&mut self, value: u8) -> Result<usize, Error> {
@@ -389,7 +437,16 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
 
     /// Writes the page and resets `offset`.
     async fn commit(&mut self) -> Result<(), Error> {
-        let buffer = std::mem::take(&mut self.scratch);
+        let mut buffer = std::mem::take(&mut self.scratch);
+
+        // In debug builds, fill the padding with a recognizable number: the
+        // answer to the ultimate question of life, the universe and everything.
+        // For refence, 42 in hex is 0x2A.
+        #[cfg(debug_assertions)]
+        if self.offset < PAGE_SIZE {
+            buffer[self.offset..].fill(42);
+        }
+
         let result = self
             .file
             .write_all(self.position, buffer, 0, PAGE_SIZE)
@@ -401,7 +458,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
         }
 
         // Set the header to be a continuation block
-        self.scratch[0] = 0;
+        self.scratch[0] = PageHeader::Continuation as u8;
         self.offset = 1;
         result.0
     }
@@ -413,6 +470,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
 }
 
 #[allow(clippy::future_not_send)]
+#[allow(clippy::cast_possible_truncation)]
 async fn read_chunk<F: AsyncFile>(
     position: u64,
     file: &mut F,
@@ -425,11 +483,50 @@ async fn read_chunk<F: AsyncFile>(
     result?;
     let length = BigEndian::read_u32(&scratch[0..4]) as usize;
     let crc = BigEndian::read_u32(&scratch[4..8]);
-    scratch.resize(length, 0);
-    let (result, scratch) = file.read_exact(position + 8, scratch, length).await;
+
+    let mut data_start = position + 8;
+    /// If the data starts on a page boundary, there will have been a page
+    /// boundary inserted. Note: We don't read this byte, so technically it's
+    /// unchecked as part of this process.
+    if data_start % PAGE_SIZE as u64 == 0 {
+        data_start += 1;
+    }
+
+    let data_start_relative_to_page = data_start % PAGE_SIZE as u64;
+    let data_end_relative_to_page = data_start_relative_to_page + length as u64;
+    // Minus 2 may look like code cruft, but it's due to the correct value being
+    // `data_end_relative_to_page as usize - 1`, except that if a write occurs
+    // that ends exactly on a page boundary, we omit the boundary.
+    let number_of_page_boundaries = (data_end_relative_to_page as usize - 2) / (PAGE_SIZE - 1);
+
+    let data_page_start = data_start - data_start % PAGE_SIZE as u64;
+    let total_bytes_to_read = length + number_of_page_boundaries;
+    scratch.resize(total_bytes_to_read, 0);
+    let (result, mut scratch) = file
+        .read_exact(data_start, scratch, total_bytes_to_read)
+        .await;
     result?;
 
-    if crc != CRC32.checksum(&scratch) {
+    // We need to remove the `PageHeader::Continuation` bytes before continuing.
+    let first_page_relative_end = data_page_start + PAGE_SIZE as u64 - data_start;
+    for page_num in (0..number_of_page_boundaries).rev() {
+        let continuation_byte = first_page_relative_end as usize + page_num * PAGE_SIZE;
+        if scratch.remove(continuation_byte) != PageHeader::Continuation as u8 {
+            return Err(Error::data_integrity(format!(
+                "Expected PageHeader::Continuation at {}",
+                position + continuation_byte as u64
+            )));
+        }
+    }
+
+    // This is an extra sanity check on the above algorithm, but given the
+    // thoroughness of the unit test around this functionality, it's only
+    // checked in debug mode. The CRC will still fail on bad reads, but noticing
+    // the length is incorrect is a sign that the byte removal loop is bad.
+    debug_assert_eq!(scratch.len(), length);
+
+    let computed_crc = CRC32.checksum(&scratch);
+    if crc != computed_crc {
         return Err(Error::data_integrity(format!(
             "crc32 failure on chunk at position {}",
             position
@@ -460,7 +557,7 @@ enum ChangeResult<I: BinarySerialization, R: BinarySerialization, const MAX_ORDE
 impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
     async fn insert<F: AsyncFile>(
         &mut self,
-        key: &[u8],
+        key: ScratchBuffer,
         document_size: u32,
         document_position: u64,
         writer: &mut PagedWriter<'_, F>,
@@ -474,9 +571,9 @@ impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
         match self
             .by_sequence_root
             .insert(
-                &new_sequence.to_be_bytes(),
+                ScratchBuffer::from(new_sequence.to_be_bytes().to_vec()),
                 BySequenceIndex {
-                    document_id: ScratchBuffer::from(key.to_vec()),
+                    document_id: key.clone(),
                     document_size,
                     position: document_position,
                 },
@@ -488,8 +585,10 @@ impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
             ChangeResult::Replace(new_root) => {
                 self.by_sequence_root = new_root;
             }
-            ChangeResult::Split(_lower, _upper) => {
-                todo!()
+            ChangeResult::Split(lower, upper) => {
+                self.by_sequence_root
+                    .split_root(lower, upper, writer)
+                    .await?;
             }
         }
         match self
@@ -509,8 +608,8 @@ impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
             ChangeResult::Replace(new_root) => {
                 self.by_id_root = new_root;
             }
-            ChangeResult::Split(_lower, _upper) => {
-                todo!()
+            ChangeResult::Split(lower, upper) => {
+                self.by_id_root.split_root(lower, upper, writer).await?;
             }
         }
 
@@ -587,11 +686,57 @@ impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
 
 /// A wrapper around a `Cow<'a, [u8]>` wrapper that implements Read, and has a
 /// convenience method to take a slice of bytes as a `Cow<'a, [u8]>`.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ScratchBuffer {
     buffer: Arc<Vec<u8>>,
     end: usize,
     position: usize,
+}
+
+impl Debug for ScratchBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut slice = self.as_slice();
+        write!(f, "ScratchBuffer {{ length: {}, bytes: [", slice.len())?;
+        while !slice.is_empty() {
+            let (chunk, remaining) = slice.split_at(4.min(slice.len()));
+            slice = remaining;
+            for byte in chunk {
+                write!(f, "{:x}", byte)?;
+            }
+            if !slice.is_empty() {
+                f.write_char(' ')?;
+            }
+        }
+        f.write_str("] }}")
+    }
+}
+
+impl Eq for ScratchBuffer {}
+
+impl PartialEq for ScratchBuffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Ord for ScratchBuffer {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if Arc::ptr_eq(&self.buffer, &other.buffer) {
+            if self.position == other.position && self.end == other.end {
+                Ordering::Equal
+            } else {
+                (&**self).cmp(&**other)
+            }
+        } else {
+            (&**self).cmp(&**other)
+        }
+    }
+}
+
+impl PartialOrd for ScratchBuffer {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl ScratchBuffer {
@@ -609,6 +754,10 @@ impl ScratchBuffer {
             })
         }
     }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.buffer[self.position..self.end]
+    }
 }
 
 impl From<Vec<u8>> for ScratchBuffer {
@@ -625,7 +774,7 @@ impl Deref for ScratchBuffer {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.buffer[self.position..self.end]
+        self.as_slice()
     }
 }
 
@@ -663,6 +812,7 @@ impl<I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> Bin
         // The next byte determines the node type.
         match &self {
             Self::Leaf(leafs) => {
+                debug_assert!(leafs.windows(2).all(|w| w[0].key < w[1].key));
                 writer.write_u8(1)?;
                 bytes_written += 1;
                 for leaf in leafs {
@@ -670,6 +820,7 @@ impl<I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> Bin
                 }
             }
             Self::Interior(interiors) => {
+                debug_assert!(interiors.windows(2).all(|w| w[0].key < w[1].key));
                 writer.write_u8(0)?;
                 bytes_written += 1;
                 for interior in interiors {
@@ -733,83 +884,125 @@ impl<I> Reducer<I> for () {
 }
 
 #[allow(clippy::future_not_send)]
-impl<
-        I: Clone + BinarySerialization,
-        R: Clone + Reducer<I> + BinarySerialization,
-        const MAX_ORDER: usize,
-    > BTreeEntry<I, R, MAX_ORDER>
+impl<I, R, const MAX_ORDER: usize> BTreeEntry<I, R, MAX_ORDER>
+where
+    I: Clone + BinarySerialization + Debug,
+    R: Clone + Reducer<I> + BinarySerialization + Debug,
 {
-    async fn insert<F: AsyncFile>(
-        &self,
-        key: &[u8],
+    #[allow(clippy::too_many_lines)] // TODO refactor
+    fn insert<'f, F: AsyncFile>(
+        &'f self,
+        key: ScratchBuffer,
         index: I,
-        writer: &mut PagedWriter<'_, F>,
-    ) -> Result<ChangeResult<I, R, MAX_ORDER>, Error> {
-        match self {
-            BTreeEntry::Leaf(children) => {
-                let new_leaf = KeyEntry {
-                    key: ScratchBuffer::from(key.to_vec()),
-                    index,
-                };
-                let mut children = children.iter().map(KeyEntry::clone).collect::<Vec<_>>();
-                match children.binary_search_by_key(&key, |child| &child.key) {
-                    Ok(matching_index) => {
-                        children[matching_index] = new_leaf;
+        writer: &'f mut PagedWriter<'_, F>,
+    ) -> LocalBoxFuture<'f, Result<ChangeResult<I, R, MAX_ORDER>, Error>> {
+        async move {
+            match self {
+                BTreeEntry::Leaf(children) => {
+                    let new_leaf = KeyEntry { key, index };
+                    let mut children = children.iter().map(KeyEntry::clone).collect::<Vec<_>>();
+                    match children.binary_search_by(|child| child.key.cmp(&new_leaf.key)) {
+                        Ok(matching_index) => {
+                            children[matching_index] = new_leaf;
+                        }
+                        Err(insert_at) => {
+                            children.insert(insert_at, new_leaf);
+                        }
                     }
-                    Err(insert_at) => {
-                        children.insert(insert_at, new_leaf);
+
+                    if children.len() >= MAX_ORDER {
+                        // We need to split this leaf into two leafs, moving a new interior node using the middle element.
+                        let midpoint = children.len() / 2;
+                        let (lower_half, upper_half) = children.split_at(midpoint);
+
+                        Ok(ChangeResult::Split(
+                            Self::Leaf(lower_half.to_vec()),
+                            Self::Leaf(upper_half.to_vec()),
+                        ))
+                    } else {
+                        Ok(ChangeResult::Replace(Self::Leaf(children)))
                     }
                 }
+                BTreeEntry::Interior(children) => {
+                    let (containing_node_index, is_new_max) = children
+                        .binary_search_by(|child| child.key.cmp(&key))
+                        .map_or_else(
+                            |not_found| {
+                                if not_found == children.len() {
+                                    // If we can't find a key less than what would fit
+                                    // within our children, this key will become the new key
+                                    // of the last child.
+                                    (not_found - 1, true)
+                                } else {
+                                    (not_found, false)
+                                }
+                            },
+                            |found| (found, false),
+                        );
 
-                if children.len() >= MAX_ORDER {
-                    // We need to split this leaf into two leafs, moving a new interior node using the middle element.
-                    // E.g., children.len() == 13, midpoint = (13 + 1) / 2 = 7
-                    let midpoint = (children.len() + 1) / 2;
-                    let (lower_half, upper_half) = children.split_at(midpoint);
+                    let child = &children[containing_node_index];
+                    let chunk = writer.read_chunk(child.position).await?;
+                    let mut reader = ScratchBuffer::from(chunk);
+                    let entry = Self::deserialize_from(&mut reader)?;
+                    let mut new_children = children.clone();
+                    match entry.insert(key.clone(), index, writer).await? {
+                        ChangeResult::Unchanged => unreachable!(),
+                        ChangeResult::Replace(new_node) => {
+                            let child_position = writer.write_chunk(&new_node.serialize()?).await?;
+                            new_children[containing_node_index] = Interior {
+                                key: if is_new_max {
+                                    key.clone()
+                                } else {
+                                    child.key.clone()
+                                },
+                                position: child_position,
+                                stats: new_node.stats(),
+                            };
+                        }
+                        ChangeResult::Split(lower, upper) => {
+                            // Write the two new children
+                            let lower_position = writer.write_chunk(&lower.serialize()?).await?;
+                            let upper_position = writer.write_chunk(&upper.serialize()?).await?;
+                            // Replace the original child with the lower entry.
+                            new_children[containing_node_index] = Interior {
+                                key: lower.max_key().clone(),
+                                position: lower_position,
+                                stats: lower.stats(),
+                            };
+                            // Insert the upper entry at the next position.
+                            new_children.insert(
+                                containing_node_index + 1,
+                                Interior {
+                                    key: upper.max_key().clone(),
+                                    position: upper_position,
+                                    stats: upper.stats(),
+                                },
+                            );
+                        }
+                    };
 
-                    // Calculate the statistics
-                    let lower_half_stats =
-                        R::reduce(&lower_half.iter().map(|l| &l.index).collect::<Vec<_>>());
-                    let upper_half_stats =
-                        R::reduce(&upper_half.iter().map(|l| &l.index).collect::<Vec<_>>());
+                    if new_children.len() >= MAX_ORDER {
+                        let midpoint = new_children.len() / 2;
+                        let (_, upper_half) = new_children.split_at(midpoint);
 
-                    // Write the two leafs as chunks
-                    let lower_half_position = writer.current_position();
-                    writer
-                        .write_chunk(&Self::Leaf(lower_half.to_vec()).serialize()?)
-                        .await?;
-                    let upper_half_position = writer.current_position();
-                    writer
-                        .write_chunk(&Self::Leaf(upper_half.to_vec()).serialize()?)
-                        .await?;
+                        // TODO this re-clones the upper-half children, but splitting a vec
+                        // without causing multiple copies of data seems
+                        // impossible without unsafe.
+                        let upper_half = upper_half.to_vec();
+                        assert_eq!(midpoint + upper_half.len(), new_children.len());
+                        new_children.truncate(midpoint);
 
-                    Ok(ChangeResult::Replace(Self::Interior(vec![
-                        Interior {
-                            key: lower_half.last().unwrap().key.clone(),
-                            position: lower_half_position,
-                            stats: lower_half_stats,
-                        },
-                        Interior {
-                            key: upper_half.last().unwrap().key.clone(),
-                            position: upper_half_position,
-                            stats: upper_half_stats,
-                        },
-                    ])))
-                } else {
-                    Ok(ChangeResult::Replace(Self::Leaf(children)))
+                        Ok(ChangeResult::Split(
+                            Self::Interior(new_children),
+                            Self::Interior(upper_half),
+                        ))
+                    } else {
+                        Ok(ChangeResult::Replace(Self::Interior(new_children)))
+                    }
                 }
-            }
-            BTreeEntry::Interior(_pointers) => {
-                // We need to find the location to insert this node at. It won't be inserted directly here.
-                // let insert_into_index = pointers
-                //     .binary_search_by_key(&key, |pointer| &pointer.key)
-                //     .unwrap_or_else(|i| i);
-                // load the node at the pointer
-                // insert into the node
-                // return the updated interior node
-                todo!()
             }
         }
+        .boxed_local()
     }
 
     fn stats(&self) -> R {
@@ -823,6 +1016,13 @@ impl<
         }
     }
 
+    fn max_key(&self) -> &ScratchBuffer {
+        match self {
+            BTreeEntry::Leaf(children) => &children.last().unwrap().key,
+            BTreeEntry::Interior(children) => &children.last().unwrap().key,
+        }
+    }
+
     fn get<'f, F: AsyncFile>(
         &'f self,
         key: &'f [u8],
@@ -832,7 +1032,7 @@ impl<
         async move {
             match self {
                 BTreeEntry::Leaf(children) => {
-                    match children.binary_search_by_key(&key, |child| &child.key) {
+                    match children.binary_search_by(|child| (&*child.key).cmp(key)) {
                         Ok(matching) => {
                             let entry = &children[matching];
                             Ok(Some(entry.index.clone()))
@@ -842,8 +1042,8 @@ impl<
                 }
                 BTreeEntry::Interior(children) => {
                     let containing_node_index = children
-                        .binary_search_by_key(&key, |child| &child.key)
-                        .unwrap_or_else(|not_found| not_found + 1);
+                        .binary_search_by(|child| (&*child.key).cmp(key))
+                        .unwrap_or_else(|not_found| not_found);
 
                     // This isn't guaranteed to succeed because we add one. If
                     // the key being searched for isn't contained, it will be
@@ -860,6 +1060,34 @@ impl<
             }
         }
         .boxed_local()
+    }
+
+    #[allow(clippy::too_many_lines)]
+    async fn split_root<F: AsyncFile>(
+        &mut self,
+        lower: Self,
+        upper: Self,
+        writer: &mut PagedWriter<'_, F>,
+    ) -> Result<(), Error> {
+        // Write the two interiors as chunks
+        let lower_half_position = writer.write_chunk(&lower.serialize()?).await?;
+        let upper_half_position = writer.write_chunk(&upper.serialize()?).await?;
+
+        // Regardless of what our current type is, the root will always be split
+        // into interior nodes.
+        *self = Self::Interior(vec![
+            Interior {
+                key: lower.max_key().clone(),
+                position: lower_half_position,
+                stats: lower.stats(),
+            },
+            Interior {
+                key: upper.max_key().clone(),
+                position: upper_half_position,
+                stats: upper.stats(),
+            },
+        ]);
+        Ok(())
     }
 }
 
@@ -917,72 +1145,159 @@ impl BinarySerialization for () {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::async_file::tokio::{TokioFile, TokioFileManager};
+    use std::collections::HashSet;
 
-    async fn insert_one_record<const MAX_ORDER: usize>(
-        manager: &TokioFileManager,
+    use nanorand::{Pcg64, Rng};
+
+    use super::*;
+    use crate::{
+        async_file::{memory::MemoryFile, tokio::TokioFileManager},
+        TokioFile,
+    };
+
+    async fn test_paged_write(offset: usize, length: usize) -> Result<(), Error> {
+        let mut file = MemoryFile::append(format!("test-{}-{}", offset, length)).await?;
+        let mut paged_writer = PagedWriter::new(PageHeader::Header, &mut file, None, 0).await?;
+
+        let mut scratch = Vec::new();
+        scratch.resize(offset.max(length), 0);
+        if offset > 0 {
+            paged_writer.write(&scratch[..offset]).await?;
+        }
+        scratch.fill(1);
+        let written_position = paged_writer.write_chunk(&scratch[..length]).await?;
+        drop(paged_writer.finish().await?);
+
+        let data = read_chunk(written_position, &mut file, None).await?;
+        assert_eq!(data.len(), length);
+        assert!(data.iter().all(|i| i == &1));
+        drop(file);
+
+        Ok(())
+    }
+
+    /// Tests the writing of pages at various boundaries. This should cover
+    /// every edge case: offset is on page 1/2/3, write stays on first page or
+    /// lands on page 1/2/3 end or extends onto page 4.
+    #[tokio::test]
+    async fn paged_writer() {
+        for offset in 0..=PAGE_SIZE * 2 {
+            for length in [
+                1,
+                PAGE_SIZE / 2,
+                PAGE_SIZE,
+                PAGE_SIZE * 3 / 2,
+                PAGE_SIZE * 2,
+            ] {
+                if let Err(err) = test_paged_write(offset, length).await {
+                    unreachable!(
+                        "paged writer failure at offset {} length {}: {:?}",
+                        offset, length, err
+                    );
+                }
+            }
+        }
+    }
+
+    async fn insert_one_record<F: AsyncFile, const MAX_ORDER: usize>(
+        context: &Context<F::Manager>,
         file_path: &Path,
-        id: &mut u64,
+        ids: &mut HashSet<u64>,
+        rng: &mut Pcg64,
     ) {
-        let id_bytes = id.to_be_bytes();
+        let id = loop {
+            let id = rng.generate::<u64>();
+            if ids.insert(id) {
+                break id;
+            }
+        };
+        let id_buffer = ScratchBuffer::from(id.to_be_bytes().to_vec());
         {
             let state = State::default();
-            if dbg!(*id) > 0 {
-                TreeFile::<TokioFile, MAX_ORDER>::initialize_state(&state, file_path, None)
+            if ids.len() > 1 {
+                TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context)
                     .await
                     .unwrap();
             }
-            let file = manager.append(file_path).await.unwrap();
-            let mut tree = TreeFile::<TokioFile, MAX_ORDER>::open(file, state, None)
+            let file = context.file_manager.append(file_path).await.unwrap();
+            let mut tree = TreeFile::<F, MAX_ORDER>::open(file, state, context.vault.clone())
                 .await
                 .unwrap();
-            tree.push(&id_bytes, b"hello world").await.unwrap();
+            tree.push(id_buffer.clone(), b"hello world").await.unwrap();
 
             // This shouldn't have to scan the file, as the data fits in memory.
-            let value = tree.get(&id_bytes).await.unwrap();
+            let value = tree.get(&id_buffer).await.unwrap();
             assert_eq!(&value.unwrap(), b"hello world");
         }
 
         // Try loading the file up and retrieving the data.
         {
             let state = State::default();
-            TreeFile::<TokioFile, MAX_ORDER>::initialize_state(&state, file_path, None)
+            TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context)
                 .await
                 .unwrap();
 
-            let file = manager.append(&file_path).await.unwrap();
-            let mut tree = TreeFile::<TokioFile, MAX_ORDER>::open(file, state, None)
+            let file = context.file_manager.append(file_path).await.unwrap();
+            let mut tree = TreeFile::<F, MAX_ORDER>::open(file, state, context.vault.clone())
                 .await
                 .unwrap();
-            let value = tree.get(&id_bytes).await.unwrap();
+            let value = tree.get(&id_buffer).await.unwrap();
             assert_eq!(&value.unwrap(), b"hello world");
         }
-        *id += 1;
     }
 
     #[tokio::test]
     async fn test() {
-        const ORDER: usize = 3;
+        const ORDER: usize = 4;
 
-        let manager = TokioFileManager::default();
+        let mut rng = Pcg64::new_seed(1);
+        let context = Context {
+            file_manager: TokioFileManager::default(),
+            vault: None,
+        };
         let temp_dir = crate::test_util::TestDirectory::new("btree-tests");
         tokio::fs::create_dir(&temp_dir).await.unwrap();
         let file_path = temp_dir.join("tree");
-        let mut id = 0_u64;
+        let mut ids = HashSet::new();
         // Insert up to the limit of a LEAF, which is ORDER - 1.
         for _ in 0..ORDER - 1 {
-            insert_one_record::<ORDER>(&manager, &file_path, &mut id).await;
+            insert_one_record::<TokioFile, ORDER>(&context, &file_path, &mut ids, &mut rng).await;
         }
         println!("Successfully inserted up to ORDER - 1 nodes.");
 
         // The next record will split the node
-        insert_one_record::<ORDER>(&manager, &file_path, &mut id).await;
+        insert_one_record::<TokioFile, ORDER>(&context, &file_path, &mut ids, &mut rng).await;
         println!("Successfully introduced one layer of depth.");
 
-        // Inserting will now have to go through the interior node. We'll insert to the next depth.
-        for _ in 0..ORDER.pow(2) as u64 - id - 1 {
-            insert_one_record::<ORDER>(&manager, &file_path, &mut id).await;
+        // Insert a lot more.
+        for _ in 0..1_000 {
+            insert_one_record::<TokioFile, ORDER>(&context, &file_path, &mut ids, &mut rng).await;
         }
+    }
+
+    #[test]
+    fn spam_insert() {
+        const ORDER: usize = 100;
+        const RECORDS: usize = 1000;
+        TokioFileManager::run(async {
+            let mut rng = Pcg64::new_seed(1);
+            let ids = (0..RECORDS).map(|_| rng.generate::<u64>());
+            let context = Context {
+                file_manager: TokioFileManager::default(),
+                vault: None,
+            };
+            let temp_dir = crate::test_util::TestDirectory::new("spam-inserts");
+            tokio::fs::create_dir(&temp_dir).await.unwrap();
+            let file_path = temp_dir.join("tree");
+            let state = State::default();
+            let file = context.file_manager.append(file_path).await.unwrap();
+            let mut tree = TreeFile::<TokioFile, ORDER>::open(file, state, context.vault.clone())
+                .await
+                .unwrap();
+            for (_index, id) in ids.enumerate() {
+                let id_buffer = ScratchBuffer::from(id.to_be_bytes().to_vec());
+                tree.push(id_buffer.clone(), b"hello world").await.unwrap();
+            }
+        });
     }
 }

@@ -100,7 +100,7 @@ impl AsyncFile for MemoryFile {
     ) -> (Result<usize, Error>, Vec<u8>) {
         let mut file_buffer = self.buffer.write().await;
         // Our database only uses append-only files. By asserting this is true, we can simply use Write
-        assert!(position as usize == file_buffer.len());
+        assert_eq!(position as usize, file_buffer.len());
 
         (
             file_buffer
