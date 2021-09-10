@@ -402,23 +402,25 @@ mod tests {
         async_file::{memory::MemoryFile, tokio::TokioFile, AsyncFile},
         test_util::RotatorVault,
         transaction::TransactionManager,
+        ChunkCache,
     };
 
     #[tokio::test]
     async fn tokio_log_file_tests() {
-        log_file_tests::<TokioFile>("tokio_log_file", None).await;
+        log_file_tests::<TokioFile>("tokio_log_file", None, None).await;
     }
 
     #[tokio::test]
     async fn memory_log_file_tests() {
-        log_file_tests::<MemoryFile>("memory_log_file", None).await;
+        log_file_tests::<MemoryFile>("memory_log_file", None, None).await;
     }
 
     #[test]
     #[cfg(feature = "uring")]
     fn uring_log_file_tests() {
         tokio_uring::start(async {
-            log_file_tests::<crate::async_file::uring::UringFile>("uring_log_file", None).await;
+            log_file_tests::<crate::async_file::uring::UringFile>("uring_log_file", None, None)
+                .await;
         });
     }
 
@@ -427,6 +429,7 @@ mod tests {
         log_manager_tests::<TokioFile>(
             "encrypted_tokio_log_manager",
             Some(Arc::new(RotatorVault::new(13))),
+            None,
         )
         .await;
     }
@@ -438,17 +441,23 @@ mod tests {
             log_manager_tests::<crate::async_file::uring::UringFile>(
                 "encrypted_uring_log_manager",
                 Some(Arc::new(RotatorVault::new(13))),
+                None,
             )
             .await;
         });
     }
 
-    async fn log_file_tests<F: AsyncFile>(file_name: &str, vault: Option<Arc<dyn Vault>>) {
+    async fn log_file_tests<F: AsyncFile>(
+        file_name: &str,
+        vault: Option<Arc<dyn Vault>>,
+        cache: Option<ChunkCache>,
+    ) {
         let temp_dir = crate::test_util::TestDirectory::new(file_name);
         let file_manager = <F::Manager as Default>::default();
         let context = Context {
             file_manager,
             vault,
+            cache,
         };
         tokio::fs::create_dir(&temp_dir).await.unwrap();
         let log_path = {
@@ -493,26 +502,31 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn tokio_log_manager_tests() {
-        log_manager_tests::<TokioFile>("tokio_log_manager", None).await;
+        log_manager_tests::<TokioFile>("tokio_log_manager", None, None).await;
     }
 
     #[tokio::test]
     async fn memory_log_manager_tests() {
-        log_manager_tests::<MemoryFile>("memory_log_manager", None).await;
+        log_manager_tests::<MemoryFile>("memory_log_manager", None, None).await;
     }
 
     #[test]
     #[cfg(feature = "uring")]
     fn uring_log_manager_tests() {
         tokio_uring::start(async {
-            log_manager_tests::<crate::async_file::uring::UringFile>("uring_log_manager", None)
-                .await;
+            log_manager_tests::<crate::async_file::uring::UringFile>(
+                "uring_log_manager",
+                None,
+                None,
+            )
+            .await;
         });
     }
 
     async fn log_manager_tests<F: AsyncFile + 'static>(
         file_name: &str,
         vault: Option<Arc<dyn Vault>>,
+        cache: Option<ChunkCache>,
     ) {
         let temp_dir = crate::test_util::TestDirectory::new(file_name);
         tokio::fs::create_dir(&temp_dir).await.unwrap();
@@ -520,6 +534,7 @@ mod tests {
         let context = Context {
             file_manager,
             vault,
+            cache,
         };
         let manager = TransactionManager::spawn::<F>(&temp_dir, context)
             .await

@@ -28,6 +28,7 @@ mod transaction;
 mod tree;
 mod vault;
 
+mod chunk_cache;
 mod context;
 #[cfg(test)]
 mod test_util;
@@ -36,6 +37,7 @@ mod test_util;
 pub use self::async_file::uring::UringFile;
 pub use self::{
     async_file::{tokio::TokioFile, AsyncFile, File},
+    chunk_cache::ChunkCache,
     context::Context,
     error::Error,
     roots::Roots,

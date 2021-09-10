@@ -1,4 +1,7 @@
-use std::path::Path;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use cfg_if::cfg_if;
@@ -41,6 +44,9 @@ pub mod uring;
 pub trait AsyncFile: Sized {
     /// The file manager that synchronizes file access across threads.
     type Manager: AsyncFileManager<Self>;
+
+    /// Returns a shared reference to the path for the file.
+    fn path(&self) -> Arc<PathBuf>;
 
     /// Opens a file at `path` with read-only permission.
     async fn read(path: impl AsRef<Path> + Send + 'async_trait) -> Result<Self, Error>;
@@ -138,6 +144,14 @@ pub enum File {
 #[async_trait(?Send)]
 impl AsyncFile for File {
     type Manager = FileManager;
+
+    fn path(&self) -> Arc<PathBuf> {
+        match self {
+            #[cfg(feature = "uring")]
+            Self::Uring(uring) => uring.path(),
+            Self::Tokio(tokio) => tokio.path(),
+        }
+    }
 
     async fn read(path: impl AsRef<Path> + Send + 'async_trait) -> Result<Self, Error> {
         cfg_if! {

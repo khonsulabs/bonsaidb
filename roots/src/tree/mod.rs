@@ -38,7 +38,6 @@
 //! A data block may contain more than one chunk.
 
 use std::{
-    borrow::Cow,
     cmp::Ordering,
     convert::TryFrom,
     fmt::{Debug, Write},
@@ -57,7 +56,7 @@ use tokio::fs::OpenOptions;
 use crate::{
     async_file::{AsyncFile, AsyncFileManager, FileOp, OpenableFile},
     error::InternalError,
-    Context, Error, Vault,
+    ChunkCache, Context, Error, Vault,
 };
 
 mod by_id;
@@ -108,6 +107,7 @@ pub struct TreeFile<F: AsyncFile, const MAX_ORDER: usize> {
     file: <F::Manager as AsyncFileManager<F>>::FileHandle,
     state: State<MAX_ORDER>,
     vault: Option<Arc<dyn Vault>>,
+    cache: Option<ChunkCache>,
 }
 
 #[allow(clippy::future_not_send)]
@@ -116,8 +116,14 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         file: <F::Manager as AsyncFileManager<F>>::FileHandle,
         state: State<MAX_ORDER>,
         vault: Option<Arc<dyn Vault>>,
+        cache: Option<ChunkCache>,
     ) -> Result<Self, Error> {
-        Ok(Self { file, state, vault })
+        Ok(Self {
+            file,
+            state,
+            vault,
+            cache,
+        })
     }
 
     /// Attempts to load the last saved state of this tree into `state`.
@@ -177,8 +183,10 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
                     continue;
                 }
                 PageHeader::Header => {
-                    let contents = read_chunk(block_start + 1, &mut tree, context.vault()).await?;
-                    let root = TreeRoot::deserialize(ScratchBuffer::from(contents))
+                    let contents =
+                        read_chunk(block_start + 1, &mut tree, context.vault(), context.cache())
+                            .await?;
+                    let root = TreeRoot::deserialize(contents)
                         .map_err(|err| Error::DataIntegrity(Box::new(err)))?;
                     break root;
                 }
@@ -195,6 +203,7 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
             .write(DocumentWriter {
                 state: &self.state,
                 vault: self.vault.as_deref(),
+                cache: self.cache.as_ref(),
                 key,
                 document,
             })
@@ -202,11 +211,12 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     }
 
     /// Gets the value stored for `key`.
-    pub async fn get(&mut self, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+    pub async fn get(&mut self, key: &[u8]) -> Result<Option<ScratchBuffer>, Error> {
         self.file
             .write(DocumentReader {
                 state: &self.state,
                 vault: self.vault.as_deref(),
+                cache: self.cache.as_ref(),
                 key,
             })
             .await
@@ -216,6 +226,7 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
 struct DocumentWriter<'a, const MAX_ORDER: usize> {
     state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
+    cache: Option<&'a ChunkCache>,
     key: ScratchBuffer,
     document: &'a [u8],
 }
@@ -232,6 +243,7 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, 
             PageHeader::Data,
             file,
             self.vault.as_deref(),
+            self.cache,
             state.current_position,
         )
         .await?;
@@ -256,6 +268,7 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, 
             PageHeader::Header,
             file,
             self.vault.as_deref(),
+            self.cache,
             state.current_position,
         )
         .await?;
@@ -274,15 +287,19 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, 
 struct DocumentReader<'a, const MAX_ORDER: usize> {
     state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
+    cache: Option<&'a ChunkCache>,
     key: &'a [u8],
 }
 
 #[async_trait(?Send)]
 impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentReader<'a, MAX_ORDER> {
-    type Output = Option<Vec<u8>>;
+    type Output = Option<ScratchBuffer>;
     async fn write(&mut self, file: &mut F) -> Result<Self::Output, Error> {
         let state = self.state.lock().await;
-        state.header.get(self.key, file, self.vault).await
+        state
+            .header
+            .get(self.key, file, self.vault, self.cache)
+            .await
     }
 }
 
@@ -292,6 +309,7 @@ impl<'a, const MAX_ORDER: usize> DocumentWriter<'a, MAX_ORDER> {}
 struct PagedWriter<'a, F: AsyncFile> {
     file: &'a mut F,
     vault: Option<&'a dyn Vault>,
+    cache: Option<&'a ChunkCache>,
     position: u64,
     scratch: Vec<u8>,
     offset: usize,
@@ -317,11 +335,13 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
         header: PageHeader,
         file: &'a mut F,
         vault: Option<&'a dyn Vault>,
+        cache: Option<&'a ChunkCache>,
         position: u64,
     ) -> Result<PagedWriter<'a, F>, Error> {
         let mut writer = Self {
             file,
             vault,
+            cache,
             position,
             scratch: vec![0; PAGE_SIZE],
             offset: 0,
@@ -373,9 +393,10 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
     /// Returns the position that this chunk can be read from in the file.
     #[allow(clippy::cast_possible_truncation)]
     async fn write_chunk(&mut self, contents: &[u8]) -> Result<u64, Error> {
-        let possibly_encrypted = self.vault.as_ref().map_or_else(
-            || Cow::Borrowed(contents),
-            |vault| Cow::Owned(vault.encrypt(contents)),
+        let possibly_encrypted = ScratchBuffer::from(
+            self.vault
+                .as_ref()
+                .map_or_else(|| contents.to_vec(), |vault| vault.encrypt(contents)),
         );
         let length = u32::try_from(possibly_encrypted.len())
             .map_err(|_| Error::data_integrity("chunk too large"))?;
@@ -406,11 +427,17 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
         self.write_u32::<BigEndian>(crc).await?;
         self.write(&possibly_encrypted).await?;
 
+        if let Some(cache) = self.cache {
+            cache
+                .insert(self.file.path(), position, possibly_encrypted)
+                .await;
+        }
+
         Ok(position)
     }
 
-    async fn read_chunk(&mut self, position: u64) -> Result<Vec<u8>, Error> {
-        read_chunk(position, self.file, self.vault).await
+    async fn read_chunk(&mut self, position: u64) -> Result<ScratchBuffer, Error> {
+        read_chunk(position, self.file, self.vault, self.cache).await
     }
 
     async fn write_u8(&mut self, value: u8) -> Result<usize, Error> {
@@ -475,7 +502,14 @@ async fn read_chunk<F: AsyncFile>(
     position: u64,
     file: &mut F,
     vault: Option<&dyn Vault>,
-) -> Result<Vec<u8>, Error> {
+    cache: Option<&ChunkCache>,
+) -> Result<ScratchBuffer, Error> {
+    if let Some(cache) = cache {
+        if let Some(buffer) = cache.get(file.path(), position).await {
+            return Ok(buffer);
+        }
+    }
+
     // Read the chunk header
     let mut scratch = Vec::new();
     scratch.resize(8, 0);
@@ -485,9 +519,9 @@ async fn read_chunk<F: AsyncFile>(
     let crc = BigEndian::read_u32(&scratch[4..8]);
 
     let mut data_start = position + 8;
-    /// If the data starts on a page boundary, there will have been a page
-    /// boundary inserted. Note: We don't read this byte, so technically it's
-    /// unchecked as part of this process.
+    // If the data starts on a page boundary, there will have been a page
+    // boundary inserted. Note: We don't read this byte, so technically it's
+    // unchecked as part of this process.
     if data_start % PAGE_SIZE as u64 == 0 {
         data_start += 1;
     }
@@ -533,10 +567,16 @@ async fn read_chunk<F: AsyncFile>(
         )));
     }
 
-    match vault {
-        Some(vault) => Ok(vault.decrypt(&scratch)),
-        None => Ok(scratch),
+    let decrypted = ScratchBuffer::from(match vault {
+        Some(vault) => vault.decrypt(&scratch),
+        None => scratch,
+    });
+
+    if let Some(cache) = cache {
+        cache.insert(file.path(), position, decrypted.clone()).await;
     }
+
+    Ok(decrypted)
 }
 
 #[derive(Clone, Default, Debug)]
@@ -623,10 +663,11 @@ impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
         key: &[u8],
         file: &mut F,
         vault: Option<&dyn Vault>,
-    ) -> Result<Option<Vec<u8>>, Error> {
-        match self.by_id_root.get(key, file, vault).await? {
+        cache: Option<&ChunkCache>,
+    ) -> Result<Option<ScratchBuffer>, Error> {
+        match self.by_id_root.get(key, file, vault, cache).await? {
             Some(entry) => {
-                let contents = read_chunk(entry.position, file, vault).await?;
+                let contents = read_chunk(entry.position, file, vault, cache).await?;
                 Ok(Some(contents))
             }
             None => Ok(None),
@@ -941,9 +982,8 @@ where
                         );
 
                     let child = &children[containing_node_index];
-                    let chunk = writer.read_chunk(child.position).await?;
-                    let mut reader = ScratchBuffer::from(chunk);
-                    let entry = Self::deserialize_from(&mut reader)?;
+                    let entry =
+                        Self::deserialize_from(&mut writer.read_chunk(child.position).await?)?;
                     let mut new_children = children.clone();
                     match entry.insert(key.clone(), index, writer).await? {
                         ChangeResult::Unchanged => unreachable!(),
@@ -1028,6 +1068,7 @@ where
         key: &'f [u8],
         file: &'f mut F,
         vault: Option<&'f dyn Vault>,
+        cache: Option<&'f ChunkCache>,
     ) -> LocalBoxFuture<'f, Result<Option<I>, Error>> {
         async move {
             match self {
@@ -1049,10 +1090,10 @@ where
                     // the key being searched for isn't contained, it will be
                     // greater than any of the node's keys.
                     if let Some(child) = children.get(containing_node_index) {
-                        let chunk = read_chunk(child.position, file, vault).await?;
-                        let mut reader = ScratchBuffer::from(chunk);
-                        let entry = Self::deserialize_from(&mut reader)?;
-                        entry.get(key, file, vault).await
+                        let entry = Self::deserialize_from(
+                            &mut read_chunk(child.position, file, vault, cache).await?,
+                        )?;
+                        entry.get(key, file, vault, cache).await
                     } else {
                         Ok(None)
                     }
@@ -1157,7 +1198,8 @@ mod tests {
 
     async fn test_paged_write(offset: usize, length: usize) -> Result<(), Error> {
         let mut file = MemoryFile::append(format!("test-{}-{}", offset, length)).await?;
-        let mut paged_writer = PagedWriter::new(PageHeader::Header, &mut file, None, 0).await?;
+        let mut paged_writer =
+            PagedWriter::new(PageHeader::Header, &mut file, None, None, 0).await?;
 
         let mut scratch = Vec::new();
         scratch.resize(offset.max(length), 0);
@@ -1168,7 +1210,7 @@ mod tests {
         let written_position = paged_writer.write_chunk(&scratch[..length]).await?;
         drop(paged_writer.finish().await?);
 
-        let data = read_chunk(written_position, &mut file, None).await?;
+        let data = read_chunk(written_position, &mut file, None, None).await?;
         assert_eq!(data.len(), length);
         assert!(data.iter().all(|i| i == &1));
         drop(file);
@@ -1220,14 +1262,19 @@ mod tests {
                     .unwrap();
             }
             let file = context.file_manager.append(file_path).await.unwrap();
-            let mut tree = TreeFile::<F, MAX_ORDER>::open(file, state, context.vault.clone())
-                .await
-                .unwrap();
+            let mut tree = TreeFile::<F, MAX_ORDER>::open(
+                file,
+                state,
+                context.vault.clone(),
+                context.cache.clone(),
+            )
+            .await
+            .unwrap();
             tree.push(id_buffer.clone(), b"hello world").await.unwrap();
 
             // This shouldn't have to scan the file, as the data fits in memory.
             let value = tree.get(&id_buffer).await.unwrap();
-            assert_eq!(&value.unwrap(), b"hello world");
+            assert_eq!(&*value.unwrap(), b"hello world");
         }
 
         // Try loading the file up and retrieving the data.
@@ -1238,11 +1285,16 @@ mod tests {
                 .unwrap();
 
             let file = context.file_manager.append(file_path).await.unwrap();
-            let mut tree = TreeFile::<F, MAX_ORDER>::open(file, state, context.vault.clone())
-                .await
-                .unwrap();
+            let mut tree = TreeFile::<F, MAX_ORDER>::open(
+                file,
+                state,
+                context.vault.clone(),
+                context.cache.clone(),
+            )
+            .await
+            .unwrap();
             let value = tree.get(&id_buffer).await.unwrap();
-            assert_eq!(&value.unwrap(), b"hello world");
+            assert_eq!(&*value.unwrap(), b"hello world");
         }
     }
 
@@ -1254,6 +1306,7 @@ mod tests {
         let context = Context {
             file_manager: TokioFileManager::default(),
             vault: None,
+            cache: None,
         };
         let temp_dir = crate::test_util::TestDirectory::new("btree-tests");
         tokio::fs::create_dir(&temp_dir).await.unwrap();
@@ -1276,24 +1329,40 @@ mod tests {
     }
 
     #[test]
-    fn spam_insert() {
+    fn spam_insert_tokio() {
+        spam_insert::<TokioFile>();
+    }
+
+    #[test]
+    #[cfg(feature = "uring")]
+    fn spam_insert_uring() {
+        spam_insert::<TokioFile>();
+    }
+
+    fn spam_insert<F: AsyncFile>() {
         const ORDER: usize = 100;
-        const RECORDS: usize = 1000;
-        TokioFileManager::run(async {
+        const RECORDS: usize = 1_000;
+        F::Manager::run(async {
             let mut rng = Pcg64::new_seed(1);
             let ids = (0..RECORDS).map(|_| rng.generate::<u64>());
             let context = Context {
-                file_manager: TokioFileManager::default(),
+                file_manager: F::Manager::default(),
                 vault: None,
+                cache: Some(ChunkCache::new(100, 160_384)),
             };
             let temp_dir = crate::test_util::TestDirectory::new("spam-inserts");
             tokio::fs::create_dir(&temp_dir).await.unwrap();
             let file_path = temp_dir.join("tree");
             let state = State::default();
             let file = context.file_manager.append(file_path).await.unwrap();
-            let mut tree = TreeFile::<TokioFile, ORDER>::open(file, state, context.vault.clone())
-                .await
-                .unwrap();
+            let mut tree = TreeFile::<F, ORDER>::open(
+                file,
+                state,
+                context.vault.clone(),
+                context.cache.clone(),
+            )
+            .await
+            .unwrap();
             for (_index, id) in ids.enumerate() {
                 let id_buffer = ScratchBuffer::from(id.to_be_bytes().to_vec());
                 tree.push(id_buffer.clone(), b"hello world").await.unwrap();

@@ -21,22 +21,30 @@ use crate::Error;
 pub struct TokioFile {
     position: u64,
     file: File,
+    path: Arc<PathBuf>,
 }
 
 #[async_trait(?Send)]
 impl AsyncFile for TokioFile {
     type Manager = TokioFileManager;
+    fn path(&self) -> Arc<PathBuf> {
+        self.path.clone()
+    }
+
     async fn read(path: impl AsRef<std::path::Path> + Send + 'async_trait) -> Result<Self, Error> {
+        let path = path.as_ref();
         Ok(Self {
             position: 0,
             file: File::open(path).await?,
+            path: Arc::new(path.to_path_buf()),
         })
     }
 
     async fn append(
         path: impl AsRef<std::path::Path> + Send + 'async_trait,
     ) -> Result<Self, Error> {
-        let length = fs::metadata(&path.as_ref())
+        let path = path.as_ref();
+        let length = fs::metadata(path)
             .await
             .map(|metadata| metadata.len())
             .unwrap_or(0);
@@ -49,6 +57,7 @@ impl AsyncFile for TokioFile {
                 .create(true)
                 .open(path)
                 .await?,
+            path: Arc::new(path.to_path_buf()),
         })
     }
 

@@ -16,6 +16,7 @@ use crate::Error;
 /// A fake "file" represented by an in-memory buffer. This should only be used
 /// in testing, as this database format is not optimized for memory efficiency.
 pub struct MemoryFile {
+    path: Arc<PathBuf>,
     buffer: Arc<RwLock<Vec<u8>>>,
 }
 
@@ -42,8 +43,14 @@ async fn lookup_buffer(
 #[async_trait(?Send)]
 impl AsyncFile for MemoryFile {
     type Manager = MemoryFileManager;
+    fn path(&self) -> Arc<PathBuf> {
+        self.path.clone()
+    }
+
     async fn read(path: impl AsRef<std::path::Path> + Send + 'async_trait) -> Result<Self, Error> {
+        let path = path.as_ref();
         Ok(Self {
+            path: Arc::new(path.to_path_buf()),
             buffer: lookup_buffer(path, true).await.unwrap(),
         })
     }
@@ -51,7 +58,9 @@ impl AsyncFile for MemoryFile {
     async fn append(
         path: impl AsRef<std::path::Path> + Send + 'async_trait,
     ) -> Result<Self, Error> {
+        let path = path.as_ref();
         Ok(Self {
+            path: Arc::new(path.to_path_buf()),
             buffer: lookup_buffer(path, true).await.unwrap(),
         })
     }

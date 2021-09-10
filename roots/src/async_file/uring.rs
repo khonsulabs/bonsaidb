@@ -1,4 +1,7 @@
-use std::path::Path;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use futures::Future;
@@ -11,25 +14,38 @@ use super::{AsyncFile, AsyncFileManager, FileOp, OpenableFile};
 use crate::Error;
 
 /// An open file that uses `tokio-uring`. Requires feature `uring`.
-pub struct UringFile(File);
+pub struct UringFile {
+    file: File,
+    path: Arc<PathBuf>,
+}
 
 #[async_trait(?Send)]
 impl AsyncFile for UringFile {
     type Manager = UringFileManager;
+    fn path(&self) -> Arc<PathBuf> {
+        self.path.clone()
+    }
+
     async fn read(path: impl AsRef<Path> + Send + 'async_trait) -> Result<Self, Error> {
-        Ok(Self(File::open(path).await?))
+        let path = path.as_ref();
+        Ok(Self {
+            file: File::open(path).await?,
+            path: Arc::new(path.to_path_buf()),
+        })
     }
 
     async fn append(path: impl AsRef<Path> + Send + 'async_trait) -> Result<Self, Error> {
-        Ok(Self(
-            OpenOptions::new()
+        let path = path.as_ref();
+        Ok(Self {
+            file: OpenOptions::new()
                 .create(true)
                 .read(true)
                 .append(true)
                 .write(true)
                 .open(path)
                 .await?,
-        ))
+            path: Arc::new(path.to_path_buf()),
+        })
     }
 
     async fn read_at(
@@ -39,7 +55,7 @@ impl AsyncFile for UringFile {
         offset: usize,
         len: usize,
     ) -> (Result<usize, Error>, Vec<u8>) {
-        let (result, buffer) = self.0.read_at(buffer.slice(offset..len), position).await;
+        let (result, buffer) = self.file.read_at(buffer.slice(offset..len), position).await;
         (result.map_err(Error::from), buffer.into_inner())
     }
 
@@ -50,17 +66,20 @@ impl AsyncFile for UringFile {
         offset: usize,
         len: usize,
     ) -> (Result<usize, Error>, Vec<u8>) {
-        let (result, buffer) = self.0.write_at(buffer.slice(offset..len), position).await;
+        let (result, buffer) = self
+            .file
+            .write_at(buffer.slice(offset..len), position)
+            .await;
         (result.map_err(Error::from), buffer.into_inner())
     }
 
     async fn flush(&mut self) -> Result<(), Error> {
-        self.0.sync_data().await.map_err(Error::from)
+        self.file.sync_data().await.map_err(Error::from)
     }
 
     async fn close(self) -> Result<(), Error> {
-        self.0.sync_all().await?;
-        self.0.close().await.map_err(Error::from)
+        self.file.sync_all().await?;
+        self.file.close().await.map_err(Error::from)
     }
 }
 
