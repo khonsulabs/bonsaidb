@@ -37,6 +37,12 @@ pub struct ByIdStats {
     pub total_size: u64,
 }
 
+impl ByIdStats {
+    pub const fn total_documents(&self) -> u64 {
+        self.alive_documents + self.deleted_documents
+    }
+}
+
 impl BinarySerialization for ByIdStats {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         writer.write_u64::<BigEndian>(self.alive_documents)?;
@@ -79,7 +85,7 @@ impl Reducer<ByIdIndex> for ByIdStats {
                     )
                 },
             )
-            .unwrap();
+            .unwrap_or_default();
         Self {
             alive_documents,
             deleted_documents,

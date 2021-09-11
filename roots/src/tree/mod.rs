@@ -463,6 +463,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
     }
 
     /// Writes the page and resets `offset`.
+    #[cfg_attr(not(debug_assertions), allow(unused_mut))]
     async fn commit(&mut self) -> Result<(), Error> {
         let mut buffer = std::mem::take(&mut self.scratch);
 
@@ -583,14 +584,14 @@ async fn read_chunk<F: AsyncFile>(
 pub struct TreeRoot<const MAX_ORDER: usize> {
     transaction_id: u64,
     sequence: u64,
-    by_sequence_root: BTreeEntry<BySequenceIndex, BySequenceStats, MAX_ORDER>,
-    by_id_root: BTreeEntry<ByIdIndex, ByIdStats, MAX_ORDER>,
+    by_sequence_root: BTreeEntry<BySequenceIndex, BySequenceStats>,
+    by_id_root: BTreeEntry<ByIdIndex, ByIdStats>,
 }
 
-enum ChangeResult<I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> {
+enum ChangeResult<I: BinarySerialization, R: BinarySerialization> {
     Unchanged,
-    Replace(BTreeEntry<I, R, MAX_ORDER>),
-    Split(BTreeEntry<I, R, MAX_ORDER>, BTreeEntry<I, R, MAX_ORDER>),
+    Replace(BTreeEntry<I, R>),
+    Split(BTreeEntry<I, R>, BTreeEntry<I, R>),
 }
 
 #[allow(clippy::future_not_send)]
@@ -608,6 +609,8 @@ impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
             .expect("sequence rollover prevented");
 
         // Insert into both trees
+        let by_sequence_order =
+            dynamic_order::<MAX_ORDER>(self.by_sequence_root.stats().number_of_records);
         match self
             .by_sequence_root
             .insert(
@@ -617,6 +620,7 @@ impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
                     document_size,
                     position: document_position,
                 },
+                by_sequence_order,
                 writer,
             )
             .await?
@@ -631,6 +635,7 @@ impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
                     .await?;
             }
         }
+        let by_id_order = dynamic_order::<MAX_ORDER>(self.by_id_root.stats().total_documents());
         match self
             .by_id_root
             .insert(
@@ -640,6 +645,7 @@ impl<const MAX_ORDER: usize> TreeRoot<MAX_ORDER> {
                     document_size,
                     position: document_position,
                 },
+                by_id_order,
                 writer,
             )
             .await?
@@ -845,9 +851,7 @@ pub trait BinarySerialization: Sized {
     fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error>;
 }
 
-impl<I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> BinarySerialization
-    for BTreeEntry<I, R, MAX_ORDER>
-{
+impl<I: BinarySerialization, R: BinarySerialization> BinarySerialization for BTreeEntry<I, R> {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut bytes_written = 0;
         // The next byte determines the node type.
@@ -899,14 +903,14 @@ impl<I: BinarySerialization, R: BinarySerialization, const MAX_ORDER: usize> Bin
 
 /// A B-Tree entry that stores a list of key-`I` pairs.
 #[derive(Clone, Debug)]
-pub enum BTreeEntry<I, R, const MAX_ORDER: usize> {
+pub enum BTreeEntry<I, R> {
     /// An inline value. Overall, the B-Tree entry is a key-value pair.
     Leaf(Vec<KeyEntry<I>>),
     /// An interior node that contains pointers to other nodes.
     Interior(Vec<Interior<R>>),
 }
 
-impl<I, R, const MAX_ORDER: usize> Default for BTreeEntry<I, R, MAX_ORDER> {
+impl<I, R> Default for BTreeEntry<I, R> {
     fn default() -> Self {
         Self::Leaf(Vec::new())
     }
@@ -925,7 +929,7 @@ impl<I> Reducer<I> for () {
 }
 
 #[allow(clippy::future_not_send)]
-impl<I, R, const MAX_ORDER: usize> BTreeEntry<I, R, MAX_ORDER>
+impl<I, R> BTreeEntry<I, R>
 where
     I: Clone + BinarySerialization + Debug,
     R: Clone + Reducer<I> + BinarySerialization + Debug,
@@ -935,8 +939,9 @@ where
         &'f self,
         key: ScratchBuffer,
         index: I,
+        current_order: usize,
         writer: &'f mut PagedWriter<'_, F>,
-    ) -> LocalBoxFuture<'f, Result<ChangeResult<I, R, MAX_ORDER>, Error>> {
+    ) -> LocalBoxFuture<'f, Result<ChangeResult<I, R>, Error>> {
         async move {
             match self {
                 BTreeEntry::Leaf(children) => {
@@ -951,7 +956,7 @@ where
                         }
                     }
 
-                    if children.len() >= MAX_ORDER {
+                    if children.len() >= current_order {
                         // We need to split this leaf into two leafs, moving a new interior node using the middle element.
                         let midpoint = children.len() / 2;
                         let (lower_half, upper_half) = children.split_at(midpoint);
@@ -985,7 +990,10 @@ where
                     let entry =
                         Self::deserialize_from(&mut writer.read_chunk(child.position).await?)?;
                     let mut new_children = children.clone();
-                    match entry.insert(key.clone(), index, writer).await? {
+                    match entry
+                        .insert(key.clone(), index, current_order, writer)
+                        .await?
+                    {
                         ChangeResult::Unchanged => unreachable!(),
                         ChangeResult::Replace(new_node) => {
                             let child_position = writer.write_chunk(&new_node.serialize()?).await?;
@@ -1021,7 +1029,7 @@ where
                         }
                     };
 
-                    if new_children.len() >= MAX_ORDER {
+                    if new_children.len() >= current_order {
                         let midpoint = new_children.len() / 2;
                         let (_, upper_half) = new_children.split_at(midpoint);
 
@@ -1181,6 +1189,25 @@ impl BinarySerialization for () {
 
     fn deserialize_from(_reader: &mut ScratchBuffer) -> Result<Self, Error> {
         Ok(())
+    }
+}
+
+/// Returns a value for the "order" (maximum children per node) value for the
+/// database. This function is meant to keep nodes smaller while the database
+/// can fit in a tree with 2 depth: root -> interior -> leaf. This is an
+/// approximation that always returns an order larger than what is needed, but
+/// will never return a value larger than `MAX_ORDER`.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn dynamic_order<const MAX_ORDER: usize>(number_of_records: u64) -> usize {
+    if number_of_records > MAX_ORDER.pow(3) as u64 {
+        MAX_ORDER
+    } else {
+        // Use the ceil of the cube root of the number of records as a base. We don't want 100% fill rate, however, so we'll add one.
+        MAX_ORDER.min(2.max((number_of_records as f64).cbrt().ceil() as usize) + 1)
     }
 }
 
@@ -1368,5 +1395,14 @@ mod tests {
                 tree.push(id_buffer.clone(), b"hello world").await.unwrap();
             }
         });
+    }
+
+    #[test]
+    fn dynamic_order_tests() {
+        assert_eq!(dynamic_order::<10>(0), 3);
+        assert_eq!(dynamic_order::<10>(26), 4);
+        assert_eq!(dynamic_order::<10>(27), 5);
+        assert_eq!(dynamic_order::<10>(800), 9);
+        assert_eq!(dynamic_order::<10>(1000), 10);
     }
 }
