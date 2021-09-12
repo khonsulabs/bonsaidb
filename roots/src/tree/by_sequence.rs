@@ -2,12 +2,12 @@ use std::convert::TryFrom;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::{BinarySerialization, Reducer, ScratchBuffer};
-use crate::Error;
+use super::{btree_entry::Reducer, BinarySerialization};
+use crate::{Buffer, Error};
 
 #[derive(Clone, Debug)]
 pub struct BySequenceIndex {
-    pub document_id: ScratchBuffer,
+    pub document_id: Buffer,
     pub document_size: u32,
     pub position: u64,
 }
@@ -29,7 +29,7 @@ impl BinarySerialization for BySequenceIndex {
         Ok(bytes_written)
     }
 
-    fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer) -> Result<Self, Error> {
         let document_size = reader.read_u32::<BigEndian>()?;
         let position = reader.read_u64::<BigEndian>()?;
         let document_id_length = reader.read_u16::<BigEndian>()? as usize;
@@ -61,7 +61,7 @@ impl BinarySerialization for BySequenceStats {
         Ok(8)
     }
 
-    fn deserialize_from(reader: &mut ScratchBuffer) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer) -> Result<Self, Error> {
         let number_of_records = reader.read_u64::<BigEndian>()?;
         Ok(Self { number_of_records })
     }

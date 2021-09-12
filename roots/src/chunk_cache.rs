@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use lru::LruCache;
 use tokio::sync::Mutex;
 
-use crate::tree::ScratchBuffer;
+use crate::Buffer;
 
 /// A configurable cache that operates at the "chunk" level.
 ///
@@ -18,7 +18,7 @@ use crate::tree::ScratchBuffer;
 #[must_use]
 pub struct ChunkCache {
     max_block_length: usize,
-    cache: Arc<Mutex<LruCache<ChunkKey, ScratchBuffer>>>,
+    cache: Arc<Mutex<LruCache<ChunkKey, Buffer>>>,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -41,7 +41,7 @@ impl ChunkCache {
     }
 
     /// Adds a new cached chunk for `file_path` at `position`.
-    pub async fn insert(&self, file_path: Arc<PathBuf>, position: u64, buffer: ScratchBuffer) {
+    pub async fn insert(&self, file_path: Arc<PathBuf>, position: u64, buffer: Buffer) {
         if buffer.len() <= self.max_block_length {
             let mut cache = self.cache.lock().await;
             cache.put(
@@ -57,7 +57,7 @@ impl ChunkCache {
     }
 
     /// Looks up a previously read chunk for `file_path` at `position`,
-    pub async fn get(&self, file_path: Arc<PathBuf>, position: u64) -> Option<ScratchBuffer> {
+    pub async fn get(&self, file_path: Arc<PathBuf>, position: u64) -> Option<Buffer> {
         let mut cache = self.cache.lock().await;
         cache
             .get(&ChunkKey {

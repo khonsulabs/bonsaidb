@@ -2,20 +2,16 @@ use std::convert::TryFrom;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::BinarySerialization;
+use super::serialization::BinarySerialization;
 use crate::{Buffer, Error};
 
-#[derive(Clone, Debug)]
-pub struct Interior<R> {
-    // The key with the highest sort value within.
+#[derive(Debug, Clone)]
+pub struct KeyEntry<I> {
     pub key: Buffer,
-    /// The location of the node on disk.
-    pub position: u64,
-    /// The reduced statistics.
-    pub stats: R,
+    pub index: I,
 }
 
-impl<R: BinarySerialization> BinarySerialization for Interior<R> {
+impl<I: BinarySerialization> BinarySerialization for KeyEntry<I> {
     fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
         let mut bytes_written = 0;
         // Write the key
@@ -24,11 +20,8 @@ impl<R: BinarySerialization> BinarySerialization for Interior<R> {
         writer.write_all(&self.key)?;
         bytes_written += 2 + key_len as usize;
 
-        writer.write_u64::<BigEndian>(self.position)?;
-        bytes_written += 8;
-
-        bytes_written += self.stats.serialize_to(writer)?;
-
+        // Write the value
+        bytes_written += self.index.serialize_to(writer)?;
         Ok(bytes_written)
     }
 
@@ -43,13 +36,8 @@ impl<R: BinarySerialization> BinarySerialization for Interior<R> {
         }
         let key = reader.read_bytes(key_len)?;
 
-        let position = reader.read_u64::<BigEndian>()?;
-        let stats = R::deserialize_from(reader)?;
+        let value = I::deserialize_from(reader)?;
 
-        Ok(Self {
-            key,
-            position,
-            stats,
-        })
+        Ok(Self { key, index: value })
     }
 }
