@@ -135,8 +135,8 @@ impl AsyncFileManager<TokioFile> for TokioFileManager {
         }
     }
 
-    fn run<Fut: Future<Output = ()>>(future: Fut) {
-        tokio::runtime::Runtime::new().unwrap().block_on(future);
+    fn run<R, Fut: Future<Output = R>>(future: Fut) -> R {
+        tokio::runtime::Runtime::new().unwrap().block_on(future)
     }
 
     async fn read(

@@ -8,7 +8,7 @@ use crate::{Buffer, Error};
 #[derive(Clone, Debug)]
 pub struct Interior<R> {
     // The key with the highest sort value within.
-    pub key: Buffer,
+    pub key: Buffer<'static>,
     /// The location of the node on disk.
     pub position: u64,
     /// The reduced statistics.
@@ -32,7 +32,7 @@ impl<R: BinarySerialization> BinarySerialization for Interior<R> {
         Ok(bytes_written)
     }
 
-    fn deserialize_from(reader: &mut Buffer) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer<'static>) -> Result<Self, Error> {
         let key_len = reader.read_u16::<BigEndian>()? as usize;
         if key_len > reader.len() {
             return Err(Error::data_integrity(format!(

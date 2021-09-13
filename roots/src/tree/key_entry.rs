@@ -7,7 +7,7 @@ use crate::{Buffer, Error};
 
 #[derive(Debug, Clone)]
 pub struct KeyEntry<I> {
-    pub key: Buffer,
+    pub key: Buffer<'static>,
     pub index: I,
 }
 
@@ -25,7 +25,7 @@ impl<I: BinarySerialization> BinarySerialization for KeyEntry<I> {
         Ok(bytes_written)
     }
 
-    fn deserialize_from(reader: &mut Buffer) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer<'static>) -> Result<Self, Error> {
         let key_len = reader.read_u16::<BigEndian>()? as usize;
         if key_len > reader.len() {
             return Err(Error::data_integrity(format!(
@@ -34,7 +34,7 @@ impl<I: BinarySerialization> BinarySerialization for KeyEntry<I> {
                 reader.len()
             )));
         }
-        let key = reader.read_bytes(key_len)?;
+        let key = reader.read_bytes(key_len)?.to_owned();
 
         let value = I::deserialize_from(reader)?;
 

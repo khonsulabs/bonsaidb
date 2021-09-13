@@ -18,7 +18,7 @@ use crate::Buffer;
 #[must_use]
 pub struct ChunkCache {
     max_block_length: usize,
-    cache: Arc<Mutex<LruCache<ChunkKey, Buffer>>>,
+    cache: Arc<Mutex<LruCache<ChunkKey, Buffer<'static>>>>,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -41,7 +41,7 @@ impl ChunkCache {
     }
 
     /// Adds a new cached chunk for `file_path` at `position`.
-    pub async fn insert(&self, file_path: Arc<PathBuf>, position: u64, buffer: Buffer) {
+    pub async fn insert(&self, file_path: Arc<PathBuf>, position: u64, buffer: Buffer<'static>) {
         if buffer.len() <= self.max_block_length {
             let mut cache = self.cache.lock().await;
             cache.put(
@@ -57,7 +57,7 @@ impl ChunkCache {
     }
 
     /// Looks up a previously read chunk for `file_path` at `position`,
-    pub async fn get(&self, file_path: Arc<PathBuf>, position: u64) -> Option<Buffer> {
+    pub async fn get(&self, file_path: Arc<PathBuf>, position: u64) -> Option<Buffer<'static>> {
         let mut cache = self.cache.lock().await;
         cache
             .get(&ChunkKey {

@@ -53,7 +53,7 @@ use tokio::fs::OpenOptions;
 
 use crate::{
     async_file::{AsyncFile, AsyncFileManager, FileOp, OpenableFile},
-    tree::btree_root::BTreeRoot,
+    tree::{btree_root::BTreeRoot, modify::Operation},
     Buffer, ChunkCache, Context, Error, Vault,
 };
 
@@ -63,10 +63,12 @@ mod by_id;
 mod by_sequence;
 mod interior;
 mod key_entry;
+mod modify;
 mod serialization;
 mod state;
 
-use self::{serialization::BinarySerialization, state::State};
+use self::serialization::BinarySerialization;
+pub use self::{modify::Modification, state::State};
 
 const PAGE_SIZE: usize = 4096;
 
@@ -191,20 +193,43 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     }
 
     /// Returns the sequence that wrote this document.
-    pub async fn push(&mut self, key: Buffer, document: &[u8]) -> Result<u64, Error> {
+    pub async fn push(
+        &mut self,
+        transaction_id: u64,
+        key: Buffer<'static>,
+        document: Buffer<'static>,
+    ) -> Result<u64, Error> {
         self.file
             .write(DocumentWriter {
                 state: &self.state,
                 vault: self.vault.as_deref(),
                 cache: self.cache.as_ref(),
-                key,
-                document,
+                modification: Some(Modification {
+                    transaction_id,
+                    keys: vec![key],
+                    operation: Operation::Set(document),
+                }),
+            })
+            .await
+    }
+
+    /// Returns the sequence that wrote this document.
+    pub async fn modify(
+        &mut self,
+        modification: Modification<'static, Buffer<'static>>,
+    ) -> Result<u64, Error> {
+        self.file
+            .write(DocumentWriter {
+                state: &self.state,
+                vault: self.vault.as_deref(),
+                cache: self.cache.as_ref(),
+                modification: Some(modification),
             })
             .await
     }
 
     /// Gets the value stored for `key`.
-    pub async fn get(&mut self, key: &[u8]) -> Result<Option<Buffer>, Error> {
+    pub async fn get(&mut self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
         self.file
             .write(DocumentReader {
                 state: &self.state,
@@ -220,8 +245,7 @@ struct DocumentWriter<'a, const MAX_ORDER: usize> {
     state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
     cache: Option<&'a ChunkCache>,
-    key: Buffer,
-    document: &'a [u8],
+    modification: Option<Modification<'static, Buffer<'static>>>,
 }
 
 #[async_trait(?Send)]
@@ -241,17 +265,10 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, 
         )
         .await?;
 
-        let document_position = data_block.write_chunk(self.document).await?;
-
         // Now that we have the document data's position, we can update the by_sequence and by_id indexes.
         state
             .header
-            .insert(
-                self.key.clone(),
-                u32::try_from(self.document.len()).unwrap(),
-                document_position,
-                &mut data_block,
-            )
+            .modify(self.modification.take().unwrap(), &mut data_block)
             .await?;
         let (file, after_data) = data_block.finish().await?;
         state.current_position = after_data;
@@ -286,7 +303,7 @@ struct DocumentReader<'a, const MAX_ORDER: usize> {
 
 #[async_trait(?Send)]
 impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentReader<'a, MAX_ORDER> {
-    type Output = Option<Buffer>;
+    type Output = Option<Buffer<'static>>;
     async fn write(&mut self, file: &mut F) -> Result<Self::Output, Error> {
         let state = self.state.lock().await;
         state
@@ -429,7 +446,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
         Ok(position)
     }
 
-    async fn read_chunk(&mut self, position: u64) -> Result<Buffer, Error> {
+    async fn read_chunk(&mut self, position: u64) -> Result<Buffer<'static>, Error> {
         read_chunk(position, self.file, self.vault, self.cache).await
     }
 
@@ -497,7 +514,7 @@ async fn read_chunk<F: AsyncFile>(
     file: &mut F,
     vault: Option<&dyn Vault>,
     cache: Option<&ChunkCache>,
-) -> Result<Buffer, Error> {
+) -> Result<Buffer<'static>, Error> {
     if let Some(cache) = cache {
         if let Some(buffer) = cache.get(file.path(), position).await {
             return Ok(buffer);
@@ -659,7 +676,9 @@ mod tests {
             )
             .await
             .unwrap();
-            tree.push(id_buffer.clone(), b"hello world").await.unwrap();
+            tree.push(0, id_buffer.clone(), Buffer::from(b"hello world"))
+                .await
+                .unwrap();
 
             // This shouldn't have to scan the file, as the data fits in memory.
             let value = tree.get(&id_buffer).await.unwrap();
@@ -719,16 +738,16 @@ mod tests {
 
     #[test]
     fn spam_insert_tokio() {
-        spam_insert::<TokioFile>();
+        spam_insert::<TokioFile>("tokio");
     }
 
     #[test]
     #[cfg(feature = "uring")]
     fn spam_insert_uring() {
-        spam_insert::<TokioFile>();
+        spam_insert::<crate::UringFile>("uring");
     }
 
-    fn spam_insert<F: AsyncFile>() {
+    fn spam_insert<F: AsyncFile>(name: &str) {
         const ORDER: usize = 100;
         const RECORDS: usize = 1_000;
         F::Manager::run(async {
@@ -739,7 +758,7 @@ mod tests {
                 vault: None,
                 cache: Some(ChunkCache::new(100, 160_384)),
             };
-            let temp_dir = crate::test_util::TestDirectory::new("spam-inserts");
+            let temp_dir = crate::test_util::TestDirectory::new(format!("spam-inserts-{}", name));
             tokio::fs::create_dir(&temp_dir).await.unwrap();
             let file_path = temp_dir.join("tree");
             let state = State::default();
@@ -754,7 +773,58 @@ mod tests {
             .unwrap();
             for (_index, id) in ids.enumerate() {
                 let id_buffer = Buffer::from(id.to_be_bytes().to_vec());
-                tree.push(id_buffer.clone(), b"hello world").await.unwrap();
+                tree.push(0, id_buffer.clone(), Buffer::from(b"hello world"))
+                    .await
+                    .unwrap();
+            }
+        });
+    }
+
+    #[test]
+    fn bulk_insert_tokio() {
+        bulk_insert::<TokioFile>("tokio");
+    }
+
+    #[test]
+    #[cfg(feature = "uring")]
+    fn bulk_insert_uring() {
+        bulk_insert::<crate::UringFile>("uring");
+    }
+
+    fn bulk_insert<F: AsyncFile>(name: &str) {
+        const ORDER: usize = 1000;
+        const RECORDS_PER_BATCH: usize = 1_000;
+        const BATCHES: usize = 1_000;
+        F::Manager::run(async {
+            let mut rng = Pcg64::new_seed(1);
+            let context = Context {
+                file_manager: F::Manager::default(),
+                vault: None,
+                cache: Some(ChunkCache::new(100, 160_384)),
+            };
+            let temp_dir = crate::test_util::TestDirectory::new(format!("bulk-inserts-{}", name));
+            tokio::fs::create_dir(&temp_dir).await.unwrap();
+            let file_path = temp_dir.join("tree");
+            let state = State::default();
+            let file = context.file_manager.append(file_path).await.unwrap();
+            let mut tree = TreeFile::<F, ORDER>::open(
+                file,
+                state,
+                context.vault.clone(),
+                context.cache.clone(),
+            )
+            .await
+            .unwrap();
+            for id in 0..BATCHES {
+                let ids = (0..RECORDS_PER_BATCH).map(|_| rng.generate::<u64>());
+                let modification = Modification {
+                    transaction_id: id as u64,
+                    keys: ids
+                        .map(|id| Buffer::from(id.to_be_bytes().to_vec()))
+                        .collect(),
+                    operation: Operation::Set(Buffer::from(b"hello world")),
+                };
+                tree.modify(modification).await.unwrap();
             }
         });
     }

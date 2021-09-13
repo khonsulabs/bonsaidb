@@ -25,7 +25,7 @@ mod async_file;
 mod error;
 mod roots;
 mod transaction;
-mod tree;
+pub mod tree;
 mod vault;
 
 mod buffer;
@@ -37,7 +37,7 @@ mod test_util;
 #[cfg(feature = "uring")]
 pub use self::async_file::uring::UringFile;
 pub use self::{
-    async_file::{tokio::TokioFile, AsyncFile, File},
+    async_file::{tokio::TokioFile, AsyncFile, AsyncFileManager, File},
     buffer::Buffer,
     chunk_cache::ChunkCache,
     context::Context,

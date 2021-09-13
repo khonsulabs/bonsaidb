@@ -104,8 +104,8 @@ impl AsyncFileManager<UringFile> for UringFileManager {
         UringFile::read(path).await
     }
 
-    fn run<Fut: Future<Output = ()>>(future: Fut) {
-        tokio_uring::start(future);
+    fn run<R, Fut: Future<Output = R>>(future: Fut) -> R {
+        tokio_uring::start(future)
     }
 }
 

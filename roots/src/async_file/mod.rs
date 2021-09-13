@@ -240,7 +240,7 @@ pub trait AsyncFileManager<F: AsyncFile>: Send + Sync + Clone + Default {
             .map(|metadata| metadata.len())
     }
 
-    fn run<Fut: Future<Output = ()>>(future: Fut);
+    fn run<R, Fut: Future<Output = R>>(future: Fut) -> R;
 }
 
 #[async_trait(?Send)]
@@ -271,12 +271,12 @@ impl AsyncFileManager<File> for FileManager {
         File::append(path).await
     }
 
-    fn run<Fut: Future<Output = ()>>(future: Fut) {
+    fn run<R, Fut: Future<Output = R>>(future: Fut) -> R {
         cfg_if! {
             if #[cfg(feature = "uring")] {
-                tokio_uring::start(future);
+                tokio_uring::start(future)
             } else {
-                ::tokio::runtime::Runtime::new().unwrap().block_on(future);
+                ::tokio::runtime::Runtime::new().unwrap().block_on(future)
             }
         }
     }

@@ -1,16 +1,25 @@
-use std::convert::TryFrom;
+use std::{collections::VecDeque, convert::TryFrom, marker::PhantomData};
 
 use byteorder::{BigEndian, ByteOrder, ReadBytesExt, WriteBytesExt};
+use futures::FutureExt;
 
 use super::{
     btree_entry::BTreeEntry,
     by_id::{ByIdIndex, ByIdStats},
     by_sequence::{BySequenceIndex, BySequenceStats},
+    modify::Modification,
     read_chunk,
     serialization::BinarySerialization,
     PagedWriter,
 };
-use crate::{error::InternalError, AsyncFile, Buffer, ChunkCache, Error, Vault};
+use crate::{
+    error::InternalError,
+    tree::{
+        btree_entry::ModificationContext,
+        modify::{CompareSwap, Operation},
+    },
+    AsyncFile, Buffer, ChunkCache, Error, Vault,
+};
 
 #[derive(Clone, Default, Debug)]
 pub struct BTreeRoot<const MAX_ORDER: usize> {
@@ -28,31 +37,67 @@ pub enum ChangeResult<I: BinarySerialization, R: BinarySerialization> {
 
 #[allow(clippy::future_not_send)]
 impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
-    pub async fn insert<F: AsyncFile>(
-        &mut self,
-        key: Buffer,
-        document_size: u32,
-        document_position: u64,
-        writer: &mut PagedWriter<'_, F>,
+    #[allow(clippy::too_many_lines)]
+    pub async fn modify<'a, 'w, F: AsyncFile>(
+        &'a mut self,
+        mut modification: Modification<'static, Buffer<'static>>,
+        writer: &'a mut PagedWriter<'w, F>,
     ) -> Result<(), Error> {
         let new_sequence = self
             .sequence
             .checked_add(1)
             .expect("sequence rollover prevented");
 
+        // Reverse sort so that pop is efficient.
+        modification.keys.sort_by(|a, b| b.cmp(a));
+
         // Insert into both trees
         let by_sequence_order =
             dynamic_order::<MAX_ORDER>(self.by_sequence_root.stats().number_of_records);
+        // Generate a list of sequence changes, somehow.
+        let mut changes = EntryChanges::default();
         match self
             .by_sequence_root
-            .insert(
-                Buffer::from(new_sequence.to_be_bytes().to_vec()),
-                BySequenceIndex {
-                    document_id: key.clone(),
-                    document_size,
-                    position: document_position,
+            .modify(
+                &mut modification,
+                &ModificationContext {
+                    current_order: by_sequence_order,
+                    indexer: |key: &Buffer<'static>,
+                              value: &Buffer<'static>,
+                              _existing_index: Option<&BySequenceIndex>,
+                              changes: &mut EntryChanges,
+                              writer: &mut PagedWriter<'_, F>| {
+                        async move {
+                            let document_position = writer.write_chunk(value).await?;
+                            // write_chunk errors if it can't fit within a u32
+                            #[allow(clippy::cast_possible_truncation)]
+                            let document_size = value.len() as u32;
+                            changes.current_sequence = changes
+                                .current_sequence
+                                .checked_add(1)
+                                .expect("sequence rollover prevented");
+                            changes.changes.push(EntryChange {
+                                key: key.clone(),
+                                sequence: changes.current_sequence,
+                                document_position,
+                                document_size,
+                            });
+                            Ok(Some(BySequenceIndex {
+                                document_id: key.clone(),
+                                position: document_position,
+                                document_size,
+                            }))
+                        }
+                        .boxed_local()
+                    },
+                    loader: |index: &BySequenceIndex, writer: &mut PagedWriter<'_, F>| {
+                        async move { writer.read_chunk(index.position).await.map(Some) }
+                            .boxed_local()
+                    },
+                    _phantom: PhantomData,
                 },
-                by_sequence_order,
+                None,
+                &mut changes,
                 writer,
             )
             .await?
@@ -67,17 +112,46 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                     .await?;
             }
         }
+        self.sequence = changes.current_sequence;
         let by_id_order = dynamic_order::<MAX_ORDER>(self.by_id_root.stats().total_documents());
+        let mut operations = VecDeque::with_capacity(changes.changes.len());
+        let keys = changes
+            .changes
+            .into_iter()
+            .map(|change| {
+                operations.push_back(ByIdIndex {
+                    sequence_id: change.sequence,
+                    document_size: change.document_size,
+                    position: change.document_position,
+                });
+                change.key
+            })
+            .collect();
+        let mut sequence_modification = Modification {
+            transaction_id: modification.transaction_id,
+            keys,
+            operation: Operation::CompareSwap(CompareSwap::new(move |_key, _existing_entry| {
+                operations.pop_front()
+            })),
+        };
         match self
             .by_id_root
-            .insert(
-                key,
-                ByIdIndex {
-                    sequence_id: new_sequence,
-                    document_size,
-                    position: document_position,
+            .modify(
+                &mut sequence_modification,
+                &ModificationContext {
+                    current_order: by_id_order,
+                    indexer: |_key: &Buffer<'static>,
+                              value: &ByIdIndex,
+                              _existing_index,
+                              _changes,
+                              _writer: &mut PagedWriter<'_, F>| {
+                        async move { Ok(Some(value.clone())) }.boxed_local()
+                    },
+                    loader: |_index, _writer| async move { Ok(None) }.boxed_local(),
+                    _phantom: PhantomData,
                 },
-                by_id_order,
+                None,
+                &mut EntryChanges::default(),
                 writer,
             )
             .await?
@@ -102,7 +176,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         file: &mut F,
         vault: Option<&dyn Vault>,
         cache: Option<&ChunkCache>,
-    ) -> Result<Option<Buffer>, Error> {
+    ) -> Result<Option<Buffer<'static>>, Error> {
         match self.by_id_root.get(key, file, vault, cache).await? {
             Some(entry) => {
                 let contents = read_chunk(entry.position, file, vault, cache).await?;
@@ -112,7 +186,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         }
     }
 
-    pub fn deserialize(mut bytes: Buffer) -> Result<Self, Error> {
+    pub fn deserialize(mut bytes: Buffer<'_>) -> Result<Self, Error> {
         let transaction_id = bytes.read_u64::<BigEndian>()?;
         let sequence = bytes.read_u64::<BigEndian>()?;
         let by_sequence_size = bytes.read_u32::<BigEndian>()? as usize;
@@ -126,8 +200,8 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
             )));
         };
 
-        let mut by_sequence_bytes = bytes.read_bytes(by_sequence_size)?;
-        let mut by_id_bytes = bytes.read_bytes(by_id_size)?;
+        let mut by_sequence_bytes = bytes.read_bytes(by_sequence_size)?.to_owned();
+        let mut by_id_bytes = bytes.read_bytes(by_id_size)?.to_owned();
 
         let by_sequence_root = BTreeEntry::deserialize_from(&mut by_sequence_bytes)?;
         let by_id_root = BTreeEntry::deserialize_from(&mut by_id_bytes)?;
@@ -187,6 +261,18 @@ fn dynamic_order_tests() {
     assert_eq!(dynamic_order::<10>(0), 3);
     assert_eq!(dynamic_order::<10>(26), 4);
     assert_eq!(dynamic_order::<10>(27), 5);
-    assert_eq!(dynamic_order::<10>(800), 9);
+    assert_eq!(dynamic_order::<10>(500), 9);
     assert_eq!(dynamic_order::<10>(1000), 10);
+}
+
+#[derive(Default)]
+pub struct EntryChanges {
+    pub current_sequence: u64,
+    pub changes: Vec<EntryChange>,
+}
+pub struct EntryChange {
+    pub sequence: u64,
+    pub key: Buffer<'static>,
+    pub document_position: u64,
+    pub document_size: u32,
 }

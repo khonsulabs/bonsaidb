@@ -9,7 +9,7 @@ pub trait BinarySerialization: Sized {
         self.serialize_to(&mut buffer)?;
         Ok(buffer)
     }
-    fn deserialize_from(reader: &mut Buffer) -> Result<Self, Error>;
+    fn deserialize_from(reader: &mut Buffer<'static>) -> Result<Self, Error>;
 }
 
 impl BinarySerialization for () {
@@ -17,7 +17,7 @@ impl BinarySerialization for () {
         Ok(0)
     }
 
-    fn deserialize_from(_reader: &mut Buffer) -> Result<Self, Error> {
+    fn deserialize_from(_reader: &mut Buffer<'static>) -> Result<Self, Error> {
         Ok(())
     }
 }
