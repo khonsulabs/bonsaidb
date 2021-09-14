@@ -1,9 +1,8 @@
+use async_trait::async_trait;
 use byteorder::WriteBytesExt;
 
-use crate::{AsyncFile, Buffer, Error};
-use async_trait::async_trait;
-
 use super::PagedWriter;
+use crate::{AsyncFile, Buffer, Error};
 
 #[async_trait(?Send)]
 pub trait BinarySerialization: Sized {

@@ -1,4 +1,4 @@
-use bonsaidb_roots::{File, TokioFile};
+use bonsaidb_roots::TokioFile;
 use nanorand::{Pcg64, Rng};
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +39,7 @@ impl LogEntry {
     }
 }
 
+// mod couchdb;
 mod roots;
 mod sqlite;
 
@@ -55,34 +56,25 @@ impl BenchConfig for LogConfig {
 }
 
 pub fn run() {
-    for (transactions, entries_per_transaction) in [(1_000, 1_000), (200, 10_000), (30, 100_000)] {
+    for (transactions, entries_per_transaction) in
+        [(10_000, 1), (1_000, 100), (100, 1_000), (10, 10_000)]
+    {
         println!(
             "{} transactions, {} entries per transaction",
             transactions, entries_per_transaction
         );
         let mut suite = SuiteReport::default();
-        suite.reports.push(
-            roots::RootsLogs::<TokioFile>::run(
-                "roots",
-                &LogConfig {
-                    sequential_ids: true,
-                    transactions,
-                    entries_per_transaction,
-                },
-            )
-            .unwrap(),
-        );
-        suite.reports.push(
-            sqlite::SqliteLogs::run(
-                "sqlite",
-                &LogConfig {
-                    sequential_ids: true,
-                    transactions,
-                    entries_per_transaction,
-                },
-            )
-            .unwrap(),
-        );
+        let config = LogConfig {
+            sequential_ids: true,
+            transactions,
+            entries_per_transaction,
+        };
+        suite
+            .reports
+            .push(roots::RootsLogs::<TokioFile>::run("roots", &config).unwrap());
+        suite
+            .reports
+            .push(sqlite::SqliteLogs::run("sqlite", &config).unwrap());
         println!("{}", suite);
     }
 }

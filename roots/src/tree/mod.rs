@@ -14,13 +14,13 @@
 //! ## File pages
 //!
 //! The file is written in pages that are 4,096 bytes long. Each page has single
-//! `u8` representing the [`PageHeader`]. If data needs to span more than one
-//! page, every 4,096 byte boundary must contain a [`PageHeader::Continuation`].
+//! `u8` representing the `PageHeader`. If data needs to span more than one
+//! page, every 4,096 byte boundary must contain a `PageHeader::Continuation`.
 //!
 //! ### File Headers
 //!
-//! If the header is a [`PageHeader::Header`], the contents of the block will be
-//! a single chunk that contains a serialized [`TreeRoot`].
+//! If the header is a `PageHeader::Header`, the contents of the block will be
+//! a single chunk that contains a serialized `BTreeRoot`.
 //!
 //! ## Chunks
 //!
@@ -69,11 +69,13 @@ mod state;
 
 use self::serialization::BinarySerialization;
 pub use self::{
-    modify::{Modification, Operation},
+    btree_entry::KeyOperation,
+    modify::{CompareSwap, CompareSwapFn, Modification, Operation},
     state::State,
 };
 
-// The memory used by PagedWriter is PAGE_SIZE * PAGED_WRITER_BATCH_COUNT. E.g, 4096 * 4 = 16kb
+// The memory used by PagedWriter is PAGE_SIZE * PAGED_WRITER_BATCH_COUNT. E.g,
+// 4096 * 4 = 16kb
 const PAGE_SIZE: usize = 4096;
 const PAGED_WRITER_BATCH_COUNT: usize = 4;
 

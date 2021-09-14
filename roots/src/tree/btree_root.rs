@@ -14,7 +14,10 @@ use super::{
 };
 use crate::{
     error::InternalError,
-    tree::{btree_entry::ModificationContext, modify::Operation},
+    tree::{
+        btree_entry::{KeyOperation, ModificationContext},
+        modify::Operation,
+    },
     AsyncFile, Buffer, ChunkCache, Error, Vault,
 };
 
@@ -80,7 +83,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                                         document_position,
                                         document_size,
                                     });
-                                    Ok(Some(BySequenceIndex {
+                                    Ok(KeyOperation::Set(BySequenceIndex {
                                         document_id: key.clone(),
                                         position: document_position,
                                         document_size,
@@ -143,7 +146,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                              _existing_index,
                              _changes,
                              _writer: &mut PagedWriter<'_, F>| {
-                                async move { Ok(Some(value.clone())) }.boxed_local()
+                                async move { Ok(KeyOperation::Set(value.clone())) }.boxed_local()
                             },
                         loader: |_index, _writer| async move { Ok(None) }.boxed_local(),
                         _phantom: PhantomData,

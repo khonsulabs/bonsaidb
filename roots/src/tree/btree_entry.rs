@@ -51,7 +51,7 @@ where
         Option<&'tf I>,
         &'tf mut EntryChanges,
         &'tf mut PagedWriter<'_, F>,
-    ) -> LocalBoxFuture<'tf, Result<Option<I>, Error>>,
+    ) -> LocalBoxFuture<'tf, Result<KeyOperation<I>, Error>>,
     Loader: for<'tf> Fn(
         &'tf I,
         &'tf mut PagedWriter<'_, F>,
@@ -87,7 +87,7 @@ where
                 Option<&'tf I>,
                 &'tf mut EntryChanges,
                 &'tf mut PagedWriter<'_, F>,
-            ) -> LocalBoxFuture<'tf, Result<Option<I>, Error>>
+            ) -> LocalBoxFuture<'tf, Result<KeyOperation<I>, Error>>
             + 'f,
         Loader: for<'tf> Fn(
                 &'tf I,
@@ -133,27 +133,36 @@ where
                                         .await?
                                     }
 
-                                    Operation::Remove => None,
+                                    Operation::Remove => KeyOperation::Remove,
                                     Operation::CompareSwap(callback) => {
-                                        if let Some(value) = callback(&key, None) {
-                                            (context.indexer)(
-                                                &key,
-                                                &value,
-                                                Some(&children[last_index].index),
-                                                changes,
-                                                writer,
-                                            )
-                                            .await?
-                                        } else {
-                                            None
+                                        let current_index = &children[last_index].index;
+                                        let existing_value =
+                                            (context.loader)(current_index, writer).await?;
+                                        match callback(&key, existing_value) {
+                                            KeyOperation::Skip => KeyOperation::Skip,
+                                            KeyOperation::Set(new_value) => {
+                                                (context.indexer)(
+                                                    &key,
+                                                    &new_value,
+                                                    Some(current_index),
+                                                    changes,
+                                                    writer,
+                                                )
+                                                .await?
+                                            }
+                                            KeyOperation::Remove => KeyOperation::Remove,
                                         }
                                     }
                                 };
 
-                                if let Some(index) = index {
-                                    children[last_index] = KeyEntry { key, index };
-                                } else {
-                                    children.remove(last_index);
+                                match index {
+                                    KeyOperation::Skip => {}
+                                    KeyOperation::Set(index) => {
+                                        children[last_index] = KeyEntry { key, index };
+                                    }
+                                    KeyOperation::Remove => {
+                                        children.remove(last_index);
+                                    }
                                 }
                             }
                             Err(insert_at) => {
@@ -183,23 +192,31 @@ where
                                     }
                                     Operation::Remove => {
                                         // The key doesn't exist, so a remove is a no-op.
-                                        None
+                                        KeyOperation::Remove
                                     }
                                     Operation::CompareSwap(callback) => {
-                                        if let Some(value) = callback(&key, None) {
-                                            (context.indexer)(&key, &value, None, changes, writer)
+                                        match callback(&key, None) {
+                                            KeyOperation::Skip => KeyOperation::Skip,
+                                            KeyOperation::Set(new_value) => {
+                                                (context.indexer)(
+                                                    &key, &new_value, None, changes, writer,
+                                                )
                                                 .await?
-                                        } else {
-                                            None
+                                            }
+                                            KeyOperation::Remove => KeyOperation::Remove,
                                         }
                                     }
                                 };
                                 // New node.
-                                if let Some(index) = index {
-                                    if children.capacity() < children.len() + 1 {
-                                        children.reserve(context.current_order - children.len());
+                                match index {
+                                    KeyOperation::Set(index) => {
+                                        if children.capacity() < children.len() + 1 {
+                                            children
+                                                .reserve(context.current_order - children.len());
+                                        }
+                                        children.insert(last_index, KeyEntry { key, index });
                                     }
-                                    children.insert(last_index, KeyEntry { key, index });
+                                    KeyOperation::Skip | KeyOperation::Remove => {}
                                 }
                             }
                         }
@@ -437,4 +454,15 @@ impl<
             _ => Err(Error::data_integrity("invalid node header")),
         }
     }
+}
+
+/// An operation to perform on a key.
+#[derive(Debug)]
+pub enum KeyOperation<T> {
+    /// Do not alter the key.
+    Skip,
+    /// Set the key to the new value.
+    Set(T),
+    /// Remove the key.
+    Remove,
 }

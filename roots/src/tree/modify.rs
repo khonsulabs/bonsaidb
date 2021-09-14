@@ -3,6 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use super::btree_entry::KeyOperation;
 use crate::{Buffer, Error};
 
 /// A tree modification.
@@ -41,18 +42,23 @@ pub enum Operation<T> {
     /// Removes the keys.
     Remove,
     /// Executes the `CompareSwap`. The original value (or `None` if not
-    /// present) is the only argument. If the original value is returned,
-    /// nothing happens. If a new value is returned, the key is updated. If
-    /// `None` is returned, the key is removed.
-    // TODO the "original" value returned, nothing happens doesn't actually happen right now.
+    /// present) is the only argument.
     CompareSwap(CompareSwap<T>),
 }
 
-pub type CompareSwapFn<T> = dyn FnMut(&Buffer<'static>, Option<T>) -> Option<T>;
+/// A function that is allowed to check the current value of a key and determine
+/// how to operate on it. The first parameter is the key, and the second
+/// parameter is the current value, if present.
+pub type CompareSwapFn<T> = dyn FnMut(&Buffer<'static>, Option<T>) -> KeyOperation<T>;
+
+/// A wrapper for a [`CompareSwapFn`].
 pub struct CompareSwap<T>(Box<CompareSwapFn<T>>);
 
 impl<T> CompareSwap<T> {
-    pub fn new<F: FnMut(&Buffer<'static>, Option<T>) -> Option<T> + 'static>(callback: F) -> Self {
+    /// Returns a new wrapped callback.
+    pub fn new<F: FnMut(&Buffer<'static>, Option<T>) -> KeyOperation<T> + 'static>(
+        callback: F,
+    ) -> Self {
         Self(Box::new(callback))
     }
 }

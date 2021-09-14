@@ -2,9 +2,8 @@ use async_trait::async_trait;
 use rusqlite::{params, Connection};
 use tempfile::NamedTempFile;
 
-use crate::AsyncBench;
-
 use super::{LogConfig, LogEntry};
+use crate::AsyncBench;
 
 pub struct SqliteLogs {
     sqlite: Connection,
