@@ -73,9 +73,9 @@ pub use self::{
     state::State,
 };
 
-// The memory used by PagedWriter is PAGE_SIZE * PAGED_WRITER_BATCH_COUNT
+// The memory used by PagedWriter is PAGE_SIZE * PAGED_WRITER_BATCH_COUNT. E.g, 4096 * 32 = 128kb
 const PAGE_SIZE: usize = 4096;
-const PAGED_WRITER_BATCH_COUNT: usize = 1;
+const PAGED_WRITER_BATCH_COUNT: usize = 32;
 
 const CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_BZIP2);
 

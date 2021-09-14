@@ -196,6 +196,9 @@ where
                                 };
                                 // New node.
                                 if let Some(index) = index {
+                                    if children.capacity() < children.len() + 1 {
+                                        children.reserve(context.current_order - children.len());
+                                    }
                                     children.insert(last_index, KeyEntry { key, index });
                                 }
                             }
@@ -271,6 +274,9 @@ where
                                 // children[last_index] = Interior::from(lower);
                                 // Insert the upper entry at the next position.
                                 children[last_index].key = child_entry.max_key().clone();
+                                if children.capacity() < children.len() + 1 {
+                                    children.reserve(context.current_order - children.len());
+                                }
                                 children.insert(last_index + 1, Interior::from(upper));
                             }
                         };
