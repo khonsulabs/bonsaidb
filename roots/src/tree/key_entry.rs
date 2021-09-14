@@ -31,7 +31,7 @@ impl<I: BinarySerialization> BinarySerialization for KeyEntry<I> {
         Ok(bytes_written)
     }
 
-    fn deserialize_from(reader: &mut Buffer<'_>) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer<'_>, current_order: usize) -> Result<Self, Error> {
         let key_len = reader.read_u16::<BigEndian>()? as usize;
         if key_len > reader.len() {
             return Err(Error::data_integrity(format!(
@@ -42,7 +42,7 @@ impl<I: BinarySerialization> BinarySerialization for KeyEntry<I> {
         }
         let key = reader.read_bytes(key_len)?.to_owned();
 
-        let value = I::deserialize_from(reader)?;
+        let value = I::deserialize_from(reader, current_order)?;
 
         Ok(Self { key, index: value })
     }

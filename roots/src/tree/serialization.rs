@@ -20,7 +20,7 @@ pub trait BinarySerialization: Sized {
         self.serialize_to(&mut buffer, paged_writer).await?;
         Ok(buffer)
     }
-    fn deserialize_from(reader: &mut Buffer<'_>) -> Result<Self, Error>;
+    fn deserialize_from(reader: &mut Buffer<'_>, current_order: usize) -> Result<Self, Error>;
 }
 
 #[async_trait(?Send)]
@@ -33,7 +33,7 @@ impl BinarySerialization for () {
         Ok(0)
     }
 
-    fn deserialize_from(_reader: &mut Buffer<'_>) -> Result<Self, Error> {
+    fn deserialize_from(_reader: &mut Buffer<'_>, _current_order: usize) -> Result<Self, Error> {
         Ok(())
     }
 }

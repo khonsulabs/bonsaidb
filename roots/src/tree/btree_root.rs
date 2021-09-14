@@ -201,8 +201,8 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         let mut by_sequence_bytes = bytes.read_bytes(by_sequence_size)?.to_owned();
         let mut by_id_bytes = bytes.read_bytes(by_id_size)?.to_owned();
 
-        let by_sequence_root = BTreeEntry::deserialize_from(&mut by_sequence_bytes)?;
-        let by_id_root = BTreeEntry::deserialize_from(&mut by_id_bytes)?;
+        let by_sequence_root = BTreeEntry::deserialize_from(&mut by_sequence_bytes, MAX_ORDER)?;
+        let by_id_root = BTreeEntry::deserialize_from(&mut by_id_bytes, MAX_ORDER)?;
 
         Ok(Self {
             transaction_id,

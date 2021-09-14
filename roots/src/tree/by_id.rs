@@ -24,7 +24,7 @@ impl BinarySerialization for ByIdIndex {
         Ok(20)
     }
 
-    fn deserialize_from(reader: &mut Buffer<'_>) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer<'_>, _current_order: usize) -> Result<Self, Error> {
         let sequence_id = reader.read_u64::<BigEndian>()?;
         let document_size = reader.read_u32::<BigEndian>()?;
         let position = reader.read_u64::<BigEndian>()?;
@@ -62,7 +62,7 @@ impl BinarySerialization for ByIdStats {
         Ok(24)
     }
 
-    fn deserialize_from(reader: &mut Buffer<'_>) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer<'_>, _current_order: usize) -> Result<Self, Error> {
         let alive_documents = reader.read_u64::<BigEndian>()?;
         let deleted_documents = reader.read_u64::<BigEndian>()?;
         let total_size = reader.read_u64::<BigEndian>()?;

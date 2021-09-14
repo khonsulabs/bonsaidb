@@ -265,7 +265,7 @@ where
 
                         last_index += containing_node_index;
                         let child = &mut children[last_index];
-                        child.position.load(writer).await?;
+                        child.position.load(writer, context.current_order).await?;
                         let child_entry = child.position.get_mut().unwrap();
                         match child_entry
                             // TODO evaluate whether Some(key) is right here -- shouldn't it be the max of key/child.key?
@@ -380,6 +380,7 @@ where
                             Pointer::OnDisk(position) => {
                                 let entry = Self::deserialize_from(
                                     &mut read_chunk(*position, file, vault, cache).await?,
+                                    children.len(),
                                 )?;
                                 entry.get(key, file, vault, cache).await
                             }
@@ -432,22 +433,24 @@ impl<
         Ok(bytes_written)
     }
 
-    fn deserialize_from(reader: &mut Buffer<'_>) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer<'_>, current_order: usize) -> Result<Self, Error> {
         let node_header = reader.read_u8()?;
         match node_header {
             0 => {
                 // Interior
                 let mut nodes = Vec::new();
+                nodes.reserve(current_order);
                 while !reader.is_empty() {
-                    nodes.push(Interior::deserialize_from(reader)?);
+                    nodes.push(Interior::deserialize_from(reader, current_order)?);
                 }
                 Ok(Self::Interior(nodes))
             }
             1 => {
                 // Leaf
                 let mut nodes = Vec::new();
+                nodes.reserve(current_order);
                 while !reader.is_empty() {
-                    nodes.push(KeyEntry::deserialize_from(reader)?);
+                    nodes.push(KeyEntry::deserialize_from(reader, current_order)?);
                 }
                 Ok(Self::Leaf(nodes))
             }

@@ -51,10 +51,14 @@ impl<
     pub async fn load<F: AsyncFile>(
         &mut self,
         writer: &mut PagedWriter<'_, F>,
+        current_order: usize,
     ) -> Result<(), Error> {
         match self {
             Pointer::OnDisk(position) => {
-                let entry = BTreeEntry::deserialize_from(&mut writer.read_chunk(*position).await?)?;
+                let entry = BTreeEntry::deserialize_from(
+                    &mut writer.read_chunk(*position).await?,
+                    current_order,
+                )?;
                 *self = Self::Loaded(Box::new(entry));
             }
             Pointer::Loaded(_) => {}
@@ -105,7 +109,7 @@ impl<
         Ok(bytes_written)
     }
 
-    fn deserialize_from(reader: &mut Buffer<'_>) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer<'_>, current_order: usize) -> Result<Self, Error> {
         let key_len = reader.read_u16::<BigEndian>()? as usize;
         if key_len > reader.len() {
             return Err(Error::data_integrity(format!(
@@ -117,7 +121,7 @@ impl<
         let key = reader.read_bytes(key_len)?.to_owned();
 
         let position = reader.read_u64::<BigEndian>()?;
-        let stats = R::deserialize_from(reader)?;
+        let stats = R::deserialize_from(reader, current_order)?;
 
         Ok(Self {
             key,
