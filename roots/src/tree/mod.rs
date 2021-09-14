@@ -73,9 +73,9 @@ pub use self::{
     state::State,
 };
 
-// The memory used by PagedWriter is PAGE_SIZE * PAGED_WRITER_BATCH_COUNT. E.g, 4096 * 32 = 128kb
+// The memory used by PagedWriter is PAGE_SIZE * PAGED_WRITER_BATCH_COUNT. E.g, 4096 * 4 = 16kb
 const PAGE_SIZE: usize = 4096;
-const PAGED_WRITER_BATCH_COUNT: usize = 32;
+const PAGED_WRITER_BATCH_COUNT: usize = 4;
 
 const CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_BZIP2);
 
@@ -101,6 +101,17 @@ impl TryFrom<u8> for PageHeader {
             ))),
         }
     }
+}
+
+macro_rules! commit_if_needed {
+    ($self:ident, $about_to_write:expr) => {{
+        if $self.offset == $self.scratch.len() {
+            $self.commit().await?;
+        } else if $about_to_write && $self.offset % PAGE_SIZE == 0 {
+            $self.scratch[$self.offset] = PageHeader::Continuation as u8;
+            $self.offset += 1;
+        }
+    }};
 }
 
 /// An append-only tree file.
@@ -383,7 +394,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
 
     async fn write(&mut self, data: &[u8]) -> Result<usize, Error> {
         let bytes_written = data.len();
-        self.commit_if_needed(true).await?;
+        commit_if_needed!(self, true);
 
         let new_offset = self.offset + data.len();
         let start_page = self.offset / PAGE_SIZE;
@@ -404,7 +415,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
 
             // If the data is large enough to span multiple pages, continue to do so.
             while remaining.len() >= PAGE_SIZE {
-                self.commit_if_needed(true).await?;
+                commit_if_needed!(self, true);
 
                 let (one_page, after) = remaining.split_at(PAGE_SIZE - 1);
                 remaining = after;
@@ -413,7 +424,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
                 self.offset += PAGE_SIZE - 1;
             }
 
-            self.commit_if_needed(!remaining.is_empty()).await?;
+            commit_if_needed!(self, !remaining.is_empty());
 
             // If there's any data left, add it to the scratch
             if !remaining.is_empty() {
@@ -422,7 +433,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
                 self.offset = new_offset;
             }
 
-            self.commit_if_needed(!remaining.is_empty()).await?;
+            commit_if_needed!(self, !remaining.is_empty());
         }
         Ok(bytes_written)
     }
@@ -498,17 +509,6 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
         let mut buffer = [0_u8; 8];
         B::write_u64(&mut buffer, value);
         self.write(&buffer).await
-    }
-
-    /// Finishes a single page, and commits to disk if needed.
-    async fn commit_if_needed(&mut self, about_to_write: bool) -> Result<(), Error> {
-        if self.offset == self.scratch.len() {
-            self.commit().await?;
-        } else if about_to_write && self.offset % PAGE_SIZE == 0 {
-            self.scratch[self.offset] = PageHeader::Continuation as u8;
-            self.offset += 1;
-        }
-        Ok(())
     }
 
     /// Writes the scratch buffer and resets `offset`.
