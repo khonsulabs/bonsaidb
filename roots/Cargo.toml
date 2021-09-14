@@ -39,10 +39,6 @@ tempfile = "3"
 tabled = "0.3"
 rusqlite = "0.25"
 
-[profile.release]
-lto = true
-codegen-units = 1
-
 [[bench]]
 name = "roots-bench"
 harness = false
