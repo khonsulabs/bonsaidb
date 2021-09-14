@@ -386,7 +386,8 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
             scratch: vec![0; PAGE_SIZE * PAGED_WRITER_BATCH_COUNT],
             offset: 0,
         };
-        writer.write_u8(header as u8).await?;
+        writer.scratch[0] = header as u8;
+        writer.offset = 1;
         Ok(writer)
     }
 
@@ -703,6 +704,7 @@ mod tests {
             }
         };
         let id_buffer = Buffer::from(id.to_be_bytes().to_vec());
+        println!("Inserting: {:?}", id_buffer);
         {
             let state = State::default();
             if ids.len() > 1 {
@@ -876,7 +878,7 @@ mod tests {
                 // Try five random gets
                 for _ in 0..5 {
                     let index = rng.generate_range(0..ids.len());
-                    let id = dbg!(Buffer::from(ids[index].to_be_bytes().to_vec()));
+                    let id = Buffer::from(ids[index].to_be_bytes().to_vec());
                     let value = tree.get(&id).await.unwrap();
                     assert_eq!(&*value.unwrap(), b"hello world");
                 }
