@@ -73,7 +73,9 @@ pub use self::{
     state::State,
 };
 
+// The memory used by PagedWriter is PAGE_SIZE * PAGED_WRITER_BATCH_COUNT
 const PAGE_SIZE: usize = 4096;
+const PAGED_WRITER_BATCH_COUNT: usize = 1;
 
 const CRC32: Crc<u32> = Crc::<u32>::new(&CRC_32_BZIP2);
 
@@ -368,7 +370,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
             vault,
             cache,
             position,
-            scratch: vec![0; PAGE_SIZE],
+            scratch: vec![0; PAGE_SIZE * PAGED_WRITER_BATCH_COUNT],
             offset: 0,
         };
         writer.write_u8(header as u8).await?;
@@ -381,28 +383,37 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
 
     async fn write(&mut self, data: &[u8]) -> Result<usize, Error> {
         let bytes_written = data.len();
-        let scratch_remaining = PAGE_SIZE - self.offset;
+        self.commit_if_needed(true).await?;
+
         let new_offset = self.offset + data.len();
-        if new_offset <= PAGE_SIZE {
+        let start_page = self.offset / PAGE_SIZE;
+        let end_page = (new_offset - 1) / PAGE_SIZE;
+        if start_page == end_page && new_offset <= self.scratch.len() {
+            // Everything fits within the current page
             self.scratch[self.offset..new_offset].copy_from_slice(data);
             self.offset = new_offset;
         } else {
-            // This won't fully fit within the scratch buffer. First, fill the remainder of scratch and write it.
-            let (fill_amount, mut remaining) = data.split_at(scratch_remaining);
+            // This won't fully fit within the page remainder. First, fill the remainder of the page
+            let page_remaining = PAGE_SIZE - self.offset % PAGE_SIZE;
+            let (fill_amount, mut remaining) = data.split_at(page_remaining);
             if !fill_amount.is_empty() {
-                self.scratch[self.offset..PAGE_SIZE].copy_from_slice(fill_amount);
-                self.offset = PAGE_SIZE;
+                self.scratch[self.offset..self.offset + fill_amount.len()]
+                    .copy_from_slice(fill_amount);
+                self.offset += fill_amount.len();
             }
-            self.commit().await?;
 
             // If the data is large enough to span multiple pages, continue to do so.
-            while remaining.len() >= PAGE_SIZE - 1 {
+            while remaining.len() >= PAGE_SIZE {
+                self.commit_if_needed(true).await?;
+
                 let (one_page, after) = remaining.split_at(PAGE_SIZE - 1);
                 remaining = after;
-                self.scratch[self.offset..PAGE_SIZE].copy_from_slice(one_page);
-                self.offset = PAGE_SIZE;
-                self.commit().await?;
+
+                self.scratch[self.offset..self.offset + PAGE_SIZE - 1].copy_from_slice(one_page);
+                self.offset += PAGE_SIZE - 1;
             }
+
+            self.commit_if_needed(!remaining.is_empty()).await?;
 
             // If there's any data left, add it to the scratch
             if !remaining.is_empty() {
@@ -410,6 +421,8 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
                 self.scratch[self.offset..new_offset].copy_from_slice(remaining);
                 self.offset = new_offset;
             }
+
+            self.commit_if_needed(!remaining.is_empty()).await?;
         }
         Ok(bytes_written)
     }
@@ -487,27 +500,36 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
         self.write(&buffer).await
     }
 
-    /// Writes the page and resets `offset`.
+    /// Finishes a single page, and commits to disk if needed.
+    async fn commit_if_needed(&mut self, about_to_write: bool) -> Result<(), Error> {
+        if self.offset == self.scratch.len() {
+            self.commit().await?;
+        } else if about_to_write && self.offset % PAGE_SIZE == 0 {
+            self.scratch[self.offset] = PageHeader::Continuation as u8;
+            self.offset += 1;
+        }
+        Ok(())
+    }
+
+    /// Writes the scratch buffer and resets `offset`.
     #[cfg_attr(not(debug_assertions), allow(unused_mut))]
     async fn commit(&mut self) -> Result<(), Error> {
         let mut buffer = std::mem::take(&mut self.scratch);
+        let length = (self.offset + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
 
         // In debug builds, fill the padding with a recognizable number: the
         // answer to the ultimate question of life, the universe and everything.
         // For refence, 42 in hex is 0x2A.
         #[cfg(debug_assertions)]
-        if self.offset < PAGE_SIZE {
-            buffer[self.offset..].fill(42);
+        if self.offset < length {
+            buffer[self.offset..length].fill(42);
         }
 
-        let result = self
-            .file
-            .write_all(self.position, buffer, 0, PAGE_SIZE)
-            .await;
+        let result = self.file.write_all(self.position, buffer, 0, length).await;
         self.scratch = result.1;
 
         if result.0.is_ok() {
-            self.position += PAGE_SIZE as u64;
+            self.position += length as u64;
         }
 
         // Set the header to be a continuation block
@@ -517,7 +539,9 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
     }
 
     async fn finish(mut self) -> Result<(&'a mut F, u64), Error> {
-        self.commit().await?;
+        if self.offset > 0 {
+            self.commit().await?;
+        }
         Ok((self.file, self.position))
     }
 }
@@ -645,6 +669,7 @@ mod tests {
     /// lands on page 1/2/3 end or extends onto page 4.
     #[tokio::test]
     async fn paged_writer() {
+        test_paged_write(4087, 1).await.unwrap();
         for offset in 0..=PAGE_SIZE * 2 {
             for length in [
                 1,

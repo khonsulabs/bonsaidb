@@ -1,4 +1,4 @@
-use bonsaidb_roots::TokioFile;
+use bonsaidb_roots::File;
 use nanorand::{Pcg64, Rng};
 use serde::{Deserialize, Serialize};
 
@@ -62,7 +62,7 @@ pub fn run() {
         );
         let mut suite = SuiteReport::default();
         suite.reports.push(
-            roots::RootsLogs::<TokioFile>::run(
+            roots::RootsLogs::<File>::run(
                 "roots",
                 &LogConfig {
                     sequential_ids: true,
