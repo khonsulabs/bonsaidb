@@ -53,7 +53,7 @@ use tokio::fs::OpenOptions;
 
 use crate::{
     async_file::{AsyncFile, AsyncFileManager, FileOp, OpenableFile},
-    tree::{btree_root::BTreeRoot, modify::Operation},
+    tree::btree_root::BTreeRoot,
     Buffer, ChunkCache, Context, Error, Vault,
 };
 
@@ -68,7 +68,10 @@ mod serialization;
 mod state;
 
 use self::serialization::BinarySerialization;
-pub use self::{modify::Modification, state::State};
+pub use self::{
+    modify::{Modification, Operation},
+    state::State,
+};
 
 const PAGE_SIZE: usize = 4096;
 
@@ -98,6 +101,14 @@ impl TryFrom<u8> for PageHeader {
     }
 }
 
+/// An append-only tree file.
+///
+/// ## Generics
+/// - `F`: An [`AsyncFile`] implementor.
+/// - `MAX_ORDER`: The maximum number of children a node in the tree can
+///   contain. This implementation attempts to grow naturally towards this upper
+///   limit. Changing this parameter does not automatically rebalance the tree,
+///   but over time the tree will be updated.
 pub struct TreeFile<F: AsyncFile, const MAX_ORDER: usize> {
     file: <F::Manager as AsyncFileManager<F>>::FileHandle,
     state: State<MAX_ORDER>,
@@ -107,7 +118,10 @@ pub struct TreeFile<F: AsyncFile, const MAX_ORDER: usize> {
 
 #[allow(clippy::future_not_send)]
 impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
-    pub async fn open(
+    /// Returns a tree as contained in `file`.
+    ///
+    /// `state` should already be initialized using [`Self::initialize_state`] if the file exists.
+    pub async fn new(
         file: <F::Manager as AsyncFileManager<F>>::FileHandle,
         state: State<MAX_ORDER>,
         vault: Option<Arc<dyn Vault>>,
@@ -169,10 +183,10 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
             match PageHeader::try_from(scratch_buffer[0])? {
                 PageHeader::Continuation | PageHeader::Data => {
                     if block_start == 0 {
-                        panic!(
+                        return Err(Error::data_integrity(format!(
                             "Tree {:?} contained data, but no valid pages were found",
                             file_path
-                        );
+                        )));
                     }
                     block_start -= PAGE_SIZE as u64;
                     continue;
@@ -200,7 +214,7 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         document: Buffer<'static>,
     ) -> Result<u64, Error> {
         self.file
-            .write(DocumentWriter {
+            .execute(DocumentWriter {
                 state: &self.state,
                 vault: self.vault.as_deref(),
                 cache: self.cache.as_ref(),
@@ -219,7 +233,7 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         modification: Modification<'static, Buffer<'static>>,
     ) -> Result<u64, Error> {
         self.file
-            .write(DocumentWriter {
+            .execute(DocumentWriter {
                 state: &self.state,
                 vault: self.vault.as_deref(),
                 cache: self.cache.as_ref(),
@@ -231,7 +245,7 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     /// Gets the value stored for `key`.
     pub async fn get(&mut self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
         self.file
-            .write(DocumentReader {
+            .execute(DocumentReader {
                 state: &self.state,
                 vault: self.vault.as_deref(),
                 cache: self.cache.as_ref(),
@@ -253,7 +267,7 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, 
     type Output = u64;
 
     #[allow(clippy::shadow_unrelated)] // It is related, but clippy can't tell.
-    async fn write(&mut self, file: &mut F) -> Result<Self::Output, Error> {
+    async fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
         let mut state = self.state.lock().await;
 
         let mut data_block = PagedWriter::new(
@@ -270,6 +284,7 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, 
             .header
             .modify(self.modification.take().unwrap(), &mut data_block)
             .await?;
+        let new_header = state.header.serialize(&mut data_block).await?;
         let (file, after_data) = data_block.finish().await?;
         state.current_position = after_data;
 
@@ -282,8 +297,7 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, 
             state.current_position,
         )
         .await?;
-        let data = state.header.serialize()?;
-        header_block.write_chunk(&data).await?;
+        header_block.write_chunk(&new_header).await?;
 
         let (file, after_header) = header_block.finish().await?;
         state.current_position = after_header;
@@ -304,7 +318,7 @@ struct DocumentReader<'a, const MAX_ORDER: usize> {
 #[async_trait(?Send)]
 impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentReader<'a, MAX_ORDER> {
     type Output = Option<Buffer<'static>>;
-    async fn write(&mut self, file: &mut F) -> Result<Self::Output, Error> {
+    async fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
         let state = self.state.lock().await;
         state
             .header
@@ -316,6 +330,7 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentReader<'a, 
 #[allow(clippy::future_not_send)]
 impl<'a, const MAX_ORDER: usize> DocumentWriter<'a, MAX_ORDER> {}
 
+/// Writes data in pages, allowing for quick scanning through the file.
 pub struct PagedWriter<'a, F: AsyncFile> {
     file: &'a mut F,
     vault: Option<&'a dyn Vault>,
@@ -523,6 +538,7 @@ async fn read_chunk<F: AsyncFile>(
 
     // Read the chunk header
     let mut scratch = Vec::new();
+    scratch.reserve(PAGE_SIZE);
     scratch.resize(8, 0);
     let (result, mut scratch) = file.read_exact(position, scratch, 8).await;
     result?;
@@ -668,7 +684,7 @@ mod tests {
                     .unwrap();
             }
             let file = context.file_manager.append(file_path).await.unwrap();
-            let mut tree = TreeFile::<F, MAX_ORDER>::open(
+            let mut tree = TreeFile::<F, MAX_ORDER>::new(
                 file,
                 state,
                 context.vault.clone(),
@@ -693,7 +709,7 @@ mod tests {
                 .unwrap();
 
             let file = context.file_manager.append(file_path).await.unwrap();
-            let mut tree = TreeFile::<F, MAX_ORDER>::open(
+            let mut tree = TreeFile::<F, MAX_ORDER>::new(
                 file,
                 state,
                 context.vault.clone(),
@@ -763,7 +779,7 @@ mod tests {
             let file_path = temp_dir.join("tree");
             let state = State::default();
             let file = context.file_manager.append(file_path).await.unwrap();
-            let mut tree = TreeFile::<F, ORDER>::open(
+            let mut tree = TreeFile::<F, ORDER>::new(
                 file,
                 state,
                 context.vault.clone(),
@@ -792,9 +808,9 @@ mod tests {
     }
 
     fn bulk_insert<F: AsyncFile>(name: &str) {
-        const ORDER: usize = 1000;
-        const RECORDS_PER_BATCH: usize = 1_000;
-        const BATCHES: usize = 1_000;
+        const ORDER: usize = 10;
+        const RECORDS_PER_BATCH: usize = 10;
+        const BATCHES: usize = 1000;
         F::Manager::run(async {
             let mut rng = Pcg64::new_seed(1);
             let context = Context {
@@ -807,7 +823,7 @@ mod tests {
             let file_path = temp_dir.join("tree");
             let state = State::default();
             let file = context.file_manager.append(file_path).await.unwrap();
-            let mut tree = TreeFile::<F, ORDER>::open(
+            let mut tree = TreeFile::<F, ORDER>::new(
                 file,
                 state,
                 context.vault.clone(),
@@ -816,15 +832,27 @@ mod tests {
             .await
             .unwrap();
             for id in 0..BATCHES {
-                let ids = (0..RECORDS_PER_BATCH).map(|_| rng.generate::<u64>());
+                let mut ids = (0..RECORDS_PER_BATCH)
+                    .map(|_| rng.generate::<u64>())
+                    .collect::<Vec<_>>();
+                ids.sort_unstable();
                 let modification = Modification {
                     transaction_id: id as u64,
                     keys: ids
+                        .iter()
                         .map(|id| Buffer::from(id.to_be_bytes().to_vec()))
                         .collect(),
                     operation: Operation::Set(Buffer::from(b"hello world")),
                 };
                 tree.modify(modification).await.unwrap();
+
+                // Try five random gets
+                for _ in 0..5 {
+                    let index = rng.generate_range(0..ids.len());
+                    let id = dbg!(Buffer::from(ids[index].to_be_bytes().to_vec()));
+                    let value = tree.get(&id).await.unwrap();
+                    assert_eq!(&*value.unwrap(), b"hello world");
+                }
             }
         });
     }

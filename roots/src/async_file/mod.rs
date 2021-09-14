@@ -218,18 +218,25 @@ impl AsyncFile for File {
     }
 }
 
+/// A manager that is responsible for controlling write access to a file.
 #[async_trait(?Send)]
 pub trait AsyncFileManager<F: AsyncFile>: Send + Sync + Clone + Default {
+    /// A file handle type, which can have operations executed against it.
     type FileHandle: OpenableFile<F>;
+
+    /// Returns a file handle that can be used for reading operations.
     async fn read(
         &self,
         path: impl AsRef<Path> + Send + 'async_trait,
     ) -> Result<Self::FileHandle, Error>;
+
+    /// Returns a file handle that can be used to read and write.
     async fn append(
         &self,
         path: impl AsRef<Path> + Send + 'async_trait,
     ) -> Result<Self::FileHandle, Error>;
 
+    /// Returns the length of the file.
     async fn file_length(
         &self,
         path: impl AsRef<Path> + Send + 'async_trait,
@@ -240,21 +247,31 @@ pub trait AsyncFileManager<F: AsyncFile>: Send + Sync + Clone + Default {
             .map(|metadata| metadata.len())
     }
 
+    /// Runs a future with capabilities to support accessing files from this
+    /// file manager.
     fn run<R, Fut: Future<Output = R>>(future: Fut) -> R;
 }
 
+/// A file that can have operations performed on it.
 #[async_trait(?Send)]
 pub trait OpenableFile<F: AsyncFile> {
-    async fn write<W: FileOp<F>>(&mut self, operator: W) -> Result<W::Output, Error>;
-    // async fn read<W: FileOp<F>>(&mut self, operator: W) -> Result<W::Output, Error>;
+    /// Executes an operation.
+    async fn execute<W: FileOp<F>>(&mut self, operator: W) -> Result<W::Output, Error>;
 
+    /// Closes the file. This may not actually close the underlying file,
+    /// depending on what other tasks have access to the underlying file as
+    /// well.
     async fn close(self) -> Result<(), Error>;
 }
 
+/// An operation to perform on a file.
 #[async_trait(?Send)]
 pub trait FileOp<F: AsyncFile> {
+    /// The output type of the operation.
     type Output;
-    async fn write(&mut self, file: &mut F) -> Result<Self::Output, Error>;
+
+    /// Executes the operation and returns the result.
+    async fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error>;
 }
 
 #[derive(Default, Clone)]
@@ -291,8 +308,8 @@ impl AsyncFileManager<File> for FileManager {
 
 #[async_trait(?Send)]
 impl OpenableFile<Self> for File {
-    async fn write<W: FileOp<Self>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
-        writer.write(self).await
+    async fn execute<W: FileOp<Self>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
+        writer.execute(self).await
     }
 
     async fn close(self) -> Result<(), Error> {

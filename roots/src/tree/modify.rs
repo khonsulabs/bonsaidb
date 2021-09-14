@@ -3,20 +3,48 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::Buffer;
+use crate::{Buffer, Error};
 
+/// A tree modification.
 #[derive(Debug)]
 pub struct Modification<'a, T> {
+    /// The transaction ID to store with this change.
     pub transaction_id: u64,
+    /// The keys to operate upon.
     pub keys: Vec<Buffer<'a>>,
+    /// The operation to perform on the keys.
     pub operation: Operation<T>,
 }
 
+impl<'a, T> Modification<'a, T> {
+    pub(crate) fn reverse(&mut self) -> Result<(), Error> {
+        if self.keys.windows(2).all(|w| w[0] < w[1]) {
+            self.keys.reverse();
+            if let Operation::SetEach(values) = &mut self.operation {
+                values.reverse();
+            }
+            Ok(())
+        } else {
+            Err(Error::KeysNotOrdered)
+        }
+    }
+}
+
+/// An operation that is performed on a set of keys.
 #[derive(Debug)]
 pub enum Operation<T> {
+    /// Sets all keys to the value.
     Set(T),
-    // SetPerKey(Vec<T>),
+    /// Sets each key to the corresponding entry in this value. The number of
+    /// keys must match the number of values.
+    SetEach(Vec<T>),
+    /// Removes the keys.
     Remove,
+    /// Executes the `CompareSwap`. The original value (or `None` if not
+    /// present) is the only argument. If the original value is returned,
+    /// nothing happens. If a new value is returned, the key is updated. If
+    /// `None` is returned, the key is removed.
+    // TODO the "original" value returned, nothing happens doesn't actually happen right now.
     CompareSwap(CompareSwap<T>),
 }
 

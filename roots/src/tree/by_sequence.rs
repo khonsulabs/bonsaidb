@@ -1,9 +1,10 @@
 use std::convert::TryFrom;
 
+use async_trait::async_trait;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::{btree_entry::Reducer, BinarySerialization};
-use crate::{Buffer, Error};
+use super::{btree_entry::Reducer, BinarySerialization, PagedWriter};
+use crate::{AsyncFile, Buffer, Error};
 
 #[derive(Clone, Debug)]
 pub struct BySequenceIndex {
@@ -12,8 +13,13 @@ pub struct BySequenceIndex {
     pub position: u64,
 }
 
+#[async_trait(?Send)]
 impl BinarySerialization for BySequenceIndex {
-    fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
+    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+        &mut self,
+        writer: &mut W,
+        _paged_writer: &mut PagedWriter<'_, F>,
+    ) -> Result<usize, Error> {
         let mut bytes_written = 0;
         writer.write_u32::<BigEndian>(self.document_size)?;
         bytes_written += 4;
@@ -55,13 +61,18 @@ pub struct BySequenceStats {
     pub number_of_records: u64,
 }
 
+#[async_trait(?Send)]
 impl BinarySerialization for BySequenceStats {
-    fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
+    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+        &mut self,
+        writer: &mut W,
+        _paged_writer: &mut PagedWriter<'_, F>,
+    ) -> Result<usize, Error> {
         writer.write_u64::<BigEndian>(self.number_of_records)?;
         Ok(8)
     }
 
-    fn deserialize_from(reader: &mut Buffer<'static>) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer<'_>) -> Result<Self, Error> {
         let number_of_records = reader.read_u64::<BigEndian>()?;
         Ok(Self { number_of_records })
     }

@@ -70,7 +70,7 @@ impl<F: AsyncFile> TransactionLog<F> {
         }
 
         let mut file = context.file_manager.read(log_path).await?;
-        file.write(StateInitializer {
+        file.execute(StateInitializer {
             state,
             log_length,
             vault: context.vault(),
@@ -81,7 +81,7 @@ impl<F: AsyncFile> TransactionLog<F> {
 
     pub async fn push(&mut self, handles: Vec<TransactionHandle<'_>>) -> Result<(), Error> {
         self.log
-            .write(LogWriter {
+            .execute(LogWriter {
                 state: self.state.clone(),
                 vault: self.vault.clone(),
                 handles,
@@ -117,7 +117,7 @@ struct StateInitializer<'a, F> {
 #[async_trait(?Send)]
 impl<'a, F: AsyncFile> FileOp<F> for StateInitializer<'a, F> {
     type Output = ();
-    async fn write(&mut self, log: &mut F) -> Result<(), Error> {
+    async fn execute(&mut self, log: &mut F) -> Result<(), Error> {
         // Scan back block by block until we find a page header with a value of 1.
         let mut block_start = self.log_length - PAGE_SIZE as u64;
         let mut scratch_buffer = Vec::new();
@@ -182,7 +182,7 @@ struct LogWriter<'a, F> {
 #[async_trait(?Send)]
 impl<'a, F: AsyncFile> FileOp<F> for LogWriter<'a, F> {
     type Output = ();
-    async fn write(&mut self, log: &mut F) -> Result<(), Error> {
+    async fn execute(&mut self, log: &mut F) -> Result<(), Error> {
         let mut log_position = self.state.lock_for_write().await;
         let mut scratch_buffer = Vec::new();
         scratch_buffer.resize(PAGE_SIZE, 0);

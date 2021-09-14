@@ -1,7 +1,8 @@
+use async_trait::async_trait;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use super::{btree_entry::Reducer, BinarySerialization};
-use crate::{Buffer, Error};
+use super::{btree_entry::Reducer, BinarySerialization, PagedWriter};
+use crate::{AsyncFile, Buffer, Error};
 
 #[derive(Clone, Debug)]
 pub struct ByIdIndex {
@@ -10,15 +11,20 @@ pub struct ByIdIndex {
     pub position: u64,
 }
 
+#[async_trait(?Send)]
 impl BinarySerialization for ByIdIndex {
-    fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
+    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+        &mut self,
+        writer: &mut W,
+        _paged_writer: &mut PagedWriter<'_, F>,
+    ) -> Result<usize, Error> {
         writer.write_u64::<BigEndian>(self.sequence_id)?;
         writer.write_u32::<BigEndian>(self.document_size)?;
         writer.write_u64::<BigEndian>(self.position)?;
         Ok(20)
     }
 
-    fn deserialize_from(reader: &mut Buffer<'static>) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer<'_>) -> Result<Self, Error> {
         let sequence_id = reader.read_u64::<BigEndian>()?;
         let document_size = reader.read_u32::<BigEndian>()?;
         let position = reader.read_u64::<BigEndian>()?;
@@ -43,15 +49,20 @@ impl ByIdStats {
     }
 }
 
+#[async_trait(?Send)]
 impl BinarySerialization for ByIdStats {
-    fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
+    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+        &mut self,
+        writer: &mut W,
+        _paged_writer: &mut PagedWriter<'_, F>,
+    ) -> Result<usize, Error> {
         writer.write_u64::<BigEndian>(self.alive_documents)?;
         writer.write_u64::<BigEndian>(self.deleted_documents)?;
         writer.write_u64::<BigEndian>(self.total_size)?;
         Ok(24)
     }
 
-    fn deserialize_from(reader: &mut Buffer<'static>) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer<'_>) -> Result<Self, Error> {
         let alive_documents = reader.read_u64::<BigEndian>()?;
         let deleted_documents = reader.read_u64::<BigEndian>()?;
         let total_size = reader.read_u64::<BigEndian>()?;

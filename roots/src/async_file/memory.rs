@@ -182,9 +182,9 @@ pub struct OpenMemoryFile(Arc<Mutex<MemoryFile>>);
 
 #[async_trait(?Send)]
 impl OpenableFile<MemoryFile> for OpenMemoryFile {
-    async fn write<W: FileOp<MemoryFile>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
+    async fn execute<W: FileOp<MemoryFile>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
         let mut file = self.0.lock().await;
-        writer.write(&mut file).await
+        writer.execute(&mut file).await
     }
 
     async fn close(self) -> Result<(), Error> {

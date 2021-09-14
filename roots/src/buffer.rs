@@ -125,6 +125,16 @@ impl<'a, const N: usize> From<&'a [u8; N]> for Buffer<'a> {
     }
 }
 
+impl<'a, const N: usize> From<[u8; N]> for Buffer<'a> {
+    fn from(buffer: [u8; N]) -> Self {
+        Self {
+            end: buffer.len(),
+            buffer: Arc::new(Cow::Owned(buffer.to_vec())),
+            position: 0,
+        }
+    }
+}
+
 impl<'a> Deref for Buffer<'a> {
     type Target = [u8];
 

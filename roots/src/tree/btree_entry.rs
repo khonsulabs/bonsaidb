@@ -1,5 +1,6 @@
 use std::{fmt::Debug, marker::PhantomData};
 
+use async_trait::async_trait;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use futures::{future::LocalBoxFuture, FutureExt};
 
@@ -7,20 +8,21 @@ use super::{
     btree_root::{ChangeResult, EntryChanges},
     interior::Interior,
     key_entry::KeyEntry,
-    modify::Modification,
+    modify::{Modification, Operation},
     read_chunk,
     serialization::BinarySerialization,
     PagedWriter,
 };
-use crate::{AsyncFile, Buffer, ChunkCache, Error, Vault};
+use crate::{tree::interior::Pointer, AsyncFile, Buffer, ChunkCache, Error, Vault};
 
 /// A B-Tree entry that stores a list of key-`I` pairs.
 #[derive(Clone, Debug)]
 pub enum BTreeEntry<I, R> {
+    Uninitialized,
     /// An inline value. Overall, the B-Tree entry is a key-value pair.
     Leaf(Vec<KeyEntry<I>>),
     /// An interior node that contains pointers to other nodes.
-    Interior(Vec<Interior<R>>),
+    Interior(Vec<Interior<I, R>>),
 }
 
 impl<I, R> Default for BTreeEntry<I, R> {
@@ -69,7 +71,7 @@ where
 {
     #[allow(clippy::too_many_lines)] // TODO refactor
     pub fn modify<'f, F, T, Indexer, Loader>(
-        &'f self,
+        &'f mut self,
         modification: &'f mut Modification<'static, T>,
         context: &'f ModificationContext<T, F, I, Indexer, Loader>,
         max_key: Option<&'f Buffer<'static>>,
@@ -96,15 +98,17 @@ where
         async move {
             match self {
                 BTreeEntry::Leaf(children) => {
-                    let mut children = children.iter().map(KeyEntry::clone).collect::<Vec<_>>();
                     let mut last_index = 0;
                     while !modification.keys.is_empty() && children.len() < context.current_order {
-                        let key = modification.keys.pop().unwrap();
-                        match children[last_index..].binary_search_by(|child| child.key.cmp(&key)) {
+                        let key = modification.keys.last().unwrap();
+                        let search_result =
+                            children[last_index..].binary_search_by(|child| child.key.cmp(key));
+                        match search_result {
                             Ok(matching_index) => {
+                                let key = modification.keys.pop().unwrap();
                                 last_index += matching_index;
                                 let index = match &mut modification.operation {
-                                    super::modify::Operation::Set(value) => {
+                                    Operation::Set(value) => {
                                         (context.indexer)(
                                             &key,
                                             value,
@@ -114,8 +118,23 @@ where
                                         )
                                         .await?
                                     }
-                                    super::modify::Operation::Remove => None,
-                                    super::modify::Operation::CompareSwap(callback) => {
+                                    Operation::SetEach(values) => {
+                                        (context.indexer)(
+                                            &key,
+                                            &values.pop().ok_or_else(|| {
+                                                Error::message(
+                                                    "need the same number of keys as values",
+                                                )
+                                            })?,
+                                            Some(&children[last_index].index),
+                                            changes,
+                                            writer,
+                                        )
+                                        .await?
+                                    }
+
+                                    Operation::Remove => None,
+                                    Operation::CompareSwap(callback) => {
                                         if let Some(value) = callback(&key, None) {
                                             (context.indexer)(
                                                 &key,
@@ -131,32 +150,42 @@ where
                                     }
                                 };
 
-                                match index {
-                                    Some(index) => {
-                                        children[last_index] = KeyEntry { key, index };
-                                    }
-                                    None => {
-                                        children.remove(last_index);
-                                    }
+                                if let Some(index) = index {
+                                    children[last_index] = KeyEntry { key, index };
+                                } else {
+                                    children.remove(last_index);
                                 }
                             }
                             Err(insert_at) => {
                                 last_index += insert_at;
-                                if last_index == children.len()
-                                    && max_key.map(|max_key| &key > max_key).unwrap_or_default()
-                                {
+                                if max_key.map(|max_key| key > max_key).unwrap_or_default() {
                                     break;
                                 }
+                                let key = modification.keys.pop().unwrap();
                                 let index = match &mut modification.operation {
-                                    super::modify::Operation::Set(new_value) => {
+                                    Operation::Set(new_value) => {
                                         (context.indexer)(&key, new_value, None, changes, writer)
                                             .await?
                                     }
-                                    super::modify::Operation::Remove => {
+                                    Operation::SetEach(new_values) => {
+                                        (context.indexer)(
+                                            &key,
+                                            &new_values.pop().ok_or_else(|| {
+                                                Error::message(
+                                                    "need the same number of keys as values",
+                                                )
+                                            })?,
+                                            None,
+                                            changes,
+                                            writer,
+                                        )
+                                        .await?
+                                    }
+                                    Operation::Remove => {
                                         // The key doesn't exist, so a remove is a no-op.
                                         None
                                     }
-                                    super::modify::Operation::CompareSwap(callback) => {
+                                    Operation::CompareSwap(callback) => {
                                         if let Some(value) = callback(&key, None) {
                                             (context.indexer)(&key, &value, None, changes, writer)
                                                 .await?
@@ -171,27 +200,31 @@ where
                                 }
                             }
                         }
-                        debug_assert!(children.windows(2).all(|w| w[0].key < w[1].key));
+                        debug_assert!(
+                            children.windows(2).all(|w| w[0].key < w[1].key),
+                            "children aren't sorted: {:?}",
+                            children
+                        );
                     }
 
                     if children.len() >= context.current_order {
                         // We need to split this leaf into two leafs, moving a new interior node using the middle element.
                         let midpoint = children.len() / 2;
-                        let (lower_half, upper_half) = children.split_at(midpoint);
+                        let (_, upper_half) = children.split_at(midpoint);
+                        let upper_half = Self::Leaf(upper_half.to_vec());
+                        children.truncate(midpoint);
 
-                        Ok(ChangeResult::Split(
-                            Self::Leaf(lower_half.to_vec()),
-                            Self::Leaf(upper_half.to_vec()),
-                        ))
+                        Ok(ChangeResult::Split(upper_half))
                     } else {
-                        Ok(ChangeResult::Replace(Self::Leaf(children)))
+                        Ok(ChangeResult::Changed)
                     }
                 }
                 BTreeEntry::Interior(children) => {
-                    let mut children = children.clone();
                     let mut last_index = 0;
-                    while let Some(key) = modification.keys.first().cloned() {
-                        if children.len() >= context.current_order {
+                    while let Some(key) = modification.keys.last().cloned() {
+                        if children.len() >= context.current_order
+                            || max_key.map(|max_key| &key > max_key).unwrap_or_default()
+                        {
                             break;
                         }
                         let containing_node_index = children[last_index..]
@@ -211,50 +244,34 @@ where
                             );
 
                         last_index += containing_node_index;
-                        let child = &children[last_index];
-                        let entry =
-                            Self::deserialize_from(&mut writer.read_chunk(child.position).await?)?;
-                        match entry
-                            .modify(
-                                modification,
-                                context,
-                                Some(entry.max_key()),
-                                changes,
-                                writer,
-                            )
+                        let child = &mut children[last_index];
+                        child.position.load(writer).await?;
+                        let child_entry = child.position.get_mut().unwrap();
+                        match child_entry
+                            // TODO evaluate whether Some(key) is right here -- shouldn't it be the max of key/child.key?
+                            .modify(modification, context, Some(&key), changes, writer)
                             .await?
                         {
                             ChangeResult::Unchanged => unreachable!(),
-                            ChangeResult::Replace(new_node) => {
-                                let child_position =
-                                    writer.write_chunk(&new_node.serialize()?).await?;
-                                children[last_index] = Interior {
-                                    key: new_node.max_key().clone(),
-                                    position: child_position,
-                                    stats: new_node.stats(),
-                                };
+                            ChangeResult::Changed => {
+                                // let child_bytes = new_node.serialize(writer).await?;
+                                // let child_position = writer.write_chunk(&child_bytes).await?;
+                                // let node_ref = BTreeEntryRef::new(new_node, &context.slab);
+
+                                // children[last_index] = Interior::from(new_node);
+                                children[last_index].key = child_entry.max_key().clone();
                             }
-                            ChangeResult::Split(lower, upper) => {
+                            ChangeResult::Split(upper) => {
                                 // Write the two new children
-                                let lower_position =
-                                    writer.write_chunk(&lower.serialize()?).await?;
-                                let upper_position =
-                                    writer.write_chunk(&upper.serialize()?).await?;
+                                // let lower_bytes = lower.serialize(writer).await?;
+                                // let lower_position = writer.write_chunk(&lower_bytes).await?;
+                                // let upper_bytes = upper.serialize(writer).await?;
+                                // let upper_position = writer.write_chunk(&upper_bytes).await?;
                                 // Replace the original child with the lower entry.
-                                children[last_index] = Interior {
-                                    key: lower.max_key().clone(),
-                                    position: lower_position,
-                                    stats: lower.stats(),
-                                };
+                                // children[last_index] = Interior::from(lower);
                                 // Insert the upper entry at the next position.
-                                children.insert(
-                                    last_index + 1,
-                                    Interior {
-                                        key: upper.max_key().clone(),
-                                        position: upper_position,
-                                        stats: upper.stats(),
-                                    },
-                                );
+                                children[last_index].key = child_entry.max_key().clone();
+                                children.insert(last_index + 1, Interior::from(upper));
                             }
                         };
                         debug_assert!(children.windows(2).all(|w| w[0].key < w[1].key));
@@ -268,20 +285,25 @@ where
                         // without causing multiple copies of data seems
                         // impossible without unsafe.
                         let upper_half = upper_half.to_vec();
-                        assert_eq!(midpoint + upper_half.len(), children.len());
+                        debug_assert_eq!(midpoint + upper_half.len(), children.len());
                         children.truncate(midpoint);
 
-                        Ok(ChangeResult::Split(
-                            Self::Interior(children),
-                            Self::Interior(upper_half),
-                        ))
+                        Ok(ChangeResult::Split(Self::Interior(upper_half)))
                     } else {
-                        Ok(ChangeResult::Replace(Self::Interior(children)))
+                        Ok(ChangeResult::Changed)
                     }
                 }
+                BTreeEntry::Uninitialized => unreachable!(),
             }
         }
         .boxed_local()
+    }
+
+    pub async fn split_root(&mut self, upper: Self) -> Result<(), Error> {
+        let mut lower = Self::Uninitialized;
+        std::mem::swap(self, &mut lower);
+        *self = Self::Interior(vec![Interior::from(lower), Interior::from(upper)]);
+        Ok(())
     }
 
     pub fn stats(&self) -> R {
@@ -292,6 +314,7 @@ where
             BTreeEntry::Interior(children) => {
                 R::rereduce(&children.iter().map(|c| &c.stats).collect::<Vec<_>>())
             }
+            BTreeEntry::Uninitialized => unreachable!(),
         }
     }
 
@@ -299,6 +322,7 @@ where
         match self {
             BTreeEntry::Leaf(children) => &children.last().unwrap().key,
             BTreeEntry::Interior(children) => &children.last().unwrap().key,
+            BTreeEntry::Uninitialized => unreachable!(),
         }
     }
 
@@ -329,59 +353,46 @@ where
                     // the key being searched for isn't contained, it will be
                     // greater than any of the node's keys.
                     if let Some(child) = children.get(containing_node_index) {
-                        let entry = Self::deserialize_from(
-                            &mut read_chunk(child.position, file, vault, cache).await?,
-                        )?;
-                        entry.get(key, file, vault, cache).await
+                        match &child.position {
+                            Pointer::OnDisk(position) => {
+                                let entry = Self::deserialize_from(
+                                    &mut read_chunk(*position, file, vault, cache).await?,
+                                )?;
+                                entry.get(key, file, vault, cache).await
+                            }
+                            Pointer::Loaded(entry) => entry.get(key, file, vault, cache).await,
+                        }
                     } else {
                         Ok(None)
                     }
                 }
+                BTreeEntry::Uninitialized => unreachable!(),
             }
         }
         .boxed_local()
     }
-
-    #[allow(clippy::too_many_lines)]
-    pub async fn split_root<F: AsyncFile>(
-        &mut self,
-        lower: Self,
-        upper: Self,
-        writer: &mut PagedWriter<'_, F>,
-    ) -> Result<(), Error> {
-        // Write the two interiors as chunks
-        let lower_half_position = writer.write_chunk(&lower.serialize()?).await?;
-        let upper_half_position = writer.write_chunk(&upper.serialize()?).await?;
-
-        // Regardless of what our current type is, the root will always be split
-        // into interior nodes.
-        *self = Self::Interior(vec![
-            Interior {
-                key: lower.max_key().clone(),
-                position: lower_half_position,
-                stats: lower.stats(),
-            },
-            Interior {
-                key: upper.max_key().clone(),
-                position: upper_half_position,
-                stats: upper.stats(),
-            },
-        ]);
-        Ok(())
-    }
 }
 
-impl<I: BinarySerialization, R: BinarySerialization> BinarySerialization for BTreeEntry<I, R> {
-    fn serialize_to<W: WriteBytesExt>(&self, writer: &mut W) -> Result<usize, Error> {
+#[async_trait(?Send)]
+impl<
+        I: Clone + BinarySerialization + Debug + 'static,
+        R: Reducer<I> + Clone + BinarySerialization + Debug + 'static,
+    > BinarySerialization for BTreeEntry<I, R>
+{
+    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+        &mut self,
+        writer: &mut W,
+        paged_writer: &mut PagedWriter<'_, F>,
+    ) -> Result<usize, Error> {
         let mut bytes_written = 0;
         // The next byte determines the node type.
-        match &self {
+        match &mut self {
             Self::Leaf(leafs) => {
                 debug_assert!(leafs.windows(2).all(|w| w[0].key < w[1].key));
                 writer.write_u8(1)?;
                 bytes_written += 1;
                 for leaf in leafs {
-                    bytes_written += leaf.serialize_to(writer)?;
+                    bytes_written += leaf.serialize_to(writer, paged_writer).await?;
                 }
             }
             Self::Interior(interiors) => {
@@ -389,15 +400,16 @@ impl<I: BinarySerialization, R: BinarySerialization> BinarySerialization for BTr
                 writer.write_u8(0)?;
                 bytes_written += 1;
                 for interior in interiors {
-                    bytes_written += interior.serialize_to(writer)?;
+                    bytes_written += interior.serialize_to(writer, paged_writer).await?;
                 }
             }
+            Self::Uninitialized => unreachable!(),
         }
 
         Ok(bytes_written)
     }
 
-    fn deserialize_from(reader: &mut Buffer<'static>) -> Result<Self, Error> {
+    fn deserialize_from(reader: &mut Buffer<'_>) -> Result<Self, Error> {
         let node_header = reader.read_u8()?;
         match node_header {
             0 => {

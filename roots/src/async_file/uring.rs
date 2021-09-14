@@ -111,8 +111,8 @@ impl AsyncFileManager<UringFile> for UringFileManager {
 
 #[async_trait(?Send)]
 impl OpenableFile<Self> for UringFile {
-    async fn write<W: FileOp<Self>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
-        writer.write(self).await
+    async fn execute<W: FileOp<Self>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
+        writer.execute(self).await
     }
 
     async fn close(self) -> Result<(), Error> {

@@ -154,9 +154,9 @@ pub struct OpenTokioFile(Arc<Mutex<TokioFile>>);
 
 #[async_trait(?Send)]
 impl OpenableFile<TokioFile> for OpenTokioFile {
-    async fn write<W: FileOp<TokioFile>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
+    async fn execute<W: FileOp<TokioFile>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
         let mut file = self.0.lock().await;
-        writer.write(&mut file).await
+        writer.execute(&mut file).await
     }
 
     async fn close(self) -> Result<(), Error> {

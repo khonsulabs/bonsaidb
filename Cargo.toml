@@ -20,3 +20,6 @@ members = [
 
 # [patch."https://github.com/khonsulabs/custodian.git"]
 # custodian-password = { path="../custodian/password", branch="main" }
+[profile.bench]
+# debug = true
+lto = true

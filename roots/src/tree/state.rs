@@ -6,13 +6,16 @@ use super::BTreeRoot;
 
 const UNINITIALIZED_SEQUENCE: u64 = 0;
 
+/// The current state of a tree file. Must be initialized before passing to
+/// `TreeFile::new` if the file already exists.
 #[derive(Debug, Default, Clone)]
 pub struct State<const MAX_ORDER: usize> {
     state: Arc<Mutex<ActiveState<MAX_ORDER>>>,
 }
 
 impl<const MAX_ORDER: usize> State<MAX_ORDER> {
-    pub async fn lock(&self) -> MutexGuard<'_, ActiveState<MAX_ORDER>> {
+    /// Locks the state.
+    pub(crate) async fn lock(&self) -> MutexGuard<'_, ActiveState<MAX_ORDER>> {
         self.state.lock().await
     }
 
