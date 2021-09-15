@@ -39,7 +39,7 @@ impl LogEntry {
     }
 }
 
-// mod couchdb;
+mod couchdb;
 mod roots;
 mod sqlite;
 
@@ -57,7 +57,7 @@ impl BenchConfig for LogConfig {
 
 pub fn run() {
     for (transactions, entries_per_transaction) in
-        [(10_000, 1), (1_000, 100), (100, 1_000), (10, 10_000)]
+        [(1_000, 1), (1_000, 100), (100, 1_000), (10, 10_000)]
     {
         println!(
             "{} transactions, {} entries per transaction",
@@ -75,6 +75,11 @@ pub fn run() {
         suite
             .reports
             .push(sqlite::SqliteLogs::run("sqlite", &config).unwrap());
+        if couchdb::CouchDbLogs::can_execute() {
+            suite
+                .reports
+                .push(couchdb::CouchDbLogs::run("couchdb", &config).unwrap());
+        }
         println!("{}", suite);
     }
 }

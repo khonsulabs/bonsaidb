@@ -18,6 +18,10 @@ use tabled::{Alignment, Column, Modify, Table, Tabled};
 pub trait AsyncBench: Sized {
     type Config: BenchConfig;
 
+    fn can_execute() -> bool {
+        true
+    }
+
     fn run(target: impl Into<String>, config: &Self::Config) -> Result<BenchReport, anyhow::Error> {
         Self::initialize(config)?.execute_iterations(target, config)
     }
