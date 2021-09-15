@@ -2,17 +2,15 @@ use http_auth_basic::Credentials;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::{LogConfig, LogEntry};
-use crate::AsyncBench;
+use super::LogConfig;
+use crate::{BenchConfig, SimpleBench};
 
 const USERNAME: &str = "COUCHDB_USER";
 const PASSWORD: &str = "COUCHDB_PASSWORD";
 
-pub struct CouchDbLogs {
-    logs: Vec<Vec<LogEntry>>,
-}
+pub struct CouchDbLogs {}
 
-impl AsyncBench for CouchDbLogs {
+impl SimpleBench for CouchDbLogs {
     type Config = LogConfig;
 
     fn can_execute() -> bool {
@@ -24,7 +22,7 @@ impl AsyncBench for CouchDbLogs {
         }
     }
 
-    fn initialize(config: &Self::Config) -> Result<Self, anyhow::Error> {
+    fn initialize(_config: &Self::Config) -> Result<Self, anyhow::Error> {
         let username = std::env::var(USERNAME).expect("missing username");
         let password = std::env::var(PASSWORD)
             .map_err(|_| anyhow::anyhow!("missing {} environment variable", PASSWORD))?;
@@ -45,15 +43,17 @@ impl AsyncBench for CouchDbLogs {
             .set("Authorization", &authorization_header)
             .send_json(Value::Object(Map::default()))?;
 
-        Ok(Self {
-            logs: LogEntry::generate(config),
-        })
+        Ok(Self {})
     }
 
-    fn execute_measured(&mut self, _config: &Self::Config) -> Result<(), anyhow::Error> {
+    fn execute_measured(
+        &mut self,
+        batch: &<Self::Config as BenchConfig>::Batch,
+        _config: &Self::Config,
+    ) -> Result<(), anyhow::Error> {
         ureq::post("http://localhost:5984/roots-log-benchmark/_bulk_docs").send_json(
             serde_json::to_value(&Documents {
-                docs: self.logs.pop().unwrap(),
+                docs: batch.to_vec(),
             })?,
         )?;
         Ok(())

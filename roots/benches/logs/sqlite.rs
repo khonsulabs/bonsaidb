@@ -1,19 +1,18 @@
 use rusqlite::{params, Connection};
 use tempfile::NamedTempFile;
 
-use super::{LogConfig, LogEntry};
-use crate::AsyncBench;
+use super::LogConfig;
+use crate::{BenchConfig, SimpleBench};
 
 pub struct SqliteLogs {
     sqlite: Connection,
     _tempfile: NamedTempFile,
-    logs: Vec<Vec<LogEntry>>,
 }
 
-impl AsyncBench for SqliteLogs {
+impl SimpleBench for SqliteLogs {
     type Config = LogConfig;
 
-    fn initialize(config: &Self::Config) -> Result<Self, anyhow::Error> {
+    fn initialize(_config: &Self::Config) -> Result<Self, anyhow::Error> {
         // For fair testing, this needs to use ACID-compliant settings that a
         // user would use in production. While a WAL might be used in
         // production, it alters more than just insert performance. A more
@@ -33,21 +32,23 @@ impl AsyncBench for SqliteLogs {
             "create table logs (id integer primary key, timestamp integer, message text)",
             [],
         )?;
-        let logs = LogEntry::generate(config);
         Ok(Self {
             sqlite,
             _tempfile: tempfile,
-            logs,
         })
     }
 
-    fn execute_measured(&mut self, _config: &Self::Config) -> Result<(), anyhow::Error> {
+    fn execute_measured(
+        &mut self,
+        batch: &<Self::Config as BenchConfig>::Batch,
+        _config: &Self::Config,
+    ) -> Result<(), anyhow::Error> {
         self.sqlite.execute("begin transaction;", [])?;
 
         let mut prepared = self
             .sqlite
             .prepare("insert into logs (id, timestamp, message) values (?, ?, ?)")?;
-        for log in self.logs.pop().unwrap() {
+        for log in batch {
             // sqlite doesn't support u64, so we're going to cast to i64
             prepared.execute(params![log.id as i64, log.timestamp as i64, log.message])?;
         }

@@ -15,32 +15,41 @@ fn main() {
 
 use tabled::{Alignment, Column, Modify, Table, Tabled};
 
-pub trait AsyncBench: Sized {
+pub trait SimpleBench: Sized {
     type Config: BenchConfig;
 
     fn can_execute() -> bool {
         true
     }
 
-    fn run(target: impl Into<String>, config: &Self::Config) -> Result<BenchReport, anyhow::Error> {
-        Self::initialize(config)?.execute_iterations(target, config)
+    fn run(
+        target: impl Into<String>,
+        batches: &[<Self::Config as BenchConfig>::Batch],
+        config: &Self::Config,
+    ) -> Result<BenchReport, anyhow::Error> {
+        Self::initialize(config)?.execute_iterations(batches, target, config)
     }
 
     fn initialize(config: &Self::Config) -> Result<Self, anyhow::Error>;
 
-    fn execute_measured(&mut self, config: &Self::Config) -> Result<(), anyhow::Error>;
+    fn execute_measured(
+        &mut self,
+        batch: &<Self::Config as BenchConfig>::Batch,
+        config: &Self::Config,
+    ) -> Result<(), anyhow::Error>;
 
     fn execute_iterations(
         &mut self,
+        batches: &[<Self::Config as BenchConfig>::Batch],
         target: impl Into<String>,
         config: &Self::Config,
     ) -> Result<BenchReport, anyhow::Error> {
         let start = Instant::now();
         let mut histogram = Histogram::<u64>::new(4)?;
 
-        for _ in 0..config.iterations() {
+        for batch in batches {
             let iter_start = Instant::now();
-            self.execute_measured(config)?;
+            self.execute_measured(batch, config)?;
             let iter_end = Instant::now();
             if let Some(elapsed) = iter_end.checked_duration_since(iter_start) {
                 histogram.record(u64::try_from(elapsed.as_micros())?)?;
@@ -61,6 +70,9 @@ pub trait AsyncBench: Sized {
 }
 
 pub trait BenchConfig {
+    type Batch;
+
+    fn generate(&self) -> Vec<Self::Batch>;
     fn iterations(&self) -> usize;
 }
 

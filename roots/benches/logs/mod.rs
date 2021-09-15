@@ -2,9 +2,9 @@ use bonsaidb_roots::StdFile;
 use nanorand::{Pcg64, Rng};
 use serde::{Deserialize, Serialize};
 
-use crate::{AsyncBench, BenchConfig, SuiteReport};
+use crate::{BenchConfig, SimpleBench, SuiteReport};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     pub id: u64,
     pub timestamp: u64,
@@ -53,6 +53,12 @@ impl BenchConfig for LogConfig {
     fn iterations(&self) -> usize {
         self.transactions
     }
+
+    type Batch = Vec<LogEntry>;
+
+    fn generate(&self) -> Vec<Self::Batch> {
+        LogEntry::generate(self)
+    }
 }
 
 pub fn run() {
@@ -69,16 +75,18 @@ pub fn run() {
             transactions,
             entries_per_transaction,
         };
+        let batches = config.generate();
+
         suite
             .reports
-            .push(roots::RootsLogs::<StdFile>::run("roots", &config).unwrap());
+            .push(roots::RootsLogs::<StdFile>::run("roots", &batches, &config).unwrap());
         suite
             .reports
-            .push(sqlite::SqliteLogs::run("sqlite", &config).unwrap());
+            .push(sqlite::SqliteLogs::run("sqlite", &batches, &config).unwrap());
         if couchdb::CouchDbLogs::can_execute() {
             suite
                 .reports
-                .push(couchdb::CouchDbLogs::run("couchdb", &config).unwrap());
+                .push(couchdb::CouchDbLogs::run("couchdb", &batches, &config).unwrap());
         }
         println!("{}", suite);
     }
