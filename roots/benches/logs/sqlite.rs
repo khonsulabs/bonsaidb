@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use rusqlite::{params, Connection};
 use tempfile::NamedTempFile;
 
@@ -11,11 +10,10 @@ pub struct SqliteLogs {
     logs: Vec<Vec<LogEntry>>,
 }
 
-#[async_trait(?Send)]
 impl AsyncBench for SqliteLogs {
     type Config = LogConfig;
 
-    async fn initialize(config: &Self::Config) -> Result<Self, anyhow::Error> {
+    fn initialize(config: &Self::Config) -> Result<Self, anyhow::Error> {
         // For fair testing, this needs to use ACID-compliant settings that a
         // user would use in production. While a WAL might be used in
         // production, it alters more than just insert performance. A more
@@ -43,7 +41,7 @@ impl AsyncBench for SqliteLogs {
         })
     }
 
-    async fn execute_measured(&mut self, _config: &Self::Config) -> Result<(), anyhow::Error> {
+    fn execute_measured(&mut self, _config: &Self::Config) -> Result<(), anyhow::Error> {
         self.sqlite.execute("begin transaction;", [])?;
 
         let mut prepared = self

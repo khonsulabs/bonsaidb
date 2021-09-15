@@ -1,4 +1,4 @@
-use bonsaidb_roots::TokioFile;
+use bonsaidb_roots::StdFile;
 use nanorand::{Pcg64, Rng};
 use serde::{Deserialize, Serialize};
 
@@ -71,7 +71,7 @@ pub fn run() {
         };
         suite
             .reports
-            .push(roots::RootsLogs::<TokioFile>::run("roots", &config).unwrap());
+            .push(roots::RootsLogs::<StdFile>::run("roots", &config).unwrap());
         suite
             .reports
             .push(sqlite::SqliteLogs::run("sqlite", &config).unwrap());

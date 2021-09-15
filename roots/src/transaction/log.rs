@@ -1,35 +1,41 @@
 use std::{
-    borrow::Cow, collections::BTreeMap, convert::TryFrom, io::Write, marker::PhantomData,
-    mem::size_of, ops::Deref, path::Path, sync::Arc,
+    borrow::Cow,
+    collections::BTreeMap,
+    convert::TryFrom,
+    fs::OpenOptions,
+    io::{SeekFrom, Write},
+    marker::PhantomData,
+    mem::size_of,
+    ops::Deref,
+    path::Path,
+    sync::Arc,
 };
 
-use async_trait::async_trait;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use tokio::fs::OpenOptions;
 use zerocopy::{AsBytes, FromBytes, LayoutVerified, Unaligned, U64};
 
 use super::{State, TransactionHandle};
 use crate::{
-    async_file::{AsyncFile, AsyncFileManager, FileOp, OpenableFile},
+    managed_file::{FileManager, FileOp, ManagedFile, OpenableFile},
     Context, Error, Vault,
 };
 
 const PAGE_SIZE: usize = 1024;
 
-pub struct TransactionLog<F: AsyncFile> {
+pub struct TransactionLog<F: ManagedFile> {
     vault: Option<Arc<dyn Vault>>,
     state: State,
-    log: <F::Manager as AsyncFileManager<F>>::FileHandle,
+    log: <F::Manager as FileManager<F>>::FileHandle,
 }
 
 #[allow(clippy::future_not_send)]
-impl<F: AsyncFile> TransactionLog<F> {
-    pub async fn open(
+impl<F: ManagedFile> TransactionLog<F> {
+    pub fn open(
         log_path: &Path,
         state: State,
         context: Context<F::Manager>,
     ) -> Result<Self, Error> {
-        let log = context.file_manager.append(log_path).await?;
+        let log = context.file_manager.append(log_path)?;
         Ok(Self {
             vault: context.vault,
             state,
@@ -37,17 +43,17 @@ impl<F: AsyncFile> TransactionLog<F> {
         })
     }
 
-    pub async fn total_size(&self) -> u64 {
-        let state = self.state.lock_for_write().await;
+    pub fn total_size(&self) -> u64 {
+        let state = self.state.lock_for_write();
         *state
     }
 
-    pub async fn initialize_state(
+    pub fn initialize_state(
         state: &State,
         log_path: &Path,
         context: &Context<F::Manager>,
     ) -> Result<(), Error> {
-        let mut log_length = context.file_manager.file_length(log_path).await?;
+        let mut log_length = context.file_manager.file_length(log_path)?;
         if log_length == 0 {
             return Err(Error::message("empty transaction log"));
         }
@@ -62,36 +68,32 @@ impl<F: AsyncFile> TransactionLog<F> {
             let file = OpenOptions::new()
                 .append(true)
                 .write(true)
-                .open(&log_path)
-                .await?;
+                .open(&log_path)?;
             log_length -= excess_length;
-            file.set_len(log_length).await?;
-            file.sync_all().await?;
+            file.set_len(log_length)?;
+            file.sync_all()?;
         }
 
-        let mut file = context.file_manager.read(log_path).await?;
+        let mut file = context.file_manager.read(log_path)?;
         file.execute(StateInitializer {
             state,
             log_length,
             vault: context.vault(),
             _file: PhantomData,
         })
-        .await
     }
 
-    pub async fn push(&mut self, handles: Vec<TransactionHandle<'_>>) -> Result<(), Error> {
-        self.log
-            .execute(LogWriter {
-                state: self.state.clone(),
-                vault: self.vault.clone(),
-                handles,
-                _file: PhantomData,
-            })
-            .await
+    pub fn push(&mut self, handles: Vec<TransactionHandle<'_>>) -> Result<(), Error> {
+        self.log.execute(LogWriter {
+            state: self.state.clone(),
+            vault: self.vault.clone(),
+            handles,
+            _file: PhantomData,
+        })
     }
 
-    pub async fn close(self) -> Result<(), Error> {
-        self.log.close().await
+    pub fn close(self) -> Result<(), Error> {
+        self.log.close()
     }
 
     pub fn current_transaction_id(&self) -> u64 {
@@ -99,8 +101,8 @@ impl<F: AsyncFile> TransactionLog<F> {
     }
 
     #[allow(clippy::needless_lifetimes)] // lies! I can't seem to get rid of the lifetimes.
-    pub async fn new_transaction<'a>(&self, trees: &[&[u8]]) -> TransactionHandle<'a> {
-        self.state.new_transaction(trees).await
+    pub fn new_transaction<'a>(&self, trees: &[&[u8]]) -> TransactionHandle<'a> {
+        self.state.new_transaction(trees)
     }
 
     pub fn state(&self) -> State {
@@ -114,20 +116,18 @@ struct StateInitializer<'a, F> {
     vault: Option<&'a dyn Vault>,
     _file: PhantomData<F>,
 }
-#[async_trait(?Send)]
-impl<'a, F: AsyncFile> FileOp<F> for StateInitializer<'a, F> {
+
+impl<'a, F: ManagedFile> FileOp<F> for StateInitializer<'a, F> {
     type Output = ();
-    async fn execute(&mut self, log: &mut F) -> Result<(), Error> {
+    fn execute(&mut self, log: &mut F) -> Result<(), Error> {
         // Scan back block by block until we find a page header with a value of 1.
         let mut block_start = self.log_length - PAGE_SIZE as u64;
         let mut scratch_buffer = Vec::new();
         scratch_buffer.resize(4, 0);
         let last_transaction_id = loop {
+            log.seek(SeekFrom::Start(block_start))?;
             // Read the page header
-            scratch_buffer = match log.read_exact(block_start, scratch_buffer, 4).await {
-                (Ok(_), buffer) => buffer,
-                (Err(err), _) => return Err(err),
-            };
+            log.read_exact(&mut scratch_buffer[0..4])?;
             #[allow(clippy::match_on_vec_items)]
             match scratch_buffer[0] {
                 0 => {
@@ -145,13 +145,7 @@ impl<'a, F: AsyncFile> FileOp<F> for StateInitializer<'a, F> {
                     if scratch_buffer.len() < length {
                         scratch_buffer.resize(length, 0);
                     }
-                    scratch_buffer = match log
-                        .read_exact(block_start + 4, scratch_buffer, length)
-                        .await
-                    {
-                        (Ok(_), buffer) => buffer,
-                        (Err(err), _) => return Err(err),
-                    };
+                    log.read_exact(&mut scratch_buffer)?;
                     let payload = &scratch_buffer[0..length];
                     let decrypted = match &self.vault {
                         Some(vault) => Cow::Owned(vault.decrypt(payload)),
@@ -166,8 +160,7 @@ impl<'a, F: AsyncFile> FileOp<F> for StateInitializer<'a, F> {
         };
 
         self.state
-            .initialize(last_transaction_id + 1, self.log_length)
-            .await;
+            .initialize(last_transaction_id + 1, self.log_length);
         Ok(())
     }
 }
@@ -179,11 +172,10 @@ struct LogWriter<'a, F> {
     _file: PhantomData<F>,
 }
 
-#[async_trait(?Send)]
-impl<'a, F: AsyncFile> FileOp<F> for LogWriter<'a, F> {
+impl<'a, F: ManagedFile> FileOp<F> for LogWriter<'a, F> {
     type Output = ();
-    async fn execute(&mut self, log: &mut F) -> Result<(), Error> {
-        let mut log_position = self.state.lock_for_write().await;
+    fn execute(&mut self, log: &mut F) -> Result<(), Error> {
+        let mut log_position = self.state.lock_for_write();
         let mut scratch_buffer = Vec::new();
         scratch_buffer.resize(PAGE_SIZE, 0);
         for handle in self.handles.drain(..) {
@@ -222,20 +214,17 @@ impl<'a, F: AsyncFile> FileOp<F> for LogWriter<'a, F> {
                 let bytes_to_write = total_bytes_left.min(PAGE_SIZE - header_len as usize);
                 scratch_buffer[header_len..bytes_to_write + header_len]
                     .copy_from_slice(&bytes[offset..offset + bytes_to_write]);
-                scratch_buffer = match log
-                    .write_all(*log_position, scratch_buffer, 0, PAGE_SIZE)
-                    .await
-                {
-                    (Ok(_), bytes) => bytes,
-                    (Err(err), _) => return Err(err),
-                };
+                log.write_all(&scratch_buffer)?;
                 offset += bytes_to_write;
                 *log_position += PAGE_SIZE as u64;
             }
         }
 
         drop(log_position);
-        log.flush().await
+
+        log.flush()?;
+
+        Ok(())
     }
 }
 
@@ -395,59 +384,32 @@ fn serialization_tests() {
 #[cfg(test)]
 #[allow(clippy::semicolon_if_nothing_returned, clippy::future_not_send)]
 mod tests {
-    use futures::future::join_all;
 
     use super::*;
     use crate::{
-        async_file::{memory::MemoryFile, tokio::TokioFile, AsyncFile},
+        managed_file::{fs::StdFile, memory::MemoryFile, ManagedFile},
         test_util::RotatorVault,
         transaction::TransactionManager,
         ChunkCache,
     };
 
-    #[tokio::test]
-    async fn tokio_log_file_tests() {
-        log_file_tests::<TokioFile>("tokio_log_file", None, None).await;
+    fn tokio_log_file_tests() {
+        log_file_tests::<StdFile>("tokio_log_file", None, None);
     }
 
-    #[tokio::test]
-    async fn memory_log_file_tests() {
-        log_file_tests::<MemoryFile>("memory_log_file", None, None).await;
+    fn memory_log_file_tests() {
+        log_file_tests::<MemoryFile>("memory_log_file", None, None);
     }
 
-    #[test]
-    #[cfg(feature = "uring")]
-    fn uring_log_file_tests() {
-        tokio_uring::start(async {
-            log_file_tests::<crate::async_file::uring::UringFile>("uring_log_file", None, None)
-                .await;
-        });
-    }
-
-    #[tokio::test]
-    async fn tokio_encrypted_log_manager_tests() {
-        log_manager_tests::<TokioFile>(
+    fn tokio_encrypted_log_manager_tests() {
+        log_manager_tests::<StdFile>(
             "encrypted_tokio_log_manager",
             Some(Arc::new(RotatorVault::new(13))),
             None,
-        )
-        .await;
+        );
     }
 
-    #[test]
-    #[cfg(feature = "uring")]
-    fn uring_encrypted_log_manager_tests() {
-        tokio_uring::start(async {
-            log_manager_tests::<crate::async_file::uring::UringFile>(
-                "encrypted_uring_log_manager",
-                Some(Arc::new(RotatorVault::new(13))),
-                None,
-            )
-            .await;
-        });
-    }
-
-    async fn log_file_tests<F: AsyncFile>(
+    fn log_file_tests<F: ManagedFile>(
         file_name: &str,
         vault: Option<Arc<dyn Vault>>,
         cache: Option<ChunkCache>,
@@ -459,7 +421,7 @@ mod tests {
             vault,
             cache,
         };
-        tokio::fs::create_dir(&temp_dir).await.unwrap();
+        std::fs::create_dir(&temp_dir).unwrap();
         let log_path = {
             let directory: &Path = &temp_dir;
             directory.join("transactions")
@@ -467,15 +429,14 @@ mod tests {
 
         for id in 0..1_000 {
             let state = State::default();
-            let result = TransactionLog::<F>::initialize_state(&state, &log_path, &context).await;
+            let result = TransactionLog::<F>::initialize_state(&state, &log_path, &context);
             if id > 0 {
                 result.unwrap();
             }
-            let mut transactions = TransactionLog::<F>::open(&log_path, state, context.clone())
-                .await
-                .unwrap();
+            let mut transactions =
+                TransactionLog::<F>::open(&log_path, state, context.clone()).unwrap();
             assert_eq!(transactions.current_transaction_id(), id);
-            let mut tx = transactions.new_transaction(&[b"hello"]).await;
+            let mut tx = transactions.new_transaction(&[b"hello"]);
 
             tx.transaction.changes.insert(
                 Cow::Borrowed(b"tree1"),
@@ -485,66 +446,45 @@ mod tests {
                 }]),
             );
 
-            transactions.push(vec![tx]).await.unwrap();
-            transactions.close().await.unwrap();
+            transactions.push(vec![tx]).unwrap();
+            transactions.close().unwrap();
         }
 
         if context.vault.is_some() {
             // Test that we can't open it without encryption
             let state = State::default();
-            assert!(
-                TransactionLog::<F>::initialize_state(&state, &temp_dir, &context)
-                    .await
-                    .is_err()
-            );
+            assert!(TransactionLog::<F>::initialize_state(&state, &temp_dir, &context).is_err());
         }
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn tokio_log_manager_tests() {
-        log_manager_tests::<TokioFile>("tokio_log_manager", None, None).await;
+    fn tokio_log_manager_tests() {
+        log_manager_tests::<StdFile>("tokio_log_manager", None, None);
     }
 
-    #[tokio::test]
-    async fn memory_log_manager_tests() {
-        log_manager_tests::<MemoryFile>("memory_log_manager", None, None).await;
+    fn memory_log_manager_tests() {
+        log_manager_tests::<MemoryFile>("memory_log_manager", None, None);
     }
 
-    #[test]
-    #[cfg(feature = "uring")]
-    fn uring_log_manager_tests() {
-        tokio_uring::start(async {
-            log_manager_tests::<crate::async_file::uring::UringFile>(
-                "uring_log_manager",
-                None,
-                None,
-            )
-            .await;
-        });
-    }
-
-    async fn log_manager_tests<F: AsyncFile + 'static>(
+    fn log_manager_tests<F: ManagedFile + 'static>(
         file_name: &str,
         vault: Option<Arc<dyn Vault>>,
         cache: Option<ChunkCache>,
     ) {
         let temp_dir = crate::test_util::TestDirectory::new(file_name);
-        tokio::fs::create_dir(&temp_dir).await.unwrap();
+        std::fs::create_dir(&temp_dir).unwrap();
         let file_manager = <F::Manager as Default>::default();
         let context = Context {
             file_manager,
             vault,
             cache,
         };
-        let manager = TransactionManager::spawn::<F>(&temp_dir, context)
-            .await
-            .unwrap();
+        let manager = TransactionManager::spawn::<F>(&temp_dir, context).unwrap();
         let mut handles = Vec::new();
         for _ in 0..10 {
             let manager = manager.clone();
-            handles.push(tokio::spawn(async move {
+            handles.push(std::thread::spawn(move || {
                 for id in 0..1_000 {
-                    let mut tx = manager.new_transaction(&[id.as_bytes()]).await;
+                    let mut tx = manager.new_transaction(&[id.as_bytes()]);
 
                     tx.transaction.changes.insert(
                         Cow::Borrowed(b"tree1"),
@@ -553,11 +493,14 @@ mod tests {
                             sequence_id: U64::new(3),
                         }]),
                     );
-                    manager.push(tx).await;
+                    manager.push(tx);
                 }
             }));
         }
-        join_all(handles).await;
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
 
         assert_eq!(manager.current_transaction_id(), 10_000);
         // TODO test scanning the file

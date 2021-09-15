@@ -1,7 +1,6 @@
 use std::{convert::TryFrom, marker::PhantomData};
 
 use byteorder::{BigEndian, ByteOrder, ReadBytesExt, WriteBytesExt};
-use futures::FutureExt;
 
 use super::{
     btree_entry::BTreeEntry,
@@ -18,7 +17,7 @@ use crate::{
         btree_entry::{KeyOperation, ModificationContext},
         modify::Operation,
     },
-    AsyncFile, Buffer, ChunkCache, Error, Vault,
+    Buffer, ChunkCache, Error, ManagedFile, Vault,
 };
 
 #[derive(Clone, Default, Debug)]
@@ -38,7 +37,7 @@ pub enum ChangeResult<I: BinarySerialization, R: BinarySerialization> {
 #[allow(clippy::future_not_send)]
 impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
     #[allow(clippy::too_many_lines)]
-    pub async fn modify<'a, 'w, F: AsyncFile>(
+    pub fn modify<'a, 'w, F: ManagedFile>(
         &'a mut self,
         mut modification: Modification<'static, Buffer<'static>>,
         writer: &'a mut PagedWriter<'w, F>,
@@ -56,57 +55,48 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
             changes: Vec::with_capacity(modification.keys.len()),
         };
         while !modification.keys.is_empty() {
-            match self
-                .by_sequence_root
-                .modify(
-                    &mut modification,
-                    &ModificationContext {
-                        current_order: by_sequence_order,
-                        indexer:
-                            |key: &Buffer<'static>,
-                             value: &Buffer<'static>,
-                             _existing_index: Option<&BySequenceIndex>,
-                             changes: &mut EntryChanges,
-                             writer: &mut PagedWriter<'_, F>| {
-                                async move {
-                                    let document_position = writer.write_chunk(value).await?;
-                                    // write_chunk errors if it can't fit within a u32
-                                    #[allow(clippy::cast_possible_truncation)]
-                                    let document_size = value.len() as u32;
-                                    changes.current_sequence = changes
-                                        .current_sequence
-                                        .checked_add(1)
-                                        .expect("sequence rollover prevented");
-                                    changes.changes.push(EntryChange {
-                                        key: key.clone(),
-                                        sequence: changes.current_sequence,
-                                        document_position,
-                                        document_size,
-                                    });
-                                    Ok(KeyOperation::Set(BySequenceIndex {
-                                        document_id: key.clone(),
-                                        position: document_position,
-                                        document_size,
-                                    }))
-                                }
-                                .boxed_local()
-                            },
-                        loader: |index: &BySequenceIndex, writer: &mut PagedWriter<'_, F>| {
-                            async move { writer.read_chunk(index.position).await.map(Some) }
-                                .boxed_local()
-                        },
-                        _phantom: PhantomData,
+            match self.by_sequence_root.modify(
+                &mut modification,
+                &ModificationContext {
+                    current_order: by_sequence_order,
+                    indexer: |key: &Buffer<'static>,
+                              value: &Buffer<'static>,
+                              _existing_index: Option<&BySequenceIndex>,
+                              changes: &mut EntryChanges,
+                              writer: &mut PagedWriter<'_, F>| {
+                        let document_position = writer.write_chunk(value)?;
+                        // write_chunk errors if it can't fit within a u32
+                        #[allow(clippy::cast_possible_truncation)]
+                        let document_size = value.len() as u32;
+                        changes.current_sequence = changes
+                            .current_sequence
+                            .checked_add(1)
+                            .expect("sequence rollover prevented");
+                        changes.changes.push(EntryChange {
+                            key: key.clone(),
+                            sequence: changes.current_sequence,
+                            document_position,
+                            document_size,
+                        });
+                        Ok(KeyOperation::Set(BySequenceIndex {
+                            document_id: key.clone(),
+                            position: document_position,
+                            document_size,
+                        }))
                     },
-                    None,
-                    &mut changes,
-                    writer,
-                )
-                .await?
-            {
+                    loader: |index: &BySequenceIndex, writer: &mut PagedWriter<'_, F>| {
+                        writer.read_chunk(index.position).map(Some)
+                    },
+                    _phantom: PhantomData,
+                },
+                None,
+                &mut changes,
+                writer,
+            )? {
                 ChangeResult::Unchanged => unreachable!(),
                 ChangeResult::Changed => {}
                 ChangeResult::Split(upper) => {
-                    self.by_sequence_root.split_root(upper).await?;
+                    self.by_sequence_root.split_root(upper);
                 }
             }
         }
@@ -134,33 +124,28 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         };
         id_modifications.reverse()?;
         while !id_modifications.keys.is_empty() {
-            match self
-                .by_id_root
-                .modify(
-                    &mut id_modifications,
-                    &ModificationContext {
-                        current_order: by_id_order,
-                        indexer:
-                            |_key: &Buffer<'static>,
-                             value: &ByIdIndex,
-                             _existing_index,
-                             _changes,
-                             _writer: &mut PagedWriter<'_, F>| {
-                                async move { Ok(KeyOperation::Set(value.clone())) }.boxed_local()
-                            },
-                        loader: |_index, _writer| async move { Ok(None) }.boxed_local(),
-                        _phantom: PhantomData,
+            match self.by_id_root.modify(
+                &mut id_modifications,
+                &ModificationContext {
+                    current_order: by_id_order,
+                    indexer: |_key: &Buffer<'static>,
+                              value: &ByIdIndex,
+                              _existing_index,
+                              _changes,
+                              _writer: &mut PagedWriter<'_, F>| {
+                        Ok(KeyOperation::Set(value.clone()))
                     },
-                    None,
-                    &mut EntryChanges::default(),
-                    writer,
-                )
-                .await?
-            {
+                    loader: |_index, _writer| Ok(None),
+                    _phantom: PhantomData,
+                },
+                None,
+                &mut EntryChanges::default(),
+                writer,
+            )? {
                 ChangeResult::Unchanged => unreachable!(),
                 ChangeResult::Changed => {}
                 ChangeResult::Split(upper) => {
-                    self.by_id_root.split_root(upper).await?;
+                    self.by_id_root.split_root(upper);
                 }
             }
         }
@@ -168,16 +153,16 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         Ok(())
     }
 
-    pub async fn get<F: AsyncFile>(
+    pub fn get<F: ManagedFile>(
         &self,
         key: &[u8],
         file: &mut F,
         vault: Option<&dyn Vault>,
         cache: Option<&ChunkCache>,
     ) -> Result<Option<Buffer<'static>>, Error> {
-        match self.by_id_root.get(key, file, vault, cache).await? {
+        match self.by_id_root.get(key, file, vault, cache)? {
             Some(entry) => {
-                let contents = read_chunk(entry.position, file, vault, cache).await?;
+                let contents = read_chunk(entry.position, file, vault, cache)?;
                 Ok(Some(contents))
             }
             None => Ok(None),
@@ -212,7 +197,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         })
     }
 
-    pub async fn serialize<F: AsyncFile>(
+    pub fn serialize<F: ManagedFile>(
         &mut self,
         paged_writer: &mut PagedWriter<'_, F>,
     ) -> Result<Vec<u8>, Error> {
@@ -225,13 +210,9 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
 
         let by_sequence_size = self
             .by_sequence_root
-            .serialize_to(&mut output, paged_writer)
-            .await?;
+            .serialize_to(&mut output, paged_writer)?;
 
-        let by_id_size = self
-            .by_id_root
-            .serialize_to(&mut output, paged_writer)
-            .await?;
+        let by_id_size = self.by_id_root.serialize_to(&mut output, paged_writer)?;
 
         let by_sequence_size = u32::try_from(by_sequence_size)
             .ok()

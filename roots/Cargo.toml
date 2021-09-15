@@ -11,23 +11,17 @@ readme = "./README.md"
 homepage = "https://dev.bonsaidb.io/"
 
 [features]
-default = ["uring"]
-uring = ["tokio-uring"]
+default = []
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-tokio-uring = { version = "0.1", optional = true }
-zerocopy = "0.5"
+zerocopy = "0.6"
 thiserror = "1"
-async-trait = "0.1"
-cfg-if = "1"
 byteorder = "1"
-futures = "0.3"
 flume = "0.10"
 crc = "2"
 once_cell = "1"
 lru = "0.6"
-sharded-slab = "0.1"
+parking_lot = "0.11"
 
 [dev-dependencies]
 nanorand = "0.6"

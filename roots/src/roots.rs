@@ -1,59 +1,53 @@
 use std::{
+    fs,
     marker::PhantomData,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use tokio::fs;
-
 use crate::{
-    context::Context, transaction::TransactionManager, AsyncFile, ChunkCache, Error, File, Vault,
+    context::Context, transaction::TransactionManager, AsyncFile, ChunkCache, Error, File,
+    TokioFile, Vault,
 };
 
 /// A multi-tree transactional B-Tree database.
-pub struct Roots<F: AsyncFile = File> {
-    data: Arc<Data<F>>,
+pub struct Roots {
+    data: Arc<Data>,
 }
 
-struct Data<F: AsyncFile> {
-    context: Context<F::Manager>,
+struct Data {
+    context: Context,
     transactions: TransactionManager,
     path: PathBuf,
-    _file: PhantomData<F>,
 }
 
-impl<F: AsyncFile + 'static> Roots<F> {
-    async fn new<P: Into<PathBuf> + Send>(
-        path: P,
-        vault: Option<Arc<dyn Vault>>,
-        cache: Option<ChunkCache>,
-    ) -> Result<Self, Error> {
-        let path = path.into();
-        if !path.exists() {
-            fs::create_dir(&path).await?;
-        } else if !path.is_dir() {
-            return Err(Error::message(format!(
-                "'{:?}' already exists, but is not a directory.",
-                path
-            )));
-        }
+impl Roots {
+    // fn new<P: Into<PathBuf> + Send>(
+    //     path: P,
+    //     vault: Option<Arc<dyn Vault>>,
+    //     cache: Option<ChunkCache>,
+    // ) -> Result<Self, Error> {
+    //     let path = path.into();
+    //     if !path.exists() {
+    //         fs::create_dir(&path)?;
+    //     } else if !path.is_dir() {
+    //         return Err(Error::message(format!(
+    //             "'{:?}' already exists, but is not a directory.",
+    //             path
+    //         )));
+    //     }
 
-        let file_manager = <F::Manager as Default>::default();
-        let context = Context {
-            file_manager,
-            vault,
-            cache,
-        };
-        let transactions = TransactionManager::spawn::<F>(&path, context.clone()).await?;
-        Ok(Self {
-            data: Arc::new(Data {
-                context,
-                path,
-                transactions,
-                _file: PhantomData,
-            }),
-        })
-    }
+    //     let context = Context { vault, cache };
+    //     let transactions = TransactionManager::spawn::<TokioFile>(&path, context.clone()).await?;
+    //     Ok(Self {
+    //         data: Arc::new(Data {
+    //             context,
+    //             path,
+    //             transactions,
+    //             _file: PhantomData,
+    //         }),
+    //     })
+    // }
 
     // TODO figure out what these APIs look like after chunk cache
     // /// Intializes a new instance pointing to `directory`. This function opens
@@ -85,14 +79,14 @@ impl<F: AsyncFile + 'static> Roots<F> {
 
     /// Returns the vault used to encrypt this database.
     #[must_use]
-    pub fn context(&self) -> &Context<F::Manager> {
+    pub fn context(&self) -> &Context {
         &self.data.context
     }
 
     // pub async fn execute(&self, transaction: PreparedTransaction) -> Result<
 }
 
-impl<F: AsyncFile> Clone for Roots<F> {
+impl Clone for Roots {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),

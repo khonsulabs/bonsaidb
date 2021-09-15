@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, MutexGuard};
+use parking_lot::{Mutex, MutexGuard};
 
 use super::BTreeRoot;
 
@@ -15,8 +15,8 @@ pub struct State<const MAX_ORDER: usize> {
 
 impl<const MAX_ORDER: usize> State<MAX_ORDER> {
     /// Locks the state.
-    pub(crate) async fn lock(&self) -> MutexGuard<'_, ActiveState<MAX_ORDER>> {
-        self.state.lock().await
+    pub(crate) fn lock(&self) -> MutexGuard<'_, ActiveState<MAX_ORDER>> {
+        self.state.lock()
     }
 
     // pub fn next_sequence(&self) -> u64 {

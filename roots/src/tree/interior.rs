@@ -1,13 +1,12 @@
 use std::{convert::TryFrom, fmt::Debug};
 
-use async_trait::async_trait;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use super::{
     btree_entry::{BTreeEntry, Reducer},
     BinarySerialization, PagedWriter,
 };
-use crate::{AsyncFile, Buffer, Error};
+use crate::{Buffer, Error, ManagedFile};
 
 #[derive(Clone, Debug)]
 pub struct Interior<I, R> {
@@ -48,7 +47,7 @@ impl<
         R: Reducer<I> + BinarySerialization + Debug + Clone + 'static,
     > Pointer<I, R>
 {
-    pub async fn load<F: AsyncFile>(
+    pub fn load<F: ManagedFile>(
         &mut self,
         writer: &mut PagedWriter<'_, F>,
         current_order: usize,
@@ -56,7 +55,7 @@ impl<
         match self {
             Pointer::OnDisk(position) => {
                 let entry = BTreeEntry::deserialize_from(
-                    &mut writer.read_chunk(*position).await?,
+                    &mut writer.read_chunk(*position)?,
                     current_order,
                 )?;
                 *self = Self::Loaded(Box::new(entry));
@@ -74,13 +73,12 @@ impl<
     }
 }
 
-#[async_trait(?Send)]
 impl<
         I: Clone + BinarySerialization + Debug + 'static,
         R: Reducer<I> + Clone + BinarySerialization + Debug + 'static,
     > BinarySerialization for Interior<I, R>
 {
-    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+    fn serialize_to<W: WriteBytesExt, F: ManagedFile>(
         &mut self,
         writer: &mut W,
         paged_writer: &mut PagedWriter<'_, F>,
@@ -88,8 +86,8 @@ impl<
         let position = match &mut self.position {
             Pointer::OnDisk(position) => *position,
             Pointer::Loaded(node) => {
-                let bytes = node.serialize(paged_writer).await?;
-                let position = paged_writer.write_chunk(&bytes).await?;
+                let bytes = node.serialize(paged_writer)?;
+                let position = paged_writer.write_chunk(&bytes)?;
                 self.position = Pointer::OnDisk(position);
                 position
             }
@@ -104,7 +102,7 @@ impl<
         writer.write_u64::<BigEndian>(position)?;
         bytes_written += 8;
 
-        bytes_written += self.stats.serialize_to(writer, paged_writer).await?;
+        bytes_written += self.stats.serialize_to(writer, paged_writer)?;
 
         Ok(bytes_written)
     }

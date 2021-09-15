@@ -1,8 +1,7 @@
-use async_trait::async_trait;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use super::{btree_entry::Reducer, BinarySerialization, PagedWriter};
-use crate::{AsyncFile, Buffer, Error};
+use crate::{Buffer, Error, ManagedFile};
 
 #[derive(Clone, Debug)]
 pub struct ByIdIndex {
@@ -11,9 +10,8 @@ pub struct ByIdIndex {
     pub position: u64,
 }
 
-#[async_trait(?Send)]
 impl BinarySerialization for ByIdIndex {
-    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+    fn serialize_to<W: WriteBytesExt, F: ManagedFile>(
         &mut self,
         writer: &mut W,
         _paged_writer: &mut PagedWriter<'_, F>,
@@ -49,9 +47,8 @@ impl ByIdStats {
     }
 }
 
-#[async_trait(?Send)]
 impl BinarySerialization for ByIdStats {
-    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+    fn serialize_to<W: WriteBytesExt, F: ManagedFile>(
         &mut self,
         writer: &mut W,
         _paged_writer: &mut PagedWriter<'_, F>,

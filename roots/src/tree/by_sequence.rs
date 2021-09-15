@@ -1,10 +1,9 @@
 use std::convert::TryFrom;
 
-use async_trait::async_trait;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use super::{btree_entry::Reducer, BinarySerialization, PagedWriter};
-use crate::{AsyncFile, Buffer, Error};
+use crate::{Buffer, Error, ManagedFile};
 
 #[derive(Clone, Debug)]
 pub struct BySequenceIndex {
@@ -13,9 +12,8 @@ pub struct BySequenceIndex {
     pub position: u64,
 }
 
-#[async_trait(?Send)]
 impl BinarySerialization for BySequenceIndex {
-    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+    fn serialize_to<W: WriteBytesExt, F: ManagedFile>(
         &mut self,
         writer: &mut W,
         _paged_writer: &mut PagedWriter<'_, F>,
@@ -61,9 +59,8 @@ pub struct BySequenceStats {
     pub number_of_records: u64,
 }
 
-#[async_trait(?Send)]
 impl BinarySerialization for BySequenceStats {
-    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+    fn serialize_to<W: WriteBytesExt, F: ManagedFile>(
         &mut self,
         writer: &mut W,
         _paged_writer: &mut PagedWriter<'_, F>,

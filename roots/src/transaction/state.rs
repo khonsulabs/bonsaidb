@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use tokio::sync::{Mutex, MutexGuard};
+use parking_lot::{Mutex, MutexGuard};
 
 use super::{LogEntry, TransactionChanges, TransactionHandle, TreeLock, TreeLocks};
 
@@ -42,8 +42,8 @@ impl State {
         }
     }
 
-    pub async fn initialize(&self, current_transaction_id: u64, log_position: u64) {
-        let mut state_position = self.state.log_position.lock().await;
+    pub fn initialize(&self, current_transaction_id: u64, log_position: u64) {
+        let mut state_position = self.state.log_position.lock();
         self.state
             .current_transaction_id
             .compare_exchange(
@@ -60,14 +60,14 @@ impl State {
         self.state.current_transaction_id.load(Ordering::SeqCst)
     }
 
-    async fn fetch_tree_locks<'a>(&'a self, trees: &'a [&[u8]], locks: &mut TreeLocks) {
-        let mut tree_locks = self.state.tree_locks.lock().await;
+    fn fetch_tree_locks<'a>(&'a self, trees: &'a [&[u8]], locks: &mut TreeLocks) {
+        let mut tree_locks = self.state.tree_locks.lock();
         for tree in trees {
             if let Some(lock) = tree_locks.get(&Cow::Borrowed(*tree)) {
-                locks.push(lock.lock().await);
+                locks.push(lock.lock());
             } else {
                 let lock = TreeLock::new();
-                let locked = lock.lock().await;
+                let locked = lock.lock();
                 tree_locks.insert(Cow::Owned(tree.to_vec()), lock);
                 locks.push(locked);
             }
@@ -75,9 +75,9 @@ impl State {
     }
 
     #[allow(clippy::needless_lifetimes)] // lies! I can't seem to get rid of the lifetimes.
-    pub async fn new_transaction(&self, trees: &[&[u8]]) -> TransactionHandle<'static> {
+    pub fn new_transaction(&self, trees: &[&[u8]]) -> TransactionHandle<'static> {
         let mut locked_trees = Vec::with_capacity(trees.len());
-        self.fetch_tree_locks(trees, &mut locked_trees).await;
+        self.fetch_tree_locks(trees, &mut locked_trees);
 
         TransactionHandle {
             locked_trees,
@@ -93,7 +93,7 @@ impl State {
 }
 
 impl State {
-    pub async fn lock_for_write(&self) -> MutexGuard<'_, u64> {
-        self.state.log_position.lock().await
+    pub fn lock_for_write(&self) -> MutexGuard<'_, u64> {
+        self.state.log_position.lock()
     }
 }

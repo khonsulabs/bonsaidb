@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use lru::LruCache;
-use tokio::sync::Mutex;
+use parking_lot::Mutex;
 
 use crate::Buffer;
 
@@ -41,9 +41,9 @@ impl ChunkCache {
     }
 
     /// Adds a new cached chunk for `file_path` at `position`.
-    pub async fn insert(&self, file_path: Arc<PathBuf>, position: u64, buffer: Buffer<'static>) {
+    pub fn insert(&self, file_path: Arc<PathBuf>, position: u64, buffer: Buffer<'static>) {
         if buffer.len() <= self.max_block_length {
-            let mut cache = self.cache.lock().await;
+            let mut cache = self.cache.lock();
             cache.put(
                 ChunkKey {
                     position,
@@ -57,8 +57,9 @@ impl ChunkCache {
     }
 
     /// Looks up a previously read chunk for `file_path` at `position`,
-    pub async fn get(&self, file_path: Arc<PathBuf>, position: u64) -> Option<Buffer<'static>> {
-        let mut cache = self.cache.lock().await;
+    #[must_use]
+    pub fn get(&self, file_path: Arc<PathBuf>, position: u64) -> Option<Buffer<'static>> {
+        let mut cache = self.cache.lock();
         cache
             .get(&ChunkKey {
                 position,

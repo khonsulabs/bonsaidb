@@ -1,31 +1,28 @@
-use async_trait::async_trait;
 use byteorder::WriteBytesExt;
 
 use super::PagedWriter;
-use crate::{AsyncFile, Buffer, Error};
+use crate::{Buffer, Error, ManagedFile};
 
-#[async_trait(?Send)]
 pub trait BinarySerialization: Sized {
-    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+    fn serialize_to<W: WriteBytesExt, F: ManagedFile>(
         &mut self,
         writer: &mut W,
         paged_writer: &mut PagedWriter<'_, F>,
     ) -> Result<usize, Error>;
-    async fn serialize<F: AsyncFile>(
+    fn serialize<F: ManagedFile>(
         &mut self,
         paged_writer: &mut PagedWriter<'_, F>,
     ) -> Result<Vec<u8>, Error> {
         let mut buffer = Vec::new();
         buffer.reserve(super::PAGE_SIZE);
-        self.serialize_to(&mut buffer, paged_writer).await?;
+        self.serialize_to(&mut buffer, paged_writer)?;
         Ok(buffer)
     }
     fn deserialize_from(reader: &mut Buffer<'_>, current_order: usize) -> Result<Self, Error>;
 }
 
-#[async_trait(?Send)]
 impl BinarySerialization for () {
-    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+    fn serialize_to<W: WriteBytesExt, F: ManagedFile>(
         &mut self,
         _writer: &mut W,
         _paged_writer: &mut PagedWriter<'_, F>,

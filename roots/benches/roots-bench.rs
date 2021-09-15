@@ -13,29 +13,22 @@ fn main() {
     logs::run();
 }
 
-use async_trait::async_trait;
 use tabled::{Alignment, Column, Modify, Table, Tabled};
 
-#[async_trait(?Send)]
 pub trait AsyncBench: Sized {
     type Config: BenchConfig;
 
     fn run(target: impl Into<String>, config: &Self::Config) -> Result<BenchReport, anyhow::Error> {
-        tokio::runtime::Runtime::new()?.block_on(async {
-            Self::initialize(config)
-                .await?
-                .execute_iterations(target, config)
-                .await
-        })
+        Self::initialize(config)?.execute_iterations(target, config)
     }
 
-    async fn initialize(config: &Self::Config) -> Result<Self, anyhow::Error>;
+    fn initialize(config: &Self::Config) -> Result<Self, anyhow::Error>;
 
-    async fn execute_measured(&mut self, config: &Self::Config) -> Result<(), anyhow::Error>;
+    fn execute_measured(&mut self, config: &Self::Config) -> Result<(), anyhow::Error>;
 
-    async fn execute_iterations(
+    fn execute_iterations(
         &mut self,
-        target: impl Into<String> + 'async_trait,
+        target: impl Into<String>,
         config: &Self::Config,
     ) -> Result<BenchReport, anyhow::Error> {
         let start = Instant::now();
@@ -43,7 +36,7 @@ pub trait AsyncBench: Sized {
 
         for _ in 0..config.iterations() {
             let iter_start = Instant::now();
-            self.execute_measured(config).await?;
+            self.execute_measured(config)?;
             let iter_end = Instant::now();
             if let Some(elapsed) = iter_end.checked_duration_since(iter_start) {
                 histogram.record(u64::try_from(elapsed.as_micros())?)?;

@@ -41,18 +41,18 @@ const VERSION: u8 = 0;
 
 use std::{
     convert::TryFrom,
+    fs::OpenOptions,
+    io::SeekFrom,
     ops::{Deref, DerefMut},
     path::Path,
     sync::Arc,
 };
 
-use async_trait::async_trait;
 use byteorder::{BigEndian, ByteOrder};
 use crc::{Crc, CRC_32_BZIP2};
-use tokio::fs::OpenOptions;
 
 use crate::{
-    async_file::{AsyncFile, AsyncFileManager, FileOp, OpenableFile},
+    managed_file::{FileManager, FileOp, ManagedFile, OpenableFile},
     tree::btree_root::BTreeRoot,
     Buffer, ChunkCache, Context, Error, Vault,
 };
@@ -108,7 +108,7 @@ impl TryFrom<u8> for PageHeader {
 macro_rules! commit_if_needed {
     ($self:ident, $about_to_write:expr) => {{
         if $self.offset == $self.scratch.len() {
-            $self.commit().await?;
+            $self.commit()?;
         } else if $about_to_write && $self.offset % PAGE_SIZE == 0 {
             $self.scratch[$self.offset] = PageHeader::Continuation as u8;
             $self.offset += 1;
@@ -124,20 +124,20 @@ macro_rules! commit_if_needed {
 ///   contain. This implementation attempts to grow naturally towards this upper
 ///   limit. Changing this parameter does not automatically rebalance the tree,
 ///   but over time the tree will be updated.
-pub struct TreeFile<F: AsyncFile, const MAX_ORDER: usize> {
-    file: <F::Manager as AsyncFileManager<F>>::FileHandle,
+pub struct TreeFile<F: ManagedFile, const MAX_ORDER: usize> {
+    file: <F::Manager as FileManager<F>>::FileHandle,
     state: State<MAX_ORDER>,
     vault: Option<Arc<dyn Vault>>,
     cache: Option<ChunkCache>,
 }
 
 #[allow(clippy::future_not_send)]
-impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
+impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     /// Returns a tree as contained in `file`.
     ///
     /// `state` should already be initialized using [`Self::initialize_state`] if the file exists.
-    pub async fn new(
-        file: <F::Manager as AsyncFileManager<F>>::FileHandle,
+    pub fn new(
+        file: <F::Manager as FileManager<F>>::FileHandle,
         state: State<MAX_ORDER>,
         vault: Option<Arc<dyn Vault>>,
         cache: Option<ChunkCache>,
@@ -151,17 +151,17 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     }
 
     /// Attempts to load the last saved state of this tree into `state`.
-    pub async fn initialize_state(
+    pub fn initialize_state(
         state: &State<MAX_ORDER>,
         file_path: &Path,
         context: &Context<F::Manager>,
     ) -> Result<(), Error> {
-        let mut state = state.lock().await;
+        let mut state = state.lock();
         if state.initialized() {
             return Ok(());
         }
 
-        let mut file_length = context.file_manager.file_length(file_path).await?;
+        let mut file_length = context.file_manager.file_length(file_path)?;
         if file_length == 0 {
             return Err(Error::message("empty transaction log"));
         }
@@ -176,24 +176,22 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
             let file = OpenOptions::new()
                 .append(true)
                 .write(true)
-                .open(&file_path)
-                .await?;
+                .open(&file_path)?;
             file_length -= excess_length;
-            file.set_len(file_length).await?;
-            file.sync_all().await?;
+            file.set_len(file_length)?;
+            file.sync_all()?;
         }
 
-        let mut tree = F::read(file_path).await?;
+        let mut tree = F::open_for_read(file_path)?;
 
         // Scan back block by block until we find a header page.
         let mut block_start = file_length - PAGE_SIZE as u64;
         let mut scratch_buffer = vec![0_u8];
         let last_header = loop {
             // Read the page header
-            scratch_buffer = match tree.read_exact(block_start, scratch_buffer, 1).await {
-                (Ok(_), buffer) => buffer,
-                (Err(err), _) => return Err(err),
-            };
+            tree.seek(SeekFrom::Start(block_start))?;
+            tree.read_exact(&mut scratch_buffer[0..1])?;
+
             #[allow(clippy::match_on_vec_items)]
             match PageHeader::try_from(scratch_buffer[0])? {
                 PageHeader::Continuation | PageHeader::Data => {
@@ -208,8 +206,7 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
                 }
                 PageHeader::Header => {
                     let contents =
-                        read_chunk(block_start + 1, &mut tree, context.vault(), context.cache())
-                            .await?;
+                        read_chunk(block_start + 1, &mut tree, context.vault(), context.cache())?;
                     let root = BTreeRoot::deserialize(contents)
                         .map_err(|err| Error::DataIntegrity(Box::new(err)))?;
                     break root;
@@ -222,51 +219,45 @@ impl<F: AsyncFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     }
 
     /// Returns the sequence that wrote this document.
-    pub async fn push(
+    pub fn push(
         &mut self,
         transaction_id: u64,
         key: Buffer<'static>,
         document: Buffer<'static>,
     ) -> Result<u64, Error> {
-        self.file
-            .execute(DocumentWriter {
-                state: &self.state,
-                vault: self.vault.as_deref(),
-                cache: self.cache.as_ref(),
-                modification: Some(Modification {
-                    transaction_id,
-                    keys: vec![key],
-                    operation: Operation::Set(document),
-                }),
-            })
-            .await
+        self.file.execute(DocumentWriter {
+            state: &self.state,
+            vault: self.vault.as_deref(),
+            cache: self.cache.as_ref(),
+            modification: Some(Modification {
+                transaction_id,
+                keys: vec![key],
+                operation: Operation::Set(document),
+            }),
+        })
     }
 
     /// Returns the sequence that wrote this document.
-    pub async fn modify(
+    pub fn modify(
         &mut self,
         modification: Modification<'static, Buffer<'static>>,
     ) -> Result<u64, Error> {
-        self.file
-            .execute(DocumentWriter {
-                state: &self.state,
-                vault: self.vault.as_deref(),
-                cache: self.cache.as_ref(),
-                modification: Some(modification),
-            })
-            .await
+        self.file.execute(DocumentWriter {
+            state: &self.state,
+            vault: self.vault.as_deref(),
+            cache: self.cache.as_ref(),
+            modification: Some(modification),
+        })
     }
 
     /// Gets the value stored for `key`.
-    pub async fn get(&mut self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
-        self.file
-            .execute(DocumentReader {
-                state: &self.state,
-                vault: self.vault.as_deref(),
-                cache: self.cache.as_ref(),
-                key,
-            })
-            .await
+    pub fn get(&mut self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
+        self.file.execute(DocumentReader {
+            state: &self.state,
+            vault: self.vault.as_deref(),
+            cache: self.cache.as_ref(),
+            key,
+        })
     }
 }
 
@@ -277,13 +268,12 @@ struct DocumentWriter<'a, const MAX_ORDER: usize> {
     modification: Option<Modification<'static, Buffer<'static>>>,
 }
 
-#[async_trait(?Send)]
-impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, MAX_ORDER> {
+impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, MAX_ORDER> {
     type Output = u64;
 
     #[allow(clippy::shadow_unrelated)] // It is related, but clippy can't tell.
-    async fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
-        let mut state = self.state.lock().await;
+    fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
+        let mut state = self.state.lock();
 
         let mut data_block = PagedWriter::new(
             PageHeader::Data,
@@ -291,16 +281,14 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, 
             self.vault.as_deref(),
             self.cache,
             state.current_position,
-        )
-        .await?;
+        );
 
         // Now that we have the document data's position, we can update the by_sequence and by_id indexes.
         state
             .header
-            .modify(self.modification.take().unwrap(), &mut data_block)
-            .await?;
-        let new_header = state.header.serialize(&mut data_block).await?;
-        let (file, after_data) = data_block.finish().await?;
+            .modify(self.modification.take().unwrap(), &mut data_block)?;
+        let new_header = state.header.serialize(&mut data_block)?;
+        let (file, after_data) = data_block.finish()?;
         state.current_position = after_data;
 
         // Write a new header.
@@ -310,14 +298,13 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, 
             self.vault.as_deref(),
             self.cache,
             state.current_position,
-        )
-        .await?;
-        header_block.write_chunk(&new_header).await?;
+        );
+        header_block.write_chunk(&new_header)?;
 
-        let (file, after_header) = header_block.finish().await?;
+        let (file, after_header) = header_block.finish()?;
         state.current_position = after_header;
 
-        file.flush().await?;
+        file.flush()?;
 
         Ok(state.header.sequence)
     }
@@ -330,15 +317,11 @@ struct DocumentReader<'a, const MAX_ORDER: usize> {
     key: &'a [u8],
 }
 
-#[async_trait(?Send)]
-impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentReader<'a, MAX_ORDER> {
+impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentReader<'a, MAX_ORDER> {
     type Output = Option<Buffer<'static>>;
-    async fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
-        let state = self.state.lock().await;
-        state
-            .header
-            .get(self.key, file, self.vault, self.cache)
-            .await
+    fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
+        let state = self.state.lock();
+        state.header.get(self.key, file, self.vault, self.cache)
     }
 }
 
@@ -346,7 +329,7 @@ impl<'a, F: AsyncFile, const MAX_ORDER: usize> FileOp<F> for DocumentReader<'a, 
 impl<'a, const MAX_ORDER: usize> DocumentWriter<'a, MAX_ORDER> {}
 
 /// Writes data in pages, allowing for quick scanning through the file.
-pub struct PagedWriter<'a, F: AsyncFile> {
+pub struct PagedWriter<'a, F: ManagedFile> {
     file: &'a mut F,
     vault: Option<&'a dyn Vault>,
     cache: Option<&'a ChunkCache>,
@@ -355,7 +338,7 @@ pub struct PagedWriter<'a, F: AsyncFile> {
     offset: usize,
 }
 
-impl<'a, F: AsyncFile> Deref for PagedWriter<'a, F> {
+impl<'a, F: ManagedFile> Deref for PagedWriter<'a, F> {
     type Target = F;
 
     fn deref(&self) -> &Self::Target {
@@ -363,21 +346,21 @@ impl<'a, F: AsyncFile> Deref for PagedWriter<'a, F> {
     }
 }
 
-impl<'a, F: AsyncFile> DerefMut for PagedWriter<'a, F> {
+impl<'a, F: ManagedFile> DerefMut for PagedWriter<'a, F> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.file
     }
 }
 
 #[allow(clippy::future_not_send)]
-impl<'a, F: AsyncFile> PagedWriter<'a, F> {
-    async fn new(
+impl<'a, F: ManagedFile> PagedWriter<'a, F> {
+    fn new(
         header: PageHeader,
         file: &'a mut F,
         vault: Option<&'a dyn Vault>,
         cache: Option<&'a ChunkCache>,
         position: u64,
-    ) -> Result<PagedWriter<'a, F>, Error> {
+    ) -> PagedWriter<'a, F> {
         let mut writer = Self {
             file,
             vault,
@@ -388,14 +371,14 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
         };
         writer.scratch[0] = header as u8;
         writer.offset = 1;
-        Ok(writer)
+        writer
     }
 
     fn current_position(&self) -> u64 {
         self.position + self.offset as u64
     }
 
-    async fn write(&mut self, data: &[u8]) -> Result<usize, Error> {
+    fn write(&mut self, data: &[u8]) -> Result<usize, Error> {
         let bytes_written = data.len();
         commit_if_needed!(self, true);
 
@@ -431,9 +414,9 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
 
             // If there's any data left, add it to the scratch
             if !remaining.is_empty() {
-                let new_offset = self.offset + remaining.len();
-                self.scratch[self.offset..new_offset].copy_from_slice(remaining);
-                self.offset = new_offset;
+                let final_offset = self.offset + remaining.len();
+                self.scratch[self.offset..final_offset].copy_from_slice(remaining);
+                self.offset = final_offset;
             }
 
             commit_if_needed!(self, !remaining.is_empty());
@@ -444,7 +427,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
     /// Writes a chunk of data to the file, after possibly encrypting it.
     /// Returns the position that this chunk can be read from in the file.
     #[allow(clippy::cast_possible_truncation)]
-    async fn write_chunk(&mut self, contents: &[u8]) -> Result<u64, Error> {
+    fn write_chunk(&mut self, contents: &[u8]) -> Result<u64, Error> {
         let possibly_encrypted = Buffer::from(
             self.vault
                 .as_ref()
@@ -466,7 +449,7 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
                 PAGE_SIZE - position_relative_to_page as usize
             };
             let zeroes = [0; 8];
-            self.write(&zeroes[0..bytes_needed]).await?;
+            self.write(&zeroes[0..bytes_needed])?;
             position = self.current_position();
         }
 
@@ -475,49 +458,46 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
             position += 1;
         }
 
-        self.write_u32::<BigEndian>(length).await?;
-        self.write_u32::<BigEndian>(crc).await?;
-        self.write(&possibly_encrypted).await?;
+        self.write_u32::<BigEndian>(length)?;
+        self.write_u32::<BigEndian>(crc)?;
+        self.write(&possibly_encrypted)?;
 
         if let Some(cache) = self.cache {
-            cache
-                .insert(self.file.path(), position, possibly_encrypted)
-                .await;
+            cache.insert(self.file.path(), position, possibly_encrypted);
         }
 
         Ok(position)
     }
 
-    async fn read_chunk(&mut self, position: u64) -> Result<Buffer<'static>, Error> {
-        read_chunk(position, self.file, self.vault, self.cache).await
+    fn read_chunk(&mut self, position: u64) -> Result<Buffer<'static>, Error> {
+        read_chunk(position, self.file, self.vault, self.cache)
     }
 
-    async fn write_u8(&mut self, value: u8) -> Result<usize, Error> {
-        self.write(&[value]).await
+    fn write_u8(&mut self, value: u8) -> Result<usize, Error> {
+        self.write(&[value])
     }
 
-    async fn write_u16<B: ByteOrder>(&mut self, value: u16) -> Result<usize, Error> {
+    fn write_u16<B: ByteOrder>(&mut self, value: u16) -> Result<usize, Error> {
         let mut buffer = [0_u8; 2];
         B::write_u16(&mut buffer, value);
-        self.write(&buffer).await
+        self.write(&buffer)
     }
 
-    async fn write_u32<B: ByteOrder>(&mut self, value: u32) -> Result<usize, Error> {
+    fn write_u32<B: ByteOrder>(&mut self, value: u32) -> Result<usize, Error> {
         let mut buffer = [0_u8; 4];
         B::write_u32(&mut buffer, value);
-        self.write(&buffer).await
+        self.write(&buffer)
     }
 
-    async fn write_u64<B: ByteOrder>(&mut self, value: u64) -> Result<usize, Error> {
+    fn write_u64<B: ByteOrder>(&mut self, value: u64) -> Result<usize, Error> {
         let mut buffer = [0_u8; 8];
         B::write_u64(&mut buffer, value);
-        self.write(&buffer).await
+        self.write(&buffer)
     }
 
     /// Writes the scratch buffer and resets `offset`.
     #[cfg_attr(not(debug_assertions), allow(unused_mut))]
-    async fn commit(&mut self) -> Result<(), Error> {
-        let mut buffer = std::mem::take(&mut self.scratch);
+    fn commit(&mut self) -> Result<(), Error> {
         let length = (self.offset + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
 
         // In debug builds, fill the padding with a recognizable number: the
@@ -525,25 +505,22 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
         // For refence, 42 in hex is 0x2A.
         #[cfg(debug_assertions)]
         if self.offset < length {
-            buffer[self.offset..length].fill(42);
+            self.scratch[self.offset..length].fill(42);
         }
 
-        let result = self.file.write_all(self.position, buffer, 0, length).await;
-        self.scratch = result.1;
-
-        if result.0.is_ok() {
-            self.position += length as u64;
-        }
+        self.file.seek(SeekFrom::Start(self.position))?;
+        self.file.write_all(&self.scratch[..length])?;
+        self.position += length as u64;
 
         // Set the header to be a continuation block
         self.scratch[0] = PageHeader::Continuation as u8;
         self.offset = 1;
-        result.0
+        Ok(())
     }
 
-    async fn finish(mut self) -> Result<(&'a mut F, u64), Error> {
+    fn finish(mut self) -> Result<(&'a mut F, u64), Error> {
         if self.offset > 0 {
-            self.commit().await?;
+            self.commit()?;
         }
         Ok((self.file, self.position))
     }
@@ -551,14 +528,14 @@ impl<'a, F: AsyncFile> PagedWriter<'a, F> {
 
 #[allow(clippy::future_not_send)]
 #[allow(clippy::cast_possible_truncation)]
-async fn read_chunk<F: AsyncFile>(
+fn read_chunk<F: ManagedFile>(
     position: u64,
     file: &mut F,
     vault: Option<&dyn Vault>,
     cache: Option<&ChunkCache>,
 ) -> Result<Buffer<'static>, Error> {
     if let Some(cache) = cache {
-        if let Some(buffer) = cache.get(file.path(), position).await {
+        if let Some(buffer) = cache.get(file.path(), position) {
             return Ok(buffer);
         }
     }
@@ -567,8 +544,8 @@ async fn read_chunk<F: AsyncFile>(
     let mut scratch = Vec::new();
     scratch.reserve(PAGE_SIZE);
     scratch.resize(8, 0);
-    let (result, mut scratch) = file.read_exact(position, scratch, 8).await;
-    result?;
+    file.seek(SeekFrom::Start(position))?;
+    file.read_exact(&mut scratch)?;
     let length = BigEndian::read_u32(&scratch[0..4]) as usize;
     let crc = BigEndian::read_u32(&scratch[4..8]);
 
@@ -578,6 +555,7 @@ async fn read_chunk<F: AsyncFile>(
     // unchecked as part of this process.
     if data_start % PAGE_SIZE as u64 == 0 {
         data_start += 1;
+        file.seek(SeekFrom::Current(1))?;
     }
 
     let data_start_relative_to_page = data_start % PAGE_SIZE as u64;
@@ -590,10 +568,7 @@ async fn read_chunk<F: AsyncFile>(
     let data_page_start = data_start - data_start % PAGE_SIZE as u64;
     let total_bytes_to_read = length + number_of_page_boundaries;
     scratch.resize(total_bytes_to_read, 0);
-    let (result, mut scratch) = file
-        .read_exact(data_start, scratch, total_bytes_to_read)
-        .await;
-    result?;
+    file.read_exact(&mut scratch)?;
 
     // We need to remove the `PageHeader::Continuation` bytes before continuing.
     let first_page_relative_end = data_page_start + PAGE_SIZE as u64 - data_start;
@@ -627,7 +602,7 @@ async fn read_chunk<F: AsyncFile>(
     });
 
     if let Some(cache) = cache {
-        cache.insert(file.path(), position, decrypted.clone()).await;
+        cache.insert(file.path(), position, decrypted.clone());
     }
 
     Ok(decrypted)
@@ -641,25 +616,24 @@ mod tests {
 
     use super::*;
     use crate::{
-        async_file::{memory::MemoryFile, tokio::TokioFileManager},
-        TokioFile,
+        managed_file::{fs::StdFileManager, memory::MemoryFile},
+        StdFile,
     };
 
-    async fn test_paged_write(offset: usize, length: usize) -> Result<(), Error> {
-        let mut file = MemoryFile::append(format!("test-{}-{}", offset, length)).await?;
-        let mut paged_writer =
-            PagedWriter::new(PageHeader::Header, &mut file, None, None, 0).await?;
+    fn test_paged_write(offset: usize, length: usize) -> Result<(), Error> {
+        let mut file = MemoryFile::open_for_append(format!("test-{}-{}", offset, length))?;
+        let mut paged_writer = PagedWriter::new(PageHeader::Header, &mut file, None, None, 0);
 
         let mut scratch = Vec::new();
         scratch.resize(offset.max(length), 0);
         if offset > 0 {
-            paged_writer.write(&scratch[..offset]).await?;
+            paged_writer.write(&scratch[..offset])?;
         }
         scratch.fill(1);
-        let written_position = paged_writer.write_chunk(&scratch[..length]).await?;
-        drop(paged_writer.finish().await?);
+        let written_position = paged_writer.write_chunk(&scratch[..length])?;
+        drop(paged_writer.finish()?);
 
-        let data = read_chunk(written_position, &mut file, None, None).await?;
+        let data = read_chunk(written_position, &mut file, None, None)?;
         assert_eq!(data.len(), length);
         assert!(data.iter().all(|i| i == &1));
         drop(file);
@@ -670,9 +644,8 @@ mod tests {
     /// Tests the writing of pages at various boundaries. This should cover
     /// every edge case: offset is on page 1/2/3, write stays on first page or
     /// lands on page 1/2/3 end or extends onto page 4.
-    #[tokio::test]
-    async fn paged_writer() {
-        test_paged_write(4087, 1).await.unwrap();
+    #[test]
+    fn paged_writer() {
         for offset in 0..=PAGE_SIZE * 2 {
             for length in [
                 1,
@@ -681,7 +654,7 @@ mod tests {
                 PAGE_SIZE * 3 / 2,
                 PAGE_SIZE * 2,
             ] {
-                if let Err(err) = test_paged_write(offset, length).await {
+                if let Err(err) = test_paged_write(offset, length) {
                     unreachable!(
                         "paged writer failure at offset {} length {}: {:?}",
                         offset, length, err
@@ -691,7 +664,7 @@ mod tests {
         }
     }
 
-    async fn insert_one_record<F: AsyncFile, const MAX_ORDER: usize>(
+    fn insert_one_record<F: ManagedFile, const MAX_ORDER: usize>(
         context: &Context<F::Manager>,
         file_path: &Path,
         ids: &mut HashSet<u64>,
@@ -708,82 +681,74 @@ mod tests {
         {
             let state = State::default();
             if ids.len() > 1 {
-                TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context)
-                    .await
-                    .unwrap();
+                TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context).unwrap();
             }
-            let file = context.file_manager.append(file_path).await.unwrap();
+            let file = context.file_manager.append(file_path).unwrap();
             let mut tree = TreeFile::<F, MAX_ORDER>::new(
                 file,
                 state,
                 context.vault.clone(),
                 context.cache.clone(),
             )
-            .await
             .unwrap();
             tree.push(0, id_buffer.clone(), Buffer::from(b"hello world"))
-                .await
                 .unwrap();
 
             // This shouldn't have to scan the file, as the data fits in memory.
-            let value = tree.get(&id_buffer).await.unwrap();
+            let value = tree.get(&id_buffer).unwrap();
             assert_eq!(&*value.unwrap(), b"hello world");
         }
 
         // Try loading the file up and retrieving the data.
         {
             let state = State::default();
-            TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context)
-                .await
-                .unwrap();
+            TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context).unwrap();
 
-            let file = context.file_manager.append(file_path).await.unwrap();
+            let file = context.file_manager.append(file_path).unwrap();
             let mut tree = TreeFile::<F, MAX_ORDER>::new(
                 file,
                 state,
                 context.vault.clone(),
                 context.cache.clone(),
             )
-            .await
             .unwrap();
-            let value = tree.get(&id_buffer).await.unwrap();
+            let value = tree.get(&id_buffer).unwrap();
             assert_eq!(&*value.unwrap(), b"hello world");
         }
     }
 
-    #[tokio::test]
-    async fn test() {
+    fn test() {
         const ORDER: usize = 4;
 
         let mut rng = Pcg64::new_seed(1);
         let context = Context {
-            file_manager: TokioFileManager::default(),
+            file_manager: StdFileManager::default(),
             vault: None,
             cache: None,
         };
         let temp_dir = crate::test_util::TestDirectory::new("btree-tests");
-        tokio::fs::create_dir(&temp_dir).await.unwrap();
+        std::fs::create_dir(&temp_dir).unwrap();
         let file_path = temp_dir.join("tree");
         let mut ids = HashSet::new();
         // Insert up to the limit of a LEAF, which is ORDER - 1.
         for _ in 0..ORDER - 1 {
-            insert_one_record::<TokioFile, ORDER>(&context, &file_path, &mut ids, &mut rng).await;
+            insert_one_record::<StdFile, ORDER>(&context, &file_path, &mut ids, &mut rng);
         }
         println!("Successfully inserted up to ORDER - 1 nodes.");
 
         // The next record will split the node
-        insert_one_record::<TokioFile, ORDER>(&context, &file_path, &mut ids, &mut rng).await;
+        insert_one_record::<StdFile, ORDER>(&context, &file_path, &mut ids, &mut rng);
         println!("Successfully introduced one layer of depth.");
 
         // Insert a lot more.
         for _ in 0..1_000 {
-            insert_one_record::<TokioFile, ORDER>(&context, &file_path, &mut ids, &mut rng).await;
+            insert_one_record::<StdFile, ORDER>(&context, &file_path, &mut ids, &mut rng);
         }
     }
 
     #[test]
     fn spam_insert_tokio() {
-        spam_insert::<TokioFile>("tokio");
+        spam_insert::<StdFile>("tokio");
     }
 
     #[test]
@@ -792,97 +757,76 @@ mod tests {
         spam_insert::<crate::UringFile>("uring");
     }
 
-    fn spam_insert<F: AsyncFile>(name: &str) {
+    fn spam_insert<F: ManagedFile>(name: &str) {
         const ORDER: usize = 100;
         const RECORDS: usize = 1_000;
-        F::Manager::run(async {
-            let mut rng = Pcg64::new_seed(1);
-            let ids = (0..RECORDS).map(|_| rng.generate::<u64>());
-            let context = Context {
-                file_manager: F::Manager::default(),
-                vault: None,
-                cache: Some(ChunkCache::new(100, 160_384)),
-            };
-            let temp_dir = crate::test_util::TestDirectory::new(format!("spam-inserts-{}", name));
-            tokio::fs::create_dir(&temp_dir).await.unwrap();
-            let file_path = temp_dir.join("tree");
-            let state = State::default();
-            let file = context.file_manager.append(file_path).await.unwrap();
-            let mut tree = TreeFile::<F, ORDER>::new(
-                file,
-                state,
-                context.vault.clone(),
-                context.cache.clone(),
-            )
-            .await
-            .unwrap();
-            for (_index, id) in ids.enumerate() {
-                let id_buffer = Buffer::from(id.to_be_bytes().to_vec());
-                tree.push(0, id_buffer.clone(), Buffer::from(b"hello world"))
-                    .await
-                    .unwrap();
-            }
-        });
+        let mut rng = Pcg64::new_seed(1);
+        let ids = (0..RECORDS).map(|_| rng.generate::<u64>());
+        let context = Context {
+            file_manager: F::Manager::default(),
+            vault: None,
+            cache: Some(ChunkCache::new(100, 160_384)),
+        };
+        let temp_dir = crate::test_util::TestDirectory::new(format!("spam-inserts-{}", name));
+        std::fs::create_dir(&temp_dir).unwrap();
+        let file_path = temp_dir.join("tree");
+        let state = State::default();
+        let file = context.file_manager.append(file_path).unwrap();
+        let mut tree =
+            TreeFile::<F, ORDER>::new(file, state, context.vault.clone(), context.cache.clone())
+                .unwrap();
+        for (_index, id) in ids.enumerate() {
+            let id_buffer = Buffer::from(id.to_be_bytes().to_vec());
+            tree.push(0, id_buffer.clone(), Buffer::from(b"hello world"))
+                .unwrap();
+        }
     }
 
     #[test]
     fn bulk_insert_tokio() {
-        bulk_insert::<TokioFile>("tokio");
+        bulk_insert::<StdFile>("tokio");
     }
 
-    #[test]
-    #[cfg(feature = "uring")]
-    fn bulk_insert_uring() {
-        bulk_insert::<crate::UringFile>("uring");
-    }
-
-    fn bulk_insert<F: AsyncFile>(name: &str) {
+    fn bulk_insert<F: ManagedFile>(name: &str) {
         const ORDER: usize = 10;
         const RECORDS_PER_BATCH: usize = 10;
         const BATCHES: usize = 1000;
-        F::Manager::run(async {
-            let mut rng = Pcg64::new_seed(1);
-            let context = Context {
-                file_manager: F::Manager::default(),
-                vault: None,
-                cache: Some(ChunkCache::new(100, 160_384)),
+        let mut rng = Pcg64::new_seed(1);
+        let context = Context {
+            file_manager: F::Manager::default(),
+            vault: None,
+            cache: Some(ChunkCache::new(100, 160_384)),
+        };
+        let temp_dir = crate::test_util::TestDirectory::new(format!("bulk-inserts-{}", name));
+        std::fs::create_dir(&temp_dir).unwrap();
+        let file_path = temp_dir.join("tree");
+        let state = State::default();
+        let file = context.file_manager.append(file_path).unwrap();
+        let mut tree =
+            TreeFile::<F, ORDER>::new(file, state, context.vault.clone(), context.cache.clone())
+                .unwrap();
+        for id in 0..BATCHES {
+            let mut ids = (0..RECORDS_PER_BATCH)
+                .map(|_| rng.generate::<u64>())
+                .collect::<Vec<_>>();
+            ids.sort_unstable();
+            let modification = Modification {
+                transaction_id: id as u64,
+                keys: ids
+                    .iter()
+                    .map(|id| Buffer::from(id.to_be_bytes().to_vec()))
+                    .collect(),
+                operation: Operation::Set(Buffer::from(b"hello world")),
             };
-            let temp_dir = crate::test_util::TestDirectory::new(format!("bulk-inserts-{}", name));
-            tokio::fs::create_dir(&temp_dir).await.unwrap();
-            let file_path = temp_dir.join("tree");
-            let state = State::default();
-            let file = context.file_manager.append(file_path).await.unwrap();
-            let mut tree = TreeFile::<F, ORDER>::new(
-                file,
-                state,
-                context.vault.clone(),
-                context.cache.clone(),
-            )
-            .await
-            .unwrap();
-            for id in 0..BATCHES {
-                let mut ids = (0..RECORDS_PER_BATCH)
-                    .map(|_| rng.generate::<u64>())
-                    .collect::<Vec<_>>();
-                ids.sort_unstable();
-                let modification = Modification {
-                    transaction_id: id as u64,
-                    keys: ids
-                        .iter()
-                        .map(|id| Buffer::from(id.to_be_bytes().to_vec()))
-                        .collect(),
-                    operation: Operation::Set(Buffer::from(b"hello world")),
-                };
-                tree.modify(modification).await.unwrap();
+            tree.modify(modification).unwrap();
 
-                // Try five random gets
-                for _ in 0..5 {
-                    let index = rng.generate_range(0..ids.len());
-                    let id = Buffer::from(ids[index].to_be_bytes().to_vec());
-                    let value = tree.get(&id).await.unwrap();
-                    assert_eq!(&*value.unwrap(), b"hello world");
-                }
+            // Try five random gets
+            for _ in 0..5 {
+                let index = rng.generate_range(0..ids.len());
+                let id = Buffer::from(ids[index].to_be_bytes().to_vec());
+                let value = tree.get(&id).unwrap();
+                assert_eq!(&*value.unwrap(), b"hello world");
             }
-        });
+        }
     }
 }

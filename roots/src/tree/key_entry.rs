@@ -1,10 +1,9 @@
 use std::convert::TryFrom;
 
-use async_trait::async_trait;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use super::{serialization::BinarySerialization, PagedWriter};
-use crate::{AsyncFile, Buffer, Error};
+use crate::{Buffer, Error, ManagedFile};
 
 #[derive(Debug, Clone)]
 pub struct KeyEntry<I> {
@@ -12,9 +11,8 @@ pub struct KeyEntry<I> {
     pub index: I,
 }
 
-#[async_trait(?Send)]
 impl<I: BinarySerialization> BinarySerialization for KeyEntry<I> {
-    async fn serialize_to<W: WriteBytesExt, F: AsyncFile>(
+    fn serialize_to<W: WriteBytesExt, F: ManagedFile>(
         &mut self,
         writer: &mut W,
         paged_writer: &mut PagedWriter<'_, F>,
@@ -27,7 +25,7 @@ impl<I: BinarySerialization> BinarySerialization for KeyEntry<I> {
         bytes_written += 2 + key_len as usize;
 
         // Write the value
-        bytes_written += self.index.serialize_to(writer, paged_writer).await?;
+        bytes_written += self.index.serialize_to(writer, paged_writer)?;
         Ok(bytes_written)
     }
 

@@ -21,9 +21,9 @@
 #![cfg_attr(test, allow(clippy::future_not_send))]
 
 #[macro_use]
-mod async_file;
+mod managed_file;
 mod error;
-mod roots;
+// mod roots;
 mod transaction;
 pub mod tree;
 mod vault;
@@ -34,14 +34,11 @@ mod context;
 #[cfg(test)]
 mod test_util;
 
-#[cfg(feature = "uring")]
-pub use self::async_file::uring::UringFile;
 pub use self::{
-    async_file::{tokio::TokioFile, AsyncFile, AsyncFileManager, File},
     buffer::Buffer,
     chunk_cache::ChunkCache,
     context::Context,
     error::Error,
-    roots::Roots,
+    managed_file::{fs::StdFile, FileManager, ManagedFile},
     vault::Vault,
 };
