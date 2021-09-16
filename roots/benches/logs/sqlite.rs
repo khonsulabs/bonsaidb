@@ -1,25 +1,31 @@
 use rusqlite::{params, Connection};
 use tempfile::NamedTempFile;
 
-use super::{InsertConfig, LogEntry, ReadConfig};
+use super::{InsertConfig, LogEntry, LogEntryBatchGenerator, ReadConfig, ReadState};
 use crate::{BenchConfig, SimpleBench};
 
 pub struct InsertLogs {
     sqlite: Connection,
     _tempfile: NamedTempFile,
+    state: LogEntryBatchGenerator,
 }
 
 impl SimpleBench for InsertLogs {
+    type GroupState = ();
     type Config = InsertConfig;
+    const BACKEND: &'static str = "SQLite";
 
-    fn name(config: &Self::Config) -> String {
-        format!(
-            "logs-insert-{}x{}-sqlite",
-            config.transactions, config.entries_per_transaction
-        )
+    fn initialize_group(
+        _config: &Self::Config,
+        _group_state: &<Self::Config as BenchConfig>::GroupState,
+    ) -> Self::GroupState {
     }
 
-    fn initialize(_config: &Self::Config) -> Result<Self, anyhow::Error> {
+    fn initialize(
+        _group_state: &Self::GroupState,
+        config: &Self::Config,
+        config_group_state: &<Self::Config as BenchConfig>::GroupState,
+    ) -> Result<Self, anyhow::Error> {
         // For fair testing, this needs to use ACID-compliant settings that a
         // user would use in production. While a WAL might be used in
         // production, it alters more than just insert performance. A more
@@ -41,21 +47,18 @@ impl SimpleBench for InsertLogs {
         )?;
         Ok(Self {
             sqlite,
+            state: config.initialize(config_group_state),
             _tempfile: tempfile,
         })
     }
 
-    fn execute_measured(
-        &mut self,
-        batch: &<Self::Config as BenchConfig>::Batch,
-        _config: &Self::Config,
-    ) -> Result<(), anyhow::Error> {
+    fn execute_measured(&mut self, _config: &Self::Config) -> Result<(), anyhow::Error> {
         self.sqlite.execute("begin transaction;", [])?;
 
         let mut prepared = self
             .sqlite
             .prepare("insert into logs (id, timestamp, message) values (?, ?, ?)")?;
-        for log in batch {
+        for log in self.state.next().unwrap() {
             // sqlite doesn't support u64, so we're going to cast to i64
             prepared.execute(params![log.id as i64, log.timestamp as i64, log.message])?;
         }
@@ -68,61 +71,70 @@ impl SimpleBench for InsertLogs {
 
 pub struct ReadLogs {
     sqlite: Connection,
-    _tempfile: NamedTempFile,
+    state: ReadState,
 }
 
 impl SimpleBench for ReadLogs {
+    type GroupState = NamedTempFile;
     type Config = ReadConfig;
+    const BACKEND: &'static str = "SQLite";
 
-    fn name(config: &Self::Config) -> String {
-        format!("logs-read-{}-sqlite", config.database_size)
-    }
+    fn initialize_group(
+        config: &Self::Config,
+        _group_state: &<Self::Config as BenchConfig>::GroupState,
+    ) -> Self::GroupState {
+        let tempfile = NamedTempFile::new().unwrap();
+        let sqlite = Connection::open(tempfile.path()).unwrap();
+        sqlite
+            .execute(
+                "create table logs (id integer primary key, timestamp integer, message text)",
+                [],
+            )
+            .unwrap();
 
-    fn initialize(config: &Self::Config) -> Result<Self, anyhow::Error> {
-        let tempfile = NamedTempFile::new()?;
-        let sqlite = Connection::open(tempfile.path())?;
-        sqlite.execute(
-            "create table logs (id integer primary key, timestamp integer, message text)",
-            [],
-        )?;
-
-        let mut prepared =
-            sqlite.prepare("insert into logs (id, timestamp, message) values (?, ?, ?)")?;
-        for chunk in config.database.chunks(1_000_000) {
-            sqlite.execute("begin transaction;", [])?;
+        let mut prepared = sqlite
+            .prepare("insert into logs (id, timestamp, message) values (?, ?, ?)")
+            .unwrap();
+        config.for_each_database_chunk(1_000_000, |chunk| {
+            sqlite.execute("begin transaction;", []).unwrap();
             for log in chunk {
                 // sqlite doesn't support u64, so we're going to cast to i64
-                prepared.execute(params![log.id as i64, log.timestamp as i64, log.message])?;
+                prepared
+                    .execute(params![log.id as i64, log.timestamp as i64, log.message])
+                    .unwrap();
             }
 
-            sqlite.execute("commit transaction;", [])?;
-        }
-        drop(prepared);
+            sqlite.execute("commit transaction;", []).unwrap();
+        });
+        tempfile
+    }
+
+    fn initialize(
+        group_state: &Self::GroupState,
+        config: &Self::Config,
+        config_group_state: &<Self::Config as BenchConfig>::GroupState,
+    ) -> Result<Self, anyhow::Error> {
+        let sqlite = Connection::open(group_state.path())?;
         Ok(Self {
             sqlite,
-            _tempfile: tempfile,
+            state: config.initialize(config_group_state),
         })
     }
 
-    fn execute_measured(
-        &mut self,
-        batch: &<Self::Config as BenchConfig>::Batch,
-        _config: &Self::Config,
-    ) -> Result<(), anyhow::Error> {
-        for entry in batch {
-            let fetched = self.sqlite.query_row(
-                "SELECT id, timestamp, message FROM logs WHERE id = ?",
-                [entry.id as i64],
-                |row| {
-                    Ok(LogEntry {
-                        id: row.get::<_, i64>(0)? as u64,
-                        timestamp: row.get::<_, i64>(1)? as u64,
-                        message: row.get(2)?,
-                    })
-                },
-            )?;
-            assert_eq!(&fetched, entry);
-        }
+    fn execute_measured(&mut self, _config: &Self::Config) -> Result<(), anyhow::Error> {
+        let entry = self.state.next().unwrap();
+        let fetched = self.sqlite.query_row(
+            "SELECT id, timestamp, message FROM logs WHERE id = ?",
+            [entry.id as i64],
+            |row| {
+                Ok(LogEntry {
+                    id: row.get::<_, i64>(0)? as u64,
+                    timestamp: row.get::<_, i64>(1)? as u64,
+                    message: row.get(2)?,
+                })
+            },
+        )?;
+        assert_eq!(&fetched, &entry);
         Ok(())
     }
 }
