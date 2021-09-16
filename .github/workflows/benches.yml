@@ -15,7 +15,7 @@ jobs:
 
       - name: Deploy Docs
         # TODO remove roots after merge
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/roots'
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/roots' }}
         uses: JamesIves/github-pages-deploy-action@releases/v4
         with:
           branch: gh-pages
