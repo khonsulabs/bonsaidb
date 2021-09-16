@@ -228,31 +228,31 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
 }
 
 /// Returns a value for the "order" (maximum children per node) value for the
-/// database. This function is meant to keep nodes smaller while the database
-/// can fit in a tree with 2 depth: root -> interior -> leaf. This is an
-/// approximation that always returns an order larger than what is needed, but
-/// will never return a value larger than `MAX_ORDER`.
+/// database. This function is meant to keep the tree shallow while still
+/// keeping the nodes smaller along the way. This is an approximation that
+/// always returns an order larger than what is needed, but will never return a
+/// value larger than `MAX_ORDER`.
 #[allow(
     clippy::cast_precision_loss,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss
 )]
 fn dynamic_order<const MAX_ORDER: usize>(number_of_records: u64) -> usize {
-    if number_of_records > MAX_ORDER.pow(3) as u64 {
+    // Current approximation is the 4th root
+    if number_of_records > MAX_ORDER.pow(4) as u64 {
         MAX_ORDER
     } else {
-        // Use the ceil of the cube root of the number of records as a base. We don't want 100% fill rate, however, so we'll add one.
-        MAX_ORDER.min(2.max((number_of_records as f64).cbrt().ceil() as usize) + 1)
+        let estimated_order = 2.max((number_of_records as f64).sqrt().sqrt().ceil() as usize);
+        // Add some padding so that we don't have a 100% fill rate.
+        let estimated_order = estimated_order + (estimated_order / 3).max(1);
+        MAX_ORDER.min(estimated_order)
     }
 }
 
 #[test]
 fn dynamic_order_tests() {
     assert_eq!(dynamic_order::<10>(0), 3);
-    assert_eq!(dynamic_order::<10>(26), 4);
-    assert_eq!(dynamic_order::<10>(27), 5);
-    assert_eq!(dynamic_order::<10>(500), 9);
-    assert_eq!(dynamic_order::<10>(1000), 10);
+    assert_eq!(dynamic_order::<10>(10000), 10);
 }
 
 #[derive(Default)]

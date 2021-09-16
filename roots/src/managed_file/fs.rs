@@ -57,22 +57,26 @@ impl ManagedFile for StdFile {
 }
 
 impl Seek for StdFile {
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self,)))]
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
         self.file.seek(pos)
     }
 }
 
 impl Write for StdFile {
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, buf)))]
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.file.write(buf)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     fn flush(&mut self) -> std::io::Result<()> {
         self.file.flush()
     }
 }
 
 impl Read for StdFile {
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, buf)))]
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.file.read(buf)
     }
@@ -102,7 +106,6 @@ impl FileManager<StdFile> for StdFileManager {
         Ok(OpenStdFile(file))
     }
 }
-// TODO async file manager: For uring, does nothing. For tokio, manages access to open files.
 
 pub struct OpenStdFile(Arc<Mutex<StdFile>>);
 

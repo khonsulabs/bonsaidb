@@ -310,6 +310,10 @@ where
         }
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(self, file, vault, cache))
+    )]
     pub fn get<F: ManagedFile>(
         &self,
         key: &[u8],

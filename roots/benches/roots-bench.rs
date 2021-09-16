@@ -10,13 +10,16 @@ mod logs;
 
 fn main() {
     println!("Executing logs benchmark");
-    logs::run();
+    logs::inserts();
+    logs::single_reads();
 }
 
 use tabled::{Alignment, Column, Modify, Table, Tabled};
 
 pub trait SimpleBench: Sized {
     type Config: BenchConfig;
+
+    fn name(config: &Self::Config) -> String;
 
     fn can_execute() -> bool {
         true
@@ -27,7 +30,35 @@ pub trait SimpleBench: Sized {
         batches: &[<Self::Config as BenchConfig>::Batch],
         config: &Self::Config,
     ) -> Result<BenchReport, anyhow::Error> {
-        Self::initialize(config)?.execute_iterations(batches, target, config)
+        let mut bench = Self::initialize(config)?;
+
+        // When tracing is enabled, we output flamegraphs of the benchmarks.
+        #[cfg(feature = "tracing")]
+        {
+            use tracing_subscriber::prelude::__tracing_subscriber_SubscriberExt;
+            let fmt_layer = tracing_subscriber::fmt::Layer::default();
+
+            let (flame_layer, _guard) =
+                tracing_flame::FlameLayer::with_file(format!("{}.folded", Self::name(config)))
+                    .unwrap();
+            let filter_layer = tracing_subscriber::EnvFilter::try_from_default_env()
+                .or_else(|_| tracing_subscriber::EnvFilter::try_new("info"))
+                .unwrap();
+
+            let subscriber = tracing_subscriber::Registry::default()
+                .with(flame_layer)
+                .with(filter_layer)
+                .with(fmt_layer);
+
+            tracing::subscriber::with_default(subscriber, || {
+                bench.execute_iterations(batches, target, config)
+            })
+        }
+
+        #[cfg(not(feature = "tracing"))]
+        {
+            bench.execute_iterations(batches, target, config)
+        }
     }
 
     fn initialize(config: &Self::Config) -> Result<Self, anyhow::Error>;
@@ -106,7 +137,7 @@ impl Tabled for BenchReport {
         vec![
             String::from("target"),
             String::from("total (s)"),
-            String::from("tx/s"),
+            String::from("batch/s"),
             String::from("min (ms)"),
             String::from("max (ms)"),
             String::from("stdev (ms)"),

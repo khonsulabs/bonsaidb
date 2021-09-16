@@ -251,6 +251,7 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     }
 
     /// Gets the value stored for `key`.
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub fn get(&mut self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
         self.file.execute(DocumentReader {
             state: &self.state,
@@ -528,6 +529,7 @@ impl<'a, F: ManagedFile> PagedWriter<'a, F> {
 
 #[allow(clippy::future_not_send)]
 #[allow(clippy::cast_possible_truncation)]
+#[cfg_attr(feature = "tracing", tracing::instrument(skip(file, vault, cache)))]
 fn read_chunk<F: ManagedFile>(
     position: u64,
     file: &mut F,
@@ -541,13 +543,11 @@ fn read_chunk<F: ManagedFile>(
     }
 
     // Read the chunk header
-    let mut scratch = Vec::new();
-    scratch.reserve(PAGE_SIZE);
-    scratch.resize(8, 0);
+    let mut header = [0_u8; 8];
     file.seek(SeekFrom::Start(position))?;
-    file.read_exact(&mut scratch)?;
-    let length = BigEndian::read_u32(&scratch[0..4]) as usize;
-    let crc = BigEndian::read_u32(&scratch[4..8]);
+    file.read_exact(&mut header)?;
+    let length = BigEndian::read_u32(&header[0..4]) as usize;
+    let crc = BigEndian::read_u32(&header[4..8]);
 
     let mut data_start = position + 8;
     // If the data starts on a page boundary, there will have been a page
@@ -567,20 +567,19 @@ fn read_chunk<F: ManagedFile>(
 
     let data_page_start = data_start - data_start % PAGE_SIZE as u64;
     let total_bytes_to_read = length + number_of_page_boundaries;
+    let mut scratch = Vec::new();
     scratch.resize(total_bytes_to_read, 0);
     file.read_exact(&mut scratch)?;
 
     // We need to remove the `PageHeader::Continuation` bytes before continuing.
     let first_page_relative_end = data_page_start + PAGE_SIZE as u64 - data_start;
-    for page_num in (0..number_of_page_boundaries).rev() {
-        let continuation_byte = first_page_relative_end as usize + page_num * PAGE_SIZE;
-        if scratch.remove(continuation_byte) != PageHeader::Continuation as u8 {
-            return Err(Error::data_integrity(format!(
-                "Expected PageHeader::Continuation at {}",
-                position + continuation_byte as u64
-            )));
-        }
+    for page in 0..number_of_page_boundaries {
+        let write_start = first_page_relative_end as usize + page * (PAGE_SIZE - 1);
+        let read_start = write_start + page + 1;
+        let length = (length - write_start).min(PAGE_SIZE - 1);
+        scratch.copy_within(read_start..read_start + length, write_start);
     }
+    scratch.truncate(length);
 
     // This is an extra sanity check on the above algorithm, but given the
     // thoroughness of the unit test around this functionality, it's only
