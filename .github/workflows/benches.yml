@@ -1,9 +1,9 @@
-name: Tests
+name: Benchmarks
 
 on: [push]
 
 jobs:
-  test:
+  benchmark:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -14,7 +14,8 @@ jobs:
           cargo bench
 
       - name: Deploy Docs
-        if: github.ref == 'refs/heads/main'
+        # TODO remove roots after merge
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/roots'
         uses: JamesIves/github-pages-deploy-action@releases/v4
         with:
           branch: gh-pages
