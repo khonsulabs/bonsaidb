@@ -131,7 +131,6 @@ pub struct TreeFile<F: ManagedFile, const MAX_ORDER: usize> {
     cache: Option<ChunkCache>,
 }
 
-#[allow(clippy::future_not_send)]
 impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     /// Returns a tree as contained in `file`.
     ///
@@ -326,7 +325,6 @@ impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentReader<'a
     }
 }
 
-#[allow(clippy::future_not_send)]
 impl<'a, const MAX_ORDER: usize> DocumentWriter<'a, MAX_ORDER> {}
 
 /// Writes data in pages, allowing for quick scanning through the file.
@@ -353,7 +351,6 @@ impl<'a, F: ManagedFile> DerefMut for PagedWriter<'a, F> {
     }
 }
 
-#[allow(clippy::future_not_send)]
 impl<'a, F: ManagedFile> PagedWriter<'a, F> {
     fn new(
         header: PageHeader,
@@ -527,7 +524,6 @@ impl<'a, F: ManagedFile> PagedWriter<'a, F> {
     }
 }
 
-#[allow(clippy::future_not_send)]
 #[allow(clippy::cast_possible_truncation)]
 #[cfg_attr(feature = "tracing", tracing::instrument(skip(file, vault, cache)))]
 fn read_chunk<F: ManagedFile>(

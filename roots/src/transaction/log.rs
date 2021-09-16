@@ -28,7 +28,6 @@ pub struct TransactionLog<F: ManagedFile> {
     log: <F::Manager as FileManager<F>>::FileHandle,
 }
 
-#[allow(clippy::future_not_send)]
 impl<F: ManagedFile> TransactionLog<F> {
     pub fn open(
         log_path: &Path,

@@ -41,7 +41,6 @@ pub enum Pointer<I, R> {
     Loaded(Box<BTreeEntry<I, R>>),
 }
 
-#[allow(clippy::future_not_send)]
 impl<
         I: BinarySerialization + Debug + Clone + 'static,
         R: Reducer<I> + BinarySerialization + Debug + Clone + 'static,

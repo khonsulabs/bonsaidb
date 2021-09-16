@@ -58,13 +58,11 @@ where
     pub _phantom: PhantomData<(T, F, I)>,
 }
 
-#[allow(clippy::future_not_send)]
 impl<I, R> BTreeEntry<I, R>
 where
     I: Clone + BinarySerialization + Debug + 'static,
     R: Clone + Reducer<I> + BinarySerialization + Debug + 'static,
 {
-    #[allow(clippy::too_many_lines)] // TODO refactor
     pub fn modify<F, T, Indexer, Loader>(
         &mut self,
         modification: &mut Modification<'static, T>,
@@ -87,110 +85,7 @@ where
     {
         match self {
             BTreeEntry::Leaf(children) => {
-                let mut last_index = 0;
-                while !modification.keys.is_empty() && children.len() < context.current_order {
-                    let key = modification.keys.last().unwrap();
-                    let search_result =
-                        children[last_index..].binary_search_by(|child| child.key.cmp(key));
-                    match search_result {
-                        Ok(matching_index) => {
-                            let key = modification.keys.pop().unwrap();
-                            last_index += matching_index;
-                            let index = match &mut modification.operation {
-                                Operation::Set(value) => (context.indexer)(
-                                    &key,
-                                    value,
-                                    Some(&children[last_index].index),
-                                    changes,
-                                    writer,
-                                )?,
-                                Operation::SetEach(values) => (context.indexer)(
-                                    &key,
-                                    &values.pop().ok_or_else(|| {
-                                        Error::message("need the same number of keys as values")
-                                    })?,
-                                    Some(&children[last_index].index),
-                                    changes,
-                                    writer,
-                                )?,
-
-                                Operation::Remove => KeyOperation::Remove,
-                                Operation::CompareSwap(callback) => {
-                                    let current_index = &children[last_index].index;
-                                    let existing_value = (context.loader)(current_index, writer)?;
-                                    match callback(&key, existing_value) {
-                                        KeyOperation::Skip => KeyOperation::Skip,
-                                        KeyOperation::Set(new_value) => (context.indexer)(
-                                            &key,
-                                            &new_value,
-                                            Some(current_index),
-                                            changes,
-                                            writer,
-                                        )?,
-                                        KeyOperation::Remove => KeyOperation::Remove,
-                                    }
-                                }
-                            };
-
-                            match index {
-                                KeyOperation::Skip => {}
-                                KeyOperation::Set(index) => {
-                                    children[last_index] = KeyEntry { key, index };
-                                }
-                                KeyOperation::Remove => {
-                                    children.remove(last_index);
-                                }
-                            }
-                        }
-                        Err(insert_at) => {
-                            last_index += insert_at;
-                            if max_key.map(|max_key| key > max_key).unwrap_or_default() {
-                                break;
-                            }
-                            let key = modification.keys.pop().unwrap();
-                            let index = match &mut modification.operation {
-                                Operation::Set(new_value) => {
-                                    (context.indexer)(&key, new_value, None, changes, writer)?
-                                }
-                                Operation::SetEach(new_values) => (context.indexer)(
-                                    &key,
-                                    &new_values.pop().ok_or_else(|| {
-                                        Error::message("need the same number of keys as values")
-                                    })?,
-                                    None,
-                                    changes,
-                                    writer,
-                                )?,
-                                Operation::Remove => {
-                                    // The key doesn't exist, so a remove is a no-op.
-                                    KeyOperation::Remove
-                                }
-                                Operation::CompareSwap(callback) => match callback(&key, None) {
-                                    KeyOperation::Skip => KeyOperation::Skip,
-                                    KeyOperation::Set(new_value) => {
-                                        (context.indexer)(&key, &new_value, None, changes, writer)?
-                                    }
-                                    KeyOperation::Remove => KeyOperation::Remove,
-                                },
-                            };
-                            // New node.
-                            match index {
-                                KeyOperation::Set(index) => {
-                                    if children.capacity() < children.len() + 1 {
-                                        children.reserve(context.current_order - children.len());
-                                    }
-                                    children.insert(last_index, KeyEntry { key, index });
-                                }
-                                KeyOperation::Skip | KeyOperation::Remove => {}
-                            }
-                        }
-                    }
-                    debug_assert!(
-                        children.windows(2).all(|w| w[0].key < w[1].key),
-                        "children aren't sorted: {:?}",
-                        children
-                    );
-                }
+                Self::modify_leaf(children, modification, context, max_key, changes, writer)?;
 
                 if children.len() >= context.current_order {
                     // We need to split this leaf into two leafs, moving a new interior node using the middle element.
@@ -205,64 +100,7 @@ where
                 }
             }
             BTreeEntry::Interior(children) => {
-                let mut last_index = 0;
-                while let Some(key) = modification.keys.last().cloned() {
-                    if children.len() >= context.current_order
-                        || max_key.map(|max_key| &key > max_key).unwrap_or_default()
-                    {
-                        break;
-                    }
-                    let containing_node_index = children[last_index..]
-                        .binary_search_by(|child| child.key.cmp(&key))
-                        .map_or_else(
-                            |not_found| {
-                                if not_found + last_index == children.len() {
-                                    // If we can't find a key less than what would fit
-                                    // within our children, this key will become the new key
-                                    // of the last child.
-                                    not_found - 1
-                                } else {
-                                    not_found
-                                }
-                            },
-                            |found| found,
-                        );
-
-                    last_index += containing_node_index;
-                    let child = &mut children[last_index];
-                    child.position.load(writer, context.current_order)?;
-                    let child_entry = child.position.get_mut().unwrap();
-                    match child_entry
-                        // TODO evaluate whether Some(key) is right here -- shouldn't it be the max of key/child.key?
-                        .modify(modification, context, Some(&key), changes, writer)?
-                    {
-                        ChangeResult::Unchanged => unreachable!(),
-                        ChangeResult::Changed => {
-                            // let child_bytes = new_node.serialize(writer).await?;
-                            // let child_position = writer.write_chunk(&child_bytes).await?;
-                            // let node_ref = BTreeEntryRef::new(new_node, &context.slab);
-
-                            // children[last_index] = Interior::from(new_node);
-                            children[last_index].key = child_entry.max_key().clone();
-                        }
-                        ChangeResult::Split(upper) => {
-                            // Write the two new children
-                            // let lower_bytes = lower.serialize(writer).await?;
-                            // let lower_position = writer.write_chunk(&lower_bytes).await?;
-                            // let upper_bytes = upper.serialize(writer).await?;
-                            // let upper_position = writer.write_chunk(&upper_bytes).await?;
-                            // Replace the original child with the lower entry.
-                            // children[last_index] = Interior::from(lower);
-                            // Insert the upper entry at the next position.
-                            children[last_index].key = child_entry.max_key().clone();
-                            if children.capacity() < children.len() + 1 {
-                                children.reserve(context.current_order - children.len());
-                            }
-                            children.insert(last_index + 1, Interior::from(upper));
-                        }
-                    };
-                    debug_assert!(children.windows(2).all(|w| w[0].key < w[1].key));
-                }
+                Self::modify_interior(children, modification, context, max_key, changes, writer)?;
 
                 if children.len() >= context.current_order {
                     let midpoint = children.len() / 2;
@@ -282,6 +120,213 @@ where
             }
             BTreeEntry::Uninitialized => unreachable!(),
         }
+    }
+
+    fn modify_leaf<F, T, Indexer, Loader>(
+        children: &mut Vec<KeyEntry<I>>,
+        modification: &mut Modification<'static, T>,
+        context: &ModificationContext<T, F, I, Indexer, Loader>,
+        max_key: Option<&Buffer<'static>>,
+        changes: &mut EntryChanges,
+        writer: &mut PagedWriter<'_, F>,
+    ) -> Result<(), Error>
+    where
+        F: ManagedFile,
+        T: 'static,
+        Indexer: Fn(
+            &Buffer<'static>,
+            &T,
+            Option<&I>,
+            &mut EntryChanges,
+            &mut PagedWriter<'_, F>,
+        ) -> Result<KeyOperation<I>, Error>,
+        Loader: Fn(&I, &mut PagedWriter<'_, F>) -> Result<Option<T>, Error>,
+    {
+        let mut last_index = 0;
+        while !modification.keys.is_empty() && children.len() < context.current_order {
+            let key = modification.keys.last().unwrap();
+            let search_result = children[last_index..].binary_search_by(|child| child.key.cmp(key));
+            match search_result {
+                Ok(matching_index) => {
+                    let key = modification.keys.pop().unwrap();
+                    last_index += matching_index;
+                    let index = match &mut modification.operation {
+                        Operation::Set(value) => (context.indexer)(
+                            &key,
+                            value,
+                            Some(&children[last_index].index),
+                            changes,
+                            writer,
+                        )?,
+                        Operation::SetEach(values) => (context.indexer)(
+                            &key,
+                            &values.pop().ok_or_else(|| {
+                                Error::message("need the same number of keys as values")
+                            })?,
+                            Some(&children[last_index].index),
+                            changes,
+                            writer,
+                        )?,
+
+                        Operation::Remove => KeyOperation::Remove,
+                        Operation::CompareSwap(callback) => {
+                            let current_index = &children[last_index].index;
+                            let existing_value = (context.loader)(current_index, writer)?;
+                            match callback(&key, existing_value) {
+                                KeyOperation::Skip => KeyOperation::Skip,
+                                KeyOperation::Set(new_value) => (context.indexer)(
+                                    &key,
+                                    &new_value,
+                                    Some(current_index),
+                                    changes,
+                                    writer,
+                                )?,
+                                KeyOperation::Remove => KeyOperation::Remove,
+                            }
+                        }
+                    };
+
+                    match index {
+                        KeyOperation::Skip => {}
+                        KeyOperation::Set(index) => {
+                            children[last_index] = KeyEntry { key, index };
+                        }
+                        KeyOperation::Remove => {
+                            children.remove(last_index);
+                        }
+                    }
+                }
+                Err(insert_at) => {
+                    last_index += insert_at;
+                    if max_key.map(|max_key| key > max_key).unwrap_or_default() {
+                        break;
+                    }
+                    let key = modification.keys.pop().unwrap();
+                    let index = match &mut modification.operation {
+                        Operation::Set(new_value) => {
+                            (context.indexer)(&key, new_value, None, changes, writer)?
+                        }
+                        Operation::SetEach(new_values) => (context.indexer)(
+                            &key,
+                            &new_values.pop().ok_or_else(|| {
+                                Error::message("need the same number of keys as values")
+                            })?,
+                            None,
+                            changes,
+                            writer,
+                        )?,
+                        Operation::Remove => {
+                            // The key doesn't exist, so a remove is a no-op.
+                            KeyOperation::Remove
+                        }
+                        Operation::CompareSwap(callback) => match callback(&key, None) {
+                            KeyOperation::Skip => KeyOperation::Skip,
+                            KeyOperation::Set(new_value) => {
+                                (context.indexer)(&key, &new_value, None, changes, writer)?
+                            }
+                            KeyOperation::Remove => KeyOperation::Remove,
+                        },
+                    };
+                    // New node.
+                    match index {
+                        KeyOperation::Set(index) => {
+                            if children.capacity() < children.len() + 1 {
+                                children.reserve(context.current_order - children.len());
+                            }
+                            children.insert(last_index, KeyEntry { key, index });
+                        }
+                        KeyOperation::Skip | KeyOperation::Remove => {}
+                    }
+                }
+            }
+            debug_assert!(
+                children.windows(2).all(|w| w[0].key < w[1].key),
+                "children aren't sorted: {:?}",
+                children
+            );
+        }
+        Ok(())
+    }
+
+    pub fn modify_interior<F, T, Indexer, Loader>(
+        children: &mut Vec<Interior<I, R>>,
+        modification: &mut Modification<'static, T>,
+        context: &ModificationContext<T, F, I, Indexer, Loader>,
+        max_key: Option<&Buffer<'static>>,
+        changes: &mut EntryChanges,
+        writer: &mut PagedWriter<'_, F>,
+    ) -> Result<(), Error>
+    where
+        F: ManagedFile,
+        T: 'static,
+        Indexer: Fn(
+            &Buffer<'static>,
+            &T,
+            Option<&I>,
+            &mut EntryChanges,
+            &mut PagedWriter<'_, F>,
+        ) -> Result<KeyOperation<I>, Error>,
+        Loader: Fn(&I, &mut PagedWriter<'_, F>) -> Result<Option<T>, Error>,
+    {
+        let mut last_index = 0;
+        while let Some(key) = modification.keys.last().cloned() {
+            if children.len() >= context.current_order
+                || max_key.map(|max_key| &key > max_key).unwrap_or_default()
+            {
+                break;
+            }
+            let containing_node_index = children[last_index..]
+                .binary_search_by(|child| child.key.cmp(&key))
+                .map_or_else(
+                    |not_found| {
+                        if not_found + last_index == children.len() {
+                            // If we can't find a key less than what would fit
+                            // within our children, this key will become the new key
+                            // of the last child.
+                            not_found - 1
+                        } else {
+                            not_found
+                        }
+                    },
+                    |found| found,
+                );
+
+            last_index += containing_node_index;
+            let child = &mut children[last_index];
+            child.position.load(writer, context.current_order)?;
+            let child_entry = child.position.get_mut().unwrap();
+            match child_entry
+                // TODO evaluate whether Some(key) is right here -- shouldn't it be the max of key/child.key?
+                .modify(modification, context, Some(&key), changes, writer)?
+            {
+                ChangeResult::Unchanged => unreachable!(),
+                ChangeResult::Changed => {
+                    // let child_bytes = new_node.serialize(writer).await?;
+                    // let child_position = writer.write_chunk(&child_bytes).await?;
+                    // let node_ref = BTreeEntryRef::new(new_node, &context.slab);
+
+                    // children[last_index] = Interior::from(new_node);
+                    children[last_index].key = child_entry.max_key().clone();
+                }
+                ChangeResult::Split(upper) => {
+                    // Write the two new children
+                    // let lower_bytes = lower.serialize(writer).await?;
+                    // let lower_position = writer.write_chunk(&lower_bytes).await?;
+                    // let upper_bytes = upper.serialize(writer).await?;
+                    // let upper_position = writer.write_chunk(&upper_bytes).await?;
+                    // Replace the original child with the lower entry.
+                    // children[last_index] = Interior::from(lower);
+                    // Insert the upper entry at the next position.
+                    children[last_index].key = child_entry.max_key().clone();
+                    if children.capacity() < children.len() + 1 {
+                        children.reserve(context.current_order - children.len());
+                    }
+                    children.insert(last_index + 1, Interior::from(upper));
+                }
+            };
+            debug_assert!(children.windows(2).all(|w| w[0].key < w[1].key));
+        }
+        Ok(())
     }
 
     pub fn split_root(&mut self, upper: Self) {

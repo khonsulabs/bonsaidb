@@ -18,7 +18,6 @@
 )]
 // TODO remove allow(dead_code)
 #![allow(dead_code)]
-#![cfg_attr(test, allow(clippy::future_not_send))]
 
 #[macro_use]
 mod managed_file;

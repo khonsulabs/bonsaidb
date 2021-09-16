@@ -34,12 +34,49 @@ pub enum ChangeResult<I: BinarySerialization, R: BinarySerialization> {
     Split(BTreeEntry<I, R>),
 }
 
-#[allow(clippy::future_not_send)]
 impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
-    #[allow(clippy::too_many_lines)]
     pub fn modify<'a, 'w, F: ManagedFile>(
         &'a mut self,
+        modification: Modification<'static, Buffer<'static>>,
+        writer: &'a mut PagedWriter<'w, F>,
+    ) -> Result<(), Error> {
+        let transaction_id = modification.transaction_id;
+
+        // Insert into both trees
+        let mut changes = EntryChanges {
+            current_sequence: self.sequence,
+            changes: Vec::with_capacity(modification.keys.len()),
+        };
+        self.modify_sequence_root(modification, &mut changes, writer)?;
+
+        // Convert the changes into a modification request for the id root.
+        let mut values = Vec::with_capacity(changes.changes.len());
+        let keys = changes
+            .changes
+            .into_iter()
+            .map(|change| {
+                values.push(ByIdIndex {
+                    sequence_id: change.sequence,
+                    document_size: change.document_size,
+                    position: change.document_position,
+                });
+                change.key
+            })
+            .collect();
+        let id_modifications = Modification {
+            transaction_id,
+            keys,
+            operation: Operation::SetEach(values),
+        };
+        self.modify_id_root(id_modifications, writer)?;
+
+        Ok(())
+    }
+
+    fn modify_sequence_root<'a, 'w, F: ManagedFile>(
+        &'a mut self,
         mut modification: Modification<'static, Buffer<'static>>,
+        changes: &mut EntryChanges,
         writer: &'a mut PagedWriter<'w, F>,
     ) -> Result<(), Error> {
         // Reverse so that pop is efficient.
@@ -49,11 +86,6 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         let by_sequence_order = dynamic_order::<MAX_ORDER>(
             self.by_sequence_root.stats().number_of_records + modification.keys.len() as u64,
         );
-        // Generate a list of sequence changes, somehow.
-        let mut changes = EntryChanges {
-            current_sequence: self.sequence,
-            changes: Vec::with_capacity(modification.keys.len()),
-        };
         while !modification.keys.is_empty() {
             match self.by_sequence_root.modify(
                 &mut modification,
@@ -90,7 +122,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                     _phantom: PhantomData,
                 },
                 None,
-                &mut changes,
+                changes,
                 writer,
             )? {
                 ChangeResult::Unchanged => unreachable!(),
@@ -101,31 +133,23 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
             }
         }
         self.sequence = changes.current_sequence;
+        Ok(())
+    }
+
+    fn modify_id_root<'a, 'w, F: ManagedFile>(
+        &'a mut self,
+        mut modification: Modification<'static, ByIdIndex>,
+        writer: &'a mut PagedWriter<'w, F>,
+    ) -> Result<(), Error> {
+        modification.reverse()?;
+
         let by_id_order = dynamic_order::<MAX_ORDER>(
-            self.by_id_root.stats().total_documents() + changes.changes.len() as u64,
+            self.by_id_root.stats().total_documents() + modification.keys.len() as u64,
         );
-        let mut values = Vec::with_capacity(changes.changes.len());
-        let keys = changes
-            .changes
-            .into_iter()
-            .map(|change| {
-                values.push(ByIdIndex {
-                    sequence_id: change.sequence,
-                    document_size: change.document_size,
-                    position: change.document_position,
-                });
-                change.key
-            })
-            .collect();
-        let mut id_modifications = Modification {
-            transaction_id: modification.transaction_id,
-            keys,
-            operation: Operation::SetEach(values),
-        };
-        id_modifications.reverse()?;
-        while !id_modifications.keys.is_empty() {
+
+        while !modification.keys.is_empty() {
             match self.by_id_root.modify(
-                &mut id_modifications,
+                &mut modification,
                 &ModificationContext {
                     current_order: by_id_order,
                     indexer: |_key: &Buffer<'static>,
