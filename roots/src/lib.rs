@@ -16,8 +16,6 @@
     clippy::option_if_let_else,
     clippy::module_name_repetitions,
 )]
-// TODO remove allow(dead_code)
-#![allow(dead_code)]
 
 #[macro_use]
 mod managed_file;
@@ -39,5 +37,6 @@ pub use self::{
     context::Context,
     error::Error,
     managed_file::{fs::StdFile, FileManager, ManagedFile},
+    transaction::{TransactionLog, TransactionManager},
     vault::Vault,
 };

@@ -59,4 +59,6 @@ impl From<String> for Error {
 pub enum InternalError {
     #[error("the b-tree header is too large")]
     HeaderTooLarge,
+    #[error("the transaction manager has stopped")]
+    TransactionManagerStopped,
 }

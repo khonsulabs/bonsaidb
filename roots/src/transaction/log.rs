@@ -22,6 +22,7 @@ use crate::{
 
 const PAGE_SIZE: usize = 1024;
 
+/// A transaction log that records changes for one or more trees.
 pub struct TransactionLog<F: ManagedFile> {
     vault: Option<Arc<dyn Vault>>,
     state: State,
@@ -29,6 +30,7 @@ pub struct TransactionLog<F: ManagedFile> {
 }
 
 impl<F: ManagedFile> TransactionLog<F> {
+    /// Opens a transaction log for writing.
     pub fn open(
         log_path: &Path,
         state: State,
@@ -42,11 +44,14 @@ impl<F: ManagedFile> TransactionLog<F> {
         })
     }
 
+    /// Returns the total size of the transaction log file.
     pub fn total_size(&self) -> u64 {
         let state = self.state.lock_for_write();
         *state
     }
 
+    /// Initializes `state` to contain the information about the transaction log
+    /// located at `log_path`.
     pub fn initialize_state(
         state: &State,
         log_path: &Path,
@@ -82,7 +87,9 @@ impl<F: ManagedFile> TransactionLog<F> {
         })
     }
 
-    pub fn push(&mut self, handles: Vec<TransactionHandle<'_>>) -> Result<(), Error> {
+    /// Logs one or more transactions. After this call returns, the transaction
+    /// log is guaranteed to be fully written to disk.
+    pub fn push(&mut self, handles: Vec<TransactionHandle>) -> Result<(), Error> {
         self.log.execute(LogWriter {
             state: self.state.clone(),
             vault: self.vault.clone(),
@@ -91,19 +98,22 @@ impl<F: ManagedFile> TransactionLog<F> {
         })
     }
 
+    /// Closes the transaction log.
     pub fn close(self) -> Result<(), Error> {
         self.log.close()
     }
 
+    /// Returns the current transaction id.
     pub fn current_transaction_id(&self) -> u64 {
         self.state.current_transaction_id()
     }
 
-    #[allow(clippy::needless_lifetimes)] // lies! I can't seem to get rid of the lifetimes.
-    pub fn new_transaction<'a>(&self, trees: &[&[u8]]) -> TransactionHandle<'a> {
+    /// Begins a new transaction, exclusively locking `trees`.
+    pub fn new_transaction(&self, trees: &[&[u8]]) -> TransactionHandle {
         self.state.new_transaction(trees)
     }
 
+    /// Returns the current state of the log.
     pub fn state(&self) -> State {
         self.state.clone()
     }
@@ -164,14 +174,14 @@ impl<'a, F: ManagedFile> FileOp<F> for StateInitializer<'a, F> {
     }
 }
 
-struct LogWriter<'a, F> {
+struct LogWriter<F> {
     state: State,
-    handles: Vec<TransactionHandle<'a>>,
+    handles: Vec<TransactionHandle>,
     vault: Option<Arc<dyn Vault>>,
     _file: PhantomData<F>,
 }
 
-impl<'a, F: ManagedFile> FileOp<F> for LogWriter<'a, F> {
+impl<F: ManagedFile> FileOp<F> for LogWriter<F> {
     type Output = ();
     fn execute(&mut self, log: &mut F) -> Result<(), Error> {
         let mut log_position = self.state.lock_for_write();
@@ -392,17 +402,20 @@ mod tests {
         ChunkCache,
     };
 
-    fn tokio_log_file_tests() {
-        log_file_tests::<StdFile>("tokio_log_file", None, None);
+    #[test]
+    fn file_log_file_tests() {
+        log_file_tests::<StdFile>("file_log_file", None, None);
     }
 
+    #[test]
     fn memory_log_file_tests() {
         log_file_tests::<MemoryFile>("memory_log_file", None, None);
     }
 
-    fn tokio_encrypted_log_manager_tests() {
+    #[test]
+    fn file_encrypted_log_manager_tests() {
         log_manager_tests::<StdFile>(
-            "encrypted_tokio_log_manager",
+            "encrypted_file_log_manager",
             Some(Arc::new(RotatorVault::new(13))),
             None,
         );
@@ -456,10 +469,12 @@ mod tests {
         }
     }
 
-    fn tokio_log_manager_tests() {
-        log_manager_tests::<StdFile>("tokio_log_manager", None, None);
+    #[test]
+    fn file_log_manager_tests() {
+        log_manager_tests::<StdFile>("file_log_manager", None, None);
     }
 
+    #[test]
     fn memory_log_manager_tests() {
         log_manager_tests::<MemoryFile>("memory_log_manager", None, None);
     }
@@ -492,7 +507,7 @@ mod tests {
                             sequence_id: U64::new(3),
                         }]),
                     );
-                    manager.push(tx);
+                    manager.push(tx).unwrap();
                 }
             }));
         }

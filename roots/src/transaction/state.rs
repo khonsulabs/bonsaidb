@@ -74,8 +74,7 @@ impl State {
         }
     }
 
-    #[allow(clippy::needless_lifetimes)] // lies! I can't seem to get rid of the lifetimes.
-    pub fn new_transaction(&self, trees: &[&[u8]]) -> TransactionHandle<'static> {
+    pub fn new_transaction(&self, trees: &[&[u8]]) -> TransactionHandle {
         let mut locked_trees = Vec::with_capacity(trees.len());
         self.fetch_tree_locks(trees, &mut locked_trees);
 

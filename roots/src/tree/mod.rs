@@ -37,8 +37,6 @@
 //!
 //! A data block may contain more than one chunk.
 
-const VERSION: u8 = 0;
-
 use std::{
     convert::TryFrom,
     fs::OpenOptions,
@@ -471,25 +469,9 @@ impl<'a, F: ManagedFile> PagedWriter<'a, F> {
         read_chunk(position, self.file, self.vault, self.cache)
     }
 
-    fn write_u8(&mut self, value: u8) -> Result<usize, Error> {
-        self.write(&[value])
-    }
-
-    fn write_u16<B: ByteOrder>(&mut self, value: u16) -> Result<usize, Error> {
-        let mut buffer = [0_u8; 2];
-        B::write_u16(&mut buffer, value);
-        self.write(&buffer)
-    }
-
     fn write_u32<B: ByteOrder>(&mut self, value: u32) -> Result<usize, Error> {
         let mut buffer = [0_u8; 4];
         B::write_u32(&mut buffer, value);
-        self.write(&buffer)
-    }
-
-    fn write_u64<B: ByteOrder>(&mut self, value: u64) -> Result<usize, Error> {
-        let mut buffer = [0_u8; 8];
-        B::write_u64(&mut buffer, value);
         self.write(&buffer)
     }
 
@@ -712,6 +694,7 @@ mod tests {
         }
     }
 
+    #[test]
     fn test() {
         const ORDER: usize = 4;
 

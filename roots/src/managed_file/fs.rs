@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fs::{self, File, OpenOptions},
+    fs::{File, OpenOptions},
     io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::Arc,
@@ -13,7 +13,6 @@ use crate::Error;
 
 /// An open file that uses [`tokio::fs`].
 pub struct StdFile {
-    position: u64,
     file: File,
     path: Arc<PathBuf>,
 }
@@ -27,7 +26,6 @@ impl ManagedFile for StdFile {
     fn open_for_read(path: impl AsRef<std::path::Path> + Send) -> Result<Self, Error> {
         let path = path.as_ref();
         Ok(Self {
-            position: 0,
             file: File::open(path)?,
             path: Arc::new(path.to_path_buf()),
         })
@@ -35,11 +33,7 @@ impl ManagedFile for StdFile {
 
     fn open_for_append(path: impl AsRef<std::path::Path> + Send) -> Result<Self, Error> {
         let path = path.as_ref();
-        let length = fs::metadata(path)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
         Ok(Self {
-            position: length,
             file: OpenOptions::new()
                 .write(true)
                 .append(true)

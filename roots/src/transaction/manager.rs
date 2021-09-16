@@ -10,15 +10,18 @@ use std::{
 use parking_lot::Mutex;
 
 use super::{LogEntry, State, TransactionLog};
-use crate::{managed_file::ManagedFile, Context, Error};
+use crate::{error::InternalError, managed_file::ManagedFile, Context, Error};
 
+/// A shared [`TransactionLog`] manager. Allows multiple threads to interact with a single transaction log.
 #[derive(Clone)]
 pub struct TransactionManager {
     state: State,
-    transaction_sender: flume::Sender<(TransactionHandle<'static>, flume::Sender<()>)>,
+    transaction_sender: flume::Sender<(TransactionHandle, flume::Sender<()>)>,
 }
 
 impl TransactionManager {
+    /// Spawns a new transaction manager. The transaction manager runs its own
+    /// thread that writes to the transaction log.
     pub fn spawn<F: ManagedFile + 'static>(
         directory: &Path,
         context: Context<F::Manager>,
@@ -41,18 +44,24 @@ impl TransactionManager {
         })
     }
 
-    pub fn push(&self, transaction: TransactionHandle<'static>) {
+    /// Push `transaction` to the log. Once this function returns, the
+    /// transaction log entry has been fully flushed to disk.
+    pub fn push(&self, transaction: TransactionHandle) -> Result<(), Error> {
         let (completion_sender, completion_receiver) = flume::bounded(1);
         self.transaction_sender
             .send((transaction, completion_sender))
-            .unwrap();
-        completion_receiver.recv().unwrap();
+            .map_err(|_| Error::Internal(InternalError::TransactionManagerStopped))?;
+        completion_receiver
+            .recv()
+            .map_err(|_| Error::Internal(InternalError::TransactionManagerStopped))
     }
 
     fn log_path(directory: &Path) -> PathBuf {
         directory.join("transactions")
     }
 
+    /// Returns the current state of the transaction log.
+    #[must_use]
     pub fn state(&self) -> &State {
         &**self
     }
@@ -71,7 +80,7 @@ impl Deref for TransactionManager {
 fn transaction_writer_thread<F: ManagedFile>(
     state_sender: flume::Sender<Result<State, Error>>,
     log_path: PathBuf,
-    transactions: flume::Receiver<(TransactionHandle<'static>, flume::Sender<()>)>,
+    transactions: flume::Receiver<(TransactionHandle, flume::Sender<()>)>,
     context: Context<F::Manager>,
 ) {
     const BATCH: usize = 16;
@@ -114,8 +123,8 @@ fn transaction_writer_thread<F: ManagedFile>(
     }
 }
 
-pub struct TransactionHandle<'a> {
-    pub transaction: LogEntry<'a>,
+pub struct TransactionHandle {
+    pub transaction: LogEntry<'static>,
     pub locked_trees: TreeLocks,
 }
 
