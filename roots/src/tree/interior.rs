@@ -30,7 +30,10 @@ where
         Self {
             key,
             stats,
-            position: Pointer::Loaded(Box::new(entry)),
+            position: Pointer::Loaded {
+                previous_location: None,
+                entry: Box::new(entry),
+            },
         }
     }
 }
@@ -38,7 +41,10 @@ where
 #[derive(Clone, Debug)]
 pub enum Pointer<I, R> {
     OnDisk(u64),
-    Loaded(Box<BTreeEntry<I, R>>),
+    Loaded {
+        previous_location: Option<u64>,
+        entry: Box<BTreeEntry<I, R>>,
+    },
 }
 
 impl<
@@ -57,9 +63,12 @@ impl<
                     &mut writer.read_chunk(*position)?,
                     current_order,
                 )?;
-                *self = Self::Loaded(Box::new(entry));
+                *self = Self::Loaded {
+                    entry: Box::new(entry),
+                    previous_location: Some(*position),
+                };
             }
-            Pointer::Loaded(_) => {}
+            Pointer::Loaded { .. } => {}
         }
         Ok(())
     }
@@ -67,7 +76,7 @@ impl<
     pub fn get_mut(&mut self) -> Option<&mut BTreeEntry<I, R>> {
         match self {
             Pointer::OnDisk(_) => None,
-            Pointer::Loaded(entry) => Some(entry.as_mut()),
+            Pointer::Loaded { entry, .. } => Some(entry.as_mut()),
         }
     }
 }
@@ -84,11 +93,18 @@ impl<
     ) -> Result<usize, Error> {
         let position = match &mut self.position {
             Pointer::OnDisk(position) => *position,
-            Pointer::Loaded(node) => {
-                let bytes = node.serialize(paged_writer)?;
-                let position = paged_writer.write_chunk(&bytes)?;
-                self.position = Pointer::OnDisk(position);
-                position
+            Pointer::Loaded {
+                entry,
+                previous_location,
+            } => {
+                if entry.dirty || previous_location.is_none() {
+                    let bytes = entry.serialize(paged_writer)?;
+                    let position = paged_writer.write_chunk(&bytes)?;
+                    self.position = Pointer::OnDisk(position);
+                    position
+                } else {
+                    previous_location.unwrap()
+                }
             }
         };
         let mut bytes_written = 0;

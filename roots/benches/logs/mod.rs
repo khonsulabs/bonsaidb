@@ -111,9 +111,7 @@ pub struct ReadConfig {
 }
 
 pub fn single_reads() {
-    for database_size in [
-        1_000, 100_000, 1_000_000, 10_000_000, 20_000_000, 30_000_000, 40_000_000,
-    ] {
+    for database_size in [1_000, 100_000, 1_000_000] {
         println!(
             "searching for 100 ids in a data set of {} entries",
             database_size

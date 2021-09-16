@@ -15,7 +15,14 @@ use crate::{tree::interior::Pointer, Buffer, ChunkCache, Error, ManagedFile, Vau
 
 /// A B-Tree entry that stores a list of key-`I` pairs.
 #[derive(Clone, Debug)]
-pub enum BTreeEntry<I, R> {
+pub struct BTreeEntry<I, R> {
+    pub dirty: bool,
+    node: BTreeNode<I, R>,
+}
+
+/// A B-Tree entry that stores a list of key-`I` pairs.
+#[derive(Clone, Debug)]
+enum BTreeNode<I, R> {
     Uninitialized,
     /// An inline value. Overall, the B-Tree entry is a key-value pair.
     Leaf(Vec<KeyEntry<I>>),
@@ -23,9 +30,15 @@ pub enum BTreeEntry<I, R> {
     Interior(Vec<Interior<I, R>>),
 }
 
+impl<I, R> From<BTreeNode<I, R>> for BTreeEntry<I, R> {
+    fn from(node: BTreeNode<I, R>) -> Self {
+        Self { node, dirty: true }
+    }
+}
+
 impl<I, R> Default for BTreeEntry<I, R> {
     fn default() -> Self {
-        Self::Leaf(Vec::new())
+        Self::from(BTreeNode::Leaf(Vec::new()))
     }
 }
 
@@ -83,42 +96,53 @@ where
         ) -> Result<KeyOperation<I>, Error>,
         Loader: Fn(&I, &mut PagedWriter<'_, F>) -> Result<Option<T>, Error>,
     {
-        match self {
-            BTreeEntry::Leaf(children) => {
-                Self::modify_leaf(children, modification, context, max_key, changes, writer)?;
+        match &mut self.node {
+            BTreeNode::Leaf(children) => {
+                if Self::modify_leaf(children, modification, context, max_key, changes, writer)? {
+                    self.dirty = true;
 
-                if children.len() >= context.current_order {
-                    // We need to split this leaf into two leafs, moving a new interior node using the middle element.
-                    let midpoint = children.len() / 2;
-                    let (_, upper_half) = children.split_at(midpoint);
-                    let upper_half = Self::Leaf(upper_half.to_vec());
-                    children.truncate(midpoint);
+                    if children.len() >= context.current_order {
+                        // We need to split this leaf into two leafs, moving a new interior node using the middle element.
+                        let midpoint = children.len() / 2;
+                        let (_, upper_half) = children.split_at(midpoint);
+                        let upper_half = BTreeNode::Leaf(upper_half.to_vec());
+                        children.truncate(midpoint);
 
-                    Ok(ChangeResult::Split(upper_half))
+                        Ok(ChangeResult::Split(Self::from(upper_half)))
+                    } else {
+                        Ok(ChangeResult::Changed)
+                    }
                 } else {
-                    Ok(ChangeResult::Changed)
+                    Ok(ChangeResult::Unchanged)
                 }
             }
-            BTreeEntry::Interior(children) => {
-                Self::modify_interior(children, modification, context, max_key, changes, writer)?;
+            BTreeNode::Interior(children) => {
+                if Self::modify_interior(children, modification, context, max_key, changes, writer)?
+                {
+                    self.dirty = true;
 
-                if children.len() >= context.current_order {
-                    let midpoint = children.len() / 2;
-                    let (_, upper_half) = children.split_at(midpoint);
+                    if children.len() >= context.current_order {
+                        let midpoint = children.len() / 2;
+                        let (_, upper_half) = children.split_at(midpoint);
 
-                    // TODO this re-clones the upper-half children, but splitting a vec
-                    // without causing multiple copies of data seems
-                    // impossible without unsafe.
-                    let upper_half = upper_half.to_vec();
-                    debug_assert_eq!(midpoint + upper_half.len(), children.len());
-                    children.truncate(midpoint);
+                        // TODO this re-clones the upper-half children, but splitting a vec
+                        // without causing multiple copies of data seems
+                        // impossible without unsafe.
+                        let upper_half = upper_half.to_vec();
+                        debug_assert_eq!(midpoint + upper_half.len(), children.len());
+                        children.truncate(midpoint);
 
-                    Ok(ChangeResult::Split(Self::Interior(upper_half)))
+                        Ok(ChangeResult::Split(Self::from(BTreeNode::Interior(
+                            upper_half,
+                        ))))
+                    } else {
+                        Ok(ChangeResult::Changed)
+                    }
                 } else {
-                    Ok(ChangeResult::Changed)
+                    Ok(ChangeResult::Unchanged)
                 }
             }
-            BTreeEntry::Uninitialized => unreachable!(),
+            BTreeNode::Uninitialized => unreachable!(),
         }
     }
 
@@ -129,7 +153,7 @@ where
         max_key: Option<&Buffer<'static>>,
         changes: &mut EntryChanges,
         writer: &mut PagedWriter<'_, F>,
-    ) -> Result<(), Error>
+    ) -> Result<bool, Error>
     where
         F: ManagedFile,
         T: 'static,
@@ -143,6 +167,7 @@ where
         Loader: Fn(&I, &mut PagedWriter<'_, F>) -> Result<Option<T>, Error>,
     {
         let mut last_index = 0;
+        let mut any_changes = false;
         while !modification.keys.is_empty() && children.len() < context.current_order {
             let key = modification.keys.last().unwrap();
             let search_result = children[last_index..].binary_search_by(|child| child.key.cmp(key));
@@ -190,9 +215,11 @@ where
                         KeyOperation::Skip => {}
                         KeyOperation::Set(index) => {
                             children[last_index] = KeyEntry { key, index };
+                            any_changes = true;
                         }
                         KeyOperation::Remove => {
                             children.remove(last_index);
+                            any_changes = true;
                         }
                     }
                 }
@@ -234,18 +261,15 @@ where
                                 children.reserve(context.current_order - children.len());
                             }
                             children.insert(last_index, KeyEntry { key, index });
+                            any_changes = true;
                         }
                         KeyOperation::Skip | KeyOperation::Remove => {}
                     }
                 }
             }
-            debug_assert!(
-                children.windows(2).all(|w| w[0].key < w[1].key),
-                "children aren't sorted: {:?}",
-                children
-            );
+            debug_assert!(children.windows(2).all(|w| w[0].key < w[1].key),);
         }
-        Ok(())
+        Ok(any_changes)
     }
 
     pub fn modify_interior<F, T, Indexer, Loader>(
@@ -255,7 +279,7 @@ where
         max_key: Option<&Buffer<'static>>,
         changes: &mut EntryChanges,
         writer: &mut PagedWriter<'_, F>,
-    ) -> Result<(), Error>
+    ) -> Result<bool, Error>
     where
         F: ManagedFile,
         T: 'static,
@@ -269,6 +293,7 @@ where
         Loader: Fn(&I, &mut PagedWriter<'_, F>) -> Result<Option<T>, Error>,
     {
         let mut last_index = 0;
+        let mut any_changes = false;
         while let Some(key) = modification.keys.last().cloned() {
             if children.len() >= context.current_order
                 || max_key.map(|max_key| &key > max_key).unwrap_or_default()
@@ -299,7 +324,7 @@ where
                 // TODO evaluate whether Some(key) is right here -- shouldn't it be the max of key/child.key?
                 .modify(modification, context, Some(&key), changes, writer)?
             {
-                ChangeResult::Unchanged => unreachable!(),
+                ChangeResult::Unchanged => {}
                 ChangeResult::Changed => {
                     // let child_bytes = new_node.serialize(writer).await?;
                     // let child_position = writer.write_chunk(&child_bytes).await?;
@@ -307,6 +332,7 @@ where
 
                     // children[last_index] = Interior::from(new_node);
                     children[last_index].key = child_entry.max_key().clone();
+                    any_changes |= true;
                 }
                 ChangeResult::Split(upper) => {
                     // Write the two new children
@@ -322,36 +348,37 @@ where
                         children.reserve(context.current_order - children.len());
                     }
                     children.insert(last_index + 1, Interior::from(upper));
+                    any_changes |= true;
                 }
             };
             debug_assert!(children.windows(2).all(|w| w[0].key < w[1].key));
         }
-        Ok(())
+        Ok(any_changes)
     }
 
     pub fn split_root(&mut self, upper: Self) {
-        let mut lower = Self::Uninitialized;
+        let mut lower = Self::from(BTreeNode::Uninitialized);
         std::mem::swap(self, &mut lower);
-        *self = Self::Interior(vec![Interior::from(lower), Interior::from(upper)]);
+        self.node = BTreeNode::Interior(vec![Interior::from(lower), Interior::from(upper)]);
     }
 
     pub fn stats(&self) -> R {
-        match self {
-            BTreeEntry::Leaf(children) => {
+        match &self.node {
+            BTreeNode::Leaf(children) => {
                 R::reduce(&children.iter().map(|c| &c.index).collect::<Vec<_>>())
             }
-            BTreeEntry::Interior(children) => {
+            BTreeNode::Interior(children) => {
                 R::rereduce(&children.iter().map(|c| &c.stats).collect::<Vec<_>>())
             }
-            BTreeEntry::Uninitialized => unreachable!(),
+            BTreeNode::Uninitialized => unreachable!(),
         }
     }
 
     pub fn max_key(&self) -> &Buffer<'static> {
-        match self {
-            BTreeEntry::Leaf(children) => &children.last().unwrap().key,
-            BTreeEntry::Interior(children) => &children.last().unwrap().key,
-            BTreeEntry::Uninitialized => unreachable!(),
+        match &self.node {
+            BTreeNode::Leaf(children) => &children.last().unwrap().key,
+            BTreeNode::Interior(children) => &children.last().unwrap().key,
+            BTreeNode::Uninitialized => unreachable!(),
         }
     }
 
@@ -366,8 +393,8 @@ where
         vault: Option<&dyn Vault>,
         cache: Option<&ChunkCache>,
     ) -> Result<Option<I>, Error> {
-        match self {
-            BTreeEntry::Leaf(children) => {
+        match &self.node {
+            BTreeNode::Leaf(children) => {
                 match children.binary_search_by(|child| (&*child.key).cmp(key)) {
                     Ok(matching) => {
                         let entry = &children[matching];
@@ -376,7 +403,7 @@ where
                     Err(_) => Ok(None),
                 }
             }
-            BTreeEntry::Interior(children) => {
+            BTreeNode::Interior(children) => {
                 let containing_node_index = children
                     .binary_search_by(|child| (&*child.key).cmp(key))
                     .unwrap_or_else(|not_found| not_found);
@@ -393,13 +420,13 @@ where
                             )?;
                             entry.get(key, file, vault, cache)
                         }
-                        Pointer::Loaded(entry) => entry.get(key, file, vault, cache),
+                        Pointer::Loaded { entry, .. } => entry.get(key, file, vault, cache),
                     }
                 } else {
                     Ok(None)
                 }
             }
-            BTreeEntry::Uninitialized => unreachable!(),
+            BTreeNode::Uninitialized => unreachable!(),
         }
     }
 }
@@ -416,8 +443,8 @@ impl<
     ) -> Result<usize, Error> {
         let mut bytes_written = 0;
         // The next byte determines the node type.
-        match self {
-            Self::Leaf(leafs) => {
+        match &mut self.node {
+            BTreeNode::Leaf(leafs) => {
                 debug_assert!(leafs.windows(2).all(|w| w[0].key < w[1].key));
                 writer.write_u8(1)?;
                 bytes_written += 1;
@@ -425,7 +452,7 @@ impl<
                     bytes_written += leaf.serialize_to(writer, paged_writer)?;
                 }
             }
-            Self::Interior(interiors) => {
+            BTreeNode::Interior(interiors) => {
                 debug_assert!(interiors.windows(2).all(|w| w[0].key < w[1].key));
                 writer.write_u8(0)?;
                 bytes_written += 1;
@@ -433,7 +460,7 @@ impl<
                     bytes_written += interior.serialize_to(writer, paged_writer)?;
                 }
             }
-            Self::Uninitialized => unreachable!(),
+            BTreeNode::Uninitialized => unreachable!(),
         }
 
         Ok(bytes_written)
@@ -449,7 +476,10 @@ impl<
                 while !reader.is_empty() {
                     nodes.push(Interior::deserialize_from(reader, current_order)?);
                 }
-                Ok(Self::Interior(nodes))
+                Ok(Self {
+                    node: BTreeNode::Interior(nodes),
+                    dirty: false,
+                })
             }
             1 => {
                 // Leaf
@@ -458,7 +488,10 @@ impl<
                 while !reader.is_empty() {
                     nodes.push(KeyEntry::deserialize_from(reader, current_order)?);
                 }
-                Ok(Self::Leaf(nodes))
+                Ok(Self {
+                    node: BTreeNode::Leaf(nodes),
+                    dirty: false,
+                })
             }
             _ => Err(Error::data_integrity("invalid node header")),
         }

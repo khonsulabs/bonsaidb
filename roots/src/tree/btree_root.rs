@@ -125,8 +125,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                 changes,
                 writer,
             )? {
-                ChangeResult::Unchanged => unreachable!(),
-                ChangeResult::Changed => {}
+                ChangeResult::Unchanged | ChangeResult::Changed => {}
                 ChangeResult::Split(upper) => {
                     self.by_sequence_root.split_root(upper);
                 }
@@ -166,8 +165,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                 &mut EntryChanges::default(),
                 writer,
             )? {
-                ChangeResult::Unchanged => unreachable!(),
-                ChangeResult::Changed => {}
+                ChangeResult::Changed | ChangeResult::Unchanged => {}
                 ChangeResult::Split(upper) => {
                     self.by_id_root.split_root(upper);
                 }
