@@ -64,6 +64,7 @@ impl LogEntry {
 
 mod couchdb;
 mod roots;
+mod sled;
 mod sqlite;
 
 #[derive(Clone)]
@@ -169,6 +170,7 @@ pub fn inserts(c: &mut Criterion) {
         };
 
         roots::InsertLogs::<StdFile>::run(&mut group, &config);
+        sled::InsertLogs::run(&mut group, &config);
         sqlite::InsertLogs::run(&mut group, &config);
         if couchdb::InsertLogs::can_execute() {
             couchdb::InsertLogs::run(&mut group, &config);
@@ -194,6 +196,7 @@ pub fn single_reads(c: &mut Criterion) {
         let config = ReadConfig::new(sequential_ids, database_size);
 
         roots::ReadLogs::<StdFile>::run(&mut group, &config);
+        sled::ReadLogs::run(&mut group, &config);
         sqlite::ReadLogs::run(&mut group, &config);
         if couchdb::ReadLogs::can_execute() {
             couchdb::ReadLogs::run(&mut group, &config);

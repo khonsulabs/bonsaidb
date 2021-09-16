@@ -38,6 +38,7 @@ http-auth-basic = "0.3"
 tracing-flame = "0.1"
 tracing-subscriber = "0.2"
 criterion = { version = "0.3", features = ["html_reports"] }
+sled = "0.34"
 
 [[bench]]
 name = "roots-bench"
