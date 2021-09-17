@@ -153,8 +153,8 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         file_path: &Path,
         context: &Context<F::Manager>,
     ) -> Result<(), Error> {
-        let mut state = state.lock();
-        if state.initialized() {
+        let mut active_state = state.lock();
+        if active_state.initialized() {
             return Ok(());
         }
 
@@ -184,7 +184,7 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         // Scan back block by block until we find a header page.
         let mut block_start = file_length - PAGE_SIZE as u64;
         let mut scratch_buffer = vec![0_u8];
-        let last_header = loop {
+        active_state.header = loop {
             // Read the page header
             tree.seek(SeekFrom::Start(block_start))?;
             tree.read_exact(&mut scratch_buffer[0..1])?;
@@ -211,7 +211,8 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
             }
         };
 
-        state.initialize(file_length, last_header);
+        active_state.current_position = file_length;
+        active_state.publish(state);
         Ok(())
     }
 
@@ -271,23 +272,23 @@ impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a
 
     #[allow(clippy::shadow_unrelated)] // It is related, but clippy can't tell.
     fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
-        let mut state = self.state.lock();
+        let mut active_state = self.state.lock();
 
         let mut data_block = PagedWriter::new(
             PageHeader::Data,
             file,
             self.vault.as_deref(),
             self.cache,
-            state.current_position,
+            active_state.current_position,
         );
 
         // Now that we have the document data's position, we can update the by_sequence and by_id indexes.
-        state
+        active_state
             .header
             .modify(self.modification.take().unwrap(), &mut data_block)?;
-        let new_header = state.header.serialize(&mut data_block)?;
+        let new_header = active_state.header.serialize(&mut data_block)?;
         let (file, after_data) = data_block.finish()?;
-        state.current_position = after_data;
+        active_state.current_position = after_data;
 
         // Write a new header.
         let mut header_block = PagedWriter::new(
@@ -295,16 +296,18 @@ impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a
             file,
             self.vault.as_deref(),
             self.cache,
-            state.current_position,
+            active_state.current_position,
         );
         header_block.write_chunk(&new_header)?;
 
         let (file, after_header) = header_block.finish()?;
-        state.current_position = after_header;
+        active_state.current_position = after_header;
 
         file.flush()?;
 
-        Ok(state.header.sequence)
+        active_state.publish(self.state);
+
+        Ok(active_state.header.sequence)
     }
 }
 
@@ -318,7 +321,7 @@ struct DocumentReader<'a, const MAX_ORDER: usize> {
 impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentReader<'a, MAX_ORDER> {
     type Output = Option<Buffer<'static>>;
     fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
-        let state = self.state.lock();
+        let state = self.state.read();
         state.header.get(self.key, file, self.vault, self.cache)
     }
 }
