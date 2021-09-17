@@ -73,7 +73,7 @@ impl SimpleBench for ReadLogs {
             .open()
             .unwrap();
 
-        config.for_each_database_chunk(1_000_000, |chunk| {
+        config.for_each_database_chunk(100_000, |chunk| {
             for entry in chunk {
                 db.insert(&entry.id.to_be_bytes(), pot::to_vec(&entry).unwrap())
                     .unwrap();
