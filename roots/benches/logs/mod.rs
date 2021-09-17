@@ -151,57 +151,9 @@ impl Display for InsertConfig {
     }
 }
 
-pub fn inserts(c: &mut Criterion) {
-    let mut group = c.benchmark_group("logs-inserts");
-    for (sequential_ids, transactions, entries_per_transaction) in [
-        (false, 1_000, 1),
-        (true, 1_000, 1),
-        (false, 1_000, 100),
-        (true, 1_000, 100),
-        (false, 100, 1_000),
-        (true, 100, 1_000),
-        (false, 10, 10_000),
-        (true, 10, 10_000),
-    ] {
-        let config = InsertConfig {
-            sequential_ids,
-            transactions,
-            entries_per_transaction,
-        };
-
-        roots::InsertLogs::<StdFile>::run(&mut group, &config);
-        sled::InsertLogs::run(&mut group, &config);
-        sqlite::InsertLogs::run(&mut group, &config);
-        if couchdb::InsertLogs::can_execute() {
-            couchdb::InsertLogs::run(&mut group, &config);
-        }
-    }
-}
-
 pub struct ReadConfig {
     sequential_ids: bool,
     database_size: usize,
-}
-
-pub fn single_reads(c: &mut Criterion) {
-    let mut group = c.benchmark_group("logs-gets");
-    for (sequential_ids, database_size) in [
-        (false, 1_000),
-        (true, 1_000),
-        (false, 100_000),
-        (true, 100_000),
-        (false, 1_000_000),
-        (true, 1_000_000),
-    ] {
-        let config = ReadConfig::new(sequential_ids, database_size);
-
-        roots::ReadLogs::<StdFile>::run(&mut group, &config);
-        sled::ReadLogs::run(&mut group, &config);
-        sqlite::ReadLogs::run(&mut group, &config);
-        if couchdb::ReadLogs::can_execute() {
-            couchdb::ReadLogs::run(&mut group, &config);
-        }
-    }
 }
 
 impl ReadConfig {
@@ -304,6 +256,50 @@ impl Display for ReadConfig {
                 "random"
             }
         )
+    }
+}
+
+pub fn inserts(c: &mut Criterion) {
+    let mut group = c.benchmark_group("logs-inserts");
+    for (sequential_ids, transactions, entries_per_transaction) in [
+        (false, 1_000, 1),
+        (true, 1_000, 1),
+        (false, 1_000, 100),
+        (true, 1_000, 100),
+        (false, 100, 1_000),
+        (true, 100, 1_000),
+        (false, 10, 10_000),
+        (true, 10, 10_000),
+    ] {
+        let config = InsertConfig {
+            sequential_ids,
+            transactions,
+            entries_per_transaction,
+        };
+
+        roots::InsertLogs::<StdFile>::run(&mut group, &config);
+        sled::InsertLogs::run(&mut group, &config);
+        sqlite::InsertLogs::run(&mut group, &config);
+        couchdb::InsertLogs::run(&mut group, &config);
+    }
+}
+
+pub fn single_reads(c: &mut Criterion) {
+    let mut group = c.benchmark_group("logs-gets");
+    for (sequential_ids, database_size) in [
+        (false, 1_000),
+        (true, 1_000),
+        (false, 100_000),
+        (true, 100_000),
+        (false, 1_000_000),
+        (true, 1_000_000),
+    ] {
+        let config = ReadConfig::new(sequential_ids, database_size);
+
+        roots::ReadLogs::<StdFile>::run(&mut group, &config);
+        sled::ReadLogs::run(&mut group, &config);
+        sqlite::ReadLogs::run(&mut group, &config);
+        couchdb::ReadLogs::run(&mut group, &config);
     }
 }
 

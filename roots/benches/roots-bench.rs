@@ -1,3 +1,20 @@
+//! This benchmark suite aims at providing a fair set of benchmarks to both help
+//! understand the performance characteristics of this crate, but also to look
+//! for potential areas of improvement. No benchmark suite is without its flaws,
+//! and no benchmark suite can accurately predict performance of a specific
+//! application.
+//!
+//! If performance is critical for your application, you should create
+//! benchmarks that simulate your application's needs rather than trusting
+//! arbitrary benchmarks.
+//!
+//! To use, invoke through cargo bench:
+//!
+//! ```sh
+//! cargo bench --bench roots-bench
+//!
+//! The environment variable `DBS` can be used to limit benchmarks to a specific database. E.g., `DBS=roots,sqlite cargo bench --bench roots-bench`
+
 use std::fmt::Display;
 
 mod logs;
@@ -7,11 +24,22 @@ pub trait SimpleBench: Sized {
     type GroupState;
     const BACKEND: &'static str;
 
+    fn should_execute() -> bool {
+        std::env::var("DBS").map_or(true, |var| {
+            var.to_ascii_lowercase()
+                .contains(&Self::BACKEND.to_ascii_lowercase())
+        })
+    }
+
     fn can_execute() -> bool {
-        true
+        Self::should_execute()
     }
 
     fn run(group: &mut criterion::BenchmarkGroup<WallTime>, config: &Self::Config) {
+        if !Self::can_execute() {
+            return;
+        }
+
         // When tracing is enabled, we output flamegraphs of the benchmarks.
         #[cfg(feature = "tracing")]
         {

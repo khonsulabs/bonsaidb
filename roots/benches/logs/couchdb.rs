@@ -24,12 +24,13 @@ impl SimpleBench for InsertLogs {
     }
 
     fn can_execute() -> bool {
-        if std::env::var(USERNAME).is_err() {
-            println!("Skipping couchdb benchmark. To run, provide environment variables COUCHDB_USER and COUCHDB_PASSWORD.");
-            false
-        } else {
-            true
-        }
+        Self::should_execute()
+            && if std::env::var(USERNAME).is_err() {
+                println!("Skipping couchdb benchmark. To run, provide environment variables COUCHDB_USER and COUCHDB_PASSWORD.");
+                false
+            } else {
+                true
+            }
     }
 
     fn initialize(
@@ -95,13 +96,15 @@ impl SimpleBench for ReadLogs {
     const BACKEND: &'static str = "CouchDB";
 
     fn can_execute() -> bool {
-        if std::env::var(USERNAME).is_err() {
-            println!("Skipping couchdb benchmark. To run, provide environment variables COUCHDB_USER and COUCHDB_PASSWORD.");
-            false
-        } else {
-            true
-        }
+        Self::should_execute()
+            && if std::env::var(USERNAME).is_err() {
+                println!("Skipping couchdb benchmark. To run, provide environment variables COUCHDB_USER and COUCHDB_PASSWORD.");
+                false
+            } else {
+                true
+            }
     }
+
     fn initialize_group(
         config: &Self::Config,
         _group_state: &<Self::Config as BenchConfig>::GroupState,
