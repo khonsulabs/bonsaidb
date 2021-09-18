@@ -3,7 +3,7 @@ use byteorder::WriteBytesExt;
 use super::PagedWriter;
 use crate::{Buffer, Error, ManagedFile};
 
-pub trait BinarySerialization: Sized {
+pub trait BinarySerialization: Send + Sync + Sized {
     fn serialize_to<W: WriteBytesExt, F: ManagedFile>(
         &mut self,
         writer: &mut W,

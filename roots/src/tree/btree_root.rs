@@ -12,6 +12,7 @@ use super::{
     PagedWriter, PAGE_SIZE,
 };
 use crate::{
+    chunk_cache::CacheEntry,
     error::InternalError,
     tree::{
         btree_entry::{KeyOperation, ModificationContext},
@@ -116,8 +117,12 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                             document_size,
                         }))
                     },
-                    loader: |index: &BySequenceIndex, writer: &mut PagedWriter<'_, F>| {
-                        writer.read_chunk(index.position).map(Some)
+                    loader: |index: &BySequenceIndex, writer: &mut PagedWriter<'_, F>| match writer
+                        .read_chunk(index.position)
+                    {
+                        Ok(CacheEntry::Buffer(buffer)) => Ok(Some(buffer)),
+                        Ok(CacheEntry::Decoded(_)) => unreachable!(),
+                        Err(err) => Err(err),
                     },
                     _phantom: PhantomData,
                 },
@@ -183,10 +188,10 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         cache: Option<&ChunkCache>,
     ) -> Result<Option<Buffer<'static>>, Error> {
         match self.by_id_root.get(key, file, vault, cache)? {
-            Some(entry) => {
-                let contents = read_chunk(entry.position, file, vault, cache)?;
-                Ok(Some(contents))
-            }
+            Some(entry) => match read_chunk(entry.position, file, vault, cache)? {
+                CacheEntry::Buffer(contents) => Ok(Some(contents)),
+                CacheEntry::Decoded(_) => unreachable!(),
+            },
             None => Ok(None),
         }
     }

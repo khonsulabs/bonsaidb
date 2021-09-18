@@ -50,6 +50,7 @@ use byteorder::{BigEndian, ByteOrder};
 use crc::{Crc, CRC_32_BZIP2};
 
 use crate::{
+    chunk_cache::CacheEntry,
     managed_file::{FileManager, FileOp, ManagedFile, OpenableFile},
     tree::btree_root::BTreeRoot,
     Buffer, ChunkCache, Context, Error, Vault,
@@ -202,8 +203,15 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
                     continue;
                 }
                 PageHeader::Header => {
-                    let contents =
-                        read_chunk(block_start + 1, &mut tree, context.vault(), context.cache())?;
+                    let contents = match read_chunk(
+                        block_start + 1,
+                        &mut tree,
+                        context.vault(),
+                        context.cache(),
+                    )? {
+                        CacheEntry::Buffer(buffer) => buffer,
+                        CacheEntry::Decoded(_) => unreachable!(),
+                    };
                     let root = BTreeRoot::deserialize(contents)
                         .map_err(|err| Error::DataIntegrity(Box::new(err)))?;
                     break root;
@@ -468,7 +476,7 @@ impl<'a, F: ManagedFile> PagedWriter<'a, F> {
         Ok(position)
     }
 
-    fn read_chunk(&mut self, position: u64) -> Result<Buffer<'static>, Error> {
+    fn read_chunk(&mut self, position: u64) -> Result<CacheEntry, Error> {
         read_chunk(position, self.file, self.vault, self.cache)
     }
 
@@ -516,10 +524,10 @@ fn read_chunk<F: ManagedFile>(
     file: &mut F,
     vault: Option<&dyn Vault>,
     cache: Option<&ChunkCache>,
-) -> Result<Buffer<'static>, Error> {
+) -> Result<CacheEntry, Error> {
     if let Some(cache) = cache {
-        if let Some(buffer) = cache.get(file.path(), position) {
-            return Ok(buffer);
+        if let Some(entry) = cache.get(file.path(), position) {
+            return Ok(entry);
         }
     }
 
@@ -585,7 +593,7 @@ fn read_chunk<F: ManagedFile>(
         cache.insert(file.path(), position, decrypted.clone());
     }
 
-    Ok(decrypted)
+    Ok(CacheEntry::Buffer(decrypted))
 }
 
 #[cfg(test)]
@@ -613,9 +621,14 @@ mod tests {
         let written_position = paged_writer.write_chunk(&scratch[..length])?;
         drop(paged_writer.finish()?);
 
-        let data = read_chunk(written_position, &mut file, None, None)?;
-        assert_eq!(data.len(), length);
-        assert!(data.iter().all(|i| i == &1));
+        match read_chunk(written_position, &mut file, None, None)? {
+            CacheEntry::Buffer(data) => {
+                assert_eq!(data.len(), length);
+                assert!(data.iter().all(|i| i == &1));
+            }
+            CacheEntry::Decoded(_) => unreachable!(),
+        }
+
         drop(file);
 
         Ok(())

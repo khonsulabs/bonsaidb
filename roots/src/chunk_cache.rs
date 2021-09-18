@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{any::Any, path::PathBuf, sync::Arc};
 
 use lru::LruCache;
 use parking_lot::Mutex;
@@ -18,7 +18,20 @@ use crate::Buffer;
 #[must_use]
 pub struct ChunkCache {
     max_block_length: usize,
-    cache: Arc<Mutex<LruCache<ChunkKey, Buffer<'static>>>>,
+    cache: Arc<Mutex<LruCache<ChunkKey, CacheEntry>>>,
+}
+
+pub trait AnySendSync: Any + Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl<T> AnySendSync for T
+where
+    T: Any + Send + Sync,
+{
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -49,16 +62,32 @@ impl ChunkCache {
                     position,
                     file_path,
                 },
-                buffer,
+                CacheEntry::Buffer(buffer),
             );
         } else {
             println!("Chunk too big to cache");
         }
     }
 
+    /// Adds a new cached chunk for `file_path` at `position`.
+    pub fn replace_with_decoded<T: AnySendSync + 'static>(
+        &self,
+        file_path: Arc<PathBuf>,
+        position: u64,
+        value: T,
+    ) {
+        let mut cache = self.cache.lock();
+        if let Some(entry) = cache.peek_mut(&ChunkKey {
+            position,
+            file_path,
+        }) {
+            *entry = CacheEntry::Decoded(Arc::new(value));
+        }
+    }
+
     /// Looks up a previously read chunk for `file_path` at `position`,
     #[must_use]
-    pub fn get(&self, file_path: Arc<PathBuf>, position: u64) -> Option<Buffer<'static>> {
+    pub fn get(&self, file_path: Arc<PathBuf>, position: u64) -> Option<CacheEntry> {
         let mut cache = self.cache.lock();
         cache
             .get(&ChunkKey {
@@ -67,4 +96,10 @@ impl ChunkCache {
             })
             .cloned()
     }
+}
+
+#[derive(Clone)]
+pub enum CacheEntry {
+    Buffer(Buffer<'static>),
+    Decoded(Arc<dyn AnySendSync>),
 }

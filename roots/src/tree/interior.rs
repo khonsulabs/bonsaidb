@@ -6,7 +6,7 @@ use super::{
     btree_entry::{BTreeEntry, Reducer},
     BinarySerialization, PagedWriter,
 };
-use crate::{Buffer, Error, ManagedFile};
+use crate::{chunk_cache::CacheEntry, Buffer, Error, ManagedFile};
 
 #[derive(Clone, Debug)]
 pub struct Interior<I, R> {
@@ -59,10 +59,19 @@ impl<
     ) -> Result<(), Error> {
         match self {
             Pointer::OnDisk(position) => {
-                let entry = BTreeEntry::deserialize_from(
-                    &mut writer.read_chunk(*position)?,
-                    current_order,
-                )?;
+                let entry = match writer.read_chunk(*position)? {
+                    CacheEntry::Buffer(mut buffer) => {
+                        // It's worthless to store this node in the cache
+                        // because if we mutate, we'll be rewritten.
+                        BTreeEntry::deserialize_from(&mut buffer, current_order)?
+                    }
+                    CacheEntry::Decoded(node) => node
+                        .as_ref()
+                        .as_any()
+                        .downcast_ref::<BTreeEntry<I, R>>()
+                        .unwrap()
+                        .clone(),
+                };
                 *self = Self::Loaded {
                     entry: Box::new(entry),
                     previous_location: Some(*position),

@@ -11,7 +11,9 @@ use super::{
     serialization::BinarySerialization,
     PagedWriter,
 };
-use crate::{tree::interior::Pointer, Buffer, ChunkCache, Error, ManagedFile, Vault};
+use crate::{
+    chunk_cache::CacheEntry, tree::interior::Pointer, Buffer, ChunkCache, Error, ManagedFile, Vault,
+};
 
 /// A B-Tree entry that stores a list of key-`I` pairs.
 #[derive(Clone, Debug)]
@@ -414,11 +416,22 @@ where
                 if let Some(child) = children.get(containing_node_index) {
                     match &child.position {
                         Pointer::OnDisk(position) => {
-                            let entry = Self::deserialize_from(
-                                &mut read_chunk(*position, file, vault, cache)?,
-                                children.len(),
-                            )?;
-                            entry.get(key, file, vault, cache)
+                            match read_chunk(*position, file, vault, cache)? {
+                                CacheEntry::Buffer(mut buffer) => {
+                                    let decoded =
+                                        Self::deserialize_from(&mut buffer, children.len())?;
+                                    let result = decoded.get(key, file, vault, cache);
+                                    if let Some(cache) = cache {
+                                        cache.replace_with_decoded(file.path(), *position, decoded);
+                                    }
+                                    result
+                                }
+                                CacheEntry::Decoded(value) => {
+                                    let entry =
+                                        value.as_ref().as_any().downcast_ref::<Self>().unwrap();
+                                    entry.get(key, file, vault, cache)
+                                }
+                            }
                         }
                         Pointer::Loaded { entry, .. } => entry.get(key, file, vault, cache),
                     }
