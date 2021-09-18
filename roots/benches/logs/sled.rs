@@ -97,14 +97,24 @@ impl SimpleBench for ReadLogs {
         Ok(Self { db, state })
     }
 
-    fn execute_measured(&mut self, _config: &Self::Config) -> Result<(), anyhow::Error> {
-        let entry = self.state.next().unwrap();
-        let bytes = self
-            .db
-            .get(&entry.id.to_be_bytes())?
-            .expect("value not found");
-        let decoded = pot::from_slice::<LogEntry>(&bytes)?;
-        assert_eq!(&decoded, &entry);
+    fn execute_measured(&mut self, config: &Self::Config) -> Result<(), anyhow::Error> {
+        // To be fair, we're only evaluating that content equals when it's a single get
+        if config.get_count == 1 {
+            let entry = self.state.next().unwrap();
+            let bytes = self
+                .db
+                .get(&entry.id.to_be_bytes())?
+                .expect("value not found");
+            let decoded = pot::from_slice::<LogEntry>(&bytes)?;
+            assert_eq!(&decoded, &entry);
+        } else {
+            for _ in 0..config.get_count {
+                let entry = self.state.next().unwrap();
+                self.db
+                    .get(&entry.id.to_be_bytes())?
+                    .expect("value not found");
+            }
+        }
         Ok(())
     }
 }

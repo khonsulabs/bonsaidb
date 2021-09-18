@@ -154,13 +154,15 @@ impl Display for InsertConfig {
 pub struct ReadConfig {
     sequential_ids: bool,
     database_size: usize,
+    get_count: usize,
 }
 
 impl ReadConfig {
-    fn new(sequential_ids: bool, database_size: usize) -> Self {
+    fn new(sequential_ids: bool, database_size: usize, get_count: usize) -> Self {
         Self {
             sequential_ids,
             database_size,
+            get_count,
         }
     }
 }
@@ -215,7 +217,8 @@ impl BenchConfig for ReadConfig {
     fn initialize_group(&self) -> Self::GroupState {
         // This is wasteful... but it's not being measured by the benchmark.
         let database = self.database_generator();
-        let skip_between = self.database_size / 100;
+        let samples_to_collect = self.database_size / 10;
+        let skip_between = self.database_size / samples_to_collect;
         let mut samples = Vec::new();
         for (index, entry) in database.enumerate() {
             if index % skip_between == 0 {
@@ -248,7 +251,8 @@ impl Display for ReadConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{} {} elements",
+            "{}x{} {} elements",
+            self.get_count,
             self.database_size,
             if self.sequential_ids {
                 "sequential"
@@ -284,17 +288,23 @@ pub fn inserts(c: &mut Criterion) {
     }
 }
 
-pub fn single_reads(c: &mut Criterion) {
+pub fn gets(c: &mut Criterion) {
     let mut group = c.benchmark_group("logs-gets");
-    for (sequential_ids, database_size) in [
-        (false, 1_000),
-        (true, 1_000),
-        (false, 100_000),
-        (true, 100_000),
-        (false, 1_000_000),
-        (true, 1_000_000),
+    for (sequential_ids, database_size, get_count) in [
+        (false, 1_000, 1),
+        (true, 1_000, 1),
+        (false, 1_000, 10),
+        (true, 1_000, 10),
+        (false, 100_000, 1),
+        (true, 100_000, 1),
+        (false, 100_000, 100),
+        (true, 100_000, 100),
+        (false, 1_000_000, 1),
+        (true, 1_000_000, 1),
+        (false, 1_000_000, 1_000),
+        (true, 1_000_000, 1_000),
     ] {
-        let config = ReadConfig::new(sequential_ids, database_size);
+        let config = ReadConfig::new(sequential_ids, database_size, get_count);
 
         roots::ReadLogs::<StdFile>::run(&mut group, &config);
         sled::ReadLogs::run(&mut group, &config);
@@ -305,5 +315,5 @@ pub fn single_reads(c: &mut Criterion) {
 
 pub fn benches(c: &mut Criterion) {
     inserts(c);
-    single_reads(c);
+    gets(c);
 }

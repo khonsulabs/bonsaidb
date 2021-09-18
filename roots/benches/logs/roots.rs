@@ -137,14 +137,24 @@ impl<F: ManagedFile> SimpleBench for ReadLogs<F> {
         Ok(Self { tree, state })
     }
 
-    fn execute_measured(&mut self, _config: &Self::Config) -> Result<(), anyhow::Error> {
-        let entry = self.state.next().unwrap();
-        let bytes = self
-            .tree
-            .get(&entry.id.to_be_bytes())?
-            .expect("value not found");
-        let decoded = pot::from_slice::<LogEntry>(&bytes)?;
-        assert_eq!(&decoded, &entry);
+    fn execute_measured(&mut self, config: &Self::Config) -> Result<(), anyhow::Error> {
+        if config.get_count == 1 {
+            let entry = self.state.next().unwrap();
+            let bytes = self
+                .tree
+                .get(&entry.id.to_be_bytes())?
+                .expect("value not found");
+            let decoded = pot::from_slice::<LogEntry>(&bytes)?;
+            assert_eq!(&decoded, &entry);
+        } else {
+            let mut entry_key_bytes = (0..config.get_count)
+                .map(|_| self.state.next().unwrap().id.to_be_bytes())
+                .collect::<Vec<_>>();
+            entry_key_bytes.sort_unstable();
+            let entry_keys = entry_key_bytes.iter().map(|k| &k[..]).collect::<Vec<_>>();
+            let buffers = self.tree.get_multiple(&entry_keys)?;
+            assert_eq!(buffers.len(), config.get_count);
+        }
         Ok(())
     }
 }

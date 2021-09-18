@@ -9,7 +9,7 @@ use super::{
     modify::Modification,
     read_chunk,
     serialization::BinarySerialization,
-    PagedWriter, PAGE_SIZE,
+    KeyEvaluation, KeyRange, PagedWriter, PAGE_SIZE,
 };
 use crate::{
     chunk_cache::CacheEntry,
@@ -180,20 +180,44 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         Ok(())
     }
 
-    pub fn get<F: ManagedFile>(
+    pub fn scan<F: ManagedFile, KeyEvaluator, KeyReader>(
         &self,
-        key: &[u8],
+        keys: &mut KeyRange<'_>,
+        key_evaluator: &mut KeyEvaluator,
+        key_reader: &mut KeyReader,
         file: &mut F,
         vault: Option<&dyn Vault>,
         cache: Option<&ChunkCache>,
-    ) -> Result<Option<Buffer<'static>>, Error> {
-        match self.by_id_root.get(key, file, vault, cache)? {
-            Some(entry) => match read_chunk(entry.position, file, vault, cache)? {
-                CacheEntry::Buffer(contents) => Ok(Some(contents)),
-                CacheEntry::Decoded(_) => unreachable!(),
+    ) -> Result<(), Error>
+    where
+        KeyEvaluator: FnMut(&Buffer<'static>) -> KeyEvaluation,
+        KeyReader: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+    {
+        let mut positions_to_read = Vec::new();
+        self.by_id_root.scan(
+            keys,
+            key_evaluator,
+            &mut |key, index| {
+                positions_to_read.push((key, index.position));
+                Ok(())
             },
-            None => Ok(None),
+            file,
+            vault,
+            cache,
+        )?;
+
+        // Sort by position on disk
+        positions_to_read.sort_by(|a, b| a.1.cmp(&b.1));
+
+        for (key, position) in positions_to_read {
+            match read_chunk(position, file, vault, cache)? {
+                CacheEntry::Buffer(contents) => {
+                    key_reader(key, contents)?;
+                }
+                CacheEntry::Decoded(_) => unreachable!(),
+            };
         }
+        Ok(())
     }
 
     pub fn deserialize(mut bytes: Buffer<'_>) -> Result<Self, Error> {

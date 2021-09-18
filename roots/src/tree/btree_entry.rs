@@ -9,10 +9,12 @@ use super::{
     modify::{Modification, Operation},
     read_chunk,
     serialization::BinarySerialization,
-    PagedWriter,
+    KeyRange, PagedWriter,
 };
 use crate::{
-    chunk_cache::CacheEntry, tree::interior::Pointer, Buffer, ChunkCache, Error, ManagedFile, Vault,
+    chunk_cache::CacheEntry,
+    tree::{interior::Pointer, KeyEvaluation},
+    Buffer, ChunkCache, Error, ManagedFile, Vault,
 };
 
 /// A B-Tree entry that stores a list of key-`I` pairs.
@@ -386,61 +388,119 @@ where
 
     #[cfg_attr(
         feature = "tracing",
-        tracing::instrument(skip(self, file, vault, cache))
+        tracing::instrument(skip(self, key_evaluator, key_reader, file, vault, cache))
     )]
-    pub fn get<F: ManagedFile>(
+    pub fn scan<F: ManagedFile, KeyEvaluator, KeyReader>(
         &self,
-        key: &[u8],
+        keys: &mut KeyRange<'_>,
+        key_evaluator: &mut KeyEvaluator,
+        key_reader: &mut KeyReader,
         file: &mut F,
         vault: Option<&dyn Vault>,
         cache: Option<&ChunkCache>,
-    ) -> Result<Option<I>, Error> {
+    ) -> Result<bool, Error>
+    where
+        KeyEvaluator: FnMut(&Buffer<'static>) -> KeyEvaluation,
+        KeyReader: FnMut(Buffer<'static>, &I) -> Result<(), Error>,
+    {
         match &self.node {
             BTreeNode::Leaf(children) => {
-                match children.binary_search_by(|child| (&*child.key).cmp(key)) {
-                    Ok(matching) => {
-                        let entry = &children[matching];
-                        Ok(Some(entry.index.clone()))
+                let mut last_index = 0;
+                while let Some(key) = keys.current_key() {
+                    match children[last_index..].binary_search_by(|child| (&*child.key).cmp(key)) {
+                        Ok(matching) => {
+                            keys.next();
+                            last_index += matching;
+                            let entry = &children[last_index];
+                            match key_evaluator(&entry.key) {
+                                KeyEvaluation::ReadData => {
+                                    key_reader(entry.key.clone(), &entry.index)?;
+                                }
+                                KeyEvaluation::Skip => {}
+                                KeyEvaluation::Stop => return Ok(false),
+                            }
+                        }
+                        Err(_) => {
+                            // No longer matching within this tree
+                            break;
+                        }
                     }
-                    Err(_) => Ok(None),
                 }
             }
             BTreeNode::Interior(children) => {
-                let containing_node_index = children
-                    .binary_search_by(|child| (&*child.key).cmp(key))
-                    .unwrap_or_else(|not_found| not_found);
+                let mut last_index = 0;
+                while let Some(key) = keys.current_key() {
+                    let containing_node_index = children[last_index..]
+                        .binary_search_by(|child| (&*child.key).cmp(key))
+                        .unwrap_or_else(|not_found| not_found);
+                    last_index += containing_node_index;
 
-                // This isn't guaranteed to succeed because we add one. If
-                // the key being searched for isn't contained, it will be
-                // greater than any of the node's keys.
-                if let Some(child) = children.get(containing_node_index) {
-                    match &child.position {
-                        Pointer::OnDisk(position) => {
-                            match read_chunk(*position, file, vault, cache)? {
-                                CacheEntry::Buffer(mut buffer) => {
-                                    let decoded =
-                                        Self::deserialize_from(&mut buffer, children.len())?;
-                                    let result = decoded.get(key, file, vault, cache);
-                                    if let Some(cache) = cache {
-                                        cache.replace_with_decoded(file.path(), *position, decoded);
+                    // This isn't guaranteed to succeed because we add one. If
+                    // the key being searched for isn't contained, it will be
+                    // greater than any of the node's keys.
+                    if let Some(child) = children.get(last_index) {
+                        match &child.position {
+                            Pointer::OnDisk(position) => {
+                                match read_chunk(*position, file, vault, cache)? {
+                                    CacheEntry::Buffer(mut buffer) => {
+                                        let decoded =
+                                            Self::deserialize_from(&mut buffer, children.len())?;
+                                        let keep_scanning = decoded.scan(
+                                            keys,
+                                            key_evaluator,
+                                            key_reader,
+                                            file,
+                                            vault,
+                                            cache,
+                                        )?;
+                                        if let Some(cache) = cache {
+                                            cache.replace_with_decoded(
+                                                file.path(),
+                                                *position,
+                                                decoded,
+                                            );
+                                        }
+                                        if !keep_scanning {
+                                            return Ok(false);
+                                        }
                                     }
-                                    result
+                                    CacheEntry::Decoded(value) => {
+                                        let entry =
+                                            value.as_ref().as_any().downcast_ref::<Self>().unwrap();
+                                        if !entry.scan(
+                                            keys,
+                                            key_evaluator,
+                                            key_reader,
+                                            file,
+                                            vault,
+                                            cache,
+                                        )? {
+                                            return Ok(false);
+                                        }
+                                    }
                                 }
-                                CacheEntry::Decoded(value) => {
-                                    let entry =
-                                        value.as_ref().as_any().downcast_ref::<Self>().unwrap();
-                                    entry.get(key, file, vault, cache)
+                            }
+                            Pointer::Loaded { entry, .. } => {
+                                if !entry.scan(
+                                    keys,
+                                    key_evaluator,
+                                    key_reader,
+                                    file,
+                                    vault,
+                                    cache,
+                                )? {
+                                    return Ok(false);
                                 }
                             }
                         }
-                        Pointer::Loaded { entry, .. } => entry.get(key, file, vault, cache),
+                    } else {
+                        break;
                     }
-                } else {
-                    Ok(None)
                 }
             }
             BTreeNode::Uninitialized => unreachable!(),
         }
+        Ok(true)
     }
 }
 

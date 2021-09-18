@@ -121,20 +121,39 @@ impl SimpleBench for ReadLogs {
         })
     }
 
-    fn execute_measured(&mut self, _config: &Self::Config) -> Result<(), anyhow::Error> {
-        let entry = self.state.next().unwrap();
-        let fetched = self.sqlite.query_row(
-            "SELECT id, timestamp, message FROM logs WHERE id = ?",
-            [entry.id as i64],
-            |row| {
+    fn execute_measured(&mut self, config: &Self::Config) -> Result<(), anyhow::Error> {
+        if config.get_count == 1 {
+            let entry = self.state.next().unwrap();
+            let fetched = self.sqlite.query_row(
+                "SELECT id, timestamp, message FROM logs WHERE id = ?",
+                [entry.id as i64],
+                |row| {
+                    Ok(LogEntry {
+                        id: row.get::<_, i64>(0)? as u64,
+                        timestamp: row.get::<_, i64>(1)? as u64,
+                        message: row.get(2)?,
+                    })
+                },
+            )?;
+            assert_eq!(&fetched, &entry);
+        } else {
+            let entries = (0..config.get_count)
+                .map(|_| (self.state.next().unwrap().id as i64).to_string())
+                .collect::<Vec<_>>();
+
+            let mut prepared = self.sqlite.prepare(&format!(
+                "SELECT id, timestamp, message FROM logs WHERE id IN ({})",
+                entries.join(",")
+            ))?;
+            let rows = prepared.query([])?.mapped(|row| {
                 Ok(LogEntry {
                     id: row.get::<_, i64>(0)? as u64,
                     timestamp: row.get::<_, i64>(1)? as u64,
                     message: row.get(2)?,
                 })
-            },
-        )?;
-        assert_eq!(&fetched, &entry);
+            });
+            assert_eq!(rows.count(), config.get_count);
+        }
         Ok(())
     }
 }

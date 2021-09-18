@@ -41,7 +41,7 @@ use std::{
     convert::TryFrom,
     fs::OpenOptions,
     io::SeekFrom,
-    ops::{Deref, DerefMut},
+    ops::{Bound, Deref, DerefMut, RangeBounds},
     path::Path,
     sync::Arc,
 };
@@ -248,12 +248,37 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     /// Gets the value stored for `key`.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub fn get(&mut self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
+        let mut buffer = None;
         self.file.execute(DocumentReader {
             state: &self.state,
             vault: self.vault.as_deref(),
             cache: self.cache.as_ref(),
-            key,
-        })
+            keys: KeyRange::Single(key),
+            key_reader: |_key, value| {
+                buffer = Some(value);
+                Ok(())
+            },
+            key_evaluator: |_| KeyEvaluation::ReadData,
+        })?;
+        Ok(buffer)
+    }
+
+    /// Gets the value stored for `key`.
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
+    pub fn get_multiple(&mut self, keys: &[&[u8]]) -> Result<Vec<Buffer<'static>>, Error> {
+        let mut buffers = Vec::with_capacity(keys.len());
+        self.file.execute(DocumentReader {
+            state: &self.state,
+            vault: self.vault.as_deref(),
+            cache: self.cache.as_ref(),
+            keys: KeyRange::Multiple(keys),
+            key_reader: |_key, value| {
+                buffers.push(value);
+                Ok(())
+            },
+            key_evaluator: |_| KeyEvaluation::ReadData,
+        })?;
+        Ok(buffers)
     }
 }
 
@@ -308,18 +333,120 @@ impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a
     }
 }
 
-struct DocumentReader<'a, const MAX_ORDER: usize> {
+struct DocumentReader<
+    'a,
+    E: FnMut(&Buffer<'static>) -> KeyEvaluation,
+    R: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+    const MAX_ORDER: usize,
+> {
     state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
     cache: Option<&'a ChunkCache>,
-    key: &'a [u8],
+    keys: KeyRange<'a>,
+    key_evaluator: E,
+    key_reader: R,
 }
 
-impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentReader<'a, MAX_ORDER> {
-    type Output = Option<Buffer<'static>>;
+/// One or more keys.
+#[derive(Debug)]
+pub enum KeyRange<'a> {
+    /// No keys.
+    Empty,
+    /// A single key.
+    Single(&'a [u8]),
+    /// A list of keys.
+    Multiple(&'a [&'a [u8]]),
+    // Range(Box<dyn LimitedRangeBounds<&'a [u8]>>),
+}
+impl<'a> KeyRange<'a> {
+    fn current_key(&self) -> Option<&'a [u8]> {
+        match self {
+            KeyRange::Empty => None,
+            KeyRange::Single(key) => Some(*key),
+            KeyRange::Multiple(keys) => keys.get(0).copied(),
+        }
+    }
+}
+
+impl<'a> Iterator for KeyRange<'a> {
+    type Item = &'a [u8];
+    fn next(&mut self) -> Option<&'a [u8]> {
+        match self {
+            KeyRange::Empty => None,
+            KeyRange::Single(key) => {
+                let key = *key;
+                *self = Self::Empty;
+                Some(key)
+            }
+            KeyRange::Multiple(keys) => {
+                if keys.is_empty() {
+                    None
+                } else {
+                    let (one_key, remaining) = keys.split_at(1);
+                    *keys = remaining;
+
+                    Some(one_key[0])
+                }
+            }
+        }
+    }
+}
+
+/// A trait that represents a `RangeBounds` but can be boxed.
+pub trait LimitedRangeBounds<T: ?Sized> {
+    /// Wrapper for `RangeBounds::start_bound()`.
+    fn start_bound(&self) -> Bound<&T>;
+    /// Wrapper for `RangeBounds::end_bound()`.
+    fn end_bound(&self) -> Bound<&T>;
+    /// Wrapper for `RangeBounds::contains()`.
+    fn contains(&self, other: &T) -> bool;
+}
+
+impl<R, T> LimitedRangeBounds<T> for R
+where
+    R: RangeBounds<T>,
+    T: PartialOrd<T>,
+{
+    fn start_bound(&self) -> Bound<&T> {
+        RangeBounds::start_bound(self)
+    }
+
+    fn end_bound(&self) -> Bound<&T> {
+        RangeBounds::end_bound(self)
+    }
+
+    fn contains(&self, other: &T) -> bool {
+        RangeBounds::contains(self, other)
+    }
+}
+
+/// The result of evaluating a key that was scanned.
+pub enum KeyEvaluation {
+    /// Read the data for this key.
+    ReadData,
+    /// Skip this key.
+    Skip,
+    /// Stop scanning keys.
+    Stop,
+}
+
+impl<'a, E, R, F: ManagedFile, const MAX_ORDER: usize> FileOp<F>
+    for DocumentReader<'a, E, R, MAX_ORDER>
+where
+    E: FnMut(&Buffer<'static>) -> KeyEvaluation,
+    R: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+{
+    type Output = ();
     fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
         let state = self.state.read();
-        state.header.get(self.key, file, self.vault, self.cache)
+        state.header.scan(
+            &mut self.keys,
+            &mut self.key_evaluator,
+            &mut self.key_reader,
+            file,
+            self.vault,
+            self.cache,
+        )
     }
 }
 
