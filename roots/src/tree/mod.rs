@@ -104,17 +104,6 @@ impl TryFrom<u8> for PageHeader {
     }
 }
 
-macro_rules! commit_if_needed {
-    ($self:ident, $about_to_write:expr) => {{
-        if $self.offset == $self.scratch.len() {
-            $self.commit()?;
-        } else if $about_to_write && $self.offset % PAGE_SIZE == 0 {
-            $self.scratch[$self.offset] = PageHeader::Continuation as u8;
-            $self.offset += 1;
-        }
-    }};
-}
-
 /// An append-only tree file.
 ///
 /// ## Generics
@@ -377,6 +366,9 @@ impl<'a, F: ManagedFile> PagedWriter<'a, F> {
             offset: 0,
         };
         writer.scratch[0] = header as u8;
+        for page_num in 1..PAGED_WRITER_BATCH_COUNT {
+            writer.scratch[page_num * PAGE_SIZE] = PageHeader::Continuation as u8;
+        }
         writer.offset = 1;
         writer
     }
@@ -387,7 +379,7 @@ impl<'a, F: ManagedFile> PagedWriter<'a, F> {
 
     fn write(&mut self, data: &[u8]) -> Result<usize, Error> {
         let bytes_written = data.len();
-        commit_if_needed!(self, true);
+        self.commit_if_needed(true)?;
 
         let new_offset = self.offset + data.len();
         let start_page = self.offset / PAGE_SIZE;
@@ -408,7 +400,7 @@ impl<'a, F: ManagedFile> PagedWriter<'a, F> {
 
             // If the data is large enough to span multiple pages, continue to do so.
             while remaining.len() >= PAGE_SIZE {
-                commit_if_needed!(self, true);
+                self.commit_if_needed(true)?;
 
                 let (one_page, after) = remaining.split_at(PAGE_SIZE - 1);
                 remaining = after;
@@ -417,7 +409,7 @@ impl<'a, F: ManagedFile> PagedWriter<'a, F> {
                 self.offset += PAGE_SIZE - 1;
             }
 
-            commit_if_needed!(self, !remaining.is_empty());
+            self.commit_if_needed(!remaining.is_empty())?;
 
             // If there's any data left, add it to the scratch
             if !remaining.is_empty() {
@@ -426,7 +418,7 @@ impl<'a, F: ManagedFile> PagedWriter<'a, F> {
                 self.offset = final_offset;
             }
 
-            commit_if_needed!(self, !remaining.is_empty());
+            self.commit_if_needed(!remaining.is_empty())?;
         }
         Ok(bytes_written)
     }
@@ -506,6 +498,15 @@ impl<'a, F: ManagedFile> PagedWriter<'a, F> {
         // Set the header to be a continuation block
         self.scratch[0] = PageHeader::Continuation as u8;
         self.offset = 1;
+        Ok(())
+    }
+
+    fn commit_if_needed(&mut self, about_to_write: bool) -> Result<(), Error> {
+        if self.offset == self.scratch.len() {
+            self.commit()?;
+        } else if about_to_write && self.offset % PAGE_SIZE == 0 {
+            self.offset += 1;
+        }
         Ok(())
     }
 
