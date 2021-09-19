@@ -10,11 +10,11 @@ This is a temporary place to track TODOs for this project, until it's at the sta
 - [x] Consider supporting dynamic order
 - [x] Ability to insert multiple records in one write.
 - [x] Switch benchmarks to Criterion
-- [ ] Ability to scan ranges of keys
+- [x] Ability to scan ranges of keys
 - [ ] Benchmark multi-id and ranged queries
 - [ ] Compaction
 - [ ] Benchmark reads after compaction
-- [ ] Implement simultaneous read/write
+- [x] Implement simultaneous read/write
 - [ ] Implement B-Tree rebalancing. When a node has less than order / 2 nodes, it should be absorbed by the parent.
 - [ ] Ability to sequentially scan and reverse-scan transaction log.
 - [ ] Ability to find an entry in the transaction log, using a binary search

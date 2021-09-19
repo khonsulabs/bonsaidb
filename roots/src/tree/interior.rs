@@ -4,9 +4,9 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 use super::{
     btree_entry::{BTreeEntry, Reducer},
-    BinarySerialization, PagedWriter,
+    read_chunk, BinarySerialization, PagedWriter,
 };
-use crate::{chunk_cache::CacheEntry, Buffer, Error, ManagedFile};
+use crate::{chunk_cache::CacheEntry, Buffer, ChunkCache, Error, ManagedFile, Vault};
 
 #[derive(Clone, Debug)]
 pub struct Interior<I, R> {
@@ -86,6 +86,42 @@ impl<
         match self {
             Pointer::OnDisk(_) => None,
             Pointer::Loaded { entry, .. } => Some(entry.as_mut()),
+        }
+    }
+
+    pub fn map_loaded_entry<
+        Output,
+        F: ManagedFile,
+        Cb: FnOnce(&BTreeEntry<I, R>, &mut F) -> Result<Output, Error>,
+    >(
+        &self,
+        file: &mut F,
+        vault: Option<&dyn Vault>,
+        cache: Option<&ChunkCache>,
+        current_order: usize,
+        callback: Cb,
+    ) -> Result<Output, Error> {
+        match self {
+            Pointer::OnDisk(position) => match read_chunk(*position, file, vault, cache)? {
+                CacheEntry::Buffer(mut buffer) => {
+                    let decoded = BTreeEntry::deserialize_from(&mut buffer, current_order)?;
+
+                    let result = callback(&decoded, file);
+                    if let Some(cache) = cache {
+                        cache.replace_with_decoded(file.path(), *position, decoded);
+                    }
+                    result
+                }
+                CacheEntry::Decoded(value) => {
+                    let entry = value
+                        .as_ref()
+                        .as_any()
+                        .downcast_ref::<BTreeEntry<I, R>>()
+                        .unwrap();
+                    callback(entry, file)
+                }
+            },
+            Pointer::Loaded { entry, .. } => callback(entry, file),
         }
     }
 }

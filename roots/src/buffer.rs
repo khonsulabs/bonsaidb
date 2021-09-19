@@ -37,8 +37,8 @@ impl<'a> Debug for Buffer<'a> {
 
 impl<'a> Eq for Buffer<'a> {}
 
-impl<'a> PartialEq for Buffer<'a> {
-    fn eq(&self, other: &Self) -> bool {
+impl<'a, 'b> PartialEq<Buffer<'b>> for Buffer<'a> {
+    fn eq(&self, other: &Buffer<'b>) -> bool {
         self.cmp(other) == Ordering::Equal
     }
 }
@@ -57,8 +57,8 @@ impl<'a> Ord for Buffer<'a> {
     }
 }
 
-impl<'a> PartialOrd for Buffer<'a> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+impl<'a, 'b> PartialOrd<Buffer<'b>> for Buffer<'a> {
+    fn partial_cmp(&self, other: &Buffer<'b>) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }

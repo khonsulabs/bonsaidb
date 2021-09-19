@@ -1,4 +1,8 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{
+    fmt::Debug,
+    marker::PhantomData,
+    ops::{Bound, RangeBounds},
+};
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
 
@@ -7,15 +11,10 @@ use super::{
     interior::Interior,
     key_entry::KeyEntry,
     modify::{Modification, Operation},
-    read_chunk,
     serialization::BinarySerialization,
     KeyRange, PagedWriter,
 };
-use crate::{
-    chunk_cache::CacheEntry,
-    tree::{interior::Pointer, KeyEvaluation},
-    Buffer, ChunkCache, Error, ManagedFile, Vault,
-};
+use crate::{tree::KeyEvaluation, Buffer, ChunkCache, Error, ManagedFile, Vault};
 
 /// A B-Tree entry that stores a list of key-`I` pairs.
 #[derive(Clone, Debug)]
@@ -330,24 +329,14 @@ where
             {
                 ChangeResult::Unchanged => {}
                 ChangeResult::Changed => {
-                    // let child_bytes = new_node.serialize(writer).await?;
-                    // let child_position = writer.write_chunk(&child_bytes).await?;
-                    // let node_ref = BTreeEntryRef::new(new_node, &context.slab);
-
-                    // children[last_index] = Interior::from(new_node);
-                    children[last_index].key = child_entry.max_key().clone();
+                    child.key = child_entry.max_key().clone();
+                    child.stats = child_entry.stats();
                     any_changes |= true;
                 }
                 ChangeResult::Split(upper) => {
-                    // Write the two new children
-                    // let lower_bytes = lower.serialize(writer).await?;
-                    // let lower_position = writer.write_chunk(&lower_bytes).await?;
-                    // let upper_bytes = upper.serialize(writer).await?;
-                    // let upper_position = writer.write_chunk(&upper_bytes).await?;
-                    // Replace the original child with the lower entry.
-                    // children[last_index] = Interior::from(lower);
-                    // Insert the upper entry at the next position.
-                    children[last_index].key = child_entry.max_key().clone();
+                    child.key = child_entry.max_key().clone();
+                    child.stats = child_entry.stats();
+
                     if children.capacity() < children.len() + 1 {
                         children.reserve(context.current_order - children.len());
                     }
@@ -390,7 +379,99 @@ where
         feature = "tracing",
         tracing::instrument(skip(self, key_evaluator, key_reader, file, vault, cache))
     )]
-    pub fn scan<F: ManagedFile, KeyEvaluator, KeyReader>(
+    pub fn scan<'k, F: ManagedFile, KeyRangeBounds, KeyEvaluator, KeyReader>(
+        &self,
+        range: &KeyRangeBounds,
+        key_evaluator: &mut KeyEvaluator,
+        key_reader: &mut KeyReader,
+        file: &mut F,
+        vault: Option<&dyn Vault>,
+        cache: Option<&ChunkCache>,
+    ) -> Result<bool, Error>
+    where
+        KeyEvaluator: FnMut(&Buffer<'static>) -> KeyEvaluation,
+        KeyReader: FnMut(Buffer<'static>, &I) -> Result<(), Error>,
+        KeyRangeBounds: RangeBounds<Buffer<'k>> + Debug,
+    {
+        match &self.node {
+            BTreeNode::Leaf(children) => {
+                for child in children {
+                    if range.contains(&child.key) {
+                        match key_evaluator(&child.key) {
+                            KeyEvaluation::ReadData => {
+                                key_reader(child.key.clone(), &child.index)?;
+                            }
+                            KeyEvaluation::Skip => {}
+                            KeyEvaluation::Stop => return Ok(false),
+                        };
+                    }
+                }
+            }
+            BTreeNode::Interior(children) => {
+                for (index, child) in children.iter().enumerate() {
+                    // The keys in this child range from the previous child's key (exclusive) to the entry's key (inclusive).
+                    let start_bound = range.start_bound();
+                    let end_bound = range.end_bound();
+                    if index > 0 {
+                        let previous_entry = &children[index - 1];
+
+                        // One the previous entry's key is less than the end
+                        // bound, we can break out of the loop.
+                        match end_bound {
+                            Bound::Included(key) => {
+                                if previous_entry.key > *key {
+                                    break;
+                                }
+                            }
+                            Bound::Excluded(key) => {
+                                if &previous_entry.key >= key {
+                                    break;
+                                }
+                            }
+                            Bound::Unbounded => {}
+                        }
+                    }
+
+                    // Keys in this child could match as long as the start bound
+                    // is less than the key for this child.
+                    match start_bound {
+                        Bound::Included(key) => {
+                            if child.key < *key {
+                                continue;
+                            }
+                        }
+                        Bound::Excluded(key) => {
+                            if &child.key <= key {
+                                continue;
+                            }
+                        }
+                        Bound::Unbounded => {}
+                    }
+
+                    let keep_scanning = child.position.map_loaded_entry(
+                        file,
+                        vault,
+                        cache,
+                        children.len(),
+                        |entry, file| {
+                            entry.scan(range, key_evaluator, key_reader, file, vault, cache)
+                        },
+                    )?;
+                    if !keep_scanning {
+                        return Ok(false);
+                    }
+                }
+            }
+            BTreeNode::Uninitialized => unreachable!(),
+        }
+        Ok(true)
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(self, key_evaluator, key_reader, file, vault, cache))
+    )]
+    pub fn get<F: ManagedFile, KeyEvaluator, KeyReader>(
         &self,
         keys: &mut KeyRange<'_>,
         key_evaluator: &mut KeyEvaluator,
@@ -439,59 +520,17 @@ where
                     // the key being searched for isn't contained, it will be
                     // greater than any of the node's keys.
                     if let Some(child) = children.get(last_index) {
-                        match &child.position {
-                            Pointer::OnDisk(position) => {
-                                match read_chunk(*position, file, vault, cache)? {
-                                    CacheEntry::Buffer(mut buffer) => {
-                                        let decoded =
-                                            Self::deserialize_from(&mut buffer, children.len())?;
-                                        let keep_scanning = decoded.scan(
-                                            keys,
-                                            key_evaluator,
-                                            key_reader,
-                                            file,
-                                            vault,
-                                            cache,
-                                        )?;
-                                        if let Some(cache) = cache {
-                                            cache.replace_with_decoded(
-                                                file.path(),
-                                                *position,
-                                                decoded,
-                                            );
-                                        }
-                                        if !keep_scanning {
-                                            return Ok(false);
-                                        }
-                                    }
-                                    CacheEntry::Decoded(value) => {
-                                        let entry =
-                                            value.as_ref().as_any().downcast_ref::<Self>().unwrap();
-                                        if !entry.scan(
-                                            keys,
-                                            key_evaluator,
-                                            key_reader,
-                                            file,
-                                            vault,
-                                            cache,
-                                        )? {
-                                            return Ok(false);
-                                        }
-                                    }
-                                }
-                            }
-                            Pointer::Loaded { entry, .. } => {
-                                if !entry.scan(
-                                    keys,
-                                    key_evaluator,
-                                    key_reader,
-                                    file,
-                                    vault,
-                                    cache,
-                                )? {
-                                    return Ok(false);
-                                }
-                            }
+                        let keep_scanning = child.position.map_loaded_entry(
+                            file,
+                            vault,
+                            cache,
+                            children.len(),
+                            |entry, file| {
+                                entry.get(keys, key_evaluator, key_reader, file, vault, cache)
+                            },
+                        )?;
+                        if !keep_scanning {
+                            break;
                         }
                     } else {
                         break;

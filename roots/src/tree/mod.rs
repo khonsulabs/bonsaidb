@@ -39,9 +39,11 @@
 
 use std::{
     convert::TryFrom,
+    fmt::Debug,
     fs::OpenOptions,
     io::SeekFrom,
-    ops::{Bound, Deref, DerefMut, RangeBounds},
+    marker::PhantomData,
+    ops::{Deref, DerefMut, RangeBounds},
     path::Path,
     sync::Arc,
 };
@@ -247,9 +249,9 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
 
     /// Gets the value stored for `key`.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    pub fn get(&mut self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
+    pub fn get<'k>(&mut self, key: &'k [u8]) -> Result<Option<Buffer<'static>>, Error> {
         let mut buffer = None;
-        self.file.execute(DocumentReader {
+        self.file.execute(DocumentGetter {
             state: &self.state,
             vault: self.vault.as_deref(),
             cache: self.cache.as_ref(),
@@ -267,7 +269,7 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub fn get_multiple(&mut self, keys: &[&[u8]]) -> Result<Vec<Buffer<'static>>, Error> {
         let mut buffers = Vec::with_capacity(keys.len());
-        self.file.execute(DocumentReader {
+        self.file.execute(DocumentGetter {
             state: &self.state,
             vault: self.vault.as_deref(),
             cache: self.cache.as_ref(),
@@ -277,6 +279,28 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
                 Ok(())
             },
             key_evaluator: |_| KeyEvaluation::ReadData,
+        })?;
+        Ok(buffers)
+    }
+
+    /// Gets the value stored for `key`.
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
+    pub fn scan<'b, B: RangeBounds<Buffer<'b>> + Debug + 'static>(
+        &mut self,
+        range: B,
+    ) -> Result<Vec<Buffer<'static>>, Error> {
+        let mut buffers = Vec::new();
+        self.file.execute(DocumentScanner {
+            state: &self.state,
+            vault: self.vault.as_deref(),
+            cache: self.cache.as_ref(),
+            range,
+            key_reader: |_key, value| {
+                buffers.push(value);
+                Ok(())
+            },
+            key_evaluator: |_| KeyEvaluation::ReadData,
+            _phantom: PhantomData,
         })?;
         Ok(buffers)
     }
@@ -333,20 +357,6 @@ impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a
     }
 }
 
-struct DocumentReader<
-    'a,
-    E: FnMut(&Buffer<'static>) -> KeyEvaluation,
-    R: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
-    const MAX_ORDER: usize,
-> {
-    state: &'a State<MAX_ORDER>,
-    vault: Option<&'a dyn Vault>,
-    cache: Option<&'a ChunkCache>,
-    keys: KeyRange<'a>,
-    key_evaluator: E,
-    key_reader: R,
-}
-
 /// One or more keys.
 #[derive(Debug)]
 pub enum KeyRange<'a> {
@@ -356,14 +366,14 @@ pub enum KeyRange<'a> {
     Single(&'a [u8]),
     /// A list of keys.
     Multiple(&'a [&'a [u8]]),
-    // Range(Box<dyn LimitedRangeBounds<&'a [u8]>>),
 }
+
 impl<'a> KeyRange<'a> {
     fn current_key(&self) -> Option<&'a [u8]> {
         match self {
-            KeyRange::Empty => None,
             KeyRange::Single(key) => Some(*key),
             KeyRange::Multiple(keys) => keys.get(0).copied(),
+            KeyRange::Empty => None,
         }
     }
 }
@@ -392,34 +402,6 @@ impl<'a> Iterator for KeyRange<'a> {
     }
 }
 
-/// A trait that represents a `RangeBounds` but can be boxed.
-pub trait LimitedRangeBounds<T: ?Sized> {
-    /// Wrapper for `RangeBounds::start_bound()`.
-    fn start_bound(&self) -> Bound<&T>;
-    /// Wrapper for `RangeBounds::end_bound()`.
-    fn end_bound(&self) -> Bound<&T>;
-    /// Wrapper for `RangeBounds::contains()`.
-    fn contains(&self, other: &T) -> bool;
-}
-
-impl<R, T> LimitedRangeBounds<T> for R
-where
-    R: RangeBounds<T>,
-    T: PartialOrd<T>,
-{
-    fn start_bound(&self) -> Bound<&T> {
-        RangeBounds::start_bound(self)
-    }
-
-    fn end_bound(&self) -> Bound<&T> {
-        RangeBounds::end_bound(self)
-    }
-
-    fn contains(&self, other: &T) -> bool {
-        RangeBounds::contains(self, other)
-    }
-}
-
 /// The result of evaluating a key that was scanned.
 pub enum KeyEvaluation {
     /// Read the data for this key.
@@ -430,8 +412,23 @@ pub enum KeyEvaluation {
     Stop,
 }
 
-impl<'a, E, R, F: ManagedFile, const MAX_ORDER: usize> FileOp<F>
-    for DocumentReader<'a, E, R, MAX_ORDER>
+struct DocumentGetter<
+    'a,
+    'k,
+    E: FnMut(&Buffer<'static>) -> KeyEvaluation,
+    R: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+    const MAX_ORDER: usize,
+> {
+    state: &'a State<MAX_ORDER>,
+    vault: Option<&'a dyn Vault>,
+    cache: Option<&'a ChunkCache>,
+    keys: KeyRange<'k>,
+    key_evaluator: E,
+    key_reader: R,
+}
+
+impl<'a, 'k, E, R, F: ManagedFile, const MAX_ORDER: usize> FileOp<F>
+    for DocumentGetter<'a, 'k, E, R, MAX_ORDER>
 where
     E: FnMut(&Buffer<'static>) -> KeyEvaluation,
     R: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
@@ -439,8 +436,46 @@ where
     type Output = ();
     fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
         let state = self.state.read();
-        state.header.scan(
+        state.header.get_multiple(
             &mut self.keys,
+            &mut self.key_evaluator,
+            &mut self.key_reader,
+            file,
+            self.vault,
+            self.cache,
+        )
+    }
+}
+
+struct DocumentScanner<
+    'a,
+    'k,
+    E: FnMut(&Buffer<'static>) -> KeyEvaluation,
+    R: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+    KeyRangeBounds: RangeBounds<Buffer<'k>>,
+    const MAX_ORDER: usize,
+> {
+    state: &'a State<MAX_ORDER>,
+    vault: Option<&'a dyn Vault>,
+    cache: Option<&'a ChunkCache>,
+    range: KeyRangeBounds,
+    key_evaluator: E,
+    key_reader: R,
+    _phantom: PhantomData<&'k ()>,
+}
+
+impl<'a, 'k, E, R, KeyRangeBounds, F: ManagedFile, const MAX_ORDER: usize> FileOp<F>
+    for DocumentScanner<'a, 'k, E, R, KeyRangeBounds, MAX_ORDER>
+where
+    E: FnMut(&Buffer<'static>) -> KeyEvaluation,
+    R: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+    KeyRangeBounds: RangeBounds<Buffer<'k>> + Debug,
+{
+    type Output = ();
+    fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
+        let state = self.state.read();
+        state.header.scan(
+            &self.range,
             &mut self.key_evaluator,
             &mut self.key_reader,
             file,
@@ -732,7 +767,10 @@ mod tests {
 
     use super::*;
     use crate::{
-        managed_file::{fs::StdFileManager, memory::MemoryFile},
+        managed_file::{
+            fs::StdFileManager,
+            memory::{MemoryFile, MemoryFileManager},
+        },
         StdFile,
     };
 
@@ -906,7 +944,7 @@ mod tests {
 
     #[test]
     fn bulk_insert_tokio() {
-        bulk_insert::<StdFile>("tokio");
+        bulk_insert::<StdFile>("std");
     }
 
     fn bulk_insert<F: ManagedFile>(name: &str) {
@@ -950,5 +988,55 @@ mod tests {
                 assert_eq!(&*value.unwrap(), b"hello world");
             }
         }
+    }
+
+    #[test]
+    fn batch_get() {
+        let context = Context {
+            file_manager: MemoryFileManager::default(),
+            vault: None,
+            cache: None,
+        };
+        let state = State::default();
+        let file = context.file_manager.append("test").unwrap();
+        let mut tree = TreeFile::<MemoryFile, 3>::new(
+            file,
+            state,
+            context.vault.clone(),
+            context.cache.clone(),
+        )
+        .unwrap();
+        // Create enough records to go 4 levels deep.
+        let mut ids = Vec::new();
+        for id in 0..3_u32.pow(4) {
+            let id_buffer = Buffer::from(id.to_be_bytes().to_vec());
+            tree.push(0, id_buffer.clone(), id_buffer.clone()).unwrap();
+            ids.push(id_buffer);
+        }
+
+        // Get them all
+        let mut all_records = tree
+            .get_multiple(&ids.iter().map(Buffer::as_slice).collect::<Vec<_>>())
+            .unwrap();
+        // Order isn't guaranteeed.
+        all_records.sort();
+        assert_eq!(all_records, ids);
+
+        // Try some ranges
+        let mut unbounded_to_five = tree.scan(..ids[5].clone()).unwrap();
+        unbounded_to_five.sort();
+        assert_eq!(&all_records[..5], &unbounded_to_five);
+        let mut one_to_ten_unbounded = tree.scan(ids[1].clone()..ids[10].clone()).unwrap();
+        one_to_ten_unbounded.sort();
+        assert_eq!(&all_records[1..10], &one_to_ten_unbounded);
+        let mut bounded_upper = tree.scan(ids[3].clone()..=ids[50].clone()).unwrap();
+        bounded_upper.sort();
+        assert_eq!(&all_records[3..=50], &bounded_upper);
+        let mut unbounded_upper = tree.scan(ids[60].clone()..).unwrap();
+        unbounded_upper.sort();
+        assert_eq!(&all_records[60..], &unbounded_upper);
+        let mut all_through_scan = tree.scan(..).unwrap();
+        all_through_scan.sort();
+        assert_eq!(&all_records, &all_through_scan);
     }
 }
