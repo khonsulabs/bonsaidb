@@ -139,17 +139,32 @@ pub struct MemoryFileManager {
     open_files: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<MemoryFile>>>>>,
 }
 
-impl FileManager<MemoryFile> for MemoryFileManager {
-    type FileHandle = OpenMemoryFile;
-    fn append(&self, path: impl AsRef<Path> + Send) -> Result<Self::FileHandle, Error> {
+impl MemoryFileManager {
+    fn lookup_file(
+        &self,
+        path: impl AsRef<Path>,
+        create_if_needed: bool,
+    ) -> Result<Option<Arc<Mutex<MemoryFile>>>, Error> {
         let mut open_files = self.open_files.lock();
         if let Some(open_file) = open_files.get(path.as_ref()) {
-            Ok(OpenMemoryFile(open_file.clone()))
-        } else {
+            Ok(Some(open_file.clone()))
+        } else if create_if_needed {
             let file = Arc::new(Mutex::new(MemoryFile::open_for_append(path.as_ref())?));
             open_files.insert(path.as_ref().to_path_buf(), file.clone());
-            Ok(OpenMemoryFile(file))
+            Ok(Some(file))
+        } else {
+            Ok(None)
         }
+    }
+}
+
+impl FileManager for MemoryFileManager {
+    type File = MemoryFile;
+    type FileHandle = OpenMemoryFile;
+
+    fn append(&self, path: impl AsRef<Path> + Send) -> Result<Self::FileHandle, Error> {
+        self.lookup_file(path, true)
+            .map(|file| OpenMemoryFile(file.unwrap()))
     }
 
     fn read(&self, path: impl AsRef<Path> + Send) -> Result<Self::FileHandle, Error> {
@@ -157,17 +172,21 @@ impl FileManager<MemoryFile> for MemoryFileManager {
     }
 
     fn file_length(&self, path: impl AsRef<Path> + Send) -> Result<u64, Error> {
-        let buffer = lookup_buffer(path, false).ok_or_else(|| {
+        let file = self.lookup_file(path, false)?.ok_or_else(|| {
             Error::Io(io::Error::new(
                 io::ErrorKind::NotFound,
                 Error::message("not found"),
             ))
         })?;
-        let buffer = buffer.read();
+        let file = file.lock();
+        let buffer = file.buffer.read();
         Ok(buffer.len() as u64)
     }
+
+    fn exists(&self, path: impl AsRef<Path> + Send) -> Result<bool, Error> {
+        Ok(self.lookup_file(path, false)?.is_some())
+    }
 }
-// TODO async file manager: For uring, does nothing. For tokio, manages access to open files.
 
 pub struct OpenMemoryFile(Arc<Mutex<MemoryFile>>);
 

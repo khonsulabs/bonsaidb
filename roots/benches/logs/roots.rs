@@ -129,7 +129,7 @@ impl<F: ManagedFile> SimpleBench for ReadLogs<F> {
         let file_path = group_state.path().join("tree");
         let file = context.file_manager.append(&file_path).unwrap();
         let state = State::default();
-        TreeFile::<F, 50>::initialize_state(&state, &file_path, &context).unwrap();
+        TreeFile::<F, 50>::initialize_state(&state, &file_path, &context, None).unwrap();
         let tree =
             TreeFile::<F, 50>::new(file, state, context.vault.clone(), context.cache.clone())
                 .unwrap();
@@ -142,7 +142,7 @@ impl<F: ManagedFile> SimpleBench for ReadLogs<F> {
             let entry = self.state.next().unwrap();
             let bytes = self
                 .tree
-                .get(&entry.id.to_be_bytes())?
+                .get(&entry.id.to_be_bytes(), false)?
                 .expect("value not found");
             let decoded = pot::from_slice::<LogEntry>(&bytes)?;
             assert_eq!(&decoded, &entry);
@@ -152,7 +152,7 @@ impl<F: ManagedFile> SimpleBench for ReadLogs<F> {
                 .collect::<Vec<_>>();
             entry_key_bytes.sort_unstable();
             let entry_keys = entry_key_bytes.iter().map(|k| &k[..]).collect::<Vec<_>>();
-            let buffers = self.tree.get_multiple(&entry_keys)?;
+            let buffers = self.tree.get_multiple(&entry_keys, false)?;
             assert_eq!(buffers.len(), config.get_count);
         }
         Ok(())

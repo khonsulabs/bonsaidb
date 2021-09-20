@@ -17,7 +17,7 @@ pub mod memory;
 /// of tokio-uring.
 pub trait ManagedFile: Seek + Read + Write + Sized + 'static {
     /// The file manager that synchronizes file access across threads.
-    type Manager: FileManager<Self>;
+    type Manager: FileManager<File = Self>;
 
     /// Returns a shared reference to the path for the file.
     fn path(&self) -> Arc<PathBuf>;
@@ -32,9 +32,10 @@ pub trait ManagedFile: Seek + Read + Write + Sized + 'static {
 }
 
 /// A manager that is responsible for controlling write access to a file.
-pub trait FileManager<F: ManagedFile>: Send + Sync + Clone + Default {
+pub trait FileManager: Send + Sync + Clone + Default + 'static {
+    type File: ManagedFile<Manager = Self>;
     /// A file handle type, which can have operations executed against it.
-    type FileHandle: OpenableFile<F>;
+    type FileHandle: OpenableFile<Self::File>;
 
     /// Returns a file handle that can be used for reading operations.
     fn read(&self, path: impl AsRef<Path> + Send) -> Result<Self::FileHandle, Error>;
@@ -48,6 +49,11 @@ pub trait FileManager<F: ManagedFile>: Send + Sync + Clone + Default {
             .metadata()
             .map_err(Error::from)
             .map(|metadata| metadata.len())
+    }
+
+    /// Check if the file exists.
+    fn exists(&self, path: impl AsRef<Path> + Send) -> Result<bool, Error> {
+        Ok(path.as_ref().exists())
     }
 }
 

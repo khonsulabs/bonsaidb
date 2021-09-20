@@ -26,10 +26,9 @@ pub struct Roots<F: ManagedFile> {
 
 struct Data<F: ManagedFile> {
     context: Context<F::Manager>,
-    transactions: TransactionManager,
+    transactions: TransactionManager<F::Manager>,
     path: PathBuf,
     tree_states: Mutex<HashMap<String, State<MAX_ORDER>>>,
-    _file: PhantomData<F>,
 }
 
 impl<F: ManagedFile> Roots<F> {
@@ -44,14 +43,13 @@ impl<F: ManagedFile> Roots<F> {
             )));
         }
 
-        let transactions = TransactionManager::spawn::<F>(&path, context.clone())?;
+        let transactions = TransactionManager::spawn(&path, context.clone())?;
         Ok(Self {
             data: Arc::new(Data {
                 context,
                 path,
                 transactions,
                 tree_states: Mutex::default(),
-                _file: PhantomData,
             }),
         })
     }
@@ -66,6 +64,12 @@ impl<F: ManagedFile> Roots<F> {
     #[must_use]
     pub fn context(&self) -> &Context<F::Manager> {
         &self.data.context
+    }
+
+    /// Returns the transaction manager for this database.
+    #[must_use]
+    pub fn transactions(&self) -> &TransactionManager<F::Manager> {
+        &self.data.transactions
     }
 
     /// Opens a tree named `name`.
@@ -118,7 +122,12 @@ impl<F: ManagedFile> Roots<F> {
             .iter()
             .zip(states.into_iter())
             .map(|(tree, state)| {
-                let tree = TreeFile::write(self.path().join(tree), state, self.context())?;
+                let tree = TreeFile::write(
+                    self.path().join(tree),
+                    state,
+                    self.context(),
+                    Some(&self.data.transactions),
+                )?;
 
                 Ok(TransactionTree {
                     tree,
@@ -144,7 +153,7 @@ impl<M: ManagedFile> Clone for Roots<M> {
 
 #[must_use]
 pub struct ExecutingTransaction<F: ManagedFile> {
-    transaction_manager: TransactionManager,
+    transaction_manager: TransactionManager<F::Manager>,
     transaction: Option<TransactionHandle>,
     trees: Vec<TransactionTree<F>>,
 }
@@ -205,18 +214,18 @@ impl<F: ManagedFile> TransactionTree<F> {
     }
 
     pub fn get(&mut self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
-        self.tree.get(key)
+        self.tree.get(key, true)
     }
 
     pub fn get_multiple(&mut self, keys: &[&[u8]]) -> Result<Vec<Buffer<'static>>, Error> {
-        self.tree.get_multiple(keys)
+        self.tree.get_multiple(keys, true)
     }
 
     pub fn scan<'b, B: RangeBounds<Buffer<'b>> + std::fmt::Debug + 'static>(
         &mut self,
         range: B,
     ) -> Result<Vec<Buffer<'static>>, Error> {
-        self.tree.scan(range)
+        self.tree.scan(range, true)
     }
 }
 
@@ -278,18 +287,9 @@ impl<F: ManagedFile> Tree<F> {
         key: impl Into<Buffer<'static>>,
         value: impl Into<Buffer<'static>>,
     ) -> Result<(), Error> {
-        let mut tree = TreeFile::<F, MAX_ORDER>::write(
-            self.roots.path().join(self.name.as_ref()),
-            self.state.clone(),
-            self.roots.context(),
-        )?;
-
-        tree.modify(Modification {
-            transaction_id: 0,
-            keys: vec![key.into()],
-            operation: Operation::Set(value.into()),
-        })
-        .map(|_| {})
+        let mut transaction = self.roots.transaction(&[self.name.as_ref()])?;
+        transaction.tree(0).unwrap().set(key, value)?;
+        transaction.commit()
     }
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
@@ -297,9 +297,10 @@ impl<F: ManagedFile> Tree<F> {
             self.roots.path().join(self.name.as_ref()),
             self.state.clone(),
             self.roots.context(),
+            Some(self.roots.transactions()),
         )?;
 
-        tree.get(key)
+        tree.get(key, false)
     }
 
     pub fn get_multiple(&self, keys: &[&[u8]]) -> Result<Vec<Buffer<'static>>, Error> {
@@ -307,9 +308,10 @@ impl<F: ManagedFile> Tree<F> {
             self.roots.path().join(self.name.as_ref()),
             self.state.clone(),
             self.roots.context(),
+            Some(self.roots.transactions()),
         )?;
 
-        tree.get_multiple(keys)
+        tree.get_multiple(keys, false)
     }
 
     pub fn scan<'b, B: RangeBounds<Buffer<'b>> + std::fmt::Debug + 'static>(
@@ -320,9 +322,10 @@ impl<F: ManagedFile> Tree<F> {
             self.roots.path().join(self.name.as_ref()),
             self.state.clone(),
             self.roots.context(),
+            Some(self.roots.transactions()),
         )?;
 
-        tree.scan(range)
+        tree.scan(range, false)
     }
 }
 

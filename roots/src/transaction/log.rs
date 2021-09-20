@@ -27,7 +27,7 @@ const PAGE_SIZE: usize = 1024;
 pub struct TransactionLog<F: ManagedFile> {
     vault: Option<Arc<dyn Vault>>,
     state: State,
-    log: <F::Manager as FileManager<F>>::FileHandle,
+    log: <F::Manager as FileManager>::FileHandle,
 }
 
 impl<F: ManagedFile> TransactionLog<F> {
@@ -53,13 +53,9 @@ impl<F: ManagedFile> TransactionLog<F> {
 
     /// Initializes `state` to contain the information about the transaction log
     /// located at `log_path`.
-    pub fn initialize_state(
-        state: &State,
-        log_path: &Path,
-        context: &Context<F::Manager>,
-    ) -> Result<(), Error> {
-        let mut log_length = if log_path.exists() {
-            context.file_manager.file_length(log_path)?
+    pub fn initialize_state(state: &State, context: &Context<F::Manager>) -> Result<(), Error> {
+        let mut log_length = if context.file_manager.exists(state.path())? {
+            context.file_manager.file_length(state.path())?
         } else {
             0
         };
@@ -78,13 +74,13 @@ impl<F: ManagedFile> TransactionLog<F> {
             let file = OpenOptions::new()
                 .append(true)
                 .write(true)
-                .open(&log_path)?;
+                .open(state.path())?;
             log_length -= excess_length;
             file.set_len(log_length)?;
             file.sync_all()?;
         }
 
-        let mut file = context.file_manager.read(log_path)?;
+        let mut file = context.file_manager.read(state.path())?;
         file.execute(StateInitializer {
             state,
             log_length,
@@ -111,7 +107,6 @@ impl<F: ManagedFile> TransactionLog<F> {
             id,
             state: &self.state,
             vault: self.vault.as_deref(),
-            _file: PhantomData,
         })
     }
 
@@ -212,14 +207,13 @@ fn scan_for_transaction<F: ManagedFile>(
     })
 }
 
-struct EntryFetcher<'a, F> {
-    state: &'a State,
-    id: u64,
-    vault: Option<&'a dyn Vault>,
-    _file: PhantomData<F>,
+pub struct EntryFetcher<'a> {
+    pub state: &'a State,
+    pub id: u64,
+    pub vault: Option<&'a dyn Vault>,
 }
 
-impl<'a, F: ManagedFile> FileOp<F> for EntryFetcher<'a, F> {
+impl<'a, F: ManagedFile> FileOp<F> for EntryFetcher<'a> {
     type Output = Option<LogEntry<'static>>;
     fn execute(&mut self, log: &mut F) -> Result<Option<LogEntry<'static>>, Error> {
         let mut upper_id = self.state.current_transaction_id();
@@ -245,7 +239,7 @@ impl<'a, F: ManagedFile> FileOp<F> for EntryFetcher<'a, F> {
                 self.vault,
             )?;
             if let Some(transaction) = transaction {
-                // TODO note that this transaction ID is valid in the cache.
+                self.state.note_transaction_id_status(transaction.id, true);
                 match transaction.id.cmp(&self.id) {
                     Ordering::Less => {
                         lower_id = Some(transaction.id);
@@ -599,8 +593,8 @@ mod tests {
         };
 
         for id in 1..=1_000 {
-            let state = State::default();
-            TransactionLog::<F>::initialize_state(&state, &log_path, &context).unwrap();
+            let state = State::from_path(&log_path);
+            TransactionLog::<F>::initialize_state(&state, &context).unwrap();
             let mut transactions =
                 TransactionLog::<F>::open(&log_path, state, context.clone()).unwrap();
             assert_eq!(transactions.current_transaction_id(), id);
@@ -620,8 +614,8 @@ mod tests {
 
         if context.vault.is_some() {
             // Test that we can't open it without encryption
-            let state = State::default();
-            assert!(TransactionLog::<F>::initialize_state(&state, &temp_dir, &context).is_err());
+            let state = State::from_path(&temp_dir);
+            assert!(TransactionLog::<F>::initialize_state(&state, &context).is_err());
             let mut transactions = TransactionLog::<F>::open(&log_path, state, context).unwrap();
 
             for id in 0..1_000 {
@@ -648,8 +642,8 @@ mod tests {
         let log_path = temp_dir.path().join("transactions");
         let mut rng = Pcg64::new_seed(1);
 
-        let state = State::default();
-        TransactionLog::<StdFile>::initialize_state(&state, &log_path, &context).unwrap();
+        let state = State::from_path(&log_path);
+        TransactionLog::<StdFile>::initialize_state(&state, &context).unwrap();
         let mut transactions = TransactionLog::<StdFile>::open(&log_path, state, context).unwrap();
 
         let mut valid_ids = Vec::new();
@@ -707,7 +701,7 @@ mod tests {
             vault,
             cache,
         };
-        let manager = TransactionManager::spawn::<F>(&temp_dir, context).unwrap();
+        let manager = TransactionManager::spawn(&temp_dir, context).unwrap();
         let mut handles = Vec::new();
         for _ in 0..10 {
             let manager = manager.clone();
@@ -732,6 +726,5 @@ mod tests {
         }
 
         assert_eq!(manager.current_transaction_id(), 10_001);
-        // TODO test scanning the file
     }
 }

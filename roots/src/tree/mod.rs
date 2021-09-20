@@ -55,7 +55,7 @@ use crate::{
     chunk_cache::CacheEntry,
     managed_file::{FileManager, FileOp, ManagedFile, OpenableFile},
     tree::btree_root::BTreeRoot,
-    Buffer, ChunkCache, Context, Error, Vault,
+    Buffer, ChunkCache, Context, Error, TransactionManager, Vault,
 };
 
 mod btree_entry;
@@ -115,7 +115,7 @@ impl TryFrom<u8> for PageHeader {
 ///   limit. Changing this parameter does not automatically rebalance the tree,
 ///   but over time the tree will be updated.
 pub struct TreeFile<F: ManagedFile, const MAX_ORDER: usize> {
-    file: <F::Manager as FileManager<F>>::FileHandle,
+    file: <F::Manager as FileManager>::FileHandle,
     /// The state of the file.
     pub state: State<MAX_ORDER>,
     vault: Option<Arc<dyn Vault>>,
@@ -127,7 +127,7 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     ///
     /// `state` should already be initialized using [`Self::initialize_state`] if the file exists.
     pub fn new(
-        file: <F::Manager as FileManager<F>>::FileHandle,
+        file: <F::Manager as FileManager>::FileHandle,
         state: State<MAX_ORDER>,
         vault: Option<Arc<dyn Vault>>,
         cache: Option<ChunkCache>,
@@ -145,9 +145,10 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         path: impl AsRef<Path>,
         state: State<MAX_ORDER>,
         context: &Context<F::Manager>,
+        transactions: Option<&TransactionManager<F::Manager>>,
     ) -> Result<Self, Error> {
         let file = context.file_manager.read(path.as_ref())?;
-        Self::initialize_state(&state, path.as_ref(), context)?;
+        Self::initialize_state(&state, path.as_ref(), context, transactions)?;
         Self::new(file, state, context.vault.clone(), context.cache.clone())
     }
 
@@ -156,9 +157,10 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         path: impl AsRef<Path>,
         state: State<MAX_ORDER>,
         context: &Context<F::Manager>,
+        transactions: Option<&TransactionManager<F::Manager>>,
     ) -> Result<Self, Error> {
         let file = context.file_manager.append(path.as_ref())?;
-        Self::initialize_state(&state, path.as_ref(), context)?;
+        Self::initialize_state(&state, path.as_ref(), context, transactions)?;
         Self::new(file, state, context.vault.clone(), context.cache.clone())
     }
 
@@ -167,6 +169,7 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         state: &State<MAX_ORDER>,
         file_path: &Path,
         context: &Context<F::Manager>,
+        transaction_manager: Option<&TransactionManager<F::Manager>>,
     ) -> Result<(), Error> {
         let mut active_state = state.lock();
         if active_state.initialized() {
@@ -229,7 +232,13 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
                     };
                     let root = BTreeRoot::deserialize(contents)
                         .map_err(|err| Error::DataIntegrity(Box::new(err)))?;
-                    // TODO validate transaction id
+                    if let Some(transaction_manager) = transaction_manager {
+                        if !transaction_manager.transaction_was_successful(root.transaction_id)? {
+                            // The transaction wasn't written successfully, so
+                            // we cannot trust the data present.
+                            continue;
+                        }
+                    }
                     break root;
                 }
             }
@@ -274,9 +283,14 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
 
     /// Gets the value stored for `key`.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    pub fn get<'k>(&mut self, key: &'k [u8]) -> Result<Option<Buffer<'static>>, Error> {
+    pub fn get<'k>(
+        &mut self,
+        key: &'k [u8],
+        in_transaction: bool,
+    ) -> Result<Option<Buffer<'static>>, Error> {
         let mut buffer = None;
         self.file.execute(DocumentGetter {
+            from_transaction: in_transaction,
             state: &self.state,
             vault: self.vault.as_deref(),
             cache: self.cache.as_ref(),
@@ -292,9 +306,14 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
 
     /// Gets the value stored for `key`.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    pub fn get_multiple(&mut self, keys: &[&[u8]]) -> Result<Vec<Buffer<'static>>, Error> {
+    pub fn get_multiple(
+        &mut self,
+        keys: &[&[u8]],
+        in_transaction: bool,
+    ) -> Result<Vec<Buffer<'static>>, Error> {
         let mut buffers = Vec::with_capacity(keys.len());
         self.file.execute(DocumentGetter {
+            from_transaction: in_transaction,
             state: &self.state,
             vault: self.vault.as_deref(),
             cache: self.cache.as_ref(),
@@ -313,9 +332,11 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     pub fn scan<'b, B: RangeBounds<Buffer<'b>> + Debug + 'static>(
         &mut self,
         range: B,
+        in_transaction: bool,
     ) -> Result<Vec<Buffer<'static>>, Error> {
         let mut buffers = Vec::new();
         self.file.execute(DocumentScanner {
+            from_transaction: in_transaction,
             state: &self.state,
             vault: self.vault.as_deref(),
             cache: self.cache.as_ref(),
@@ -446,6 +467,7 @@ struct DocumentGetter<
     R: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
     const MAX_ORDER: usize,
 > {
+    from_transaction: bool,
     state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
     cache: Option<&'a ChunkCache>,
@@ -462,15 +484,27 @@ where
 {
     type Output = ();
     fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
-        let state = self.state.read();
-        state.header.get_multiple(
-            &mut self.keys,
-            &mut self.key_evaluator,
-            &mut self.key_reader,
-            file,
-            self.vault,
-            self.cache,
-        )
+        if self.from_transaction {
+            let state = self.state.lock();
+            state.header.get_multiple(
+                &mut self.keys,
+                &mut self.key_evaluator,
+                &mut self.key_reader,
+                file,
+                self.vault,
+                self.cache,
+            )
+        } else {
+            let state = self.state.read();
+            state.header.get_multiple(
+                &mut self.keys,
+                &mut self.key_evaluator,
+                &mut self.key_reader,
+                file,
+                self.vault,
+                self.cache,
+            )
+        }
     }
 }
 
@@ -482,6 +516,7 @@ struct DocumentScanner<
     KeyRangeBounds: RangeBounds<Buffer<'k>>,
     const MAX_ORDER: usize,
 > {
+    from_transaction: bool,
     state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
     cache: Option<&'a ChunkCache>,
@@ -500,15 +535,27 @@ where
 {
     type Output = ();
     fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
-        let state = self.state.read();
-        state.header.scan(
-            &self.range,
-            &mut self.key_evaluator,
-            &mut self.key_reader,
-            file,
-            self.vault,
-            self.cache,
-        )
+        if self.from_transaction {
+            let state = self.state.lock();
+            state.header.scan(
+                &self.range,
+                &mut self.key_evaluator,
+                &mut self.key_reader,
+                file,
+                self.vault,
+                self.cache,
+            )
+        } else {
+            let state = self.state.read();
+            state.header.scan(
+                &self.range,
+                &mut self.key_evaluator,
+                &mut self.key_reader,
+                file,
+                self.vault,
+                self.cache,
+            )
+        }
     }
 }
 
@@ -867,7 +914,8 @@ mod tests {
         {
             let state = State::default();
             if ids.len() > 1 {
-                TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context).unwrap();
+                TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context, None)
+                    .unwrap();
             }
             let file = context.file_manager.append(file_path).unwrap();
             let mut tree = TreeFile::<F, MAX_ORDER>::new(
@@ -881,14 +929,14 @@ mod tests {
                 .unwrap();
 
             // This shouldn't have to scan the file, as the data fits in memory.
-            let value = tree.get(&id_buffer).unwrap();
+            let value = tree.get(&id_buffer, false).unwrap();
             assert_eq!(&*value.unwrap(), b"hello world");
         }
 
         // Try loading the file up and retrieving the data.
         {
             let state = State::default();
-            TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context).unwrap();
+            TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context, None).unwrap();
 
             let file = context.file_manager.append(file_path).unwrap();
             let mut tree = TreeFile::<F, MAX_ORDER>::new(
@@ -898,7 +946,7 @@ mod tests {
                 context.cache.clone(),
             )
             .unwrap();
-            let value = tree.get(&id_buffer).unwrap();
+            let value = tree.get(&id_buffer, false).unwrap();
             assert_eq!(&*value.unwrap(), b"hello world");
         }
     }
@@ -1011,7 +1059,7 @@ mod tests {
             for _ in 0..5 {
                 let index = rng.generate_range(0..ids.len());
                 let id = Buffer::from(ids[index].to_be_bytes().to_vec());
-                let value = tree.get(&id).unwrap();
+                let value = tree.get(&id, false).unwrap();
                 assert_eq!(&*value.unwrap(), b"hello world");
             }
         }
@@ -1043,26 +1091,26 @@ mod tests {
 
         // Get them all
         let mut all_records = tree
-            .get_multiple(&ids.iter().map(Buffer::as_slice).collect::<Vec<_>>())
+            .get_multiple(&ids.iter().map(Buffer::as_slice).collect::<Vec<_>>(), false)
             .unwrap();
         // Order isn't guaranteeed.
         all_records.sort();
         assert_eq!(all_records, ids);
 
         // Try some ranges
-        let mut unbounded_to_five = tree.scan(..ids[5].clone()).unwrap();
+        let mut unbounded_to_five = tree.scan(..ids[5].clone(), false).unwrap();
         unbounded_to_five.sort();
         assert_eq!(&all_records[..5], &unbounded_to_five);
-        let mut one_to_ten_unbounded = tree.scan(ids[1].clone()..ids[10].clone()).unwrap();
+        let mut one_to_ten_unbounded = tree.scan(ids[1].clone()..ids[10].clone(), false).unwrap();
         one_to_ten_unbounded.sort();
         assert_eq!(&all_records[1..10], &one_to_ten_unbounded);
-        let mut bounded_upper = tree.scan(ids[3].clone()..=ids[50].clone()).unwrap();
+        let mut bounded_upper = tree.scan(ids[3].clone()..=ids[50].clone(), false).unwrap();
         bounded_upper.sort();
         assert_eq!(&all_records[3..=50], &bounded_upper);
-        let mut unbounded_upper = tree.scan(ids[60].clone()..).unwrap();
+        let mut unbounded_upper = tree.scan(ids[60].clone().., false).unwrap();
         unbounded_upper.sort();
         assert_eq!(&all_records[60..], &unbounded_upper);
-        let mut all_through_scan = tree.scan(..).unwrap();
+        let mut all_through_scan = tree.scan(.., false).unwrap();
         all_through_scan.sort();
         assert_eq!(&all_records, &all_through_scan);
     }

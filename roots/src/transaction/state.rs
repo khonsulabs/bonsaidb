@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -21,25 +22,21 @@ pub struct State {
 
 #[derive(Debug)]
 struct ActiveState {
+    path: PathBuf,
     current_transaction_id: AtomicU64,
     tree_locks: Mutex<HashMap<Cow<'static, [u8]>, TreeLock>>,
     log_position: Mutex<u64>,
     known_completed_transactions: Mutex<LruCache<u64, bool>>,
 }
 
-impl Default for State {
-    fn default() -> Self {
-        Self::new(UNINITIALIZED_ID, 0)
-    }
-}
-
 impl State {
-    fn new(current_transaction_id: u64, log_position: u64) -> Self {
+    pub fn from_path(path: impl AsRef<Path>) -> Self {
         Self {
             state: Arc::new(ActiveState {
+                path: path.as_ref().to_path_buf(),
                 tree_locks: Mutex::default(),
-                current_transaction_id: AtomicU64::new(current_transaction_id),
-                log_position: Mutex::new(log_position),
+                current_transaction_id: AtomicU64::new(UNINITIALIZED_ID),
+                log_position: Mutex::new(0),
                 known_completed_transactions: Mutex::new(LruCache::new(1024)),
             }),
         }
@@ -61,6 +58,10 @@ impl State {
 
     pub fn current_transaction_id(&self) -> u64 {
         self.state.current_transaction_id.load(Ordering::SeqCst)
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.state.path
     }
 
     pub fn len(&self) -> u64 {
@@ -96,6 +97,16 @@ impl State {
                 changes: TransactionChanges::default(),
             },
         }
+    }
+
+    pub(crate) fn note_transaction_id_status(&self, transaction_id: u64, completed: bool) {
+        let mut cache = self.state.known_completed_transactions.lock();
+        cache.put(transaction_id, completed);
+    }
+
+    pub(crate) fn transaction_id_is_valid(&self, transaction_id: u64) -> Option<bool> {
+        let mut cache = self.state.known_completed_transactions.lock();
+        cache.get(&transaction_id).copied()
     }
 }
 

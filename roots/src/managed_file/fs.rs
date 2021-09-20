@@ -81,7 +81,8 @@ pub struct StdFileManager {
     open_files: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<StdFile>>>>>,
 }
 
-impl FileManager<StdFile> for StdFileManager {
+impl FileManager for StdFileManager {
+    type File = StdFile;
     type FileHandle = OpenStdFile;
     fn append(&self, path: impl AsRef<Path> + Send) -> Result<Self::FileHandle, Error> {
         let mut open_files = self.open_files.lock();

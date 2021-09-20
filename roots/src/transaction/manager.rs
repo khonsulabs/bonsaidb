@@ -9,31 +9,39 @@ use std::{
 
 use parking_lot::Mutex;
 
-use super::{LogEntry, State, TransactionLog};
-use crate::{error::InternalError, managed_file::ManagedFile, Context, Error};
+use super::{EntryFetcher, LogEntry, State, TransactionLog};
+use crate::{
+    error::InternalError,
+    managed_file::{ManagedFile, OpenableFile},
+    Context, Error, FileManager,
+};
 
 /// A shared [`TransactionLog`] manager. Allows multiple threads to interact with a single transaction log.
 #[derive(Clone)]
-pub struct TransactionManager {
+pub struct TransactionManager<M: FileManager> {
     state: State,
     transaction_sender: flume::Sender<(TransactionHandle, flume::Sender<()>)>,
+    context: Context<M>,
 }
 
-impl TransactionManager {
+impl<M: FileManager> TransactionManager<M> {
     /// Spawns a new transaction manager. The transaction manager runs its own
     /// thread that writes to the transaction log.
-    pub fn spawn<F: ManagedFile>(
-        directory: &Path,
-        context: Context<F::Manager>,
-    ) -> Result<Self, Error> {
+    pub fn spawn(directory: &Path, context: Context<M>) -> Result<Self, Error> {
         let (transaction_sender, receiver) = flume::bounded(32);
         let log_path = Self::log_path(directory);
 
         let (state_sender, state_receiver) = flume::bounded(1);
+        let thread_context = context.clone();
         std::thread::Builder::new()
             .name(String::from("bonsaidb-txlog"))
             .spawn(move || {
-                transaction_writer_thread::<F>(state_sender, log_path, receiver, context);
+                transaction_writer_thread::<M::File>(
+                    state_sender,
+                    log_path,
+                    receiver,
+                    thread_context,
+                );
             })
             .map_err(Error::message)?;
 
@@ -41,6 +49,7 @@ impl TransactionManager {
         Ok(Self {
             state,
             transaction_sender,
+            context,
         })
     }
 
@@ -56,6 +65,20 @@ impl TransactionManager {
             .map_err(|_| Error::Internal(InternalError::TransactionManagerStopped))
     }
 
+    pub fn transaction_was_successful(&self, transaction_id: u64) -> Result<bool, Error> {
+        if let Some(success) = self.state.transaction_id_is_valid(transaction_id) {
+            Ok(success)
+        } else {
+            let mut log = self.context.file_manager.read(self.state.path())?;
+            let transaction = log.execute(EntryFetcher {
+                state: self.state(),
+                id: transaction_id,
+                vault: self.context.vault(),
+            })?;
+            Ok(transaction.is_some())
+        }
+    }
+
     fn log_path(directory: &Path) -> PathBuf {
         directory.join("transactions")
     }
@@ -67,7 +90,7 @@ impl TransactionManager {
     }
 }
 
-impl Deref for TransactionManager {
+impl<M: FileManager> Deref for TransactionManager<M> {
     type Target = State;
 
     fn deref(&self) -> &Self::Target {
@@ -85,8 +108,8 @@ fn transaction_writer_thread<F: ManagedFile>(
 ) {
     const BATCH: usize = 16;
 
-    let state = State::default();
-    if let Err(err) = TransactionLog::<F>::initialize_state(&state, &log_path, &context) {
+    let state = State::from_path(&log_path);
+    if let Err(err) = TransactionLog::<F>::initialize_state(&state, &context) {
         drop(state_sender.send(Err(err)));
         return;
     }
