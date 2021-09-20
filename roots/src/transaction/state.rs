@@ -63,6 +63,11 @@ impl State {
         self.state.current_transaction_id.load(Ordering::SeqCst)
     }
 
+    pub fn len(&self) -> u64 {
+        let position = self.state.log_position.lock();
+        *position
+    }
+
     fn fetch_tree_locks<'a>(&'a self, trees: &'a [&[u8]], locks: &mut TreeLocks) {
         let mut tree_locks = self.state.tree_locks.lock();
         for tree in trees {
