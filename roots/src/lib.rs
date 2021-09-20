@@ -20,7 +20,7 @@
 #[macro_use]
 mod managed_file;
 mod error;
-// mod roots;
+mod roots;
 mod transaction;
 pub mod tree;
 mod vault;
@@ -37,6 +37,7 @@ pub use self::{
     context::Context,
     error::Error,
     managed_file::{fs::StdFile, FileManager, ManagedFile},
+    roots::{Config, Roots},
     transaction::{TransactionLog, TransactionManager},
     vault::Vault,
 };

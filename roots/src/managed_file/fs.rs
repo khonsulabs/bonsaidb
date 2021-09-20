@@ -95,7 +95,10 @@ impl FileManager<StdFile> for StdFileManager {
     }
 
     fn read(&self, path: impl AsRef<Path> + Send) -> Result<Self::FileHandle, Error> {
-        // Readers we don't cache
+        // TODO we should come up with a way to cache open files. We want to
+        // support more than one open reader for a file at any given time, but
+        // we should be able to limit the number of open files. A time+capacity
+        // based Lru cache might work.
         let file = Arc::new(Mutex::new(StdFile::open_for_read(path)?));
         Ok(OpenStdFile(file))
     }

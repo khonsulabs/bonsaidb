@@ -7,6 +7,7 @@ use std::{
     },
 };
 
+use lru::LruCache;
 use parking_lot::{Mutex, MutexGuard};
 
 use super::{LogEntry, TransactionChanges, TransactionHandle, TreeLock, TreeLocks};
@@ -23,6 +24,7 @@ struct ActiveState {
     current_transaction_id: AtomicU64,
     tree_locks: Mutex<HashMap<Cow<'static, [u8]>, TreeLock>>,
     log_position: Mutex<u64>,
+    known_completed_transactions: Mutex<LruCache<u64, bool>>,
 }
 
 impl Default for State {
@@ -38,6 +40,7 @@ impl State {
                 tree_locks: Mutex::default(),
                 current_transaction_id: AtomicU64::new(current_transaction_id),
                 log_position: Mutex::new(log_position),
+                known_completed_transactions: Mutex::new(LruCache::new(1024)),
             }),
         }
     }

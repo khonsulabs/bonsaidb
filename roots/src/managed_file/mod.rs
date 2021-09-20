@@ -15,7 +15,7 @@ pub mod memory;
 /// for a non-uring implementation to be provided as well. This is why the
 /// read/write APIs take ownership of the buffer -- to satisfy the requirements
 /// of tokio-uring.
-pub trait ManagedFile: Seek + Read + Write + Sized {
+pub trait ManagedFile: Seek + Read + Write + Sized + 'static {
     /// The file manager that synchronizes file access across threads.
     type Manager: FileManager<Self>;
 

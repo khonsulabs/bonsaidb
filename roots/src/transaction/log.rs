@@ -57,9 +57,14 @@ impl<F: ManagedFile> TransactionLog<F> {
         log_path: &Path,
         context: &Context<F::Manager>,
     ) -> Result<(), Error> {
-        let mut log_length = context.file_manager.file_length(log_path)?;
+        let mut log_length = if log_path.exists() {
+            context.file_manager.file_length(log_path)?
+        } else {
+            0
+        };
         if log_length == 0 {
-            return Err(Error::message("empty transaction log"));
+            state.initialize(1, 0);
+            return Ok(());
         }
 
         let excess_length = log_length % PAGE_SIZE as u64;
@@ -479,7 +484,7 @@ mod tests {
         log_manager_tests::<MemoryFile>("memory_log_manager", None, None);
     }
 
-    fn log_manager_tests<F: ManagedFile + 'static>(
+    fn log_manager_tests<F: ManagedFile>(
         file_name: &str,
         vault: Option<Arc<dyn Vault>>,
         cache: Option<ChunkCache>,

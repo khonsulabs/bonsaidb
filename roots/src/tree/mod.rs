@@ -116,7 +116,8 @@ impl TryFrom<u8> for PageHeader {
 ///   but over time the tree will be updated.
 pub struct TreeFile<F: ManagedFile, const MAX_ORDER: usize> {
     file: <F::Manager as FileManager<F>>::FileHandle,
-    state: State<MAX_ORDER>,
+    /// The state of the file.
+    pub state: State<MAX_ORDER>,
     vault: Option<Arc<dyn Vault>>,
     cache: Option<ChunkCache>,
 }
@@ -139,6 +140,28 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         })
     }
 
+    /// Opens a tree file with read-only permissions.
+    pub fn read(
+        path: impl AsRef<Path>,
+        state: State<MAX_ORDER>,
+        context: &Context<F::Manager>,
+    ) -> Result<Self, Error> {
+        let file = context.file_manager.read(path.as_ref())?;
+        Self::initialize_state(&state, path.as_ref(), context)?;
+        Self::new(file, state, context.vault.clone(), context.cache.clone())
+    }
+
+    /// Opens a tree file with the ability to read and write.
+    pub fn write(
+        path: impl AsRef<Path>,
+        state: State<MAX_ORDER>,
+        context: &Context<F::Manager>,
+    ) -> Result<Self, Error> {
+        let file = context.file_manager.append(path.as_ref())?;
+        Self::initialize_state(&state, path.as_ref(), context)?;
+        Self::new(file, state, context.vault.clone(), context.cache.clone())
+    }
+
     /// Attempts to load the last saved state of this tree into `state`.
     pub fn initialize_state(
         state: &State<MAX_ORDER>,
@@ -152,7 +175,8 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
 
         let mut file_length = context.file_manager.file_length(file_path)?;
         if file_length == 0 {
-            return Err(Error::message("empty transaction log"));
+            active_state.header.sequence = 1;
+            return Ok(());
         }
 
         let excess_length = file_length % PAGE_SIZE as u64;
@@ -205,6 +229,7 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
                     };
                     let root = BTreeRoot::deserialize(contents)
                         .map_err(|err| Error::DataIntegrity(Box::new(err)))?;
+                    // TODO validate transaction id
                     break root;
                 }
             }
@@ -329,9 +354,9 @@ impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a
         );
 
         // Now that we have the document data's position, we can update the by_sequence and by_id indexes.
-        active_state
-            .header
-            .modify(self.modification.take().unwrap(), &mut data_block)?;
+        let modification = self.modification.take().unwrap();
+        let is_transactional = modification.transaction_id != 0;
+        active_state.header.modify(modification, &mut data_block)?;
         let new_header = active_state.header.serialize(&mut data_block)?;
         let (file, after_data) = data_block.finish()?;
         active_state.current_position = after_data;
@@ -351,7 +376,9 @@ impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a
 
         file.flush()?;
 
-        active_state.publish(self.state);
+        if !is_transactional {
+            active_state.publish(self.state);
+        }
 
         Ok(active_state.header.sequence)
     }

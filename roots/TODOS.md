@@ -11,6 +11,7 @@ This is a temporary place to track TODOs for this project, until it's at the sta
 - [x] Ability to insert multiple records in one write.
 - [x] Switch benchmarks to Criterion
 - [x] Ability to scan ranges of keys
+- [ ] High level API + multi-tree transactions
 - [ ] Benchmark multi-id and ranged queries
 - [ ] Compaction
 - [ ] Benchmark reads after compaction

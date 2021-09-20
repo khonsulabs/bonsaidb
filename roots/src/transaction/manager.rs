@@ -22,7 +22,7 @@ pub struct TransactionManager {
 impl TransactionManager {
     /// Spawns a new transaction manager. The transaction manager runs its own
     /// thread that writes to the transaction log.
-    pub fn spawn<F: ManagedFile + 'static>(
+    pub fn spawn<F: ManagedFile>(
         directory: &Path,
         context: Context<F::Manager>,
     ) -> Result<Self, Error> {
@@ -86,13 +86,7 @@ fn transaction_writer_thread<F: ManagedFile>(
     const BATCH: usize = 16;
 
     let state = State::default();
-    let result = {
-        match TransactionLog::<F>::initialize_state(&state, &log_path, &context) {
-            Err(Error::DataIntegrity(err)) => Err(Error::DataIntegrity(err)),
-            _ => Ok(()),
-        }
-    };
-    if let Err(err) = result {
+    if let Err(err) = TransactionLog::<F>::initialize_state(&state, &log_path, &context) {
         drop(state_sender.send(Err(err)));
         return;
     }
@@ -209,5 +203,13 @@ impl Drop for TreeLockHandle {
         for blocked in blocked.drain(..) {
             let _ = blocked.send(());
         }
+    }
+}
+
+impl Deref for TransactionHandle {
+    type Target = LogEntry<'static>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.transaction
     }
 }

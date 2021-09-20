@@ -45,4 +45,9 @@ impl<const MAX_ORDER: usize> ActiveState<MAX_ORDER> {
         let mut reader = state.reader.write();
         *reader = self.clone();
     }
+
+    pub(crate) fn rollback(&mut self, state: &State<MAX_ORDER>) {
+        let reader = state.reader.read();
+        self.header = reader.header.clone();
+    }
 }
