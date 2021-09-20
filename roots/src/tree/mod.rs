@@ -992,13 +992,13 @@ mod tests {
         let mut tree =
             TreeFile::<F, ORDER>::new(file, state, context.vault.clone(), context.cache.clone())
                 .unwrap();
-        for id in 0..BATCHES {
+        for _ in 0..BATCHES {
             let mut ids = (0..RECORDS_PER_BATCH)
                 .map(|_| rng.generate::<u64>())
                 .collect::<Vec<_>>();
             ids.sort_unstable();
             let modification = Modification {
-                transaction_id: id as u64,
+                transaction_id: 0,
                 keys: ids
                     .iter()
                     .map(|id| Buffer::from(id.to_be_bytes().to_vec()))
