@@ -329,26 +329,52 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
 
     /// Gets the value stored for `key`.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    pub fn scan<'b, B: RangeBounds<Buffer<'b>> + Debug + 'static>(
+    pub fn get_range<'b, B: RangeBounds<Buffer<'b>> + Debug + 'static>(
         &mut self,
         range: B,
         in_transaction: bool,
     ) -> Result<Vec<Buffer<'static>>, Error> {
         let mut buffers = Vec::new();
+        self.scan(
+            range,
+            in_transaction,
+            |_| KeyEvaluation::ReadData,
+            |_key, value| {
+                buffers.push(value);
+                Ok(())
+            },
+        )?;
+        Ok(buffers)
+    }
+
+    /// Gets the value stored for `key`.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(self, key_evaluator, callback))
+    )]
+    pub fn scan<'b, B, E, C>(
+        &mut self,
+        range: B,
+        in_transaction: bool,
+        key_evaluator: E,
+        callback: C,
+    ) -> Result<(), Error>
+    where
+        B: RangeBounds<Buffer<'b>> + Debug + 'static,
+        E: FnMut(&Buffer<'static>) -> KeyEvaluation,
+        C: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+    {
         self.file.execute(DocumentScanner {
             from_transaction: in_transaction,
             state: &self.state,
             vault: self.vault.as_deref(),
             cache: self.cache.as_ref(),
             range,
-            key_reader: |_key, value| {
-                buffers.push(value);
-                Ok(())
-            },
-            key_evaluator: |_| KeyEvaluation::ReadData,
+            key_reader: callback,
+            key_evaluator,
             _phantom: PhantomData,
         })?;
-        Ok(buffers)
+        Ok(())
     }
 }
 
@@ -1098,19 +1124,23 @@ mod tests {
         assert_eq!(all_records, ids);
 
         // Try some ranges
-        let mut unbounded_to_five = tree.scan(..ids[5].clone(), false).unwrap();
+        let mut unbounded_to_five = tree.get_range(..ids[5].clone(), false).unwrap();
         unbounded_to_five.sort();
         assert_eq!(&all_records[..5], &unbounded_to_five);
-        let mut one_to_ten_unbounded = tree.scan(ids[1].clone()..ids[10].clone(), false).unwrap();
+        let mut one_to_ten_unbounded = tree
+            .get_range(ids[1].clone()..ids[10].clone(), false)
+            .unwrap();
         one_to_ten_unbounded.sort();
         assert_eq!(&all_records[1..10], &one_to_ten_unbounded);
-        let mut bounded_upper = tree.scan(ids[3].clone()..=ids[50].clone(), false).unwrap();
+        let mut bounded_upper = tree
+            .get_range(ids[3].clone()..=ids[50].clone(), false)
+            .unwrap();
         bounded_upper.sort();
         assert_eq!(&all_records[3..=50], &bounded_upper);
-        let mut unbounded_upper = tree.scan(ids[60].clone().., false).unwrap();
+        let mut unbounded_upper = tree.get_range(ids[60].clone().., false).unwrap();
         unbounded_upper.sort();
         assert_eq!(&all_records[60..], &unbounded_upper);
-        let mut all_through_scan = tree.scan(.., false).unwrap();
+        let mut all_through_scan = tree.get_range(.., false).unwrap();
         all_through_scan.sort();
         assert_eq!(&all_records, &all_through_scan);
     }

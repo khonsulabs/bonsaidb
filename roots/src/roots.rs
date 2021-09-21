@@ -13,7 +13,7 @@ use parking_lot::Mutex;
 use crate::{
     context::Context,
     transaction::{TransactionHandle, TransactionManager},
-    tree::{CompareSwap, KeyOperation, Modification, Operation, State, TreeFile},
+    tree::{CompareSwap, KeyEvaluation, KeyOperation, Modification, Operation, State, TreeFile},
     Buffer, ChunkCache, Error, FileManager, ManagedFile, Vault,
 };
 
@@ -86,14 +86,32 @@ impl<F: ManagedFile> Roots<F> {
         }
     }
 
+    fn tree_path(&self, name: &str) -> PathBuf {
+        self.path().join(format!("{}.roots", name))
+    }
+
     /// Removes a tree. Returns true if a tree was deleted.
     pub fn delete_tree(&self, name: impl Into<Cow<'static, str>>) -> Result<bool, Error> {
         let name = name.into();
         let mut tree_states = self.data.tree_states.lock();
         self.context()
             .file_manager
-            .delete(self.path().join(name.as_ref()))?;
+            .delete(self.tree_path(name.as_ref()))?;
         Ok(tree_states.remove(name.as_ref()).is_some())
+    }
+
+    /// Returns a list of all the names of trees contained in this database.
+    pub fn tree_names(&self) -> Result<Vec<String>, Error> {
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(self.path())? {
+            let entry = entry?;
+            if let Some(name) = entry.file_name().to_str() {
+                if let Some(without_extension) = name.strip_suffix(".roots") {
+                    names.push(without_extension.to_string());
+                }
+            }
+        }
+        Ok(names)
     }
 
     fn tree_state(&self, name: &str) -> State<MAX_ORDER> {
@@ -135,7 +153,7 @@ impl<F: ManagedFile> Roots<F> {
             .zip(states.into_iter())
             .map(|(tree, state)| {
                 let tree = TreeFile::write(
-                    self.path().join(tree),
+                    self.tree_path(tree),
                     state,
                     self.context(),
                     Some(&self.data.transactions),
@@ -291,11 +309,35 @@ impl<F: ManagedFile> TransactionTree<F> {
 
     /// Retrieves all of the values of keys within `range`.
     // TODO needs to be a Vec<(Buffer, Buffer)>
-    pub fn scan<'b, B: RangeBounds<Buffer<'b>> + std::fmt::Debug + 'static>(
+    pub fn get_range<'b, B: RangeBounds<Buffer<'b>> + std::fmt::Debug + 'static>(
         &mut self,
         range: B,
     ) -> Result<Vec<Buffer<'static>>, Error> {
-        self.tree.scan(range, true)
+        self.tree.get_range(range, true)
+    }
+
+    /// Scans the tree. Each key that is contained `range` will be passed to
+    /// `key_evaluator`, which can opt to read the data for the key, skip, or
+    /// stop scanning. If `KeyEvaluation::ReadData` is returned, `callback` will
+    /// be invoked with the key and stored value. The order in which `callback`
+    /// is invoked is not necessarily the same order in which the keys are
+    /// found.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(self, key_evaluator, callback))
+    )]
+    pub fn scan<'b, B, E, C>(
+        &mut self,
+        range: B,
+        key_evaluator: E,
+        callback: C,
+    ) -> Result<(), Error>
+    where
+        B: RangeBounds<Buffer<'b>> + std::fmt::Debug + 'static,
+        E: FnMut(&Buffer<'static>) -> KeyEvaluation,
+        C: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+    {
+        self.tree.scan(range, true, key_evaluator, callback)
     }
 }
 
@@ -364,6 +406,16 @@ pub struct Tree<F: ManagedFile> {
 }
 
 impl<F: ManagedFile> Tree<F> {
+    /// Returns the name of the tree.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn path(&self) -> PathBuf {
+        self.roots.tree_path(self.name())
+    }
+
     /// Sets `key` to `value`. This is executed within its own transaction.
     #[allow(clippy::missing_panics_doc)]
     pub fn set(
@@ -380,7 +432,7 @@ impl<F: ManagedFile> Tree<F> {
     /// changes in pending transactions.
     pub fn get(&self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
         let mut tree = TreeFile::<F, MAX_ORDER>::read(
-            self.roots.path().join(self.name.as_ref()),
+            self.path(),
             self.state.clone(),
             self.roots.context(),
             Some(self.roots.transactions()),
@@ -422,7 +474,7 @@ impl<F: ManagedFile> Tree<F> {
     // TODO needs to be a Vec<(Buffer, Buffer)>
     pub fn get_multiple(&self, keys: &[&[u8]]) -> Result<Vec<Buffer<'static>>, Error> {
         let mut tree = TreeFile::<F, MAX_ORDER>::read(
-            self.roots.path().join(self.name.as_ref()),
+            self.path(),
             self.state.clone(),
             self.roots.context(),
             Some(self.roots.transactions()),
@@ -433,18 +485,49 @@ impl<F: ManagedFile> Tree<F> {
 
     /// Retrieves all of the values of keys within `range`.
     // TODO needs to be a Vec<(Buffer, Buffer)>
-    pub fn scan<'b, B: RangeBounds<Buffer<'b>> + std::fmt::Debug + 'static>(
+    pub fn get_range<'b, B: RangeBounds<Buffer<'b>> + std::fmt::Debug + 'static>(
         &self,
         range: B,
     ) -> Result<Vec<Buffer<'static>>, Error> {
         let mut tree = TreeFile::<F, MAX_ORDER>::read(
-            self.roots.path().join(self.name.as_ref()),
+            self.path(),
             self.state.clone(),
             self.roots.context(),
             Some(self.roots.transactions()),
         )?;
 
-        tree.scan(range, false)
+        tree.get_range(range, false)
+    }
+
+    /// Scans the tree. Each key that is contained `range` will be passed to
+    /// `key_evaluator`, which can opt to read the data for the key, skip, or
+    /// stop scanning. If `KeyEvaluation::ReadData` is returned, `callback` will
+    /// be invoked with the key and stored value. The order in which `callback`
+    /// is invoked is not necessarily the same order in which the keys are
+    /// found.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(self, key_evaluator, callback))
+    )]
+    pub fn scan<'b, B, E, C>(
+        &mut self,
+        range: B,
+        key_evaluator: E,
+        callback: C,
+    ) -> Result<(), Error>
+    where
+        B: RangeBounds<Buffer<'b>> + std::fmt::Debug + 'static,
+        E: FnMut(&Buffer<'static>) -> KeyEvaluation,
+        C: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+    {
+        let mut tree = TreeFile::<F, MAX_ORDER>::read(
+            self.path(),
+            self.state.clone(),
+            self.roots.context(),
+            Some(self.roots.transactions()),
+        )?;
+
+        tree.scan(range, false, key_evaluator, callback)
     }
 }
 

@@ -73,7 +73,7 @@ where
 }
 
 fn key_tree(database: &str, namespace: Option<String>) -> String {
-    format!("{}::kv::{}", database, namespace.unwrap_or_default())
+    format!("{}.kv.{}", database, namespace.unwrap_or_default())
 }
 
 #[allow(clippy::too_many_arguments)]

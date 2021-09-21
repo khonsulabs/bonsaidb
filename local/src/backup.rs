@@ -168,7 +168,7 @@ impl Command {
                     CollectionName::try_from(collection_name.split("::").last().unwrap())?;
 
                 let database = Arc::new(database);
-                let tree = db.roots().open_tree(&collection_tree)?;
+                let tree = db.roots().tree(&collection_tree);
                 for result in tree.iter() {
                     let (_, document) = result?;
                     let document = bincode::deserialize::<Document<'_>>(&document)?;
@@ -357,9 +357,9 @@ fn restore_documents(receiver: Receiver<BackupEntry>, storage: Storage) -> anyho
             } => {
                 let tree = storage
                     .roots()
-                    .open_tree(document_tree_name(&database, &collection))?;
-                tree.insert(
-                    document.header.id.as_big_endian_bytes()?,
+                    .tree(document_tree_name(&database, &collection));
+                tree.set(
+                    document.header.id.as_big_endian_bytes()?.as_ref(),
                     bincode::serialize(&document)?,
                 )?;
             }
@@ -367,18 +367,14 @@ fn restore_documents(receiver: Receiver<BackupEntry>, storage: Storage) -> anyho
                 database,
                 transaction,
             } => {
-                let tree = storage
-                    .roots()
-                    .open_tree(transaction_tree_name(&database))?;
-                tree.insert(
-                    transaction.id.as_big_endian_bytes()?,
+                let tree = storage.roots().tree(transaction_tree_name(&database));
+                tree.set(
+                    transaction.id.as_big_endian_bytes()?.as_ref(),
                     bincode::serialize(&transaction)?,
                 )?;
             }
         }
     }
-
-    storage.roots().flush()?;
 
     Ok(())
 }

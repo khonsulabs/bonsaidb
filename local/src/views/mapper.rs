@@ -15,11 +15,8 @@ use bonsaidb_core::{
     },
 };
 use bonsaidb_jobs::{Job, Keyed};
+use bonsaidb_roots::{StdFile, TransactionTree};
 use serde::{Deserialize, Serialize};
-use sled::{
-    transaction::{ConflictableTransactionError, TransactionError, TransactionalTree},
-    IVec, Transactional, Tree,
-};
 
 use crate::{
     database::{document_tree_name, Database},
@@ -198,19 +195,19 @@ fn map_view<DB: Schema>(
 }
 
 pub struct DocumentRequest<'a, DB> {
-    pub document_id: &'a IVec,
+    pub document_id: &'a [u8],
     pub map_request: &'a Map,
     pub database: &'a Database<DB>,
 
-    pub document_map: &'a TransactionalTree,
-    pub documents: &'a TransactionalTree,
-    pub omitted_entries: &'a TransactionalTree,
-    pub view_entries: &'a TransactionalTree,
+    pub document_map: &'a TransactionTree<StdFile>,
+    pub documents: &'a TransactionTree<StdFile>,
+    pub omitted_entries: &'a TransactionTree<StdFile>,
+    pub view_entries: &'a TransactionTree<StdFile>,
     pub view: &'a dyn Serialized,
 }
 
 impl<'a, DB: Schema> DocumentRequest<'a, DB> {
-    pub fn map(&self) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
+    pub fn map(&self) -> Result<(), Error> {
         let (doc_still_exists, map_result) =
             if let Some(document) = self.documents.get(self.document_id)? {
                 let document = self
@@ -239,18 +236,14 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         Ok(())
     }
 
-    fn omit_document(
-        &self,
-        doc_still_exists: bool,
-    ) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
+    fn omit_document(&self, doc_still_exists: bool) -> Result<(), Error> {
         // When no entry is emitted, the document map is emptied and a note is made in omitted_entries
         if let Some(existing_map) = self.document_map.remove(self.document_id)? {
             self.remove_existing_view_entries_for_keys(&[], &existing_map)?;
         }
 
         if doc_still_exists {
-            self.omitted_entries
-                .insert(self.document_id, IVec::default())?;
+            self.omitted_entries.insert(self.document_id, b"")?;
         }
         Ok(())
     }
@@ -279,30 +272,18 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         Ok(bytes)
     }
 
-    fn load_entry_for_key(
-        &self,
-        key: &[u8],
-    ) -> Result<Option<ViewEntryCollection>, ConflictableTransactionError<bonsaidb_core::Error>>
-    {
+    fn load_entry_for_key(&self, key: &[u8]) -> Result<Option<ViewEntryCollection>, Error> {
         load_entry_for_key(
             key,
             self.view,
             self.encryption_key().is_some(),
             self.database.storage().vault(),
             self.database.data.effective_permissions.as_ref(),
-            |key| {
-                self.view_entries
-                    .get(key)
-                    .map_err(ConflictableTransactionError::from)
-            },
+            |key| self.view_entries.get(key),
         )
     }
 
-    fn save_entry_for_key(
-        &self,
-        key: &[u8],
-        entry: &ViewEntryCollection,
-    ) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
+    fn save_entry_for_key(&self, key: &[u8], entry: &ViewEntryCollection) -> Result<(), Error> {
         let bytes = self
             .serialize_and_encrypt(entry)
             .map_to_transaction_error()?;
@@ -315,12 +296,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         Ok(())
     }
 
-    fn save_mapping(
-        &self,
-        source: u64,
-        key: &[u8],
-        value: Vec<u8>,
-    ) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
+    fn save_mapping(&self, source: u64, key: &[u8], value: Vec<u8>) -> Result<(), Error> {
         // Before altering any data, verify that the key is unique if this is a unique view.
         if self.view.unique() {
             if let Some(existing_entry) = self.load_entry_for_key(key)? {

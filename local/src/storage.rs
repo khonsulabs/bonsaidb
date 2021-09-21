@@ -33,7 +33,7 @@ use bonsaidb_core::{
     transaction::{Executed, OperationResult, Transaction},
 };
 use bonsaidb_jobs::manager::Manager;
-use bonsaidb_roots::StdFile;
+use bonsaidb_roots::{ChunkCache, StdFile};
 use futures::TryFutureExt;
 use itertools::Itertools;
 use rand::{thread_rng, Rng};
@@ -62,7 +62,7 @@ pub struct Storage {
 #[derive(Debug)]
 struct Data {
     id: StorageId,
-    sled: bonsaidb_roots::Roots<StdFile>,
+    roots: bonsaidb_roots::Roots<StdFile>,
     pub(crate) tasks: TaskManager,
     pub(crate) vault: Arc<Vault>,
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
@@ -108,28 +108,31 @@ impl Storage {
 
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
         let default_encryption_key = configuration.default_encryption_key;
-        let storage = tokio::task::spawn_blocking(move || {
-            sled::open(owned_path)
-                .map(|sled| Self {
-                    data: Arc::new(Data {
-                        id,
-                        sled,
-                        tasks,
-                        vault,
-                        default_encryption_key,
-                        schemas: RwLock::default(),
-                        available_databases: RwLock::default(),
-                        check_view_integrity_on_database_open,
-                        #[cfg(feature = "keyvalue")]
-                        kv_expirer: std::sync::RwLock::default(),
-                        #[cfg(feature = "pubsub")]
-                        relay: Relay::default(),
-                    }),
-                })
-                .map_err(Error::from)
+        let storage = tokio::task::spawn_blocking::<_, Result<Self, Error>>(move || {
+            let roots = bonsaidb_roots::Config::new(owned_path)
+                .cache(ChunkCache::new(2000, 160_384))
+                .open()
+                .map_err(|err| Error::from(err))?;
+
+            Ok(Self {
+                data: Arc::new(Data {
+                    id,
+                    roots,
+                    tasks,
+                    vault,
+                    default_encryption_key,
+                    schemas: RwLock::default(),
+                    available_databases: RwLock::default(),
+                    check_view_integrity_on_database_open,
+                    #[cfg(feature = "keyvalue")]
+                    kv_expirer: std::sync::RwLock::default(),
+                    #[cfg(feature = "pubsub")]
+                    relay: Relay::default(),
+                }),
+            })
         })
         .await
-        .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))??;
+        .unwrap()?;
 
         #[cfg(feature = "keyvalue")]
         storage
@@ -302,7 +305,7 @@ impl Storage {
     // }
 
     pub(crate) fn roots(&self) -> &'_ bonsaidb_roots::Roots<StdFile> {
-        &self.data.sled
+        &self.data.roots
     }
 
     pub(crate) fn tasks(&self) -> &'_ TaskManager {
@@ -332,7 +335,7 @@ impl Storage {
         let mut sender = self.data.kv_expirer.write().unwrap();
         if sender.is_none() {
             let (kv_sender, kv_expirer_receiver) = flume::unbounded();
-            let thread_sled = self.data.sled.clone();
+            let thread_sled = self.data.roots.clone();
             tokio::task::spawn_blocking(move || {
                 kv::expiration_thread(kv_expirer_receiver, thread_sled)
             });
@@ -602,12 +605,12 @@ impl ServerConnection for Storage {
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
         let mut available_databases = self.data.available_databases.write().await;
 
-        let prefix = format!("{}::", name);
-        let sled = self.data.sled.clone();
+        let prefix = format!("{}.", name);
+        let roots = self.data.roots.clone();
         tokio::task::spawn_blocking(move || {
-            for name in sled.tree_names() {
-                if name.starts_with(prefix.as_bytes()) {
-                    sled.drop_tree(name)?;
+            for name in roots.tree_names()? {
+                if name.starts_with(&prefix) {
+                    roots.delete_tree(name)?;
                 }
             }
             Result::<_, bonsaidb_roots::Error>::Ok(())

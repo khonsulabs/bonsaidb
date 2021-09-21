@@ -20,11 +20,8 @@ use bonsaidb_core::{
         self, ChangedDocument, Command, Executed, Operation, OperationResult, Transaction,
     },
 };
+use bonsaidb_roots::{Buffer, ExecutingTransaction, StdFile, TransactionTree, Tree};
 use itertools::Itertools;
-use sled::{
-    transaction::{ConflictableTransactionError, TransactionError, TransactionalTree},
-    IVec, Transactional, Tree,
-};
 
 use crate::{
     config::Configuration,
@@ -154,7 +151,7 @@ where
         &self.data.schema
     }
 
-    pub(crate) fn sled(&self) -> &'_ sled::Db {
+    pub(crate) fn sled(&self) -> &'_ bonsaidb_roots::Roots<StdFile> {
         self.data.storage.roots()
     }
 
@@ -177,8 +174,7 @@ where
 
         let view_entries = self
             .sled()
-            .open_tree(view_entries_tree_name(&self.data.name, &view.view_name()?))
-            .map_err(Error::Sled)?;
+            .tree(view_entries_tree_name(&self.data.name, &view.view_name()?));
 
         {
             let iterator = self.create_view_iterator(&view_entries, key, view)?;
@@ -245,11 +241,10 @@ where
                 .data
                 .storage
                 .roots()
-                .open_tree(document_tree_name(&task_self.data.name, &collection))
-                .map_err(Error::from)?;
+                .tree(document_tree_name(&task_self.data.name, &collection));
             if let Some(vec) = tree
                 .get(
-                    id.as_big_endian_bytes()
+                    &id.as_big_endian_bytes()
                         .map_err(view::Error::KeySerialization)?,
                 )
                 .map_err(Error::from)?
@@ -276,13 +271,12 @@ where
                 .data
                 .storage
                 .roots()
-                .open_tree(document_tree_name(&task_self.data.name, &collection))
-                .map_err(Error::from)?;
+                .tree(document_tree_name(&task_self.data.name, &collection));
             let mut found_docs = Vec::new();
             for id in ids {
                 if let Some(vec) = tree
                     .get(
-                        id.as_big_endian_bytes()
+                        &id.as_big_endian_bytes()
                             .map_err(view::Error::KeySerialization)?,
                     )
                     .map_err(Error::from)?
@@ -389,16 +383,16 @@ where
     fn execute_operation(
         &self,
         operation: &Operation<'_>,
-        trees: &[TransactionalTree],
+        transaction: ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
-    ) -> Result<OperationResult, ConflictableTransactionError<bonsaidb_core::Error>> {
+    ) -> Result<OperationResult, Error> {
         match &operation.command {
             Command::Insert {
                 contents,
                 encryption_key,
             } => self.execute_insert(
                 operation,
-                trees,
+                transaction,
                 tree_index_map,
                 contents.clone(),
                 encryption_key
@@ -406,11 +400,15 @@ where
                     .or_else(|| self.collection_encryption_key(&operation.collection))
                     .cloned(),
             ),
-            Command::Update { header, contents } => {
-                self.execute_update(operation, trees, tree_index_map, header, contents.clone())
-            }
+            Command::Update { header, contents } => self.execute_update(
+                operation,
+                transaction,
+                tree_index_map,
+                header,
+                contents.clone(),
+            ),
             Command::Delete { header } => {
-                self.execute_delete(operation, trees, tree_index_map, header)
+                self.execute_delete(operation, transaction, tree_index_map, header)
             }
         }
     }
@@ -418,18 +416,17 @@ where
     fn execute_update(
         &self,
         operation: &Operation<'_>,
-        trees: &[TransactionalTree],
+        transaction: ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
         contents: Cow<'_, [u8]>,
-    ) -> Result<OperationResult, ConflictableTransactionError<bonsaidb_core::Error>> {
-        let documents =
-            &trees[tree_index_map[&document_tree_name(self.name(), &operation.collection)]];
-        let document_id = IVec::from(header.id.as_big_endian_bytes().unwrap().as_ref());
-        if let Some(vec) = documents.get(&document_id)? {
-            let doc = self
-                .deserialize_document(&vec)
-                .map_err(ConflictableTransactionError::Abort)?;
+    ) -> Result<OperationResult, crate::Error> {
+        let documents = transaction
+            .tree(tree_index_map[&document_tree_name(self.name(), &operation.collection)])
+            .unwrap();
+        let document_id = header.id.as_big_endian_bytes().unwrap();
+        if let Some(vec) = documents.get(document_id.as_ref())? {
+            let doc = self.deserialize_document(&vec)?;
             if doc.header.revision == header.revision {
                 if let Some(mut updated_doc) = doc.create_new_revision(contents) {
                     // Copy the encryption key if it's been updated.
@@ -442,8 +439,7 @@ where
                     self.update_unique_views(
                         &document_id,
                         operation,
-                        documents,
-                        trees,
+                        &mut transaction,
                         tree_index_map,
                     )?;
 
@@ -462,36 +458,37 @@ where
                     })
                 }
             } else {
-                Err(ConflictableTransactionError::Abort(
-                    bonsaidb_core::Error::DocumentConflict(operation.collection.clone(), header.id),
-                ))
+                Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
+                    operation.collection.clone(),
+                    header.id,
+                )))
             }
         } else {
-            Err(ConflictableTransactionError::Abort(
-                bonsaidb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
-            ))
+            Err(Error::Core(bonsaidb_core::Error::DocumentNotFound(
+                operation.collection.clone(),
+                header.id,
+            )))
         }
     }
 
     fn execute_insert(
         &self,
         operation: &Operation<'_>,
-        trees: &[TransactionalTree],
+        transaction: ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
         contents: Cow<'_, [u8]>,
         encryption_key: Option<KeyId>,
-    ) -> Result<OperationResult, ConflictableTransactionError<bonsaidb_core::Error>> {
-        let documents =
-            &trees[tree_index_map[&document_tree_name(self.name(), &operation.collection)]];
+    ) -> Result<OperationResult, Error> {
+        let documents = transaction
+            .tree(tree_index_map[&document_tree_name(self.name(), &operation.collection)])
+            .unwrap();
         let doc = Document::new(documents.generate_id()?, contents, encryption_key);
         self.save_doc(documents, &doc)?;
-        let serialized: Vec<u8> = self
-            .serialize_document(&doc)
-            .map_err(ConflictableTransactionError::Abort)?;
-        let document_id = IVec::from(doc.header.id.as_big_endian_bytes().unwrap().as_ref());
-        documents.insert(document_id.as_ref(), serialized)?;
+        let serialized: Vec<u8> = self.serialize_document(&doc)?;
+        let document_id = doc.header.id.as_big_endian_bytes().unwrap();
+        documents.set(document_id.as_ref(), serialized)?;
 
-        self.update_unique_views(&document_id, operation, documents, trees, tree_index_map)?;
+        self.update_unique_views(&document_id, operation, &mut transaction, tree_index_map)?;
 
         Ok(OperationResult::DocumentUpdated {
             collection: operation.collection.clone(),
@@ -502,25 +499,23 @@ where
     fn execute_delete(
         &self,
         operation: &Operation<'_>,
-        trees: &[TransactionalTree],
+        transaction: ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
-    ) -> Result<OperationResult, ConflictableTransactionError<bonsaidb_core::Error>> {
-        let documents =
-            &trees[tree_index_map[&document_tree_name(self.name(), &operation.collection)]];
+    ) -> Result<OperationResult, Error> {
+        let documents = transaction
+            .tree(tree_index_map[&document_tree_name(self.name(), &operation.collection)])
+            .unwrap();
         let document_id = header.id.as_big_endian_bytes().unwrap();
         if let Some(vec) = documents.get(&document_id)? {
-            let doc = self
-                .deserialize_document(&vec)
-                .map_err(ConflictableTransactionError::Abort)?;
+            let doc = self.deserialize_document(&vec)?;
             if doc.header.as_ref() == header {
                 documents.remove(document_id.as_ref())?;
 
                 self.update_unique_views(
-                    &IVec::from(document_id.as_ref()),
+                    &document_id.as_ref(),
                     operation,
-                    documents,
-                    trees,
+                    &mut transaction,
                     tree_index_map,
                 )?;
 
@@ -529,35 +524,33 @@ where
                     id: header.id,
                 })
             } else {
-                Err(ConflictableTransactionError::Abort(
-                    bonsaidb_core::Error::DocumentConflict(operation.collection.clone(), header.id),
-                ))
+                Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
+                    operation.collection.clone(),
+                    header.id,
+                )))
             }
         } else {
-            Err(ConflictableTransactionError::Abort(
-                bonsaidb_core::Error::DocumentNotFound(operation.collection.clone(), header.id),
-            ))
+            Err(Error::Core(bonsaidb_core::Error::DocumentNotFound(
+                operation.collection.clone(),
+                header.id,
+            )))
         }
     }
 
     fn update_unique_views(
         &self,
-        document_id: &IVec,
+        document_id: &[u8],
         operation: &Operation<'_>,
-        documents: &TransactionalTree,
-        trees: &[TransactionalTree],
+        transaction: &mut ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
-    ) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
+    ) -> Result<(), Error> {
         if let Some(unique_views) = self
             .data
             .schema
             .unique_views_in_collection(&operation.collection)
         {
             for view in unique_views {
-                let name = view
-                    .view_name()
-                    .map_err(bonsaidb_core::Error::from)
-                    .map_err(ConflictableTransactionError::Abort)?;
+                let name = view.view_name().map_err(bonsaidb_core::Error::from)?;
                 mapper::DocumentRequest {
                     database: self,
                     document_id,
@@ -566,13 +559,20 @@ where
                         collection: operation.collection.clone(),
                         view_name: name.clone(),
                     },
-                    document_map: &trees
-                        [tree_index_map[&view_document_map_tree_name(self.name(), &name)]],
-                    documents,
-                    omitted_entries: &trees
-                        [tree_index_map[&view_omitted_docs_tree_name(self.name(), &name)]],
-                    view_entries: &trees
-                        [tree_index_map[&view_entries_tree_name(self.name(), &name)]],
+                    document_map: transaction
+                        .tree(tree_index_map[&view_document_map_tree_name(self.name(), &name)])
+                        .unwrap(),
+                    documents: transaction
+                        .tree(
+                            tree_index_map[&document_tree_name(self.name(), &operation.collection)],
+                        )
+                        .unwrap(),
+                    omitted_entries: transaction
+                        .tree(tree_index_map[&view_omitted_docs_tree_name(self.name(), &name)])
+                        .unwrap(),
+                    view_entries: transaction
+                        .tree(tree_index_map[&view_entries_tree_name(self.name(), &name)])
+                        .unwrap(),
                     view,
                 }
                 .map()?;
@@ -584,21 +584,24 @@ where
 
     fn save_doc(
         &self,
-        tree: &TransactionalTree,
+        tree: &mut TransactionTree<StdFile>,
         doc: &Document<'_>,
-    ) -> Result<(), ConflictableTransactionError<bonsaidb_core::Error>> {
-        let serialized: Vec<u8> = self
-            .serialize_document(doc)
-            .map_err(ConflictableTransactionError::Abort)?;
-        tree.insert(
-            doc.header.id.as_big_endian_bytes().unwrap().as_ref(),
+    ) -> Result<(), Error> {
+        let serialized: Vec<u8> = self.serialize_document(doc)?;
+        tree.set(
+            doc.header
+                .id
+                .as_big_endian_bytes()
+                .unwrap()
+                .as_ref()
+                .to_vec(),
             serialized,
         )?;
         Ok(())
     }
     fn create_view_iterator<'a, K: Key + 'a>(
         &'a self,
-        view_entries: &'a Tree,
+        view_entries: &'a Tree<StdFile>,
         key: Option<QueryKey<K>>,
         view: &'a dyn view::Serialized,
     ) -> Result<ViewEntryIterator<'a>, view::Error> {
@@ -715,7 +718,7 @@ where
                 }
             }
 
-            match open_trees.trees.transaction(|trees| {
+            open_trees.trees.transaction(|trees| {
                 let mut results = Vec::new();
                 let mut changed_documents = Vec::new();
                 for op in &transaction.operations {
@@ -750,19 +753,17 @@ where
                         let changed_documents = changed_documents.collect::<Vec<_>>();
                         for view in views {
                             if !view.unique() {
-                                let view_name = view
-                                    .view_name()
-                                    .map_err(bonsaidb_core::Error::from)
-                                    .map_err(ConflictableTransactionError::Abort)?;
+                                let view_name =
+                                    view.view_name().map_err(bonsaidb_core::Error::from)?;
                                 for changed_document in &changed_documents {
                                     let invalidated_docs = &trees[open_trees.trees_index_by_name
                                         [&view_invalidated_docs_tree_name(
                                             task_self.name(),
                                             &view_name,
                                         )]];
-                                    invalidated_docs.insert(
+                                    invalidated_docs.set(
                                         changed_document.id.as_big_endian_bytes().unwrap().as_ref(),
-                                        IVec::default(),
+                                        b"",
                                     )?;
                                 }
                             }
@@ -778,21 +779,11 @@ where
                 };
                 let serialized: Vec<u8> = bincode::serialize(&executed)
                     .map_err(Error::from)
-                    .map_err(bonsaidb_core::Error::from)
-                    .map_err(ConflictableTransactionError::Abort)?;
+                    .map_err(bonsaidb_core::Error::from)?;
                 tree.insert(&executed.id.to_be_bytes(), serialized)?;
 
-                trees.iter().for_each(TransactionalTree::flush);
                 Ok(results)
-            }) {
-                Ok(results) => Ok(results),
-                Err(err) => match err {
-                    TransactionError::Abort(err) => Err(err),
-                    TransactionError::Storage(err) => {
-                        Err(bonsaidb_core::Error::Database(err.to_string()))
-                    }
-                },
-            }
+            })
         })
         .await
         .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?
@@ -986,10 +977,7 @@ where
         let task_self = self.clone();
         let transaction_tree_name = transaction_tree_name(&self.data.name);
         tokio::task::spawn_blocking(move || {
-            let tree = task_self
-                .sled()
-                .open_tree(&transaction_tree_name)
-                .map_err(Error::from)?;
+            let tree = task_self.sled().tree(&transaction_tree_name);
             if let Some((key, _)) = tree.last().map_err(Error::from)? {
                 Ok(Some(
                     u64::from_big_endian_bytes(&key).map_err(view::Error::KeySerialization)?,
@@ -1003,7 +991,8 @@ where
     }
 }
 
-type ViewIterator<'a> = Box<dyn Iterator<Item = Result<(IVec, IVec), sled::Error>> + 'a>;
+type ViewIterator<'a> =
+    Box<dyn Iterator<Item = Result<(Buffer<'static>, Buffer<'static>), Error>> + 'a>;
 type ViewEntryIterator<'a> =
     Box<dyn Iterator<Item = Result<ViewEntryCollection, crate::Error>> + 'a>;
 
@@ -1025,7 +1014,7 @@ impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
 }
 
 struct KeyViewEntryIterator<'a> {
-    tree: &'a Tree,
+    tree: &'a Tree<StdFile>,
     keys: std::vec::IntoIter<Vec<u8>>,
     view: &'a dyn view::Serialized,
     encrypt_by_default: bool,
@@ -1038,28 +1027,14 @@ impl<'a> Iterator for KeyViewEntryIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(key) = self.keys.next() {
-            match mapper::load_entry_for_key(
+            mapper::load_entry_for_key(
                 &key,
                 self.view,
                 self.encrypt_by_default,
                 self.vault,
                 self.permissions,
-                |key| {
-                    self.tree
-                        .get(&key)
-                        .map_err(ConflictableTransactionError::Storage)
-                },
-            ) {
-                Ok(Some(entry)) => return Some(Ok(entry)),
-                Ok(None) => {}
-                Err(err) => {
-                    return Some(Err(match err {
-                        ConflictableTransactionError::Abort(core) => crate::Error::Core(core),
-                        ConflictableTransactionError::Storage(sled) => crate::Error::Sled(sled),
-                        ConflictableTransactionError::Conflict => unreachable!(),
-                    }))
-                }
-            }
+                |key| self.tree.get(&key).map_err(Error::from),
+            )
         }
         None
     }
