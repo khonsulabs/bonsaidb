@@ -32,7 +32,8 @@ pub trait ManagedFile: Seek + Read + Write + Sized + 'static {
 }
 
 /// A manager that is responsible for controlling write access to a file.
-pub trait FileManager: Send + Sync + Clone + Default + 'static {
+pub trait FileManager: Send + Sync + Clone + Default + std::fmt::Debug + 'static {
+    /// The [`ManagedFile`] that this manager is for.
     type File: ManagedFile<Manager = Self>;
     /// A file handle type, which can have operations executed against it.
     type FileHandle: OpenableFile<Self::File>;
@@ -54,6 +55,17 @@ pub trait FileManager: Send + Sync + Clone + Default + 'static {
     /// Check if the file exists.
     fn exists(&self, path: impl AsRef<Path> + Send) -> Result<bool, Error> {
         Ok(path.as_ref().exists())
+    }
+
+    /// Check if the file exists.
+    fn delete(&self, path: impl AsRef<Path> + Send) -> Result<bool, Error> {
+        let path = path.as_ref();
+        if path.exists() {
+            std::fs::remove_file(path)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
 

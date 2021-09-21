@@ -13,17 +13,19 @@ use parking_lot::Mutex;
 use crate::{
     context::Context,
     transaction::{TransactionHandle, TransactionManager},
-    tree::{Modification, Operation, State, TreeFile},
-    Buffer, ChunkCache, Error, ManagedFile, Vault,
+    tree::{CompareSwap, KeyOperation, Modification, Operation, State, TreeFile},
+    Buffer, ChunkCache, Error, FileManager, ManagedFile, Vault,
 };
 
 const MAX_ORDER: usize = 1000;
 
 /// A multi-tree transactional B-Tree database.
+#[derive(Debug)]
 pub struct Roots<F: ManagedFile> {
     data: Arc<Data<F>>,
 }
 
+#[derive(Debug)]
 struct Data<F: ManagedFile> {
     context: Context<F::Manager>,
     transactions: TransactionManager<F::Manager>,
@@ -82,6 +84,16 @@ impl<F: ManagedFile> Roots<F> {
             state,
             name,
         }
+    }
+
+    /// Removes a tree. Returns true if a tree was deleted.
+    pub fn delete_tree(&self, name: impl Into<Cow<'static, str>>) -> Result<bool, Error> {
+        let name = name.into();
+        let mut tree_states = self.data.tree_states.lock();
+        self.context()
+            .file_manager
+            .delete(self.path().join(name.as_ref()))?;
+        Ok(tree_states.remove(name.as_ref()).is_some())
     }
 
     fn tree_state(&self, name: &str) -> State<MAX_ORDER> {
@@ -151,6 +163,8 @@ impl<M: ManagedFile> Clone for Roots<M> {
     }
 }
 
+/// An executing transaction. While this exists, no other transactions can
+/// execute across the same trees as this transaction holds.
 #[must_use]
 pub struct ExecutingTransaction<F: ManagedFile> {
     transaction_manager: TransactionManager<F::Manager>,
@@ -159,6 +173,10 @@ pub struct ExecutingTransaction<F: ManagedFile> {
 }
 
 impl<F: ManagedFile> ExecutingTransaction<F> {
+    /// Commits the transaction. Once this function has returned, all data
+    /// updates are guaranteed to be able to be accessed by all other readers as
+    /// well as impervious to sudden failures such as a power outage.
+    #[allow(clippy::missing_panics_doc)]
     pub fn commit(mut self) -> Result<(), Error> {
         self.transaction_manager
             .push(self.transaction.take().unwrap())?;
@@ -171,6 +189,7 @@ impl<F: ManagedFile> ExecutingTransaction<F> {
         Ok(())
     }
 
+    /// Accesses a locked tree. The order of `TransactionTree`'s
     pub fn tree(&mut self, index: usize) -> Option<&mut TransactionTree<F>> {
         self.trees.get_mut(index)
     }
@@ -193,12 +212,14 @@ impl<F: ManagedFile> Drop for ExecutingTransaction<F> {
     }
 }
 
+/// A tree that is modifiable during a transaction.
 pub struct TransactionTree<F: ManagedFile> {
     transaction_id: u64,
     tree: TreeFile<F, MAX_ORDER>,
 }
 
 impl<F: ManagedFile> TransactionTree<F> {
+    /// Sets `key` to `value`.
     pub fn set(
         &mut self,
         key: impl Into<Buffer<'static>>,
@@ -213,20 +234,80 @@ impl<F: ManagedFile> TransactionTree<F> {
             .map(|_| {})
     }
 
+    /// Returns the current value of `key`. This will return updated information
+    /// if it has been previously updated within this transaction.
     pub fn get(&mut self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
         self.tree.get(key, true)
     }
 
+    /// Removes `key` and returns the existing value, if present.
+    pub fn remove(&mut self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
+        let mut existing_value = None;
+        self.tree.modify(Modification {
+            transaction_id: self.transaction_id,
+            keys: vec![Buffer::from(key.to_vec())],
+            operation: Operation::CompareSwap(CompareSwap::new(&mut |_key, value| {
+                existing_value = value;
+                KeyOperation::Remove
+            })),
+        })?;
+        Ok(existing_value)
+    }
+
+    /// Compares the value of `key` against `old`. If the values match, key will
+    /// be set to the new value if `new` is `Some` or removed if `new` is
+    /// `None`.
+    pub fn compare_and_swap(
+        &mut self,
+        key: &[u8],
+        old: Option<&Buffer<'_>>,
+        mut new: Option<Buffer<'_>>,
+    ) -> Result<(), CompareAndSwapError> {
+        let mut result = Ok(());
+        self.tree.modify(Modification {
+            transaction_id: self.transaction_id,
+            keys: vec![Buffer::from(key.to_vec())],
+            operation: Operation::CompareSwap(CompareSwap::new(&mut |_key, value| {
+                if value.as_ref() == old {
+                    match new.take() {
+                        Some(new) => KeyOperation::Set(new.to_owned()),
+                        None => KeyOperation::Remove,
+                    }
+                } else {
+                    result = Err(CompareAndSwapError::Conflict(value));
+                    KeyOperation::Skip
+                }
+            })),
+        })?;
+        result
+    }
+
+    /// Retrieves the values of `keys`. If any keys are not found, they will be
+    /// omitted from the results.
+    // TODO needs to be a Vec<(Buffer, Buffer)>
     pub fn get_multiple(&mut self, keys: &[&[u8]]) -> Result<Vec<Buffer<'static>>, Error> {
         self.tree.get_multiple(keys, true)
     }
 
+    /// Retrieves all of the values of keys within `range`.
+    // TODO needs to be a Vec<(Buffer, Buffer)>
     pub fn scan<'b, B: RangeBounds<Buffer<'b>> + std::fmt::Debug + 'static>(
         &mut self,
         range: B,
     ) -> Result<Vec<Buffer<'static>>, Error> {
         self.tree.scan(range, true)
     }
+}
+
+/// An error returned from `compare_and_swap()`.
+#[derive(Debug, thiserror::Error)]
+pub enum CompareAndSwapError {
+    /// The stored value did not match the conditional value.
+    #[error("value did not match. existing value: {0:?}")]
+    Conflict(Option<Buffer<'static>>),
+    /// Another error occurred while executing the operation.
+    #[error("error during compare_and_swap: {0}")]
+    Error(#[from] Error),
 }
 
 /// A database configuration used to open a database.
@@ -275,6 +356,7 @@ impl<F: ManagedFile> Config<F> {
     }
 }
 
+/// A named collection of keys and values.
 pub struct Tree<F: ManagedFile> {
     roots: Roots<F>,
     state: State<MAX_ORDER>,
@@ -282,6 +364,8 @@ pub struct Tree<F: ManagedFile> {
 }
 
 impl<F: ManagedFile> Tree<F> {
+    /// Sets `key` to `value`. This is executed within its own transaction.
+    #[allow(clippy::missing_panics_doc)]
     pub fn set(
         &self,
         key: impl Into<Buffer<'static>>,
@@ -292,6 +376,8 @@ impl<F: ManagedFile> Tree<F> {
         transaction.commit()
     }
 
+    /// Retrieves the current value of `key`, if present. Does not reflect any
+    /// changes in pending transactions.
     pub fn get(&self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
         let mut tree = TreeFile::<F, MAX_ORDER>::read(
             self.roots.path().join(self.name.as_ref()),
@@ -303,6 +389,37 @@ impl<F: ManagedFile> Tree<F> {
         tree.get(key, false)
     }
 
+    /// Removes `key` and returns the existing value, if present. This is executed within its own transaction.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn remove(&self, key: &[u8]) -> Result<Option<Buffer<'static>>, Error> {
+        let mut transaction = self.roots.transaction(&[self.name.as_ref()])?;
+        let existing_value = transaction.tree(0).unwrap().remove(key)?;
+        transaction.commit()?;
+        Ok(existing_value)
+    }
+
+    /// Compares the value of `key` against `old`. If the values match, key will
+    /// be set to the new value if `new` is `Some` or removed if `new` is
+    /// `None`. This is executed within its own transaction.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn compare_and_swap(
+        &mut self,
+        key: &[u8],
+        old: Option<&Buffer<'_>>,
+        new: Option<Buffer<'_>>,
+    ) -> Result<(), CompareAndSwapError> {
+        let mut transaction = self.roots.transaction(&[self.name.as_ref()])?;
+        transaction
+            .tree(0)
+            .unwrap()
+            .compare_and_swap(key, old, new)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Retrieves the values of `keys`. If any keys are not found, they will be
+    /// omitted from the results.
+    // TODO needs to be a Vec<(Buffer, Buffer)>
     pub fn get_multiple(&self, keys: &[&[u8]]) -> Result<Vec<Buffer<'static>>, Error> {
         let mut tree = TreeFile::<F, MAX_ORDER>::read(
             self.roots.path().join(self.name.as_ref()),
@@ -314,6 +431,8 @@ impl<F: ManagedFile> Tree<F> {
         tree.get_multiple(keys, false)
     }
 
+    /// Retrieves all of the values of keys within `range`.
+    // TODO needs to be a Vec<(Buffer, Buffer)>
     pub fn scan<'b, B: RangeBounds<Buffer<'b>> + std::fmt::Debug + 'static>(
         &self,
         range: B,

@@ -33,6 +33,7 @@ use bonsaidb_core::{
     transaction::{Executed, OperationResult, Transaction},
 };
 use bonsaidb_jobs::manager::Manager;
+use bonsaidb_roots::StdFile;
 use futures::TryFutureExt;
 use itertools::Itertools;
 use rand::{thread_rng, Rng};
@@ -61,7 +62,7 @@ pub struct Storage {
 #[derive(Debug)]
 struct Data {
     id: StorageId,
-    sled: sled::Db,
+    sled: bonsaidb_roots::Roots<StdFile>,
     pub(crate) tasks: TaskManager,
     pub(crate) vault: Arc<Vault>,
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
@@ -300,7 +301,7 @@ impl Storage {
     //     }
     // }
 
-    pub(crate) fn sled(&self) -> &'_ sled::Db {
+    pub(crate) fn roots(&self) -> &'_ bonsaidb_roots::Roots<StdFile> {
         &self.data.sled
     }
 
@@ -609,7 +610,7 @@ impl ServerConnection for Storage {
                     sled.drop_tree(name)?;
                 }
             }
-            Result::<_, sled::Error>::Ok(())
+            Result::<_, bonsaidb_roots::Error>::Ok(())
         })
         .await
         .unwrap()

@@ -3,6 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use async_trait::async_trait;
 use bonsaidb_core::kv::Timestamp;
 use bonsaidb_jobs::Job;
+use bonsaidb_roots::StdFile;
 
 use crate::{
     database::kv::{Entry, TreeKey},
@@ -18,8 +19,8 @@ pub struct ExpirationUpdate {
 #[allow(clippy::needless_pass_by_value)]
 pub fn expiration_thread(
     updates: flume::Receiver<ExpirationUpdate>,
-    sled: sled::Db,
-) -> Result<(), sled::Error> {
+    roots: bonsaidb_roots::Roots<StdFile>,
+) -> Result<(), bonsaidb_roots::Error> {
     // expiring_keys will be maintained such that the soonest expiration is at the front and furthest in the future is at the back
     let mut tracked_keys = HashMap::<TreeKey, Timestamp>::new();
     let mut expiration_order = VecDeque::<TreeKey>::new();
@@ -58,7 +59,7 @@ pub fn expiration_thread(
                 {
                     let key_to_remove = expiration_order.pop_front().unwrap();
                     tracked_keys.remove(&key_to_remove);
-                    let tree = sled.open_tree(key_to_remove.tree.as_bytes())?;
+                    let tree = roots.tree(&key_to_remove.tree);
                     tree.remove(key_to_remove.key.as_bytes())?;
                 }
                 continue;
@@ -122,19 +123,20 @@ mod tests {
     use std::time::Duration;
 
     use bonsaidb_core::test_util::{TestDirectory, TimingTest};
+    use bonsaidb_roots::StdFile;
     use futures::Future;
 
     use super::*;
 
     async fn run_test<
-        F: FnOnce(flume::Sender<ExpirationUpdate>, sled::Db) -> R + Send,
+        F: FnOnce(flume::Sender<ExpirationUpdate>, bonsaidb_roots::Roots<StdFile>) -> R + Send,
         R: Future<Output = anyhow::Result<()>> + Send,
     >(
         name: &str,
         test_contents: F,
     ) -> anyhow::Result<()> {
         let dir = TestDirectory::new(name);
-        let sled = sled::open(&dir)?;
+        let sled = bonsaidb_roots::Config::new(&dir).open()?;
 
         let (sender, receiver) = flume::unbounded();
         let task_sled = sled.clone();
@@ -156,9 +158,9 @@ mod tests {
     async fn basic_expiration() -> anyhow::Result<()> {
         run_test("kv-basic-expiration", |sender, sled| async move {
             loop {
-                sled.drop_tree(b"atree")?;
-                let tree = sled.open_tree(b"db::atree")?;
-                tree.insert(b"akey", b"somevalue")?;
+                sled.delete_tree("atree")?;
+                let tree = sled.tree("db::atree");
+                tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.send(ExpirationUpdate {
                     tree_key: TreeKey::new("db", "atree", String::from("akey")),

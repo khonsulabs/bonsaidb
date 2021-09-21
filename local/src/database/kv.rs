@@ -3,8 +3,8 @@ use bonsaidb_core::{
     kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Numeric, Output, Timestamp, Value},
     schema::Schema,
 };
+use bonsaidb_roots::{Buffer, CompareAndSwapError, StdFile, Tree};
 use serde::{Deserialize, Serialize};
-use sled::{CompareAndSwapError, IVec};
 
 use crate::{storage::kv::ExpirationUpdate, Database, Error};
 
@@ -87,12 +87,7 @@ fn execute_set_operation<DB: Schema>(
     return_previous_value: bool,
     db: &Database<DB>,
 ) -> Result<Output, bonsaidb_core::Error> {
-    let kv_tree = db
-        .data
-        .storage
-        .sled()
-        .open_tree(tree_name.as_bytes())
-        .map_err(Error::from)?;
+    let kv_tree = db.data.storage.roots().tree(tree_name.to_string());
 
     let mut entry = Entry { value, expiration };
     let mut inserted = false;
@@ -107,14 +102,15 @@ fn execute_set_operation<DB: Schema>(
             updated = true;
             inserted = existing_value.is_none();
             if keep_existing_expiration && !inserted {
-                if let Ok(previous_entry) = bincode::deserialize::<Entry>(existing_value.unwrap()) {
+                if let Ok(previous_entry) = bincode::deserialize::<Entry>(&existing_value.unwrap())
+                {
                     entry.expiration = previous_entry.expiration;
                 }
             }
             let entry_vec = bincode::serialize(&entry).unwrap();
-            Some(IVec::from(entry_vec))
+            Some(Buffer::from(entry_vec))
         } else {
-            existing_value.cloned()
+            existing_value.map(|v| v.to_owned())
         }
     })
     .map_err(Error::from)?;
@@ -149,12 +145,7 @@ fn execute_get_operation<DB: Schema>(
     delete: bool,
     db: &Database<DB>,
 ) -> Result<Output, bonsaidb_core::Error> {
-    let tree = db
-        .data
-        .storage
-        .sled()
-        .open_tree(tree_name.as_bytes())
-        .map_err(Error::from)?;
+    let tree = db.data.storage.roots().tree(tree_name.to_string());
     let entry = if delete {
         let entry = tree.remove(key.as_bytes()).map_err(Error::from)?;
         if entry.is_some() {
@@ -181,13 +172,8 @@ fn execute_delete_operation<DB: Schema>(
     key: String,
     db: &Database<DB>,
 ) -> Result<Output, bonsaidb_core::Error> {
-    let tree = db
-        .data
-        .storage
-        .sled()
-        .open_tree(tree_name.as_bytes())
-        .map_err(Error::from)?;
-    let value = tree.remove(&key).map_err(Error::from)?;
+    let tree = db.data.storage.roots().tree(tree_name.to_string());
+    let value = tree.remove(key.as_bytes()).map_err(Error::from)?;
     if value.is_some() {
         db.data.storage.update_key_expiration(ExpirationUpdate {
             tree_key: TreeKey::new(&db.data.name, tree_name, key),
@@ -228,14 +214,9 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
     saturating: bool,
     op: F,
 ) -> Result<Output, bonsaidb_core::Error> {
-    let tree = db
-        .data
-        .storage
-        .sled()
-        .open_tree(tree_name.as_bytes())
-        .map_err(Error::from)?;
+    let tree = db.data.storage.roots().tree(tree_name.to_string());
 
-    let mut current = tree.get(key).map_err(Error::from)?;
+    let mut current = tree.get(key.as_bytes()).map_err(Error::from)?;
     loop {
         let mut entry = current
             .as_ref()
@@ -252,14 +233,15 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
                 let value = Value::Numeric(op(&existing, amount, saturating));
                 entry.value = value.clone();
 
-                let result_bytes = IVec::from(bincode::serialize(&entry).unwrap());
-                match tree
-                    .compare_and_swap(key, current, Some(result_bytes))
-                    .map_err(Error::from)?
-                {
+                let result_bytes = Buffer::from(bincode::serialize(&entry).unwrap());
+                match tree.compare_and_swap(key.as_bytes(), current.as_ref(), Some(result_bytes)) {
                     Ok(_) => return Ok(Output::Value(Some(value))),
-                    Err(CompareAndSwapError { current: cur, .. }) => {
+                    Err(CompareAndSwapError::Conflict(cur)) => {
                         current = cur;
+                    }
+                    Err(CompareAndSwapError::Error(other)) => {
+                        // TODO should roots errors be able to be put in core?
+                        return Err(bonsaidb_core::Error::Database(other.to_string()));
                     }
                 }
             }
@@ -347,25 +329,25 @@ impl TreeKey {
 /// copy when storing the existing value.
 /// <https://github.com/spacejam/sled/issues/1353>
 fn fetch_and_update_no_copy<K, F>(
-    tree: &sled::Tree,
+    tree: &Tree<StdFile>,
     key: K,
     mut f: F,
-) -> Result<Option<IVec>, sled::Error>
+) -> Result<Option<Buffer<'static>>, bonsaidb_roots::Error>
 where
     K: AsRef<[u8]>,
-    F: FnMut(Option<&IVec>) -> Option<IVec>,
+    F: FnMut(Option<Buffer<'_>>) -> Option<Buffer<'static>>,
 {
     let key_ref = key.as_ref();
     let mut current = tree.get(key_ref)?;
 
     loop {
-        let tmp = current.as_ref();
-        let next = f(tmp);
-        match tree.compare_and_swap(key_ref, tmp, next)? {
+        let next = f(current.clone());
+        match tree.compare_and_swap(key_ref, current.as_ref(), next) {
             Ok(()) => return Ok(current),
-            Err(CompareAndSwapError { current: cur, .. }) => {
+            Err(CompareAndSwapError::Conflict(cur)) => {
                 current = cur;
             }
+            Err(CompareAndSwapError::Error(other)) => return Err(other),
         }
     }
 }

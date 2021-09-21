@@ -38,7 +38,7 @@ pub enum ChangeResult<I: BinarySerialization, R: BinarySerialization> {
 impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
     pub fn modify<'a, 'w, F: ManagedFile>(
         &'a mut self,
-        modification: Modification<'static, Buffer<'static>>,
+        modification: Modification<'_, Buffer<'static>>,
         writer: &'a mut PagedWriter<'w, F>,
     ) -> Result<(), Error> {
         let transaction_id = modification.transaction_id;
@@ -76,7 +76,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
 
     fn modify_sequence_root<'a, 'w, F: ManagedFile>(
         &'a mut self,
-        mut modification: Modification<'static, Buffer<'static>>,
+        mut modification: Modification<'_, Buffer<'static>>,
         changes: &mut EntryChanges,
         writer: &'a mut PagedWriter<'w, F>,
     ) -> Result<(), Error> {
@@ -92,7 +92,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                 &mut modification,
                 &ModificationContext {
                     current_order: by_sequence_order,
-                    indexer: |key: &Buffer<'static>,
+                    indexer: |key: &Buffer<'_>,
                               value: &Buffer<'static>,
                               _existing_index: Option<&BySequenceIndex>,
                               changes: &mut EntryChanges,
@@ -105,6 +105,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                             .current_sequence
                             .checked_add(1)
                             .expect("sequence rollover prevented");
+                        let key = key.to_owned();
                         changes.changes.push(EntryChange {
                             key: key.clone(),
                             sequence: changes.current_sequence,
@@ -112,7 +113,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                             document_size,
                         });
                         Ok(KeyOperation::Set(BySequenceIndex {
-                            document_id: key.clone(),
+                            document_id: key,
                             position: document_position,
                             document_size,
                         }))
@@ -142,7 +143,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
 
     fn modify_id_root<'a, 'w, F: ManagedFile>(
         &'a mut self,
-        mut modification: Modification<'static, ByIdIndex>,
+        mut modification: Modification<'_, ByIdIndex>,
         writer: &'a mut PagedWriter<'w, F>,
     ) -> Result<(), Error> {
         modification.reverse()?;
@@ -156,7 +157,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                 &mut modification,
                 &ModificationContext {
                     current_order: by_id_order,
-                    indexer: |_key: &Buffer<'static>,
+                    indexer: |_key: &Buffer<'_>,
                               value: &ByIdIndex,
                               _existing_index,
                               _changes,

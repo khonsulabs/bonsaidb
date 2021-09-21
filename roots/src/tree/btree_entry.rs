@@ -60,7 +60,7 @@ impl<I> Reducer<I> for () {
 pub struct ModificationContext<T, F, I, Indexer, Loader>
 where
     Indexer: Fn(
-        &Buffer<'static>,
+        &Buffer<'_>,
         &T,
         Option<&I>,
         &mut EntryChanges,
@@ -81,17 +81,16 @@ where
 {
     pub fn modify<F, T, Indexer, Loader>(
         &mut self,
-        modification: &mut Modification<'static, T>,
+        modification: &mut Modification<'_, T>,
         context: &ModificationContext<T, F, I, Indexer, Loader>,
-        max_key: Option<&Buffer<'static>>,
+        max_key: Option<&Buffer<'_>>,
         changes: &mut EntryChanges,
         writer: &mut PagedWriter<'_, F>,
     ) -> Result<ChangeResult<I, R>, Error>
     where
         F: ManagedFile,
-        T: 'static,
         Indexer: Fn(
-            &Buffer<'static>,
+            &Buffer<'_>,
             &T,
             Option<&I>,
             &mut EntryChanges,
@@ -149,19 +148,19 @@ where
         }
     }
 
+    #[allow(clippy::too_many_lines)] // TODO refactor, too many lines
     fn modify_leaf<F, T, Indexer, Loader>(
         children: &mut Vec<KeyEntry<I>>,
-        modification: &mut Modification<'static, T>,
+        modification: &mut Modification<'_, T>,
         context: &ModificationContext<T, F, I, Indexer, Loader>,
-        max_key: Option<&Buffer<'static>>,
+        max_key: Option<&Buffer<'_>>,
         changes: &mut EntryChanges,
         writer: &mut PagedWriter<'_, F>,
     ) -> Result<bool, Error>
     where
         F: ManagedFile,
-        T: 'static,
         Indexer: Fn(
-            &Buffer<'static>,
+            &Buffer<'_>,
             &T,
             Option<&I>,
             &mut EntryChanges,
@@ -195,7 +194,6 @@ where
                             changes,
                             writer,
                         )?,
-
                         Operation::Remove => KeyOperation::Remove,
                         Operation::CompareSwap(callback) => {
                             let current_index = &children[last_index].index;
@@ -217,7 +215,10 @@ where
                     match index {
                         KeyOperation::Skip => {}
                         KeyOperation::Set(index) => {
-                            children[last_index] = KeyEntry { key, index };
+                            children[last_index] = KeyEntry {
+                                key: key.to_owned(),
+                                index,
+                            };
                             any_changes = true;
                         }
                         KeyOperation::Remove => {
@@ -263,7 +264,13 @@ where
                             if children.capacity() < children.len() + 1 {
                                 children.reserve(context.current_order - children.len());
                             }
-                            children.insert(last_index, KeyEntry { key, index });
+                            children.insert(
+                                last_index,
+                                KeyEntry {
+                                    key: key.to_owned(),
+                                    index,
+                                },
+                            );
                             any_changes = true;
                         }
                         KeyOperation::Skip | KeyOperation::Remove => {}
@@ -277,17 +284,16 @@ where
 
     pub fn modify_interior<F, T, Indexer, Loader>(
         children: &mut Vec<Interior<I, R>>,
-        modification: &mut Modification<'static, T>,
+        modification: &mut Modification<'_, T>,
         context: &ModificationContext<T, F, I, Indexer, Loader>,
-        max_key: Option<&Buffer<'static>>,
+        max_key: Option<&Buffer<'_>>,
         changes: &mut EntryChanges,
         writer: &mut PagedWriter<'_, F>,
     ) -> Result<bool, Error>
     where
         F: ManagedFile,
-        T: 'static,
         Indexer: Fn(
-            &Buffer<'static>,
+            &Buffer<'_>,
             &T,
             Option<&I>,
             &mut EntryChanges,

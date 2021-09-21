@@ -271,7 +271,7 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     /// Returns the sequence that wrote this document.
     pub fn modify(
         &mut self,
-        modification: Modification<'static, Buffer<'static>>,
+        modification: Modification<'_, Buffer<'static>>,
     ) -> Result<u64, Error> {
         self.file.execute(DocumentWriter {
             state: &self.state,
@@ -352,14 +352,16 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     }
 }
 
-struct DocumentWriter<'a, const MAX_ORDER: usize> {
+struct DocumentWriter<'a, 'm, const MAX_ORDER: usize> {
     state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
     cache: Option<&'a ChunkCache>,
-    modification: Option<Modification<'static, Buffer<'static>>>,
+    modification: Option<Modification<'m, Buffer<'static>>>,
 }
 
-impl<'a, F: ManagedFile, const MAX_ORDER: usize> FileOp<F> for DocumentWriter<'a, MAX_ORDER> {
+impl<'a, 'm, F: ManagedFile, const MAX_ORDER: usize> FileOp<F>
+    for DocumentWriter<'a, 'm, MAX_ORDER>
+{
     type Output = u64;
 
     #[allow(clippy::shadow_unrelated)] // It is related, but clippy can't tell.
@@ -558,8 +560,6 @@ where
         }
     }
 }
-
-impl<'a, const MAX_ORDER: usize> DocumentWriter<'a, MAX_ORDER> {}
 
 /// Writes data in pages, allowing for quick scanning through the file.
 pub struct PagedWriter<'a, F: ManagedFile> {

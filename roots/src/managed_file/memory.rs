@@ -15,6 +15,7 @@ use crate::Error;
 
 /// A fake "file" represented by an in-memory buffer. This should only be used
 /// in testing, as this database format is not optimized for memory efficiency.
+#[derive(Debug)]
 pub struct MemoryFile {
     path: Arc<PathBuf>,
     buffer: Arc<RwLock<Vec<u8>>>,
@@ -134,7 +135,7 @@ impl std::io::Write for MemoryFile {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct MemoryFileManager {
     open_files: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<MemoryFile>>>>>,
 }
@@ -185,6 +186,12 @@ impl FileManager for MemoryFileManager {
 
     fn exists(&self, path: impl AsRef<Path> + Send) -> Result<bool, Error> {
         Ok(self.lookup_file(path, false)?.is_some())
+    }
+
+    fn delete(&self, path: impl AsRef<Path> + Send) -> Result<bool, Error> {
+        let path = path.as_ref();
+        let mut open_files = self.open_files.lock();
+        Ok(open_files.remove(path).is_some())
     }
 }
 

@@ -155,7 +155,7 @@ where
     }
 
     pub(crate) fn sled(&self) -> &'_ sled::Db {
-        self.data.storage.sled()
+        self.data.storage.roots()
     }
 
     async fn for_each_in_view<
@@ -244,7 +244,7 @@ where
             let tree = task_self
                 .data
                 .storage
-                .sled()
+                .roots()
                 .open_tree(document_tree_name(&task_self.data.name, &collection))
                 .map_err(Error::from)?;
             if let Some(vec) = tree
@@ -275,7 +275,7 @@ where
             let tree = task_self
                 .data
                 .storage
-                .sled()
+                .roots()
                 .open_tree(document_tree_name(&task_self.data.name, &collection))
                 .map_err(Error::from)?;
             let mut found_docs = Vec::new();

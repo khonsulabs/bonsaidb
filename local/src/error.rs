@@ -7,9 +7,9 @@ use crate::vault;
 /// Errors that can occur from interacting with storage.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    /// An error occurred interacting with `sled`.
+    /// An error occurred interacting with the storage layer, `bonsaidb_roots`.
     #[error("error from storage: {0}")]
-    Sled(#[from] sled::Error),
+    Roots(#[from] bonsaidb_roots::Error),
 
     /// An error occurred serializing the underlying database structures.
     #[error("error while serializing internal structures: {0}")]

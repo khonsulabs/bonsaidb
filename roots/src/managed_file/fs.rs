@@ -12,6 +12,7 @@ use super::{FileManager, FileOp, ManagedFile, OpenableFile};
 use crate::Error;
 
 /// An open file that uses [`tokio::fs`].
+#[derive(Debug)]
 pub struct StdFile {
     file: File,
     path: Arc<PathBuf>,
@@ -76,7 +77,7 @@ impl Read for StdFile {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct StdFileManager {
     open_files: Arc<Mutex<HashMap<PathBuf, Arc<Mutex<StdFile>>>>>,
 }

@@ -57,7 +57,7 @@ where
             .storage
             .data
             .storage
-            .sled()
+            .roots()
             .open_tree(document_tree_name(
                 &self.storage.data.name,
                 &self.map.collection,
@@ -67,7 +67,7 @@ where
             .storage
             .data
             .storage
-            .sled()
+            .roots()
             .open_tree(view_entries_tree_name(
                 &self.storage.data.name,
                 &self.map.view_name,
@@ -77,7 +77,7 @@ where
             self.storage
                 .data
                 .storage
-                .sled()
+                .roots()
                 .open_tree(view_document_map_tree_name(
                     &self.storage.data.name,
                     &self.map.view_name,
@@ -87,7 +87,7 @@ where
             self.storage
                 .data
                 .storage
-                .sled()
+                .roots()
                 .open_tree(view_invalidated_docs_tree_name(
                     &self.storage.data.name,
                     &self.map.view_name,
@@ -97,7 +97,7 @@ where
             self.storage
                 .data
                 .storage
-                .sled()
+                .roots()
                 .open_tree(view_omitted_docs_tree_name(
                     &self.storage.data.name,
                     &self.map.view_name,

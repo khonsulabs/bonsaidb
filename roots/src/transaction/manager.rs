@@ -17,7 +17,7 @@ use crate::{
 };
 
 /// A shared [`TransactionLog`] manager. Allows multiple threads to interact with a single transaction log.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct TransactionManager<M: FileManager> {
     state: State,
     transaction_sender: flume::Sender<(TransactionHandle, flume::Sender<()>)>,
@@ -65,6 +65,7 @@ impl<M: FileManager> TransactionManager<M> {
             .map_err(|_| Error::Internal(InternalError::TransactionManagerStopped))
     }
 
+    /// Returns true if the transaction id was recorded in the transaction log. This method caches
     pub fn transaction_was_successful(&self, transaction_id: u64) -> Result<bool, Error> {
         if let Some(success) = self.state.transaction_id_is_valid(transaction_id) {
             Ok(success)

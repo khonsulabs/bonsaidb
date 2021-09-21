@@ -14,7 +14,7 @@ pub struct Modification<'a, T> {
     /// The keys to operate upon.
     pub keys: Vec<Buffer<'a>>,
     /// The operation to perform on the keys.
-    pub operation: Operation<T>,
+    pub operation: Operation<'a, T>,
 }
 
 impl<'a, T> Modification<'a, T> {
@@ -32,8 +32,7 @@ impl<'a, T> Modification<'a, T> {
 }
 
 /// An operation that is performed on a set of keys.
-#[derive(Debug)]
-pub enum Operation<T> {
+pub enum Operation<'a, T> {
     /// Sets all keys to the value.
     Set(T),
     /// Sets each key to the corresponding entry in this value. The number of
@@ -43,42 +42,53 @@ pub enum Operation<T> {
     Remove,
     /// Executes the `CompareSwap`. The original value (or `None` if not
     /// present) is the only argument.
-    CompareSwap(CompareSwap<T>),
+    CompareSwap(CompareSwap<'a, T>),
+}
+
+impl<'a, T: Debug> Debug for Operation<'a, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Set(arg0) => f.debug_tuple("Set").field(arg0).finish(),
+            Self::SetEach(arg0) => f.debug_tuple("SetEach").field(arg0).finish(),
+            Self::Remove => write!(f, "Remove"),
+            Self::CompareSwap(_) => f.debug_tuple("CompareSwap").finish(),
+        }
+    }
 }
 
 /// A function that is allowed to check the current value of a key and determine
 /// how to operate on it. The first parameter is the key, and the second
 /// parameter is the current value, if present.
-pub type CompareSwapFn<T> = dyn FnMut(&Buffer<'static>, Option<T>) -> KeyOperation<T>;
+pub type CompareSwapFn<'a, T> = dyn FnMut(&Buffer<'a>, Option<T>) -> KeyOperation<T> + 'a;
 
 /// A wrapper for a [`CompareSwapFn`].
-pub struct CompareSwap<T>(Box<CompareSwapFn<T>>);
+pub struct CompareSwap<'a, T>(&'a mut CompareSwapFn<'a, T>);
 
-impl<T> CompareSwap<T> {
+impl<'a, T> CompareSwap<'a, T> {
     /// Returns a new wrapped callback.
-    pub fn new<F: FnMut(&Buffer<'static>, Option<T>) -> KeyOperation<T> + 'static>(
-        callback: F,
+    pub fn new<F: FnMut(&Buffer<'_>, Option<T>) -> KeyOperation<T> + 'a>(
+        callback: &'a mut F,
     ) -> Self {
-        Self(Box::new(callback))
+        Self(callback)
     }
 }
 
-impl<T> Debug for CompareSwap<T> {
+impl<'a, T> Debug for CompareSwap<'a, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CompareSwap(dyn FnMut)")
     }
 }
 
-impl<T: 'static> Deref for CompareSwap<T> {
-    type Target = CompareSwapFn<T>;
+impl<'a, T> Deref for CompareSwap<'a, T> {
+    type Target = CompareSwapFn<'a, T>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        self.0
     }
 }
 
-impl<T: 'static> DerefMut for CompareSwap<T> {
+impl<'a, T> DerefMut for CompareSwap<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        self.0
     }
 }
