@@ -36,22 +36,22 @@ where
         let documents = self.database.sled().tree(document_tree_name(
             &self.database.data.name,
             &self.scan.collection,
-        ));
+        ))?;
 
         let view_versions = self.database.sled().tree(view_versions_tree_name(
             &self.database.data.name,
             &self.scan.collection,
-        ));
+        ))?;
 
         let document_map = self.database.sled().tree(view_document_map_tree_name(
             &self.database.data.name,
             &self.scan.view_name,
-        ));
+        ))?;
 
         let invalidated_entries = self.database.sled().tree(view_invalidated_docs_tree_name(
             &self.database.data.name,
             &self.scan.view_name,
-        ));
+        ))?;
 
         let view_name = self.scan.view_name.clone();
         let view_version = self.scan.view_version;
@@ -87,14 +87,15 @@ where
                 // mapping job will update them on the next pass.
                 let mut transaction =
                     roots.transaction(&[invalidated_entries.name(), view_versions.name()])?;
-                let (mut invalidated_entries, mut view_versions) =
-                    (transaction.tree(0).unwrap(), transaction.tree(1).unwrap());
+                let view_versions = transaction.tree(1).unwrap();
                 view_versions.set(
-                    view_name.to_string().as_bytes(),
-                    view_version.as_big_endian_bytes().unwrap().as_ref(),
+                    // TODO This is wasteful
+                    view_name.to_string().as_bytes().to_vec(),
+                    view_version.as_big_endian_bytes().unwrap().to_vec(),
                 )?;
+                let invalidated_entries = transaction.tree(0).unwrap();
                 for id in &missing_entries {
-                    invalidated_entries.set(id.as_big_endian_bytes().unwrap().as_ref(), b"")?;
+                    invalidated_entries.set(id.as_big_endian_bytes().unwrap().to_vec(), b"")?;
                 }
                 transaction.commit()?;
 

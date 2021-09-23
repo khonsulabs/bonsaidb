@@ -24,10 +24,6 @@ impl<const MAX_ORDER: usize> State<MAX_ORDER> {
     pub(crate) fn read(&self) -> RwLockReadGuard<'_, ActiveState<MAX_ORDER>> {
         self.reader.read()
     }
-
-    // pub fn next_sequence(&self) -> u64 {
-    //     self.state.next_sequence.load(Ordering::SeqCst)
-    // }
 }
 
 #[derive(Clone, Debug, Default)]

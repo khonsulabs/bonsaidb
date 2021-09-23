@@ -692,6 +692,7 @@ pub async fn bad_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 }
 
 pub async fn no_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+    println!("Here");
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     let header = collection.push(&original_value).await?;

@@ -139,7 +139,7 @@ struct StateInitializer<'a, F> {
 }
 
 impl<'a, F: ManagedFile> FileOp<F> for StateInitializer<'a, F> {
-    type Output = ();
+    type Output = Result<(), Error>;
     fn execute(&mut self, log: &mut F) -> Result<(), Error> {
         // Scan back block by block until we find a page header with a value of 1.
         let block_start = self.log_length - PAGE_SIZE as u64;
@@ -214,7 +214,7 @@ pub struct EntryFetcher<'a> {
 }
 
 impl<'a, F: ManagedFile> FileOp<F> for EntryFetcher<'a> {
-    type Output = Option<LogEntry<'static>>;
+    type Output = Result<Option<LogEntry<'static>>, Error>;
     fn execute(&mut self, log: &mut F) -> Result<Option<LogEntry<'static>>, Error> {
         let mut upper_id = self.state.current_transaction_id();
         let mut upper_location = self.state.len();
@@ -268,7 +268,7 @@ struct LogWriter<F> {
 }
 
 impl<F: ManagedFile> FileOp<F> for LogWriter<F> {
-    type Output = ();
+    type Output = Result<(), Error>;
     fn execute(&mut self, log: &mut F) -> Result<(), Error> {
         let mut log_position = self.state.lock_for_write();
         let mut scratch_buffer = Vec::new();

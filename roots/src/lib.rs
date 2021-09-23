@@ -37,7 +37,9 @@ pub use self::{
     context::Context,
     error::Error,
     managed_file::{fs::StdFile, FileManager, ManagedFile},
-    roots::{CompareAndSwapError, Config, ExecutingTransaction, Roots, TransactionTree, Tree},
+    roots::{
+        AbortError, CompareAndSwapError, Config, ExecutingTransaction, Roots, TransactionTree, Tree,
+    },
     transaction::{TransactionLog, TransactionManager},
     vault::Vault,
 };

@@ -38,8 +38,8 @@
 //! A data block may contain more than one chunk.
 
 use std::{
-    convert::TryFrom,
-    fmt::Debug,
+    convert::{Infallible, TryFrom},
+    fmt::{Debug, Display},
     fs::OpenOptions,
     io::SeekFrom,
     marker::PhantomData,
@@ -54,6 +54,7 @@ use crc::{Crc, CRC_32_BZIP2};
 use crate::{
     chunk_cache::CacheEntry,
     managed_file::{FileManager, FileOp, ManagedFile, OpenableFile},
+    roots::AbortError,
     tree::btree_root::BTreeRoot,
     Buffer, ChunkCache, Context, Error, TransactionManager, Vault,
 };
@@ -333,18 +334,21 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         &mut self,
         range: B,
         in_transaction: bool,
-    ) -> Result<Vec<Buffer<'static>>, Error> {
-        let mut buffers = Vec::new();
-        self.scan(
+    ) -> Result<Vec<(Buffer<'static>, Buffer<'static>)>, Error> {
+        let mut results = Vec::new();
+        match self.scan::<Infallible, _, _, _>(
             range,
             in_transaction,
             |_| KeyEvaluation::ReadData,
-            |_key, value| {
-                buffers.push(value);
+            |key, value| {
+                results.push((key, value));
                 Ok(())
             },
-        )?;
-        Ok(buffers)
+        ) {
+            Ok(_) => Ok(results),
+            Err(AbortError::Other(_)) => unreachable!(),
+            Err(AbortError::Roots(error)) => Err(error),
+        }
     }
 
     /// Gets the value stored for `key`.
@@ -352,17 +356,18 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         feature = "tracing",
         tracing::instrument(skip(self, key_evaluator, callback))
     )]
-    pub fn scan<'b, B, E, C>(
+    pub fn scan<'b, E, B, KeyEvaluator, DataCallback>(
         &mut self,
         range: B,
         in_transaction: bool,
-        key_evaluator: E,
-        callback: C,
-    ) -> Result<(), Error>
+        key_evaluator: KeyEvaluator,
+        callback: DataCallback,
+    ) -> Result<(), AbortError<E>>
     where
         B: RangeBounds<Buffer<'b>> + Debug + 'static,
-        E: FnMut(&Buffer<'static>) -> KeyEvaluation,
-        C: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+        KeyEvaluator: FnMut(&Buffer<'static>) -> KeyEvaluation,
+        DataCallback: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), AbortError<E>>,
+        E: Display + Debug,
     {
         self.file.execute(DocumentScanner {
             from_transaction: in_transaction,
@@ -388,10 +393,10 @@ struct DocumentWriter<'a, 'm, const MAX_ORDER: usize> {
 impl<'a, 'm, F: ManagedFile, const MAX_ORDER: usize> FileOp<F>
     for DocumentWriter<'a, 'm, MAX_ORDER>
 {
-    type Output = u64;
+    type Output = Result<u64, Error>;
 
     #[allow(clippy::shadow_unrelated)] // It is related, but clippy can't tell.
-    fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
+    fn execute(&mut self, file: &mut F) -> Self::Output {
         let mut active_state = self.state.lock();
 
         let mut data_block = PagedWriter::new(
@@ -510,8 +515,8 @@ where
     E: FnMut(&Buffer<'static>) -> KeyEvaluation,
     R: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
 {
-    type Output = ();
-    fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
+    type Output = Result<(), Error>;
+    fn execute(&mut self, file: &mut F) -> Self::Output {
         if self.from_transaction {
             let state = self.state.lock();
             state.header.get_multiple(
@@ -536,33 +541,34 @@ where
     }
 }
 
-struct DocumentScanner<
-    'a,
-    'k,
-    E: FnMut(&Buffer<'static>) -> KeyEvaluation,
-    R: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+struct DocumentScanner<'a, 'k, E, KeyEvaluator, KeyReader, KeyRangeBounds, const MAX_ORDER: usize>
+where
+    KeyEvaluator: FnMut(&Buffer<'static>) -> KeyEvaluation,
+    KeyReader: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), AbortError<E>>,
     KeyRangeBounds: RangeBounds<Buffer<'k>>,
-    const MAX_ORDER: usize,
-> {
+    E: Display + Debug,
+{
     from_transaction: bool,
     state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
     cache: Option<&'a ChunkCache>,
     range: KeyRangeBounds,
-    key_evaluator: E,
-    key_reader: R,
+    key_evaluator: KeyEvaluator,
+    key_reader: KeyReader,
     _phantom: PhantomData<&'k ()>,
 }
 
-impl<'a, 'k, E, R, KeyRangeBounds, F: ManagedFile, const MAX_ORDER: usize> FileOp<F>
-    for DocumentScanner<'a, 'k, E, R, KeyRangeBounds, MAX_ORDER>
+impl<'a, 'k, E, KeyEvaluator, KeyReader, KeyRangeBounds, F, const MAX_ORDER: usize> FileOp<F>
+    for DocumentScanner<'a, 'k, E, KeyEvaluator, KeyReader, KeyRangeBounds, MAX_ORDER>
 where
-    E: FnMut(&Buffer<'static>) -> KeyEvaluation,
-    R: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+    F: ManagedFile,
+    KeyEvaluator: FnMut(&Buffer<'static>) -> KeyEvaluation,
+    KeyReader: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), AbortError<E>>,
     KeyRangeBounds: RangeBounds<Buffer<'k>> + Debug,
+    E: Display + Debug,
 {
-    type Output = ();
-    fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error> {
+    type Output = Result<(), AbortError<E>>;
+    fn execute(&mut self, file: &mut F) -> Self::Output {
         if self.from_transaction {
             let state = self.state.lock();
             state.header.scan(
@@ -1124,23 +1130,44 @@ mod tests {
         assert_eq!(all_records, ids);
 
         // Try some ranges
-        let mut unbounded_to_five = tree.get_range(..ids[5].clone(), false).unwrap();
+        let mut unbounded_to_five = tree
+            .get_range(..ids[5].clone(), false)
+            .unwrap()
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>();
         unbounded_to_five.sort();
         assert_eq!(&all_records[..5], &unbounded_to_five);
         let mut one_to_ten_unbounded = tree
             .get_range(ids[1].clone()..ids[10].clone(), false)
-            .unwrap();
+            .unwrap()
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>();
         one_to_ten_unbounded.sort();
         assert_eq!(&all_records[1..10], &one_to_ten_unbounded);
         let mut bounded_upper = tree
             .get_range(ids[3].clone()..=ids[50].clone(), false)
-            .unwrap();
+            .unwrap()
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>();
         bounded_upper.sort();
         assert_eq!(&all_records[3..=50], &bounded_upper);
-        let mut unbounded_upper = tree.get_range(ids[60].clone().., false).unwrap();
+        let mut unbounded_upper = tree
+            .get_range(ids[60].clone().., false)
+            .unwrap()
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>();
         unbounded_upper.sort();
         assert_eq!(&all_records[60..], &unbounded_upper);
-        let mut all_through_scan = tree.get_range(.., false).unwrap();
+        let mut all_through_scan = tree
+            .get_range(.., false)
+            .unwrap()
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>();
         all_through_scan.sort();
         assert_eq!(&all_records, &all_through_scan);
     }

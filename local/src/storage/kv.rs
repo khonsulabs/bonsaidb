@@ -1,4 +1,7 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    convert::Infallible,
+};
 
 use async_trait::async_trait;
 use bonsaidb_core::kv::Timestamp;
@@ -59,7 +62,8 @@ pub fn expiration_thread(
                 {
                     let key_to_remove = expiration_order.pop_front().unwrap();
                     tracked_keys.remove(&key_to_remove);
-                    let tree = roots.tree(&key_to_remove.tree);
+                    let tree = roots.tree(key_to_remove.tree.clone())?;
+                    println!("removing {:?}", key_to_remove);
                     tree.remove(key_to_remove.key.as_bytes())?;
                 }
                 continue;
@@ -159,7 +163,7 @@ mod tests {
         run_test("kv-basic-expiration", |sender, sled| async move {
             loop {
                 sled.delete_tree("atree")?;
-                let tree = sled.tree("db::atree");
+                let tree = sled.tree("db::atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.send(ExpirationUpdate {
@@ -183,8 +187,8 @@ mod tests {
     async fn updating_expiration() -> anyhow::Result<()> {
         run_test("kv-updating-expiration", |sender, sled| async move {
             loop {
-                sled.delete_tree("db::atree")?;
-                let tree = sled.tree("db::atree");
+                sled.delete_tree("db.atree")?;
+                let tree = sled.tree("db.atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.send(ExpirationUpdate {
@@ -217,7 +221,7 @@ mod tests {
         run_test("kv-multiple-keys-expiration", |sender, sled| async move {
             loop {
                 sled.delete_tree("db::atree")?;
-                let tree = sled.tree("db::atree");
+                let tree = sled.tree("db::atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 tree.set(b"bkey", b"somevalue")?;
 
@@ -253,7 +257,7 @@ mod tests {
         run_test("kv-clearing-expiration", |sender, sled| async move {
             loop {
                 sled.delete_tree("db::atree")?;
-                let tree = sled.tree("db::atree");
+                let tree = sled.tree("db::atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.send(ExpirationUpdate {
@@ -281,7 +285,7 @@ mod tests {
     #[tokio::test]
     async fn out_of_order_expiration() -> anyhow::Result<()> {
         run_test("kv-out-of-order-expiration", |sender, sled| async move {
-            let tree = sled.tree("db::atree");
+            let tree = sled.tree("db::atree")?;
             tree.set(b"akey", b"somevalue")?;
             tree.set(b"bkey", b"somevalue")?;
             tree.set(b"ckey", b"somevalue")?;
@@ -335,19 +339,25 @@ impl Job for ExpirationLoader {
                 .into_iter()
                 .filter(|t| t.contains(".kv."))
             {
-                storage.data.roots.tree(&kv_tree).scan(
-                    ..,
-                    |_| KeyEvaluation::ReadData,
-                    |key, entry: Buffer<'static>| {
-                        if let Ok(entry) = bincode::deserialize::<Entry>(&entry) {
-                            if entry.expiration.is_some() {
-                                sender.send((kv_tree, key, entry.expiration)).unwrap();
+                storage
+                    .data
+                    .roots
+                    .tree(kv_tree.clone())?
+                    .scan::<Infallible, _, _, _>(
+                        ..,
+                        |_| KeyEvaluation::ReadData,
+                        |key, entry: Buffer<'static>| {
+                            if let Ok(entry) = bincode::deserialize::<Entry>(&entry) {
+                                if entry.expiration.is_some() {
+                                    sender
+                                        .send((kv_tree.clone(), key, entry.expiration))
+                                        .unwrap();
+                                }
                             }
-                        }
 
-                        Ok(())
-                    },
-                )?;
+                            Ok(())
+                        },
+                    )?;
             }
 
             Result::<(), anyhow::Error>::Ok(())

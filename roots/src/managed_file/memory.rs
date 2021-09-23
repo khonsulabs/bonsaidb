@@ -198,7 +198,7 @@ impl FileManager for MemoryFileManager {
 pub struct OpenMemoryFile(Arc<Mutex<MemoryFile>>);
 
 impl OpenableFile<MemoryFile> for OpenMemoryFile {
-    fn execute<W: FileOp<MemoryFile>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
+    fn execute<W: FileOp<MemoryFile>>(&mut self, mut writer: W) -> W::Output {
         let mut file = self.0.lock();
         writer.execute(&mut file)
     }

@@ -7,6 +7,8 @@ use std::{
     sync::Arc,
 };
 
+use ranges::Domain;
+
 /// A wrapper around a `Cow<'a, [u8]>` wrapper that implements Read, and has a
 /// convenience method to take a slice of bytes as another Buffer which shares a
 /// reference to the same underlying `Cow`.
@@ -157,4 +159,8 @@ impl<'a> Read for Buffer<'a> {
 
         Ok(bytes_read)
     }
+}
+
+impl<'a> Domain for Buffer<'a> {
+    const DISCRETE: bool = true;
 }

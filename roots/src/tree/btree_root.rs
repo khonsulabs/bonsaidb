@@ -1,4 +1,9 @@
-use std::{convert::TryFrom, fmt::Debug, marker::PhantomData, ops::RangeBounds};
+use std::{
+    convert::TryFrom,
+    fmt::{Debug, Display},
+    marker::PhantomData,
+    ops::RangeBounds,
+};
 
 use byteorder::{BigEndian, ByteOrder, ReadBytesExt, WriteBytesExt};
 
@@ -14,6 +19,7 @@ use super::{
 use crate::{
     chunk_cache::CacheEntry,
     error::InternalError,
+    roots::AbortError,
     tree::{
         btree_entry::{KeyOperation, ModificationContext},
         modify::Operation,
@@ -221,7 +227,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         Ok(())
     }
 
-    pub fn scan<'k, F: ManagedFile, KeyRangeBounds, KeyEvaluator, KeyReader>(
+    pub fn scan<'k, F: ManagedFile, E, KeyRangeBounds, KeyEvaluator, KeyReader>(
         &self,
         range: &KeyRangeBounds,
         key_evaluator: &mut KeyEvaluator,
@@ -229,11 +235,12 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         file: &mut F,
         vault: Option<&dyn Vault>,
         cache: Option<&ChunkCache>,
-    ) -> Result<(), Error>
+    ) -> Result<(), AbortError<E>>
     where
         KeyEvaluator: FnMut(&Buffer<'static>) -> KeyEvaluation,
-        KeyReader: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), Error>,
+        KeyReader: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), AbortError<E>>,
         KeyRangeBounds: RangeBounds<Buffer<'k>> + Debug,
+        E: Display + Debug,
     {
         let mut positions_to_read = Vec::new();
         self.by_id_root.scan(

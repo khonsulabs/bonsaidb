@@ -72,7 +72,7 @@ pub trait FileManager: Send + Sync + Clone + Default + std::fmt::Debug + 'static
 /// A file that can have operations performed on it.
 pub trait OpenableFile<F: ManagedFile> {
     /// Executes an operation.
-    fn execute<W: FileOp<F>>(&mut self, operator: W) -> Result<W::Output, Error>;
+    fn execute<W: FileOp<F>>(&mut self, operator: W) -> W::Output;
 
     /// Closes the file. This may not actually close the underlying file,
     /// depending on what other tasks have access to the underlying file as
@@ -86,5 +86,5 @@ pub trait FileOp<F: ManagedFile> {
     type Output;
 
     /// Executes the operation and returns the result.
-    fn execute(&mut self, file: &mut F) -> Result<Self::Output, Error>;
+    fn execute(&mut self, file: &mut F) -> Self::Output;
 }

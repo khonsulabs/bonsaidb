@@ -112,7 +112,7 @@ impl Storage {
             let roots = bonsaidb_roots::Config::new(owned_path)
                 .cache(ChunkCache::new(2000, 160_384))
                 .open()
-                .map_err(|err| Error::from(err))?;
+                .map_err(Error::from)?;
 
             Ok(Self {
                 data: Arc::new(Data {
@@ -132,7 +132,7 @@ impl Storage {
             })
         })
         .await
-        .unwrap()?;
+        .map_err(|err| Error::Other(Arc::new(anyhow::anyhow!(err))))??;
 
         #[cfg(feature = "keyvalue")]
         storage
@@ -141,8 +141,10 @@ impl Storage {
             .spawn_key_value_expiration_loader(&storage)
             .await;
 
+        println!("Caching databases");
         storage.cache_available_databases().await?;
 
+        println!("Creating admin database");
         storage.create_admin_database_if_needed().await?;
 
         Ok(storage)

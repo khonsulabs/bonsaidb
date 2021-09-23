@@ -87,7 +87,12 @@ fn execute_set_operation<DB: Schema>(
     return_previous_value: bool,
     db: &Database<DB>,
 ) -> Result<Output, bonsaidb_core::Error> {
-    let kv_tree = db.data.storage.roots().tree(tree_name.to_string());
+    let kv_tree = db
+        .data
+        .storage
+        .roots()
+        .tree(tree_name.to_string())
+        .map_err(Error::from)?;
 
     let mut entry = Entry { value, expiration };
     let mut inserted = false;
@@ -145,7 +150,12 @@ fn execute_get_operation<DB: Schema>(
     delete: bool,
     db: &Database<DB>,
 ) -> Result<Output, bonsaidb_core::Error> {
-    let tree = db.data.storage.roots().tree(tree_name.to_string());
+    let tree = db
+        .data
+        .storage
+        .roots()
+        .tree(tree_name.to_string())
+        .map_err(Error::from)?;
     let entry = if delete {
         let entry = tree.remove(key.as_bytes()).map_err(Error::from)?;
         if entry.is_some() {
@@ -172,7 +182,12 @@ fn execute_delete_operation<DB: Schema>(
     key: String,
     db: &Database<DB>,
 ) -> Result<Output, bonsaidb_core::Error> {
-    let tree = db.data.storage.roots().tree(tree_name.to_string());
+    let tree = db
+        .data
+        .storage
+        .roots()
+        .tree(tree_name.to_string())
+        .map_err(Error::from)?;
     let value = tree.remove(key.as_bytes()).map_err(Error::from)?;
     if value.is_some() {
         db.data.storage.update_key_expiration(ExpirationUpdate {
@@ -214,7 +229,12 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
     saturating: bool,
     op: F,
 ) -> Result<Output, bonsaidb_core::Error> {
-    let tree = db.data.storage.roots().tree(tree_name.to_string());
+    let tree = db
+        .data
+        .storage
+        .roots()
+        .tree(tree_name.to_string())
+        .map_err(Error::from)?;
 
     let mut current = tree.get(key.as_bytes()).map_err(Error::from)?;
     loop {

@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::{convert::Infallible, sync::Arc};
 
 use bonsaidb_core::schema::{view, InvalidNameError};
+use bonsaidb_roots::AbortError;
 
 use crate::vault;
 
@@ -52,6 +53,15 @@ impl From<Error> for bonsaidb_core::Error {
 impl From<InvalidNameError> for Error {
     fn from(err: InvalidNameError) -> Self {
         Self::Core(bonsaidb_core::Error::from(err))
+    }
+}
+
+impl From<AbortError<Infallible>> for Error {
+    fn from(err: AbortError<Infallible>) -> Self {
+        match err {
+            AbortError::Roots(error) => Self::Roots(error),
+            AbortError::Other(_) => unreachable!(),
+        }
     }
 }
 

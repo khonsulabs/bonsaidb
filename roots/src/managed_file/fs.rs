@@ -109,7 +109,7 @@ impl FileManager for StdFileManager {
 pub struct OpenStdFile(Arc<Mutex<StdFile>>);
 
 impl OpenableFile<StdFile> for OpenStdFile {
-    fn execute<W: FileOp<StdFile>>(&mut self, mut writer: W) -> Result<W::Output, Error> {
+    fn execute<W: FileOp<StdFile>>(&mut self, mut writer: W) -> W::Output {
         let mut file = self.0.lock();
         writer.execute(&mut file)
     }
