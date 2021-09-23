@@ -2,10 +2,10 @@
 
 This is a temporary place to track TODOs for this project, until it's at the stage that it can be integrated into BonsaiDb.
 
-- [ ] Reverse scan (last)
-- [ ] 
+- [x] Reverse scan (last)
+- [ ] Consider switching key-scanning to read buffers as they are encountered. When trying to write a scan to return the last 5 records, it'd be nice to be able to use "if my_buffer.len() < 5 {..}" but due to the buffer reading callback happening later, you can't do that. Thus, you have to keep track of the count in the key retrieval API. Another option would be to add optional limits to the APIs.
 - Unit tests
-  - [ ] remove
+  - [x] remove
   - [ ] CompareAndSwap
   - [ ] compare_and_swap
 - [ ] Benchmark multi-id and ranged queries

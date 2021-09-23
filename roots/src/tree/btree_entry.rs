@@ -245,7 +245,7 @@ where
                         break;
                     }
                     let key = modification.keys.pop().unwrap();
-                    let index = match &mut modification.operation {
+                    let operation = match &mut modification.operation {
                         Operation::Set(new_value) => {
                             (context.indexer)(&key, Some(new_value), None, changes, writer)?
                         }
@@ -272,9 +272,9 @@ where
                             }
                         },
                     };
-                    // New node.
-                    match index {
+                    match operation {
                         KeyOperation::Set(index) => {
+                            // New node.
                             if children.capacity() < children.len() + 1 {
                                 children.reserve(context.current_order - children.len());
                             }
@@ -402,6 +402,7 @@ where
     pub fn scan<'k, F: ManagedFile, KeyRangeBounds, KeyEvaluator, KeyReader>(
         &self,
         range: &KeyRangeBounds,
+        forwards: bool,
         key_evaluator: &mut KeyEvaluator,
         key_reader: &mut KeyReader,
         file: &mut F,
@@ -415,7 +416,7 @@ where
     {
         match &self.node {
             BTreeNode::Leaf(children) => {
-                for child in children {
+                for child in DirectionalSliceIterator::new(forwards, children) {
                     if range.contains(&child.key) {
                         match key_evaluator(&child.key) {
                             KeyEvaluation::ReadData => {
@@ -428,28 +429,33 @@ where
                 }
             }
             BTreeNode::Interior(children) => {
-                for (index, child) in children.iter().enumerate() {
+                for (index, child) in DirectionalSliceIterator::new(forwards, children).enumerate()
+                {
                     // The keys in this child range from the previous child's key (exclusive) to the entry's key (inclusive).
                     let start_bound = range.start_bound();
                     let end_bound = range.end_bound();
-                    if index > 0 {
-                        let previous_entry = &children[index - 1];
+                    if forwards {
+                        if index > 0 {
+                            let previous_entry = &children[index - 1];
 
-                        // One the previous entry's key is less than the end
-                        // bound, we can break out of the loop.
-                        match end_bound {
-                            Bound::Included(key) => {
-                                if previous_entry.key > *key {
-                                    break;
+                            // One the previous entry's key is less than the end
+                            // bound, we can break out of the loop.
+                            match end_bound {
+                                Bound::Included(key) => {
+                                    if previous_entry.key > *key {
+                                        break;
+                                    }
                                 }
-                            }
-                            Bound::Excluded(key) => {
-                                if &previous_entry.key >= key {
-                                    break;
+                                Bound::Excluded(key) => {
+                                    if &previous_entry.key >= key {
+                                        break;
+                                    }
                                 }
+                                Bound::Unbounded => {}
                             }
-                            Bound::Unbounded => {}
                         }
+                    } else {
+                        // TODO need to write the logic for breaking out when iterating backwards.
                     }
 
                     // Keys in this child could match as long as the start bound
@@ -474,7 +480,15 @@ where
                         cache,
                         children.len(),
                         |entry, file| {
-                            entry.scan(range, key_evaluator, key_reader, file, vault, cache)
+                            entry.scan(
+                                range,
+                                forwards,
+                                key_evaluator,
+                                key_reader,
+                                file,
+                                vault,
+                                cache,
+                            )
                         },
                     )?;
                     if !keep_scanning {
@@ -552,6 +566,9 @@ where
                         if !keep_scanning {
                             break;
                         }
+                        // The leaf will consume all the keys that can match.
+                        // Thus, we can skip it on the next iteration.
+                        last_index += 1;
                     } else {
                         break;
                     }
@@ -639,4 +656,37 @@ pub enum KeyOperation<T> {
     Set(T),
     /// Remove the key.
     Remove,
+}
+
+struct DirectionalSliceIterator<'a, I> {
+    forwards: bool,
+    index: usize,
+    contents: &'a [I],
+}
+
+impl<'a, I> DirectionalSliceIterator<'a, I> {
+    pub const fn new(forwards: bool, contents: &'a [I]) -> Self {
+        Self {
+            forwards,
+            contents,
+            index: if forwards { 0 } else { contents.len() },
+        }
+    }
+}
+
+impl<'a, I> Iterator for DirectionalSliceIterator<'a, I> {
+    type Item = &'a I;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.forwards && self.index < self.contents.len() {
+            let element = &self.contents[self.index];
+            self.index += 1;
+            Some(element)
+        } else if !self.forwards && self.index > 0 {
+            self.index -= 1;
+            Some(&self.contents[self.index])
+        } else {
+            None
+        }
+    }
 }

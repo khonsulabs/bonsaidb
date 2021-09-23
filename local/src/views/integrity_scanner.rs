@@ -61,7 +61,7 @@ where
             let document_ids = tree_keys::<u64>(&documents)?;
             let view_is_current_version =
                 if let Some(version) = view_versions.get(view_name.to_string().as_bytes())? {
-                    if let Ok(version) = u64::from_big_endian_bytes(&version) {
+                    if let Ok(version) = u64::from_big_endian_bytes(version.as_slice()) {
                         version == view_version
                     } else {
                         false
@@ -144,6 +144,7 @@ fn tree_keys<K: Key + Hash + Eq + Clone>(tree: &Tree<StdFile>) -> Result<HashSet
     let mut ids = Vec::new();
     tree.scan(
         ..,
+        true,
         |key| {
             ids.push(key.clone());
             KeyEvaluation::Skip

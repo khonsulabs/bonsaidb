@@ -312,10 +312,11 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         // single emits, so it's going to be a
         // single-entry vec for now.
         let keys: Vec<Cow<'_, [u8]>> = vec![Cow::Borrowed(key)];
-        let key = Buffer::from(self.document_id.to_vec());
         let encrypted_entry = self.serialize_and_encrypt(&keys)?;
         let document_map = self.transaction.tree(self.document_map_index).unwrap();
-        if let Some(existing_map) = document_map.replace(key.clone(), encrypted_entry)? {
+        if let Some(existing_map) =
+            document_map.replace(self.document_id.to_vec(), encrypted_entry)?
+        {
             self.remove_existing_view_entries_for_keys(&keys, &existing_map)?;
         }
 
@@ -323,7 +324,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
 
         // Add a new ViewEntry or update an existing
         // ViewEntry for the key given
-        let view_entry = if let Some(mut entry) = self.load_entry_for_key(&key)? {
+        let view_entry = if let Some(mut entry) = self.load_entry_for_key(key)? {
             // attempt to update an existing
             // entry for this document, if
             // present
@@ -356,7 +357,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             let mappings = entry
                 .mappings
                 .iter()
-                .map(|m| (key.as_slice(), m.value.as_slice()))
+                .map(|m| (key, m.value.as_slice()))
                 .collect::<Vec<_>>();
             entry.reduced_value = self
                 .view
@@ -367,7 +368,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         } else {
             let reduced_value = self
                 .view
-                .reduce(&[(key.as_slice(), &entry_mapping.value)], false)
+                .reduce(&[(key, &entry_mapping.value)], false)
                 .map_err(bonsaidb_core::Error::from)?;
             ViewEntryCollection::from(ViewEntry {
                 key: key.to_vec(),
@@ -376,7 +377,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                 reduced_value,
             })
         };
-        self.save_entry_for_key(&key, &view_entry)?;
+        self.save_entry_for_key(key, &view_entry)?;
         Ok(())
     }
 

@@ -172,6 +172,13 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         context: &Context<F::Manager>,
         transaction_manager: Option<&TransactionManager<F::Manager>>,
     ) -> Result<(), Error> {
+        {
+            let read_state = state.read();
+            if read_state.initialized() {
+                return Ok(());
+            }
+        }
+
         let mut active_state = state.lock();
         if active_state.initialized() {
             return Ok(());
@@ -237,6 +244,14 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
                         if !transaction_manager.transaction_was_successful(root.transaction_id)? {
                             // The transaction wasn't written successfully, so
                             // we cannot trust the data present.
+                            if block_start == 0 {
+                                // No data was ever fully written.
+                                break BTreeRoot {
+                                    sequence: 1,
+                                    ..BTreeRoot::default()
+                                };
+                            }
+                            block_start -= PAGE_SIZE as u64;
                             continue;
                         }
                     }
@@ -338,6 +353,7 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         let mut results = Vec::new();
         match self.scan::<Infallible, _, _, _>(
             range,
+            true,
             in_transaction,
             |_| KeyEvaluation::ReadData,
             |key, value| {
@@ -359,6 +375,7 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
     pub fn scan<'b, E, B, KeyEvaluator, DataCallback>(
         &mut self,
         range: B,
+        forwards: bool,
         in_transaction: bool,
         key_evaluator: KeyEvaluator,
         callback: DataCallback,
@@ -370,6 +387,7 @@ impl<F: ManagedFile, const MAX_ORDER: usize> TreeFile<F, MAX_ORDER> {
         E: Display + Debug,
     {
         self.file.execute(DocumentScanner {
+            forwards,
             from_transaction: in_transaction,
             state: &self.state,
             vault: self.vault.as_deref(),
@@ -548,6 +566,7 @@ where
     KeyRangeBounds: RangeBounds<Buffer<'k>>,
     E: Display + Debug,
 {
+    forwards: bool,
     from_transaction: bool,
     state: &'a State<MAX_ORDER>,
     vault: Option<&'a dyn Vault>,
@@ -573,6 +592,7 @@ where
             let state = self.state.lock();
             state.header.scan(
                 &self.range,
+                self.forwards,
                 &mut self.key_evaluator,
                 &mut self.key_reader,
                 file,
@@ -583,6 +603,7 @@ where
             let state = self.state.read();
             state.header.scan(
                 &self.range,
+                self.forwards,
                 &mut self.key_evaluator,
                 &mut self.key_reader,
                 file,

@@ -115,7 +115,7 @@ fn execute_set_operation<DB: Schema>(
             let entry_vec = bincode::serialize(&entry).unwrap();
             Some(Buffer::from(entry_vec))
         } else {
-            existing_value.map(|v| v.to_owned())
+            existing_value
         }
     })
     .map_err(Error::from)?;
@@ -339,7 +339,7 @@ pub struct TreeKey {
 impl TreeKey {
     pub fn new(database: &str, tree: &str, key: String) -> Self {
         Self {
-            tree: format!("{}::{}", database, tree),
+            tree: format!("{}.kv.{}", database, tree),
             key,
         }
     }
@@ -355,7 +355,7 @@ fn fetch_and_update_no_copy<K, F>(
 ) -> Result<Option<Buffer<'static>>, bonsaidb_roots::Error>
 where
     K: AsRef<[u8]>,
-    F: FnMut(Option<Buffer<'_>>) -> Option<Buffer<'static>>,
+    F: FnMut(Option<Buffer<'static>>) -> Option<Buffer<'static>>,
 {
     let key_ref = key.as_ref();
     let mut current = tree.get(key_ref)?;

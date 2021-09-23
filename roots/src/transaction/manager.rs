@@ -67,7 +67,9 @@ impl<M: FileManager> TransactionManager<M> {
 
     /// Returns true if the transaction id was recorded in the transaction log. This method caches
     pub fn transaction_was_successful(&self, transaction_id: u64) -> Result<bool, Error> {
-        if let Some(success) = self.state.transaction_id_is_valid(transaction_id) {
+        if transaction_id == 0 {
+            Ok(false)
+        } else if let Some(success) = self.state.transaction_id_is_valid(transaction_id) {
             Ok(success)
         } else {
             let mut log = self.context.file_manager.read(self.state.path())?;
@@ -76,7 +78,9 @@ impl<M: FileManager> TransactionManager<M> {
                 id: transaction_id,
                 vault: self.context.vault(),
             })?;
-            Ok(transaction.is_some())
+            let found = transaction.is_some();
+            self.state.note_transaction_id_status(transaction_id, found);
+            Ok(found)
         }
     }
 

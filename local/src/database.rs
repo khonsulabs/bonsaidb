@@ -626,6 +626,7 @@ where
                     );
                     view_entries.scan::<Infallible, _, _, _>(
                         start..end,
+                        true,
                         |_| KeyEvaluation::ReadData,
                         |_key, value| {
                             values.push(value);
@@ -660,6 +661,7 @@ where
         } else {
             view_entries.scan::<Infallible, _, _, _>(
                 ..,
+                true,
                 |_| KeyEvaluation::ReadData,
                 |_, value| {
                     values.push(value);
@@ -849,6 +851,7 @@ where
                     let mut keys_to_request = result_limit;
                     tree.scan(
                         range,
+                        true,
                         |_| {
                             if keys_to_request > 0 {
                                 keys_to_request -= 1;
@@ -1006,21 +1009,23 @@ where
     }
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
-        todo!()
-        // let task_self = self.clone();
-        // let transaction_tree_name = transaction_tree_name(&self.data.name);
-        // tokio::task::spawn_blocking(move || {
-        //     let tree = task_self.sled().tree(&transaction_tree_name);
-        //     if let Some((key, _)) = tree.last().map_err(Error::from)? {
-        //         Ok(Some(
-        //             u64::from_big_endian_bytes(&key).map_err(view::Error::KeySerialization)?,
-        //         ))
-        //     } else {
-        //         Ok(None)
-        //     }
-        // })
-        // .await
-        // .unwrap()
+        let task_self = self.clone();
+        let transaction_tree_name = transaction_tree_name(&self.data.name);
+        tokio::task::spawn_blocking(move || {
+            let tree = task_self
+                .sled()
+                .tree(transaction_tree_name)
+                .map_err(Error::from)?;
+            if let Some((key, _)) = tree.last().map_err(Error::from)? {
+                Ok(Some(
+                    u64::from_big_endian_bytes(&key).map_err(view::Error::KeySerialization)?,
+                ))
+            } else {
+                Ok(None)
+            }
+        })
+        .await
+        .unwrap()
     }
 }
 

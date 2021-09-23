@@ -273,7 +273,9 @@ impl<F: ManagedFile> FileOp<F> for LogWriter<F> {
         let mut log_position = self.state.lock_for_write();
         let mut scratch_buffer = Vec::new();
         scratch_buffer.resize(PAGE_SIZE, 0);
+        let mut completed_transactions = Vec::new();
         for handle in self.handles.drain(..) {
+            completed_transactions.push(handle.transaction.id);
             let mut bytes = handle.transaction.serialize()?;
             if let Some(vault) = &self.vault {
                 bytes = vault.encrypt(&bytes);
@@ -318,6 +320,9 @@ impl<F: ManagedFile> FileOp<F> for LogWriter<F> {
         drop(log_position);
 
         log.flush()?;
+
+        self.state
+            .note_transaction_ids_completed(&completed_transactions);
 
         Ok(())
     }

@@ -162,8 +162,8 @@ mod tests {
     async fn basic_expiration() -> anyhow::Result<()> {
         run_test("kv-basic-expiration", |sender, sled| async move {
             loop {
-                sled.delete_tree("atree")?;
-                let tree = sled.tree("db::atree")?;
+                sled.delete_tree("db.kv.atree")?;
+                let tree = sled.tree("db.kv.atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.send(ExpirationUpdate {
@@ -187,8 +187,8 @@ mod tests {
     async fn updating_expiration() -> anyhow::Result<()> {
         run_test("kv-updating-expiration", |sender, sled| async move {
             loop {
-                sled.delete_tree("db.atree")?;
-                let tree = sled.tree("db.atree")?;
+                sled.delete_tree("db.kv.atree")?;
+                let tree = sled.tree("db.kv.atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.send(ExpirationUpdate {
@@ -207,7 +207,7 @@ mod tests {
                 assert!(tree.get(b"akey")?.is_some());
 
                 timing.wait_until(Duration::from_secs_f32(1.5)).await;
-                assert!(tree.get(b"akey")?.is_none());
+                assert_eq!(tree.get(b"akey")?, None);
                 break;
             }
 
@@ -220,8 +220,8 @@ mod tests {
     async fn multiple_keys_expiration() -> anyhow::Result<()> {
         run_test("kv-multiple-keys-expiration", |sender, sled| async move {
             loop {
-                sled.delete_tree("db::atree")?;
-                let tree = sled.tree("db::atree")?;
+                sled.delete_tree("db.kv.atree")?;
+                let tree = sled.tree("db.kv.atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 tree.set(b"bkey", b"somevalue")?;
 
@@ -256,8 +256,8 @@ mod tests {
     async fn clearing_expiration() -> anyhow::Result<()> {
         run_test("kv-clearing-expiration", |sender, sled| async move {
             loop {
-                sled.delete_tree("db::atree")?;
-                let tree = sled.tree("db::atree")?;
+                sled.delete_tree("db.kv.atree")?;
+                let tree = sled.tree("db.kv.atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.send(ExpirationUpdate {
@@ -285,7 +285,7 @@ mod tests {
     #[tokio::test]
     async fn out_of_order_expiration() -> anyhow::Result<()> {
         run_test("kv-out-of-order-expiration", |sender, sled| async move {
-            let tree = sled.tree("db::atree")?;
+            let tree = sled.tree("db.kv.atree")?;
             tree.set(b"akey", b"somevalue")?;
             tree.set(b"bkey", b"somevalue")?;
             tree.set(b"ckey", b"somevalue")?;
@@ -345,6 +345,7 @@ impl Job for ExpirationLoader {
                     .tree(kv_tree.clone())?
                     .scan::<Infallible, _, _, _>(
                         ..,
+                        true,
                         |_| KeyEvaluation::ReadData,
                         |key, entry: Buffer<'static>| {
                             if let Ok(entry) = bincode::deserialize::<Entry>(&entry) {

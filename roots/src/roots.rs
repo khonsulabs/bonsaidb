@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
+    convert::Infallible,
     fmt::{Debug, Display},
     fs,
     marker::PhantomData,
@@ -362,6 +363,7 @@ impl<F: ManagedFile> TransactionTree<F> {
     pub fn scan<'b, E, B, KeyEvaluator, DataCallback>(
         &mut self,
         range: B,
+        forwards: bool,
         key_evaluator: KeyEvaluator,
         callback: DataCallback,
     ) -> Result<(), AbortError<E>>
@@ -371,7 +373,8 @@ impl<F: ManagedFile> TransactionTree<F> {
         DataCallback: FnMut(Buffer<'static>, Buffer<'static>) -> Result<(), AbortError<E>>,
         E: Display + Debug,
     {
-        self.tree.scan(range, true, key_evaluator, callback)
+        self.tree
+            .scan(range, forwards, true, key_evaluator, callback)
     }
 }
 
@@ -547,6 +550,7 @@ impl<F: ManagedFile> Tree<F> {
     pub fn scan<'b, E, B, KeyEvaluator, DataCallback>(
         &self,
         range: B,
+        forwards: bool,
         key_evaluator: KeyEvaluator,
         callback: DataCallback,
     ) -> Result<(), AbortError<E>>
@@ -563,7 +567,41 @@ impl<F: ManagedFile> Tree<F> {
             Some(self.roots.transactions()),
         )?;
 
-        tree.scan(range, false, key_evaluator, callback)
+        tree.scan(range, forwards, false, key_evaluator, callback)
+    }
+
+    /// Returns the last key and value of the tree.
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
+    pub fn last(&self) -> Result<Option<(Buffer<'static>, Buffer<'static>)>, Error> {
+        let mut tree = TreeFile::<F, MAX_ORDER>::read(
+            self.path(),
+            self.state.clone(),
+            self.roots.context(),
+            Some(self.roots.transactions()),
+        )?;
+
+        let mut result = None;
+        let mut key_requested = false;
+        tree.scan(
+            ..,
+            false,
+            false,
+            |_| {
+                if key_requested {
+                    KeyEvaluation::Stop
+                } else {
+                    key_requested = true;
+                    KeyEvaluation::ReadData
+                }
+            },
+            |key, value| {
+                result = Some((key, value));
+                Ok(())
+            },
+        )
+        .map_err(AbortError::infallible)?;
+
+        Ok(result)
     }
 }
 
@@ -576,6 +614,17 @@ pub enum AbortError<U: Display + Debug> {
     /// An error from Roots occurred.
     #[error("database error: {0}")]
     Roots(#[from] Error),
+}
+
+impl AbortError<Infallible> {
+    /// Unwraps the error contained within an infallible abort error.
+    #[must_use]
+    pub fn infallible(self) -> Error {
+        match self {
+            AbortError::Other(_) => unreachable!(),
+            AbortError::Roots(error) => error,
+        }
+    }
 }
 
 #[cfg(test)]

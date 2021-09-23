@@ -104,6 +104,13 @@ impl State {
         cache.put(transaction_id, completed);
     }
 
+    pub(crate) fn note_transaction_ids_completed(&self, transaction_ids: &[u64]) {
+        let mut cache = self.state.known_completed_transactions.lock();
+        for id in transaction_ids {
+            cache.put(*id, true);
+        }
+    }
+
     pub(crate) fn transaction_id_is_valid(&self, transaction_id: u64) -> Option<bool> {
         let mut cache = self.state.known_completed_transactions.lock();
         cache.get(&transaction_id).copied()

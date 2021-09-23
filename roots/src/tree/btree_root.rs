@@ -31,8 +31,8 @@ use crate::{
 pub struct BTreeRoot<const MAX_ORDER: usize> {
     pub transaction_id: u64,
     pub sequence: u64,
-    by_sequence_root: BTreeEntry<BySequenceIndex, BySequenceStats>,
-    by_id_root: BTreeEntry<ByIdIndex, ByIdStats>,
+    pub by_sequence_root: BTreeEntry<BySequenceIndex, BySequenceStats>,
+    pub by_id_root: BTreeEntry<ByIdIndex, ByIdStats>,
 }
 
 pub enum ChangeResult<I: BinarySerialization, R: BinarySerialization> {
@@ -76,6 +76,10 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
             operation: Operation::SetEach(values),
         };
         self.modify_id_root(id_modifications, writer)?;
+
+        if transaction_id != 0 {
+            self.transaction_id = transaction_id;
+        }
 
         Ok(())
     }
@@ -129,12 +133,16 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                             document_size,
                         }))
                     },
-                    loader: |index: &BySequenceIndex, writer: &mut PagedWriter<'_, F>| match writer
-                        .read_chunk(index.position)
-                    {
-                        Ok(CacheEntry::Buffer(buffer)) => Ok(Some(buffer)),
-                        Ok(CacheEntry::Decoded(_)) => unreachable!(),
-                        Err(err) => Err(err),
+                    loader: |index: &BySequenceIndex, writer: &mut PagedWriter<'_, F>| {
+                        if index.position > 0 {
+                            match writer.read_chunk(index.position) {
+                                Ok(CacheEntry::Buffer(buffer)) => Ok(Some(buffer)),
+                                Ok(CacheEntry::Decoded(_)) => unreachable!(),
+                                Err(err) => Err(err),
+                            }
+                        } else {
+                            Ok(None)
+                        }
                     },
                     _phantom: PhantomData,
                 },
@@ -227,12 +235,14 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         positions_to_read.sort_by(|a, b| a.1.cmp(&b.1));
 
         for (key, position) in positions_to_read {
-            match read_chunk(position, file, vault, cache)? {
-                CacheEntry::Buffer(contents) => {
-                    key_reader(key, contents)?;
-                }
-                CacheEntry::Decoded(_) => unreachable!(),
-            };
+            if position > 0 {
+                match read_chunk(position, file, vault, cache)? {
+                    CacheEntry::Buffer(contents) => {
+                        key_reader(key, contents)?;
+                    }
+                    CacheEntry::Decoded(_) => unreachable!(),
+                };
+            }
         }
         Ok(())
     }
@@ -240,6 +250,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
     pub fn scan<'k, F: ManagedFile, E, KeyRangeBounds, KeyEvaluator, KeyReader>(
         &self,
         range: &KeyRangeBounds,
+        forwards: bool,
         key_evaluator: &mut KeyEvaluator,
         key_reader: &mut KeyReader,
         file: &mut F,
@@ -255,6 +266,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         let mut positions_to_read = Vec::new();
         self.by_id_root.scan(
             range,
+            forwards,
             key_evaluator,
             &mut |key, index| {
                 positions_to_read.push((key, index.position));
@@ -269,12 +281,14 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         positions_to_read.sort_by(|a, b| a.1.cmp(&b.1));
 
         for (key, position) in positions_to_read {
-            match read_chunk(position, file, vault, cache)? {
-                CacheEntry::Buffer(contents) => {
-                    key_reader(key, contents)?;
-                }
-                CacheEntry::Decoded(_) => unreachable!(),
-            };
+            if position > 0 {
+                match read_chunk(position, file, vault, cache)? {
+                    CacheEntry::Buffer(contents) => {
+                        key_reader(key, contents)?;
+                    }
+                    CacheEntry::Decoded(_) => unreachable!(),
+                };
+            }
         }
         Ok(())
     }
