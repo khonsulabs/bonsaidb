@@ -2,6 +2,8 @@
 
 This is a temporary place to track TODOs for this project, until it's at the stage that it can be integrated into BonsaiDb.
 
+- [ ] Reverse scan (last)
+- [ ] 
 - Unit tests
   - [ ] remove
   - [ ] CompareAndSwap

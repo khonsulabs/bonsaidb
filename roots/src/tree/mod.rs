@@ -983,8 +983,56 @@ mod tests {
         }
     }
 
+    fn remove_one_record<F: ManagedFile, const MAX_ORDER: usize>(
+        context: &Context<F::Manager>,
+        file_path: &Path,
+        id: u64,
+    ) {
+        let id_buffer = Buffer::from(id.to_be_bytes().to_vec());
+        println!("Removing: {:?}", id_buffer);
+        {
+            let state = State::default();
+            TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context, None).unwrap();
+            let file = context.file_manager.append(file_path).unwrap();
+            let mut tree = TreeFile::<F, MAX_ORDER>::new(
+                file,
+                state,
+                context.vault.clone(),
+                context.cache.clone(),
+            )
+            .unwrap();
+            tree.modify(Modification {
+                transaction_id: 0,
+                keys: vec![id_buffer.clone()],
+                operation: Operation::Remove,
+            })
+            .unwrap();
+
+            // The row should no longer exist in memory.
+            let value = tree.get(&id_buffer, false).unwrap();
+            assert_eq!(value, None);
+        }
+
+        // Try loading the file up and retrieving the data.
+        {
+            let state = State::default();
+            TreeFile::<F, MAX_ORDER>::initialize_state(&state, file_path, context, None).unwrap();
+
+            let file = context.file_manager.append(file_path).unwrap();
+            let mut tree = TreeFile::<F, MAX_ORDER>::new(
+                file,
+                state,
+                context.vault.clone(),
+                context.cache.clone(),
+            )
+            .unwrap();
+            let value = tree.get(&id_buffer, false).unwrap();
+            assert_eq!(value, None);
+        }
+    }
+
     #[test]
-    fn test() {
+    fn simple_inserts() {
         const ORDER: usize = 4;
 
         let mut rng = Pcg64::new_seed(1);
@@ -1010,6 +1058,31 @@ mod tests {
         // Insert a lot more.
         for _ in 0..1_000 {
             insert_one_record::<StdFile, ORDER>(&context, &file_path, &mut ids, &mut rng);
+        }
+    }
+
+    #[test]
+    fn remove() {
+        const ORDER: usize = 4;
+
+        let mut rng = Pcg64::new_seed(1);
+        let context = Context {
+            file_manager: StdFileManager::default(),
+            vault: None,
+            cache: None,
+        };
+        let temp_dir = crate::test_util::TestDirectory::new("btree-removals");
+        std::fs::create_dir(&temp_dir).unwrap();
+        let file_path = temp_dir.join("tree");
+        let mut ids = HashSet::new();
+        // Insert up to the limit of a LEAF, which is ORDER - 1.
+        for _ in 0..100 {
+            insert_one_record::<StdFile, ORDER>(&context, &file_path, &mut ids, &mut rng);
+        }
+
+        // Remove each of the records
+        for id in ids {
+            remove_one_record::<StdFile, ORDER>(&context, &file_path, id);
         }
     }
 

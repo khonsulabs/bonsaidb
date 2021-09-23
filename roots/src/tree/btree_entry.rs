@@ -61,7 +61,7 @@ pub struct ModificationContext<T, F, I, Indexer, Loader>
 where
     Indexer: Fn(
         &Buffer<'_>,
-        &T,
+        Option<&T>,
         Option<&I>,
         &mut EntryChanges,
         &mut PagedWriter<'_, F>,
@@ -91,7 +91,7 @@ where
         F: ManagedFile,
         Indexer: Fn(
             &Buffer<'_>,
-            &T,
+            Option<&T>,
             Option<&I>,
             &mut EntryChanges,
             &mut PagedWriter<'_, F>,
@@ -161,7 +161,7 @@ where
         F: ManagedFile,
         Indexer: Fn(
             &Buffer<'_>,
-            &T,
+            Option<&T>,
             Option<&I>,
             &mut EntryChanges,
             &mut PagedWriter<'_, F>,
@@ -180,21 +180,27 @@ where
                     let index = match &mut modification.operation {
                         Operation::Set(value) => (context.indexer)(
                             &key,
-                            value,
+                            Some(value),
                             Some(&children[last_index].index),
                             changes,
                             writer,
                         )?,
                         Operation::SetEach(values) => (context.indexer)(
                             &key,
-                            &values.pop().ok_or_else(|| {
+                            Some(&values.pop().ok_or_else(|| {
                                 Error::message("need the same number of keys as values")
-                            })?,
+                            })?),
                             Some(&children[last_index].index),
                             changes,
                             writer,
                         )?,
-                        Operation::Remove => KeyOperation::Remove,
+                        Operation::Remove => (context.indexer)(
+                            &key,
+                            None,
+                            Some(&children[last_index].index),
+                            changes,
+                            writer,
+                        )?,
                         Operation::CompareSwap(callback) => {
                             let current_index = &children[last_index].index;
                             let existing_value = (context.loader)(current_index, writer)?;
@@ -202,12 +208,18 @@ where
                                 KeyOperation::Skip => KeyOperation::Skip,
                                 KeyOperation::Set(new_value) => (context.indexer)(
                                     &key,
-                                    &new_value,
+                                    Some(&new_value),
                                     Some(current_index),
                                     changes,
                                     writer,
                                 )?,
-                                KeyOperation::Remove => KeyOperation::Remove,
+                                KeyOperation::Remove => (context.indexer)(
+                                    &key,
+                                    None,
+                                    Some(current_index),
+                                    changes,
+                                    writer,
+                                )?,
                             }
                         }
                     };
@@ -235,13 +247,13 @@ where
                     let key = modification.keys.pop().unwrap();
                     let index = match &mut modification.operation {
                         Operation::Set(new_value) => {
-                            (context.indexer)(&key, new_value, None, changes, writer)?
+                            (context.indexer)(&key, Some(new_value), None, changes, writer)?
                         }
                         Operation::SetEach(new_values) => (context.indexer)(
                             &key,
-                            &new_values.pop().ok_or_else(|| {
+                            Some(&new_values.pop().ok_or_else(|| {
                                 Error::message("need the same number of keys as values")
-                            })?,
+                            })?),
                             None,
                             changes,
                             writer,
@@ -253,9 +265,11 @@ where
                         Operation::CompareSwap(callback) => match callback(&key, None) {
                             KeyOperation::Skip => KeyOperation::Skip,
                             KeyOperation::Set(new_value) => {
-                                (context.indexer)(&key, &new_value, None, changes, writer)?
+                                (context.indexer)(&key, Some(&new_value), None, changes, writer)?
                             }
-                            KeyOperation::Remove => KeyOperation::Remove,
+                            KeyOperation::Remove => {
+                                (context.indexer)(&key, None, None, changes, writer)?
+                            }
                         },
                     };
                     // New node.
@@ -294,7 +308,7 @@ where
         F: ManagedFile,
         Indexer: Fn(
             &Buffer<'_>,
-            &T,
+            Option<&T>,
             Option<&I>,
             &mut EntryChanges,
             &mut PagedWriter<'_, F>,

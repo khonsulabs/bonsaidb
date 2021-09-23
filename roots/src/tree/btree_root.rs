@@ -99,14 +99,19 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                 &ModificationContext {
                     current_order: by_sequence_order,
                     indexer: |key: &Buffer<'_>,
-                              value: &Buffer<'static>,
+                              value: Option<&Buffer<'static>>,
                               _existing_index: Option<&BySequenceIndex>,
                               changes: &mut EntryChanges,
                               writer: &mut PagedWriter<'_, F>| {
-                        let document_position = writer.write_chunk(value)?;
-                        // write_chunk errors if it can't fit within a u32
-                        #[allow(clippy::cast_possible_truncation)]
-                        let document_size = value.len() as u32;
+                        let (document_position, document_size) = if let Some(value) = value {
+                            let new_position = writer.write_chunk(value)?;
+                            // write_chunk errors if it can't fit within a u32
+                            #[allow(clippy::cast_possible_truncation)]
+                            let document_size = value.len() as u32;
+                            (new_position, document_size)
+                        } else {
+                            (0, 0)
+                        };
                         changes.current_sequence = changes
                             .current_sequence
                             .checked_add(1)
@@ -164,11 +169,13 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
                 &ModificationContext {
                     current_order: by_id_order,
                     indexer: |_key: &Buffer<'_>,
-                              value: &ByIdIndex,
+                              value: Option<&ByIdIndex>,
                               _existing_index,
                               _changes,
                               _writer: &mut PagedWriter<'_, F>| {
-                        Ok(KeyOperation::Set(value.clone()))
+                        Ok(value.map_or(KeyOperation::Remove, |value| {
+                            KeyOperation::Set(value.clone())
+                        }))
                     },
                     loader: |_index, _writer| Ok(None),
                     _phantom: PhantomData,
@@ -205,7 +212,10 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
             keys,
             key_evaluator,
             &mut |key, index| {
-                positions_to_read.push((key, index.position));
+                // Deleted keys are stored with a 0 position.
+                if index.position > 0 {
+                    positions_to_read.push((key, index.position));
+                }
                 Ok(())
             },
             file,
