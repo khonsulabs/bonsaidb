@@ -35,9 +35,8 @@ pub use self::database::pubsub::Subscriber;
 pub use self::storage::OpenDatabase;
 pub use self::{database::Database, error::Error, storage::Storage};
 
-// TODO
-// #[cfg(feature = "cli")]
-// pub mod backup;
+#[cfg(feature = "cli")]
+pub mod backup;
 
 #[cfg(test)]
 mod tests;
