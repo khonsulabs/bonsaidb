@@ -64,8 +64,6 @@ impl ChunkCache {
                 },
                 CacheEntry::Buffer(buffer),
             );
-        } else {
-            println!("Chunk too big to cache");
         }
     }
 
