@@ -24,6 +24,7 @@ lru = "0.6"
 parking_lot = "0.11"
 tracing = { version = "0.1", optional = true }
 ranges = "0.3"
+persy = "1"
 
 [dev-dependencies]
 nanorand = "0.6"

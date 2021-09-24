@@ -63,6 +63,7 @@ impl LogEntry {
 }
 
 mod couchdb;
+mod persy;
 mod roots;
 mod sled;
 mod sqlite;
@@ -284,6 +285,7 @@ pub fn inserts(c: &mut Criterion) {
         roots::InsertLogs::<StdFile>::run(&mut group, &config);
         sled::InsertLogs::run(&mut group, &config);
         sqlite::InsertLogs::run(&mut group, &config);
+        persy::InsertLogs::run(&mut group, &config);
         couchdb::InsertLogs::run(&mut group, &config);
     }
 }
@@ -309,6 +311,7 @@ pub fn gets(c: &mut Criterion) {
         roots::ReadLogs::<StdFile>::run(&mut group, &config);
         sled::ReadLogs::run(&mut group, &config);
         sqlite::ReadLogs::run(&mut group, &config);
+        persy::ReadLogs::run(&mut group, &config);
         couchdb::ReadLogs::run(&mut group, &config);
     }
 }
