@@ -640,6 +640,14 @@ where
                         .map_err(view::Error::KeySerialization)?
                         .to_vec();
 
+                    let key = if view.keys_are_encryptable()
+                        && self.view_encryption_key(view).is_some()
+                    {
+                        mapper::hash_key(&key).to_vec()
+                    } else {
+                        key
+                    };
+
                     values.extend(view_entries.get(&key)?);
                 }
                 QueryKey::Multiple(list) => {
@@ -651,6 +659,16 @@ where
                                 .map_err(view::Error::KeySerialization)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
+
+                    let list = if view.keys_are_encryptable()
+                        && self.view_encryption_key(view).is_some()
+                    {
+                        list.into_iter()
+                            .map(|key| mapper::hash_key(&key).to_vec())
+                            .collect()
+                    } else {
+                        list
+                    };
 
                     values.extend(
                         view_entries

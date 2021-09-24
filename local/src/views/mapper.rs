@@ -460,7 +460,7 @@ where
     }
 }
 
-fn hash_key(key: &[u8]) -> [u8; 32] {
+pub fn hash_key(key: &[u8]) -> [u8; 32] {
     let res = blake3::hash(key);
     *res.as_bytes()
 }
