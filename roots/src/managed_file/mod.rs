@@ -58,15 +58,7 @@ pub trait FileManager: Send + Sync + Clone + Default + std::fmt::Debug + 'static
     }
 
     /// Check if the file exists.
-    fn delete(&self, path: impl AsRef<Path> + Send) -> Result<bool, Error> {
-        let path = path.as_ref();
-        if path.exists() {
-            std::fs::remove_file(path)?;
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
+    fn delete(&self, path: impl AsRef<Path> + Send) -> Result<bool, Error>;
 }
 
 /// A file that can have operations performed on it.

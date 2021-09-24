@@ -27,7 +27,7 @@ impl ManagedFile for StdFile {
     fn open_for_read(path: impl AsRef<std::path::Path> + Send) -> Result<Self, Error> {
         let path = path.as_ref();
         Ok(Self {
-            file: File::open(path)?,
+            file: File::open(path).unwrap(),
             path: Arc::new(path.to_path_buf()),
         })
     }
@@ -103,6 +103,18 @@ impl FileManager for StdFileManager {
         // based Lru cache might work.
         let file = Arc::new(Mutex::new(StdFile::open_for_read(path)?));
         Ok(OpenStdFile(file))
+    }
+
+    fn delete(&self, path: impl AsRef<Path> + Send) -> Result<bool, Error> {
+        let mut open_files = self.open_files.lock();
+        let path = path.as_ref();
+        if path.exists() {
+            open_files.remove(path);
+            std::fs::remove_file(path)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
 
