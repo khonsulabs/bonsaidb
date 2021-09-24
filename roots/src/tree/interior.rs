@@ -1,4 +1,7 @@
-use std::{convert::TryFrom, fmt::Debug};
+use std::{
+    convert::TryFrom,
+    fmt::{Debug, Display},
+};
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
@@ -6,7 +9,7 @@ use super::{
     btree_entry::{BTreeEntry, Reducer},
     read_chunk, BinarySerialization, PagedWriter,
 };
-use crate::{chunk_cache::CacheEntry, Buffer, ChunkCache, Error, ManagedFile, Vault};
+use crate::{chunk_cache::CacheEntry, AbortError, Buffer, ChunkCache, Error, ManagedFile, Vault};
 
 #[derive(Clone, Debug)]
 pub struct Interior<I, R> {
@@ -91,8 +94,9 @@ impl<
 
     pub fn map_loaded_entry<
         Output,
+        E: Display + Debug,
         F: ManagedFile,
-        Cb: FnOnce(&BTreeEntry<I, R>, &mut F) -> Result<Output, Error>,
+        Cb: FnOnce(&BTreeEntry<I, R>, &mut F) -> Result<Output, AbortError<E>>,
     >(
         &self,
         file: &mut F,
@@ -100,7 +104,7 @@ impl<
         cache: Option<&ChunkCache>,
         current_order: usize,
         callback: Cb,
-    ) -> Result<Output, Error> {
+    ) -> Result<Output, AbortError<E>> {
         match self {
             Pointer::OnDisk(position) => match read_chunk(*position, file, vault, cache)? {
                 CacheEntry::Buffer(mut buffer) => {

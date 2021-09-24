@@ -1,5 +1,6 @@
 use std::{
-    fmt::Debug,
+    convert::Infallible,
+    fmt::{Debug, Display},
     marker::PhantomData,
     ops::{Bound, RangeBounds},
 };
@@ -14,7 +15,7 @@ use super::{
     serialization::BinarySerialization,
     KeyRange, PagedWriter,
 };
-use crate::{tree::KeyEvaluation, Buffer, ChunkCache, Error, ManagedFile, Vault};
+use crate::{tree::KeyEvaluation, AbortError, Buffer, ChunkCache, Error, ManagedFile, Vault};
 
 /// A B-Tree entry that stores a list of key-`I` pairs.
 #[derive(Clone, Debug)]
@@ -397,30 +398,28 @@ where
 
     #[cfg_attr(
         feature = "tracing",
-        tracing::instrument(skip(self, key_evaluator, key_reader, file, vault, cache))
+        tracing::instrument(skip(self, args, file, vault, cache))
     )]
-    pub fn scan<'k, F: ManagedFile, KeyRangeBounds, KeyEvaluator, KeyReader>(
+    pub fn scan<'k, E: Display + Debug, F: ManagedFile, KeyRangeBounds, KeyEvaluator, KeyReader>(
         &self,
         range: &KeyRangeBounds,
-        forwards: bool,
-        key_evaluator: &mut KeyEvaluator,
-        key_reader: &mut KeyReader,
+        args: &mut ScanArgs<&I, E, KeyEvaluator, KeyReader>,
         file: &mut F,
         vault: Option<&dyn Vault>,
         cache: Option<&ChunkCache>,
-    ) -> Result<bool, Error>
+    ) -> Result<bool, AbortError<E>>
     where
         KeyEvaluator: FnMut(&Buffer<'static>) -> KeyEvaluation,
-        KeyReader: FnMut(Buffer<'static>, &I) -> Result<(), Error>,
+        KeyReader: FnMut(Buffer<'static>, &I) -> Result<(), AbortError<E>>,
         KeyRangeBounds: RangeBounds<Buffer<'k>> + Debug,
     {
         match &self.node {
             BTreeNode::Leaf(children) => {
-                for child in DirectionalSliceIterator::new(forwards, children) {
+                for child in DirectionalSliceIterator::new(args.forwards, children) {
                     if range.contains(&child.key) {
-                        match key_evaluator(&child.key) {
+                        match (args.key_evaluator)(&child.key) {
                             KeyEvaluation::ReadData => {
-                                key_reader(child.key.clone(), &child.index)?;
+                                (args.key_reader)(child.key.clone(), &child.index)?;
                             }
                             KeyEvaluation::Skip => {}
                             KeyEvaluation::Stop => return Ok(false),
@@ -429,12 +428,13 @@ where
                 }
             }
             BTreeNode::Interior(children) => {
-                for (index, child) in DirectionalSliceIterator::new(forwards, children).enumerate()
+                for (index, child) in
+                    DirectionalSliceIterator::new(args.forwards, children).enumerate()
                 {
                     // The keys in this child range from the previous child's key (exclusive) to the entry's key (inclusive).
                     let start_bound = range.start_bound();
                     let end_bound = range.end_bound();
-                    if forwards {
+                    if args.forwards {
                         if index > 0 {
                             let previous_entry = &children[index - 1];
 
@@ -479,17 +479,7 @@ where
                         vault,
                         cache,
                         children.len(),
-                        |entry, file| {
-                            entry.scan(
-                                range,
-                                forwards,
-                                key_evaluator,
-                                key_reader,
-                                file,
-                                vault,
-                                cache,
-                            )
-                        },
+                        |entry, file| entry.scan(range, args, file, vault, cache),
                     )?;
                     if !keep_scanning {
                         return Ok(false);
@@ -516,7 +506,7 @@ where
     ) -> Result<bool, Error>
     where
         KeyEvaluator: FnMut(&Buffer<'static>) -> KeyEvaluation,
-        KeyReader: FnMut(Buffer<'static>, &I) -> Result<(), Error>,
+        KeyReader: FnMut(Buffer<'static>, &I) -> Result<(), AbortError<Infallible>>,
     {
         match &self.node {
             BTreeNode::Leaf(children) => {
@@ -529,7 +519,8 @@ where
                             let entry = &children[last_index];
                             match key_evaluator(&entry.key) {
                                 KeyEvaluation::ReadData => {
-                                    key_reader(entry.key.clone(), &entry.index)?;
+                                    key_reader(entry.key.clone(), &entry.index)
+                                        .map_err(AbortError::infallible)?;
                                 }
                                 KeyEvaluation::Skip => {}
                                 KeyEvaluation::Stop => return Ok(false),
@@ -554,15 +545,14 @@ where
                     // the key being searched for isn't contained, it will be
                     // greater than any of the node's keys.
                     if let Some(child) = children.get(last_index) {
-                        let keep_scanning = child.position.map_loaded_entry(
-                            file,
-                            vault,
-                            cache,
-                            children.len(),
-                            |entry, file| {
-                                entry.get(keys, key_evaluator, key_reader, file, vault, cache)
-                            },
-                        )?;
+                        let keep_scanning = child
+                            .position
+                            .map_loaded_entry(file, vault, cache, children.len(), |entry, file| {
+                                entry
+                                    .get(keys, key_evaluator, key_reader, file, vault, cache)
+                                    .map_err(AbortError::Roots)
+                            })
+                            .map_err(AbortError::infallible)?;
                         if !keep_scanning {
                             break;
                         }
@@ -687,6 +677,32 @@ impl<'a, I> Iterator for DirectionalSliceIterator<'a, I> {
             Some(&self.contents[self.index])
         } else {
             None
+        }
+    }
+}
+
+pub struct ScanArgs<I, E: Display + Debug, KeyEvaluator, KeyReader>
+where
+    KeyEvaluator: FnMut(&Buffer<'static>) -> KeyEvaluation,
+    KeyReader: FnMut(Buffer<'static>, I) -> Result<(), AbortError<E>>,
+{
+    pub forwards: bool,
+    pub key_evaluator: KeyEvaluator,
+    pub key_reader: KeyReader,
+    _phantom: PhantomData<(I, E)>,
+}
+
+impl<I, E: Display + Debug, KeyEvaluator, KeyReader> ScanArgs<I, E, KeyEvaluator, KeyReader>
+where
+    KeyEvaluator: FnMut(&Buffer<'static>) -> KeyEvaluation,
+    KeyReader: FnMut(Buffer<'static>, I) -> Result<(), AbortError<E>>,
+{
+    pub fn new(forwards: bool, key_evaluator: KeyEvaluator, key_reader: KeyReader) -> Self {
+        Self {
+            forwards,
+            key_evaluator,
+            key_reader,
+            _phantom: PhantomData,
         }
     }
 }

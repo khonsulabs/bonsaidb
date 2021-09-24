@@ -21,7 +21,7 @@ use crate::{
     error::InternalError,
     roots::AbortError,
     tree::{
-        btree_entry::{KeyOperation, ModificationContext},
+        btree_entry::{KeyOperation, ModificationContext, ScanArgs},
         modify::Operation,
     },
     Buffer, ChunkCache, Error, ManagedFile, Vault,
@@ -250,9 +250,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
     pub fn scan<'k, F: ManagedFile, E, KeyRangeBounds, KeyEvaluator, KeyReader>(
         &self,
         range: &KeyRangeBounds,
-        forwards: bool,
-        key_evaluator: &mut KeyEvaluator,
-        key_reader: &mut KeyReader,
+        args: &mut ScanArgs<Buffer<'static>, E, KeyEvaluator, KeyReader>,
         file: &mut F,
         vault: Option<&dyn Vault>,
         cache: Option<&ChunkCache>,
@@ -266,12 +264,14 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
         let mut positions_to_read = Vec::new();
         self.by_id_root.scan(
             range,
-            forwards,
-            key_evaluator,
-            &mut |key, index| {
-                positions_to_read.push((key, index.position));
-                Ok(())
-            },
+            &mut ScanArgs::new(
+                args.forwards,
+                &mut args.key_evaluator,
+                &mut |key, index: &ByIdIndex| {
+                    positions_to_read.push((key, index.position));
+                    Ok(())
+                },
+            ),
             file,
             vault,
             cache,
@@ -284,7 +284,7 @@ impl<const MAX_ORDER: usize> BTreeRoot<MAX_ORDER> {
             if position > 0 {
                 match read_chunk(position, file, vault, cache)? {
                     CacheEntry::Buffer(contents) => {
-                        key_reader(key, contents)?;
+                        (args.key_reader)(key, contents)?;
                     }
                     CacheEntry::Decoded(_) => unreachable!(),
                 };

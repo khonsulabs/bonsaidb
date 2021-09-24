@@ -55,7 +55,7 @@ use crate::{
     chunk_cache::CacheEntry,
     managed_file::{FileManager, FileOp, ManagedFile, OpenableFile},
     roots::AbortError,
-    tree::btree_root::BTreeRoot,
+    tree::{btree_entry::ScanArgs, btree_root::BTreeRoot},
     Buffer, ChunkCache, Context, Error, TransactionManager, Vault,
 };
 
@@ -110,7 +110,7 @@ impl TryFrom<u8> for PageHeader {
 /// An append-only tree file.
 ///
 /// ## Generics
-/// - `F`: An [`AsyncFile`] implementor.
+/// - `F`: An [`ManagedFile`] implementor.
 /// - `MAX_ORDER`: The maximum number of children a node in the tree can
 ///   contain. This implementation attempts to grow naturally towards this upper
 ///   limit. Changing this parameter does not automatically rebalance the tree,
@@ -592,9 +592,7 @@ where
             let state = self.state.lock();
             state.header.scan(
                 &self.range,
-                self.forwards,
-                &mut self.key_evaluator,
-                &mut self.key_reader,
+                &mut ScanArgs::new(self.forwards, &mut self.key_evaluator, &mut self.key_reader),
                 file,
                 self.vault,
                 self.cache,
@@ -603,9 +601,7 @@ where
             let state = self.state.read();
             state.header.scan(
                 &self.range,
-                self.forwards,
-                &mut self.key_evaluator,
-                &mut self.key_reader,
+                &mut ScanArgs::new(self.forwards, &mut self.key_evaluator, &mut self.key_reader),
                 file,
                 self.vault,
                 self.cache,

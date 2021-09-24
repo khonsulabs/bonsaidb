@@ -5,7 +5,7 @@ use crate::{ChunkCache, FileManager, Vault};
 /// A shared environment for database operations.
 #[derive(Debug, Clone)]
 pub struct Context<M: FileManager> {
-    /// The file manager for the [`AsyncFile`](crate::AsyncFile) implementor.
+    /// The file manager for the [`ManagedFile`](crate::ManagedFile) implementor.
     pub file_manager: M,
     /// The optional vault in use.
     pub vault: Option<Arc<dyn Vault>>,

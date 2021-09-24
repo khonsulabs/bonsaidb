@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use super::{FileManager, FileOp, ManagedFile, OpenableFile};
 use crate::Error;
 
-/// An open file that uses [`tokio::fs`].
+/// An open file that uses [`std::fs`].
 #[derive(Debug)]
 pub struct StdFile {
     file: File,
