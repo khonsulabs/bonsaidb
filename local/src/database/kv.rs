@@ -3,7 +3,7 @@ use bonsaidb_core::{
     kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Numeric, Output, Timestamp, Value},
     schema::Schema,
 };
-use bonsaidb_roots::{Buffer, CompareAndSwapError, StdFile, Tree};
+use nebari::{Buffer, CompareAndSwapError, StdFile, Tree};
 use serde::{Deserialize, Serialize};
 
 use crate::{storage::kv::ExpirationUpdate, Database, Error};
@@ -352,7 +352,7 @@ fn fetch_and_update_no_copy<K, F>(
     tree: &Tree<StdFile>,
     key: K,
     mut f: F,
-) -> Result<Option<Buffer<'static>>, bonsaidb_roots::Error>
+) -> Result<Option<Buffer<'static>>, nebari::Error>
 where
     K: AsRef<[u8]>,
     F: FnMut(Option<Buffer<'static>>) -> Option<Buffer<'static>>,

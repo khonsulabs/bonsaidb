@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use bonsaidb_core::kv::Timestamp;
 use bonsaidb_jobs::Job;
-use bonsaidb_roots::{tree::KeyEvaluation, Buffer, StdFile};
+use nebari::{tree::KeyEvaluation, Buffer, StdFile};
 
 use crate::{
     database::kv::{Entry, TreeKey},
@@ -22,8 +22,8 @@ pub struct ExpirationUpdate {
 #[allow(clippy::needless_pass_by_value)]
 pub fn expiration_thread(
     updates: flume::Receiver<ExpirationUpdate>,
-    roots: bonsaidb_roots::Roots<StdFile>,
-) -> Result<(), bonsaidb_roots::Error> {
+    roots: nebari::Roots<StdFile>,
+) -> Result<(), nebari::Error> {
     // expiring_keys will be maintained such that the soonest expiration is at the front and furthest in the future is at the back
     let mut tracked_keys = HashMap::<TreeKey, Timestamp>::new();
     let mut expiration_order = VecDeque::<TreeKey>::new();
@@ -127,20 +127,20 @@ mod tests {
     use std::time::Duration;
 
     use bonsaidb_core::test_util::{TestDirectory, TimingTest};
-    use bonsaidb_roots::StdFile;
     use futures::Future;
+    use nebari::StdFile;
 
     use super::*;
 
     async fn run_test<
-        F: FnOnce(flume::Sender<ExpirationUpdate>, bonsaidb_roots::Roots<StdFile>) -> R + Send,
+        F: FnOnce(flume::Sender<ExpirationUpdate>, nebari::Roots<StdFile>) -> R + Send,
         R: Future<Output = anyhow::Result<()>> + Send,
     >(
         name: &str,
         test_contents: F,
     ) -> anyhow::Result<()> {
         let dir = TestDirectory::new(name);
-        let sled = bonsaidb_roots::Config::new(&dir).open()?;
+        let sled = nebari::Config::new(&dir).open()?;
 
         let (sender, receiver) = flume::unbounded();
         let task_sled = sled.clone();

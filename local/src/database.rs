@@ -21,10 +21,10 @@ use bonsaidb_core::{
         self, ChangedDocument, Command, Executed, Operation, OperationResult, Transaction,
     },
 };
-use bonsaidb_roots::{
+use itertools::Itertools;
+use nebari::{
     tree::KeyEvaluation, AbortError, Buffer, ExecutingTransaction, StdFile, TransactionTree, Tree,
 };
-use itertools::Itertools;
 use ranges::GenericRange;
 
 use crate::{
@@ -155,7 +155,7 @@ where
         &self.data.schema
     }
 
-    pub(crate) fn sled(&self) -> &'_ bonsaidb_roots::Roots<StdFile> {
+    pub(crate) fn sled(&self) -> &'_ nebari::Roots<StdFile> {
         self.data.storage.roots()
     }
 

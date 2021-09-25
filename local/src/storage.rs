@@ -33,9 +33,9 @@ use bonsaidb_core::{
     transaction::{Executed, OperationResult, Transaction},
 };
 use bonsaidb_jobs::manager::Manager;
-use bonsaidb_roots::{ChunkCache, StdFile};
 use futures::TryFutureExt;
 use itertools::Itertools;
+use nebari::{ChunkCache, StdFile};
 use rand::{thread_rng, Rng};
 use tokio::{
     fs::{self, File},
@@ -62,7 +62,7 @@ pub struct Storage {
 #[derive(Debug)]
 struct Data {
     id: StorageId,
-    roots: bonsaidb_roots::Roots<StdFile>,
+    roots: nebari::Roots<StdFile>,
     pub(crate) tasks: TaskManager,
     pub(crate) vault: Arc<Vault>,
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
@@ -109,7 +109,7 @@ impl Storage {
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
         let default_encryption_key = configuration.default_encryption_key;
         let storage = tokio::task::spawn_blocking::<_, Result<Self, Error>>(move || {
-            let roots = bonsaidb_roots::Config::new(owned_path)
+            let roots = nebari::Config::new(owned_path)
                 .cache(ChunkCache::new(2000, 160_384))
                 .open()
                 .map_err(Error::from)?;
@@ -306,7 +306,7 @@ impl Storage {
     //     }
     // }
 
-    pub(crate) fn roots(&self) -> &'_ bonsaidb_roots::Roots<StdFile> {
+    pub(crate) fn roots(&self) -> &'_ nebari::Roots<StdFile> {
         &self.data.roots
     }
 
@@ -615,7 +615,7 @@ impl ServerConnection for Storage {
                     roots.delete_tree(name)?;
                 }
             }
-            Result::<_, bonsaidb_roots::Error>::Ok(())
+            Result::<_, nebari::Error>::Ok(())
         })
         .await
         .unwrap()

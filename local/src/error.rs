@@ -1,16 +1,16 @@
 use std::{convert::Infallible, sync::Arc};
 
 use bonsaidb_core::schema::{view, InvalidNameError};
-use bonsaidb_roots::AbortError;
+use nebari::AbortError;
 
 use crate::vault;
 
 /// Errors that can occur from interacting with storage.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    /// An error occurred interacting with the storage layer, `bonsaidb_roots`.
+    /// An error occurred interacting with the storage layer, `nebari`.
     #[error("error from storage: {0}")]
-    Roots(#[from] bonsaidb_roots::Error),
+    Roots(#[from] nebari::Error),
 
     /// An error occurred serializing the underlying database structures.
     #[error("error while serializing internal structures: {0}")]

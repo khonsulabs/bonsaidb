@@ -15,7 +15,7 @@ use bonsaidb_core::{
     },
 };
 use bonsaidb_jobs::{Job, Keyed};
-use bonsaidb_roots::{Buffer, ExecutingTransaction, StdFile, Tree};
+use nebari::{Buffer, ExecutingTransaction, StdFile, Tree};
 use serde::{Deserialize, Serialize};
 
 use crate::{

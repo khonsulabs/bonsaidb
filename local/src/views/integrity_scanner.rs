@@ -3,7 +3,7 @@ use std::{borrow::Cow, collections::HashSet, hash::Hash, sync::Arc};
 use async_trait::async_trait;
 use bonsaidb_core::schema::{view, CollectionName, Key, Schema, ViewName};
 use bonsaidb_jobs::{Job, Keyed};
-use bonsaidb_roots::{tree::KeyEvaluation, StdFile, Tree};
+use nebari::{tree::KeyEvaluation, StdFile, Tree};
 
 use super::{
     mapper::{Map, Mapper},
