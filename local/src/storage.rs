@@ -141,10 +141,8 @@ impl Storage {
             .spawn_key_value_expiration_loader(&storage)
             .await;
 
-        println!("Caching databases");
         storage.cache_available_databases().await?;
 
-        println!("Creating admin database");
         storage.create_admin_database_if_needed().await?;
 
         Ok(storage)

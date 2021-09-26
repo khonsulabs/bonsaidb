@@ -3,7 +3,7 @@ use bonsaidb_core::{
     kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Numeric, Output, Timestamp, Value},
     schema::Schema,
 };
-use nebari::{Buffer, CompareAndSwapError, StdFile, Tree};
+use nebari::{tree::UnversionedTreeRoot, Buffer, CompareAndSwapError, StdFile, Tree};
 use serde::{Deserialize, Serialize};
 
 use crate::{storage::kv::ExpirationUpdate, Database, Error};
@@ -91,7 +91,7 @@ fn execute_set_operation<DB: Schema>(
         .data
         .storage
         .roots()
-        .tree(tree_name.to_string())
+        .tree::<UnversionedTreeRoot, _>(tree_name.to_string())
         .map_err(Error::from)?;
 
     let mut entry = Entry { value, expiration };
@@ -154,7 +154,7 @@ fn execute_get_operation<DB: Schema>(
         .data
         .storage
         .roots()
-        .tree(tree_name.to_string())
+        .tree::<UnversionedTreeRoot, _>(tree_name.to_string())
         .map_err(Error::from)?;
     let entry = if delete {
         let entry = tree.remove(key.as_bytes()).map_err(Error::from)?;
@@ -186,7 +186,7 @@ fn execute_delete_operation<DB: Schema>(
         .data
         .storage
         .roots()
-        .tree(tree_name.to_string())
+        .tree::<UnversionedTreeRoot, _>(tree_name.to_string())
         .map_err(Error::from)?;
     let value = tree.remove(key.as_bytes()).map_err(Error::from)?;
     if value.is_some() {
@@ -233,7 +233,7 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
         .data
         .storage
         .roots()
-        .tree(tree_name.to_string())
+        .tree::<UnversionedTreeRoot, _>(tree_name.to_string())
         .map_err(Error::from)?;
 
     let mut current = tree.get(key.as_bytes()).map_err(Error::from)?;
@@ -348,12 +348,13 @@ impl TreeKey {
 /// Alternative to `sled::Tree::fetch_and_update` that allows avoiding a data
 /// copy when storing the existing value.
 /// <https://github.com/spacejam/sled/issues/1353>
-fn fetch_and_update_no_copy<K, F>(
-    tree: &Tree<StdFile>,
+fn fetch_and_update_no_copy<K, F, R>(
+    tree: &Tree<R, StdFile>,
     key: K,
     mut f: F,
 ) -> Result<Option<Buffer<'static>>, nebari::Error>
 where
+    R: nebari::tree::Root,
     K: AsRef<[u8]>,
     F: FnMut(Option<Buffer<'static>>) -> Option<Buffer<'static>>,
 {

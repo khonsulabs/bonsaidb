@@ -3,7 +3,10 @@ use std::{borrow::Cow, collections::HashSet, hash::Hash, sync::Arc};
 use async_trait::async_trait;
 use bonsaidb_core::schema::{view, CollectionName, Key, Schema, ViewName};
 use bonsaidb_jobs::{Job, Keyed};
-use nebari::{tree::KeyEvaluation, StdFile, Tree};
+use nebari::{
+    tree::{KeyEvaluation, Root, UnversionedTreeRoot, VersionedTreeRoot},
+    StdFile, Tree,
+};
 
 use super::{
     mapper::{Map, Mapper},
@@ -38,27 +41,29 @@ where
             &self.scan.collection,
         ))?;
 
-        let view_versions = self.database.sled().tree(view_versions_tree_name(
-            &self.database.data.name,
-            &self.scan.collection,
-        ))?;
+        let view_versions =
+            self.database
+                .sled()
+                .tree::<UnversionedTreeRoot, _>(view_versions_tree_name(
+                    &self.database.data.name,
+                    &self.scan.collection,
+                ))?;
 
         let document_map = self.database.sled().tree(view_document_map_tree_name(
             &self.database.data.name,
             &self.scan.view_name,
         ))?;
 
-        let invalidated_entries = self.database.sled().tree(view_invalidated_docs_tree_name(
-            &self.database.data.name,
-            &self.scan.view_name,
-        ))?;
+        let invalidated_entries = self.database.sled().tree::<UnversionedTreeRoot, _>(
+            view_invalidated_docs_tree_name(&self.database.data.name, &self.scan.view_name),
+        )?;
 
         let view_name = self.scan.view_name.clone();
         let view_version = self.scan.view_version;
         let roots = self.database.sled().clone();
 
         let needs_update = tokio::task::spawn_blocking::<_, anyhow::Result<bool>>(move || {
-            let document_ids = tree_keys::<u64>(&documents)?;
+            let document_ids = tree_keys::<u64, VersionedTreeRoot>(&documents)?;
             let view_is_current_version =
                 if let Some(version) = view_versions.get(view_name.to_string().as_bytes())? {
                     if let Ok(version) = u64::from_big_endian_bytes(version.as_slice()) {
@@ -71,7 +76,7 @@ where
                 };
 
             let missing_entries = if view_is_current_version {
-                let stored_document_ids = tree_keys::<u64>(&document_map)?;
+                let stored_document_ids = tree_keys::<u64, UnversionedTreeRoot>(&document_map)?;
 
                 document_ids
                     .difference(&stored_document_ids)
@@ -85,15 +90,17 @@ where
             if !missing_entries.is_empty() {
                 // Add all missing entries to the invalidated list. The view
                 // mapping job will update them on the next pass.
-                let mut transaction =
-                    roots.transaction(&[invalidated_entries.name(), view_versions.name()])?;
-                let view_versions = transaction.tree(1).unwrap();
+                let mut transaction = roots.transaction(&[
+                    UnversionedTreeRoot::tree(invalidated_entries.name().to_string()),
+                    UnversionedTreeRoot::tree(view_versions.name().to_string()),
+                ])?;
+                let view_versions = transaction.tree::<UnversionedTreeRoot>(1).unwrap();
                 view_versions.set(
                     // TODO This is wasteful
                     view_name.to_string().as_bytes().to_vec(),
                     view_version.as_big_endian_bytes().unwrap().to_vec(),
                 )?;
-                let invalidated_entries = transaction.tree(0).unwrap();
+                let invalidated_entries = transaction.tree::<UnversionedTreeRoot>(0).unwrap();
                 for id in &missing_entries {
                     invalidated_entries.set(id.as_big_endian_bytes().unwrap().to_vec(), b"")?;
                 }
@@ -140,7 +147,9 @@ where
     }
 }
 
-fn tree_keys<K: Key + Hash + Eq + Clone>(tree: &Tree<StdFile>) -> Result<HashSet<K>, crate::Error> {
+fn tree_keys<K: Key + Hash + Eq + Clone, R: nebari::tree::Root>(
+    tree: &Tree<R, StdFile>,
+) -> Result<HashSet<K>, crate::Error> {
     let mut ids = Vec::new();
     tree.scan(
         ..,

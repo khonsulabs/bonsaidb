@@ -15,7 +15,10 @@ use bonsaidb_core::{
     },
 };
 use bonsaidb_jobs::{Job, Keyed};
-use nebari::{Buffer, ExecutingTransaction, StdFile, Tree};
+use nebari::{
+    tree::{Root, UnversionedTreeRoot, VersionedTreeRoot},
+    Buffer, ExecutingTransaction, StdFile, Tree,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -133,11 +136,11 @@ where
 }
 
 fn map_view<DB: Schema>(
-    invalidated_entries: &Tree<StdFile>,
-    document_map: &Tree<StdFile>,
-    documents: &Tree<StdFile>,
-    omitted_entries: &Tree<StdFile>,
-    view_entries: &Tree<StdFile>,
+    invalidated_entries: &Tree<UnversionedTreeRoot, StdFile>,
+    document_map: &Tree<UnversionedTreeRoot, StdFile>,
+    documents: &Tree<VersionedTreeRoot, StdFile>,
+    omitted_entries: &Tree<UnversionedTreeRoot, StdFile>,
+    view_entries: &Tree<UnversionedTreeRoot, StdFile>,
     storage: &Database<DB>,
     map_request: &Map,
 ) -> anyhow::Result<()> {
@@ -149,11 +152,11 @@ fn map_view<DB: Schema>(
         .collect::<Vec<_>>();
     if !invalidated_ids.is_empty() {
         let mut transaction = storage.storage().roots().transaction(&[
-            invalidated_entries.name(),
-            document_map.name(),
-            documents.name(),
-            omitted_entries.name(),
-            view_entries.name(),
+            UnversionedTreeRoot::tree(invalidated_entries.name().to_string()),
+            UnversionedTreeRoot::tree(document_map.name().to_string()),
+            VersionedTreeRoot::tree(documents.name().to_string()),
+            UnversionedTreeRoot::tree(omitted_entries.name().to_string()),
+            UnversionedTreeRoot::tree(view_entries.name().to_string()),
         ])?;
         let view = storage
             .data
@@ -173,7 +176,7 @@ fn map_view<DB: Schema>(
                 view,
             }
             .map()?;
-            let invalidated_entries = transaction.tree(0).unwrap();
+            let invalidated_entries = transaction.tree::<UnversionedTreeRoot>(0).unwrap();
             invalidated_entries.remove(document_id)?;
         }
         transaction.commit()?;
@@ -197,7 +200,10 @@ pub struct DocumentRequest<'a, DB> {
 
 impl<'a, DB: Schema> DocumentRequest<'a, DB> {
     pub fn map(&mut self) -> Result<(), Error> {
-        let documents = self.transaction.tree(self.documents_index).unwrap();
+        let documents = self
+            .transaction
+            .tree::<VersionedTreeRoot>(self.documents_index)
+            .unwrap();
         let (doc_still_exists, map_result) =
             if let Some(document) = documents.get(self.document_id)? {
                 let document = self.database.deserialize_document(&document)?;
@@ -224,13 +230,19 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
 
     fn omit_document(&mut self, doc_still_exists: bool) -> Result<(), Error> {
         // When no entry is emitted, the document map is emptied and a note is made in omitted_entries
-        let document_map = self.transaction.tree(self.document_map_index).unwrap();
+        let document_map = self
+            .transaction
+            .tree::<UnversionedTreeRoot>(self.document_map_index)
+            .unwrap();
         if let Some(existing_map) = document_map.remove(self.document_id)? {
             self.remove_existing_view_entries_for_keys(&[], &existing_map)?;
         }
 
         if doc_still_exists {
-            let omitted_entries = self.transaction.tree(self.omitted_entries_index).unwrap();
+            let omitted_entries = self
+                .transaction
+                .tree::<UnversionedTreeRoot>(self.omitted_entries_index)
+                .unwrap();
             omitted_entries.set(self.document_id.to_vec(), b"")?;
         }
         Ok(())
@@ -269,7 +281,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             self.database.data.effective_permissions.as_ref(),
             |key| {
                 self.transaction
-                    .tree(self.view_entries_index)
+                    .tree::<UnversionedTreeRoot>(self.view_entries_index)
                     .unwrap()
                     .get(key)
                     .map_err(Error::from)
@@ -280,7 +292,10 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
     fn save_entry_for_key(&mut self, key: &[u8], entry: &ViewEntryCollection) -> Result<(), Error> {
         let bytes = self.serialize_and_encrypt(entry)?;
         let should_hash_key = self.view.keys_are_encryptable() && self.encryption_key().is_some();
-        let view_entries = self.transaction.tree(self.view_entries_index).unwrap();
+        let view_entries = self
+            .transaction
+            .tree::<UnversionedTreeRoot>(self.view_entries_index)
+            .unwrap();
         if should_hash_key {
             let hashed_key = hash_key(key);
             view_entries.set(hashed_key, bytes)?;
@@ -303,7 +318,10 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                 }
             }
         }
-        let omitted_entries = self.transaction.tree(self.omitted_entries_index).unwrap();
+        let omitted_entries = self
+            .transaction
+            .tree::<UnversionedTreeRoot>(self.omitted_entries_index)
+            .unwrap();
         omitted_entries.remove(self.document_id)?;
 
         // When map results are returned, the document
@@ -313,7 +331,10 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         // single-entry vec for now.
         let keys: Vec<Cow<'_, [u8]>> = vec![Cow::Borrowed(key)];
         let encrypted_entry = self.serialize_and_encrypt(&keys)?;
-        let document_map = self.transaction.tree(self.document_map_index).unwrap();
+        let document_map = self
+            .transaction
+            .tree::<UnversionedTreeRoot>(self.document_map_index)
+            .unwrap();
         if let Some(existing_map) =
             document_map.replace(self.document_id.to_vec(), encrypted_entry)?
         {
@@ -416,7 +437,10 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                 entry_collection.remove_active_entry();
                 if entry_collection.is_empty() {
                     // Remove the key
-                    let view_entries = self.transaction.tree(self.view_entries_index).unwrap();
+                    let view_entries = self
+                        .transaction
+                        .tree::<UnversionedTreeRoot>(self.view_entries_index)
+                        .unwrap();
                     view_entries.remove(
                         entry_collection
                             .loaded_from
@@ -438,7 +462,10 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             }
 
             let value = self.serialize_and_encrypt(&entry_collection)?;
-            let view_entries = self.transaction.tree(self.view_entries_index).unwrap();
+            let view_entries = self
+                .transaction
+                .tree::<UnversionedTreeRoot>(self.view_entries_index)
+                .unwrap();
             view_entries.set(
                 entry_collection
                     .loaded_from

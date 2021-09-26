@@ -34,7 +34,10 @@ use bonsaidb_core::{
 };
 use flume::Receiver;
 use itertools::Itertools;
-use nebari::{tree::KeyEvaluation, AbortError};
+use nebari::{
+    tree::{KeyEvaluation, VersionedTreeRoot},
+    AbortError,
+};
 use structopt::StructOpt;
 use tokio::{
     fs::File,
@@ -163,7 +166,7 @@ impl Command {
                 println!("Exporting {}", collection_tree);
 
                 let database = Arc::new(database);
-                let tree = db.roots().tree(collection_tree)?;
+                let tree = db.roots().tree::<VersionedTreeRoot, _>(collection_tree)?;
                 tree.scan::<anyhow::Error, _, _, _>(
                     ..,
                     true,
@@ -182,7 +185,10 @@ impl Command {
                     },
                 )?;
 
-                if let Ok(tree) = db.roots().tree(transaction_tree_name(&database)) {
+                if let Ok(tree) = db
+                    .roots()
+                    .tree::<VersionedTreeRoot, _>(transaction_tree_name(&database))
+                {
                     tree.scan::<anyhow::Error, _, _, _>(
                         ..,
                         true,
@@ -365,7 +371,7 @@ fn restore_documents(receiver: Receiver<BackupEntry>, storage: Storage) -> anyho
             } => {
                 let tree = storage
                     .roots()
-                    .tree(document_tree_name(&database, &collection))?;
+                    .tree::<VersionedTreeRoot, _>(document_tree_name(&database, &collection))?;
                 tree.set(
                     document.header.id.as_big_endian_bytes()?.to_vec(),
                     bincode::serialize(&document)?,
@@ -375,7 +381,9 @@ fn restore_documents(receiver: Receiver<BackupEntry>, storage: Storage) -> anyho
                 database,
                 transaction,
             } => {
-                let tree = storage.roots().tree(transaction_tree_name(&database))?;
+                let tree = storage
+                    .roots()
+                    .tree::<VersionedTreeRoot, _>(transaction_tree_name(&database))?;
                 tree.set(
                     transaction.id.as_big_endian_bytes()?.to_vec(),
                     bincode::serialize(&transaction)?,

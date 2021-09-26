@@ -6,7 +6,10 @@ use std::{
 use async_trait::async_trait;
 use bonsaidb_core::kv::Timestamp;
 use bonsaidb_jobs::Job;
-use nebari::{tree::KeyEvaluation, Buffer, StdFile};
+use nebari::{
+    tree::{KeyEvaluation, UnversionedTreeRoot},
+    Buffer, StdFile,
+};
 
 use crate::{
     database::kv::{Entry, TreeKey},
@@ -62,8 +65,7 @@ pub fn expiration_thread(
                 {
                     let key_to_remove = expiration_order.pop_front().unwrap();
                     tracked_keys.remove(&key_to_remove);
-                    let tree = roots.tree(key_to_remove.tree.clone())?;
-                    println!("removing {:?}", key_to_remove);
+                    let tree = roots.tree::<UnversionedTreeRoot, _>(key_to_remove.tree.clone())?;
                     tree.remove(key_to_remove.key.as_bytes())?;
                 }
                 continue;
@@ -163,7 +165,7 @@ mod tests {
         run_test("kv-basic-expiration", |sender, sled| async move {
             loop {
                 sled.delete_tree("db.kv.atree")?;
-                let tree = sled.tree("db.kv.atree")?;
+                let tree = sled.tree::<UnversionedTreeRoot, _>("db.kv.atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.send(ExpirationUpdate {
@@ -188,7 +190,7 @@ mod tests {
         run_test("kv-updating-expiration", |sender, sled| async move {
             loop {
                 sled.delete_tree("db.kv.atree")?;
-                let tree = sled.tree("db.kv.atree")?;
+                let tree = sled.tree::<UnversionedTreeRoot, _>("db.kv.atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.send(ExpirationUpdate {
@@ -221,7 +223,7 @@ mod tests {
         run_test("kv-multiple-keys-expiration", |sender, sled| async move {
             loop {
                 sled.delete_tree("db.kv.atree")?;
-                let tree = sled.tree("db.kv.atree")?;
+                let tree = sled.tree::<UnversionedTreeRoot, _>("db.kv.atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 tree.set(b"bkey", b"somevalue")?;
 
@@ -257,7 +259,7 @@ mod tests {
         run_test("kv-clearing-expiration", |sender, sled| async move {
             loop {
                 sled.delete_tree("db.kv.atree")?;
-                let tree = sled.tree("db.kv.atree")?;
+                let tree = sled.tree::<UnversionedTreeRoot, _>("db.kv.atree")?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.send(ExpirationUpdate {
@@ -285,7 +287,7 @@ mod tests {
     #[tokio::test]
     async fn out_of_order_expiration() -> anyhow::Result<()> {
         run_test("kv-out-of-order-expiration", |sender, sled| async move {
-            let tree = sled.tree("db.kv.atree")?;
+            let tree = sled.tree::<UnversionedTreeRoot, _>("db.kv.atree")?;
             tree.set(b"akey", b"somevalue")?;
             tree.set(b"bkey", b"somevalue")?;
             tree.set(b"ckey", b"somevalue")?;
@@ -342,7 +344,7 @@ impl Job for ExpirationLoader {
                 storage
                     .data
                     .roots
-                    .tree(kv_tree.clone())?
+                    .tree::<UnversionedTreeRoot, _>(kv_tree.clone())?
                     .scan::<Infallible, _, _, _>(
                         ..,
                         true,

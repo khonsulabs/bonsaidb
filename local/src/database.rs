@@ -23,7 +23,8 @@ use bonsaidb_core::{
 };
 use itertools::Itertools;
 use nebari::{
-    tree::KeyEvaluation, AbortError, Buffer, ExecutingTransaction, StdFile, TransactionTree, Tree,
+    tree::{KeyEvaluation, UnversionedTreeRoot, VersionedTreeRoot},
+    AbortError, Buffer, ExecutingTransaction, StdFile, TransactionTree, Tree,
 };
 use ranges::GenericRange;
 
@@ -243,7 +244,7 @@ where
                 .data
                 .storage
                 .roots()
-                .tree(document_tree_name(&task_self.data.name, &collection))
+                .tree::<VersionedTreeRoot, _>(document_tree_name(&task_self.data.name, &collection))
                 .map_err(Error::from)?;
             if let Some(vec) = tree
                 .get(
@@ -274,7 +275,7 @@ where
                 .data
                 .storage
                 .roots()
-                .tree(document_tree_name(&task_self.data.name, &collection))
+                .tree::<VersionedTreeRoot, _>(document_tree_name(&task_self.data.name, &collection))
                 .map_err(Error::from)?;
             let mut found_docs = Vec::new();
             for id in ids {
@@ -507,7 +508,9 @@ where
         header: &Header,
     ) -> Result<OperationResult, Error> {
         let documents = transaction
-            .tree(tree_index_map[&document_tree_name(self.name(), &operation.collection)])
+            .tree::<VersionedTreeRoot>(
+                tree_index_map[&document_tree_name(self.name(), &operation.collection)],
+            )
             .unwrap();
         let document_id = header.id.as_big_endian_bytes().unwrap();
         if let Some(vec) = documents.get(&document_id)? {
@@ -581,7 +584,7 @@ where
 
     fn save_doc(
         &self,
-        tree: &mut TransactionTree<StdFile>,
+        tree: &mut TransactionTree<VersionedTreeRoot, StdFile>,
         doc: &Document<'_>,
     ) -> Result<(), Error> {
         let serialized: Vec<u8> = self.serialize_document(doc)?;
@@ -596,9 +599,10 @@ where
         )?;
         Ok(())
     }
+
     fn create_view_iterator<'a, K: Key + 'a>(
         &'a self,
-        view_entries: &'a Tree<StdFile>,
+        view_entries: &'a Tree<UnversionedTreeRoot, StdFile>,
         key: Option<QueryKey<K>>,
         view: &'a dyn view::Serialized,
     ) -> Result<Vec<ViewEntryCollection>, Error> {
@@ -672,7 +676,9 @@ where
 
                     values.extend(
                         view_entries
-                            .get_multiple(&list.iter().map(Vec::as_slice).collect::<Vec<_>>())?,
+                            .get_multiple(&list.iter().map(Vec::as_slice).collect::<Vec<_>>())?
+                            .into_iter()
+                            .map(|(_, value)| value),
                     );
                 }
             }
@@ -724,7 +730,7 @@ where
         tokio::task::spawn_blocking::<_, Result<Vec<OperationResult>, Error>>(move || {
             let mut open_trees = OpenTrees::default();
             let transaction_tree_name = transaction_tree_name(task_self.name());
-            open_trees.open_tree(&transaction_tree_name);
+            open_trees.open_tree::<VersionedTreeRoot>(&transaction_tree_name);
             for op in &transaction.operations {
                 if !task_self.data.schema.contains_collection_id(&op.collection) {
                     return Err(Error::Core(bonsaidb_core::Error::CollectionNotFound));
@@ -785,7 +791,7 @@ where
                             let view_name = view.view_name().map_err(bonsaidb_core::Error::from)?;
                             for changed_document in &changed_documents {
                                 let invalidated_docs = roots_transaction
-                                    .tree(
+                                    .tree::<UnversionedTreeRoot>(
                                         open_trees.trees_index_by_name
                                             [&view_invalidated_docs_tree_name(
                                                 task_self.name(),
@@ -856,7 +862,7 @@ where
                 move || {
                     let tree = task_self
                         .sled()
-                        .tree(transaction_tree_name)
+                        .tree::<VersionedTreeRoot, _>(transaction_tree_name)
                         .map_err(Error::from)?;
                     let range = if let Some(starting_id) = starting_id {
                         GenericRange::from(Buffer::from(starting_id.to_be_bytes().to_vec())..)
@@ -1032,7 +1038,7 @@ where
         tokio::task::spawn_blocking(move || {
             let tree = task_self
                 .sled()
-                .tree(transaction_tree_name)
+                .tree::<VersionedTreeRoot, _>(transaction_tree_name)
                 .map_err(Error::from)?;
             if let Some((key, _)) = tree.last().map_err(Error::from)? {
                 Ok(Some(
