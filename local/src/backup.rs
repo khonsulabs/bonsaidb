@@ -35,7 +35,7 @@ use bonsaidb_core::{
 use flume::Receiver;
 use itertools::Itertools;
 use nebari::{
-    tree::{KeyEvaluation, VersionedTreeRoot},
+    tree::{KeyEvaluation, UnversionedTreeRoot, VersionedTreeRoot},
     AbortError,
 };
 use structopt::StructOpt;
@@ -187,7 +187,7 @@ impl Command {
 
                 if let Ok(tree) = db
                     .roots()
-                    .tree::<VersionedTreeRoot, _>(transaction_tree_name(&database))
+                    .tree::<UnversionedTreeRoot, _>(transaction_tree_name(&database))
                 {
                     tree.scan::<anyhow::Error, _, _, _>(
                         ..,
@@ -383,7 +383,7 @@ fn restore_documents(receiver: Receiver<BackupEntry>, storage: Storage) -> anyho
             } => {
                 let tree = storage
                     .roots()
-                    .tree::<VersionedTreeRoot, _>(transaction_tree_name(&database))?;
+                    .tree::<UnversionedTreeRoot, _>(transaction_tree_name(&database))?;
                 tree.set(
                     transaction.id.as_big_endian_bytes()?.to_vec(),
                     bincode::serialize(&transaction)?,

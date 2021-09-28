@@ -21,6 +21,7 @@ use bonsaidb_core::{
         self, ChangedDocument, Command, Executed, Operation, OperationResult, Transaction,
     },
 };
+use byteorder::{BigEndian, ByteOrder};
 use itertools::Itertools;
 use nebari::{
     tree::{KeyEvaluation, UnversionedTreeRoot, VersionedTreeRoot},
@@ -480,14 +481,15 @@ where
         encryption_key: Option<KeyId>,
     ) -> Result<OperationResult, Error> {
         let documents = transaction
-            .tree(tree_index_map[&document_tree_name(self.name(), &operation.collection)])
+            .tree::<VersionedTreeRoot>(
+                tree_index_map[&document_tree_name(self.name(), &operation.collection)],
+            )
             .unwrap();
-        let doc = Document::new(
-            documents.current_sequence_id() + 1,
-            contents,
-            encryption_key,
-        );
-        self.save_doc(documents, &doc)?;
+        let last_key = documents
+            .last_key()?
+            .map(|bytes| BigEndian::read_u64(&bytes))
+            .unwrap_or_default();
+        let doc = Document::new(last_key + 1, contents, encryption_key);
         let serialized: Vec<u8> = self.serialize_document(&doc)?;
         let document_id = Buffer::from(doc.header.id.as_big_endian_bytes().unwrap().to_vec());
         documents.set(document_id.clone(), serialized)?;
@@ -513,11 +515,9 @@ where
             )
             .unwrap();
         let document_id = header.id.as_big_endian_bytes().unwrap();
-        if let Some(vec) = documents.get(&document_id)? {
+        if let Some(vec) = documents.remove(&document_id)? {
             let doc = self.deserialize_document(&vec)?;
             if doc.header.as_ref() == header {
-                documents.remove(document_id.as_ref())?;
-
                 self.update_unique_views(
                     document_id.as_ref(),
                     operation,
@@ -730,7 +730,7 @@ where
         tokio::task::spawn_blocking::<_, Result<Vec<OperationResult>, Error>>(move || {
             let mut open_trees = OpenTrees::default();
             let transaction_tree_name = transaction_tree_name(task_self.name());
-            open_trees.open_tree::<VersionedTreeRoot>(&transaction_tree_name);
+            open_trees.open_tree::<UnversionedTreeRoot>(&transaction_tree_name);
             for op in &transaction.operations {
                 if !task_self.data.schema.contains_collection_id(&op.collection) {
                     return Err(Error::Core(bonsaidb_core::Error::CollectionNotFound));
@@ -811,10 +811,14 @@ where
 
             // Save a record of the transaction we just completed.
             let tree = roots_transaction
-                .tree(open_trees.trees_index_by_name[&transaction_tree_name])
+                .tree::<UnversionedTreeRoot>(open_trees.trees_index_by_name[&transaction_tree_name])
                 .unwrap();
+            let last_key = tree
+                .last_key()?
+                .map(|bytes| BigEndian::read_u64(&bytes))
+                .unwrap_or_default();
             let executed = transaction::Executed {
-                id: tree.current_sequence_id() + 1,
+                id: last_key + 1,
                 changed_documents: Cow::from(changed_documents),
             };
             let serialized: Vec<u8> = bincode::serialize(&executed)
@@ -862,7 +866,7 @@ where
                 move || {
                     let tree = task_self
                         .sled()
-                        .tree::<VersionedTreeRoot, _>(transaction_tree_name)
+                        .tree::<UnversionedTreeRoot, _>(transaction_tree_name)
                         .map_err(Error::from)?;
                     let range = if let Some(starting_id) = starting_id {
                         GenericRange::from(Buffer::from(starting_id.to_be_bytes().to_vec())..)
@@ -1038,7 +1042,7 @@ where
         tokio::task::spawn_blocking(move || {
             let tree = task_self
                 .sled()
-                .tree::<VersionedTreeRoot, _>(transaction_tree_name)
+                .tree::<UnversionedTreeRoot, _>(transaction_tree_name)
                 .map_err(Error::from)?;
             if let Some((key, _)) = tree.last().map_err(Error::from)? {
                 Ok(Some(
