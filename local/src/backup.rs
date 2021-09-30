@@ -33,6 +33,11 @@ use bonsaidb_core::{
     transaction::Executed,
 };
 use flume::Receiver;
+use itertools::Itertools;
+use nebari::{
+    tree::{KeyEvaluation, UnversionedTreeRoot, VersionedTreeRoot},
+    AbortError,
+};
 use structopt::StructOpt;
 use tokio::{
     fs::File,
@@ -145,52 +150,61 @@ impl Command {
         let (sender, receiver) = flume::bounded(100);
         let document_writer = tokio::spawn(write_documents(receiver, backup_directory));
         tokio::task::spawn_blocking::<_, anyhow::Result<()>>(move || {
-            for (database, collection_tree) in
-                db.sled().tree_names().into_iter().filter_map(|tree| {
+            for (database, collection_name, collection_tree) in
+                db.roots().tree_names()?.into_iter().filter_map(|tree| {
                     // Extract the database_endbase name, but also check that it's a collection
-
-                    if let Some(database_end) = tree.windows(2).position(|t| t.starts_with(b"::")) {
-                        let database = String::from_utf8(tree[0..database_end].to_vec()).ok()?;
-                        if &tree[database_end..database_end + 14] == b"::collection::" {
-                            return Some((database, tree));
-                        }
+                    let mut parts = tree.split('.');
+                    let database = parts.next().unwrap();
+                    if !matches!(parts.next().as_deref(), Some("collection")) {
+                        return None;
                     }
-                    None
+                    let collection_name = parts.join(".");
+                    Some((database.to_string(), collection_name, tree))
                 })
             {
-                println!(
-                    "Exporting {}",
-                    String::from_utf8(collection_tree.to_vec()).unwrap()
-                );
-
-                let collection_name = String::from_utf8(collection_tree.to_vec())?;
-                let collection_name =
-                    CollectionName::try_from(collection_name.split("::").last().unwrap())?;
+                let collection_name = CollectionName::try_from(collection_name.as_str())?;
+                println!("Exporting {}", collection_tree);
 
                 let database = Arc::new(database);
-                let tree = db.sled().open_tree(&collection_tree)?;
-                for result in tree.iter() {
-                    let (_, document) = result?;
-                    let document = bincode::deserialize::<Document<'_>>(&document)?;
-                    sender.send(BackupEntry::Document {
-                        database: database.clone(),
-                        collection: collection_name.clone(),
-                        document: document.to_owned(),
-                    })?;
-                }
+                let tree = db.roots().tree::<VersionedTreeRoot, _>(collection_tree)?;
+                tree.scan::<anyhow::Error, _, _, _>(
+                    ..,
+                    true,
+                    |_| KeyEvaluation::ReadData,
+                    |_, value| {
+                        let document = bincode::deserialize::<Document<'_>>(&value)
+                            .map_err(|err| AbortError::Other(anyhow::anyhow!(err)))?;
+                        sender
+                            .send(BackupEntry::Document {
+                                database: database.clone(),
+                                collection: collection_name.clone(),
+                                document: document.to_owned(),
+                            })
+                            .map_err(|err| AbortError::Other(anyhow::anyhow!(err)))?;
+                        Ok(())
+                    },
+                )?;
 
                 if let Ok(tree) = db
-                    .sled()
-                    .open_tree(transaction_tree_name(&database).as_bytes())
+                    .roots()
+                    .tree::<UnversionedTreeRoot, _>(transaction_tree_name(&database))
                 {
-                    for row in tree.iter() {
-                        let (_, executed) = row?;
-                        let transaction = bincode::deserialize::<Executed<'static>>(&executed)?;
-                        sender.send(BackupEntry::Transaction {
-                            database: database.clone(),
-                            transaction,
-                        })?;
-                    }
+                    tree.scan::<anyhow::Error, _, _, _>(
+                        ..,
+                        true,
+                        |_| KeyEvaluation::ReadData,
+                        |_, value| {
+                            let transaction = bincode::deserialize::<Executed<'static>>(&value)
+                                .map_err(|err| AbortError::Other(anyhow::anyhow!(err)))?;
+                            sender
+                                .send(BackupEntry::Transaction {
+                                    database: database.clone(),
+                                    transaction,
+                                })
+                                .map_err(|err| AbortError::Other(anyhow::anyhow!(err)))?;
+                            Ok(())
+                        },
+                    )?;
                 }
             }
 
@@ -356,10 +370,10 @@ fn restore_documents(receiver: Receiver<BackupEntry>, storage: Storage) -> anyho
                 document,
             } => {
                 let tree = storage
-                    .sled()
-                    .open_tree(document_tree_name(&database, &collection))?;
-                tree.insert(
-                    document.header.id.as_big_endian_bytes()?,
+                    .roots()
+                    .tree::<VersionedTreeRoot, _>(document_tree_name(&database, &collection))?;
+                tree.set(
+                    document.header.id.as_big_endian_bytes()?.to_vec(),
                     bincode::serialize(&document)?,
                 )?;
             }
@@ -367,16 +381,16 @@ fn restore_documents(receiver: Receiver<BackupEntry>, storage: Storage) -> anyho
                 database,
                 transaction,
             } => {
-                let tree = storage.sled().open_tree(transaction_tree_name(&database))?;
-                tree.insert(
-                    transaction.id.as_big_endian_bytes()?,
+                let tree = storage
+                    .roots()
+                    .tree::<UnversionedTreeRoot, _>(transaction_tree_name(&database))?;
+                tree.set(
+                    transaction.id.as_big_endian_bytes()?.to_vec(),
                     bincode::serialize(&transaction)?,
                 )?;
             }
         }
     }
-
-    storage.sled().flush()?;
 
     Ok(())
 }

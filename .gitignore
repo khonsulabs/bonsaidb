@@ -6,3 +6,7 @@ Cargo.lock
 *.profraw
 *.profdata
 coverage/
+*.folded
+perf.data
+perf.data.old
+flamegraph.svg
