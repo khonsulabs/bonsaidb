@@ -1044,7 +1044,7 @@ where
                 .sled()
                 .tree::<UnversionedTreeRoot, _>(transaction_tree_name)
                 .map_err(Error::from)?;
-            if let Some((key, _)) = tree.last().map_err(Error::from)? {
+            if let Some(key) = tree.last_key().map_err(Error::from)? {
                 Ok(Some(
                     u64::from_big_endian_bytes(&key).map_err(view::Error::KeySerialization)?,
                 ))
