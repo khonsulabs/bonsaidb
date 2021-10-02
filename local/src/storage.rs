@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Display},
     marker::PhantomData,
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -35,23 +35,27 @@ use bonsaidb_core::{
 use bonsaidb_jobs::manager::Manager;
 use futures::TryFutureExt;
 use itertools::Itertools;
-use nebari::{ChunkCache, StdFile};
+use nebari::{
+    io::{
+        fs::{StdFile, StdFileManager},
+        FileManager,
+    },
+    ChunkCache, ThreadPool,
+};
 use rand::{thread_rng, Rng};
 use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncWriteExt},
-    sync::RwLock,
+    sync::{Mutex, RwLock},
 };
 
 use crate::{
     config::Configuration,
+    database::Context,
     tasks::TaskManager,
     vault::{self, LocalVaultKeyStorage, Vault},
     Database, Error,
 };
-
-#[cfg(feature = "keyvalue")]
-pub mod kv;
 
 /// A file-based, multi-database, multi-user database engine.
 #[derive(Debug, Clone)]
@@ -62,17 +66,33 @@ pub struct Storage {
 #[derive(Debug)]
 struct Data {
     id: StorageId,
-    roots: nebari::Roots<StdFile>,
+    path: PathBuf,
+    threadpool: ThreadPool<StdFile>,
+    file_manager: StdFileManager,
     pub(crate) tasks: TaskManager,
     pub(crate) vault: Arc<Vault>,
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
+    open_roots: Mutex<HashMap<String, Context>>,
     default_encryption_key: Option<KeyId>,
+    chunk_cache: ChunkCache,
     pub(crate) check_view_integrity_on_database_open: bool,
-    #[cfg(feature = "keyvalue")]
-    kv_expirer: std::sync::RwLock<Option<flume::Sender<kv::ExpirationUpdate>>>,
+    runtime: tokio::runtime::Handle,
     #[cfg(feature = "pubsub")]
     relay: Relay,
+}
+
+impl Drop for Data {
+    fn drop(&mut self) {
+        let open_roots = std::mem::take(&mut self.open_roots);
+
+        self.runtime.spawn(async move {
+            let mut open_roots = open_roots.lock().await;
+            for (_, context) in open_roots.drain() {
+                context.shutdown();
+            }
+        });
+    }
 }
 
 impl Storage {
@@ -109,23 +129,21 @@ impl Storage {
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
         let default_encryption_key = configuration.default_encryption_key;
         let storage = tokio::task::spawn_blocking::<_, Result<Self, Error>>(move || {
-            let roots = nebari::Config::new(owned_path)
-                .cache(ChunkCache::new(2000, 160_384))
-                .open()
-                .map_err(Error::from)?;
-
             Ok(Self {
                 data: Arc::new(Data {
                     id,
-                    roots,
                     tasks,
                     vault,
                     default_encryption_key,
+                    path: owned_path,
+                    file_manager: StdFileManager::default(),
+                    chunk_cache: ChunkCache::new(2000, 160_384),
+                    threadpool: ThreadPool::default(),
                     schemas: RwLock::default(),
                     available_databases: RwLock::default(),
+                    open_roots: Mutex::default(),
                     check_view_integrity_on_database_open,
-                    #[cfg(feature = "keyvalue")]
-                    kv_expirer: std::sync::RwLock::default(),
+                    runtime: tokio::runtime::Handle::current(),
                     #[cfg(feature = "pubsub")]
                     relay: Relay::default(),
                 }),
@@ -134,18 +152,17 @@ impl Storage {
         .await
         .map_err(|err| Error::Other(Arc::new(anyhow::anyhow!(err))))??;
 
-        #[cfg(feature = "keyvalue")]
-        storage
-            .data
-            .tasks
-            .spawn_key_value_expiration_loader(&storage)
-            .await;
-
         storage.cache_available_databases().await?;
 
         storage.create_admin_database_if_needed().await?;
 
         Ok(storage)
+    }
+
+    /// Returns the path of the database storage.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.data.path
     }
 
     async fn lookup_or_create_id(
@@ -274,7 +291,10 @@ impl Storage {
 
         if let Some(stored_schema) = available_databases.get(name) {
             if stored_schema == &DB::schema_name()? {
-                Ok(Database::new(name.to_owned(), self.clone()).await?)
+                Ok(
+                    Database::new(name.to_owned(), self.open_roots(name).await?, self.clone())
+                        .await?,
+                )
             } else {
                 Err(Error::Core(bonsaidb_core::Error::SchemaMismatch {
                     database_name: name.to_owned(),
@@ -286,6 +306,31 @@ impl Storage {
             Err(Error::Core(bonsaidb_core::Error::DatabaseNotFound(
                 name.to_owned(),
             )))
+        }
+    }
+
+    async fn open_roots(&self, name: &str) -> Result<Context, Error> {
+        let mut open_roots = self.data.open_roots.lock().await;
+        if let Some(roots) = open_roots.get(name) {
+            Ok(roots.clone())
+        } else {
+            let task_self = self.clone();
+            let task_name = name.to_string();
+            let roots = tokio::task::spawn_blocking(move || {
+                nebari::Config::new(task_self.data.path.join(task_name))
+                    .cache(task_self.data.chunk_cache.clone())
+                    .shared_thread_pool(&task_self.data.threadpool)
+                    .file_manager(task_self.data.file_manager.clone())
+                    .open()
+                    .map_err(Error::from)
+            })
+            .await
+            .unwrap()?;
+            let context = Context::new(roots);
+
+            open_roots.insert(name.to_owned(), context.clone());
+
+            Ok(context)
         }
     }
 
@@ -304,10 +349,6 @@ impl Storage {
     //     }
     // }
 
-    pub(crate) fn roots(&self) -> &'_ nebari::Roots<StdFile> {
-        &self.data.roots
-    }
-
     pub(crate) fn tasks(&self) -> &'_ TaskManager {
         &self.data.tasks
     }
@@ -319,30 +360,6 @@ impl Storage {
     #[cfg(feature = "pubsub")]
     pub(crate) fn relay(&self) -> &'_ Relay {
         &self.data.relay
-    }
-
-    #[cfg(feature = "keyvalue")]
-    pub(crate) fn update_key_expiration(&self, update: kv::ExpirationUpdate) {
-        {
-            let sender = self.data.kv_expirer.read().unwrap();
-            if let Some(sender) = sender.as_ref() {
-                drop(sender.send(update));
-                return;
-            }
-        }
-
-        // If we fall through, we need to initialize the expirer task
-        let mut sender = self.data.kv_expirer.write().unwrap();
-        if sender.is_none() {
-            let (kv_sender, kv_expirer_receiver) = flume::unbounded();
-            let thread_sled = self.data.roots.clone();
-            tokio::task::spawn_blocking(move || {
-                kv::expiration_thread(kv_expirer_receiver, thread_sled)
-            });
-            *sender = Some(kv_sender);
-        }
-
-        drop(sender.as_ref().unwrap().send(update));
     }
 
     fn validate_name(name: &str) -> Result<(), Error> {
@@ -362,7 +379,13 @@ impl Storage {
     /// Returns the administration database.
     #[allow(clippy::missing_panics_doc)]
     pub async fn admin(&self) -> Database<Admin> {
-        Database::new("admin", self.clone()).await.unwrap()
+        Database::new(
+            "admin",
+            self.open_roots("admin").await.unwrap(),
+            self.clone(),
+        )
+        .await
+        .unwrap()
     }
 
     #[cfg(feature = "internal-apis")]
@@ -389,8 +412,8 @@ impl Storage {
             }
         };
 
-        let schemas = self.data.schemas.read().await;
-        if let Some(schema) = schemas.get(&schema) {
+        let mut schemas = self.data.schemas.write().await;
+        if let Some(schema) = schemas.get_mut(&schema) {
             schema.open(name.to_string(), self.clone()).await
         } else {
             Err(Error::Core(bonsaidb_core::Error::SchemaNotRegistered(
@@ -487,7 +510,8 @@ where
     }
 
     async fn open(&self, name: String, storage: Storage) -> Result<Box<dyn OpenDatabase>, Error> {
-        let db = Database::<DB>::new(name, storage).await?;
+        let roots = storage.open_roots(&name).await?;
+        let db = Database::<DB>::new(name, roots, storage).await?;
         Ok(Box::new(db))
     }
 }
@@ -603,23 +627,22 @@ impl ServerConnection for Storage {
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
-        let mut available_databases = self.data.available_databases.write().await;
-
-        let prefix = format!("{}.", name);
-        let roots = self.data.roots.clone();
-        tokio::task::spawn_blocking(move || {
-            for name in roots.tree_names()? {
-                if name.starts_with(&prefix) {
-                    roots.delete_tree(name)?;
-                }
-            }
-            Result::<_, nebari::Error>::Ok(())
-        })
-        .await
-        .unwrap()
-        .map_err(Error::from)?;
-
         let admin = self.admin().await;
+        let mut available_databases = self.data.available_databases.write().await;
+        available_databases.remove(name);
+
+        let mut open_roots = self.data.open_roots.lock().await;
+        open_roots.remove(name);
+
+        let database_folder = self.path().join(name);
+        if database_folder.exists() {
+            let file_manager = self.data.file_manager.clone();
+            tokio::task::spawn_blocking(move || file_manager.delete_directory(&database_folder))
+                .await
+                .unwrap()
+                .map_err(Error::Roots)?;
+        }
+
         if let Some(entry) = admin
             .view::<database::ByName>()
             .with_key(name.to_ascii_lowercase())
@@ -628,7 +651,6 @@ impl ServerConnection for Storage {
             .first()
         {
             admin.delete::<DatabaseRecord>(&entry.document).await?;
-            available_databases.remove(name);
 
             Ok(())
         } else {

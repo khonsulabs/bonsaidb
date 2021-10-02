@@ -16,8 +16,9 @@ use bonsaidb_core::{
 };
 use bonsaidb_jobs::{Job, Keyed};
 use nebari::{
+    io::fs::StdFile,
     tree::{Root, UnversionedTreeRoot, VersionedTreeRoot},
-    Buffer, ExecutingTransaction, StdFile, Tree,
+    Buffer, ExecutingTransaction, Tree,
 };
 use serde::{Deserialize, Serialize};
 
@@ -33,7 +34,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Mapper<DB> {
-    pub storage: Database<DB>,
+    pub database: Database<DB>,
     pub map: Map,
 }
 
@@ -53,57 +54,37 @@ where
 
     #[allow(clippy::too_many_lines)]
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
-        let documents = self.storage.data.storage.roots().tree(document_tree_name(
-            &self.storage.data.name,
-            &self.map.collection,
-        ))?;
+        let documents = self
+            .database
+            .roots()
+            .tree(document_tree_name(&self.map.collection))?;
 
         let view_entries = self
-            .storage
-            .data
-            .storage
+            .database
             .roots()
-            .tree(view_entries_tree_name(
-                &self.storage.data.name,
-                &self.map.view_name,
-            ))?;
+            .tree(view_entries_tree_name(&self.map.view_name))?;
 
         let document_map = self
-            .storage
-            .data
-            .storage
+            .database
             .roots()
-            .tree(view_document_map_tree_name(
-                &self.storage.data.name,
-                &self.map.view_name,
-            ))?;
+            .tree(view_document_map_tree_name(&self.map.view_name))?;
 
-        let invalidated_entries =
-            self.storage
-                .data
-                .storage
-                .roots()
-                .tree(view_invalidated_docs_tree_name(
-                    &self.storage.data.name,
-                    &self.map.view_name,
-                ))?;
+        let invalidated_entries = self
+            .database
+            .roots()
+            .tree(view_invalidated_docs_tree_name(&self.map.view_name))?;
 
-        let omitted_entries =
-            self.storage
-                .data
-                .storage
-                .roots()
-                .tree(view_omitted_docs_tree_name(
-                    &self.storage.data.name,
-                    &self.map.view_name,
-                ))?;
+        let omitted_entries = self
+            .database
+            .roots()
+            .tree(view_omitted_docs_tree_name(&self.map.view_name))?;
         let transaction_id = self
-            .storage
+            .database
             .last_transaction_id()
             .await?
             .expect("no way to have documents without a transaction");
 
-        let storage = self.storage.clone();
+        let storage = self.database.clone();
         let map_request = self.map.clone();
 
         tokio::task::spawn_blocking(move || {
@@ -119,7 +100,7 @@ where
         })
         .await??;
 
-        self.storage
+        self.database
             .data
             .storage
             .tasks()
@@ -141,7 +122,7 @@ fn map_view<DB: Schema>(
     documents: &Tree<VersionedTreeRoot, StdFile>,
     omitted_entries: &Tree<UnversionedTreeRoot, StdFile>,
     view_entries: &Tree<UnversionedTreeRoot, StdFile>,
-    storage: &Database<DB>,
+    database: &Database<DB>,
     map_request: &Map,
 ) -> anyhow::Result<()> {
     // Only do any work if there are invalidated documents to process
@@ -151,14 +132,14 @@ fn map_view<DB: Schema>(
         .map(|(key, _)| key)
         .collect::<Vec<_>>();
     if !invalidated_ids.is_empty() {
-        let mut transaction = storage.storage().roots().transaction(&[
+        let mut transaction = database.roots().transaction(&[
             UnversionedTreeRoot::tree(invalidated_entries.name().to_string()),
             UnversionedTreeRoot::tree(document_map.name().to_string()),
             VersionedTreeRoot::tree(documents.name().to_string()),
             UnversionedTreeRoot::tree(omitted_entries.name().to_string()),
             UnversionedTreeRoot::tree(view_entries.name().to_string()),
         ])?;
-        let view = storage
+        let view = database
             .data
             .schema
             .view_by_name(&map_request.view_name)
@@ -167,7 +148,7 @@ fn map_view<DB: Schema>(
             DocumentRequest {
                 document_id,
                 map_request,
-                database: storage,
+                database,
                 transaction: &mut transaction,
                 document_map_index: 1,
                 documents_index: 2,

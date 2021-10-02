@@ -45,22 +45,22 @@ impl TaskManager {
     pub async fn update_view_if_needed<DB: Schema>(
         &self,
         view: &dyn view::Serialized,
-        storage: &Database<DB>,
+        database: &Database<DB>,
     ) -> Result<(), crate::Error> {
         let view_name = view.view_name();
-        if let Some(job) = self.spawn_integrity_check(view, storage).await? {
+        if let Some(job) = self.spawn_integrity_check(view, database).await? {
             job.receive().await?.map_err(crate::Error::Other)?;
         }
 
         // If there is no transaction id, there is no data, so the view is "up-to-date"
-        if let Some(current_transaction_id) = storage.last_transaction_id().await? {
+        if let Some(current_transaction_id) = database.last_transaction_id().await? {
             let needs_reindex = {
                 // When views finish updating, they store the last transaction_id
                 // they mapped. If that value is current, we don't need to go
                 // through the jobs system at all.
                 let statuses = self.statuses.read().await;
                 if let Some(last_transaction_indexed) = statuses.view_update_last_status.get(&(
-                    storage.data.name.clone(),
+                    database.data.name.clone(),
                     view.collection()?,
                     view.view_name()?,
                 )) {
@@ -76,9 +76,9 @@ impl TaskManager {
                     let job = self
                         .jobs
                         .lookup_or_enqueue(Mapper {
-                            storage: storage.clone(),
+                            database: database.clone(),
                             map: Map {
-                                database: storage.data.name.clone(),
+                                database: database.data.name.clone(),
                                 collection: view.collection()?,
                                 view_name: view_name.clone()?,
                             },
@@ -173,13 +173,13 @@ impl TaskManager {
     }
 
     #[cfg(feature = "keyvalue")]
-    pub async fn spawn_key_value_expiration_loader(
+    pub async fn spawn_key_value_expiration_loader<DB: Schema>(
         &self,
-        storage: &crate::Storage,
+        database: &crate::Database<DB>,
     ) -> Handle<(), Task> {
         self.jobs
-            .enqueue(crate::storage::kv::ExpirationLoader {
-                storage: storage.clone(),
+            .enqueue(crate::database::kv::ExpirationLoader {
+                database: database.clone(),
             })
             .await
     }
