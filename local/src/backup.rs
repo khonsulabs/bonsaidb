@@ -31,7 +31,6 @@ use bonsaidb_core::{
     connection::ServerConnection,
     document::{Document, Header, Revision},
     schema::{CollectionName, Key},
-    transaction::Executed,
 };
 use flume::Receiver;
 use itertools::Itertools;
@@ -46,8 +45,6 @@ use tokio::{
 };
 
 use crate::{config::Configuration, database::document_tree_name, Storage};
-
-const TRANSACTIONS_FOLDER_NAME: &str = "_transactions";
 
 /// The command line interface for `bonsaidb local-backup`.
 #[derive(StructOpt, Debug)]
@@ -191,29 +188,6 @@ impl Command {
                             Ok(())
                         },
                     )?;
-
-                    // TODO update... should this just copy the old file?
-                    // if let Ok(tree) = db
-                    //     .roots()
-                    //     .tree::<UnversionedTreeRoot, _>(transaction_tree_name(&database))
-                    // {
-                    //     tree.scan::<anyhow::Error, _, _, _>(
-                    //         ..,
-                    //         true,
-                    //         |_| KeyEvaluation::ReadData,
-                    //         |_, value| {
-                    //             let transaction = bincode::deserialize::<Executed<'static>>(&value)
-                    //                 .map_err(|err| AbortError::Other(anyhow::anyhow!(err)))?;
-                    //             sender
-                    //                 .send(BackupEntry::Transaction {
-                    //                     database: database.clone(),
-                    //                     transaction,
-                    //                 })
-                    //                 .map_err(|err| AbortError::Other(anyhow::anyhow!(err)))?;
-                    //             Ok(())
-                    //         },
-                    //     )?;
-                    // }
                 }
             }
 
@@ -247,60 +221,41 @@ impl Command {
                     .unwrap()
                     .to_str()
                     .expect("invalid collection name encountered");
-                if collection == TRANSACTIONS_FOLDER_NAME {
-                    println!("Restoring executed transactions");
 
-                    let mut entries = tokio::fs::read_dir(&collection_folder).await?;
-                    while let Some(entry) = entries.next_entry().await? {
-                        let path = entry.path();
-                        if path.extension() == Some(&OsString::from("cbor")) {
-                            let mut file = File::open(&path).await?;
-                            let mut contents = Vec::new();
-                            file.read_to_end(&mut contents).await?;
+                let collection = CollectionName::try_from(collection)?;
+                println!("Restoring {}", collection);
 
-                            let transaction = serde_cbor::from_slice(&contents)?;
-                            sender.send(BackupEntry::Transaction {
+                let mut entries = tokio::fs::read_dir(&collection_folder).await?;
+                while let Some(entry) = entries.next_entry().await? {
+                    let path = entry.path();
+                    if path.extension() == Some(&OsString::from("cbor")) {
+                        let file_name = path
+                            .file_name()
+                            .unwrap()
+                            .to_str()
+                            .expect("invalid file name encountered");
+                        let parts = file_name.split('.').collect::<Vec<_>>();
+                        let id = parts[0].parse::<u64>()?;
+                        let revision = parts[1].parse::<u32>()?;
+                        let mut file = File::open(&path).await?;
+                        let mut contents = Vec::new();
+                        file.read_to_end(&mut contents).await?;
+
+                        let doc = Document {
+                            header: Cow::Owned(Header {
+                                id,
+                                revision: Revision::with_id(revision, &contents),
+                                encryption_key: None, // TODO how to deal with restoring encryption from a backup?
+                            }),
+                            contents: Cow::Owned(contents),
+                        };
+                        sender
+                            .send_async(BackupEntry::Document {
                                 database: database.clone(),
-                                transaction,
-                            })?;
-                        }
-                    }
-                } else {
-                    let collection = CollectionName::try_from(collection)?;
-                    println!("Restoring {}", collection);
-
-                    let mut entries = tokio::fs::read_dir(&collection_folder).await?;
-                    while let Some(entry) = entries.next_entry().await? {
-                        let path = entry.path();
-                        if path.extension() == Some(&OsString::from("cbor")) {
-                            let file_name = path
-                                .file_name()
-                                .unwrap()
-                                .to_str()
-                                .expect("invalid file name encountered");
-                            let parts = file_name.split('.').collect::<Vec<_>>();
-                            let id = parts[0].parse::<u64>()?;
-                            let revision = parts[1].parse::<u32>()?;
-                            let mut file = File::open(&path).await?;
-                            let mut contents = Vec::new();
-                            file.read_to_end(&mut contents).await?;
-
-                            let doc = Document {
-                                header: Cow::Owned(Header {
-                                    id,
-                                    revision: Revision::with_id(revision, &contents),
-                                    encryption_key: None, // TODO how to deal with restoring encryption from a backup?
-                                }),
-                                contents: Cow::Owned(contents),
-                            };
-                            sender
-                                .send_async(BackupEntry::Document {
-                                    database: database.clone(),
-                                    collection: collection.clone(),
-                                    document: doc,
-                                })
-                                .await?;
-                        }
+                                collection: collection.clone(),
+                                document: doc,
+                            })
+                            .await?;
                     }
                 }
             }
@@ -317,10 +272,6 @@ enum BackupEntry {
         database: Arc<String>,
         collection: CollectionName,
         document: Document<'static>,
-    },
-    Transaction {
-        database: Arc<String>,
-        transaction: Executed<'static>,
     },
 }
 
@@ -347,19 +298,6 @@ async fn write_documents(receiver: Receiver<BackupEntry>, backup: PathBuf) -> an
                 ));
                 let mut file = File::create(&document_path).await?;
                 file.write_all(&document.contents).await?;
-                file.shutdown().await?;
-            }
-            BackupEntry::Transaction {
-                database,
-                transaction,
-            } => {
-                let transactions_directory = backup.join(database.as_ref()).join("_transactions");
-                if !transactions_directory.exists() {
-                    tokio::fs::create_dir_all(&transactions_directory).await?;
-                }
-                let document_path = transactions_directory.join(format!("{}.cbor", transaction.id));
-                let mut file = File::create(&document_path).await?;
-                file.write_all(&serde_cbor::to_vec(&transaction)?).await?;
                 file.shutdown().await?;
             }
         }
@@ -392,16 +330,6 @@ async fn restore_documents(
                     Ok(())
                 })
                 .await??;
-            }
-            BackupEntry::Transaction { .. } => {
-                // TODO needs update
-                // let tree = storage
-                //     .roots()
-                //     .tree::<UnversionedTreeRoot, _>(transaction_tree_name(&database))?;
-                // tree.set(
-                //     transaction.id.as_big_endian_bytes()?.to_vec(),
-                //     bincode::serialize(&transaction)?,
-                // )?;
             }
         }
     }
