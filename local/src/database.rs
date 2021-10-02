@@ -1079,9 +1079,13 @@ impl Context {
         }
     }
 
+    #[cfg_attr(not(feature = "keyvalue"), allow(clippy::unused_self))]
     pub(crate) fn shutdown(&self) {
-        let mut expirer = self.kv_expirer.write().unwrap();
-        *expirer = None;
+        #[cfg(feature = "keyvalue")]
+        {
+            let mut expirer = self.kv_expirer.write().unwrap();
+            *expirer = None;
+        }
     }
 
     #[cfg(feature = "keyvalue")]
