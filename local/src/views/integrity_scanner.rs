@@ -4,8 +4,9 @@ use async_trait::async_trait;
 use bonsaidb_core::schema::{view, CollectionName, Key, Schema, ViewName};
 use bonsaidb_jobs::{Job, Keyed};
 use nebari::{
+    io::fs::StdFile,
     tree::{KeyEvaluation, Root, UnversionedTreeRoot, VersionedTreeRoot},
-    StdFile, Tree,
+    Tree,
 };
 
 use super::{
@@ -36,31 +37,28 @@ where
     type Output = ();
 
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
-        let documents = self.database.sled().tree(document_tree_name(
-            &self.database.data.name,
-            &self.scan.collection,
-        ))?;
+        let documents = self
+            .database
+            .roots()
+            .tree(document_tree_name(&self.scan.collection))?;
 
-        let view_versions =
-            self.database
-                .sled()
-                .tree::<UnversionedTreeRoot, _>(view_versions_tree_name(
-                    &self.database.data.name,
-                    &self.scan.collection,
-                ))?;
+        let view_versions = self
+            .database
+            .roots()
+            .tree::<UnversionedTreeRoot, _>(view_versions_tree_name(&self.scan.collection))?;
 
-        let document_map = self.database.sled().tree(view_document_map_tree_name(
-            &self.database.data.name,
-            &self.scan.view_name,
-        ))?;
+        let document_map = self
+            .database
+            .roots()
+            .tree(view_document_map_tree_name(&self.scan.view_name))?;
 
-        let invalidated_entries = self.database.sled().tree::<UnversionedTreeRoot, _>(
-            view_invalidated_docs_tree_name(&self.database.data.name, &self.scan.view_name),
+        let invalidated_entries = self.database.roots().tree::<UnversionedTreeRoot, _>(
+            view_invalidated_docs_tree_name(&self.scan.view_name),
         )?;
 
         let view_name = self.scan.view_name.clone();
         let view_version = self.scan.view_version;
-        let roots = self.database.sled().clone();
+        let roots = self.database.roots().clone();
 
         let needs_update = tokio::task::spawn_blocking::<_, anyhow::Result<bool>>(move || {
             let document_ids = tree_keys::<u64, VersionedTreeRoot>(&documents)?;
@@ -121,7 +119,7 @@ where
                 .tasks()
                 .jobs
                 .lookup_or_enqueue(Mapper {
-                    storage: self.database.clone(),
+                    database: self.database.clone(),
                     map: Map {
                         database: self.database.data.name.clone(),
                         collection: self.scan.collection.clone(),

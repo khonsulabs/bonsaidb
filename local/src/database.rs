@@ -1,6 +1,12 @@
 use std::{
-    any::Any, borrow::Cow, collections::HashMap, convert::Infallible, marker::PhantomData,
-    path::Path, sync::Arc, u8,
+    any::Any,
+    borrow::Cow,
+    collections::HashMap,
+    convert::{Infallible, TryFrom},
+    marker::PhantomData,
+    path::Path,
+    sync::Arc,
+    u8,
 };
 
 use async_trait::async_trait;
@@ -24,8 +30,9 @@ use bonsaidb_core::{
 use byteorder::{BigEndian, ByteOrder};
 use itertools::Itertools;
 use nebari::{
+    io::fs::StdFile,
     tree::{KeyEvaluation, UnversionedTreeRoot, VersionedTreeRoot},
-    AbortError, Buffer, ExecutingTransaction, StdFile, TransactionTree, Tree,
+    Buffer, ExecutingTransaction, Roots, TransactionTree, Tree,
 };
 use ranges::GenericRange;
 
@@ -57,12 +64,12 @@ pub struct Database<DB> {
 #[derive(Debug)]
 pub struct Data<DB> {
     pub name: Arc<Cow<'static, str>>,
+    context: Context,
     pub(crate) storage: Storage,
     pub(crate) schema: Arc<Schematic>,
     pub(crate) effective_permissions: Option<Permissions>,
     _schema: PhantomData<DB>,
 }
-
 impl<DB> Clone for Database<DB> {
     fn clone(&self) -> Self {
         Self {
@@ -78,13 +85,16 @@ where
     /// Opens a local file as a bonsaidb.
     pub(crate) async fn new<S: Into<Cow<'static, str>> + Send>(
         name: S,
+        context: Context,
         storage: Storage,
     ) -> Result<Self, Error> {
+        let name = name.into();
         let schema = Arc::new(DB::schematic()?);
         let db = Self {
             data: Arc::new(Data {
-                name: Arc::new(name.into()),
-                storage,
+                name: Arc::new(name),
+                context,
+                storage: storage.clone(),
                 schema,
                 effective_permissions: None,
                 _schema: PhantomData::default(),
@@ -101,6 +111,9 @@ where
             }
         }
 
+        #[cfg(feature = "keyvalue")]
+        storage.tasks().spawn_key_value_expiration_loader(&db).await;
+
         Ok(db)
     }
 
@@ -115,6 +128,7 @@ where
         Self {
             data: Arc::new(Data {
                 name: self.data.name.clone(),
+                context: self.data.context.clone(),
                 storage: self.data.storage.clone(),
                 schema: self.data.schema.clone(),
                 effective_permissions: Some(effective_permissions),
@@ -157,8 +171,8 @@ where
         &self.data.schema
     }
 
-    pub(crate) fn sled(&self) -> &'_ nebari::Roots<StdFile> {
-        self.data.storage.roots()
+    pub(crate) fn roots(&self) -> &'_ nebari::Roots<StdFile> {
+        &self.data.context.roots
     }
 
     async fn for_each_in_view<
@@ -179,8 +193,8 @@ where
         }
 
         let view_entries = self
-            .sled()
-            .tree(view_entries_tree_name(&self.data.name, &view.view_name()?))
+            .roots()
+            .tree(view_entries_tree_name(&view.view_name()?))
             .map_err(Error::from)?;
 
         {
@@ -243,9 +257,9 @@ where
         tokio::task::spawn_blocking(move || {
             let tree = task_self
                 .data
-                .storage
-                .roots()
-                .tree::<VersionedTreeRoot, _>(document_tree_name(&task_self.data.name, &collection))
+                .context
+                .roots
+                .tree::<VersionedTreeRoot, _>(document_tree_name(&collection))
                 .map_err(Error::from)?;
             if let Some(vec) = tree
                 .get(
@@ -274,9 +288,9 @@ where
         tokio::task::spawn_blocking(move || {
             let tree = task_self
                 .data
-                .storage
-                .roots()
-                .tree::<VersionedTreeRoot, _>(document_tree_name(&task_self.data.name, &collection))
+                .context
+                .roots
+                .tree::<VersionedTreeRoot, _>(document_tree_name(&collection))
                 .map_err(Error::from)?;
             let mut found_docs = Vec::new();
             for id in ids {
@@ -428,7 +442,7 @@ where
         contents: Cow<'_, [u8]>,
     ) -> Result<OperationResult, crate::Error> {
         let documents = transaction
-            .tree(tree_index_map[&document_tree_name(self.name(), &operation.collection)])
+            .tree(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let document_id = header.id.as_big_endian_bytes().unwrap();
         if let Some(vec) = documents.get(document_id.as_ref())? {
@@ -481,9 +495,7 @@ where
         encryption_key: Option<KeyId>,
     ) -> Result<OperationResult, Error> {
         let documents = transaction
-            .tree::<VersionedTreeRoot>(
-                tree_index_map[&document_tree_name(self.name(), &operation.collection)],
-            )
+            .tree::<VersionedTreeRoot>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let last_key = documents
             .last_key()?
@@ -510,9 +522,7 @@ where
         header: &Header,
     ) -> Result<OperationResult, Error> {
         let documents = transaction
-            .tree::<VersionedTreeRoot>(
-                tree_index_map[&document_tree_name(self.name(), &operation.collection)],
-            )
+            .tree::<VersionedTreeRoot>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let document_id = header.id.as_big_endian_bytes().unwrap();
         if let Some(vec) = documents.remove(&document_id)? {
@@ -566,13 +576,10 @@ where
                         view_name: name.clone(),
                     },
                     transaction,
-                    document_map_index: tree_index_map
-                        [&view_document_map_tree_name(self.name(), &name)],
-                    documents_index: tree_index_map
-                        [&document_tree_name(self.name(), &operation.collection)],
-                    omitted_entries_index: tree_index_map
-                        [&view_omitted_docs_tree_name(self.name(), &name)],
-                    view_entries_index: tree_index_map[&view_entries_tree_name(self.name(), &name)],
+                    document_map_index: tree_index_map[&view_document_map_tree_name(&name)],
+                    documents_index: tree_index_map[&document_tree_name(&operation.collection)],
+                    omitted_entries_index: tree_index_map[&view_omitted_docs_tree_name(&name)],
+                    view_entries_index: tree_index_map[&view_entries_tree_name(&name)],
                     view,
                 }
                 .map()?;
@@ -715,6 +722,11 @@ where
             .ok()
             .and_then(|name| self.collection_encryption_key(&name))
     }
+
+    #[cfg(feature = "keyvalue")]
+    pub(crate) fn update_key_expiration(&self, update: kv::ExpirationUpdate) {
+        self.data.context.update_key_expiration(update);
+    }
 }
 
 #[async_trait]
@@ -729,8 +741,6 @@ where
         let task_self = self.clone();
         tokio::task::spawn_blocking::<_, Result<Vec<OperationResult>, Error>>(move || {
             let mut open_trees = OpenTrees::default();
-            let transaction_tree_name = transaction_tree_name(task_self.name());
-            open_trees.open_tree::<UnversionedTreeRoot>(&transaction_tree_name);
             for op in &transaction.operations {
                 if !task_self.data.schema.contains_collection_id(&op.collection) {
                     return Err(Error::Core(bonsaidb_core::Error::CollectionNotFound));
@@ -739,7 +749,6 @@ where
                 match &op.command {
                     Command::Update { .. } | Command::Insert { .. } | Command::Delete { .. } => {
                         open_trees.open_trees_for_document_change(
-                            task_self.name(),
                             &op.collection,
                             &task_self.data.schema,
                         )?;
@@ -747,8 +756,11 @@ where
                 }
             }
 
-            let mut roots_transaction =
-                task_self.storage().roots().transaction(&open_trees.trees)?;
+            let mut roots_transaction = task_self
+                .data
+                .context
+                .roots
+                .transaction(&open_trees.trees)?;
 
             let mut results = Vec::new();
             let mut changed_documents = Vec::new();
@@ -761,6 +773,11 @@ where
 
                 match &result {
                     OperationResult::DocumentUpdated { header, collection } => {
+                        roots_transaction.entry_mut().push(
+                            collection.to_string().as_bytes(),
+                            header.id,
+                            header.revision.id as u64 + 1,
+                        );
                         changed_documents.push(ChangedDocument {
                             collection: collection.clone(),
                             id: header.id,
@@ -768,6 +785,11 @@ where
                         });
                     }
                     OperationResult::DocumentDeleted { id, collection } => {
+                        roots_transaction.entry_mut().push(
+                            collection.to_string().as_bytes(),
+                            *id,
+                            0,
+                        );
                         changed_documents.push(ChangedDocument {
                             collection: collection.clone(),
                             id: *id,
@@ -793,10 +815,7 @@ where
                                 let invalidated_docs = roots_transaction
                                     .tree::<UnversionedTreeRoot>(
                                         open_trees.trees_index_by_name
-                                            [&view_invalidated_docs_tree_name(
-                                                task_self.name(),
-                                                &view_name,
-                                            )],
+                                            [&view_invalidated_docs_tree_name(&view_name)],
                                     )
                                     .unwrap();
                                 invalidated_docs.set(
@@ -808,23 +827,6 @@ where
                     }
                 }
             }
-
-            // Save a record of the transaction we just completed.
-            let tree = roots_transaction
-                .tree::<UnversionedTreeRoot>(open_trees.trees_index_by_name[&transaction_tree_name])
-                .unwrap();
-            let last_key = tree
-                .last_key()?
-                .map(|bytes| BigEndian::read_u64(&bytes))
-                .unwrap_or_default();
-            let executed = transaction::Executed {
-                id: last_key + 1,
-                changed_documents: Cow::from(changed_documents),
-            };
-            let serialized: Vec<u8> = bincode::serialize(&executed)
-                .map_err(Error::from)
-                .map_err(bonsaidb_core::Error::from)?;
-            tree.set(executed.id.to_be_bytes(), serialized)?;
 
             roots_transaction.commit()?;
 
@@ -861,48 +863,48 @@ where
             .min(LIST_TRANSACTIONS_MAX_RESULTS);
         if result_limit > 0 {
             let task_self = self.clone();
-            let transaction_tree_name = transaction_tree_name(&self.data.name);
             tokio::task::spawn_blocking::<_, Result<Vec<transaction::Executed<'static>>, Error>>(
                 move || {
-                    let tree = task_self
-                        .sled()
-                        .tree::<UnversionedTreeRoot, _>(transaction_tree_name)
-                        .map_err(Error::from)?;
                     let range = if let Some(starting_id) = starting_id {
-                        GenericRange::from(Buffer::from(starting_id.to_be_bytes().to_vec())..)
+                        GenericRange::from(starting_id..)
                     } else {
                         GenericRange::from(..)
                     };
 
-                    #[allow(clippy::cast_possible_truncation)] // this value is limited above
-                    let mut results = Vec::with_capacity(result_limit);
-                    let mut keys_to_request = result_limit;
-                    tree.scan(
-                        range,
-                        true,
-                        |_| {
-                            if keys_to_request > 0 {
-                                keys_to_request -= 1;
-                                KeyEvaluation::ReadData
-                            } else {
-                                KeyEvaluation::Stop
-                            }
-                        },
-                        |_, bytes| {
-                            results.push(
-                                bincode::deserialize::<transaction::Executed<'_>>(&bytes)
-                                    .map_err(|err| AbortError::Other(Error::from(err)))?
-                                    .to_owned(),
-                            );
-                            Ok(())
-                        },
-                    )
-                    .map_err(|err| match err {
-                        AbortError::Other(internal) => internal,
-                        AbortError::Roots(db) => Error::from(db),
+                    let mut entries = Vec::new();
+                    task_self.roots().transactions().scan(range, |entry| {
+                        entries.push(entry);
+                        entries.len() < result_limit
                     })?;
 
-                    Ok(results)
+                    entries
+                        .into_iter()
+                        .map(|entry| {
+                            Ok(transaction::Executed {
+                                id: entry.id,
+                                changed_documents: Cow::Owned(
+                                    entry
+                                        .changes
+                                        .into_iter()
+                                        .map(|(tree, changes)| {
+                                            let collection = CollectionName::try_from(
+                                                std::str::from_utf8(&tree).unwrap(),
+                                            )?;
+                                            Ok(changes
+                                                .iter()
+                                                .map(|change| ChangedDocument {
+                                                    collection: collection.clone(),
+                                                    id: change.document_id.get(),
+                                                    deleted: change.sequence_id.get() == 0,
+                                                })
+                                                .collect::<Vec<_>>())
+                                        })
+                                        .flatten_ok()
+                                        .collect::<Result<Vec<_>, Error>>()?,
+                                ),
+                            })
+                        })
+                        .collect::<Result<Vec<_>, Error>>()
                 },
             )
             .await
@@ -1037,23 +1039,7 @@ where
     }
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
-        let task_self = self.clone();
-        let transaction_tree_name = transaction_tree_name(&self.data.name);
-        tokio::task::spawn_blocking(move || {
-            let tree = task_self
-                .sled()
-                .tree::<UnversionedTreeRoot, _>(transaction_tree_name)
-                .map_err(Error::from)?;
-            if let Some(key) = tree.last_key().map_err(Error::from)? {
-                Ok(Some(
-                    u64::from_big_endian_bytes(&key).map_err(view::Error::KeySerialization)?,
-                ))
-            } else {
-                Ok(None)
-            }
-        })
-        .await
-        .unwrap()
+        Ok(self.roots().transactions().current_transaction_id())
     }
 }
 
@@ -1077,12 +1063,55 @@ impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
     }
 }
 
-pub fn transaction_tree_name(database: &str) -> String {
-    format!("{}.transactions", database)
+#[derive(Debug, Clone)]
+pub(crate) struct Context {
+    roots: Roots<StdFile>,
+    #[cfg(feature = "keyvalue")]
+    kv_expirer: Arc<std::sync::RwLock<Option<flume::Sender<kv::ExpirationUpdate>>>>,
 }
 
-pub fn document_tree_name(database: &str, collection: &CollectionName) -> String {
-    format!("{}.collection.{}", database, collection)
+impl Context {
+    pub(crate) fn new(roots: Roots<StdFile>) -> Self {
+        Self {
+            roots,
+            #[cfg(feature = "keyvalue")]
+            kv_expirer: Arc::default(),
+        }
+    }
+
+    pub(crate) fn shutdown(&self) {
+        let mut expirer = self.kv_expirer.write().unwrap();
+        *expirer = None;
+    }
+
+    #[cfg(feature = "keyvalue")]
+    pub(crate) fn update_key_expiration(&self, update: kv::ExpirationUpdate) {
+        {
+            let sender = self.kv_expirer.read().unwrap();
+            if let Some(sender) = sender.as_ref() {
+                drop(sender.send(update));
+                return;
+            }
+        }
+
+        // If we fall through, we need to initialize the expirer task
+        let mut sender = self.kv_expirer.write().unwrap();
+        if let Some(kv_sender) = sender.as_ref() {
+            drop(kv_sender.send(update));
+        } else {
+            let (kv_sender, kv_expirer_receiver) = flume::unbounded();
+            kv_sender.send(update).unwrap();
+            let context = self.clone();
+            tokio::task::spawn_blocking(move || {
+                kv::expiration_thread(context, kv_expirer_receiver)
+            });
+            *sender = Some(kv_sender);
+        }
+    }
+}
+
+pub fn document_tree_name(collection: &CollectionName) -> String {
+    format!("collection.{}", collection)
 }
 
 #[async_trait]
