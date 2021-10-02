@@ -309,7 +309,7 @@ impl Storage {
         }
     }
 
-    async fn open_roots(&self, name: &str) -> Result<Context, Error> {
+    pub(crate) async fn open_roots(&self, name: &str) -> Result<Context, Error> {
         let mut open_roots = self.data.open_roots.lock().await;
         if let Some(roots) = open_roots.get(name) {
             Ok(roots.clone())

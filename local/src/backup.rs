@@ -146,16 +146,14 @@ impl Command {
         let database_info = storage.list_databases().await?;
         let mut databases = Vec::new();
         for db in database_info {
-            databases.push(storage.database::<()>(&db.name).await?);
+            let context = storage.open_roots(&db.name).await?;
+            databases.push((db.name, context));
         }
         tokio::task::spawn_blocking::<_, anyhow::Result<()>>(move || {
-            for database in databases {
-                let database_name = Arc::new(database.name().to_string());
-                for (collection_name, collection_tree) in database
-                    .roots()
-                    .tree_names()?
-                    .into_iter()
-                    .filter_map(|tree| {
+            for (name, database) in databases {
+                let database_name = Arc::new(name);
+                for (collection_name, collection_tree) in
+                    database.roots.tree_names()?.into_iter().filter_map(|tree| {
                         // Extract the database_endbase name, but also check that it's a collection
                         let mut parts = tree.split('.');
                         if !matches!(parts.next().as_deref(), Some("collection")) {
@@ -169,7 +167,7 @@ impl Command {
                     println!("Exporting {}", collection_tree);
 
                     let tree = database
-                        .roots()
+                        .roots
                         .tree::<VersionedTreeRoot, _>(collection_tree)?;
                     tree.scan::<anyhow::Error, _, _, _>(
                         ..,
@@ -311,17 +309,17 @@ async fn restore_documents(
     receiver: Receiver<BackupEntry>,
     storage: Storage,
 ) -> anyhow::Result<()> {
-    while let Ok(entry) = receiver.recv() {
+    while let Ok(entry) = receiver.recv_async().await {
         match entry {
             BackupEntry::Document {
                 database,
                 collection,
                 document,
             } => {
-                let db = storage.database::<()>(&database).await?;
+                let db = storage.open_roots(&database).await?;
                 tokio::task::spawn_blocking::<_, anyhow::Result<()>>(move || {
                     let tree = db
-                        .roots()
+                        .roots
                         .tree::<VersionedTreeRoot, _>(document_tree_name(&collection))?;
                     tree.set(
                         document.header.id.as_big_endian_bytes()?.to_vec(),
@@ -348,7 +346,6 @@ mod tests {
     use crate::Database;
 
     #[tokio::test]
-    #[ignore] // TODO -- Not expected to work currently.
     async fn backup_restore() -> anyhow::Result<()> {
         let backup_destination = TestDirectory::new("backup-restore.bonsaidb.backup");
 

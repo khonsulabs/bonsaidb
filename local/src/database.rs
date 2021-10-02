@@ -1035,7 +1035,7 @@ impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Context {
-    roots: Roots<StdFile>,
+    pub(crate) roots: Roots<StdFile>,
     #[cfg(feature = "keyvalue")]
     kv_expirer: Arc<std::sync::RwLock<Option<flume::Sender<kv::ExpirationUpdate>>>>,
 }
