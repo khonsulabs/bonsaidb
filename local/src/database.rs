@@ -1,12 +1,6 @@
 use std::{
-    any::Any,
-    borrow::Cow,
-    collections::HashMap,
-    convert::{Infallible, TryFrom},
-    marker::PhantomData,
-    path::Path,
-    sync::Arc,
-    u8,
+    any::Any, borrow::Cow, collections::HashMap, convert::Infallible, marker::PhantomData,
+    path::Path, sync::Arc, u8,
 };
 
 use async_trait::async_trait;
@@ -773,11 +767,6 @@ where
 
                 match &result {
                     OperationResult::DocumentUpdated { header, collection } => {
-                        roots_transaction.entry_mut().push(
-                            collection.to_string().as_bytes(),
-                            header.id,
-                            header.revision.id as u64 + 1,
-                        );
                         changed_documents.push(ChangedDocument {
                             collection: collection.clone(),
                             id: header.id,
@@ -785,11 +774,6 @@ where
                         });
                     }
                     OperationResult::DocumentDeleted { id, collection } => {
-                        roots_transaction.entry_mut().push(
-                            collection.to_string().as_bytes(),
-                            *id,
-                            0,
-                        );
                         changed_documents.push(ChangedDocument {
                             collection: collection.clone(),
                             id: *id,
@@ -827,6 +811,10 @@ where
                     }
                 }
             }
+
+            roots_transaction
+                .entry_mut()
+                .set_data(bincode::serialize(&changed_documents)?)?;
 
             roots_transaction.commit()?;
 
@@ -880,28 +868,10 @@ where
                     entries
                         .into_iter()
                         .map(|entry| {
+                            let changed_documents = bincode::deserialize(entry.data().unwrap())?;
                             Ok(transaction::Executed {
                                 id: entry.id,
-                                changed_documents: Cow::Owned(
-                                    entry
-                                        .changes
-                                        .into_iter()
-                                        .map(|(tree, changes)| {
-                                            let collection = CollectionName::try_from(
-                                                std::str::from_utf8(&tree).unwrap(),
-                                            )?;
-                                            Ok(changes
-                                                .iter()
-                                                .map(|change| ChangedDocument {
-                                                    collection: collection.clone(),
-                                                    id: change.document_id.get(),
-                                                    deleted: change.sequence_id.get() == 0,
-                                                })
-                                                .collect::<Vec<_>>())
-                                        })
-                                        .flatten_ok()
-                                        .collect::<Result<Vec<_>, Error>>()?,
-                                ),
+                                changed_documents,
                             })
                         })
                         .collect::<Result<Vec<_>, Error>>()

@@ -393,10 +393,7 @@ async fn restore_documents(
                 })
                 .await??;
             }
-            BackupEntry::Transaction {
-                database,
-                transaction,
-            } => {
+            BackupEntry::Transaction { .. } => {
                 // TODO needs update
                 // let tree = storage
                 //     .roots()
