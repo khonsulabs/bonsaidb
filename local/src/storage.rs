@@ -640,7 +640,7 @@ impl ServerConnection for Storage {
             tokio::task::spawn_blocking(move || file_manager.delete_directory(&database_folder))
                 .await
                 .unwrap()
-                .map_err(Error::Roots)?;
+                .map_err(Error::Nebari)?;
         }
 
         if let Some(entry) = admin

@@ -65,8 +65,8 @@ pub enum Command {
     /// This command will create a single folder within `output_directory` named
     /// `output_name`. Within that folder, one subfolder will be created for
     /// each database [`Database`](crate::Database). Inside of each database
-    /// folder will be collection folders named using their [`CollectionName`]. Each collection
-    /// folder will contain files named
+    /// folder will be collection folders named using their [`CollectionName`].
+    /// Each collection folder will contain files named
     /// `<Document.header.id>.<Document.header.revision.id>`, and the files will
     /// contain the raw bytes stored inside of the documents. Assuming you're
     /// using the built in Serialization, the data will be in the

@@ -1,4 +1,6 @@
 use std::{
+    collections::{HashMap, VecDeque},
+    convert::Infallible,
     hash::Hash,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -8,17 +10,15 @@ use bonsaidb_core::{
     kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Numeric, Output, Timestamp, Value},
     schema::Schema,
 };
-use nebari::{io::fs::StdFile, tree::UnversionedTreeRoot, Buffer, CompareAndSwapError, Tree};
+use bonsaidb_jobs::Job;
+use nebari::{
+    io::fs::StdFile,
+    tree::{KeyEvaluation, UnversionedTreeRoot},
+    Buffer, CompareAndSwapError, Tree,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{database::Context, Database, Error};
-use std::{
-    collections::{HashMap, VecDeque},
-    convert::Infallible,
-};
-
-use bonsaidb_jobs::Job;
-use nebari::tree::KeyEvaluation;
 
 #[derive(Serialize, Deserialize)]
 pub struct Entry {

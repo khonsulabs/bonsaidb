@@ -10,7 +10,7 @@ use crate::vault;
 pub enum Error {
     /// An error occurred interacting with the storage layer, `nebari`.
     #[error("error from storage: {0}")]
-    Roots(#[from] nebari::Error),
+    Nebari(#[from] nebari::Error),
 
     /// An error occurred serializing the underlying database structures.
     #[error("error while serializing internal structures: {0}")]
@@ -59,7 +59,7 @@ impl From<InvalidNameError> for Error {
 impl From<AbortError<Infallible>> for Error {
     fn from(err: AbortError<Infallible>) -> Self {
         match err {
-            AbortError::Roots(error) => Self::Roots(error),
+            AbortError::Nebari(error) => Self::Nebari(error),
             AbortError::Other(_) => unreachable!(),
         }
     }
