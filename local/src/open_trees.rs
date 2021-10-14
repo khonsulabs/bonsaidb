@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bonsaidb_core::schema::{CollectionName, Schematic};
 use nebari::{
     io::fs::StdFile,
-    tree::{Root, TreeRoot, UnversionedTreeRoot, VersionedTreeRoot},
+    tree::{AnyTreeRoot, Root, UnversionedTreeRoot, VersionedTreeRoot},
 };
 
 use crate::{
@@ -17,7 +17,7 @@ use crate::{
 
 #[derive(Default)]
 pub struct OpenTrees {
-    pub trees: Vec<TreeRoot<StdFile>>,
+    pub trees: Vec<Box<dyn AnyTreeRoot<StdFile>>>,
     pub trees_index_by_name: HashMap<String, usize>,
 }
 
@@ -26,7 +26,7 @@ impl OpenTrees {
         if !self.trees_index_by_name.contains_key(name) {
             self.trees_index_by_name
                 .insert(name.to_string(), self.trees.len());
-            self.trees.push(R::tree(name.to_string()));
+            self.trees.push(Box::new(R::tree(name.to_string())));
         }
     }
 

@@ -35,7 +35,7 @@ use bonsaidb_core::{
 use flume::Receiver;
 use itertools::Itertools;
 use nebari::{
-    tree::{KeyEvaluation, VersionedTreeRoot},
+    tree::{KeyEvaluation, Root, VersionedTreeRoot},
     AbortError,
 };
 use structopt::StructOpt;
@@ -166,7 +166,7 @@ impl Command {
 
                     let tree = database
                         .roots
-                        .tree::<VersionedTreeRoot, _>(collection_tree)?;
+                        .tree(VersionedTreeRoot::tree(collection_tree))?;
                     tree.scan::<anyhow::Error, _, _, _>(
                         ..,
                         true,
@@ -318,7 +318,7 @@ async fn restore_documents(
                 tokio::task::spawn_blocking::<_, anyhow::Result<()>>(move || {
                     let tree = db
                         .roots
-                        .tree::<VersionedTreeRoot, _>(document_tree_name(&collection))?;
+                        .tree(VersionedTreeRoot::tree(document_tree_name(&collection)))?;
                     tree.set(
                         document.header.id.as_big_endian_bytes()?.to_vec(),
                         bincode::serialize(&document)?,

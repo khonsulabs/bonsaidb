@@ -40,21 +40,27 @@ where
         let documents = self
             .database
             .roots()
-            .tree(document_tree_name(&self.scan.collection))?;
+            .tree(VersionedTreeRoot::tree(document_tree_name(
+                &self.scan.collection,
+            )))?;
 
-        let view_versions = self
-            .database
-            .roots()
-            .tree::<UnversionedTreeRoot, _>(view_versions_tree_name(&self.scan.collection))?;
+        let view_versions =
+            self.database
+                .roots()
+                .tree(UnversionedTreeRoot::tree(view_versions_tree_name(
+                    &self.scan.collection,
+                )))?;
 
-        let document_map = self
-            .database
-            .roots()
-            .tree(view_document_map_tree_name(&self.scan.view_name))?;
+        let document_map =
+            self.database
+                .roots()
+                .tree(UnversionedTreeRoot::tree(view_document_map_tree_name(
+                    &self.scan.view_name,
+                )))?;
 
-        let invalidated_entries = self.database.roots().tree::<UnversionedTreeRoot, _>(
+        let invalidated_entries = self.database.roots().tree(UnversionedTreeRoot::tree(
             view_invalidated_docs_tree_name(&self.scan.view_name),
-        )?;
+        ))?;
 
         let view_name = self.scan.view_name.clone();
         let view_version = self.scan.view_version;

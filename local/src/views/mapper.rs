@@ -17,7 +17,7 @@ use bonsaidb_core::{
 use bonsaidb_jobs::{Job, Keyed};
 use nebari::{
     io::fs::StdFile,
-    tree::{Root, UnversionedTreeRoot, VersionedTreeRoot},
+    tree::{AnyTreeRoot, Root, UnversionedTreeRoot, VersionedTreeRoot},
     Buffer, ExecutingTransaction, Tree,
 };
 use serde::{Deserialize, Serialize};
@@ -57,27 +57,34 @@ where
         let documents = self
             .database
             .roots()
-            .tree(document_tree_name(&self.map.collection))?;
+            .tree(VersionedTreeRoot::tree(document_tree_name(
+                &self.map.collection,
+            )))?;
 
-        let view_entries = self
-            .database
-            .roots()
-            .tree(view_entries_tree_name(&self.map.view_name))?;
+        let view_entries =
+            self.database
+                .roots()
+                .tree(UnversionedTreeRoot::tree(view_entries_tree_name(
+                    &self.map.view_name,
+                )))?;
 
-        let document_map = self
-            .database
-            .roots()
-            .tree(view_document_map_tree_name(&self.map.view_name))?;
+        let document_map =
+            self.database
+                .roots()
+                .tree(UnversionedTreeRoot::tree(view_document_map_tree_name(
+                    &self.map.view_name,
+                )))?;
 
-        let invalidated_entries = self
-            .database
-            .roots()
-            .tree(view_invalidated_docs_tree_name(&self.map.view_name))?;
+        let invalidated_entries = self.database.roots().tree(UnversionedTreeRoot::tree(
+            view_invalidated_docs_tree_name(&self.map.view_name),
+        ))?;
 
-        let omitted_entries = self
-            .database
-            .roots()
-            .tree(view_omitted_docs_tree_name(&self.map.view_name))?;
+        let omitted_entries =
+            self.database
+                .roots()
+                .tree(UnversionedTreeRoot::tree(view_omitted_docs_tree_name(
+                    &self.map.view_name,
+                )))?;
         let transaction_id = self
             .database
             .last_transaction_id()
@@ -132,13 +139,19 @@ fn map_view<DB: Schema>(
         .map(|(key, _)| key)
         .collect::<Vec<_>>();
     if !invalidated_ids.is_empty() {
-        let mut transaction = database.roots().transaction(&[
-            UnversionedTreeRoot::tree(invalidated_entries.name().to_string()),
-            UnversionedTreeRoot::tree(document_map.name().to_string()),
-            VersionedTreeRoot::tree(documents.name().to_string()),
-            UnversionedTreeRoot::tree(omitted_entries.name().to_string()),
-            UnversionedTreeRoot::tree(view_entries.name().to_string()),
-        ])?;
+        let mut transaction = database
+            .roots()
+            .transaction::<_, dyn AnyTreeRoot<StdFile>>(&[
+                Box::new(UnversionedTreeRoot::tree(
+                    invalidated_entries.name().to_string(),
+                )) as Box<dyn AnyTreeRoot<StdFile>>,
+                Box::new(UnversionedTreeRoot::tree(document_map.name().to_string())),
+                Box::new(VersionedTreeRoot::tree(documents.name().to_string())),
+                Box::new(UnversionedTreeRoot::tree(
+                    omitted_entries.name().to_string(),
+                )),
+                Box::new(UnversionedTreeRoot::tree(view_entries.name().to_string())),
+            ])?;
         let view = database
             .data
             .schema

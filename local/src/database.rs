@@ -25,7 +25,7 @@ use byteorder::{BigEndian, ByteOrder};
 use itertools::Itertools;
 use nebari::{
     io::fs::StdFile,
-    tree::{KeyEvaluation, UnversionedTreeRoot, VersionedTreeRoot},
+    tree::{AnyTreeRoot, KeyEvaluation, Root, UnversionedTreeRoot, VersionedTreeRoot},
     Buffer, ExecutingTransaction, Roots, TransactionTree, Tree,
 };
 use ranges::GenericRange;
@@ -188,7 +188,9 @@ where
 
         let view_entries = self
             .roots()
-            .tree(view_entries_tree_name(&view.view_name()?))
+            .tree(UnversionedTreeRoot::tree(view_entries_tree_name(
+                &view.view_name()?,
+            )))
             .map_err(Error::from)?;
 
         {
@@ -253,7 +255,7 @@ where
                 .data
                 .context
                 .roots
-                .tree::<VersionedTreeRoot, _>(document_tree_name(&collection))
+                .tree(VersionedTreeRoot::tree(document_tree_name(&collection)))
                 .map_err(Error::from)?;
             if let Some(vec) = tree
                 .get(
@@ -284,7 +286,7 @@ where
                 .data
                 .context
                 .roots
-                .tree::<VersionedTreeRoot, _>(document_tree_name(&collection))
+                .tree(VersionedTreeRoot::tree(document_tree_name(&collection)))
                 .map_err(Error::from)?;
             let mut found_docs = Vec::new();
             for id in ids {
@@ -754,7 +756,7 @@ where
                 .data
                 .context
                 .roots
-                .transaction(&open_trees.trees)?;
+                .transaction::<_, dyn AnyTreeRoot<StdFile>>(&open_trees.trees)?;
 
             let mut results = Vec::new();
             let mut changed_documents = Vec::new();
