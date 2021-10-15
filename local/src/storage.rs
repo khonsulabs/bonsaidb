@@ -24,7 +24,6 @@ use bonsaidb_core::{
     connection::{self, AccessPolicy, Connection, QueryKey, ServerConnection},
     custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
     document::{Document, KeyId},
-    networking,
     permissions::Permissions,
     schema::{
         view::map, CollectionDocument, CollectionName, MappedValue, NamedCollection,
@@ -555,7 +554,7 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         permissions: &Permissions,
-    ) -> Result<Vec<networking::MappedDocument>, bonsaidb_core::Error>;
+    ) -> Result<Vec<map::MappedSerialized>, bonsaidb_core::Error>;
 
     async fn reduce(
         &self,

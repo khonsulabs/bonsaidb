@@ -10,7 +10,6 @@ use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, ServerConnection},
     document::{Document, Header, KeyId},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    networking::{self},
     permissions::Permissions,
     schema::{
         self,
@@ -1166,7 +1165,7 @@ where
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         permissions: &Permissions,
-    ) -> Result<Vec<networking::MappedDocument>, bonsaidb_core::Error> {
+    ) -> Result<Vec<map::MappedSerialized>, bonsaidb_core::Error> {
         let results = OpenDatabase::query(self, view, key, access_policy).await?;
         let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
 
@@ -1185,7 +1184,7 @@ where
             .into_iter()
             .filter_map(|map| {
                 if let Some(source) = documents.remove(&map.source) {
-                    Some(networking::MappedDocument {
+                    Some(map::MappedSerialized {
                         key: map.key,
                         value: map.value,
                         source,

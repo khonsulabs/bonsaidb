@@ -4,17 +4,13 @@ use custodian_password::{
     RegistrationResponse,
 };
 use schema::SchemaName;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     connection::{AccessPolicy, Database, QueryKey},
     document::Document,
     kv::{KeyOperation, Output},
-    schema::{
-        self,
-        view::{self, map},
-        CollectionName, Key, MappedValue, NamedReference, ViewName,
-    },
+    schema::{self, view::map, CollectionName, MappedValue, NamedReference, ViewName},
     transaction::{Executed, OperationResult, Transaction},
 };
 
@@ -320,7 +316,7 @@ pub enum DatabaseResponse {
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is false.
     ViewMappings(Vec<map::Serialized>),
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is true.
-    ViewMappingsWithDocs(Vec<MappedDocument>),
+    ViewMappingsWithDocs(Vec<map::MappedSerialized>),
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is false.
     ViewReduction(Vec<u8>),
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is true.
@@ -345,36 +341,6 @@ pub enum DatabaseResponse {
     },
     /// Output from a [`KeyOperation`] being executed.
     KvOutput(Output),
-}
-
-/// A serialized [`MappedDocument`](map::MappedDocument).
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct MappedDocument {
-    /// The serialized key.
-    pub key: Vec<u8>,
-    /// The serialized value.
-    pub value: Vec<u8>,
-    /// The source document.
-    pub source: Document<'static>,
-}
-
-impl MappedDocument {
-    /// Deserialize into a [`MappedDocument`](map::MappedDocument).
-    pub fn deserialized<K: Key, V: Serialize + DeserializeOwned>(
-        self,
-    ) -> Result<map::MappedDocument<K, V>, crate::Error> {
-        let key = Key::from_big_endian_bytes(&self.key).map_err(|err| {
-            crate::Error::Database(view::Error::KeySerialization(err).to_string())
-        })?;
-        let value = serde_cbor::from_slice(&self.value)
-            .map_err(|err| crate::Error::Database(view::Error::from(err).to_string()))?;
-
-        Ok(map::MappedDocument {
-            document: self.source,
-            key,
-            value,
-        })
-    }
 }
 
 /// A networking error.

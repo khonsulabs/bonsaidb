@@ -5,7 +5,7 @@ use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey},
     custom_api::CustomApi,
     document::Document,
-    networking::{self, DatabaseRequest, DatabaseResponse, Request, Response},
+    networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
         view, view::map, Collection, Key, Map, MappedDocument, MappedValue, Schema, Schematic, View,
     },
@@ -183,7 +183,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
         {
             Response::Database(DatabaseResponse::ViewMappingsWithDocs(mappings)) => Ok(mappings
                 .into_iter()
-                .map(networking::MappedDocument::deserialized::<V::Key, V::Value>)
+                .map(map::MappedSerialized::deserialized::<V::Key, V::Value>)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?),
             Response::Error(err) => Err(err),

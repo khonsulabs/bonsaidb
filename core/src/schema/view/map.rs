@@ -79,6 +79,36 @@ impl Serialized {
     }
 }
 
+/// A serialized [`MappedDocument`](MappedDocument).
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct MappedSerialized {
+    /// The serialized key.
+    pub key: Vec<u8>,
+    /// The serialized value.
+    pub value: Vec<u8>,
+    /// The source document.
+    pub source: Document<'static>,
+}
+
+impl MappedSerialized {
+    /// Deserialize into a [`MappedDocument`](MappedDocument).
+    pub fn deserialized<K: Key, V: Serialize + DeserializeOwned>(
+        self,
+    ) -> Result<MappedDocument<K, V>, crate::Error> {
+        let key = Key::from_big_endian_bytes(&self.key).map_err(|err| {
+            crate::Error::Database(view::Error::KeySerialization(err).to_string())
+        })?;
+        let value = serde_cbor::from_slice(&self.value)
+            .map_err(|err| crate::Error::Database(view::Error::from(err).to_string()))?;
+
+        Ok(MappedDocument {
+            document: self.source,
+            key,
+            value,
+        })
+    }
+}
+
 /// A key value pair
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct MappedValue<K: Key, V> {
