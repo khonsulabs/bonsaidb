@@ -44,8 +44,7 @@ pub enum Command<'a> {
     /// command fill fail with a `DocumentConflict` error.
     Update {
         /// The header of the `Document`. The revision must match the current
-        /// document. Changing the encryption key will encrypt the document with
-        /// the new key.
+        /// document.
         header: Cow<'a, Header>,
 
         /// The new contents to store within the `Document`.
