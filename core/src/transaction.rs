@@ -2,10 +2,7 @@ use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    document::{Header, KeyId},
-    schema::CollectionName,
-};
+use crate::{document::Header, schema::CollectionName};
 
 /// A list of operations to execute as a single unit. If any operation fails,
 /// all changes are aborted. Reads that happen while the transaction is in

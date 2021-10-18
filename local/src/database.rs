@@ -24,7 +24,7 @@ use byteorder::{BigEndian, ByteOrder};
 use itertools::Itertools;
 use nebari::{
     io::fs::StdFile,
-    tree::{AnyTreeRoot, KeyEvaluation, Root, UnversionedTreeRoot, VersionedTreeRoot},
+    tree::{AnyTreeRoot, KeyEvaluation, Root, Unversioned, Versioned},
     Buffer, ExecutingTransaction, Roots, TransactionTree, Tree,
 };
 use ranges::GenericRange;
@@ -187,7 +187,7 @@ where
 
         let view_entries = self
             .roots()
-            .tree(UnversionedTreeRoot::tree(view_entries_tree_name(
+            .tree(Unversioned::tree(view_entries_tree_name(
                 &view.view_name()?,
             )))
             .map_err(Error::from)?;
@@ -254,7 +254,7 @@ where
                 .data
                 .context
                 .roots
-                .tree(VersionedTreeRoot::tree(document_tree_name(&collection)))
+                .tree(Versioned::tree(document_tree_name(&collection)))
                 .map_err(Error::from)?;
             if let Some(vec) = tree
                 .get(
@@ -285,7 +285,7 @@ where
                 .data
                 .context
                 .roots
-                .tree(VersionedTreeRoot::tree(document_tree_name(&collection)))
+                .tree(Versioned::tree(document_tree_name(&collection)))
                 .map_err(Error::from)?;
             let mut found_docs = Vec::new();
             for id in ids {
@@ -441,7 +441,7 @@ where
         contents: Cow<'_, [u8]>,
     ) -> Result<OperationResult, Error> {
         let documents = transaction
-            .tree::<VersionedTreeRoot>(tree_index_map[&document_tree_name(&operation.collection)])
+            .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let last_key = documents
             .last_key()?
@@ -468,7 +468,7 @@ where
         header: &Header,
     ) -> Result<OperationResult, Error> {
         let documents = transaction
-            .tree::<VersionedTreeRoot>(tree_index_map[&document_tree_name(&operation.collection)])
+            .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let document_id = header.id.as_big_endian_bytes().unwrap();
         if let Some(vec) = documents.remove(&document_id)? {
@@ -537,10 +537,9 @@ where
 
     fn save_doc(
         &self,
-        tree: &mut TransactionTree<VersionedTreeRoot, StdFile>,
+        tree: &mut TransactionTree<Versioned, StdFile>,
         doc: &Document<'_>,
     ) -> Result<(), Error> {
-        let serialized: Vec<u8> = serialize_document(doc)?;
         tree.set(
             doc.header
                 .id
@@ -548,14 +547,14 @@ where
                 .unwrap()
                 .as_ref()
                 .to_vec(),
-            serialized,
+            serialize_document(doc)?,
         )?;
         Ok(())
     }
 
     fn create_view_iterator<'a, K: Key + 'a>(
         &'a self,
-        view_entries: &'a Tree<UnversionedTreeRoot, StdFile>,
+        view_entries: &'a Tree<Unversioned, StdFile>,
         key: Option<QueryKey<K>>,
         view: &'a dyn view::Serialized,
     ) -> Result<Vec<ViewEntryCollection>, Error> {
@@ -581,11 +580,12 @@ where
                             .map_err(view::Error::KeySerialization)?
                             .to_vec(),
                     );
-                    view_entries.scan::<Infallible, _, _, _>(
+                    view_entries.scan::<Infallible, _, _, _, _>(
                         start..end,
                         true,
-                        |_| KeyEvaluation::ReadData,
-                        |_key, value| {
+                        |_, _, _| true,
+                        |_, _| KeyEvaluation::ReadData,
+                        |_key, _index, value| {
                             values.push(value);
                             Ok(())
                         },
@@ -636,11 +636,12 @@ where
                 }
             }
         } else {
-            view_entries.scan::<Infallible, _, _, _>(
+            view_entries.scan::<Infallible, _, _, _, _>(
                 ..,
                 true,
-                |_| KeyEvaluation::ReadData,
-                |_, value| {
+                |_, _, _| true,
+                |_, _| KeyEvaluation::ReadData,
+                |_, _, value| {
                     values.push(value);
                     Ok(())
                 },
@@ -762,7 +763,7 @@ where
                             let view_name = view.view_name().map_err(bonsaidb_core::Error::from)?;
                             for changed_document in &changed_documents {
                                 let invalidated_docs = roots_transaction
-                                    .tree::<UnversionedTreeRoot>(
+                                    .tree::<Unversioned>(
                                         open_trees.trees_index_by_name
                                             [&view_invalidated_docs_tree_name(&view_name)],
                                     )

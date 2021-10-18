@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     admin::{PermissionGroup, Role, User},
     connection::{AccessPolicy, Connection, ServerConnection},
-    document::{Document, KeyId},
+    document::Document,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
         view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,

@@ -13,7 +13,7 @@ use bonsaidb_core::{
 use bonsaidb_jobs::Job;
 use nebari::{
     io::fs::StdFile,
-    tree::{KeyEvaluation, Root, UnversionedTreeRoot},
+    tree::{KeyEvaluation, Root, Unversioned},
     Buffer, CompareAndSwapError, Tree,
 };
 use serde::{Deserialize, Serialize};
@@ -96,7 +96,7 @@ fn execute_set_operation<DB: Schema>(
         .data
         .context
         .roots
-        .tree(UnversionedTreeRoot::tree(tree_name.clone()))
+        .tree(Unversioned::tree(tree_name.clone()))
         .map_err(Error::from)?;
 
     let mut entry = Entry { value, expiration };
@@ -159,7 +159,7 @@ fn execute_get_operation<DB: Schema>(
         .data
         .context
         .roots
-        .tree(UnversionedTreeRoot::tree(tree_name.to_string()))
+        .tree(Unversioned::tree(tree_name.to_string()))
         .map_err(Error::from)?;
     let entry = if delete {
         let entry = tree.remove(key.as_bytes()).map_err(Error::from)?;
@@ -192,7 +192,7 @@ fn execute_delete_operation<DB: Schema>(
         .data
         .context
         .roots
-        .tree(UnversionedTreeRoot::tree(tree_name.to_string()))
+        .tree(Unversioned::tree(tree_name.to_string()))
         .map_err(Error::from)?;
     let value = tree.remove(key.as_bytes()).map_err(Error::from)?;
     if value.is_some() {
@@ -239,7 +239,7 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
         .data
         .context
         .roots
-        .tree(UnversionedTreeRoot::tree(tree_name))
+        .tree(Unversioned::tree(tree_name))
         .map_err(Error::from)?;
 
     let mut current = tree.get(key.as_bytes()).map_err(Error::from)?;
@@ -439,7 +439,7 @@ pub(crate) fn expiration_thread(
                     tracked_keys.remove(&key_to_remove);
                     let tree = context
                         .roots
-                        .tree(UnversionedTreeRoot::tree(key_to_remove.tree.clone()))?;
+                        .tree(Unversioned::tree(key_to_remove.tree.clone()))?;
                     tree.remove(key_to_remove.key.as_bytes())?;
                 }
                 continue;
@@ -530,7 +530,7 @@ mod tests {
         run_test("kv-basic-expiration", |sender, sled| async move {
             loop {
                 sled.delete_tree("kv.atree")?;
-                let tree = sled.tree(UnversionedTreeRoot::tree("kv.atree"))?;
+                let tree = sled.tree(Unversioned::tree("kv.atree"))?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.update_key_expiration(ExpirationUpdate {
@@ -555,7 +555,7 @@ mod tests {
         run_test("kv-updating-expiration", |sender, sled| async move {
             loop {
                 sled.delete_tree("kv.atree")?;
-                let tree = sled.tree(UnversionedTreeRoot::tree("kv.atree"))?;
+                let tree = sled.tree(Unversioned::tree("kv.atree"))?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.update_key_expiration(ExpirationUpdate {
@@ -588,7 +588,7 @@ mod tests {
         run_test("kv-multiple-keys-expiration", |sender, sled| async move {
             loop {
                 sled.delete_tree("kv.atree")?;
-                let tree = sled.tree(UnversionedTreeRoot::tree("kv.atree"))?;
+                let tree = sled.tree(Unversioned::tree("kv.atree"))?;
                 tree.set(b"akey", b"somevalue")?;
                 tree.set(b"bkey", b"somevalue")?;
 
@@ -624,7 +624,7 @@ mod tests {
         run_test("kv-clearing-expiration", |sender, sled| async move {
             loop {
                 sled.delete_tree("kv.atree")?;
-                let tree = sled.tree(UnversionedTreeRoot::tree("kv.atree"))?;
+                let tree = sled.tree(Unversioned::tree("kv.atree"))?;
                 tree.set(b"akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.update_key_expiration(ExpirationUpdate {
@@ -652,7 +652,7 @@ mod tests {
     #[tokio::test]
     async fn out_of_order_expiration() -> anyhow::Result<()> {
         run_test("kv-out-of-order-expiration", |sender, sled| async move {
-            let tree = sled.tree(UnversionedTreeRoot::tree("kv.atree"))?;
+            let tree = sled.tree(Unversioned::tree("kv.atree"))?;
             tree.set(b"akey", b"somevalue")?;
             tree.set(b"bkey", b"somevalue")?;
             tree.set(b"ckey", b"somevalue")?;
@@ -708,18 +708,19 @@ impl<DB: Schema> Job for ExpirationLoader<DB> {
             {
                 database
                     .roots()
-                    .tree(UnversionedTreeRoot::tree(kv_tree.clone()))?
-                    .scan::<Infallible, _, _, _>(
+                    .tree(Unversioned::tree(kv_tree.clone()))?
+                    .scan::<Infallible, _, _, _, _>(
                         ..,
                         true,
-                        |_| {
+                        |_, _, _| true,
+                        |_, _| {
                             if keep_scanning.load(Ordering::SeqCst) {
                                 KeyEvaluation::ReadData
                             } else {
                                 KeyEvaluation::Stop
                             }
                         },
-                        |key, entry: Buffer<'static>| {
+                        |key, _, entry: Buffer<'static>| {
                             if let Ok(entry) = bincode::deserialize::<Entry>(&entry) {
                                 if entry.expiration.is_some()
                                     && sender

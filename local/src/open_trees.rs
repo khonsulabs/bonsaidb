@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bonsaidb_core::schema::{CollectionName, Schematic};
 use nebari::{
     io::fs::StdFile,
-    tree::{AnyTreeRoot, Root, UnversionedTreeRoot, VersionedTreeRoot},
+    tree::{AnyTreeRoot, Root, Unversioned, Versioned},
 };
 
 use crate::{
@@ -35,19 +35,17 @@ impl OpenTrees {
         collection: &CollectionName,
         schema: &Schematic,
     ) -> Result<(), Error> {
-        self.open_tree::<VersionedTreeRoot>(&document_tree_name(collection));
+        self.open_tree::<Versioned>(&document_tree_name(collection));
 
         if let Some(views) = schema.views_in_collection(collection) {
             for view in views {
                 let view_name = view.view_name()?;
                 if view.unique() {
-                    self.open_tree::<UnversionedTreeRoot>(&view_omitted_docs_tree_name(&view_name));
-                    self.open_tree::<UnversionedTreeRoot>(&view_document_map_tree_name(&view_name));
-                    self.open_tree::<UnversionedTreeRoot>(&view_entries_tree_name(&view_name));
+                    self.open_tree::<Unversioned>(&view_omitted_docs_tree_name(&view_name));
+                    self.open_tree::<Unversioned>(&view_document_map_tree_name(&view_name));
+                    self.open_tree::<Unversioned>(&view_entries_tree_name(&view_name));
                 } else {
-                    self.open_tree::<UnversionedTreeRoot>(&view_invalidated_docs_tree_name(
-                        &view_name,
-                    ));
+                    self.open_tree::<Unversioned>(&view_invalidated_docs_tree_name(&view_name));
                 }
             }
         }

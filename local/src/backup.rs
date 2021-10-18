@@ -35,7 +35,7 @@ use bonsaidb_core::{
 use flume::Receiver;
 use itertools::Itertools;
 use nebari::{
-    tree::{KeyEvaluation, Root, VersionedTreeRoot},
+    tree::{KeyEvaluation, Root, Versioned},
     AbortError,
 };
 use structopt::StructOpt;
@@ -164,14 +164,13 @@ impl Command {
                     let collection_name = CollectionName::try_from(collection_name.as_str())?;
                     println!("Exporting {}", collection_tree);
 
-                    let tree = database
-                        .roots
-                        .tree(VersionedTreeRoot::tree(collection_tree))?;
-                    tree.scan::<anyhow::Error, _, _, _>(
+                    let tree = database.roots.tree(Versioned::tree(collection_tree))?;
+                    tree.scan::<anyhow::Error, _, _, _, _>(
                         ..,
                         true,
-                        |_| KeyEvaluation::ReadData,
-                        |_, value| {
+                        |_, _, _| true,
+                        |_, _| KeyEvaluation::ReadData,
+                        |_, _, value| {
                             let document = bincode::deserialize::<Document<'_>>(&value)
                                 .map_err(|err| AbortError::Other(anyhow::anyhow!(err)))?;
                             sender
@@ -317,7 +316,7 @@ async fn restore_documents(
                 tokio::task::spawn_blocking::<_, anyhow::Result<()>>(move || {
                     let tree = db
                         .roots
-                        .tree(VersionedTreeRoot::tree(document_tree_name(&collection)))?;
+                        .tree(Versioned::tree(document_tree_name(&collection)))?;
                     tree.set(
                         document.header.id.as_big_endian_bytes()?.to_vec(),
                         bincode::serialize(&document)?,

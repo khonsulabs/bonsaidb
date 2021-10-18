@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     connection::Connection,
     custodian_password::ServerConfig,
-    document::{Document, KeyId},
+    document::Document,
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, View},
     PASSWORD_CONFIG,
 };

@@ -5,7 +5,7 @@ use bonsaidb_core::schema::{view, CollectionName, Key, Schema, ViewName};
 use bonsaidb_jobs::{Job, Keyed};
 use nebari::{
     io::fs::StdFile,
-    tree::{KeyEvaluation, Root, UnversionedTreeRoot, VersionedTreeRoot},
+    tree::{KeyEvaluation, Root, Unversioned, Versioned},
     Tree,
 };
 
@@ -40,34 +40,35 @@ where
         let documents = self
             .database
             .roots()
-            .tree(VersionedTreeRoot::tree(document_tree_name(
-                &self.scan.collection,
-            )))?;
+            .tree(Versioned::tree(document_tree_name(&self.scan.collection)))?;
 
         let view_versions =
             self.database
                 .roots()
-                .tree(UnversionedTreeRoot::tree(view_versions_tree_name(
+                .tree(Unversioned::tree(view_versions_tree_name(
                     &self.scan.collection,
                 )))?;
 
         let document_map =
             self.database
                 .roots()
-                .tree(UnversionedTreeRoot::tree(view_document_map_tree_name(
+                .tree(Unversioned::tree(view_document_map_tree_name(
                     &self.scan.view_name,
                 )))?;
 
-        let invalidated_entries = self.database.roots().tree(UnversionedTreeRoot::tree(
-            view_invalidated_docs_tree_name(&self.scan.view_name),
-        ))?;
+        let invalidated_entries =
+            self.database
+                .roots()
+                .tree(Unversioned::tree(view_invalidated_docs_tree_name(
+                    &self.scan.view_name,
+                )))?;
 
         let view_name = self.scan.view_name.clone();
         let view_version = self.scan.view_version;
         let roots = self.database.roots().clone();
 
         let needs_update = tokio::task::spawn_blocking::<_, anyhow::Result<bool>>(move || {
-            let document_ids = tree_keys::<u64, VersionedTreeRoot>(&documents)?;
+            let document_ids = tree_keys::<u64, Versioned>(&documents)?;
             let view_is_current_version =
                 if let Some(version) = view_versions.get(view_name.to_string().as_bytes())? {
                     if let Ok(version) = u64::from_big_endian_bytes(version.as_slice()) {
@@ -80,7 +81,7 @@ where
                 };
 
             let missing_entries = if view_is_current_version {
-                let stored_document_ids = tree_keys::<u64, UnversionedTreeRoot>(&document_map)?;
+                let stored_document_ids = tree_keys::<u64, Unversioned>(&document_map)?;
 
                 document_ids
                     .difference(&stored_document_ids)
@@ -95,16 +96,16 @@ where
                 // Add all missing entries to the invalidated list. The view
                 // mapping job will update them on the next pass.
                 let mut transaction = roots.transaction(&[
-                    UnversionedTreeRoot::tree(invalidated_entries.name().to_string()),
-                    UnversionedTreeRoot::tree(view_versions.name().to_string()),
+                    Unversioned::tree(invalidated_entries.name().to_string()),
+                    Unversioned::tree(view_versions.name().to_string()),
                 ])?;
-                let view_versions = transaction.tree::<UnversionedTreeRoot>(1).unwrap();
+                let view_versions = transaction.tree::<Unversioned>(1).unwrap();
                 view_versions.set(
                     // TODO This is wasteful
                     view_name.to_string().as_bytes().to_vec(),
                     view_version.as_big_endian_bytes().unwrap().to_vec(),
                 )?;
-                let invalidated_entries = transaction.tree::<UnversionedTreeRoot>(0).unwrap();
+                let invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
                 for id in &missing_entries {
                     invalidated_entries.set(id.as_big_endian_bytes().unwrap().to_vec(), b"")?;
                 }
@@ -158,11 +159,12 @@ fn tree_keys<K: Key + Hash + Eq + Clone, R: nebari::tree::Root>(
     tree.scan(
         ..,
         true,
-        |key| {
+        |_, _, _| true,
+        |key, _| {
             ids.push(key.clone());
             KeyEvaluation::Skip
         },
-        |_, _| Ok(()),
+        |_, _, _| unreachable!(),
     )?;
 
     Ok(ids

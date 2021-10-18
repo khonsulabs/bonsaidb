@@ -8,7 +8,7 @@ use custodian_password::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::{Document, Header, KeyId},
+    document::{Document, Header},
     schema::{
         self, view, Key, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
     },

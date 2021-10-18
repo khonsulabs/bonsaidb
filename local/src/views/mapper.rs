@@ -17,7 +17,7 @@ use bonsaidb_core::{
 use bonsaidb_jobs::{Job, Keyed};
 use nebari::{
     io::fs::StdFile,
-    tree::{AnyTreeRoot, Root, UnversionedTreeRoot, VersionedTreeRoot},
+    tree::{AnyTreeRoot, Root, Unversioned, Versioned},
     Buffer, ExecutingTransaction, Tree,
 };
 use serde::{Deserialize, Serialize};
@@ -57,32 +57,33 @@ where
         let documents = self
             .database
             .roots()
-            .tree(VersionedTreeRoot::tree(document_tree_name(
-                &self.map.collection,
-            )))?;
+            .tree(Versioned::tree(document_tree_name(&self.map.collection)))?;
 
         let view_entries =
             self.database
                 .roots()
-                .tree(UnversionedTreeRoot::tree(view_entries_tree_name(
+                .tree(Unversioned::tree(view_entries_tree_name(
                     &self.map.view_name,
                 )))?;
 
         let document_map =
             self.database
                 .roots()
-                .tree(UnversionedTreeRoot::tree(view_document_map_tree_name(
+                .tree(Unversioned::tree(view_document_map_tree_name(
                     &self.map.view_name,
                 )))?;
 
-        let invalidated_entries = self.database.roots().tree(UnversionedTreeRoot::tree(
-            view_invalidated_docs_tree_name(&self.map.view_name),
-        ))?;
+        let invalidated_entries =
+            self.database
+                .roots()
+                .tree(Unversioned::tree(view_invalidated_docs_tree_name(
+                    &self.map.view_name,
+                )))?;
 
         let omitted_entries =
             self.database
                 .roots()
-                .tree(UnversionedTreeRoot::tree(view_omitted_docs_tree_name(
+                .tree(Unversioned::tree(view_omitted_docs_tree_name(
                     &self.map.view_name,
                 )))?;
         let transaction_id = self
@@ -124,11 +125,11 @@ where
 }
 
 fn map_view<DB: Schema>(
-    invalidated_entries: &Tree<UnversionedTreeRoot, StdFile>,
-    document_map: &Tree<UnversionedTreeRoot, StdFile>,
-    documents: &Tree<VersionedTreeRoot, StdFile>,
-    omitted_entries: &Tree<UnversionedTreeRoot, StdFile>,
-    view_entries: &Tree<UnversionedTreeRoot, StdFile>,
+    invalidated_entries: &Tree<Unversioned, StdFile>,
+    document_map: &Tree<Unversioned, StdFile>,
+    documents: &Tree<Versioned, StdFile>,
+    omitted_entries: &Tree<Unversioned, StdFile>,
+    view_entries: &Tree<Unversioned, StdFile>,
     database: &Database<DB>,
     map_request: &Map,
 ) -> anyhow::Result<()> {
@@ -142,15 +143,12 @@ fn map_view<DB: Schema>(
         let mut transaction = database
             .roots()
             .transaction::<_, dyn AnyTreeRoot<StdFile>>(&[
-                Box::new(UnversionedTreeRoot::tree(
-                    invalidated_entries.name().to_string(),
-                )) as Box<dyn AnyTreeRoot<StdFile>>,
-                Box::new(UnversionedTreeRoot::tree(document_map.name().to_string())),
-                Box::new(VersionedTreeRoot::tree(documents.name().to_string())),
-                Box::new(UnversionedTreeRoot::tree(
-                    omitted_entries.name().to_string(),
-                )),
-                Box::new(UnversionedTreeRoot::tree(view_entries.name().to_string())),
+                Box::new(Unversioned::tree(invalidated_entries.name().to_string()))
+                    as Box<dyn AnyTreeRoot<StdFile>>,
+                Box::new(Unversioned::tree(document_map.name().to_string())),
+                Box::new(Versioned::tree(documents.name().to_string())),
+                Box::new(Unversioned::tree(omitted_entries.name().to_string())),
+                Box::new(Unversioned::tree(view_entries.name().to_string())),
             ])?;
         let view = database
             .data
@@ -170,7 +168,7 @@ fn map_view<DB: Schema>(
                 view,
             }
             .map()?;
-            let invalidated_entries = transaction.tree::<UnversionedTreeRoot>(0).unwrap();
+            let invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
             invalidated_entries.remove(document_id)?;
         }
         transaction.commit()?;
@@ -196,7 +194,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
     pub fn map(&mut self) -> Result<(), Error> {
         let documents = self
             .transaction
-            .tree::<VersionedTreeRoot>(self.documents_index)
+            .tree::<Versioned>(self.documents_index)
             .unwrap();
         let (doc_still_exists, map_result) =
             if let Some(document) = documents.get(self.document_id)? {
@@ -226,7 +224,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         // When no entry is emitted, the document map is emptied and a note is made in omitted_entries
         let document_map = self
             .transaction
-            .tree::<UnversionedTreeRoot>(self.document_map_index)
+            .tree::<Unversioned>(self.document_map_index)
             .unwrap();
         if let Some(existing_map) = document_map.remove(self.document_id)? {
             self.remove_existing_view_entries_for_keys(&[], &existing_map)?;
@@ -235,7 +233,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         if doc_still_exists {
             let omitted_entries = self
                 .transaction
-                .tree::<UnversionedTreeRoot>(self.omitted_entries_index)
+                .tree::<Unversioned>(self.omitted_entries_index)
                 .unwrap();
             omitted_entries.set(self.document_id.to_vec(), b"")?;
         }
@@ -275,7 +273,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             self.database.data.effective_permissions.as_ref(),
             |key| {
                 self.transaction
-                    .tree::<UnversionedTreeRoot>(self.view_entries_index)
+                    .tree::<Unversioned>(self.view_entries_index)
                     .unwrap()
                     .get(key)
                     .map_err(Error::from)
@@ -288,7 +286,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         let should_hash_key = self.view.keys_are_encryptable() && self.encryption_key().is_some();
         let view_entries = self
             .transaction
-            .tree::<UnversionedTreeRoot>(self.view_entries_index)
+            .tree::<Unversioned>(self.view_entries_index)
             .unwrap();
         if should_hash_key {
             let hashed_key = hash_key(key);
@@ -314,7 +312,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         }
         let omitted_entries = self
             .transaction
-            .tree::<UnversionedTreeRoot>(self.omitted_entries_index)
+            .tree::<Unversioned>(self.omitted_entries_index)
             .unwrap();
         omitted_entries.remove(self.document_id)?;
 
@@ -327,7 +325,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         let encrypted_entry = self.serialize_and_encrypt(&keys)?;
         let document_map = self
             .transaction
-            .tree::<UnversionedTreeRoot>(self.document_map_index)
+            .tree::<Unversioned>(self.document_map_index)
             .unwrap();
         if let Some(existing_map) =
             document_map.replace(self.document_id.to_vec(), encrypted_entry)?
@@ -433,7 +431,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                     // Remove the key
                     let view_entries = self
                         .transaction
-                        .tree::<UnversionedTreeRoot>(self.view_entries_index)
+                        .tree::<Unversioned>(self.view_entries_index)
                         .unwrap();
                     view_entries.remove(
                         entry_collection
@@ -458,7 +456,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             let value = self.serialize_and_encrypt(&entry_collection)?;
             let view_entries = self
                 .transaction
-                .tree::<UnversionedTreeRoot>(self.view_entries_index)
+                .tree::<Unversioned>(self.view_entries_index)
                 .unwrap();
             view_entries.set(
                 entry_collection
