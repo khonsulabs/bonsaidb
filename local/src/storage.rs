@@ -52,7 +52,7 @@ use crate::{
     config::Configuration,
     database::Context,
     tasks::TaskManager,
-    vault::{self, LocalVaultKeyStorage, Vault},
+    vault::{self, LocalVaultKeyStorage, TreeVault, Vault},
     Database, Error,
 };
 
@@ -256,7 +256,7 @@ impl Storage {
     }
 
     #[must_use]
-    pub(crate) fn vault(&self) -> &Vault {
+    pub(crate) fn vault(&self) -> &Arc<Vault> {
         &self.data.vault
     }
 
@@ -316,12 +316,17 @@ impl Storage {
             let task_self = self.clone();
             let task_name = name.to_string();
             let roots = tokio::task::spawn_blocking(move || {
-                nebari::Config::new(task_self.data.path.join(task_name))
+                let mut config = nebari::Config::new(task_self.data.path.join(task_name))
                     .cache(task_self.data.chunk_cache.clone())
                     .shared_thread_pool(&task_self.data.threadpool)
-                    .file_manager(task_self.data.file_manager.clone())
-                    .open()
-                    .map_err(Error::from)
+                    .file_manager(task_self.data.file_manager.clone());
+                if let Some(key) = task_self.default_encryption_key() {
+                    config = config.vault(TreeVault {
+                        key: key.clone(),
+                        vault: task_self.vault().clone(),
+                    });
+                }
+                config.open().map_err(Error::from)
             })
             .await
             .unwrap()?;

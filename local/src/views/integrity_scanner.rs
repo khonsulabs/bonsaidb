@@ -5,7 +5,7 @@ use bonsaidb_core::schema::{view, CollectionName, Key, Schema, ViewName};
 use bonsaidb_jobs::{Job, Keyed};
 use nebari::{
     io::fs::StdFile,
-    tree::{KeyEvaluation, Root, Unversioned, Versioned},
+    tree::{KeyEvaluation, Unversioned, Versioned},
     Tree,
 };
 
@@ -36,32 +36,34 @@ where
 {
     type Output = ();
 
+    #[allow(clippy::too_many_lines)]
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
-        let documents = self
-            .database
-            .roots()
-            .tree(Versioned::tree(document_tree_name(&self.scan.collection)))?;
-
-        let view_versions =
+        let documents =
             self.database
                 .roots()
-                .tree(Unversioned::tree(view_versions_tree_name(
+                .tree(self.database.collection_tree::<Versioned, _>(
                     &self.scan.collection,
-                )))?;
+                    document_tree_name(&self.scan.collection),
+                ))?;
+
+        let view_versions_tree = self.database.collection_tree::<Unversioned, _>(
+            &self.scan.collection,
+            view_versions_tree_name(&self.scan.collection),
+        );
+        let view_versions = self.database.roots().tree(view_versions_tree.clone())?;
 
         let document_map =
             self.database
                 .roots()
-                .tree(Unversioned::tree(view_document_map_tree_name(
-                    &self.scan.view_name,
-                )))?;
+                .tree(self.database.collection_tree::<Unversioned, _>(
+                    &self.scan.collection,
+                    view_document_map_tree_name(&self.scan.view_name),
+                ))?;
 
-        let invalidated_entries =
-            self.database
-                .roots()
-                .tree(Unversioned::tree(view_invalidated_docs_tree_name(
-                    &self.scan.view_name,
-                )))?;
+        let invalidated_entries_tree = self.database.collection_tree::<Unversioned, _>(
+            &self.scan.collection,
+            view_invalidated_docs_tree_name(&self.scan.view_name),
+        );
 
         let view_name = self.scan.view_name.clone();
         let view_version = self.scan.view_version;
@@ -95,10 +97,8 @@ where
             if !missing_entries.is_empty() {
                 // Add all missing entries to the invalidated list. The view
                 // mapping job will update them on the next pass.
-                let mut transaction = roots.transaction(&[
-                    Unversioned::tree(invalidated_entries.name().to_string()),
-                    Unversioned::tree(view_versions.name().to_string()),
-                ])?;
+                let mut transaction =
+                    roots.transaction(&[invalidated_entries_tree, view_versions_tree])?;
                 let view_versions = transaction.tree::<Unversioned>(1).unwrap();
                 view_versions.set(
                     // TODO This is wasteful

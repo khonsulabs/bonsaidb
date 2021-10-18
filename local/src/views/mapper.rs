@@ -7,8 +7,6 @@ use std::{
 use async_trait::async_trait;
 use bonsaidb_core::{
     connection::Connection,
-    document::KeyId,
-    permissions::Permissions,
     schema::{
         view::{map, Serialized},
         CollectionName, Key, Schema, ViewName,
@@ -17,14 +15,13 @@ use bonsaidb_core::{
 use bonsaidb_jobs::{Job, Keyed};
 use nebari::{
     io::fs::StdFile,
-    tree::{AnyTreeRoot, Root, Unversioned, Versioned},
+    tree::{AnyTreeRoot, Unversioned, Versioned},
     Buffer, ExecutingTransaction, Tree,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     database::{deserialize_document, document_tree_name, Database},
-    vault::Vault,
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
         view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
@@ -54,38 +51,45 @@ where
 
     #[allow(clippy::too_many_lines)]
     async fn execute(&mut self) -> anyhow::Result<Self::Output> {
-        let documents = self
-            .database
-            .roots()
-            .tree(Versioned::tree(document_tree_name(&self.map.collection)))?;
+        let documents =
+            self.database
+                .roots()
+                .tree(self.database.collection_tree::<Versioned, _>(
+                    &self.map.collection,
+                    document_tree_name(&self.map.collection),
+                ))?;
 
         let view_entries =
             self.database
                 .roots()
-                .tree(Unversioned::tree(view_entries_tree_name(
-                    &self.map.view_name,
-                )))?;
+                .tree(self.database.collection_tree::<Unversioned, _>(
+                    &self.map.collection,
+                    view_entries_tree_name(&self.map.view_name),
+                ))?;
 
         let document_map =
             self.database
                 .roots()
-                .tree(Unversioned::tree(view_document_map_tree_name(
-                    &self.map.view_name,
-                )))?;
+                .tree(self.database.collection_tree::<Unversioned, _>(
+                    &self.map.collection,
+                    view_document_map_tree_name(&self.map.view_name),
+                ))?;
 
         let invalidated_entries =
             self.database
                 .roots()
-                .tree(Unversioned::tree(view_invalidated_docs_tree_name(
-                    &self.map.view_name,
-                )))?;
+                .tree(self.database.collection_tree::<Unversioned, _>(
+                    &self.map.collection,
+                    view_invalidated_docs_tree_name(&self.map.view_name),
+                ))?;
 
         let omitted_entries =
             self.database
                 .roots()
-                .tree(Unversioned::tree(view_omitted_docs_tree_name(
-                    &self.map.view_name,
-                )))?;
+                .tree(self.database.collection_tree::<Unversioned, _>(
+                    &self.map.collection,
+                    view_omitted_docs_tree_name(&self.map.view_name),
+                ))?;
         let transaction_id = self
             .database
             .last_transaction_id()
@@ -143,12 +147,11 @@ fn map_view<DB: Schema>(
         let mut transaction = database
             .roots()
             .transaction::<_, dyn AnyTreeRoot<StdFile>>(&[
-                Box::new(Unversioned::tree(invalidated_entries.name().to_string()))
-                    as Box<dyn AnyTreeRoot<StdFile>>,
-                Box::new(Unversioned::tree(document_map.name().to_string())),
-                Box::new(Versioned::tree(documents.name().to_string())),
-                Box::new(Unversioned::tree(omitted_entries.name().to_string())),
-                Box::new(Unversioned::tree(view_entries.name().to_string())),
+                Box::new(invalidated_entries.clone()) as Box<dyn AnyTreeRoot<StdFile>>,
+                Box::new(document_map.clone()),
+                Box::new(documents.clone()),
+                Box::new(omitted_entries.clone()),
+                Box::new(view_entries.clone()),
             ])?;
         let view = database
             .data
@@ -240,60 +243,23 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         Ok(())
     }
 
-    fn encryption_key(&self) -> Option<&KeyId> {
-        self.database.view_encryption_key(self.view)
-    }
-
-    fn serialize_and_encrypt<S: Serialize>(
-        &self,
-        entry: &S,
-    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
-        let mut bytes = bincode::serialize(&entry).map_err(Error::from)?;
-        if let Some(key) = self.encryption_key() {
-            bytes = self
-                .database
-                .storage()
-                .vault()
-                .encrypt_payload(
-                    key,
-                    &bytes,
-                    self.database.data.effective_permissions.as_ref(),
-                )
-                .map_err(Error::from)?;
-        }
-        Ok(bytes)
-    }
-
     fn load_entry_for_key(&mut self, key: &[u8]) -> Result<Option<ViewEntryCollection>, Error> {
-        load_entry_for_key(
-            key,
-            self.view,
-            self.encryption_key().is_some(),
-            self.database.storage().vault(),
-            self.database.data.effective_permissions.as_ref(),
-            |key| {
-                self.transaction
-                    .tree::<Unversioned>(self.view_entries_index)
-                    .unwrap()
-                    .get(key)
-                    .map_err(Error::from)
-            },
-        )
+        load_entry_for_key(key, |key| {
+            self.transaction
+                .tree::<Unversioned>(self.view_entries_index)
+                .unwrap()
+                .get(key)
+                .map_err(Error::from)
+        })
     }
 
     fn save_entry_for_key(&mut self, key: &[u8], entry: &ViewEntryCollection) -> Result<(), Error> {
-        let bytes = self.serialize_and_encrypt(entry)?;
-        let should_hash_key = self.view.keys_are_encryptable() && self.encryption_key().is_some();
+        let bytes = bincode::serialize(entry)?;
         let view_entries = self
             .transaction
             .tree::<Unversioned>(self.view_entries_index)
             .unwrap();
-        if should_hash_key {
-            let hashed_key = hash_key(key);
-            view_entries.set(hashed_key, bytes)?;
-        } else {
-            view_entries.set(key.to_vec(), bytes)?;
-        }
+        view_entries.set(key.to_vec(), bytes)?;
         Ok(())
     }
 
@@ -322,7 +288,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         // single emits, so it's going to be a
         // single-entry vec for now.
         let keys: Vec<Cow<'_, [u8]>> = vec![Cow::Borrowed(key)];
-        let encrypted_entry = self.serialize_and_encrypt(&keys)?;
+        let encrypted_entry = bincode::serialize(&keys)?;
         let document_map = self
             .transaction
             .tree::<Unversioned>(self.document_map_index)
@@ -399,15 +365,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
         keys: &[Cow<'_, [u8]>],
         existing_map: &[u8],
     ) -> Result<(), Error> {
-        let existing_keys = self
-            .database
-            .storage()
-            .vault()
-            .decrypt_serialized::<Vec<Cow<'_, [u8]>>>(
-                self.database.data.effective_permissions.as_ref(),
-                existing_map,
-            )
-            .map_err(bonsaidb_core::Error::from)?;
+        let existing_keys = bincode::deserialize::<Vec<Cow<'_, [u8]>>>(existing_map)?;
         if existing_keys == keys {
             // No change
             return Ok(());
@@ -453,7 +411,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                     .map_err(bonsaidb_core::Error::from)?;
             }
 
-            let value = self.serialize_and_encrypt(&entry_collection)?;
+            let value = bincode::serialize(&entry_collection)?;
             let view_entries = self
                 .transaction
                 .tree::<Unversioned>(self.view_entries_index)
@@ -477,11 +435,6 @@ where
     fn key(&self) -> Task {
         Task::ViewMap(self.map.clone())
     }
-}
-
-pub fn hash_key(key: &[u8]) -> [u8; 32] {
-    let res = blake3::hash(key);
-    *res.as_bytes()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -539,48 +492,9 @@ impl ViewEntryCollection {
 
 pub(crate) fn load_entry_for_key<F: FnOnce(&[u8]) -> Result<Option<Buffer<'static>>, Error>>(
     key: &[u8],
-    view: &dyn Serialized,
-    encrypt_by_default: bool,
-    vault: &Vault,
-    permissions: Option<&Permissions>,
     get_entry_fn: F,
 ) -> Result<Option<ViewEntryCollection>, Error> {
-    if view.keys_are_encryptable() && encrypt_by_default {
-        // When we encrypt the keys, we need to be able to find them
-        // reliably. We're using a hashing function to create buckets where
-        // more than one ViewEntry can be stored. These payloads can be
-        // encrypted using random nonces, and can contain the actual key.
-        // Thus, if a hash collision occurs, the loop will find the correct
-        // entry before returning.
-        let key_hash = hash_key(key);
-        if let Some(bytes) = get_entry_fn(&key_hash)? {
-            let mut collection = deserialize_entry(vault, permissions, &bytes)?;
-            collection.loaded_from = Some(key_hash);
-            for (index, entry) in collection.entries.iter().enumerate() {
-                if entry.key == key {
-                    collection.active_index = index;
-                    return Ok(Some(collection));
-                }
-            }
-            // No key matched
-            Ok(None)
-        } else {
-            Ok(None)
-        }
-    } else {
-        // Without encryption, the keys are guaranteed to be unique.
-        Ok(get_entry_fn(key)?
-            .map(|bytes| deserialize_entry(vault, permissions, &bytes))
-            .transpose()?)
-    }
-}
-
-fn deserialize_entry(
-    vault: &Vault,
-    permissions: Option<&Permissions>,
-    bytes: &[u8],
-) -> Result<ViewEntryCollection, bonsaidb_core::Error> {
-    vault
-        .decrypt_serialized(permissions, bytes)
-        .map_err(bonsaidb_core::Error::from)
+    get_entry_fn(key)?
+        .map(|bytes| bincode::deserialize(&bytes).map_err(Error::from))
+        .transpose()
 }

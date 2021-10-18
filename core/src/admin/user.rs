@@ -93,7 +93,7 @@ impl User {
 
 #[async_trait]
 impl Collection for User {
-    fn default_encryption_key() -> Option<KeyId> {
+    fn encryption_key() -> Option<KeyId> {
         Some(KeyId::Master)
     }
 
@@ -125,10 +125,6 @@ impl View for ByName {
 
     fn version(&self) -> u64 {
         1
-    }
-
-    fn keys_are_encryptable(&self) -> bool {
-        true
     }
 
     fn name(&self) -> Result<Name, InvalidNameError> {

@@ -35,7 +35,7 @@ impl Schematic {
         } else {
             self.collections_by_type_id
                 .insert(TypeId::of::<C>(), name.clone());
-            if let Some(key) = C::default_encryption_key() {
+            if let Some(key) = C::encryption_key() {
                 self.collection_encryption_keys.insert(name.clone(), key);
             }
             self.contained_collections.insert(name);
@@ -145,12 +145,12 @@ fn schema_tests() -> anyhow::Result<()> {
     let mut schema = Schematic::default();
     BasicSchema::define_collections(&mut schema)?;
 
-    assert_eq!(schema.collections_by_type_id.len(), 2);
+    assert_eq!(schema.collections_by_type_id.len(), 3);
     assert_eq!(
         schema.collections_by_type_id[&TypeId::of::<Basic>()],
         Basic::collection_name()?
     );
-    assert_eq!(schema.views.len(), 4);
+    assert_eq!(schema.views.len(), 7);
     assert_eq!(
         schema.views[&TypeId::of::<BasicCount>()].view_name()?,
         View::view_name(&BasicCount)?

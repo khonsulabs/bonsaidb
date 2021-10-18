@@ -15,27 +15,7 @@
 //! will regularly decrypt data to process it, and while the data is in-memory,
 //! it is subject to the security of the machine running it. If using `BonsaiDb`
 //! over a network, the network transport layer's encryption is what ensures
-//! your data's safety -- the document is not e
-//!
-//! ### What can't be encrypted?
-//!
-//! #### Schema
-//!
-//! `BonsaiDb` makes no effort to encrypt or obscure the names of the
-//! collections, views, or databases.
-//!
-//! #### Views
-//!
-//! `BonsaiDb` offers range-based queries for views. The keys emitted in views
-//! that rely on these range queries cannot be encrypted. This is controlled by
-//! [`View::keys_are_encryptable()`](bonsaidb_core::schema::view::View::keys_are_encryptable).
-//! If a view returns true from that function, range queries will return an
-//! error even if encryption isn't enabled. This ensures that if you choose to
-//! enable encryption at a later date, all data that you expect to be encrypted
-//! will be.
-//!
-//! Even if a view doesn't support encrypting keys, the view entries are still
-//! encrypted. This means the values emitted are still encrypted.
+//! your data's safety.
 //!
 //! ## Security Best Practices
 //!
@@ -72,6 +52,7 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Display},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use async_trait::async_trait;
@@ -331,7 +312,7 @@ impl Vault {
         payload: &[u8],
         permissions: Option<&Permissions>,
     ) -> Result<Vec<u8>, crate::Error> {
-        let payload = bincode::deserialize::<VaultPayload<'_>>(payload).map_err(|err| {
+        let payload = VaultPayload::from_slice(payload).map_err(|err| {
             Error::Encryption(format!("error deserializing encrypted payload: {:?}", err))
         })?;
         self.decrypt(&payload, permissions)
@@ -363,24 +344,6 @@ impl Vault {
             KeyId::None => unreachable!(),
         };
         Ok(key.decrypt_payload(payload)?)
-    }
-
-    /// Deserializes `bytes` using bincode. First, it attempts to deserialize it
-    /// as a `VaultPayload` for if it's encrypted. If it is, it will attempt to
-    /// deserialize it after decrypting. If it is not a `VaultPayload`, it will be
-    /// attempted to be deserialized as `D` directly.
-    pub fn decrypt_serialized<D: for<'de> Deserialize<'de>>(
-        &self,
-        permissions: Option<&Permissions>,
-        bytes: &[u8],
-    ) -> Result<D, crate::Error> {
-        match VaultPayload::from_slice(bytes) {
-            Ok(encrypted) => {
-                let decrypted = self.decrypt(&encrypted, permissions)?;
-                Ok(bincode::deserialize(&decrypted)?)
-            }
-            Err(_) => Ok(bincode::deserialize(bytes)?),
-        }
     }
 }
 
@@ -731,4 +694,22 @@ fn public_key_from_private(key: &PrivateKey) -> PublicKey {
     vault_key_array.zeroize();
     let public_key = x25519_dalek::PublicKey::from(&vault_key);
     PublicKey::from_bytes(public_key.as_bytes()).unwrap()
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TreeVault {
+    pub key: KeyId,
+    pub vault: Arc<Vault>,
+}
+
+impl nebari::Vault for TreeVault {
+    type Error = crate::Error;
+
+    fn encrypt(&self, payload: &[u8]) -> Result<Vec<u8>, crate::Error> {
+        self.vault.encrypt_payload(&self.key, payload, None)
+    }
+
+    fn decrypt(&self, payload: &[u8]) -> Result<Vec<u8>, crate::Error> {
+        self.vault.decrypt_payload(payload, None)
+    }
 }

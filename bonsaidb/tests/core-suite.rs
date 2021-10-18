@@ -92,6 +92,7 @@ mod websockets {
             Ok(self.db.clone())
         }
 
+        #[allow(dead_code)] // We will want this in the future but it's currently unused
         pub async fn connect_with_permissions(
             &self,
             permissions: Vec<Statement>,
@@ -160,6 +161,7 @@ mod bonsai {
             Ok(self.db.clone())
         }
 
+        #[allow(dead_code)] // We will want this in the future but it's currently unused
         pub async fn connect_with_permissions(
             &self,
             statements: Vec<Statement>,
@@ -185,6 +187,7 @@ mod bonsai {
     bonsaidb_core::define_kv_test_suite!(BonsaiTestHarness);
 }
 
+#[allow(dead_code)] // We will want this in the future but it's currently unused
 async fn assume_permissions(
     connection: Client,
     label: &str,

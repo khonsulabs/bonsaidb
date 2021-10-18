@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     admin::{PermissionGroup, Role, User},
     connection::{AccessPolicy, Connection, ServerConnection},
-    document::Document,
+    document::{Document, KeyId},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
         view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
@@ -179,6 +179,145 @@ impl View for BasicByBrokenParentId {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
+pub struct EncryptedBasic {
+    pub value: String,
+    pub category: Option<String>,
+    pub parent_id: Option<u64>,
+}
+
+impl EncryptedBasic {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self {
+            value: value.into(),
+            category: None,
+            parent_id: None,
+        }
+    }
+
+    pub fn with_category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
+    }
+
+    #[must_use]
+    pub const fn with_parent_id(mut self, parent_id: u64) -> Self {
+        self.parent_id = Some(parent_id);
+        self
+    }
+}
+
+impl Collection for EncryptedBasic {
+    fn encryption_key() -> Option<KeyId> {
+        Some(KeyId::Master)
+    }
+
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        CollectionName::new("khonsulabs", "encrypted-basic")
+    }
+
+    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
+        schema.define_view(EncryptedBasicCount)?;
+        schema.define_view(EncryptedBasicByParentId)?;
+        schema.define_view(EncryptedBasicByCategory)
+    }
+}
+
+#[derive(Debug)]
+pub struct EncryptedBasicCount;
+
+impl View for EncryptedBasicCount {
+    type Collection = EncryptedBasic;
+    type Key = ();
+    type Value = usize;
+
+    fn version(&self) -> u64 {
+        0
+    }
+
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("count")
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+        Ok(Some(document.emit_key_and_value((), 1)))
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[MappedValue<Self::Key, Self::Value>],
+        _rereduce: bool,
+    ) -> Result<Self::Value, view::Error> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
+#[derive(Debug)]
+pub struct EncryptedBasicByParentId;
+
+impl View for EncryptedBasicByParentId {
+    type Collection = EncryptedBasic;
+    type Key = Option<u64>;
+    type Value = usize;
+
+    fn version(&self) -> u64 {
+        1
+    }
+
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-parent-id")
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+        let contents = document.contents::<EncryptedBasic>()?;
+        Ok(Some(document.emit_key_and_value(contents.parent_id, 1)))
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[MappedValue<Self::Key, Self::Value>],
+        _rereduce: bool,
+    ) -> Result<Self::Value, view::Error> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
+#[derive(Debug)]
+pub struct EncryptedBasicByCategory;
+
+impl View for EncryptedBasicByCategory {
+    type Collection = EncryptedBasic;
+    type Key = String;
+    type Value = usize;
+
+    fn version(&self) -> u64 {
+        0
+    }
+
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-category")
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+        let contents = document.contents::<EncryptedBasic>()?;
+        if let Some(category) = &contents.category {
+            Ok(Some(
+                document.emit_key_and_value(category.to_lowercase(), 1),
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[MappedValue<Self::Key, Self::Value>],
+        _rereduce: bool,
+    ) -> Result<Self::Value, view::Error> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
 #[derive(Debug)]
 pub struct BasicSchema;
 
@@ -189,6 +328,7 @@ impl Schema for BasicSchema {
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
         schema.define_collection::<Basic>()?;
+        schema.define_collection::<EncryptedBasic>()?;
         schema.define_collection::<Unique>()
     }
 }
