@@ -39,6 +39,7 @@ impl TestHarness {
         Ok(db)
     }
 
+    #[allow(dead_code)]
     async fn connect_with_permissions(
         &self,
         permissions: Vec<Statement>,

@@ -24,10 +24,10 @@ pub trait Collection: Debug + Send + Sync {
     /// Defines all `View`s in this collection in `schema`.
     fn define_views(schema: &mut Schematic) -> Result<(), Error>;
 
-    /// If a [`KeyId`] is returned, documents will be encrypted with this key if
-    /// no key is specified during creation.
+    /// If a [`KeyId`] is returned, this collection will be stored encrypted
+    /// at-rest using the key specified.
     #[must_use]
-    fn default_encryption_key() -> Option<KeyId> {
+    fn encryption_key() -> Option<KeyId> {
         None
     }
 

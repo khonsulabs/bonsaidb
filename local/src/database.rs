@@ -24,8 +24,8 @@ use byteorder::{BigEndian, ByteOrder};
 use itertools::Itertools;
 use nebari::{
     io::fs::StdFile,
-    tree::{AnyTreeRoot, KeyEvaluation, Root, UnversionedTreeRoot, VersionedTreeRoot},
-    Buffer, ExecutingTransaction, Roots, TransactionTree, Tree,
+    tree::{AnyTreeRoot, KeyEvaluation, Root, TreeRoot, Unversioned, Versioned},
+    Buffer, ExecutingTransaction, Roots, Tree,
 };
 use ranges::GenericRange;
 
@@ -34,7 +34,7 @@ use crate::{
     error::Error,
     open_trees::OpenTrees,
     storage::OpenDatabase,
-    vault::Vault,
+    vault::TreeVault,
     views::{
         mapper::{self, ViewEntryCollection},
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
@@ -187,13 +187,14 @@ where
 
         let view_entries = self
             .roots()
-            .tree(UnversionedTreeRoot::tree(view_entries_tree_name(
-                &view.view_name()?,
-            )))
+            .tree(self.collection_tree(
+                &view.collection()?,
+                view_entries_tree_name(&view.view_name()?),
+            ))
             .map_err(Error::from)?;
 
         {
-            for entry in self.create_view_iterator(&view_entries, key, view)? {
+            for entry in Self::create_view_iterator(&view_entries, key)? {
                 callback(entry)?;
             }
         }
@@ -250,12 +251,16 @@ where
         let task_self = self.clone();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
-            let tree = task_self
-                .data
-                .context
-                .roots
-                .tree(VersionedTreeRoot::tree(document_tree_name(&collection)))
-                .map_err(Error::from)?;
+            let tree =
+                task_self
+                    .data
+                    .context
+                    .roots
+                    .tree(task_self.collection_tree::<Versioned, _>(
+                        &collection,
+                        document_tree_name(&collection),
+                    ))
+                    .map_err(Error::from)?;
             if let Some(vec) = tree
                 .get(
                     &id.as_big_endian_bytes()
@@ -263,7 +268,7 @@ where
                 )
                 .map_err(Error::from)?
             {
-                Ok(Some(task_self.deserialize_document(&vec)?.to_owned()))
+                Ok(Some(deserialize_document(&vec)?.to_owned()))
             } else {
                 Ok(None)
             }
@@ -281,12 +286,16 @@ where
         let ids = ids.to_vec();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
-            let tree = task_self
-                .data
-                .context
-                .roots
-                .tree(VersionedTreeRoot::tree(document_tree_name(&collection)))
-                .map_err(Error::from)?;
+            let tree =
+                task_self
+                    .data
+                    .context
+                    .roots
+                    .tree(task_self.collection_tree::<Versioned, _>(
+                        &collection,
+                        document_tree_name(&collection),
+                    ))
+                    .map_err(Error::from)?;
             let mut found_docs = Vec::new();
             for id in ids {
                 if let Some(vec) = tree
@@ -296,7 +305,7 @@ where
                     )
                     .map_err(Error::from)?
                 {
-                    found_docs.push(task_self.deserialize_document(&vec)?.to_owned());
+                    found_docs.push(deserialize_document(&vec)?.to_owned());
                 }
             }
 
@@ -362,39 +371,6 @@ where
         Ok(mappings)
     }
 
-    pub(crate) fn deserialize_document<'a>(
-        &self,
-        bytes: &'a [u8],
-    ) -> Result<Document<'a>, bonsaidb_core::Error> {
-        let mut document = bincode::deserialize::<Document<'_>>(bytes).map_err(Error::from)?;
-        if let Some(_decryption_key) = &document.header.encryption_key {
-            let decrypted_contents = self
-                .storage()
-                .vault()
-                .decrypt_payload(&document.contents, self.data.effective_permissions.as_ref())?;
-            document.contents = Cow::Owned(decrypted_contents);
-        }
-        Ok(document)
-    }
-
-    fn serialize_document(&self, document: &Document<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
-        if let Some(encryption_key) = &document.header.encryption_key {
-            let encrypted_contents = self.storage().vault().encrypt_payload(
-                encryption_key,
-                &document.contents,
-                self.data.effective_permissions.as_ref(),
-            )?;
-            bincode::serialize(&Document {
-                header: document.header.clone(),
-                contents: Cow::from(encrypted_contents),
-            })
-        } else {
-            bincode::serialize(document)
-        }
-        .map_err(Error::from)
-        .map_err(bonsaidb_core::Error::from)
-    }
-
     fn execute_operation(
         &self,
         operation: &Operation<'_>,
@@ -402,19 +378,9 @@ where
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<OperationResult, Error> {
         match &operation.command {
-            Command::Insert {
-                contents,
-                encryption_key,
-            } => self.execute_insert(
-                operation,
-                transaction,
-                tree_index_map,
-                contents.clone(),
-                encryption_key
-                    .as_ref()
-                    .or_else(|| self.collection_encryption_key(&operation.collection))
-                    .cloned(),
-            ),
+            Command::Insert { contents } => {
+                self.execute_insert(operation, transaction, tree_index_map, contents.clone())
+            }
             Command::Update { header, contents } => self.execute_update(
                 operation,
                 transaction,
@@ -437,19 +403,25 @@ where
         contents: Cow<'_, [u8]>,
     ) -> Result<OperationResult, crate::Error> {
         let documents = transaction
-            .tree(tree_index_map[&document_tree_name(&operation.collection)])
+            .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let document_id = header.id.as_big_endian_bytes().unwrap();
-        if let Some(vec) = documents.get(document_id.as_ref())? {
-            let doc = self.deserialize_document(&vec)?;
-            if doc.header.revision == header.revision {
-                if let Some(mut updated_doc) = doc.create_new_revision(contents) {
-                    // Copy the encryption key if it's been updated.
-                    if updated_doc.header.encryption_key != header.encryption_key {
-                        updated_doc.header.to_mut().encryption_key = header.encryption_key.clone();
-                    }
+        // TODO switch to compare_swap
 
-                    self.save_doc(documents, &updated_doc)?;
+        if let Some(vec) = documents.get(document_id.as_ref())? {
+            let doc = deserialize_document(&vec)?;
+            if doc.header.revision == header.revision {
+                if let Some(updated_doc) = doc.create_new_revision(contents) {
+                    documents.set(
+                        updated_doc
+                            .header
+                            .id
+                            .as_big_endian_bytes()
+                            .unwrap()
+                            .as_ref()
+                            .to_vec(),
+                        serialize_document(&updated_doc)?,
+                    )?;
 
                     self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
 
@@ -487,17 +459,16 @@ where
         transaction: &mut ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
         contents: Cow<'_, [u8]>,
-        encryption_key: Option<KeyId>,
     ) -> Result<OperationResult, Error> {
         let documents = transaction
-            .tree::<VersionedTreeRoot>(tree_index_map[&document_tree_name(&operation.collection)])
+            .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let last_key = documents
             .last_key()?
             .map(|bytes| BigEndian::read_u64(&bytes))
             .unwrap_or_default();
-        let doc = Document::new(last_key + 1, contents, encryption_key);
-        let serialized: Vec<u8> = self.serialize_document(&doc)?;
+        let doc = Document::new(last_key + 1, contents);
+        let serialized: Vec<u8> = serialize_document(&doc)?;
         let document_id = Buffer::from(doc.header.id.as_big_endian_bytes().unwrap().to_vec());
         documents.set(document_id.clone(), serialized)?;
 
@@ -517,11 +488,11 @@ where
         header: &Header,
     ) -> Result<OperationResult, Error> {
         let documents = transaction
-            .tree::<VersionedTreeRoot>(tree_index_map[&document_tree_name(&operation.collection)])
+            .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let document_id = header.id.as_big_endian_bytes().unwrap();
         if let Some(vec) = documents.remove(&document_id)? {
-            let doc = self.deserialize_document(&vec)?;
+            let doc = deserialize_document(&vec)?;
             if doc.header.as_ref() == header {
                 self.update_unique_views(
                     document_id.as_ref(),
@@ -584,38 +555,14 @@ where
         Ok(())
     }
 
-    fn save_doc(
-        &self,
-        tree: &mut TransactionTree<VersionedTreeRoot, StdFile>,
-        doc: &Document<'_>,
-    ) -> Result<(), Error> {
-        let serialized: Vec<u8> = self.serialize_document(doc)?;
-        tree.set(
-            doc.header
-                .id
-                .as_big_endian_bytes()
-                .unwrap()
-                .as_ref()
-                .to_vec(),
-            serialized,
-        )?;
-        Ok(())
-    }
-
     fn create_view_iterator<'a, K: Key + 'a>(
-        &'a self,
-        view_entries: &'a Tree<UnversionedTreeRoot, StdFile>,
+        view_entries: &'a Tree<Unversioned, StdFile>,
         key: Option<QueryKey<K>>,
-        view: &'a dyn view::Serialized,
     ) -> Result<Vec<ViewEntryCollection>, Error> {
         let mut values = Vec::new();
         if let Some(key) = key {
             match key {
                 QueryKey::Range(range) => {
-                    if view.keys_are_encryptable() {
-                        return Err(Error::from(view::Error::RangeQueryNotSupported));
-                    }
-
                     let start = Buffer::from(
                         range
                             .start
@@ -630,11 +577,12 @@ where
                             .map_err(view::Error::KeySerialization)?
                             .to_vec(),
                     );
-                    view_entries.scan::<Infallible, _, _, _>(
+                    view_entries.scan::<Infallible, _, _, _, _>(
                         start..end,
                         true,
-                        |_| KeyEvaluation::ReadData,
-                        |_key, value| {
+                        |_, _, _| true,
+                        |_, _| KeyEvaluation::ReadData,
+                        |_key, _index, value| {
                             values.push(value);
                             Ok(())
                         },
@@ -645,14 +593,6 @@ where
                         .as_big_endian_bytes()
                         .map_err(view::Error::KeySerialization)?
                         .to_vec();
-
-                    let key = if view.keys_are_encryptable()
-                        && self.view_encryption_key(view).is_some()
-                    {
-                        mapper::hash_key(&key).to_vec()
-                    } else {
-                        key
-                    };
 
                     values.extend(view_entries.get(&key)?);
                 }
@@ -666,16 +606,6 @@ where
                         })
                         .collect::<Result<Vec<_>, _>>()?;
 
-                    let list = if view.keys_are_encryptable()
-                        && self.view_encryption_key(view).is_some()
-                    {
-                        list.into_iter()
-                            .map(|key| mapper::hash_key(&key).to_vec())
-                            .collect()
-                    } else {
-                        list
-                    };
-
                     values.extend(
                         view_entries
                             .get_multiple(&list.iter().map(Vec::as_slice).collect::<Vec<_>>())?
@@ -685,11 +615,12 @@ where
                 }
             }
         } else {
-            view_entries.scan::<Infallible, _, _, _>(
+            view_entries.scan::<Infallible, _, _, _, _>(
                 ..,
                 true,
-                |_| KeyEvaluation::ReadData,
-                |_, value| {
+                |_, _, _| true,
+                |_, _| KeyEvaluation::ReadData,
+                |_, _, value| {
                     values.push(value);
                     Ok(())
                 },
@@ -698,11 +629,7 @@ where
 
         values
             .into_iter()
-            .map(|value| {
-                self.storage()
-                    .vault()
-                    .decrypt_serialized(self.data.effective_permissions.as_ref(), &value)
-            })
+            .map(|value| bincode::deserialize(&value).map_err(Error::from))
             .collect::<Result<Vec<_>, Error>>()
     }
 
@@ -712,16 +639,38 @@ where
             .or_else(|| self.storage().default_encryption_key())
     }
 
-    pub(crate) fn view_encryption_key(&self, view: &dyn view::Serialized) -> Option<&KeyId> {
-        view.collection()
-            .ok()
-            .and_then(|name| self.collection_encryption_key(&name))
+    pub(crate) fn collection_tree<R: Root, S: Into<Cow<'static, str>>>(
+        &self,
+        collection: &CollectionName,
+        name: S,
+    ) -> TreeRoot<R, StdFile> {
+        let mut tree = R::tree(name);
+        if let Some(key) = self.collection_encryption_key(collection) {
+            tree = tree.with_vault(TreeVault {
+                key: key.clone(),
+                vault: self.storage().vault().clone(),
+            });
+        }
+        tree
     }
 
     #[cfg(feature = "keyvalue")]
     pub(crate) fn update_key_expiration(&self, update: kv::ExpirationUpdate) {
         self.data.context.update_key_expiration(update);
     }
+}
+
+pub(crate) fn deserialize_document<'a>(
+    bytes: &'a [u8],
+) -> Result<Document<'a>, bonsaidb_core::Error> {
+    let document = bincode::deserialize::<Document<'_>>(bytes).map_err(Error::from)?;
+    Ok(document)
+}
+
+fn serialize_document(document: &Document<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
+    bincode::serialize(document)
+        .map_err(Error::from)
+        .map_err(bonsaidb_core::Error::from)
 }
 
 #[async_trait]
@@ -746,6 +695,8 @@ where
                         open_trees.open_trees_for_document_change(
                             &op.collection,
                             &task_self.data.schema,
+                            task_self.collection_encryption_key(&op.collection),
+                            task_self.storage().vault(),
                         )?;
                     }
                 }
@@ -798,7 +749,7 @@ where
                             let view_name = view.view_name().map_err(bonsaidb_core::Error::from)?;
                             for changed_document in &changed_documents {
                                 let invalidated_docs = roots_transaction
-                                    .tree::<UnversionedTreeRoot>(
+                                    .tree::<Unversioned>(
                                         open_trees.trees_index_by_name
                                             [&view_invalidated_docs_tree_name(&view_name)],
                                     )
@@ -1019,8 +970,6 @@ type ViewIterator<'a> =
 
 struct ViewEntryCollectionIterator<'a> {
     iterator: ViewIterator<'a>,
-    permissions: Option<&'a Permissions>,
-    vault: &'a Vault,
 }
 
 impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
@@ -1029,7 +978,7 @@ impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         self.iterator.next().map(|item| {
             item.map_err(crate::Error::from)
-                .and_then(|(_, value)| self.vault.decrypt_serialized(self.permissions, &value))
+                .and_then(|(_, value)| bincode::deserialize(&value).map_err(Error::from))
         })
     }
 }

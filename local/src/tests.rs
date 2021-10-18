@@ -2,11 +2,11 @@ use std::time::Duration;
 
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, ServerConnection},
-    document::KeyId,
     permissions::{Permissions, Statement},
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
-        BasicCollectionWithOnlyBrokenParentId, BasicSchema, HarnessTest, TestDirectory,
+        BasicCollectionWithOnlyBrokenParentId, BasicSchema, EncryptedBasic, HarnessTest,
+        TestDirectory,
     },
 };
 use config::Configuration;
@@ -41,6 +41,7 @@ impl TestHarness {
         self.db.storage()
     }
 
+    #[allow(dead_code)]
     async fn connect_with_permissions(
         &self,
         permissions: Vec<Statement>,
@@ -169,30 +170,24 @@ fn encryption() -> anyhow::Result<()> {
     let document_header = {
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async {
-            let db = Database::<Basic>::open_local(&path, Configuration::default()).await?;
+            let db = Database::<BasicSchema>::open_local(&path, Configuration::default()).await?;
 
             let document_header = db
-                .collection::<Basic>()
-                .push_encrypted(&Basic::new("hello"), KeyId::Master)
+                .collection::<EncryptedBasic>()
+                .push(&EncryptedBasic::new("hello"))
                 .await?;
 
             // Retrieve the document, showing that it was stored successfully.
             let doc = db
-                .collection::<Basic>()
+                .collection::<EncryptedBasic>()
                 .get(document_header.id)
                 .await?
                 .expect("doc not found");
-            assert_eq!(&doc.contents::<Basic>()?.value, "hello");
+            assert_eq!(&doc.contents::<EncryptedBasic>()?.value, "hello");
 
             Result::<_, anyhow::Error>::Ok(document_header)
         })?
     };
-
-    // Verify the header shows that it's encrypted.
-    assert!(matches!(
-        document_header.encryption_key,
-        Some(KeyId::Master)
-    ));
 
     // By resetting the encryption key, we should be able to force an error in
     // decryption, which proves that the document was encrypted. To ensure the
@@ -201,11 +196,13 @@ fn encryption() -> anyhow::Result<()> {
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
-        let db = Database::<Basic>::open_local(&path, Configuration::default()).await?;
+        let db = Database::<BasicSchema>::open_local(&path, Configuration::default()).await?;
 
         // Try retrieving the document, but expect an error decrypting.
-        if let Err(bonsaidb_core::Error::Database(err)) =
-            db.collection::<Basic>().get(document_header.id).await
+        if let Err(bonsaidb_core::Error::Database(err)) = db
+            .collection::<EncryptedBasic>()
+            .get(document_header.id)
+            .await
         {
             assert!(err.contains("vault"));
         } else {

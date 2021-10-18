@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     connection::Connection,
     custodian_password::ServerConfig,
-    document::{Document, KeyId},
+    document::Document,
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, View},
     PASSWORD_CONFIG,
 };
@@ -24,11 +24,7 @@ impl PasswordConfig {
             let new_config = Self {
                 config: ServerConfig::new(PASSWORD_CONFIG),
             };
-            match connection
-                .collection::<Self>()
-                .push_encrypted(&new_config, KeyId::Master)
-                .await
-            {
+            match connection.collection::<Self>().push(&new_config).await {
                 Ok(_) => Ok(new_config),
                 Err(crate::Error::UniqueKeyViolation { .. }) => {
                     // Raced to create it. This shouldn't be possible

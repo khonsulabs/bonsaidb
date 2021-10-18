@@ -179,6 +179,145 @@ impl View for BasicByBrokenParentId {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
+pub struct EncryptedBasic {
+    pub value: String,
+    pub category: Option<String>,
+    pub parent_id: Option<u64>,
+}
+
+impl EncryptedBasic {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self {
+            value: value.into(),
+            category: None,
+            parent_id: None,
+        }
+    }
+
+    pub fn with_category(mut self, category: impl Into<String>) -> Self {
+        self.category = Some(category.into());
+        self
+    }
+
+    #[must_use]
+    pub const fn with_parent_id(mut self, parent_id: u64) -> Self {
+        self.parent_id = Some(parent_id);
+        self
+    }
+}
+
+impl Collection for EncryptedBasic {
+    fn encryption_key() -> Option<KeyId> {
+        Some(KeyId::Master)
+    }
+
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        CollectionName::new("khonsulabs", "encrypted-basic")
+    }
+
+    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
+        schema.define_view(EncryptedBasicCount)?;
+        schema.define_view(EncryptedBasicByParentId)?;
+        schema.define_view(EncryptedBasicByCategory)
+    }
+}
+
+#[derive(Debug)]
+pub struct EncryptedBasicCount;
+
+impl View for EncryptedBasicCount {
+    type Collection = EncryptedBasic;
+    type Key = ();
+    type Value = usize;
+
+    fn version(&self) -> u64 {
+        0
+    }
+
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("count")
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+        Ok(Some(document.emit_key_and_value((), 1)))
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[MappedValue<Self::Key, Self::Value>],
+        _rereduce: bool,
+    ) -> Result<Self::Value, view::Error> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
+#[derive(Debug)]
+pub struct EncryptedBasicByParentId;
+
+impl View for EncryptedBasicByParentId {
+    type Collection = EncryptedBasic;
+    type Key = Option<u64>;
+    type Value = usize;
+
+    fn version(&self) -> u64 {
+        1
+    }
+
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-parent-id")
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+        let contents = document.contents::<EncryptedBasic>()?;
+        Ok(Some(document.emit_key_and_value(contents.parent_id, 1)))
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[MappedValue<Self::Key, Self::Value>],
+        _rereduce: bool,
+    ) -> Result<Self::Value, view::Error> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
+#[derive(Debug)]
+pub struct EncryptedBasicByCategory;
+
+impl View for EncryptedBasicByCategory {
+    type Collection = EncryptedBasic;
+    type Key = String;
+    type Value = usize;
+
+    fn version(&self) -> u64 {
+        0
+    }
+
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-category")
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+        let contents = document.contents::<EncryptedBasic>()?;
+        if let Some(category) = &contents.category {
+            Ok(Some(
+                document.emit_key_and_value(category.to_lowercase(), 1),
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[MappedValue<Self::Key, Self::Value>],
+        _rereduce: bool,
+    ) -> Result<Self::Value, view::Error> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
 #[derive(Debug)]
 pub struct BasicSchema;
 
@@ -189,6 +328,7 @@ impl Schema for BasicSchema {
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
         schema.define_collection::<Basic>()?;
+        schema.define_collection::<EncryptedBasic>()?;
         schema.define_collection::<Unique>()
     }
 }
@@ -503,70 +643,6 @@ macro_rules! define_connection_test_suite {
                 $harness::server_name(),
             )
             .await?;
-            harness.shutdown().await
-        }
-
-        #[tokio::test]
-        async fn encryption_keys() -> anyhow::Result<()> {
-            use $crate::{
-                document::KeyId,
-                permissions::{
-                    bonsai::{
-                        collection_resource_name, encryption_key_resource_name, EncryptionKeyAction,
-                    },
-                    Action, ActionNameList, Identifier, Permissions, Statement,
-                },
-                schema::Collection,
-                test_util::Basic,
-            };
-
-            let harness = $harness::new($crate::test_util::HarnessTest::Encryption).await?;
-            let reader = harness
-                .connect_with_permissions(
-                    vec![
-                        // Grant permissions to decrypt using the master key.
-                        Statement {
-                            resources: vec![encryption_key_resource_name(&KeyId::Master)],
-                            actions: ActionNameList::from(EncryptionKeyAction::Decrypt.name()),
-                        },
-                        // Grant all document permissions
-                        Statement {
-                            resources: vec![collection_resource_name(
-                                Identifier::Any,
-                                &Basic::collection_name()?,
-                            )],
-                            actions: ActionNameList::All,
-                        },
-                    ],
-                    "reader",
-                )
-                .await
-                .unwrap();
-            let writer = harness
-                .connect_with_permissions(
-                    vec![
-                        // Grant permissions to decrypt using the master key.
-                        Statement {
-                            resources: vec![encryption_key_resource_name(&KeyId::Master)],
-                            actions: ActionNameList::from(EncryptionKeyAction::Encrypt.name()),
-                        },
-                        // Grant All document permissions
-                        Statement {
-                            resources: vec![collection_resource_name(
-                                Identifier::Any,
-                                &Basic::collection_name()?,
-                            )],
-                            actions: ActionNameList::All,
-                        },
-                    ],
-                    "writer",
-                )
-                .await
-                .unwrap();
-
-            $crate::test_util::encryption_tests(&reader, &writer)
-                .await
-                .unwrap();
             harness.shutdown().await
         }
     };
@@ -1119,37 +1195,6 @@ pub async fn user_management_tests<C: Connection, S: ServerConnection>(
         .remove_permission_group_from_user(user_id, &group)
         .await?;
     server.remove_role_from_user(user_id, &role).await?;
-
-    Ok(())
-}
-
-pub async fn encryption_tests<C: Connection>(reader: &C, writer: &C) -> anyhow::Result<()> {
-    // Positive flows -- writer can write, reader can read
-    let document_header = writer
-        .collection::<Basic>()
-        .push_encrypted(&Basic::new("encrypted"), KeyId::Master)
-        .await?;
-
-    reader
-        .get::<Basic>(document_header.id)
-        .await
-        .expect("reader unable to get document")
-        .expect("document not found");
-
-    // Negative flows -- writer can't read, reader can't write
-    match reader
-        .collection::<Basic>()
-        .push_encrypted(&Basic::new("encrypted"), KeyId::Master)
-        .await
-    {
-        Err(Error::PermissionDenied(_)) => {}
-        other => panic!("unexpected response from reader: {:?}", other),
-    }
-
-    match writer.get::<Basic>(document_header.id).await {
-        Err(Error::PermissionDenied(_)) => {}
-        other => panic!("unexpected response from writer: {:?}", other),
-    }
 
     Ok(())
 }

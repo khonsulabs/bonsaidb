@@ -65,12 +65,6 @@ pub trait View: Send + Sync + Debug + 'static {
         false
     }
 
-    /// If true, keys will be encrypted if a `default_encryption_key` is
-    /// specified. This prevents the ability to use range-based queries.
-    fn keys_are_encryptable(&self) -> bool {
-        false
-    }
-
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
     fn version(&self) -> u64;
 
@@ -144,8 +138,6 @@ pub trait Serialized: Send + Sync + Debug {
     fn unique(&self) -> bool;
     /// Wraps [`View::version`]
     fn version(&self) -> u64;
-    /// Wraps [`View::keys_are_encryptable`]
-    fn keys_are_encryptable(&self) -> bool;
     /// Wraps [`View::view_name`]
     fn view_name(&self) -> Result<ViewName, InvalidNameError>;
     /// Wraps [`View::map`]
@@ -203,9 +195,5 @@ where
         };
 
         serde_cbor::to_vec(&reduced_value).map_err(Error::from)
-    }
-
-    fn keys_are_encryptable(&self) -> bool {
-        self.keys_are_encryptable()
     }
 }
