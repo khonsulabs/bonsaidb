@@ -23,7 +23,7 @@ use nebari::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    database::{document_tree_name, Database},
+    database::{deserialize_document, document_tree_name, Database},
     vault::Vault,
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
@@ -200,7 +200,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             .unwrap();
         let (doc_still_exists, map_result) =
             if let Some(document) = documents.get(self.document_id)? {
-                let document = self.database.deserialize_document(&document)?;
+                let document = deserialize_document(&document)?;
 
                 // Call the schema map function
                 (

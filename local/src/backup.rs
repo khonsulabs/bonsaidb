@@ -241,7 +241,6 @@ impl Command {
                             header: Cow::Owned(Header {
                                 id,
                                 revision: Revision::with_id(revision, &contents),
-                                encryption_key: None, // TODO how to deal with restoring encryption from a backup?
                             }),
                             contents: Cow::Owned(contents),
                         };

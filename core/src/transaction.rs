@@ -38,9 +38,6 @@ pub struct Operation<'a> {
 pub enum Command<'a> {
     /// Inserts a new document containing `contents`.
     Insert {
-        /// The encryption key to use for the document.
-        encryption_key: Option<KeyId>,
-
         /// The initial contents of the document.
         contents: Cow<'a, [u8]>,
     },

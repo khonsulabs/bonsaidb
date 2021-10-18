@@ -505,70 +505,6 @@ macro_rules! define_connection_test_suite {
             .await?;
             harness.shutdown().await
         }
-
-        #[tokio::test]
-        async fn encryption_keys() -> anyhow::Result<()> {
-            use $crate::{
-                document::KeyId,
-                permissions::{
-                    bonsai::{
-                        collection_resource_name, encryption_key_resource_name, EncryptionKeyAction,
-                    },
-                    Action, ActionNameList, Identifier, Permissions, Statement,
-                },
-                schema::Collection,
-                test_util::Basic,
-            };
-
-            let harness = $harness::new($crate::test_util::HarnessTest::Encryption).await?;
-            let reader = harness
-                .connect_with_permissions(
-                    vec![
-                        // Grant permissions to decrypt using the master key.
-                        Statement {
-                            resources: vec![encryption_key_resource_name(&KeyId::Master)],
-                            actions: ActionNameList::from(EncryptionKeyAction::Decrypt.name()),
-                        },
-                        // Grant all document permissions
-                        Statement {
-                            resources: vec![collection_resource_name(
-                                Identifier::Any,
-                                &Basic::collection_name()?,
-                            )],
-                            actions: ActionNameList::All,
-                        },
-                    ],
-                    "reader",
-                )
-                .await
-                .unwrap();
-            let writer = harness
-                .connect_with_permissions(
-                    vec![
-                        // Grant permissions to decrypt using the master key.
-                        Statement {
-                            resources: vec![encryption_key_resource_name(&KeyId::Master)],
-                            actions: ActionNameList::from(EncryptionKeyAction::Encrypt.name()),
-                        },
-                        // Grant All document permissions
-                        Statement {
-                            resources: vec![collection_resource_name(
-                                Identifier::Any,
-                                &Basic::collection_name()?,
-                            )],
-                            actions: ActionNameList::All,
-                        },
-                    ],
-                    "writer",
-                )
-                .await
-                .unwrap();
-
-            $crate::test_util::encryption_tests(&reader, &writer)
-                .await
-                .unwrap();
-            harness.shutdown().await
-        }
     };
 }
 
@@ -1119,37 +1055,6 @@ pub async fn user_management_tests<C: Connection, S: ServerConnection>(
         .remove_permission_group_from_user(user_id, &group)
         .await?;
     server.remove_role_from_user(user_id, &role).await?;
-
-    Ok(())
-}
-
-pub async fn encryption_tests<C: Connection>(reader: &C, writer: &C) -> anyhow::Result<()> {
-    // Positive flows -- writer can write, reader can read
-    let document_header = writer
-        .collection::<Basic>()
-        .push_encrypted(&Basic::new("encrypted"), KeyId::Master)
-        .await?;
-
-    reader
-        .get::<Basic>(document_header.id)
-        .await
-        .expect("reader unable to get document")
-        .expect("document not found");
-
-    // Negative flows -- writer can't read, reader can't write
-    match reader
-        .collection::<Basic>()
-        .push_encrypted(&Basic::new("encrypted"), KeyId::Master)
-        .await
-    {
-        Err(Error::PermissionDenied(_)) => {}
-        other => panic!("unexpected response from reader: {:?}", other),
-    }
-
-    match writer.get::<Basic>(document_header.id).await {
-        Err(Error::PermissionDenied(_)) => {}
-        other => panic!("unexpected response from writer: {:?}", other),
-    }
 
     Ok(())
 }

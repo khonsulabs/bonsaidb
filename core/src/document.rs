@@ -15,9 +15,6 @@ pub struct Header {
 
     /// The revision of the stored document.
     pub revision: Revision,
-
-    /// The encryption key to use when saving to disk.
-    pub encryption_key: Option<KeyId>,
 }
 
 /// Contains a serialized document in the database.
@@ -33,14 +30,10 @@ pub struct Document<'a> {
 impl<'a> Document<'a> {
     /// Creates a new document with `contents`.
     #[must_use]
-    pub fn new(id: u64, contents: Cow<'a, [u8]>, encryption_key: Option<KeyId>) -> Self {
+    pub fn new(id: u64, contents: Cow<'a, [u8]>) -> Self {
         let revision = Revision::new(&contents);
         Self {
-            header: Cow::Owned(Header {
-                id,
-                revision,
-                encryption_key,
-            }),
+            header: Cow::Owned(Header { id, revision }),
             contents,
         }
     }
@@ -48,7 +41,7 @@ impl<'a> Document<'a> {
     /// Creates a new document with serialized bytes from `contents`.
     pub fn with_contents<S: Serialize>(id: u64, contents: &S) -> Result<Self, serde_cbor::Error> {
         let contents = Cow::from(serde_cbor::to_vec(contents)?);
-        Ok(Self::new(id, contents, None))
+        Ok(Self::new(id, contents))
     }
 
     /// Retrieves `contents` through deserialization into the type `D`.
@@ -75,7 +68,6 @@ impl<'a> Document<'a> {
             .map(|revision| Self {
                 header: Cow::Owned(Header {
                     id: self.header.id,
-                    encryption_key: self.header.encryption_key.clone(),
                     revision,
                 }),
                 contents,

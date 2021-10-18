@@ -263,7 +263,7 @@ where
                 )
                 .map_err(Error::from)?
             {
-                Ok(Some(task_self.deserialize_document(&vec)?.to_owned()))
+                Ok(Some(deserialize_document(&vec)?.to_owned()))
             } else {
                 Ok(None)
             }
@@ -296,7 +296,7 @@ where
                     )
                     .map_err(Error::from)?
                 {
-                    found_docs.push(task_self.deserialize_document(&vec)?.to_owned());
+                    found_docs.push(deserialize_document(&vec)?.to_owned());
                 }
             }
 
@@ -362,39 +362,6 @@ where
         Ok(mappings)
     }
 
-    pub(crate) fn deserialize_document<'a>(
-        &self,
-        bytes: &'a [u8],
-    ) -> Result<Document<'a>, bonsaidb_core::Error> {
-        let mut document = bincode::deserialize::<Document<'_>>(bytes).map_err(Error::from)?;
-        if let Some(_decryption_key) = &document.header.encryption_key {
-            let decrypted_contents = self
-                .storage()
-                .vault()
-                .decrypt_payload(&document.contents, self.data.effective_permissions.as_ref())?;
-            document.contents = Cow::Owned(decrypted_contents);
-        }
-        Ok(document)
-    }
-
-    fn serialize_document(&self, document: &Document<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
-        if let Some(encryption_key) = &document.header.encryption_key {
-            let encrypted_contents = self.storage().vault().encrypt_payload(
-                encryption_key,
-                &document.contents,
-                self.data.effective_permissions.as_ref(),
-            )?;
-            bincode::serialize(&Document {
-                header: document.header.clone(),
-                contents: Cow::from(encrypted_contents),
-            })
-        } else {
-            bincode::serialize(document)
-        }
-        .map_err(Error::from)
-        .map_err(bonsaidb_core::Error::from)
-    }
-
     fn execute_operation(
         &self,
         operation: &Operation<'_>,
@@ -402,19 +369,9 @@ where
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<OperationResult, Error> {
         match &operation.command {
-            Command::Insert {
-                contents,
-                encryption_key,
-            } => self.execute_insert(
-                operation,
-                transaction,
-                tree_index_map,
-                contents.clone(),
-                encryption_key
-                    .as_ref()
-                    .or_else(|| self.collection_encryption_key(&operation.collection))
-                    .cloned(),
-            ),
+            Command::Insert { contents } => {
+                self.execute_insert(operation, transaction, tree_index_map, contents.clone())
+            }
             Command::Update { header, contents } => self.execute_update(
                 operation,
                 transaction,
@@ -441,14 +398,9 @@ where
             .unwrap();
         let document_id = header.id.as_big_endian_bytes().unwrap();
         if let Some(vec) = documents.get(document_id.as_ref())? {
-            let doc = self.deserialize_document(&vec)?;
+            let doc = deserialize_document(&vec)?;
             if doc.header.revision == header.revision {
-                if let Some(mut updated_doc) = doc.create_new_revision(contents) {
-                    // Copy the encryption key if it's been updated.
-                    if updated_doc.header.encryption_key != header.encryption_key {
-                        updated_doc.header.to_mut().encryption_key = header.encryption_key.clone();
-                    }
-
+                if let Some(updated_doc) = doc.create_new_revision(contents) {
                     self.save_doc(documents, &updated_doc)?;
 
                     self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
@@ -487,7 +439,6 @@ where
         transaction: &mut ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
         contents: Cow<'_, [u8]>,
-        encryption_key: Option<KeyId>,
     ) -> Result<OperationResult, Error> {
         let documents = transaction
             .tree::<VersionedTreeRoot>(tree_index_map[&document_tree_name(&operation.collection)])
@@ -496,8 +447,8 @@ where
             .last_key()?
             .map(|bytes| BigEndian::read_u64(&bytes))
             .unwrap_or_default();
-        let doc = Document::new(last_key + 1, contents, encryption_key);
-        let serialized: Vec<u8> = self.serialize_document(&doc)?;
+        let doc = Document::new(last_key + 1, contents);
+        let serialized: Vec<u8> = serialize_document(&doc)?;
         let document_id = Buffer::from(doc.header.id.as_big_endian_bytes().unwrap().to_vec());
         documents.set(document_id.clone(), serialized)?;
 
@@ -521,7 +472,7 @@ where
             .unwrap();
         let document_id = header.id.as_big_endian_bytes().unwrap();
         if let Some(vec) = documents.remove(&document_id)? {
-            let doc = self.deserialize_document(&vec)?;
+            let doc = deserialize_document(&vec)?;
             if doc.header.as_ref() == header {
                 self.update_unique_views(
                     document_id.as_ref(),
@@ -589,7 +540,7 @@ where
         tree: &mut TransactionTree<VersionedTreeRoot, StdFile>,
         doc: &Document<'_>,
     ) -> Result<(), Error> {
-        let serialized: Vec<u8> = self.serialize_document(doc)?;
+        let serialized: Vec<u8> = serialize_document(doc)?;
         tree.set(
             doc.header
                 .id
@@ -722,6 +673,19 @@ where
     pub(crate) fn update_key_expiration(&self, update: kv::ExpirationUpdate) {
         self.data.context.update_key_expiration(update);
     }
+}
+
+pub(crate) fn deserialize_document<'a>(
+    bytes: &'a [u8],
+) -> Result<Document<'a>, bonsaidb_core::Error> {
+    let document = bincode::deserialize::<Document<'_>>(bytes).map_err(Error::from)?;
+    Ok(document)
+}
+
+fn serialize_document(document: &Document<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
+    bincode::serialize(document)
+        .map_err(Error::from)
+        .map_err(bonsaidb_core::Error::from)
 }
 
 #[async_trait]

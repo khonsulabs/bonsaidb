@@ -28,17 +28,12 @@ pub trait Connection: Send + Sync {
     }
 
     /// Inserts a newly created document into the connected [`schema::Schema`] for the [`Collection`] `C`.
-    async fn insert<C: schema::Collection>(
-        &self,
-        contents: Vec<u8>,
-        encryption_key: Option<KeyId>,
-    ) -> Result<Header, Error> {
+    async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error> {
         let mut tx = Transaction::default();
         tx.push(Operation {
             collection: C::collection_name()?,
             command: Command::Insert {
                 contents: Cow::from(contents),
-                encryption_key,
             },
         });
         let results = self.apply_transaction(tx).await?;
@@ -199,21 +194,7 @@ where
     /// Adds a new `Document<Cl>` with the contents `item`.
     pub async fn push<S: Serialize + Sync>(&self, item: &S) -> Result<Header, crate::Error> {
         let contents = serde_cbor::to_vec(item)?;
-        Ok(self.connection.insert::<Cl>(contents, None).await?)
-    }
-
-    /// Adds a new `Document<Cl>` with the contents `item`. Encrypts the
-    /// document using `encryption_key`.
-    pub async fn push_encrypted<S: Serialize + Sync>(
-        &self,
-        item: &S,
-        encryption_key: KeyId,
-    ) -> Result<Header, crate::Error> {
-        let contents = serde_cbor::to_vec(item)?;
-        Ok(self
-            .connection
-            .insert::<Cl>(contents, Some(encryption_key))
-            .await?)
+        Ok(self.connection.insert::<Cl>(contents).await?)
     }
 
     /// Retrieves a `Document<Cl>` with `id` from the connection.

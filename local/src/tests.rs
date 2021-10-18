@@ -171,10 +171,7 @@ fn encryption() -> anyhow::Result<()> {
         rt.block_on(async {
             let db = Database::<Basic>::open_local(&path, Configuration::default()).await?;
 
-            let document_header = db
-                .collection::<Basic>()
-                .push_encrypted(&Basic::new("hello"), KeyId::Master)
-                .await?;
+            let document_header = db.collection::<Basic>().push(&Basic::new("hello")).await?;
 
             // Retrieve the document, showing that it was stored successfully.
             let doc = db
@@ -187,12 +184,6 @@ fn encryption() -> anyhow::Result<()> {
             Result::<_, anyhow::Error>::Ok(document_header)
         })?
     };
-
-    // Verify the header shows that it's encrypted.
-    assert!(matches!(
-        document_header.encryption_key,
-        Some(KeyId::Master)
-    ));
 
     // By resetting the encryption key, we should be able to force an error in
     // decryption, which proves that the document was encrypted. To ensure the
