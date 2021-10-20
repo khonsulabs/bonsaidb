@@ -5,8 +5,7 @@ pub mod serve;
 
 use std::path::Path;
 
-use bonsaidb_local::Storage;
-use futures::Future;
+use actionable::Permissions;
 use structopt::StructOpt;
 
 use crate::{Backend, Configuration, CustomServer};
@@ -23,16 +22,15 @@ pub enum Command<B: Backend = ()> {
 
 impl<B: Backend> Command<B> {
     /// Executes the command.
-    pub async fn execute<
-        F: FnOnce(Storage) -> Fut + Send,
-        Fut: Future<Output = anyhow::Result<()>> + Send,
-    >(
-        &self,
-        database_path: &Path,
-        schema_registrar: F,
-    ) -> anyhow::Result<()> {
-        let server = CustomServer::<B>::open(database_path, Configuration::default()).await?;
-        schema_registrar(server.storage().clone()).await?;
+    pub async fn execute(&self, database_path: &Path) -> anyhow::Result<()> {
+        let server = CustomServer::<B>::open(
+            database_path,
+            Configuration {
+                default_permissions: Permissions::allow_all(),
+                ..Configuration::default()
+            },
+        )
+        .await?;
         match self {
             Self::Certificate(command) => command.execute(server).await,
             Self::Serve(command) => command.execute(server).await,

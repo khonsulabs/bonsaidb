@@ -86,6 +86,13 @@ pub struct Data<A: CustomApi> {
 }
 
 impl Client<()> {
+    /// Returns a builder for a new client connecting to `url`.
+    pub fn build(url: Url) -> Builder<()> {
+        Builder::new(url)
+    }
+}
+
+impl<A: CustomApi> Client<A> {
     /// Initialize a client connecting to `url`. This client can be shared by
     /// cloning it. All requests are done asynchronously over the same
     /// connection.
@@ -110,13 +117,6 @@ impl Client<()> {
         .await
     }
 
-    /// Returns a builder for a new client connecting to `url`.
-    pub fn build(url: Url) -> Builder<()> {
-        Builder::new(url)
-    }
-}
-
-impl<A: CustomApi> Client<A> {
     /// Initialize a client connecting to `url` with `certificate` being used to
     /// validate and encrypt the connection. This client can be shared by
     /// cloning it. All requests are done asynchronously over the same

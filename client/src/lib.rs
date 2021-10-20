@@ -22,6 +22,8 @@ mod builder;
 mod client;
 mod error;
 
+pub use fabruic;
+
 #[cfg(feature = "pubsub")]
 pub use self::client::RemoteSubscriber;
 pub use self::{

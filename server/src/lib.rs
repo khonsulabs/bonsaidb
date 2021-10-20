@@ -44,3 +44,4 @@ mod tests;
 pub mod test_util;
 
 pub use bonsaidb_local as local;
+pub use fabruic;

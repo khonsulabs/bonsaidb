@@ -1,7 +1,10 @@
 use std::{net::SocketAddr, ops::Deref, sync::Arc};
 
 use actionable::Permissions;
-use bonsaidb_core::{custodian_password::ServerLogin, custom_api::CustomApi};
+use bonsaidb_core::{
+    custodian_password::{LoginRequest, LoginResponse, ServerLogin},
+    custom_api::CustomApi,
+};
 use flume::Sender;
 use tokio::sync::{Mutex, RwLock};
 
@@ -72,6 +75,20 @@ impl<B: Backend> ConnectedClient<B> {
     pub async fn user_id(&self) -> Option<u64> {
         let auth_state = self.data.auth_state.read().await;
         auth_state.user_id
+    }
+
+    /// Initiates a login request for this client.
+    pub async fn initiate_login(
+        &self,
+        username: &str,
+        password_request: LoginRequest,
+        server: &CustomServer<B>,
+    ) -> Result<LoginResponse, bonsaidb_core::Error> {
+        let (user_id, login, response) = server
+            .internal_login_with_password(username, password_request)
+            .await?;
+        self.set_pending_password_login(user_id, login).await;
+        Ok(response)
     }
 
     pub(crate) async fn logged_in_as(&self, user_id: u64, new_permissions: Permissions) {

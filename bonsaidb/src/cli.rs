@@ -2,7 +2,7 @@
 //!
 //! Available commands:
 //!
-use std::{future::Future, path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr};
 
 use bonsaidb_client::Client;
 use bonsaidb_core::admin::Admin;
@@ -63,21 +63,11 @@ impl ConnectionTarget {
     }
 }
 
-impl Args {
+impl<B: Backend> Args<B> {
     /// Executes the command.
-    pub async fn execute<
-        F: FnOnce(Storage) -> Fut + Send,
-        Fut: Future<Output = anyhow::Result<()>> + Send,
-    >(
-        self,
-        schema_registrar: F,
-    ) -> anyhow::Result<()> {
+    pub async fn execute(self) -> anyhow::Result<()> {
         match self.command {
-            Command::Server(server) => {
-                server
-                    .execute(&self.connection.path()?, schema_registrar)
-                    .await
-            }
+            Command::Server(server) => server.execute(&self.connection.path()?).await,
             Command::Admin(command) => match self.connection {
                 ConnectionTarget::Path(path) => {
                     let storage = Storage::open_local(

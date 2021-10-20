@@ -118,7 +118,7 @@ impl<B: Backend> CustomServer<B> {
 
         let storage = Storage::open_local(directory, configuration.storage).await?;
 
-        Ok(Self {
+        let server = Self {
             data: Arc::new(Data {
                 clients: RwLock::default(),
                 storage,
@@ -135,17 +135,15 @@ impl<B: Backend> CustomServer<B> {
                 subscribers: Arc::default(),
                 _backend: PhantomData::default(),
             }),
-        })
+        };
+        B::initialize(&server).await;
+        Ok(server)
     }
 
     /// Returns the path to the directory that stores this server's data.
     #[must_use]
     pub fn directory(&self) -> &'_ PathBuf {
         &self.data.directory
-    }
-
-    pub(crate) fn storage(&self) -> &Storage {
-        &self.data.storage
     }
 
     /// Retrieves a database. This function only verifies that the database exists.
@@ -1158,11 +1156,10 @@ impl<'s, B: Backend> bonsaidb_core::networking::LoginWithPasswordHandler
         username: String,
         password_request: LoginRequest,
     ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
-        let (user_id, login, response) = self
-            .server
-            .internal_login_with_password(&username, password_request)
+        let response = self
+            .client
+            .initiate_login(&username, password_request, self.server)
             .await?;
-        self.client.set_pending_password_login(user_id, login).await;
         Ok(Response::Server(ServerResponse::PasswordLoginResponse {
             response: Box::new(response),
         }))

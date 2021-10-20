@@ -24,6 +24,6 @@ mod cli;
 use structopt::StructOpt;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let command = cli::Args::from_args();
-    command.execute(|_| async { Ok(()) }).await
+    let command = cli::Args::<()>::from_args();
+    command.execute().await
 }

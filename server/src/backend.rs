@@ -26,6 +26,10 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
         client: &ConnectedClient<Self>,
     ) -> Self::CustomApiDispatcher;
 
+    /// Invoked once upon the server starting up.
+    #[allow(unused_variables)]
+    async fn initialize(server: &CustomServer<Self>) {}
+
     // TODO: add client connections events, client errors, etc.
     /// A client disconnected from the server. This is invoked before authentication has been performed.
     #[allow(unused_variables)]
