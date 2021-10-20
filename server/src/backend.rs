@@ -75,9 +75,7 @@ impl Backend for () {
     }
 }
 
-// This needs to be pub because of the impl, but the user doesn't need to know
-// about this type.
-#[doc(hidden)]
+/// Defines a no-op dispatcher for a backend with no custom api.
 #[derive(Debug)]
 pub struct NoDispatcher;
 

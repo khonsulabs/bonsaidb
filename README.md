@@ -181,22 +181,6 @@ bonsaidb = { version = "*", default-features = false, features = "client-full" }
 - `client-pubsub`: Enables `PubSub` for `bonsaidb-client`.
 - `client-keyvalue`: Enables the key-value store for `bonsaidb-client`.
 
-## Backups
-
-### Exporting and restoring databases with direct access
-
-If you have a local `BonsaiDb` database, you can use the `local-backup` command to save and load backups:
-
-```sh
-bonsaidb local-backup <database-path> save
-```
-
-```sh
-bonsaidb local-backup <destination-database-path> load <backup-path>
-```
-
-The format of this export should be easy to work with if you're either transitioning from BonsaiDb to another solution or needing to do complicated disaster recovery work. It is [described here](https://khonsulabs.github.io/bonsaidb/main/bonsaidb/local/backup/enum.Command.html#variant.Save).
-
 ## Developing BonsaiDb
 
 ### Pre-commit hook

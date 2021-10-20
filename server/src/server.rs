@@ -144,6 +144,10 @@ impl<B: Backend> CustomServer<B> {
         &self.data.directory
     }
 
+    pub(crate) fn storage(&self) -> &Storage {
+        &self.data.storage
+    }
+
     /// Retrieves a database. This function only verifies that the database exists.
     pub async fn database<DB: Schema>(
         &self,

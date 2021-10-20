@@ -3,43 +3,37 @@ pub mod certificate;
 /// Command-line interface for hosting a server.
 pub mod serve;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
+use bonsaidb_local::Storage;
+use futures::Future;
 use structopt::StructOpt;
 
-use crate::{server::Server, Configuration, CustomServer};
-
-/// Command-line interface for `bonsaidb server`.
-#[derive(StructOpt, Debug)]
-pub struct Cli {
-    /// The path to the directory where the server should store its data.
-    pub server_data_directory: PathBuf,
-
-    /// The command to execute.
-    #[structopt(subcommand)]
-    pub subcommand: Command,
-}
+use crate::{Backend, Configuration, CustomServer};
 
 /// Available commands for `bonsaidb server`.
 #[derive(StructOpt, Debug)]
-pub enum Command {
+pub enum Command<B: Backend = ()> {
     /// Manage the server's root certificate.
     Certificate(certificate::Command),
 
     /// Execute the server.
     #[structopt(flatten)]
-    Serve(serve::Serve),
+    Serve(serve::Serve<B>),
 }
 
-impl Command {
+impl<B: Backend> Command<B> {
     /// Executes the command.
-    pub async fn execute<F: Fn(&Server) + Send>(
+    pub async fn execute<
+        F: FnOnce(Storage) -> Fut + Send,
+        Fut: Future<Output = anyhow::Result<()>> + Send,
+    >(
         &self,
         database_path: &Path,
         schema_registrar: F,
     ) -> anyhow::Result<()> {
-        let server = CustomServer::open(database_path, Configuration::default()).await?;
-        schema_registrar(&server);
+        let server = CustomServer::<B>::open(database_path, Configuration::default()).await?;
+        schema_registrar(server.storage().clone()).await?;
         match self {
             Self::Certificate(command) => command.execute(server).await,
             Self::Serve(command) => command.execute(server).await,

@@ -83,7 +83,15 @@ client-full = [
 client = ["bonsaidb-client"]
 test-util = ["bonsaidb-client/test-util", "bonsaidb-server/test-util"]
 
-cli = ["anyhow", "tokio", "structopt", "local-cli", "server-cli"]
+cli = [
+    "anyhow",
+    "tokio",
+    "structopt",
+    "url",
+    "client-full",
+    "local-cli",
+    "server-cli",
+]
 local-cli = ["bonsaidb-local/cli"]
 server-cli = ["bonsaidb-server/cli"]
 
@@ -112,6 +120,7 @@ bonsaidb-server = { path = "../server", version = "0.1.0-dev.4", default-feature
 tokio = { version = "1", features = ["full"], optional = true }
 structopt = { version = "0.3", optional = true }
 anyhow = { version = "1", optional = true }
+url = { version = "2.2", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -123,7 +132,7 @@ bonsaidb-core = { path = "../core", version = "0.1.0-dev.4", default-features = 
 futures = "0.3"
 rand = "0.8"
 url = "2.2"
-once_cell = "1"
+once_cell = "1.3.0"
 flume = "0.10"
 actionable = "0.1.0-dev.4"
 fabruic = { version = "0.0.1-dev.2" }

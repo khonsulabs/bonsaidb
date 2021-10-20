@@ -16,7 +16,7 @@ members = [
 # fabruic = { path = "../fabruic", version = "0.0.1-dev.2" }
 # actionable = { git="https://github.com/khonsulabs/actionable.git", branch="main" }
 # actionable = { path="../actionable/actionable", version="0.1.0-dev.4" }
-# nebari = { path = "../nebari/nebari", version = "0.1.0-rc.1" }
+# nebari = { path = "../nebari/nebari", version = "0.1.0-rc.3" }
 # nebari = { git = "https://github.com/khonsulabs/nebari.git", branch = "main" }
 
 # [patch."https://github.com/khonsulabs/custodian.git"]

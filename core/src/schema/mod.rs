@@ -32,8 +32,9 @@ pub trait Schema: Send + Sync + Debug + 'static {
     }
 }
 
-/// This trait is only useful for tools like `bonsaidb local-backup`. There is no
-/// real-world use case of connecting to a Database with no schema.
+/// This implementation is for accessing databases when interacting with
+/// collections isn't required. For example, accessing only the key-value store
+/// or pubsub.
 impl Schema for () {
     fn schema_name() -> Result<SchemaName, InvalidNameError> {
         SchemaName::new("", "")
