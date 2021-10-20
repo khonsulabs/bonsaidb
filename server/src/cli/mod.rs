@@ -18,7 +18,6 @@ pub enum Command<B: Backend = ()> {
     Certificate(certificate::Command),
 
     /// Execute the server.
-    #[structopt(flatten)]
     Serve(serve::Serve<B>),
 }
 

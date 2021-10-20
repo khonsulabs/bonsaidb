@@ -11,7 +11,8 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// The custom API definition. If you do not wish to have an API, `()` may be provided.
     type CustomApi: CustomApi;
 
-    /// The type that implements the [`Dispatcher`](bonsaidb_core::permissions::Dispatcher) trait.
+    /// The type that implements the
+    /// [`Dispatcher`](bonsaidb_core::permissions::Dispatcher) trait.
     type CustomApiDispatcher: Dispatcher<
             <Self::CustomApi as CustomApi>::Request,
             Result = anyhow::Result<<Self::CustomApi as CustomApi>::Response>,

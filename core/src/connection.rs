@@ -2,8 +2,8 @@ use std::{borrow::Cow, marker::PhantomData, ops::Range};
 
 use async_trait::async_trait;
 use custodian_password::{
-    ClientConfig, ClientFile, ClientRegistration, RegistrationFinalization, RegistrationRequest,
-    RegistrationResponse,
+    ClientConfig, ClientFile, ClientRegistration, ExportKey, RegistrationFinalization,
+    RegistrationRequest, RegistrationResponse,
 };
 use serde::{Deserialize, Serialize};
 
@@ -462,14 +462,14 @@ pub trait ServerConnection: Send + Sync {
         &self,
         user: U,
         password: &str,
-    ) -> Result<ClientFile, crate::Error> {
+    ) -> Result<PasswordResult, crate::Error> {
         let user = user.into();
         let (registration, request) =
             ClientRegistration::register(&ClientConfig::new(PASSWORD_CONFIG, None)?, password)?;
         let response = self.set_user_password(user.clone(), request).await?;
-        let (file, finalization, _export_key) = registration.finish(response)?;
+        let (file, finalization, export_key) = registration.finish(response)?;
         self.finish_set_user_password(user, finalization).await?;
-        Ok(file)
+        Ok(PasswordResult { file, export_key })
     }
 
     /// Adds a user to a permission group.
@@ -528,4 +528,17 @@ pub struct Database {
     pub name: String,
     /// The schema defining the database.
     pub schema: SchemaName,
+}
+
+/// The result of logging in with a password or setting a password.
+pub struct PasswordResult {
+    /// A file that can be stored locally that can be used to further validate
+    /// future login attempts. This does not need to be stored, but can be used
+    /// to detect if the server key has been changed without our knowledge.
+    pub file: ClientFile,
+    /// A keypair derived from the OPAQUE-KE session. This key is
+    /// deterministically derived from the key exchange with the server such
+    /// that upon logging in with your password, this key will always be the
+    /// same until you change your password.
+    pub export_key: ExportKey,
 }

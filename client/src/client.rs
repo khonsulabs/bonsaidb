@@ -13,7 +13,7 @@ use std::{
 use async_lock::Mutex;
 use async_trait::async_trait;
 use bonsaidb_core::{
-    connection::{Database, ServerConnection},
+    connection::{Database, PasswordResult, ServerConnection},
     custodian_password::{
         ClientConfig, ClientFile, ClientLogin, LoginFinalization, LoginRequest, LoginResponse,
     },
@@ -353,16 +353,16 @@ impl<A: CustomApi> Client<A> {
         username: &str,
         password: &str,
         previous_file: Option<ClientFile>,
-    ) -> Result<ClientFile, bonsaidb_core::Error> {
+    ) -> Result<PasswordResult, bonsaidb_core::Error> {
         let (login, request) = ClientLogin::login(
             &ClientConfig::new(PASSWORD_CONFIG, None)?,
             previous_file,
             password,
         )?;
         let response = self.login_with_password(username, request).await?;
-        let (new_file, login_finalization, _export_key) = login.finish(response)?;
+        let (file, login_finalization, export_key) = login.finish(response)?;
         self.finish_login_with_password(login_finalization).await?;
-        Ok(new_file)
+        Ok(PasswordResult { file, export_key })
     }
 
     async fn send_request(
