@@ -74,6 +74,6 @@ impl View for ByName {
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let group = document.contents::<PermissionGroup>()?;
-        Ok(Some(document.emit_key(group.name)))
+        Ok(vec![document.emit_key(group.name)])
     }
 }

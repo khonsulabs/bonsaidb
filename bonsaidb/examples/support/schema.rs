@@ -52,7 +52,7 @@ impl View for ShapesByNumberOfSides {
         document: &Document<'_>,
     ) -> MapResult<Self::Key, Self::Value> {
         let shape = document.contents::<Shape>()?;
-        Ok(Some(document.emit_key_and_value(shape.sides, 1)))
+        Ok(vec![document.emit_key_and_value(shape.sides, 1)])
     }
 
     fn reduce(

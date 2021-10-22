@@ -33,7 +33,7 @@ pub enum Error {
 }
 
 /// A type alias for the result of `View::map()`.
-pub type MapResult<K = (), V = ()> = Result<Option<Map<K, V>>, Error>;
+pub type MapResult<K = (), V = ()> = Result<Vec<Map<K, V>>, Error>;
 
 /// A map/reduce powered indexing and aggregation schema.
 ///
@@ -141,7 +141,7 @@ pub trait Serialized: Send + Sync + Debug {
     /// Wraps [`View::view_name`]
     fn view_name(&self) -> Result<ViewName, InvalidNameError>;
     /// Wraps [`View::map`]
-    fn map(&self, document: &Document<'_>) -> Result<Option<map::Serialized>, Error>;
+    fn map(&self, document: &Document<'_>) -> Result<Vec<map::Serialized>, Error>;
     /// Wraps [`View::reduce`]
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error>;
 }
@@ -168,10 +168,12 @@ where
         self.view_name()
     }
 
-    fn map(&self, document: &Document<'_>) -> Result<Option<map::Serialized>, Error> {
+    fn map(&self, document: &Document<'_>) -> Result<Vec<map::Serialized>, Error> {
         let map = self.map(document)?;
 
-        map.map(|map| map.serialized()).transpose()
+        map.into_iter()
+            .map(|map| map.serialized())
+            .collect::<Result<Vec<_>, Error>>()
     }
 
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error> {

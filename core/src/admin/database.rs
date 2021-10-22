@@ -40,9 +40,9 @@ impl View for ByName {
 
     fn map(&self, document: &Document<'_>) -> schema::MapResult<Self::Key, Self::Value> {
         let database = document.contents::<crate::connection::Database>()?;
-        Ok(Some(document.emit_key_and_value(
+        Ok(vec![document.emit_key_and_value(
             database.name.to_ascii_lowercase(),
             database.schema,
-        )))
+        )])
     }
 }

@@ -144,10 +144,10 @@ impl View for AsHistogram {
             histogram.record(*sample).unwrap();
         }
 
-        Ok(Some(document.emit_key_and_value(
+        Ok(vec![document.emit_key_and_value(
             samples.timestamp,
             StoredHistogram(histogram.into_sync()),
-        )))
+        )])
     }
 
     fn reduce(

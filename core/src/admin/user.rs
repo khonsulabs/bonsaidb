@@ -133,6 +133,6 @@ impl View for ByName {
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let role = document.contents::<User>()?;
-        Ok(Some(document.emit_key(role.username)))
+        Ok(vec![document.emit_key(role.username)])
     }
 }

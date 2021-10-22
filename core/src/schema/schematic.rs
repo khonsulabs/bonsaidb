@@ -150,7 +150,7 @@ fn schema_tests() -> anyhow::Result<()> {
         schema.collections_by_type_id[&TypeId::of::<Basic>()],
         Basic::collection_name()?
     );
-    assert_eq!(schema.views.len(), 7);
+    assert_eq!(schema.views.len(), 8);
     assert_eq!(
         schema.views[&TypeId::of::<BasicCount>()].view_name()?,
         View::view_name(&BasicCount)?

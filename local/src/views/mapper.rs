@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    collections::HashSet,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
@@ -211,28 +212,39 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
                         .map_err(bonsaidb_core::Error::from)?,
                 )
             } else {
-                (false, None)
+                (false, Vec::new())
             };
 
-        if let Some(map::Serialized { source, key, value }) = map_result {
-            self.save_mapping(source, &key, value)?;
-        } else {
+        // We need to store a record of all the mappings this document produced.
+        let keys: HashSet<Cow<'_, [u8]>> = map_result
+            .iter()
+            .map(|map| Cow::Borrowed(map.key.as_slice()))
+            .collect();
+        let encrypted_entry = bincode::serialize(&keys)?;
+        let document_map = self
+            .transaction
+            .tree::<Unversioned>(self.document_map_index)
+            .unwrap();
+        if let Some(existing_map) =
+            document_map.replace(self.document_id.to_vec(), encrypted_entry)?
+        {
+            // This document previously had been mapped. We will update any keys
+            // that match, but we need to remove any that are no longer present.
+            self.remove_existing_view_entries_for_keys(&keys, &existing_map)?;
+        }
+
+        if map_result.is_empty() {
             self.omit_document(doc_still_exists)?;
+        } else {
+            for map::Serialized { source, key, value } in map_result {
+                self.save_mapping(source, &key, value)?;
+            }
         }
 
         Ok(())
     }
 
     fn omit_document(&mut self, doc_still_exists: bool) -> Result<(), Error> {
-        // When no entry is emitted, the document map is emptied and a note is made in omitted_entries
-        let document_map = self
-            .transaction
-            .tree::<Unversioned>(self.document_map_index)
-            .unwrap();
-        if let Some(existing_map) = document_map.remove(self.document_id)? {
-            self.remove_existing_view_entries_for_keys(&[], &existing_map)?;
-        }
-
         if doc_still_exists {
             let omitted_entries = self
                 .transaction
@@ -281,23 +293,6 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
             .tree::<Unversioned>(self.omitted_entries_index)
             .unwrap();
         omitted_entries.remove(self.document_id)?;
-
-        // When map results are returned, the document
-        // map will contain an array of keys that the
-        // document returned. Currently we only support
-        // single emits, so it's going to be a
-        // single-entry vec for now.
-        let keys: Vec<Cow<'_, [u8]>> = vec![Cow::Borrowed(key)];
-        let encrypted_entry = bincode::serialize(&keys)?;
-        let document_map = self
-            .transaction
-            .tree::<Unversioned>(self.document_map_index)
-            .unwrap();
-        if let Some(existing_map) =
-            document_map.replace(self.document_id.to_vec(), encrypted_entry)?
-        {
-            self.remove_existing_view_entries_for_keys(&keys, &existing_map)?;
-        }
 
         let entry_mapping = EntryMapping { source, value };
 
@@ -362,66 +357,47 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
 
     fn remove_existing_view_entries_for_keys(
         &mut self,
-        keys: &[Cow<'_, [u8]>],
+        keys: &HashSet<Cow<'_, [u8]>>,
         existing_map: &[u8],
     ) -> Result<(), Error> {
-        let existing_keys = bincode::deserialize::<Vec<Cow<'_, [u8]>>>(existing_map)?;
-        if existing_keys == keys {
-            // No change
-            return Ok(());
-        }
-
-        assert_eq!(
-            existing_keys.len(),
-            1,
-            "need to add support for multi-emitted keys"
-        );
-        // Remove the old key
-        if let Some(mut entry_collection) = self.load_entry_for_key(&existing_keys[0])? {
-            let document_id = u64::from_big_endian_bytes(self.document_id).unwrap();
-            entry_collection
-                .mappings
-                .retain(|m| m.source != document_id);
-
-            if entry_collection.mappings.is_empty() {
-                entry_collection.remove_active_entry();
-                if entry_collection.is_empty() {
-                    // Remove the key
-                    let view_entries = self
-                        .transaction
-                        .tree::<Unversioned>(self.view_entries_index)
-                        .unwrap();
-                    view_entries.remove(
-                        entry_collection
-                            .loaded_from
-                            .as_ref()
-                            .map_or(existing_keys[0].as_ref(), |key| &key[..]),
-                    )?;
-                    return Ok(());
-                }
-            } else {
-                let mappings = entry_collection
-                    .mappings
-                    .iter()
-                    .map(|m| (existing_keys[0].as_ref(), m.value.as_slice()))
-                    .collect::<Vec<_>>();
-                entry_collection.reduced_value = self
-                    .view
-                    .reduce(&mappings, false)
-                    .map_err(bonsaidb_core::Error::from)?;
-            }
-
-            let value = bincode::serialize(&entry_collection)?;
-            let view_entries = self
-                .transaction
-                .tree::<Unversioned>(self.view_entries_index)
-                .unwrap();
-            view_entries.set(
+        let existing_keys = bincode::deserialize::<HashSet<Cow<'_, [u8]>>>(existing_map)?;
+        for key_to_remove_from in existing_keys.difference(keys) {
+            if let Some(mut entry_collection) = self.load_entry_for_key(key_to_remove_from)? {
+                let document_id = u64::from_big_endian_bytes(self.document_id).unwrap();
                 entry_collection
-                    .loaded_from
-                    .map_or(existing_keys[0].to_vec(), |key| key.to_vec()),
-                value,
-            )?;
+                    .mappings
+                    .retain(|m| m.source != document_id);
+
+                if entry_collection.mappings.is_empty() {
+                    entry_collection.remove_active_entry();
+                    if entry_collection.is_empty() {
+                        // Remove the key
+                        let view_entries = self
+                            .transaction
+                            .tree::<Unversioned>(self.view_entries_index)
+                            .unwrap();
+                        view_entries.remove(key_to_remove_from)?;
+                        continue;
+                    }
+                } else {
+                    let mappings = entry_collection
+                        .mappings
+                        .iter()
+                        .map(|m| (&key_to_remove_from[..], m.value.as_slice()))
+                        .collect::<Vec<_>>();
+                    entry_collection.reduced_value = self
+                        .view
+                        .reduce(&mappings, false)
+                        .map_err(bonsaidb_core::Error::from)?;
+                }
+
+                let value = bincode::serialize(&entry_collection)?;
+                let view_entries = self
+                    .transaction
+                    .tree::<Unversioned>(self.view_entries_index)
+                    .unwrap();
+                view_entries.set(key_to_remove_from.to_vec(), value)?;
+            }
         }
 
         Ok(())

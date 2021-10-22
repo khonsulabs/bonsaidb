@@ -28,12 +28,14 @@ pub struct Basic {
     pub value: String,
     pub category: Option<String>,
     pub parent_id: Option<u64>,
+    pub tags: Vec<String>,
 }
 
 impl Basic {
     pub fn new(value: impl Into<String>) -> Self {
         Self {
             value: value.into(),
+            tags: Vec::default(),
             category: None,
             parent_id: None,
         }
@@ -41,6 +43,11 @@ impl Basic {
 
     pub fn with_category(mut self, category: impl Into<String>) -> Self {
         self.category = Some(category.into());
+        self
+    }
+
+    pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
+        self.tags.push(tag.into());
         self
     }
 
@@ -59,6 +66,7 @@ impl Collection for Basic {
     fn define_views(schema: &mut Schematic) -> Result<(), Error> {
         schema.define_view(BasicCount)?;
         schema.define_view(BasicByParentId)?;
+        schema.define_view(BasicByTag)?;
         schema.define_view(BasicByCategory)
     }
 }
@@ -80,7 +88,7 @@ impl View for BasicCount {
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        Ok(Some(document.emit_key_and_value((), 1)))
+        Ok(vec![document.emit_key_and_value((), 1)])
     }
 
     fn reduce(
@@ -110,7 +118,7 @@ impl View for BasicByParentId {
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<Basic>()?;
-        Ok(Some(document.emit_key_and_value(contents.parent_id, 1)))
+        Ok(vec![document.emit_key_and_value(contents.parent_id, 1)])
     }
 
     fn reduce(
@@ -141,12 +149,45 @@ impl View for BasicByCategory {
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<Basic>()?;
         if let Some(category) = &contents.category {
-            Ok(Some(
-                document.emit_key_and_value(category.to_lowercase(), 1),
-            ))
+            Ok(vec![document.emit_key_and_value(category.to_lowercase(), 1)])
         } else {
-            Ok(None)
+            Ok(Vec::new())
         }
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[MappedValue<Self::Key, Self::Value>],
+        _rereduce: bool,
+    ) -> Result<Self::Value, view::Error> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
+#[derive(Debug)]
+pub struct BasicByTag;
+
+impl View for BasicByTag {
+    type Collection = Basic;
+    type Key = String;
+    type Value = usize;
+
+    fn version(&self) -> u64 {
+        0
+    }
+
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-tag")
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+        let contents = document.contents::<Basic>()?;
+
+        Ok(contents
+            .tags
+            .iter()
+            .map(|tag| document.emit_key_and_value(tag.clone(), 1))
+            .collect())
     }
 
     fn reduce(
@@ -175,7 +216,7 @@ impl View for BasicByBrokenParentId {
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        Ok(Some(document.emit()))
+        Ok(vec![document.emit()])
     }
 }
 
@@ -240,7 +281,7 @@ impl View for EncryptedBasicCount {
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        Ok(Some(document.emit_key_and_value((), 1)))
+        Ok(vec![document.emit_key_and_value((), 1)])
     }
 
     fn reduce(
@@ -270,7 +311,7 @@ impl View for EncryptedBasicByParentId {
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<EncryptedBasic>()?;
-        Ok(Some(document.emit_key_and_value(contents.parent_id, 1)))
+        Ok(vec![document.emit_key_and_value(contents.parent_id, 1)])
     }
 
     fn reduce(
@@ -301,11 +342,9 @@ impl View for EncryptedBasicByCategory {
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<EncryptedBasic>()?;
         if let Some(category) = &contents.category {
-            Ok(Some(
-                document.emit_key_and_value(category.to_lowercase(), 1),
-            ))
+            Ok(vec![document.emit_key_and_value(category.to_lowercase(), 1)])
         } else {
-            Ok(None)
+            Ok(Vec::new())
         }
     }
 
@@ -370,7 +409,7 @@ impl View for UniqueValue {
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let entry = document.contents::<Unique>()?;
-        Ok(Some(document.emit_key(entry.value)))
+        Ok(vec![document.emit_key(entry.value)])
     }
 }
 
@@ -462,6 +501,7 @@ pub enum HarnessTest {
     ViewQuery,
     UnassociatedCollection,
     ViewUpdate,
+    ViewMultiEmit,
     ViewAccessPolicies,
     Encryption,
     UniqueViews,
@@ -609,6 +649,15 @@ macro_rules! define_connection_test_suite {
             let db = harness.connect().await?;
 
             $crate::test_util::view_update_tests(&db).await?;
+            harness.shutdown().await
+        }
+
+        #[tokio::test]
+        async fn view_multi_emit() -> anyhow::Result<()> {
+            let harness = $harness::new($crate::test_util::HarnessTest::ViewMultiEmit).await?;
+            let db = harness.connect().await?;
+
+            $crate::test_util::view_multi_emit_tests(&db).await?;
             harness.shutdown().await
         }
 
@@ -1025,6 +1074,108 @@ pub async fn view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
             key: None,
             value: 1,
         },]
+    );
+
+    Ok(())
+}
+
+pub async fn view_multi_emit_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+    let mut a = Basic::new("A")
+        .with_tag("red")
+        .with_tag("green")
+        .insert_into(db)
+        .await?;
+    let mut b = Basic::new("B")
+        .with_tag("blue")
+        .with_tag("green")
+        .insert_into(db)
+        .await?;
+
+    assert_eq!(
+        db.view::<BasicByTag>()
+            .with_key(String::from("green"))
+            .query()
+            .await?
+            .len(),
+        2
+    );
+
+    assert_eq!(
+        db.view::<BasicByTag>()
+            .with_key(String::from("red"))
+            .query()
+            .await?
+            .len(),
+        1
+    );
+
+    assert_eq!(
+        db.view::<BasicByTag>()
+            .with_key(String::from("blue"))
+            .query()
+            .await?
+            .len(),
+        1
+    );
+
+    // Change tags
+    a.contents.tags = vec![String::from("red"), String::from("blue")];
+    a.update(db).await?;
+
+    assert_eq!(
+        db.view::<BasicByTag>()
+            .with_key(String::from("green"))
+            .query()
+            .await?
+            .len(),
+        1
+    );
+
+    assert_eq!(
+        db.view::<BasicByTag>()
+            .with_key(String::from("red"))
+            .query()
+            .await?
+            .len(),
+        1
+    );
+
+    assert_eq!(
+        db.view::<BasicByTag>()
+            .with_key(String::from("blue"))
+            .query()
+            .await?
+            .len(),
+        2
+    );
+    b.contents.tags.clear();
+    b.update(db).await?;
+
+    assert_eq!(
+        db.view::<BasicByTag>()
+            .with_key(String::from("green"))
+            .query()
+            .await?
+            .len(),
+        0
+    );
+
+    assert_eq!(
+        db.view::<BasicByTag>()
+            .with_key(String::from("red"))
+            .query()
+            .await?
+            .len(),
+        1
+    );
+
+    assert_eq!(
+        db.view::<BasicByTag>()
+            .with_key(String::from("blue"))
+            .query()
+            .await?
+            .len(),
+        1
     );
 
     Ok(())
