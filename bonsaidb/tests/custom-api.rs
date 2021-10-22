@@ -7,7 +7,7 @@ use bonsaidb::{
         permissions::{Actionable, Dispatcher, Permissions},
         test_util::{Basic, TestDirectory},
     },
-    server::{Backend, Configuration, ConnectedClient, CustomServer},
+    server::{Backend, Configuration, ConnectedClient, CustomServer, DefaultPermissions},
 };
 use serde::{Deserialize, Serialize};
 
@@ -51,7 +51,7 @@ async fn custom_api() -> anyhow::Result<()> {
     let server = CustomServer::<CustomBackend>::open(
         dir.as_ref(),
         Configuration {
-            default_permissions: Permissions::allow_all(),
+            default_permissions: DefaultPermissions::AllowAll,
             ..Configuration::default()
         },
     )

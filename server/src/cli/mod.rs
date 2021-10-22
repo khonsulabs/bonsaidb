@@ -5,10 +5,9 @@ pub mod serve;
 
 use std::path::Path;
 
-use actionable::Permissions;
 use structopt::StructOpt;
 
-use crate::{Backend, Configuration, CustomServer};
+use crate::{config::DefaultPermissions, Backend, Configuration, CustomServer};
 
 /// Available commands for `bonsaidb server`.
 #[derive(StructOpt, Debug)]
@@ -26,7 +25,7 @@ impl<B: Backend> Command<B> {
         let server = CustomServer::<B>::open(
             database_path,
             Configuration {
-                default_permissions: Permissions::allow_all(),
+                default_permissions: DefaultPermissions::AllowAll,
                 ..Configuration::default()
             },
         )

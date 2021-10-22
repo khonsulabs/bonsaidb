@@ -110,8 +110,7 @@ pub enum ServerAction {
     /// Permits connecting to the server. Upon negotiating authentication, the
     /// effective permissions of the connected party will be checked for
     /// permissions to `Connect`. If not allowed, the connection will be
-    /// terminated. (Not implemented)
-    // TODO actually implement Connect checking
+    /// terminated.
     Connect,
     /// Permits [`ServerConnection::list_available_schemas`](crate::connection::ServerConnection::list_available_schemas).
     ListAvailableSchemas,

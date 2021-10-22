@@ -58,7 +58,8 @@ use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
 
 use crate::{
-    async_io_util::FileExt, backend::ConnectionHandling, error::Error, Backend, Configuration,
+    async_io_util::FileExt, backend::ConnectionHandling, config::DefaultPermissions, error::Error,
+    Backend, Configuration,
 };
 
 mod connected_client;
@@ -118,6 +119,11 @@ impl<B: Backend> CustomServer<B> {
 
         let storage = Storage::open_local(directory, configuration.storage).await?;
 
+        let default_permissions = match configuration.default_permissions {
+            DefaultPermissions::Permissions(permissions) => permissions,
+            DefaultPermissions::AllowAll => Permissions::allow_all(),
+        };
+
         let server = Self {
             data: Arc::new(Data {
                 clients: RwLock::default(),
@@ -125,7 +131,7 @@ impl<B: Backend> CustomServer<B> {
                 directory: directory.to_owned(),
                 endpoint: RwLock::default(),
                 request_processor,
-                default_permissions: configuration.default_permissions,
+                default_permissions,
                 client_simultaneous_request_limit: configuration.client_simultaneous_request_limit,
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
@@ -332,6 +338,17 @@ impl<B: Backend> CustomServer<B> {
         address: SocketAddr,
         sender: Sender<<B::CustomApi as CustomApi>::Response>,
     ) -> Option<OwnedClient<B>> {
+        if !self.data.default_permissions.allowed_to(
+            &bonsaidb_resource_name(),
+            &BonsaiAction::Server(ServerAction::Connect),
+        ) {
+            println!(
+                "Rejecting connection, permissions: {:?}",
+                &self.data.default_permissions
+            );
+            return None;
+        }
+
         let client = loop {
             let next_id = CONNECTED_CLIENT_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
             let mut clients = self.data.clients.write().await;
@@ -1197,23 +1214,34 @@ impl<'s, B: Backend> bonsaidb_core::networking::FinishPasswordLoginHandler
 
 #[async_trait]
 impl<'s, B: Backend> bonsaidb_core::networking::SetPasswordHandler for ServerDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        user: &'a NamedReference<'static>,
-        _password_request: &'a RegistrationRequest,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    async fn verify_permissions(
+        &self,
+        permissions: &Permissions,
+        user: &NamedReference<'static>,
+        _password_request: &RegistrationRequest,
+    ) -> Result<(), bonsaidb_core::Error> {
         let id = user
             .id::<User, _>(&self.server.admin().await)
             .await?
             .ok_or(bonsaidb_core::Error::UserNotFound)?;
 
-        Ok(user_resource_name(id))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Server(ServerAction::SetPassword)
+        if self.client.user_id().await == Some(id) {
+            // Users can always set their own password
+            Ok(())
+        } else {
+            let user_resource_id = user_resource_name(id);
+            if permissions.allowed_to(
+                &user_resource_id,
+                &BonsaiAction::Server(ServerAction::SetPassword),
+            ) {
+                Ok(())
+            } else {
+                Err(bonsaidb_core::Error::from(PermissionDenied {
+                    resource: user_resource_id.to_owned(),
+                    action: BonsaiAction::Server(ServerAction::SetPassword).name(),
+                }))
+            }
+        }
     }
 
     async fn handle_protected(

@@ -15,7 +15,7 @@ use bonsaidb::{
         schema::Collection,
         Error,
     },
-    server::{Configuration, Server, StorageConfiguration},
+    server::{Configuration, DefaultPermissions, Server, StorageConfiguration},
 };
 
 mod support;
@@ -105,13 +105,15 @@ async fn setup_server() -> anyhow::Result<Server> {
     let server = Server::open(
         Path::new("users-server-data.bonsaidb"),
         Configuration {
-            default_permissions: Permissions::from(vec![Statement {
-                resources: vec![ResourceName::any()],
-                actions: ActionNameList::List(vec![BonsaiAction::Server(
-                    ServerAction::LoginWithPassword,
-                )
-                .name()]),
-            }]),
+            default_permissions: DefaultPermissions::Permissions(
+                Permissions::from(vec![Statement {
+                    resources: vec![ResourceName::any()],
+                    actions: ActionNameList::List(vec![BonsaiAction::Server(
+                        ServerAction::LoginWithPassword,
+                    )
+                    .name()]),
+                }]),
+            ),
             storage: StorageConfiguration {
                 default_encryption_key: Some(KeyId::Master),
                 ..Default::default()

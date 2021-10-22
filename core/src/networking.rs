@@ -92,7 +92,7 @@ pub enum ServerRequest {
     },
 
     /// Sets a user's password.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
     SetPassword {
         /// The username or id of the user to set the password for.
         user: NamedReference<'static>,

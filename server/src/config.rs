@@ -13,7 +13,7 @@ pub struct Configuration {
     /// Configuration options for individual databases.
     pub storage: StorageConfiguration,
     /// The permissions granted to all connections to this server.
-    pub default_permissions: Permissions,
+    pub default_permissions: DefaultPermissions,
 }
 
 impl Default for Configuration {
@@ -24,7 +24,16 @@ impl Default for Configuration {
             // but it also should probably be based on the cpu's capabilities
             request_workers: 16,
             storage: bonsaidb_local::config::Configuration::default(),
-            default_permissions: Permissions::default(),
+            default_permissions: DefaultPermissions::Permissions(Permissions::default()),
         }
     }
+}
+
+/// The default permissions to use for all connections to the server.
+#[derive(Debug)]
+pub enum DefaultPermissions {
+    /// Allow all permissions. Do not use outside of completely trusted environments.
+    AllowAll,
+    /// A defined set of permissions.
+    Permissions(Permissions),
 }

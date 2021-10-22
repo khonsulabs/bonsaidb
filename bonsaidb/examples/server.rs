@@ -6,11 +6,10 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         connection::{Connection, ServerConnection},
-        permissions::Permissions,
         schema::Collection,
         Error,
     },
-    server::{Configuration, Server},
+    server::{Configuration, DefaultPermissions, Server},
 };
 use rand::{thread_rng, Rng};
 
@@ -23,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     let server = Server::open(
         Path::new("server-data.bonsaidb"),
         Configuration {
-            default_permissions: Permissions::allow_all(),
+            default_permissions: DefaultPermissions::AllowAll,
             ..Default::default()
         },
     )

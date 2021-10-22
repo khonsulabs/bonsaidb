@@ -2,11 +2,9 @@
 
 use std::path::Path;
 
-use bonsaidb_core::{
-    connection::ServerConnection, permissions::Permissions, test_util::BasicSchema,
-};
+use bonsaidb_core::{connection::ServerConnection, test_util::BasicSchema};
 
-use crate::{Configuration, Server};
+use crate::{config::DefaultPermissions, Configuration, Server};
 
 pub const BASIC_SERVER_NAME: &str = "basic-server";
 
@@ -14,7 +12,7 @@ pub async fn initialize_basic_server(path: &Path) -> anyhow::Result<Server> {
     let server = Server::open(
         path,
         Configuration {
-            default_permissions: Permissions::allow_all(),
+            default_permissions: DefaultPermissions::AllowAll,
             ..Configuration::default()
         },
     )

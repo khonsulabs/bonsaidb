@@ -41,6 +41,11 @@ pub async fn reconnecting_client_loop<
         )
         .await
         {
+            println!(
+                "Received an error: {:?}. Had request: {:?}",
+                err,
+                failed_request.is_some()
+            );
             if let Some(failed_request) = failed_request {
                 drop(failed_request.responder.send(Err(err)));
             }

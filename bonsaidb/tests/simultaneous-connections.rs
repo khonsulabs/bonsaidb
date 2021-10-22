@@ -4,10 +4,9 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         connection::ServerConnection,
-        permissions::Permissions,
         test_util::{self, Basic, TestDirectory},
     },
-    server::{Configuration, Server},
+    server::{Configuration, DefaultPermissions, Server},
 };
 
 #[tokio::test]
@@ -16,7 +15,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
     let server = Server::open(
         dir.as_ref(),
         Configuration {
-            default_permissions: Permissions::allow_all(),
+            default_permissions: DefaultPermissions::AllowAll,
             ..Configuration::default()
         },
     )
