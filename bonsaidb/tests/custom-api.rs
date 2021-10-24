@@ -11,6 +11,7 @@ use bonsaidb::{
         Backend, BackendError, Configuration, ConnectedClient, CustomServer, DefaultPermissions,
     },
 };
+use bonsaidb_core::custom_api::Infallible;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Dispatcher)]
@@ -33,7 +34,7 @@ impl Backend for CustomBackend {
 impl CustomApi for CustomBackend {
     type Request = CustomRequest;
     type Response = CustomResponse;
-    type Error = ();
+    type Error = Infallible;
 }
 
 #[derive(Serialize, Deserialize, Debug, Actionable)]
@@ -71,19 +72,22 @@ async fn custom_api() -> anyhow::Result<()> {
         .finish()
         .await?;
 
-    let CustomResponse::Pong = client.send_api_request(CustomRequest::Ping).await?.unwrap();
+    let CustomResponse::Pong = client.send_api_request(CustomRequest::Ping).await?;
 
     Ok(())
 }
 
 impl CustomRequestDispatcher for CustomBackend {
     type Output = CustomResponse;
-    type Error = BackendError<()>;
+    type Error = BackendError<Infallible>;
 }
 
 #[actionable::async_trait]
 impl PingHandler for CustomBackend {
-    async fn handle(&self, _permissions: &Permissions) -> Result<CustomResponse, BackendError<()>> {
+    async fn handle(
+        &self,
+        _permissions: &Permissions,
+    ) -> Result<CustomResponse, BackendError<Infallible>> {
         Ok(CustomResponse::Pong)
     }
 }

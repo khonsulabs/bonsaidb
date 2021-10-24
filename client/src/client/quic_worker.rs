@@ -20,10 +20,10 @@ use crate::{client::OutstandingRequestMapHandle, Error};
 pub async fn reconnecting_client_loop<A: CustomApi>(
     mut url: Url,
     certificate: Option<Certificate>,
-    request_receiver: Receiver<PendingRequest<A::Request, CustomApiResult<A>>>,
+    request_receiver: Receiver<PendingRequest<A>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
-) -> Result<(), Error> {
+) -> Result<(), Error<A::Error>> {
     if url.port().is_none() && url.scheme() == "bonsaidb" {
         let _ = url.set_port(Some(5645));
     }
@@ -59,17 +59,11 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
 async fn connect_and_process<A: CustomApi>(
     url: &Url,
     certificate: Option<&Certificate>,
-    initial_request: PendingRequest<A::Request, CustomApiResult<A>>,
-    request_receiver: &Receiver<PendingRequest<A::Request, CustomApiResult<A>>>,
+    initial_request: PendingRequest<A>,
+    request_receiver: &Receiver<PendingRequest<A>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     #[cfg(feature = "pubsub")] subscribers: &SubscriberMap,
-) -> Result<
-    (),
-    (
-        Option<PendingRequest<A::Request, CustomApiResult<A>>>,
-        Error,
-    ),
-> {
+) -> Result<(), (Option<PendingRequest<A>>, Error<A::Error>)> {
     let (_connection, payload_sender, payload_receiver) = match connect::<A>(url, certificate).await
     {
         Ok(result) => result,
@@ -110,10 +104,10 @@ async fn connect_and_process<A: CustomApi>(
 }
 
 async fn process_requests<A: CustomApi>(
-    outstanding_requests: OutstandingRequestMapHandle<A::Request, CustomApiResult<A>>,
-    request_receiver: &Receiver<PendingRequest<A::Request, CustomApiResult<A>>>,
+    outstanding_requests: OutstandingRequestMapHandle<A>,
+    request_receiver: &Receiver<PendingRequest<A>>,
     payload_sender: fabruic::Sender<Payload<Request<A::Request>>>,
-) -> Result<(), Error> {
+) -> Result<(), Error<A::Error>> {
     while let Ok(client_request) = request_receiver.recv_async().await {
         let mut outstanding_requests = outstanding_requests.lock().await;
         payload_sender.send(&client_request.request)?;
@@ -128,11 +122,11 @@ async fn process_requests<A: CustomApi>(
 }
 
 pub async fn process<A: CustomApi>(
-    outstanding_requests: OutstandingRequestMapHandle<A::Request, CustomApiResult<A>>,
+    outstanding_requests: OutstandingRequestMapHandle<A>,
     mut payload_receiver: fabruic::Receiver<Payload<Response<CustomApiResult<A>>>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
-) -> Result<(), Error> {
+) -> Result<(), Error<A::Error>> {
     while let Some(payload) = payload_receiver.next().await {
         let payload = payload?;
         super::process_response_payload(
@@ -157,7 +151,7 @@ async fn connect<A: CustomApi>(
         fabruic::Sender<Payload<Request<A::Request>>>,
         fabruic::Receiver<Payload<Response<CustomApiResult<A>>>>,
     ),
-    Error,
+    Error<A::Error>,
 > {
     let endpoint = Endpoint::new_client()
         .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;

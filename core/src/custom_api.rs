@@ -23,17 +23,27 @@ pub trait CustomApi: Debug + Send + Sync + 'static {
 impl CustomApi for () {
     type Request = ();
     type Response = ();
-    type Error = ();
+    type Error = Infallible;
 }
+
+/// An Error type that can be used in within a [`CustomApi`] definition.
+///
+/// The reason `std::convert::Infallible` can't be used is because `CustomApi`
+/// errors must be able to be serialized across a network connection. While a
+/// value will never be present when this is Infallible, the associated type
+/// still must be declared as Serializable.
+#[derive(thiserror::Error, Debug, Clone, Serialize, Deserialize)]
+#[error("an unreachable error")]
+pub struct Infallible;
 
 /// An error that can be used within a [`CustomApi`] definition.
 pub trait CustomApiError:
-    Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug
+    std::fmt::Display + Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug
 {
 }
 
 impl<T> CustomApiError for T where
-    T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug
+    T: std::fmt::Display + Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug
 {
 }
 

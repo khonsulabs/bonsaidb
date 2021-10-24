@@ -9,7 +9,6 @@ use futures::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use url::Url;
@@ -21,10 +20,10 @@ use crate::{client::OutstandingRequestMapHandle, Error};
 
 pub async fn reconnecting_client_loop<A: CustomApi>(
     url: Url,
-    request_receiver: Receiver<PendingRequest<A::Request, CustomApiResult<A>>>,
+    request_receiver: Receiver<PendingRequest<A>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
-) -> Result<(), Error> {
+) -> Result<(), Error<A::Error>> {
     while let Ok(request) = request_receiver.recv_async().await {
         let (stream, _) = match tokio_tungstenite::connect_async(&url).await {
             Ok(result) => result,
@@ -69,14 +68,11 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
     Ok(())
 }
 
-async fn request_sender<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(
-    request_receiver: &Receiver<PendingRequest<R, O>>,
+async fn request_sender<Api: CustomApi>(
+    request_receiver: &Receiver<PendingRequest<Api>>,
     mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    outstanding_requests: OutstandingRequestMapHandle<R, O>,
-) -> Result<(), Error> {
+    outstanding_requests: OutstandingRequestMapHandle<Api>,
+) -> Result<(), Error<Api::Error>> {
     while let Ok(pending) = request_receiver.recv_async().await {
         let mut outstanding_requests = outstanding_requests.lock().await;
         sender
@@ -95,10 +91,10 @@ async fn request_sender<
 #[allow(clippy::collapsible_else_if)] // not possible due to cfg statement
 async fn response_processor<A: CustomApi>(
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-    outstanding_requests: OutstandingRequestMapHandle<A::Request, CustomApiResult<A>>,
+    outstanding_requests: OutstandingRequestMapHandle<A>,
     custom_api_callback: Option<&dyn CustomApiCallback<A>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
-) -> Result<(), Error> {
+) -> Result<(), Error<A::Error>> {
     while let Some(message) = receiver.next().await {
         let message = message?;
         match message {

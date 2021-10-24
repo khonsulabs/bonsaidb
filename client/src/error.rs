@@ -1,8 +1,8 @@
-use bonsaidb_core as core;
+use bonsaidb_core::custom_api::CustomApiError;
 
 /// Errors related to working with [`Client`](crate::Client)
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
+pub enum Error<ApiError: CustomApiError> {
     #[cfg(feature = "websockets")]
     /// An error occurred from the WebSocket transport layer.
     #[error("a transport error occurred: '{0}'")]
@@ -22,23 +22,27 @@ pub enum Error {
 
     /// The connection was interrupted.
     #[error("unexpected disconnection")]
-    Core(#[from] core::Error),
+    Core(#[from] bonsaidb_core::Error),
+
+    /// An error from the custom API.
+    #[error("api error: {0}")]
+    Api(ApiError),
 }
 
-impl<T> From<flume::SendError<T>> for Error {
+impl<T, ApiError: CustomApiError> From<flume::SendError<T>> for Error<ApiError> {
     fn from(_: flume::SendError<T>) -> Self {
         Self::Disconnected
     }
 }
 
-impl From<flume::RecvError> for Error {
+impl<ApiError: CustomApiError> From<flume::RecvError> for Error<ApiError> {
     fn from(_: flume::RecvError) -> Self {
         Self::Disconnected
     }
 }
 
-impl From<Error> for core::Error {
-    fn from(other: Error) -> Self {
+impl<ApiError: CustomApiError> From<Error<ApiError>> for bonsaidb_core::Error {
+    fn from(other: Error<ApiError>) -> Self {
         match other {
             Error::Core(err) => err,
             other => Self::Client(other.to_string()),
@@ -47,9 +51,9 @@ impl From<Error> for core::Error {
 }
 
 #[cfg(feature = "websockets")]
-impl From<bincode::Error> for Error {
+impl<ApiError: CustomApiError> From<bincode::Error> for Error<ApiError> {
     fn from(other: bincode::Error) -> Self {
-        Self::Core(core::Error::Websocket(format!(
+        Self::Core(bonsaidb_core::Error::Websocket(format!(
             "error decoding websocket message: {:?}",
             other
         )))
@@ -60,7 +64,9 @@ impl From<bincode::Error> for Error {
 mod fabruic_impls {
     macro_rules! impl_from_fabruic {
         ($error:ty) => {
-            impl From<$error> for $crate::Error {
+            impl<ApiError: bonsaidb_core::custom_api::CustomApiError> From<$error>
+                for $crate::Error<ApiError>
+            {
                 fn from(other: $error) -> Self {
                     Self::Core(bonsaidb_core::Error::Transport(other.to_string()))
                 }

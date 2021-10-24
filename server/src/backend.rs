@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use actionable::PermissionDenied;
 use async_trait::async_trait;
 use bonsaidb_core::{
-    custom_api::{CustomApi, CustomApiError},
+    custom_api::{CustomApi, CustomApiError, Infallible},
     permissions::Dispatcher,
     schema::InvalidNameError,
 };
@@ -108,7 +108,7 @@ pub enum ConnectionHandling {
 
 /// An error that can occur inside of a [`Backend`] function.
 #[derive(thiserror::Error, Debug)]
-pub enum BackendError<E: CustomApiError = ()> {
+pub enum BackendError<E: CustomApiError = Infallible> {
     /// A backend-related error.
     #[error("backend error: {0}")]
     Backend(E),

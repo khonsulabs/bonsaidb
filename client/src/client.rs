@@ -4,6 +4,7 @@ use std::{
     any::TypeId,
     collections::HashMap,
     fmt::Debug,
+    marker::PhantomData,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
@@ -67,15 +68,11 @@ impl<A: CustomApi> Clone for Client<A> {
     }
 }
 
-#[allow(type_alias_bounds)] // Causes compilation errors without it
-type BackendPendingRequest<A: CustomApi> =
-    PendingRequest<<A as CustomApi>::Request, CustomApiResult<A>>;
-
 #[derive(Debug)]
 pub struct Data<A: CustomApi> {
-    request_sender: Sender<BackendPendingRequest<A>>,
+    request_sender: Sender<PendingRequest<A>>,
     #[cfg(not(target_arch = "wasm32"))]
-    worker: CancellableHandle<Result<(), Error>>,
+    worker: CancellableHandle<Result<(), Error<A::Error>>>,
     effective_permissions: Mutex<Option<Permissions>>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     request_id: AtomicU32,
@@ -107,7 +104,7 @@ impl<A: CustomApi> Client<A> {
     /// to recover and reconnect, each component of the apps built can adopt a
     /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
     /// the database is to operation.
-    pub async fn new(url: Url) -> Result<Self, Error> {
+    pub async fn new(url: Url) -> Result<Self, Error<A::Error>> {
         Self::new_from_parts(
             url,
             #[cfg(not(target_arch = "wasm32"))]
@@ -136,7 +133,7 @@ impl<A: CustomApi> Client<A> {
         url: Url,
         custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
         #[cfg(not(target_arch = "wasm32"))] certificate: Option<fabruic::Certificate>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, Error<A::Error>> {
         match url.scheme() {
             #[cfg(not(target_arch = "wasm32"))]
             "bonsaidb" => Ok(Self::new_bonsai_client(
@@ -197,7 +194,7 @@ impl<A: CustomApi> Client<A> {
     async fn new_websocket_client(
         url: Url,
         custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, Error<A::Error>> {
         let (request_sender, request_receiver) = flume::unbounded();
 
         #[cfg(feature = "pubsub")]
@@ -282,7 +279,10 @@ impl<A: CustomApi> Client<A> {
     /// Returns a structure representing a remote database. No validations are
     /// done when this method is executed. The server will validate the schema
     /// and database name when a [`Connection`](bonsaidb_core::connection::Connection) function is called.
-    pub async fn database<DB: Schema>(&self, name: &str) -> Result<RemoteDatabase<DB, A>, Error> {
+    pub async fn database<DB: Schema>(
+        &self,
+        name: &str,
+    ) -> Result<RemoteDatabase<DB, A>, Error<A::Error>> {
         let mut schemas = self.data.schemas.lock().await;
         let type_id = TypeId::of::<DB>();
         let schematic = if let Some(schematic) = schemas.get(&type_id) {
@@ -368,7 +368,7 @@ impl<A: CustomApi> Client<A> {
     async fn send_request(
         &self,
         request: Request<<A as CustomApi>::Request>,
-    ) -> Result<Response<CustomApiResult<A>>, Error> {
+    ) -> Result<Response<CustomApiResult<A>>, Error<A::Error>> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
@@ -377,6 +377,7 @@ impl<A: CustomApi> Client<A> {
                 wrapped: request,
             },
             responder: result_sender.clone(),
+            _phantom: PhantomData,
         })?;
 
         result_receiver.recv_async().await?
@@ -386,9 +387,9 @@ impl<A: CustomApi> Client<A> {
     pub async fn send_api_request(
         &self,
         request: <A as CustomApi>::Request,
-    ) -> Result<CustomApiResult<A>, Error> {
+    ) -> Result<A::Response, Error<A::Error>> {
         match self.send_request(Request::Api(request)).await? {
-            Response::Api(response) => Ok(response),
+            Response::Api(response) => response.map_err(Error::Api),
             Response::Error(err) => Err(Error::Core(err)),
             other => Err(Error::Network(networking::Error::UnexpectedResponse(
                 format!("{:?}", other),
@@ -659,13 +660,14 @@ impl ServerConnection for Client {
     }
 }
 
-type OutstandingRequestMap<R, O> = HashMap<u32, PendingRequest<R, O>>;
-type OutstandingRequestMapHandle<R, O> = Arc<Mutex<OutstandingRequestMap<R, O>>>;
+type OutstandingRequestMap<Api> = HashMap<u32, PendingRequest<Api>>;
+type OutstandingRequestMapHandle<Api> = Arc<Mutex<OutstandingRequestMap<Api>>>;
 
 #[derive(Debug)]
-pub struct PendingRequest<R, O> {
-    request: Payload<Request<R>>,
-    responder: Sender<Result<Response<O>, Error>>,
+pub struct PendingRequest<Api: CustomApi> {
+    request: Payload<Request<Api::Request>>,
+    responder: Sender<Result<Response<CustomApiResult<Api>>, Error<Api::Error>>>,
+    _phantom: PhantomData<Api>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -687,7 +689,7 @@ impl<T> Drop for CancellableHandle<T> {
 
 async fn process_response_payload<A: CustomApi>(
     payload: Payload<Response<CustomApiResult<A>>>,
-    outstanding_requests: &OutstandingRequestMapHandle<A::Request, CustomApiResult<A>>,
+    outstanding_requests: &OutstandingRequestMapHandle<A>,
     custom_api_callback: Option<&dyn CustomApiCallback<A>>,
     #[cfg(feature = "pubsub")] subscribers: &SubscriberMap,
 ) {

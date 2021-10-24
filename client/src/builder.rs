@@ -67,7 +67,7 @@ impl<A: CustomApi> Builder<A> {
     }
 
     /// Finishes building the client.
-    pub async fn finish(self) -> Result<Client<A>, Error> {
+    pub async fn finish(self) -> Result<Client<A>, Error<A::Error>> {
         Client::<A>::new_from_parts(
             self.url,
             self.custom_api_callback,
