@@ -135,6 +135,7 @@ impl<E: CustomApiError> From<InvalidNameError> for BackendError<E> {
     }
 }
 
+#[cfg(feature = "websockets")]
 impl<E: CustomApiError> From<bincode::Error> for BackendError<E> {
     fn from(other: bincode::Error) -> Self {
         Self::Server(Error::from(bonsaidb_local::Error::from(other)))
