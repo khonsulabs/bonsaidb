@@ -9,11 +9,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     document::{Document, Header},
+    password_config,
     schema::{
         self, view, Key, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
     },
     transaction::{self, Command, Operation, OperationResult, Transaction},
-    Error, PASSWORD_CONFIG,
+    Error,
 };
 
 /// Defines all interactions with a [`schema::Schema`], regardless of whether it is local or remote.
@@ -469,7 +470,7 @@ pub trait ServerConnection: Send + Sync {
     ) -> Result<PasswordResult, crate::Error> {
         let user = user.into();
         let (registration, request) =
-            ClientRegistration::register(&ClientConfig::new(PASSWORD_CONFIG, None)?, password)?;
+            ClientRegistration::register(ClientConfig::new(password_config(), None)?, password)?;
         let response = self.set_user_password(user.clone(), request).await?;
         let (file, finalization, export_key) = registration.finish(response)?;
         self.finish_set_user_password(user, finalization).await?;

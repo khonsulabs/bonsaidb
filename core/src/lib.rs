@@ -53,7 +53,7 @@ pub use async_trait;
 #[cfg(feature = "pubsub")]
 pub use circulate;
 pub use custodian_password;
-use custodian_password::{Config, Group, Hash, SlowHash};
+use custodian_password::{Ake, Argon2Params, Config, Group, Hash, Mhf};
 pub use num_traits;
 use schema::{view, CollectionName, SchemaName, ViewName};
 use serde::{Deserialize, Serialize};
@@ -217,8 +217,14 @@ impl From<custodian_password::Error> for Error {
 }
 
 /// The configuration used for `OPAQUE` password authentication.
-pub const PASSWORD_CONFIG: Config =
-    Config::new(Group::Ristretto255, Hash::Blake3, SlowHash::Argon2id);
+pub fn password_config() -> Config {
+    Config::new(
+        Ake::X25519,
+        Group::Ristretto255,
+        Hash::Blake3,
+        Mhf::Argon2(Argon2Params::default()),
+    )
+}
 
 /// A type that implements [`Error`](std::error::Error) and is threadsafe.
 pub trait AnyError: std::error::Error + Send + Sync + 'static {}

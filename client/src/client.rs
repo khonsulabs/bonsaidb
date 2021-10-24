@@ -20,9 +20,9 @@ use bonsaidb_core::{
     },
     custom_api::{CustomApi, CustomApiResult},
     networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
+    password_config,
     permissions::Permissions,
     schema::{NamedReference, Schema, SchemaName, Schematic},
-    PASSWORD_CONFIG,
 };
 use flume::Sender;
 #[cfg(not(target_arch = "wasm32"))]
@@ -355,7 +355,7 @@ impl<A: CustomApi> Client<A> {
         previous_file: Option<ClientFile>,
     ) -> Result<PasswordResult, bonsaidb_core::Error> {
         let (login, request) = ClientLogin::login(
-            &ClientConfig::new(PASSWORD_CONFIG, None)?,
+            ClientConfig::new(password_config(), None)?,
             previous_file,
             password,
         )?;

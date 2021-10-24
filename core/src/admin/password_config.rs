@@ -6,8 +6,8 @@ use crate::{
     connection::Connection,
     custodian_password::ServerConfig,
     document::Document,
+    password_config,
     schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, View},
-    PASSWORD_CONFIG,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,7 +22,7 @@ impl PasswordConfig {
             Ok(existing)
         } else {
             let new_config = Self {
-                config: ServerConfig::new(PASSWORD_CONFIG),
+                config: ServerConfig::new(password_config()),
             };
             match connection.collection::<Self>().push(&new_config).await {
                 Ok(_) => Ok(new_config),
