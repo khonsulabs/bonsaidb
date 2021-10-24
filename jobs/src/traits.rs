@@ -1,16 +1,17 @@
 use std::fmt::Debug;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 
 /// Defines a background job that can be queued and executed.
 #[async_trait]
 pub trait Job: Debug + Send + Sync + 'static {
     /// The output type of the job.
-    type Output: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static;
+    type Output: Clone + Send + Sync + 'static;
+    /// The error type of the job.
+    type Error: Send + Sync + 'static;
 
     /// Executes the job and returns the result.
-    async fn execute(&mut self) -> anyhow::Result<Self::Output>;
+    async fn execute(&mut self) -> Result<Self::Output, Self::Error>;
 }
 
 /// Defines a background job that has a unique `key`.

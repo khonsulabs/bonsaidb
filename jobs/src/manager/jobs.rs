@@ -1,7 +1,6 @@
 use std::{any::Any, collections::HashMap, fmt::Debug, sync::Arc};
 
 use flume::{Receiver, Sender};
-use serde::{Deserialize, Serialize};
 
 use crate::{
     manager::{ManagedJob, Manager},
@@ -44,7 +43,7 @@ where
         job: J,
         key: Option<Key>,
         manager: Manager<Key>,
-    ) -> Handle<J::Output, Key> {
+    ) -> Handle<J::Output, J::Error, Key> {
         self.last_task_id = self.last_task_id.wrapping_add(1);
         let id = Id(self.last_task_id);
         self.queuer
@@ -59,13 +58,11 @@ where
         self.create_new_task_handle(id, manager)
     }
 
-    pub fn create_new_task_handle<
-        T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
-    >(
+    pub fn create_new_task_handle<T: Send + Sync + 'static, E: Send + Sync + 'static>(
         &mut self,
         id: Id,
         manager: Manager<Key>,
-    ) -> Handle<T, Key> {
+    ) -> Handle<T, E, Key> {
         let (sender, receiver) = flume::bounded(1);
         let senders = self.result_senders.entry(id).or_insert_with(Vec::default);
         senders.push(Box::new(sender));
@@ -81,7 +78,7 @@ where
         &mut self,
         job: J,
         manager: Manager<Key>,
-    ) -> Handle<<J as Job>::Output, Key> {
+    ) -> Handle<<J as Job>::Output, <J as Job>::Error, Key> {
         let key = job.key();
         if let Some(&id) = self.keyed_jobs.get(&key) {
             self.create_new_task_handle(id, manager)
@@ -92,27 +89,25 @@ where
         }
     }
 
-    pub async fn job_completed<
-        T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
-    >(
+    pub async fn job_completed<T: Clone + Send + Sync + 'static, E: Send + Sync + 'static>(
         &mut self,
         id: Id,
         key: Option<&Key>,
-        result: Result<T, anyhow::Error>,
+        result: Result<T, E>,
     ) {
         if let Some(key) = key {
             self.keyed_jobs.remove(key);
         }
 
         if let Some(senders) = self.result_senders.remove(&id) {
-            let result = result.map_err(Arc::new);
             tokio::spawn(async move {
+                let result = result.map_err(Arc::new);
                 futures::future::join_all(senders.into_iter().map(|handle| {
                     let result = result.clone();
                     async move {
                         let handle = handle
                             .as_any()
-                            .downcast_ref::<Sender<Result<T, Arc<anyhow::Error>>>>()
+                            .downcast_ref::<Sender<Result<T, Arc<E>>>>()
                             .unwrap();
                         handle.send_async(result).await
                     }
@@ -127,9 +122,9 @@ pub trait AnySender: Any + Send + Sync + Debug {
     fn as_any(&self) -> &'_ dyn Any;
 }
 
-impl<T> AnySender for Sender<Result<T, Arc<anyhow::Error>>>
+impl<T> AnySender for Sender<T>
 where
-    T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    T: Send + Sync + 'static,
 {
     fn as_any(&self) -> &'_ dyn Any {
         self

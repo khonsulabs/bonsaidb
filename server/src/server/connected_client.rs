@@ -3,7 +3,7 @@ use std::{net::SocketAddr, ops::Deref, sync::Arc};
 use actionable::Permissions;
 use bonsaidb_core::{
     custodian_password::{LoginRequest, LoginResponse, ServerLogin},
-    custom_api::CustomApi,
+    custom_api::CustomApiResult,
 };
 use flume::Sender;
 use tokio::sync::{Mutex, RwLock};
@@ -31,7 +31,7 @@ struct Data<B: Backend = ()> {
     id: u32,
     address: SocketAddr,
     transport: Transport,
-    response_sender: Sender<<B::CustomApi as CustomApi>::Response>,
+    response_sender: Sender<CustomApiResult<B::CustomApi>>,
     auth_state: RwLock<AuthenticationState>,
     pending_password_login: Mutex<Option<(Option<u64>, ServerLogin)>>,
 }
@@ -114,8 +114,8 @@ impl<B: Backend> ConnectedClient<B> {
     /// Sends a custom API response to the client.
     pub fn send(
         &self,
-        response: <B::CustomApi as CustomApi>::Response,
-    ) -> Result<(), flume::SendError<<B::CustomApi as CustomApi>::Response>> {
+        response: CustomApiResult<B::CustomApi>,
+    ) -> Result<(), flume::SendError<CustomApiResult<B::CustomApi>>> {
         self.data.response_sender.send(response)
     }
 }
@@ -132,7 +132,7 @@ impl<B: Backend> OwnedClient<B> {
         id: u32,
         address: SocketAddr,
         transport: Transport,
-        response_sender: Sender<<B::CustomApi as CustomApi>::Response>,
+        response_sender: Sender<CustomApiResult<B::CustomApi>>,
         server: CustomServer<B>,
     ) -> Self {
         Self {

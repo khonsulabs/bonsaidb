@@ -17,7 +17,7 @@ use bonsaidb_core::{
     custodian_password::{
         ClientConfig, ClientFile, ClientLogin, LoginFinalization, LoginRequest, LoginResponse,
     },
-    custom_api::CustomApi,
+    custom_api::{CustomApi, CustomApiResult},
     networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
     permissions::Permissions,
     schema::{NamedReference, Schema, SchemaName, Schematic},
@@ -69,7 +69,7 @@ impl<A: CustomApi> Clone for Client<A> {
 
 #[allow(type_alias_bounds)] // Causes compilation errors without it
 type BackendPendingRequest<A: CustomApi> =
-    PendingRequest<<A as CustomApi>::Request, <A as CustomApi>::Response>;
+    PendingRequest<<A as CustomApi>::Request, CustomApiResult<A>>;
 
 #[derive(Debug)]
 pub struct Data<A: CustomApi> {
@@ -134,7 +134,7 @@ impl<A: CustomApi> Client<A> {
     /// the database is to operation.
     pub(crate) async fn new_from_parts(
         url: Url,
-        custom_api_callback: Option<Arc<dyn CustomApiCallback<A::Response>>>,
+        custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
         #[cfg(not(target_arch = "wasm32"))] certificate: Option<fabruic::Certificate>,
     ) -> Result<Self, Error> {
         match url.scheme() {
@@ -156,7 +156,7 @@ impl<A: CustomApi> Client<A> {
     fn new_bonsai_client(
         url: Url,
         certificate: Option<fabruic::Certificate>,
-        custom_api_callback: Option<Arc<dyn CustomApiCallback<A::Response>>>,
+        custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
@@ -196,7 +196,7 @@ impl<A: CustomApi> Client<A> {
     #[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
     async fn new_websocket_client(
         url: Url,
-        custom_api_callback: Option<Arc<dyn CustomApiCallback<A::Response>>>,
+        custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     ) -> Result<Self, Error> {
         let (request_sender, request_receiver) = flume::unbounded();
 
@@ -239,7 +239,7 @@ impl<A: CustomApi> Client<A> {
     #[cfg(all(feature = "websockets", target_arch = "wasm32"))]
     async fn new_websocket_client(
         url: Url,
-        custom_api_callback: Option<Arc<dyn CustomApiCallback<A::Response>>>,
+        custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     ) -> Result<Self, Error> {
         let (request_sender, request_receiver) = flume::unbounded();
 
@@ -368,7 +368,7 @@ impl<A: CustomApi> Client<A> {
     async fn send_request(
         &self,
         request: Request<<A as CustomApi>::Request>,
-    ) -> Result<Response<<A as CustomApi>::Response>, Error> {
+    ) -> Result<Response<CustomApiResult<A>>, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
@@ -386,7 +386,7 @@ impl<A: CustomApi> Client<A> {
     pub async fn send_api_request(
         &self,
         request: <A as CustomApi>::Request,
-    ) -> Result<<A as CustomApi>::Response, Error> {
+    ) -> Result<CustomApiResult<A>, Error> {
         match self.send_request(Request::Api(request)).await? {
             Response::Api(response) => Ok(response),
             Response::Error(err) => Err(Error::Core(err)),
@@ -685,10 +685,10 @@ impl<T> Drop for CancellableHandle<T> {
     }
 }
 
-async fn process_response_payload<R: Send + Sync + 'static, O: Send + Sync + 'static>(
-    payload: Payload<Response<O>>,
-    outstanding_requests: &OutstandingRequestMapHandle<R, O>,
-    custom_api_callback: Option<&Arc<dyn CustomApiCallback<O>>>,
+async fn process_response_payload<A: CustomApi>(
+    payload: Payload<Response<CustomApiResult<A>>>,
+    outstanding_requests: &OutstandingRequestMapHandle<A::Request, CustomApiResult<A>>,
+    custom_api_callback: Option<&dyn CustomApiCallback<A>>,
     #[cfg(feature = "pubsub")] subscribers: &SubscriberMap,
 ) {
     if let Some(payload_id) = payload.id {
@@ -742,16 +742,16 @@ async fn process_response_payload<R: Send + Sync + 'static, O: Send + Sync + 'st
 
 /// A handler of [`CustomApi`] responses.
 #[async_trait]
-pub trait CustomApiCallback<T: Send + Sync>: Send + Sync + 'static {
+pub trait CustomApiCallback<A: CustomApi>: Send + Sync + 'static {
     /// An out-of-band `response` was received. This happens when the server
     /// sends a response that isn't in response to a request.
-    async fn response_received(&self, response: T);
+    async fn response_received(&self, response: CustomApiResult<A>);
 
     /// A response was received. Unlike in `response_received` this response
     /// will be returned to the original requestor. This is invoked before the
     /// requestor recives the response.
     #[allow(unused_variables)]
-    async fn request_response_received(&self, response: &T) {
+    async fn request_response_received(&self, response: &CustomApiResult<A>) {
         // This is provided in case you'd like to see a response always, even if
         // it is also being handled by the code that made the request.
     }
@@ -760,10 +760,10 @@ pub trait CustomApiCallback<T: Send + Sync>: Send + Sync + 'static {
 #[async_trait]
 impl<F, T> CustomApiCallback<T> for F
 where
-    F: Fn(T) + Send + Sync + 'static,
-    T: Send + Sync + 'static,
+    F: Fn(CustomApiResult<T>) + Send + Sync + 'static,
+    T: CustomApi,
 {
-    async fn response_received(&self, response: T) {
+    async fn response_received(&self, response: CustomApiResult<T>) {
         self(response);
     }
 }
@@ -771,7 +771,7 @@ where
 #[async_trait]
 impl<T> CustomApiCallback<T> for ()
 where
-    T: Send + Sync + 'static,
+    T: CustomApi,
 {
-    async fn response_received(&self, _response: T) {}
+    async fn response_received(&self, _response: CustomApiResult<T>) {}
 }

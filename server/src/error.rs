@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use bonsaidb_local::core::{self, schema};
+use actionable::PermissionDenied;
+use bonsaidb_local::core::{self, schema, AnyError};
 use schema::InvalidNameError;
 
 /// An error occurred while interacting with a [`Server`](crate::Server).
@@ -21,15 +22,26 @@ pub enum Error {
 
     /// An error occurred while processing a request
     #[error("an error occurred processing a request: '{0}'")]
-    Request(Arc<anyhow::Error>),
+    Request(Arc<dyn AnyError>),
 
     /// An error occurred from within the schema.
     #[error("error from core {0}")]
     Core(#[from] core::Error),
 
+    /// An internal error occurred while waiting for a message.
+    #[error("error while waiting for a message: {0}")]
+    InternalCommunication(#[from] flume::RecvError),
+
     /// An error occurred while interacting with a local database.
     #[error("an error occurred interacting with a database: {0}")]
     Database(#[from] bonsaidb_local::Error),
+
+    /// An error occurred with a certificate.
+    #[error("a certificate error: {0}")]
+    Certificate(#[from] fabruic::error::Certificate),
+    /// An error occurred with handling opaque-ke.
+    #[error("an opaque-ke error: {0}")]
+    Password(#[from] core::custodian_password::Error),
 }
 
 impl From<Error> for core::Error {
@@ -40,10 +52,19 @@ impl From<Error> for core::Error {
             Error::Core(core) => core,
             Error::Io(io) => Self::Io(io.to_string()),
             Error::Transport(networking) => Self::Transport(networking),
+            Error::InternalCommunication(err) => Self::Server(err.to_string()),
+            Error::Certificate(err) => Self::Server(err.to_string()),
             #[cfg(feature = "websockets")]
             Error::Websocket(err) => Self::Websocket(err.to_string()),
             Error::Request(err) => Self::Server(err.to_string()),
+            Error::Password(err) => Self::Server(err.to_string()),
         }
+    }
+}
+
+impl From<PermissionDenied> for Error {
+    fn from(err: PermissionDenied) -> Self {
+        Self::Core(core::Error::PermissionDenied(err))
     }
 }
 

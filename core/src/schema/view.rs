@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     document::Document,
     schema::{Collection, CollectionName, InvalidNameError, Name, ViewName},
+    AnyError,
 };
 
 /// Types for defining a `Map` within a `View`.
@@ -21,7 +22,7 @@ pub enum Error {
 
     /// An error occurred while serializing or deserializing keys emitted in a view.
     #[error("error serializing view keys {0}")]
-    KeySerialization(anyhow::Error),
+    KeySerialization(Box<dyn AnyError>),
 
     /// Returned when the reduce() function is unimplemented.
     #[error("reduce is unimplemented")]
@@ -30,6 +31,13 @@ pub enum Error {
     /// Range queries are not supported on collections with encryptable keys.
     #[error("range queries are not supported on collections with encryptable keys")]
     RangeQueryNotSupported,
+}
+
+impl Error {
+    /// Returns a [`Self::KeySerialization`] instance after boxing the error.
+    pub fn key_serialization<E: AnyError>(error: E) -> Self {
+        Self::KeySerialization(Box::new(error))
+    }
 }
 
 /// A type alias for the result of `View::map()`.
@@ -185,7 +193,7 @@ where
                         Ok(value) => Ok(MappedValue { key, value }),
                         Err(err) => Err(Error::from(err)),
                     },
-                    Err(err) => Err(Error::KeySerialization(err)),
+                    Err(err) => Err(Error::key_serialization(err)),
                 },
             )
             .collect::<Result<Vec<_>, Error>>()?;

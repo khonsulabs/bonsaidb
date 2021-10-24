@@ -1,6 +1,5 @@
 use std::{fmt::Debug, sync::Arc};
 
-use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::{
@@ -46,7 +45,7 @@ where
 {
     /// Pushes a `job` into the queue. Pushing the same job definition twice
     /// will yield two tasks in the queue.
-    pub async fn enqueue<J: Job + 'static>(&self, job: J) -> Handle<J::Output, Key> {
+    pub async fn enqueue<J: Job + 'static>(&self, job: J) -> Handle<J::Output, J::Error, Key> {
         let mut jobs = self.jobs.write().await;
         jobs.enqueue(job, None, self.clone())
     }
@@ -58,18 +57,16 @@ where
     pub async fn lookup_or_enqueue<J: Keyed<Key>>(
         &self,
         job: J,
-    ) -> Handle<<J as Job>::Output, Key> {
+    ) -> Handle<<J as Job>::Output, <J as Job>::Error, Key> {
         let mut jobs = self.jobs.write().await;
         jobs.lookup_or_enqueue(job, self.clone())
     }
 
-    async fn job_completed<
-        T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
-    >(
+    async fn job_completed<T: Clone + Send + Sync + 'static, E: Send + Sync + 'static>(
         &self,
         id: Id,
         key: Option<&Key>,
-        result: Result<T, anyhow::Error>,
+        result: Result<T, E>,
     ) {
         let mut jobs = self.jobs.write().await;
         jobs.job_completed(id, key, result).await;

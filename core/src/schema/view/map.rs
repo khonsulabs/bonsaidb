@@ -1,9 +1,13 @@
-use std::{borrow::Cow, convert::TryInto};
+use std::{
+    borrow::Cow,
+    convert::{Infallible, TryInto},
+    string::FromUtf8Error,
+};
 
 use num_traits::{FromPrimitive, ToPrimitive};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::{document::Document, schema::view};
+use crate::{document::Document, schema::view, AnyError};
 
 /// A document's entry in a View's mappings.
 #[derive(PartialEq, Debug)]
@@ -26,7 +30,7 @@ impl<K: Key, V: Serialize> Map<K, V> {
             key: self
                 .key
                 .as_big_endian_bytes()
-                .map_err(view::Error::KeySerialization)?
+                .map_err(view::Error::key_serialization)?
                 .to_vec(),
             value: serde_cbor::to_vec(&self.value)?,
         })
@@ -73,7 +77,7 @@ impl Serialized {
     ) -> Result<Map<K, V>, view::Error> {
         Ok(Map {
             source: self.source,
-            key: K::from_big_endian_bytes(&self.key).map_err(view::Error::KeySerialization)?,
+            key: K::from_big_endian_bytes(&self.key).map_err(view::Error::key_serialization)?,
             value: serde_cbor::from_slice(&self.value)?,
         })
     }
@@ -95,8 +99,8 @@ impl MappedSerialized {
     pub fn deserialized<K: Key, V: Serialize + DeserializeOwned>(
         self,
     ) -> Result<MappedDocument<K, V>, crate::Error> {
-        let key = Key::from_big_endian_bytes(&self.key).map_err(|err| {
-            crate::Error::Database(view::Error::KeySerialization(err).to_string())
+        let key = Key::from_big_endian_bytes(&self.key).map_err(|err: K::Error| {
+            crate::Error::Database(view::Error::key_serialization(err).to_string())
         })?;
         let value = serde_cbor::from_slice(&self.value)
             .map_err(|err| crate::Error::Database(view::Error::from(err).to_string()))?;
@@ -121,60 +125,74 @@ pub struct MappedValue<K: Key, V> {
 
 /// A trait that enables a type to convert itself to a big-endian/network byte order.
 pub trait Key: Clone + Send + Sync {
+    /// The error type that can be produced by either serialization or
+    /// deserialization.
+    type Error: AnyError;
+
     /// Convert `self` into a `Cow<[u8]>` containing bytes ordered in big-endian/network byte order.
-    fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'_, [u8]>>;
+    fn as_big_endian_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error>;
 
     /// Convert a slice of bytes into `Self` by interpretting `bytes` in big-endian/network byte order.
-    fn from_big_endian_bytes(bytes: &[u8]) -> anyhow::Result<Self>;
+    fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error>;
 }
 
 impl<'k> Key for Cow<'k, [u8]> {
-    fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'k, [u8]>> {
+    type Error = Infallible;
+
+    fn as_big_endian_bytes(&self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(self.clone())
     }
 
-    fn from_big_endian_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+    fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         Ok(Cow::Owned(bytes.to_vec()))
     }
 }
 
 impl Key for Vec<u8> {
-    fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'_, [u8]>> {
+    type Error = Infallible;
+
+    fn as_big_endian_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 
-    fn from_big_endian_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+    fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         Ok(bytes.to_vec())
     }
 }
 
 impl Key for String {
-    fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'_, [u8]>> {
+    type Error = FromUtf8Error;
+
+    fn as_big_endian_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
 
-    fn from_big_endian_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
-        Ok(Self::from_utf8(bytes.to_vec())?)
+    fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Self::from_utf8(bytes.to_vec())
     }
 }
 
 impl Key for () {
-    fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'_, [u8]>> {
+    type Error = Infallible;
+
+    fn as_big_endian_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::default())
     }
 
-    fn from_big_endian_bytes(_: &[u8]) -> anyhow::Result<Self> {
+    fn from_big_endian_bytes(_: &[u8]) -> Result<Self, Self::Error> {
         Ok(())
     }
 }
 
 #[cfg(feature = "uuid")]
 impl<'k> Key for uuid::Uuid {
-    fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'_, [u8]>> {
+    type Error = std::array::TryFromSliceError;
+
+    fn as_big_endian_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
 
-    fn from_big_endian_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+    fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         Ok(Self::from_bytes(bytes.try_into()?))
     }
 }
@@ -183,13 +201,14 @@ impl<T> Key for Option<T>
 where
     T: Key,
 {
+    type Error = T::Error;
     /// # Panics
     ///
     /// Panics if `T::into_big_endian_bytes` returns an empty `IVec`.
     // TODO consider removing this panic limitation by adding a single byte to
     // each key (at the end preferrably) so that we can distinguish between None
     // and a 0-byte type
-    fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'_, [u8]>> {
+    fn as_big_endian_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         if let Some(contents) = self {
             let contents = contents.as_big_endian_bytes()?;
             assert!(!contents.is_empty());
@@ -199,7 +218,7 @@ where
         }
     }
 
-    fn from_big_endian_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+    fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.is_empty() {
             Ok(None)
         } else {
@@ -217,22 +236,34 @@ where
 /// version number to ensure the values are re-evaluated.
 pub trait EnumKey: ToPrimitive + FromPrimitive + Clone + Send + Sync {}
 
+/// An error that indicates an unexpected number of bytes were present.
+#[derive(thiserror::Error, Debug)]
+#[error("incorrect byte length")]
+pub struct IncorrectByteLength;
+
+impl From<std::array::TryFromSliceError> for IncorrectByteLength {
+    fn from(_: std::array::TryFromSliceError) -> Self {
+        Self
+    }
+}
+
 // ANCHOR: impl_key_for_enumkey
 impl<T> Key for T
 where
     T: EnumKey,
 {
-    fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'_, [u8]>> {
+    type Error = IncorrectByteLength;
+
+    fn as_big_endian_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
         self.to_u64()
-            .ok_or_else(|| anyhow::anyhow!("Primitive::to_u64() returned None"))?
+            .ok_or(IncorrectByteLength)?
             .as_big_endian_bytes()
             .map(|bytes| Cow::Owned(bytes.to_vec()))
     }
 
-    fn from_big_endian_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+    fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         let primitive = u64::from_big_endian_bytes(bytes)?;
-        Self::from_u64(primitive)
-            .ok_or_else(|| anyhow::anyhow!("Primitive::from_u64() returned None"))
+        Self::from_u64(primitive).ok_or(IncorrectByteLength)
     }
 }
 // ANCHOR_END: impl_key_for_enumkey
@@ -240,11 +271,13 @@ where
 macro_rules! impl_key_for_primitive {
     ($type:ident) => {
         impl Key for $type {
-            fn as_big_endian_bytes(&self) -> anyhow::Result<Cow<'_, [u8]>> {
+            type Error = IncorrectByteLength;
+
+            fn as_big_endian_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
                 Ok(Cow::from(self.to_be_bytes().to_vec()))
             }
 
-            fn from_big_endian_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+            fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
                 Ok($type::from_be_bytes(bytes.try_into()?))
             }
         }

@@ -16,9 +16,26 @@ pub trait CustomApi: Debug + Send + Sync + 'static {
     type Request: Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug;
     /// The type that represents an API response. This type will be sent to clients from the server.
     type Response: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug;
+    /// The error type that this Api instance can return.
+    type Error: CustomApiError;
 }
 
 impl CustomApi for () {
     type Request = ();
     type Response = ();
+    type Error = ();
 }
+
+/// An error that can be used within a [`CustomApi`] definition.
+pub trait CustomApiError:
+    Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug
+{
+}
+
+impl<T> CustomApiError for T where
+    T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug
+{
+}
+
+/// The result of executing a custom API call.
+pub type CustomApiResult<Api> = Result<<Api as CustomApi>::Response, <Api as CustomApi>::Error>;

@@ -34,7 +34,6 @@ tokio = { version = "1", features = ["full"] }
 thiserror = "1"
 async-trait = "0.1"
 structopt = { version = "0.3", optional = true }
-anyhow = "1"
 futures = "0.3"
 flume = "0.10"
 itertools = "0.10"
@@ -49,6 +48,7 @@ fabruic = { version = "0.0.1-dev.2", features = ["dangerous"] }
 bonsaidb-core = { path = "../core", version = "0.1.0-dev.4", default-features = false, features = [
     "test-util",
 ] }
+anyhow = "1"
 
 [package.metadata.docs.rs]
 all-features = true

@@ -108,9 +108,7 @@ impl Storage {
         }
         let tasks = TaskManager::new(manager);
 
-        fs::create_dir_all(&owned_path)
-            .await
-            .map_err(|err| Error::Other(Arc::new(anyhow::Error::from(err))))?;
+        fs::create_dir_all(&owned_path).await?;
 
         let id = Self::lookup_or_create_id(&configuration, &owned_path).await?;
 
@@ -148,8 +146,7 @@ impl Storage {
                 }),
             })
         })
-        .await
-        .map_err(|err| Error::Other(Arc::new(anyhow::anyhow!(err))))??;
+        .await??;
 
         storage.cache_available_databases().await?;
 

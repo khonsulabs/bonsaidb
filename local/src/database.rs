@@ -264,7 +264,7 @@ where
             if let Some(vec) = tree
                 .get(
                     &id.as_big_endian_bytes()
-                        .map_err(view::Error::KeySerialization)?,
+                        .map_err(view::Error::key_serialization)?,
                 )
                 .map_err(Error::from)?
             {
@@ -301,7 +301,7 @@ where
                 if let Some(vec) = tree
                     .get(
                         &id.as_big_endian_bytes()
-                            .map_err(view::Error::KeySerialization)?,
+                            .map_err(view::Error::key_serialization)?,
                     )
                     .map_err(Error::from)?
                 {
@@ -567,14 +567,14 @@ where
                         range
                             .start
                             .as_big_endian_bytes()
-                            .map_err(view::Error::KeySerialization)?
+                            .map_err(view::Error::key_serialization)?
                             .to_vec(),
                     );
                     let end = Buffer::from(
                         range
                             .end
                             .as_big_endian_bytes()
-                            .map_err(view::Error::KeySerialization)?
+                            .map_err(view::Error::key_serialization)?
                             .to_vec(),
                     );
                     view_entries.scan::<Infallible, _, _, _, _>(
@@ -591,7 +591,7 @@ where
                 QueryKey::Matches(key) => {
                     let key = key
                         .as_big_endian_bytes()
-                        .map_err(view::Error::KeySerialization)?
+                        .map_err(view::Error::key_serialization)?
                         .to_vec();
 
                     values.extend(view_entries.get(&key)?);
@@ -602,7 +602,7 @@ where
                         .map(|key| {
                             key.as_big_endian_bytes()
                                 .map(|bytes| bytes.to_vec())
-                                .map_err(view::Error::KeySerialization)
+                                .map_err(view::Error::key_serialization)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
 
@@ -852,7 +852,7 @@ where
         self.for_each_view_entry::<V, _>(key, access_policy, |collection| {
             let entry = ViewEntry::from(collection);
             let key = <V::Key as Key>::from_big_endian_bytes(&entry.key)
-                .map_err(view::Error::KeySerialization)
+                .map_err(view::Error::key_serialization)
                 .map_err(Error::from)?;
             for entry in entry.mappings {
                 results.push(Map {
@@ -953,7 +953,7 @@ where
             .map(|map| {
                 Ok(MappedValue {
                     key: V::Key::from_big_endian_bytes(&map.key)
-                        .map_err(view::Error::KeySerialization)?,
+                        .map_err(view::Error::key_serialization)?,
                     value: serde_cbor::from_slice(&map.value)?,
                 })
             })

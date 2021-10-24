@@ -1,9 +1,14 @@
 use std::fmt::Debug;
 
+use actionable::PermissionDenied;
 use async_trait::async_trait;
-use bonsaidb_core::{custom_api::CustomApi, permissions::Dispatcher};
+use bonsaidb_core::{
+    custom_api::{CustomApi, CustomApiError},
+    permissions::Dispatcher,
+    schema::InvalidNameError,
+};
 
-use crate::{server::ConnectedClient, CustomServer};
+use crate::{server::ConnectedClient, CustomServer, Error};
 
 /// Tailors the behavior of a server to your needs.
 #[async_trait]
@@ -15,7 +20,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// [`Dispatcher`](bonsaidb_core::permissions::Dispatcher) trait.
     type CustomApiDispatcher: Dispatcher<
             <Self::CustomApi as CustomApi>::Request,
-            Result = anyhow::Result<<Self::CustomApi as CustomApi>::Response>,
+            Result = BackendApiResult<Self::CustomApi>,
         > + Debug;
 
     /// Returns a dispatcher to handle custom api requests. The `server` and
@@ -86,7 +91,7 @@ pub struct NoDispatcher;
 
 #[async_trait]
 impl actionable::Dispatcher<()> for NoDispatcher {
-    type Result = anyhow::Result<()>;
+    type Result = Result<(), BackendError>;
 
     async fn dispatch(&self, _permissions: &actionable::Permissions, _request: ()) -> Self::Result {
         Ok(())
@@ -100,3 +105,47 @@ pub enum ConnectionHandling {
     /// The server should reject this connection.
     Reject,
 }
+
+/// An error that can occur inside of a [`Backend`] function.
+#[derive(thiserror::Error, Debug)]
+pub enum BackendError<E: CustomApiError = ()> {
+    /// A backend-related error.
+    #[error("backend error: {0}")]
+    Backend(E),
+    /// A server-related error.
+    #[error("server error: {0}")]
+    Server(#[from] Error),
+}
+
+impl<E: CustomApiError> From<PermissionDenied> for BackendError<E> {
+    fn from(permission_denied: PermissionDenied) -> Self {
+        Self::Server(Error::from(permission_denied))
+    }
+}
+
+impl<E: CustomApiError> From<bonsaidb_core::Error> for BackendError<E> {
+    fn from(err: bonsaidb_core::Error) -> Self {
+        Self::Server(Error::from(err))
+    }
+}
+
+impl<E: CustomApiError> From<InvalidNameError> for BackendError<E> {
+    fn from(err: InvalidNameError) -> Self {
+        Self::Server(Error::from(err))
+    }
+}
+
+impl<E: CustomApiError> From<bincode::Error> for BackendError<E> {
+    fn from(other: bincode::Error) -> Self {
+        Self::Server(Error::from(bonsaidb_local::Error::from(other)))
+    }
+}
+
+impl<E: CustomApiError> From<serde_cbor::Error> for BackendError<E> {
+    fn from(other: serde_cbor::Error) -> Self {
+        Self::Server(Error::from(bonsaidb_local::Error::from(other)))
+    }
+}
+
+pub type BackendApiResult<Api> =
+    Result<<Api as CustomApi>::Response, BackendError<<Api as CustomApi>::Error>>;

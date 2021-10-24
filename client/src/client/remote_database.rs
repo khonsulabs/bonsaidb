@@ -260,7 +260,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                     Ok(MappedValue {
                         key: V::Key::from_big_endian_bytes(&map.key).map_err(|err| {
                             bonsaidb_core::Error::Database(
-                                view::Error::KeySerialization(err).to_string(),
+                                view::Error::key_serialization(err).to_string(),
                             )
                         })?,
                         value: serde_cbor::from_slice(&map.value)?,

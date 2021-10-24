@@ -13,7 +13,10 @@ use super::{
     mapper::{Map, Mapper},
     view_document_map_tree_name, view_invalidated_docs_tree_name, view_versions_tree_name, Task,
 };
-use crate::database::{document_tree_name, Database};
+use crate::{
+    database::{document_tree_name, Database},
+    Error,
+};
 
 #[derive(Debug)]
 pub struct IntegrityScanner<DB> {
@@ -35,9 +38,10 @@ where
     DB: Schema,
 {
     type Output = ();
+    type Error = Error;
 
     #[allow(clippy::too_many_lines)]
-    async fn execute(&mut self) -> anyhow::Result<Self::Output> {
+    async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         let documents =
             self.database
                 .roots()
@@ -69,7 +73,7 @@ where
         let view_version = self.scan.view_version;
         let roots = self.database.roots().clone();
 
-        let needs_update = tokio::task::spawn_blocking::<_, anyhow::Result<bool>>(move || {
+        let needs_update = tokio::task::spawn_blocking::<_, Result<bool, Error>>(move || {
             let document_ids = tree_keys::<u64, Versioned>(&documents)?;
             let view_is_current_version =
                 if let Some(version) = view_versions.get(view_name.to_string().as_bytes())? {
@@ -134,7 +138,7 @@ where
                     },
                 })
                 .await;
-            job.receive().await?.map_err(crate::Error::Other)?;
+            job.receive().await??;
         }
 
         self.database
@@ -169,7 +173,7 @@ fn tree_keys<K: Key + Hash + Eq + Clone, R: nebari::tree::Root>(
 
     Ok(ids
         .into_iter()
-        .map(|key| K::from_big_endian_bytes(&key).map_err(view::Error::KeySerialization))
+        .map(|key| K::from_big_endian_bytes(&key).map_err(view::Error::key_serialization))
         .collect::<Result<HashSet<_>, view::Error>>()?)
 }
 

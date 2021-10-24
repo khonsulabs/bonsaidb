@@ -67,7 +67,7 @@ impl<B: Backend> Args<B> {
     /// Executes the command.
     pub async fn execute(self) -> anyhow::Result<()> {
         match self.command {
-            Command::Server(server) => server.execute(&self.connection.path()?).await,
+            Command::Server(server) => Ok(server.execute(&self.connection.path()?).await?),
             Command::Admin(command) => match self.connection {
                 ConnectionTarget::Path(path) => {
                     let storage = Storage::open_local(
@@ -77,13 +77,15 @@ impl<B: Backend> Args<B> {
                     .await?;
                     let admin = storage.admin().await;
 
-                    command.execute(admin, storage).await
+                    command.execute(admin, storage).await?;
+                    Ok(())
                 }
                 ConnectionTarget::Url(server_url) => {
                     let client = Client::new(server_url).await?;
                     let admin = client.database::<Admin>("admin").await?;
 
-                    command.execute(admin, client).await
+                    command.execute(admin, client).await?;
+                    Ok(())
                 }
             },
         }

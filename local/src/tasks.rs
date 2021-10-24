@@ -18,6 +18,7 @@ use crate::{
         mapper::{Map, Mapper},
         Task,
     },
+    Error,
 };
 
 #[derive(Debug, Clone)]
@@ -49,7 +50,7 @@ impl TaskManager {
     ) -> Result<(), crate::Error> {
         let view_name = view.view_name();
         if let Some(job) = self.spawn_integrity_check(view, database).await? {
-            job.receive().await?.map_err(crate::Error::Other)?;
+            job.receive().await??;
         }
 
         // If there is no transaction id, there is no data, so the view is "up-to-date"
@@ -84,17 +85,9 @@ impl TaskManager {
                             },
                         })
                         .await;
-                    match job.receive().await?.as_ref() {
-                        Ok(id) => {
-                            if wait_for_transaction <= *id {
-                                break;
-                            }
-                        }
-                        Err(err) => {
-                            return Err(crate::Error::Other(Arc::new(anyhow::Error::msg(
-                                err.to_string(),
-                            ))))
-                        }
+                    let id = job.receive().await??;
+                    if wait_for_transaction <= id {
+                        break;
                     }
                 }
             }
@@ -119,7 +112,7 @@ impl TaskManager {
         &self,
         view: &dyn view::Serialized,
         database: &Database<DB>,
-    ) -> Result<Option<Handle<(), Task>>, crate::Error> {
+    ) -> Result<Option<Handle<(), Error, Task>>, crate::Error> {
         let view_name = view.view_name()?;
         if !self
             .view_integrity_checked(
@@ -176,7 +169,7 @@ impl TaskManager {
     pub async fn spawn_key_value_expiration_loader<DB: Schema>(
         &self,
         database: &crate::Database<DB>,
-    ) -> Handle<(), Task> {
+    ) -> Handle<(), Error, Task> {
         self.jobs
             .enqueue(crate::database::kv::ExpirationLoader {
                 database: database.clone(),

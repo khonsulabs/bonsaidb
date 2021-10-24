@@ -692,8 +692,9 @@ pub struct ExpirationLoader<DB> {
 #[async_trait]
 impl<DB: Schema> Job for ExpirationLoader<DB> {
     type Output = ();
+    type Error = Error;
 
-    async fn execute(&mut self) -> anyhow::Result<Self::Output> {
+    async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         let database = self.database.clone();
         let (sender, receiver) = flume::unbounded();
 
@@ -736,7 +737,7 @@ impl<DB: Schema> Job for ExpirationLoader<DB> {
                     )?;
             }
 
-            Result::<(), anyhow::Error>::Ok(())
+            Result::<(), Error>::Ok(())
         });
 
         while let Ok((tree, key, expiration)) = receiver.recv_async().await {

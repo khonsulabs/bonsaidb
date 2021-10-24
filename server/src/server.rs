@@ -19,7 +19,7 @@ use bonsaidb_core::{
     custodian_password::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
     },
-    custom_api::CustomApi,
+    custom_api::{CustomApi, CustomApiResult},
     kv::KeyOperation,
     networking::{
         self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
@@ -58,7 +58,10 @@ use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
 
 use crate::{
-    async_io_util::FileExt, backend::ConnectionHandling, config::DefaultPermissions, error::Error,
+    async_io_util::FileExt,
+    backend::{BackendError, ConnectionHandling},
+    config::DefaultPermissions,
+    error::Error,
     Backend, Configuration,
 };
 
@@ -325,7 +328,7 @@ impl<B: Backend> CustomServer<B> {
     }
 
     /// Sends a custom API response to all connected clients.
-    pub async fn broadcast(&self, response: <B::CustomApi as CustomApi>::Response) {
+    pub async fn broadcast(&self, response: CustomApiResult<B::CustomApi>) {
         let clients = self.data.clients.read().await;
         for client in clients.values() {
             drop(client.send(response.clone()));
@@ -336,7 +339,7 @@ impl<B: Backend> CustomServer<B> {
         &self,
         transport: Transport,
         address: SocketAddr,
-        sender: Sender<<B::CustomApi as CustomApi>::Response>,
+        sender: Sender<CustomApiResult<B::CustomApi>>,
     ) -> Option<OwnedClient<B>> {
         if !self.data.default_permissions.allowed_to(
             &bonsaidb_resource_name(),
@@ -392,7 +395,7 @@ impl<B: Backend> CustomServer<B> {
             };
 
             match incoming
-                .accept::<networking::Payload<Response<<B::CustomApi as CustomApi>::Response>>, networking::Payload<Request<<B::CustomApi as CustomApi>::Request>>>()
+                .accept::<networking::Payload<Response<CustomApiResult<B::CustomApi>>>, networking::Payload<Request<<B::CustomApi as CustomApi>::Request>>>()
                 .await
             {
                 Ok((sender, receiver)) => {
@@ -467,7 +470,7 @@ impl<B: Backend> CustomServer<B> {
                 sender.send(response).await?;
             }
 
-            Result::<(), anyhow::Error>::Ok(())
+            Result::<(), Error>::Ok(())
         });
         let task_sender = message_sender.clone();
         tokio::spawn(async move {
@@ -480,7 +483,7 @@ impl<B: Backend> CustomServer<B> {
                 }
             }
 
-            Result::<(), anyhow::Error>::Ok(())
+            Result::<(), Error>::Ok(())
         });
 
         let (request_sender, request_receiver) =
@@ -519,7 +522,7 @@ impl<B: Backend> CustomServer<B> {
         &self,
         client: ConnectedClient<B>,
         request_receiver: flume::Receiver<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
-        response_sender: flume::Sender<Payload<Response<<B::CustomApi as CustomApi>::Response>>>,
+        response_sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
     ) {
         let (request_completion_sender, request_completion_receiver) = flume::unbounded::<()>();
         let requests_in_queue = Arc::new(AtomicUsize::new(0));
@@ -575,7 +578,7 @@ impl<B: Backend> CustomServer<B> {
     }
 
     async fn handle_request_through_worker<
-        F: FnOnce(Response<<B::CustomApi as CustomApi>::Response>) -> R + Send + 'static,
+        F: FnOnce(Response<CustomApiResult<B::CustomApi>>) -> R + Send + 'static,
         R: Future<Output = Result<(), Error>> + Send,
     >(
         &self,
@@ -584,7 +587,7 @@ impl<B: Backend> CustomServer<B> {
         client: ConnectedClient<B>,
         #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
         #[cfg(feature = "pubsub")] response_sender: flume::Sender<
-            Payload<Response<<B::CustomApi as CustomApi>::Response>>,
+            Payload<Response<CustomApiResult<B::CustomApi>>>,
         >,
     ) -> Result<(), Error> {
         let job = self
@@ -601,11 +604,15 @@ impl<B: Backend> CustomServer<B> {
             ))
             .await;
         tokio::spawn(async move {
-            let result = job
-                .receive()
-                .await
-                .map_err(|_| Error::Request(Arc::new(anyhow::anyhow!("background job aborted"))))?
-                .map_err(Error::Request)?;
+            let result = job.receive().await?;
+            // Map the error into a Response::Error. The jobs system supports
+            // multiple receivers receiving output, and wraps Err to avoid
+            // requiring the error to be cloneable. As such, we have to unwrap
+            // it. Thankfully, we can guarantee nothing else is waiting on a
+            // response to a request than the original requestor, so this can be
+            // safely unwrapped.
+            let result =
+                result.unwrap_or_else(|err| Response::Error(Arc::try_unwrap(err).unwrap().into()));
             callback(result).await?;
             Result::<(), Error>::Ok(())
         });
@@ -615,7 +622,7 @@ impl<B: Backend> CustomServer<B> {
     async fn handle_stream(
         &self,
         client: OwnedClient<B>,
-        sender: fabruic::Sender<Payload<Response<<B::CustomApi as CustomApi>::Response>>>,
+        sender: fabruic::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
         mut receiver: fabruic::Receiver<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
     ) -> Result<(), Error> {
         let (payload_sender, payload_receiver) = flume::unbounded();
@@ -650,7 +657,7 @@ impl<B: Backend> CustomServer<B> {
         &self,
         subscriber_id: u64,
         receiver: flume::Receiver<Arc<Message>>,
-        sender: flume::Sender<Payload<Response<<B::CustomApi as CustomApi>::Response>>>,
+        sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
     ) {
         while let Ok(message) = receiver.recv_async().await {
             if sender
@@ -796,7 +803,7 @@ struct ClientRequest<B: Backend> {
     #[cfg(feature = "pubsub")]
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
     #[cfg(feature = "pubsub")]
-    sender: flume::Sender<Payload<Response<<B::CustomApi as CustomApi>::Response>>>,
+    sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
 }
 
 impl<B: Backend> ClientRequest<B> {
@@ -806,7 +813,7 @@ impl<B: Backend> ClientRequest<B> {
         client: ConnectedClient<B>,
         #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
         #[cfg(feature = "pubsub")] sender: flume::Sender<
-            Payload<Response<<B::CustomApi as CustomApi>::Response>>,
+            Payload<Response<CustomApiResult<B::CustomApi>>>,
         >,
     ) -> Self {
         Self {
@@ -823,11 +830,12 @@ impl<B: Backend> ClientRequest<B> {
 
 #[async_trait]
 impl<B: Backend> Job for ClientRequest<B> {
-    type Output = Response<<B::CustomApi as CustomApi>::Response>;
+    type Output = Response<CustomApiResult<B::CustomApi>>;
+    type Error = Error;
 
-    async fn execute(&mut self) -> anyhow::Result<Self::Output> {
+    async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         let request = self.request.take().unwrap();
-        Ok(ServerDispatcher {
+        ServerDispatcher {
             server: &self.server,
             client: &self.client,
             #[cfg(feature = "pubsub")]
@@ -837,7 +845,6 @@ impl<B: Backend> Job for ClientRequest<B> {
         }
         .dispatch(&self.client.permissions().await, request)
         .await
-        .unwrap_or_else(Response::Error))
     }
 }
 
@@ -959,28 +966,28 @@ struct ServerDispatcher<'s, B: Backend> {
     #[cfg(feature = "pubsub")]
     subscribers: &'s Arc<RwLock<HashMap<u64, Subscriber>>>,
     #[cfg(feature = "pubsub")]
-    response_sender: &'s flume::Sender<Payload<Response<<B::CustomApi as CustomApi>::Response>>>,
+    response_sender: &'s flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
 }
 
 #[async_trait]
 impl<'s, B: Backend> RequestDispatcher for ServerDispatcher<'s, B> {
     type Subaction = <B::CustomApi as CustomApi>::Request;
-    type Output = Response<<B::CustomApi as CustomApi>::Response>;
-    type Error = bonsaidb_core::Error;
+    type Output = Response<CustomApiResult<B::CustomApi>>;
+    type Error = Error;
 
     async fn handle_subaction(
         &self,
         permissions: &Permissions,
         subaction: Self::Subaction,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let dispatcher = B::dispatcher_for(self.server, self.client);
-        dispatcher
-            .dispatch(permissions, subaction)
-            .await
-            .map(Response::Api)
-            .map_err(|err| {
-                bonsaidb_core::Error::Server(format!("error executing custom api: {:?}", err))
-            })
+        match dispatcher.dispatch(permissions, subaction).await {
+            Ok(response) => Ok(Response::Api(Ok(response))),
+            Err(err) => match err {
+                BackendError::Backend(backend) => Ok(Response::Api(Err(backend))),
+                BackendError::Server(server) => Err(server),
+            },
+        }
     }
 }
 
@@ -990,7 +997,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ServerHandler for ServerDispatch
         &self,
         permissions: &Permissions,
         request: ServerRequest,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         ServerRequestDispatcher::dispatch_to_handlers(self, permissions, request).await
     }
 }
@@ -1002,7 +1009,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::DatabaseHandler for ServerDispat
         permissions: &Permissions,
         database_name: String,
         request: DatabaseRequest,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let database = self.server.database_without_schema(&database_name).await?;
         DatabaseDispatcher {
             name: database_name,
@@ -1015,8 +1022,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::DatabaseHandler for ServerDispat
 }
 
 impl<'s, B: Backend> ServerRequestDispatcher for ServerDispatcher<'s, B> {
-    type Output = Response<<B::CustomApi as CustomApi>::Response>;
-    type Error = bonsaidb_core::Error;
+    type Output = Response<CustomApiResult<B::CustomApi>>;
+    type Error = Error;
 }
 
 #[async_trait]
@@ -1026,7 +1033,7 @@ impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
     async fn resource_name<'a>(
         &'a self,
         database: &'a bonsaidb_core::connection::Database,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    ) -> Result<ResourceName<'a>, Error> {
         Ok(database_resource_name(&database.name))
     }
 
@@ -1038,7 +1045,7 @@ impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
         &self,
         _permissions: &Permissions,
         database: bonsaidb_core::connection::Database,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         self.server
             .create_database_with_schema(&database.name, database.schema)
             .await?;
@@ -1052,10 +1059,7 @@ impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
 impl<'s, B: Backend> DeleteDatabaseHandler for ServerDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    async fn resource_name<'a>(
-        &'a self,
-        database: &'a String,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    async fn resource_name<'a>(&'a self, database: &'a String) -> Result<ResourceName<'a>, Error> {
         Ok(database_resource_name(database))
     }
 
@@ -1067,7 +1071,7 @@ impl<'s, B: Backend> DeleteDatabaseHandler for ServerDispatcher<'s, B> {
         &self,
         _permissions: &Permissions,
         name: String,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         self.server.delete_database(&name).await?;
         Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
     }
@@ -1077,7 +1081,7 @@ impl<'s, B: Backend> DeleteDatabaseHandler for ServerDispatcher<'s, B> {
 impl<'s, B: Backend> bonsaidb_core::networking::ListDatabasesHandler for ServerDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
         Ok(bonsaidb_resource_name())
     }
 
@@ -1088,7 +1092,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListDatabasesHandler for ServerD
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         Ok(Response::Server(ServerResponse::Databases(
             self.server.list_databases().await?,
         )))
@@ -1101,7 +1105,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListAvailableSchemasHandler
 {
     type Action = BonsaiAction;
 
-    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
         Ok(bonsaidb_resource_name())
     }
 
@@ -1112,7 +1116,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListAvailableSchemasHandler
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         Ok(Response::Server(ServerResponse::AvailableSchemas(
             self.server.list_available_schemas().await?,
         )))
@@ -1123,10 +1127,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListAvailableSchemasHandler
 impl<'s, B: Backend> bonsaidb_core::networking::CreateUserHandler for ServerDispatcher<'s, B> {
     type Action = BonsaiAction;
 
-    async fn resource_name<'a>(
-        &'a self,
-        _username: &'a String,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    async fn resource_name<'a>(&'a self, _username: &'a String) -> Result<ResourceName<'a>, Error> {
         Ok(bonsaidb_resource_name())
     }
 
@@ -1138,7 +1139,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateUserHandler for ServerDisp
         &self,
         _permissions: &Permissions,
         username: String,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         Ok(Response::Server(ServerResponse::UserCreated {
             id: self.server.create_user(&username).await?,
         }))
@@ -1154,7 +1155,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::LoginWithPasswordHandler
         &'a self,
         username: &'a String,
         _password_request: &'a LoginRequest,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    ) -> Result<ResourceName<'a>, Error> {
         let id = NamedReference::from(username.as_str())
             .id::<User, _>(&self.server.admin().await)
             .await?
@@ -1172,7 +1173,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::LoginWithPasswordHandler
         _permissions: &Permissions,
         username: String,
         password_request: LoginRequest,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let response = self
             .client
             .initiate_login(&username, password_request, self.server)
@@ -1191,7 +1192,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::FinishPasswordLoginHandler
         &self,
         _permissions: &Permissions,
         password_request: LoginFinalization,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         if let Some((user_id, login)) = self.client.take_pending_password_login().await {
             login.finish(password_request)?;
             let user_id = user_id.expect("logged in without a user_id");
@@ -1205,9 +1206,10 @@ impl<'s, B: Backend> bonsaidb_core::networking::FinishPasswordLoginHandler
 
             Ok(Response::Server(ServerResponse::LoggedIn { permissions }))
         } else {
-            Err(bonsaidb_core::Error::Server(String::from(
+            // TODO make this a real error
+            Err(Error::from(bonsaidb_core::Error::Server(String::from(
                 "no login state found",
-            )))
+            ))))
         }
     }
 }
@@ -1219,7 +1221,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::SetPasswordHandler for ServerDis
         permissions: &Permissions,
         user: &NamedReference<'static>,
         _password_request: &RegistrationRequest,
-    ) -> Result<(), bonsaidb_core::Error> {
+    ) -> Result<(), Error> {
         let id = user
             .id::<User, _>(&self.server.admin().await)
             .await?
@@ -1236,7 +1238,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::SetPasswordHandler for ServerDis
             ) {
                 Ok(())
             } else {
-                Err(bonsaidb_core::Error::from(PermissionDenied {
+                Err(Error::from(PermissionDenied {
                     resource: user_resource_id.to_owned(),
                     action: BonsaiAction::Server(ServerAction::SetPassword).name(),
                 }))
@@ -1249,7 +1251,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::SetPasswordHandler for ServerDis
         _permissions: &Permissions,
         user: NamedReference<'static>,
         password_request: RegistrationRequest,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         Ok(Response::Server(ServerResponse::FinishSetPassword {
             password_reponse: Box::new(
                 self.server
@@ -1269,7 +1271,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::FinishSetPasswordHandler
         _permissions: &Permissions,
         user: NamedReference<'static>,
         password_request: RegistrationFinalization,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         self.server
             .finish_set_user_password(user, password_request)
             .await?;
@@ -1288,7 +1290,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::AlterUserPermissionGroupMembersh
         user: &'a NamedReference<'static>,
         _group: &'a NamedReference<'static>,
         _should_be_member: &'a bool,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    ) -> Result<ResourceName<'a>, Error> {
         let id = user
             .id::<User, _>(&self.server.admin().await)
             .await?
@@ -1307,7 +1309,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::AlterUserPermissionGroupMembersh
         user: NamedReference<'static>,
         group: NamedReference<'static>,
         should_be_member: bool,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         if should_be_member {
             self.server
                 .add_permission_group_to_user(user, group)
@@ -1333,7 +1335,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::AlterUserRoleMembershipHandler
         user: &'a NamedReference<'static>,
         _role: &'a NamedReference<'static>,
         _should_be_member: &'a bool,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    ) -> Result<ResourceName<'a>, Error> {
         let id = user
             .id::<User, _>(&self.server.admin().await)
             .await?
@@ -1352,7 +1354,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::AlterUserRoleMembershipHandler
         user: NamedReference<'static>,
         role: NamedReference<'static>,
         should_be_member: bool,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         if should_be_member {
             self.server.add_role_to_user(user, role).await?;
         } else {
@@ -1375,8 +1377,8 @@ where
 }
 
 impl<'s, B: Backend> DatabaseRequestDispatcher for DatabaseDispatcher<'s, B> {
-    type Output = Response<<B::CustomApi as CustomApi>::Response>;
-    type Error = bonsaidb_core::Error;
+    type Output = Response<CustomApiResult<B::CustomApi>>;
+    type Error = Error;
 }
 
 #[async_trait]
@@ -1387,7 +1389,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatche
         &'a self,
         collection: &'a CollectionName,
         id: &'a u64,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    ) -> Result<ResourceName<'a>, Error> {
         Ok(document_resource_name(&self.name, collection, *id))
     }
 
@@ -1400,7 +1402,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatche
         permissions: &Permissions,
         collection: CollectionName,
         id: u64,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let document = self
             .database
             .get_from_collection_id(id, &collection, permissions)
@@ -1421,12 +1423,12 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseD
         permissions: &Permissions,
         collection: &CollectionName,
         ids: &Vec<u64>,
-    ) -> Result<(), bonsaidb_core::Error> {
+    ) -> Result<(), Error> {
         for &id in ids {
             let document_name = document_resource_name(&self.name, collection, id);
             let action = BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get));
             if !permissions.allowed_to(&document_name, &action) {
-                return Err(bonsaidb_core::Error::from(PermissionDenied {
+                return Err(Error::from(PermissionDenied {
                     resource: document_name.to_owned(),
                     action: action.name(),
                 }));
@@ -1441,7 +1443,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseD
         permissions: &Permissions,
         collection: CollectionName,
         ids: Vec<u64>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let documents = self
             .database
             .get_multiple_from_collection_id(&ids, &collection, permissions)
@@ -1460,7 +1462,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
         _key: &'a Option<QueryKey<Vec<u8>>>,
         _access_policy: &'a AccessPolicy,
         _with_docs: &'a bool,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    ) -> Result<ResourceName<'a>, Error> {
         Ok(view_resource_name(&self.name, view))
     }
 
@@ -1475,7 +1477,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         with_docs: bool,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         if with_docs {
             let mappings = self
                 .database
@@ -1501,7 +1503,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispat
         _key: &'a Option<QueryKey<Vec<u8>>>,
         _access_policy: &'a AccessPolicy,
         _grouped: &'a bool,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    ) -> Result<ResourceName<'a>, Error> {
         Ok(view_resource_name(&self.name, view))
     }
 
@@ -1516,7 +1518,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispat
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
         grouped: bool,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         if grouped {
             let values = self
                 .database
@@ -1540,7 +1542,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
         &self,
         permissions: &Permissions,
         transaction: &Transaction<'static>,
-    ) -> Result<(), bonsaidb_core::Error> {
+    ) -> Result<(), Error> {
         for op in &transaction.operations {
             let (resource, action) = match &op.command {
                 Command::Insert { .. } => (
@@ -1557,7 +1559,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
                 ),
             };
             if !permissions.allowed_to(&resource, &action) {
-                return Err(bonsaidb_core::Error::from(PermissionDenied {
+                return Err(Error::from(PermissionDenied {
                     resource: resource.to_owned(),
                     action: action.name(),
                 }));
@@ -1571,7 +1573,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
         &self,
         permissions: &Permissions,
         transaction: Transaction<'static>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let results = self
             .database
             .apply_transaction(transaction, permissions)
@@ -1592,7 +1594,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
         &'a self,
         _starting_id: &'a Option<u64>,
         _result_limit: &'a Option<usize>,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    ) -> Result<ResourceName<'a>, Error> {
         Ok(database_resource_name(&self.name))
     }
 
@@ -1605,7 +1607,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
         _permissions: &Permissions,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
             self.database
                 .list_executed_transactions(starting_id, result_limit)
@@ -1620,7 +1622,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::LastTransactionIdHandler
 {
     type Action = BonsaiAction;
 
-    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
         Ok(database_resource_name(&self.name))
     }
 
@@ -1631,7 +1633,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::LastTransactionIdHandler
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         Ok(Response::Database(DatabaseResponse::LastTransactionId(
             self.database.last_transaction_id().await?,
         )))
@@ -1644,7 +1646,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateSubscriberHandler
 {
     type Action = BonsaiAction;
 
-    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
         Ok(database_resource_name(&self.name))
     }
 
@@ -1656,7 +1658,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateSubscriberHandler
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
                 let server = self.server_dispatcher.server;
@@ -1674,7 +1676,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateSubscriberHandler
                     subscriber_id,
                 }))
             } else {
-                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                // don't judge this is going away in a future pr
+                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
             }
         }
     }
@@ -1688,7 +1691,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishHandler for DatabaseDispa
         &'a self,
         topic: &'a String,
         _payload: &'a Vec<u8>,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    ) -> Result<ResourceName<'a>, Error> {
         Ok(pubsub_topic_resource_name(&self.name, topic))
     }
 
@@ -1702,7 +1705,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishHandler for DatabaseDispa
         _permissions: &Permissions,
         topic: String,
         payload: Vec<u8>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
                 self
@@ -1712,7 +1715,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishHandler for DatabaseDispa
                     .await;
                 Ok(Response::Ok)
             } else {
-                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                // don't judge this is going away in a future pr
+                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
             }
         }
     }
@@ -1725,12 +1729,12 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishToAllHandler for Database
         permissions: &Permissions,
         topics: &Vec<String>,
         _payload: &Vec<u8>,
-    ) -> Result<(), bonsaidb_core::Error> {
+    ) -> Result<(), Error> {
         for topic in topics {
             let topic_name = pubsub_topic_resource_name(&self.name, topic);
             let action = BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish));
             if !permissions.allowed_to(&topic_name, &action) {
-                return Err(bonsaidb_core::Error::from(PermissionDenied {
+                return Err(Error::from(PermissionDenied {
                     resource: topic_name.to_owned(),
                     action: action.name(),
                 }));
@@ -1746,7 +1750,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishToAllHandler for Database
         _permissions: &Permissions,
         topics: Vec<String>,
         payload: Vec<u8>,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
                 self
@@ -1760,7 +1764,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishToAllHandler for Database
                     .await;
                 Ok(Response::Ok)
             } else {
-                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                // don't judge this is going away in a future pr
+                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
             }
         }
     }
@@ -1774,7 +1779,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::SubscribeToHandler for DatabaseD
         &'a self,
         _subscriber_id: &'a u64,
         topic: &'a String,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    ) -> Result<ResourceName<'a>, Error> {
         Ok(pubsub_topic_resource_name(&self.name, topic))
     }
 
@@ -1788,12 +1793,13 @@ impl<'s, B: Backend> bonsaidb_core::networking::SubscribeToHandler for DatabaseD
         _permissions: &Permissions,
         subscriber_id: u64,
         topic: String,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
-                self.server_dispatcher.server.subscribe_to(subscriber_id, &self.name, topic).await.map(|_| Response::Ok)
+                self.server_dispatcher.server.subscribe_to(subscriber_id, &self.name, topic).await.map(|_| Response::Ok).map_err(Error::from)
             } else {
-                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                // don't judge this is going away in a future pr
+                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
             }
         }
     }
@@ -1809,7 +1815,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::UnsubscribeFromHandler
         &'a self,
         _subscriber_id: &'a u64,
         topic: &'a String,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    ) -> Result<ResourceName<'a>, Error> {
         Ok(pubsub_topic_resource_name(&self.name, topic))
     }
 
@@ -1823,12 +1829,13 @@ impl<'s, B: Backend> bonsaidb_core::networking::UnsubscribeFromHandler
         _permissions: &Permissions,
         subscriber_id: u64,
         topic: String,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
-                self.server_dispatcher.server.unsubscribe_from(subscriber_id, &self.name, &topic).await.map(|_| Response::Ok)
+                self.server_dispatcher.server.unsubscribe_from(subscriber_id, &self.name, &topic).await.map(|_| Response::Ok).map_err(Error::from)
             } else {
-                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                // don't judge this is going away in a future pr
+                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
             }
         }
     }
@@ -1843,7 +1850,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::UnregisterSubscriberHandler
         &self,
         _permissions: &Permissions,
         subscriber_id: u64,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         cfg_if! {
             if #[cfg(feature = "pubsub")] {
                 let mut subscribers = self.server_dispatcher.subscribers.write().await;
@@ -1855,7 +1862,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::UnregisterSubscriberHandler
                     Ok(Response::Ok)
                 }
             } else {
-                Err(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server")))
+                // don't judge this is going away in a future pr
+                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
             }
         }
     }
@@ -1867,10 +1875,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
 {
     type Action = BonsaiAction;
 
-    async fn resource_name<'a>(
-        &'a self,
-        op: &'a KeyOperation,
-    ) -> Result<ResourceName<'a>, bonsaidb_core::Error> {
+    async fn resource_name<'a>(&'a self, op: &'a KeyOperation) -> Result<ResourceName<'a>, Error> {
         Ok(kv_key_resource_name(
             &self.name,
             op.namespace.as_deref(),
@@ -1887,13 +1892,14 @@ impl<'s, B: Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
         &self,
         _permissions: &Permissions,
         op: KeyOperation,
-    ) -> Result<Response<<B::CustomApi as CustomApi>::Response>, bonsaidb_core::Error> {
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         cfg_if! {
             if #[cfg(feature = "keyvalue")] {
                 let result = self.database.execute_key_operation(op).await?;
                 Ok(Response::Database(DatabaseResponse::KvOutput(result)))
             } else {
-                Err(bonsaidb_core::Error::Server(String::from("keyvalue is not enabled on this server")))
+                // don't judge this is going away in a future pr
+                Err(Error::from(bonsaidb_core::Error::Server(String::from("keyvalue is not enabled on this server"))))
             }
         }
     }

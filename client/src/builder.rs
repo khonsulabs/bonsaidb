@@ -11,7 +11,7 @@ use crate::{client::CustomApiCallback, Client, Error};
 #[must_use]
 pub struct Builder<A: CustomApi = ()> {
     url: Url,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<A::Response>>>,
+    custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     #[cfg(not(target_arch = "wasm32"))]
     certificate: Option<fabruic::Certificate>,
     _api: PhantomData<A>,
@@ -44,7 +44,7 @@ impl Builder<()> {
 
     /// Enables using a [`CustomApi`] with this client. `callback` will be
     /// invoked when custom API responses are received from the server.
-    pub fn with_custom_api_callback<A: CustomApi, C: CustomApiCallback<A::Response>>(
+    pub fn with_custom_api_callback<A: CustomApi, C: CustomApiCallback<A>>(
         self,
         callback: C,
     ) -> Builder<A> {

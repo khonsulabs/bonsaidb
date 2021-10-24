@@ -31,7 +31,6 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
 bincode = "1.3"
-anyhow = "1"
 flume = "0.10"
 itertools = "0.10"
 structopt = { version = "0.3", optional = true }
@@ -56,6 +55,7 @@ bonsaidb-core = { path = "../core", version = "0.1.0-dev.4", features = [
 ] }
 futures = "0.3"
 criterion = { version = "0.3", features = ["async_tokio"] }
+anyhow = "1"
 
 [[bench]]
 name = "basics"

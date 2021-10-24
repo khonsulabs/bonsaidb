@@ -49,9 +49,10 @@ where
     DB: Schema,
 {
     type Output = u64;
+    type Error = Error;
 
     #[allow(clippy::too_many_lines)]
-    async fn execute(&mut self) -> anyhow::Result<Self::Output> {
+    async fn execute(&mut self) -> Result<Self::Output, Error> {
         let documents =
             self.database
                 .roots()
@@ -137,7 +138,7 @@ fn map_view<DB: Schema>(
     view_entries: &Tree<Unversioned, StdFile>,
     database: &Database<DB>,
     map_request: &Map,
-) -> anyhow::Result<()> {
+) -> Result<(), Error> {
     // Only do any work if there are invalidated documents to process
     let invalidated_ids = invalidated_entries
         .get_range(..)?

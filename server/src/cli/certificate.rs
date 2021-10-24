@@ -4,7 +4,7 @@ use fabruic::{Certificate, PrivateKey};
 use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
 
-use crate::{Backend, CustomServer};
+use crate::{Backend, CustomServer, Error};
 
 /// Command to manage the server's certificates.
 #[derive(StructOpt, Debug)]
@@ -42,7 +42,7 @@ pub enum Command {
 
 impl Command {
     /// Executes the command.
-    pub async fn execute<B: Backend>(&self, server: CustomServer<B>) -> anyhow::Result<()> {
+    pub async fn execute<B: Backend>(&self, server: CustomServer<B>) -> Result<(), Error> {
         match self {
             Self::InstallSelfSigned {
                 server_name,

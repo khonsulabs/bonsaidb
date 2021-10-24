@@ -1,7 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
 use flume::Receiver;
-use serde::{Deserialize, Serialize};
 
 use crate::manager::Manager;
 
@@ -11,17 +10,18 @@ pub struct Id(pub(crate) u64);
 
 /// References a background task.
 #[derive(Debug)]
-pub struct Handle<T, Key> {
+pub struct Handle<T, E, Key> {
     /// The task's id.
     pub id: Id,
 
     pub(crate) manager: Manager<Key>,
-    pub(crate) receiver: Receiver<Result<T, Arc<anyhow::Error>>>,
+    pub(crate) receiver: Receiver<Result<T, Arc<E>>>,
 }
 
-impl<T, Key> Handle<T, Key>
+impl<T, E, Key> Handle<T, E, Key>
 where
-    T: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
+    T: Send + Sync + 'static,
+    E: Send + Sync + 'static,
     Key: Clone + std::hash::Hash + Eq + Send + Sync + Debug + 'static,
 {
     /// Returns a copy of this handle. When the job is completed, both handles
@@ -36,7 +36,7 @@ where
     /// # Errors
     ///
     /// Returns an error if the job is cancelled.
-    pub async fn receive(&self) -> Result<Result<T, Arc<anyhow::Error>>, flume::RecvError> {
+    pub async fn receive(&self) -> Result<Result<T, Arc<E>>, flume::RecvError> {
         self.receiver.recv_async().await
     }
 
@@ -49,7 +49,7 @@ where
     ///
     /// * [`TryRecvError::Disconnected`](flume::TryRecvError::Disconnected): The job has been cancelled.
     /// * [`TryRecvError::Empty`](flume::TryRecvError::Empty): The job has not completed yet.
-    pub fn try_receive(&self) -> Result<Result<T, Arc<anyhow::Error>>, flume::TryRecvError> {
+    pub fn try_receive(&self) -> Result<Result<T, Arc<E>>, flume::TryRecvError> {
         self.receiver.try_recv()
     }
 }

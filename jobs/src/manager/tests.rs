@@ -1,7 +1,6 @@
-use std::{fmt::Debug, hash::Hash};
+use std::{convert::Infallible, fmt::Debug, hash::Hash};
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 
 use super::Manager;
 use crate::{Job, Keyed};
@@ -12,18 +11,19 @@ struct Echo<T>(T);
 #[async_trait]
 impl<T> Job for Echo<T>
 where
-    T: Clone + Serialize + for<'de> Deserialize<'de> + Eq + Hash + Debug + Send + Sync + 'static,
+    T: Clone + Eq + Hash + Debug + Send + Sync + 'static,
 {
     type Output = T;
+    type Error = Infallible;
 
-    async fn execute(&mut self) -> anyhow::Result<Self::Output> {
+    async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         Ok(self.0.clone())
     }
 }
 
 impl<T> Keyed<T> for Echo<T>
 where
-    T: Clone + Serialize + for<'de> Deserialize<'de> + Eq + Hash + Debug + Send + Sync + 'static,
+    T: Clone + Eq + Hash + Debug + Send + Sync + 'static,
 {
     fn key(&self) -> T {
         self.0.clone()
@@ -35,8 +35,8 @@ async fn simple() -> Result<(), flume::RecvError> {
     let manager = Manager::<usize>::default();
     manager.spawn_worker();
     let handle = manager.enqueue(Echo(1)).await;
-    if let Ok(value) = handle.receive().await?.as_ref() {
-        assert_eq!(value, &1);
+    if let Ok(value) = handle.receive().await? {
+        assert_eq!(value, 1);
 
         Ok(())
     } else {
@@ -63,7 +63,7 @@ async fn keyed_simple() -> Result<(), flume::RecvError> {
         .try_receive()
         .expect("try_receive failed even though other channels were available");
 
-    for result in vec![result1, result2, result3] {
+    for result in [result1, result2, result3] {
         assert_eq!(result.unwrap(), 1);
     }
 

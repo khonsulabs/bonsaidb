@@ -47,6 +47,8 @@ pub mod networking;
 /// Types for Publish/Subscribe (`PubSub`) messaging.
 pub mod pubsub;
 
+use std::string::FromUtf8Error;
+
 pub use async_trait;
 #[cfg(feature = "pubsub")]
 pub use circulate;
@@ -176,6 +178,10 @@ pub enum Error {
     #[error("user not found")]
     UserNotFound,
 
+    /// An error occurred converting from bytes to Utf-8.
+    #[error("invalid string: {0}")]
+    InvalidUnicode(String),
+
     /// The credentials specified are not valid.
     #[error("invalid credentials")]
     InvalidCredentials,
@@ -193,6 +199,12 @@ impl From<view::Error> for Error {
     }
 }
 
+impl From<FromUtf8Error> for Error {
+    fn from(err: FromUtf8Error) -> Self {
+        Self::InvalidUnicode(err.to_string())
+    }
+}
+
 /// Shared schemas and utilities used for unit testing.
 #[cfg(any(feature = "test-util", test))]
 #[allow(missing_docs)]
@@ -207,3 +219,8 @@ impl From<custodian_password::Error> for Error {
 /// The configuration used for `OPAQUE` password authentication.
 pub const PASSWORD_CONFIG: Config =
     Config::new(Group::Ristretto255, Hash::Blake3, SlowHash::Argon2id);
+
+/// A type that implements [`Error`](std::error::Error) and is threadsafe.
+pub trait AnyError: std::error::Error + Send + Sync + 'static {}
+
+impl<T> AnyError for T where T: std::error::Error + Send + Sync + 'static {}

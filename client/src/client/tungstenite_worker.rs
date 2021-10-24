@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use bonsaidb_core::networking::{Payload, Response};
+use bonsaidb_core::{
+    custom_api::{CustomApi, CustomApiResult},
+    networking::{Payload, Response},
+};
 use flume::Receiver;
 use futures::{
     stream::{SplitSink, SplitStream},
@@ -16,13 +19,10 @@ use super::{CustomApiCallback, PendingRequest};
 use crate::client::SubscriberMap;
 use crate::{client::OutstandingRequestMapHandle, Error};
 
-pub async fn reconnecting_client_loop<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(
+pub async fn reconnecting_client_loop<A: CustomApi>(
     url: Url,
-    request_receiver: Receiver<PendingRequest<R, O>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
+    request_receiver: Receiver<PendingRequest<A::Request, CustomApiResult<A>>>,
+    custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Ok(request) = request_receiver.recv_async().await {
@@ -57,7 +57,7 @@ pub async fn reconnecting_client_loop<
             response_processor(
                 receiver,
                 outstanding_requests,
-                custom_api_callback.as_ref(),
+                custom_api_callback.as_deref(),
                 #[cfg(feature = "pubsub")]
                 subscribers.clone()
             )
@@ -93,20 +93,18 @@ async fn request_sender<
 }
 
 #[allow(clippy::collapsible_else_if)] // not possible due to cfg statement
-async fn response_processor<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Send + Sync + for<'de> Deserialize<'de> + 'static,
->(
+async fn response_processor<A: CustomApi>(
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-    outstanding_requests: OutstandingRequestMapHandle<R, O>,
-    custom_api_callback: Option<&Arc<dyn CustomApiCallback<O>>>,
+    outstanding_requests: OutstandingRequestMapHandle<A::Request, CustomApiResult<A>>,
+    custom_api_callback: Option<&dyn CustomApiCallback<A>>,
     #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Some(message) = receiver.next().await {
         let message = message?;
         match message {
             Message::Binary(response) => {
-                let payload = bincode::deserialize::<Payload<Response<O>>>(&response)?;
+                let payload =
+                    bincode::deserialize::<Payload<Response<CustomApiResult<A>>>>(&response)?;
 
                 super::process_response_payload(
                     payload,
