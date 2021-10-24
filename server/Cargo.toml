@@ -2,7 +2,7 @@
 name = "bonsaidb-server"
 version = "0.1.0-dev.4"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
-edition = "2018"
+edition = "2021"
 description = "Database server for BonsaiDb."
 repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
@@ -40,7 +40,7 @@ itertools = "0.10"
 tokio-tungstenite = { version = "0.15", optional = true }
 bincode = { version = "1", optional = true }
 cfg-if = "1"
-actionable = "0.1.0-dev.5"
+actionable = "0.1.0-rc.1"
 serde_cbor = "0.11"
 fabruic = { version = "0.0.1-dev.2", features = ["dangerous"] }
 

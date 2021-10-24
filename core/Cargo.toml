@@ -2,7 +2,7 @@
 name = "bonsaidb-core"
 version = "0.1.0-dev.4"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
-edition = "2018"
+edition = "2021"
 description = "Local storage backend for BonsaiDb."
 repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
@@ -32,7 +32,7 @@ sha2 = "0.9"
 futures = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["time"], optional = true }
 num-traits = "0.2"
-actionable = "0.1.0-dev.5"
+actionable = "0.1.0-rc.1"
 custodian-password = { git = "https://github.com/khonsulabs/custodian.git", branch = "main", default-features = false, features = [
     "blake3",
 ] }

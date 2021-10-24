@@ -14,6 +14,8 @@ pub struct Configuration {
     pub storage: StorageConfiguration,
     /// The permissions granted to all connections to this server.
     pub default_permissions: DefaultPermissions,
+    /// The permissions granted to authenticated connections to this server.
+    pub authenticated_permissions: DefaultPermissions,
 }
 
 impl Default for Configuration {
@@ -25,6 +27,7 @@ impl Default for Configuration {
             request_workers: 16,
             storage: bonsaidb_local::config::Configuration::default(),
             default_permissions: DefaultPermissions::Permissions(Permissions::default()),
+            authenticated_permissions: DefaultPermissions::Permissions(Permissions::default()),
         }
     }
 }
@@ -36,4 +39,13 @@ pub enum DefaultPermissions {
     AllowAll,
     /// A defined set of permissions.
     Permissions(Permissions),
+}
+
+impl From<DefaultPermissions> for Permissions {
+    fn from(permissions: DefaultPermissions) -> Self {
+        match permissions {
+            DefaultPermissions::Permissions(permissions) => permissions,
+            DefaultPermissions::AllowAll => Self::allow_all(),
+        }
+    }
 }

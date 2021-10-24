@@ -662,11 +662,13 @@ impl ServerConnection for Client {
 
 type OutstandingRequestMap<Api> = HashMap<u32, PendingRequest<Api>>;
 type OutstandingRequestMapHandle<Api> = Arc<Mutex<OutstandingRequestMap<Api>>>;
+type PendingRequestResponder<Api> =
+    Sender<Result<Response<CustomApiResult<Api>>, Error<<Api as CustomApi>::Error>>>;
 
 #[derive(Debug)]
 pub struct PendingRequest<Api: CustomApi> {
     request: Payload<Request<Api::Request>>,
-    responder: Sender<Result<Response<CustomApiResult<Api>>, Error<Api::Error>>>,
+    responder: PendingRequestResponder<Api>,
     _phantom: PhantomData<Api>,
 }
 

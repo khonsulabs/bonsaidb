@@ -217,9 +217,10 @@ impl From<custodian_password::Error> for Error {
 }
 
 /// The configuration used for `OPAQUE` password authentication.
+#[must_use]
 pub fn password_config() -> Config {
     Config::new(
-        Ake::X25519,
+        Ake::Ristretto255,
         Group::Ristretto255,
         Hash::Blake3,
         Mhf::Argon2(Argon2Params::default()),

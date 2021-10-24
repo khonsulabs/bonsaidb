@@ -77,14 +77,15 @@ impl User {
 
         // Combine the permissions from all the groups into one.
         let merged_permissions = Permissions::merged(
-            &groups
+            groups
                 .into_iter()
                 .map(|group| {
                     group
                         .contents::<group::PermissionGroup>()
                         .map(|group| Permissions::from(group.statements))
                 })
-                .collect::<Result<Vec<_>, _>>()?,
+                .collect::<Result<Vec<_>, _>>()?
+                .iter(),
         );
 
         Ok(merged_permissions)

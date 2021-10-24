@@ -108,10 +108,11 @@ async fn setup_server() -> anyhow::Result<Server> {
             default_permissions: DefaultPermissions::Permissions(
                 Permissions::from(vec![Statement {
                     resources: vec![ResourceName::any()],
-                    actions: ActionNameList::List(vec![BonsaiAction::Server(
-                        ServerAction::LoginWithPassword,
-                    )
-                    .name()]),
+                    actions: ActionNameList::List(vec![
+                        BonsaiAction::Server(ServerAction::Connect).name(),
+                        BonsaiAction::Server(ServerAction::LoginWithPassword)
+                            .name(),
+                    ]),
                 }]),
             ),
             storage: StorageConfiguration {

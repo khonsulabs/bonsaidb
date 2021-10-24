@@ -2,7 +2,7 @@
 name = "bonsaidb"
 version = "0.1.0-dev.4"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
-edition = "2018"
+edition = "2021"
 description = "A programmable, ACID-compliant, document-database inspired by CouchDB."
 repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
@@ -134,7 +134,7 @@ rand = "0.8"
 url = "2.2"
 once_cell = "1.3.0"
 flume = "0.10"
-actionable = "0.1.0-dev.5"
+actionable = "0.1.0-rc.1"
 fabruic = { version = "0.0.1-dev.2" }
 hdrhistogram = "7"
 

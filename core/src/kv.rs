@@ -1,5 +1,3 @@
-use std::convert::TryInto;
-
 use serde::{Deserialize, Serialize};
 
 mod timestamp;
@@ -8,8 +6,6 @@ pub use self::timestamp::Timestamp;
 
 #[cfg(feature = "keyvalue")]
 mod implementation {
-    use std::convert::TryFrom;
-
     use async_trait::async_trait;
     use futures::future::BoxFuture;
     use serde::Serialize;
@@ -477,7 +473,7 @@ impl From<u64> for Numeric {
 }
 
 #[allow(clippy::fallible_impl_from)]
-impl std::convert::TryFrom<Numeric> for f64 {
+impl TryFrom<Numeric> for f64 {
     type Error = IncompatibleTypeError;
     fn try_from(value: Numeric) -> Result<Self, IncompatibleTypeError> {
         if let Numeric::Float(value) = value {
@@ -489,7 +485,7 @@ impl std::convert::TryFrom<Numeric> for f64 {
 }
 
 #[allow(clippy::fallible_impl_from)]
-impl std::convert::TryFrom<Numeric> for u64 {
+impl TryFrom<Numeric> for u64 {
     type Error = IncompatibleTypeError;
     fn try_from(value: Numeric) -> Result<Self, IncompatibleTypeError> {
         if let Numeric::UnsignedInteger(value) = value {
@@ -501,7 +497,7 @@ impl std::convert::TryFrom<Numeric> for u64 {
 }
 
 #[allow(clippy::fallible_impl_from)]
-impl std::convert::TryFrom<Numeric> for i64 {
+impl TryFrom<Numeric> for i64 {
     type Error = IncompatibleTypeError;
     fn try_from(value: Numeric) -> Result<Self, IncompatibleTypeError> {
         if let Numeric::Integer(value) = value {

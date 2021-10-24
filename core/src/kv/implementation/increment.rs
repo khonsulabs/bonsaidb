@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use futures::{Future, FutureExt};
 
 use super::{BuilderState, Command, KeyOperation, Kv, Output};

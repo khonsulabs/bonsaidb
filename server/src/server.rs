@@ -60,7 +60,6 @@ use tokio::{fs::File, sync::RwLock};
 use crate::{
     async_io_util::FileExt,
     backend::{BackendError, ConnectionHandling},
-    config::DefaultPermissions,
     error::Error,
     Backend, Configuration,
 };
@@ -101,6 +100,7 @@ struct Data<B: Backend = ()> {
     clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     request_processor: Manager,
     default_permissions: Permissions,
+    authenticated_permissions: Permissions,
     endpoint: RwLock<Option<Endpoint>>,
     client_simultaneous_request_limit: usize,
     #[cfg(feature = "websockets")]
@@ -122,10 +122,8 @@ impl<B: Backend> CustomServer<B> {
 
         let storage = Storage::open_local(directory, configuration.storage).await?;
 
-        let default_permissions = match configuration.default_permissions {
-            DefaultPermissions::Permissions(permissions) => permissions,
-            DefaultPermissions::AllowAll => Permissions::allow_all(),
-        };
+        let default_permissions = Permissions::from(configuration.default_permissions);
+        let authenticated_permissions = Permissions::from(configuration.authenticated_permissions);
 
         let server = Self {
             data: Arc::new(Data {
@@ -135,6 +133,7 @@ impl<B: Backend> CustomServer<B> {
                 endpoint: RwLock::default(),
                 request_processor,
                 default_permissions,
+                authenticated_permissions,
                 client_simultaneous_request_limit: configuration.client_simultaneous_request_limit,
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
@@ -345,10 +344,6 @@ impl<B: Backend> CustomServer<B> {
             &bonsaidb_resource_name(),
             &BonsaiAction::Server(ServerAction::Connect),
         ) {
-            println!(
-                "Rejecting connection, permissions: {:?}",
-                &self.data.default_permissions
-            );
             return None;
         }
 
@@ -1202,6 +1197,9 @@ impl<'s, B: Backend> bonsaidb_core::networking::FinishPasswordLoginHandler
                 .ok_or(bonsaidb_core::Error::UserNotFound)?;
 
             let permissions = user.contents.effective_permissions(&admin).await?;
+            let permissions = Permissions::merged(
+                [&permissions, &self.server.data.authenticated_permissions].into_iter(),
+            );
             self.client.logged_in_as(user_id, permissions.clone()).await;
 
             Ok(Response::Server(ServerResponse::LoggedIn { permissions }))

@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use actionable::{Action, ActionNameList, Permissions, ResourceName};
 use bonsaidb::{
     client::{Client, RemoteDatabase},
     core::{
@@ -11,6 +12,8 @@ use bonsaidb::{
     },
     server::test_util::{initialize_basic_server, BASIC_SERVER_NAME},
 };
+use bonsaidb_core::permissions::bonsai::{BonsaiAction, ServerAction};
+use bonsaidb_server::{Configuration, DefaultPermissions, Server};
 use fabruic::Certificate;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
@@ -237,4 +240,58 @@ async fn assume_permissions(
         .unwrap();
 
     Ok(connection.database::<BasicSchema>(database_name).await?)
+}
+
+#[tokio::test]
+async fn authenticated_permissions_test() -> anyhow::Result<()> {
+    let database_path = TestDirectory::new("authenticated-permissions");
+    let server = Server::open(
+        &database_path,
+        Configuration {
+            default_permissions: DefaultPermissions::Permissions(Permissions::from(vec![
+                Statement {
+                    resources: vec![ResourceName::any()],
+                    actions: ActionNameList::List(vec![
+                        BonsaiAction::Server(ServerAction::Connect).name(),
+                        BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
+                    ]),
+                },
+            ])),
+            authenticated_permissions: DefaultPermissions::AllowAll,
+            ..Configuration::default()
+        },
+    )
+    .await?;
+    server
+        .install_self_signed_certificate("authenticated-permissions-test", false)
+        .await?;
+    let certificate = server.certificate().await?;
+
+    server.create_user("ecton").await?;
+    server.set_user_password_str("ecton", "hunter2").await?;
+    tokio::spawn(async move {
+        server.listen_on(6002).await?;
+        Result::<(), anyhow::Error>::Ok(())
+    });
+    // Give the server time to listen
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    let url = Url::parse("bonsaidb://localhost:6002")?;
+    let client = Client::build(url)
+        .with_certificate(certificate)
+        .finish()
+        .await?;
+    match client.create_user("otheruser").await {
+        Err(bonsaidb_core::Error::PermissionDenied(_)) => {}
+        _ => unreachable!("should not have permission to create another user before logging in"),
+    }
+    client
+        .login_with_password_str("ecton", "hunter2", None)
+        .await?;
+    client
+        .create_user("otheruser")
+        .await
+        .expect("should be able to create user after logging in");
+
+    Ok(())
 }

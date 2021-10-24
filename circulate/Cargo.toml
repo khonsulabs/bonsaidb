@@ -2,7 +2,7 @@
 name = "circulate"
 version = "0.1.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
-edition = "2018"
+edition = "2021"
 description = "Lightweight async PubSub framework."
 repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
@@ -12,7 +12,7 @@ readme = "./README.md"
 
 [dependencies]
 flume = "0.10"
-serde = { version="1", features=["derive"] }
+serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"
 futures = "0.3"
 async-lock = "2"
@@ -21,11 +21,11 @@ async-lock = "2"
 wasm-bindgen-futures = "0.4"
 
 [target.'cfg(not(target_arch="wasm32"))'.dependencies]
-tokio = { version="1", features=["sync", "macros", "rt"] }
+tokio = { version = "1", features = ["sync", "macros", "rt"] }
 
 [dev-dependencies]
 anyhow = "1"
-tokio = { version="1", features=[
+tokio = { version = "1", features = [
     "sync",
     "rt",
     "rt-multi-thread",
