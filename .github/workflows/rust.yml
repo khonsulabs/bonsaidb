@@ -73,6 +73,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v1
+
       - name: Run clippy
         run: |
           cd ${{ matrix.folder }}
@@ -88,6 +91,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v2
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v1
       - name: Generate Docs
         run: |
           cargo doc --no-deps --all-features
@@ -107,6 +112,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v2
+      
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v1
 
       - name: Run code coverage
         run: |
