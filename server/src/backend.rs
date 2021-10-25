@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     custom_api::{CustomApi, CustomApiError, Infallible},
     permissions::Dispatcher,
-    schema::InvalidNameError,
+    schema::{InsertError, InvalidNameError},
 };
 
 use crate::{server::ConnectedClient, CustomServer, Error};
@@ -148,12 +148,12 @@ impl<E: CustomApiError> From<serde_cbor::Error> for BackendError<E> {
     }
 }
 
-impl<T, E> From<(T, bonsaidb_core::Error)> for BackendError<E>
+impl<T, E> From<InsertError<T>> for BackendError<E>
 where
     E: CustomApiError,
 {
-    fn from(tuple: (T, bonsaidb_core::Error)) -> Self {
-        Self::Server(Error::from(tuple.1))
+    fn from(error: InsertError<T>) -> Self {
+        Self::Server(Error::from(error.error))
     }
 }
 
