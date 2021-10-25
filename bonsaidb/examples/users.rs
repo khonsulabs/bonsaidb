@@ -19,6 +19,7 @@ use bonsaidb::{
 };
 
 mod support;
+use bonsaidb_core::schema::InsertError;
 use support::schema::Shape;
 
 #[tokio::main]
@@ -51,8 +52,12 @@ async fn main() -> anyhow::Result<()> {
     .await)
     {
         Ok(doc) => doc.header.id,
-        Err(bonsaidb_core::Error::UniqueKeyViolation {
-            existing_document_id,
+        Err(InsertError {
+            error:
+                bonsaidb_core::Error::UniqueKeyViolation {
+                    existing_document_id,
+                    ..
+                },
             ..
         }) => existing_document_id,
         Err(other) => anyhow::bail!(other),
@@ -76,7 +81,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Before authenticating, inserting a shape shouldn't work.
     match Shape::new(3).insert_into(&db).await {
-        Err(bonsaidb_core::Error::PermissionDenied(denied)) => {
+        Err(InsertError {
+            error: bonsaidb_core::Error::PermissionDenied(denied),
+            ..
+        }) => {
             println!(
                 "Permission was correctly denied before logging in: {:?}",
                 denied

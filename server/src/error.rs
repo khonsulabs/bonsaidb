@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use actionable::PermissionDenied;
-use bonsaidb_local::core::{self, schema, AnyError};
+use bonsaidb_local::core::{self, schema, schema::InsertError, AnyError};
 use schema::InvalidNameError;
 
 /// An error occurred while interacting with a [`Server`](crate::Server).
@@ -71,6 +71,12 @@ impl From<PermissionDenied> for Error {
 impl From<InvalidNameError> for Error {
     fn from(err: InvalidNameError) -> Self {
         Self::Core(core::Error::InvalidName(err))
+    }
+}
+
+impl<T> From<InsertError<T>> for Error {
+    fn from(error: InsertError<T>) -> Self {
+        Self::from(error.error)
     }
 }
 

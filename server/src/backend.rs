@@ -148,5 +148,14 @@ impl<E: CustomApiError> From<serde_cbor::Error> for BackendError<E> {
     }
 }
 
+impl<T, E> From<(T, bonsaidb_core::Error)> for BackendError<E>
+where
+    E: CustomApiError,
+{
+    fn from(tuple: (T, bonsaidb_core::Error)) -> Self {
+        Self::Server(Error::from(tuple.1))
+    }
+}
+
 pub type BackendApiResult<Api> =
     Result<<Api as CustomApi>::Response, BackendError<<Api as CustomApi>::Error>>;

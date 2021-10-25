@@ -12,7 +12,10 @@ use bonsaidb::{
     },
     server::test_util::{initialize_basic_server, BASIC_SERVER_NAME},
 };
-use bonsaidb_core::permissions::bonsai::{BonsaiAction, ServerAction};
+use bonsaidb_core::{
+    permissions::bonsai::{BonsaiAction, ServerAction},
+    schema::InsertError,
+};
 use bonsaidb_server::{Configuration, DefaultPermissions, Server};
 use fabruic::Certificate;
 use once_cell::sync::Lazy;
@@ -217,8 +220,12 @@ async fn assume_permissions(
             .await)
             {
                 Ok(doc) => doc.header.id,
-                Err(bonsaidb_core::Error::UniqueKeyViolation {
-                    existing_document_id,
+                Err(InsertError {
+                    error:
+                        bonsaidb_core::Error::UniqueKeyViolation {
+                            existing_document_id,
+                            ..
+                        },
                     ..
                 }) => existing_document_id,
                 Err(other) => anyhow::bail!(other),

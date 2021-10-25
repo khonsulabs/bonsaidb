@@ -47,16 +47,34 @@ pub trait Collection: Debug + Send + Sync {
     async fn insert_into<Cn: Connection>(
         self,
         connection: &Cn,
-    ) -> Result<CollectionDocument<Self>, Error>
+    ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
         Self: Serialize + for<'de> Deserialize<'de> + 'static,
     {
-        let header = connection.collection::<Self>().push(&self).await?;
+        let header = match connection.collection::<Self>().push(&self).await {
+            Ok(header) => header,
+            Err(error) => {
+                return Err(InsertError {
+                    contents: self,
+                    error,
+                })
+            }
+        };
         Ok(CollectionDocument {
             header: Cow::Owned(header),
             contents: self,
         })
     }
+}
+
+/// An error from inserting a [`CollectionDocument`].
+#[derive(thiserror::Error, Debug)]
+#[error("{error}")]
+pub struct InsertError<T> {
+    /// The original value being inserted.
+    pub contents: T,
+    /// The error that occurred while inserting.
+    pub error: Error,
 }
 
 /// A collection with a unique name column.
