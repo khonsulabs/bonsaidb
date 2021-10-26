@@ -7,7 +7,7 @@ To access `BonsaiDb` over the network, you're going to be writing two pieces of 
 The first step is to create a [`Server`][storage], which uses local [`Storage`][storage] under the hood. This means that if you're already using `BonsaiDb` in local mode, you can swap your usage of [`Storage`][storage] with [`Server`][server] in your server code without running your database through any tools. Here's the setup code from [`bonsaidb/examples/server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/bonsaidb/examples/server.rs)
 
 ```rust,noplayground,no_run
-{{#include ../../../bonsaidb/examples/server.rs:setup}}
+{{#include ../../../crates/bonsaidb/examples/server.rs:setup}}
 ```
 
 Once you have a server initialized, calling [`listen_on`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html#method.listen_on) will begin listening for connections on the port specified. This uses the preferred native protocol which uses UDP. If you find that UDP is not working for your setup or want to put `BonsaiDb` behind a load balancer that doesn't support UDP, you can enable WebSocket support and call [`listen_for_websockets_on`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html#method.listen_for_websockets_on).
