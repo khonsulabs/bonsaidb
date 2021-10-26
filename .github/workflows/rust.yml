@@ -84,7 +84,7 @@ jobs:
       - name: Run unit tests
         run: |
           cd ${{ matrix.folder }}
-          cargo test ${{ matrix.features }}
+          cargo test ${{ matrix.features }} -- --nocapture
 
   docs:
     runs-on: ubuntu-latest
