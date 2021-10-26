@@ -4,7 +4,6 @@ members = [
     "circulate",
     "client",
     "core",
-    "jobs",
     "local",
     "macros",
     "bonsaidb",

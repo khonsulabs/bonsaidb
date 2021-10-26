@@ -4,11 +4,11 @@ use std::{
     sync::Arc,
 };
 
+use crate::jobs::{manager::Manager, task::Handle};
 use bonsaidb_core::{
     connection::Connection,
     schema::{view, CollectionName, Schema, ViewName},
 };
-use bonsaidb_jobs::{manager::Manager, task::Handle};
 use tokio::sync::RwLock;
 
 use crate::{

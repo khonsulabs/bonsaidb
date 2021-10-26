@@ -2,7 +2,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use flume::Receiver;
 
-use crate::manager::Manager;
+use crate::jobs::manager::Manager;
 
 /// he `Id` of an executing task.
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]

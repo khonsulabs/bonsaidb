@@ -3,7 +3,7 @@ use std::{convert::Infallible, fmt::Debug, hash::Hash};
 use async_trait::async_trait;
 
 use super::Manager;
-use crate::{Job, Keyed};
+use crate::jobs::{Job, Keyed};
 
 #[derive(Debug)]
 struct Echo<T>(T);

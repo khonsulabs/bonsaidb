@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 
+use crate::jobs::manager::Manager;
 use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
 #[cfg(feature = "internal-apis")]
@@ -29,7 +30,6 @@ use bonsaidb_core::{
     },
     transaction::{Executed, OperationResult, Transaction},
 };
-use bonsaidb_jobs::manager::Manager;
 use futures::TryFutureExt;
 use itertools::Itertools;
 use nebari::{

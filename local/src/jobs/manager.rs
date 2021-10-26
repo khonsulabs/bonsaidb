@@ -2,7 +2,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use tokio::sync::RwLock;
 
-use crate::{
+use crate::jobs::{
     task::{Handle, Id},
     Job, Keyed,
 };

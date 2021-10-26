@@ -2,7 +2,7 @@ use std::{any::Any, collections::HashMap, fmt::Debug, sync::Arc};
 
 use flume::{Receiver, Sender};
 
-use crate::{
+use crate::jobs::{
     manager::{ManagedJob, Manager},
     task::{Handle, Id},
     traits::Executable,

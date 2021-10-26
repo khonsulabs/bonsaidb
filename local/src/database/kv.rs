@@ -5,12 +5,12 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use crate::jobs::Job;
 use async_trait::async_trait;
 use bonsaidb_core::{
     kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Numeric, Output, Timestamp, Value},
     schema::Schema,
 };
-use bonsaidb_jobs::Job;
 use nebari::{
     io::fs::StdFile,
     tree::{KeyEvaluation, Root, Unversioned},

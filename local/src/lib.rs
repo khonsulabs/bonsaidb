@@ -20,6 +20,7 @@
 pub mod config;
 mod database;
 mod error;
+pub mod jobs;
 mod open_trees;
 mod storage;
 mod tasks;

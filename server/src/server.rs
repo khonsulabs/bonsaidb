@@ -41,8 +41,10 @@ use bonsaidb_core::{
     schema::{Collection, CollectionName, NamedReference, Schema, ViewName},
     transaction::{Command, Transaction},
 };
-use bonsaidb_jobs::{manager::Manager, Job};
-use bonsaidb_local::{OpenDatabase, Storage};
+use bonsaidb_local::{
+    jobs::{manager::Manager, Job},
+    OpenDatabase, Storage,
+};
 use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 #[cfg(feature = "websockets")]

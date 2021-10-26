@@ -1,8 +1,8 @@
 use std::{borrow::Cow, collections::HashSet, hash::Hash, sync::Arc};
 
+use crate::jobs::{Job, Keyed};
 use async_trait::async_trait;
 use bonsaidb_core::schema::{view, CollectionName, Key, Schema, ViewName};
-use bonsaidb_jobs::{Job, Keyed};
 use nebari::{
     io::fs::StdFile,
     tree::{KeyEvaluation, Unversioned, Versioned},

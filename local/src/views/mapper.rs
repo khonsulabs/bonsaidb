@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use crate::jobs::{Job, Keyed};
 use async_trait::async_trait;
 use bonsaidb_core::{
     connection::Connection,
@@ -13,7 +14,6 @@ use bonsaidb_core::{
         CollectionName, Key, Schema, ViewName,
     },
 };
-use bonsaidb_jobs::{Job, Keyed};
 use nebari::{
     io::fs::StdFile,
     tree::{AnyTreeRoot, Unversioned, Versioned},

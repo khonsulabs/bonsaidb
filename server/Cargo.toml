@@ -26,7 +26,6 @@ bonsaidb-core = { path = "../core", version = "0.1.0-dev.4", default-features = 
 bonsaidb-local = { path = "../local", version = "0.1.0-dev.4", default-features = false, features = [
     "internal-apis",
 ] }
-bonsaidb-jobs = { path = "../jobs", version = "0.1.0-dev.4" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "1"
