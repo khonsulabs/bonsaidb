@@ -19,7 +19,7 @@ websockets = []
 actionable-traits = []
 
 [dependencies]
-bonsaidb-macros = { path = "../macros", version = "0.1.0-dev.4" }
+bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }
 circulate = { path = "../circulate", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
 serde_cbor = "0.11"

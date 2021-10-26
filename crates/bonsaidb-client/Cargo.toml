@@ -18,7 +18,7 @@ trusted-dns = ["fabruic/trust-dns"]
 test-util = []
 
 [dependencies]
-bonsaidb-core = { path = "../core", version = "0.1.0-dev.4", default-features = false, features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [
     "networking",
 ] }
 thiserror = "1"

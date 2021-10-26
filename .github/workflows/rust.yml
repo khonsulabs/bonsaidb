@@ -36,16 +36,15 @@ jobs:
         include:
           - folder: "./"
             features: "--all-features"
-          - folder: local
+          - folder: crates/bonsaidb-local
             features: "--no-default-features"
-          - folder: local
-          - folder: server
+          - folder: crates/bonsaidb-server
             features: "--no-default-features"
-          - folder: server
+          - folder: crates/bonsaidb-server
             features: "--no-default-features --features websockets"
-          - folder: bonsaidb
+          - folder: crates/bonsaidb
             features: "--no-default-features --features server,client,test-util"
-          - folder: bonsaidb
+          - folder: crates/bonsaidb
             features: "--no-default-features --features server,client,test-util,websockets"
     steps:
       - uses: actions/checkout@v2
