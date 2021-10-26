@@ -245,7 +245,6 @@ async fn assume_permissions(
 }
 
 #[tokio::test]
-// #[ignore = "https://github.com/khonsulabs/custodian/issues/9"]
 async fn authenticated_permissions_test() -> anyhow::Result<()> {
     let database_path = TestDirectory::new("authenticated-permissions");
     let server = Server::open(
