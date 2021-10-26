@@ -409,7 +409,11 @@ impl<B: Backend> CustomServer<B> {
                         });
 
                         let task_self = self.clone();
-                        tokio::spawn(async move { task_self.handle_stream(disconnector, sender, receiver).await });
+                        tokio::spawn(async move { 
+                            if let Err(err) = task_self.handle_stream(disconnector, sender, receiver).await {
+                                eprintln!("[server] Error handling stream: {:?}", err);
+                            }
+                        });
                     } else {
                         eprintln!("[server] Backend rejected connection.");
                         return Ok(())

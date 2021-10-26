@@ -55,12 +55,17 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
             request_sender(&request_receiver, sender, outstanding_requests.clone()),
             response_processor(
                 receiver,
-                outstanding_requests,
+                outstanding_requests.clone(),
                 custom_api_callback.as_deref(),
                 #[cfg(feature = "pubsub")]
                 subscribers.clone()
             )
         ) {
+            // Our socket was disconnected, clear the outstanding requests before returning.
+            let mut outstanding_requests = outstanding_requests.lock().await;
+            for (_, pending) in outstanding_requests.drain() {
+                drop(pending.responder.send(Err(Error::Disconnected)));
+            }
             eprintln!("Error on socket {:?}", err);
         }
     }

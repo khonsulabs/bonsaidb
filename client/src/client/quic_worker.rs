@@ -42,12 +42,6 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
         {
             if let Some(failed_request) = failed_request {
                 drop(failed_request.responder.send(Err(err)));
-            } else {
-                // TODO this can result in an infinite loop
-                println!(
-                    "Received an error: {:?} with no response to report the error to",
-                    err,
-                );
             }
             continue;
         }
@@ -94,11 +88,21 @@ async fn connect_and_process<A: CustomApi>(
         );
     }
 
-    futures::try_join!(
-        process_requests::<A>(outstanding_requests, request_receiver, payload_sender),
+    if let Err(err) = futures::try_join!(
+        process_requests::<A>(
+            outstanding_requests.clone(),
+            request_receiver,
+            payload_sender
+        ),
         async { request_processor.await.map_err(|_| Error::Disconnected)? }
-    )
-    .map_err(|err| (None, err))?;
+    ) {
+        // Our socket was disconnected, clear the outstanding requests before returning.
+        let mut outstanding_requests = outstanding_requests.lock().await;
+        for (_, pending) in outstanding_requests.drain() {
+            drop(pending.responder.send(Err(Error::Disconnected)));
+        }
+        return Err((None, err));
+    }
 
     Ok(())
 }
