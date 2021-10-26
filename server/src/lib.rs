@@ -27,7 +27,6 @@ mod config;
 mod error;
 mod server;
 
-#[cfg(feature = "pubsub")]
 pub use server::ServerSubscriber;
 
 pub use self::{

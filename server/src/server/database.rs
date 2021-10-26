@@ -1,14 +1,11 @@
-use std::ops::Deref;
-#[cfg(feature = "pubsub")]
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
-#[cfg(feature = "keyvalue")]
-use bonsaidb_core::kv::Kv;
-#[cfg(feature = "pubsub")]
-use bonsaidb_core::{circulate::Message, pubsub::PubSub, pubsub::Subscriber};
 use bonsaidb_core::{
+    circulate::Message,
     connection::{AccessPolicy, QueryKey},
+    kv::Kv,
+    pubsub::{PubSub, Subscriber},
     schema::{self, Collection, Map, MappedValue, Schema, View},
     transaction::Transaction,
 };
@@ -18,7 +15,6 @@ use crate::{Backend, CustomServer};
 
 /// A database belonging to a [`CustomServer`].
 pub struct ServerDatabase<'a, B: Backend, DB: Schema> {
-    #[cfg_attr(not(feature = "pubsub"), allow(dead_code))]
     pub(crate) server: &'a CustomServer<B>,
     pub(crate) db: Database<DB>,
 }
@@ -32,7 +28,6 @@ impl<'a, B: Backend, DB: Schema> Deref for ServerDatabase<'a, B, DB> {
 }
 
 /// Uses `CustomServer`'s `PubSub` relay.
-#[cfg(feature = "pubsub")]
 #[async_trait]
 impl<'a, B: Backend, DB: Schema> PubSub for ServerDatabase<'a, B, DB> {
     type Subscriber = ServerSubscriber<B>;
@@ -68,7 +63,6 @@ impl<'a, B: Backend, DB: Schema> PubSub for ServerDatabase<'a, B, DB> {
 }
 
 /// A `PubSub` subscriber for a [`CustomServer`].
-#[cfg(feature = "pubsub")]
 pub struct ServerSubscriber<B: Backend> {
     /// The unique ID of this subscriber.
     pub id: u64,
@@ -77,7 +71,6 @@ pub struct ServerSubscriber<B: Backend> {
     pub(crate) receiver: flume::Receiver<Arc<Message>>,
 }
 
-#[cfg(feature = "pubsub")]
 #[async_trait]
 impl<B: Backend> Subscriber for ServerSubscriber<B> {
     async fn subscribe_to<S: Into<String> + Send>(
@@ -186,7 +179,6 @@ impl<'a, B: Backend, DB: Schema> bonsaidb_core::connection::Connection
 }
 
 /// Pass-through implementation
-#[cfg(feature = "keyvalue")]
 #[async_trait]
 impl<'a, B: Backend, DB: Schema> Kv for ServerDatabase<'a, B, DB> {
     async fn execute_key_operation(

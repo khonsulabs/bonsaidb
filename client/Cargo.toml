@@ -12,11 +12,9 @@ readme = "../README.md"
 
 [features]
 default = ["full"]
-full = ["websockets", "trusted-dns", "pubsub", "keyvalue"]
+full = ["websockets", "trusted-dns"]
 websockets = ["bonsaidb-core/websockets", "tokio-tungstenite", "bincode"]
 trusted-dns = ["fabruic/trust-dns"]
-pubsub = ["bonsaidb-core/pubsub"]
-keyvalue = ["bonsaidb-core/keyvalue"]
 test-util = []
 
 [dependencies]

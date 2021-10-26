@@ -10,9 +10,10 @@ use futures::StreamExt;
 use url::Url;
 
 use super::{CustomApiCallback, PendingRequest};
-#[cfg(feature = "pubsub")]
-use crate::client::SubscriberMap;
-use crate::{client::OutstandingRequestMapHandle, Error};
+use crate::{
+    client::{OutstandingRequestMapHandle, SubscriberMap},
+    Error,
+};
 
 /// This function will establish a connection and try to keep it active. If an
 /// error occurs, any queries that come in while reconnecting will have the
@@ -22,7 +23,7 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
     certificate: Option<Certificate>,
     request_receiver: Receiver<PendingRequest<A>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
-    #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
+    subscribers: SubscriberMap,
 ) -> Result<(), Error<A::Error>> {
     if url.port().is_none() && url.scheme() == "bonsaidb" {
         let _ = url.set_port(Some(5645));
@@ -35,7 +36,6 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
             request,
             &request_receiver,
             custom_api_callback.clone(),
-            #[cfg(feature = "pubsub")]
             &subscribers,
         )
         .await
@@ -56,7 +56,7 @@ async fn connect_and_process<A: CustomApi>(
     initial_request: PendingRequest<A>,
     request_receiver: &Receiver<PendingRequest<A>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
-    #[cfg(feature = "pubsub")] subscribers: &SubscriberMap,
+    subscribers: &SubscriberMap,
 ) -> Result<(), (Option<PendingRequest<A>>, Error<A::Error>)> {
     let (_connection, payload_sender, payload_receiver) = match connect::<A>(url, certificate).await
     {
@@ -69,7 +69,6 @@ async fn connect_and_process<A: CustomApi>(
         outstanding_requests.clone(),
         payload_receiver,
         custom_api_callback,
-        #[cfg(feature = "pubsub")]
         subscribers.clone(),
     ));
 
@@ -129,7 +128,7 @@ pub async fn process<A: CustomApi>(
     outstanding_requests: OutstandingRequestMapHandle<A>,
     mut payload_receiver: fabruic::Receiver<Payload<Response<CustomApiResult<A>>>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
-    #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
+    subscribers: SubscriberMap,
 ) -> Result<(), Error<A::Error>> {
     while let Some(payload) = payload_receiver.next().await {
         let payload = payload?;
@@ -137,7 +136,6 @@ pub async fn process<A: CustomApi>(
             payload,
             &outstanding_requests,
             custom_api_callback.as_deref(),
-            #[cfg(feature = "pubsub")]
             &subscribers,
         )
         .await;

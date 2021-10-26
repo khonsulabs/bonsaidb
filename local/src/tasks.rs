@@ -165,7 +165,6 @@ impl TaskManager {
             .insert((database, collection, view_name), transaction_id);
     }
 
-    #[cfg(feature = "keyvalue")]
     pub async fn spawn_key_value_expiration_loader<DB: Schema>(
         &self,
         database: &crate::Database<DB>,

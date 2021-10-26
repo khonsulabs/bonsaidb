@@ -14,15 +14,16 @@ use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
 use super::{CustomApiCallback, PendingRequest};
-#[cfg(feature = "pubsub")]
-use crate::client::SubscriberMap;
-use crate::{client::OutstandingRequestMapHandle, Error};
+use crate::{
+    client::{OutstandingRequestMapHandle, SubscriberMap},
+    Error,
+};
 
 pub async fn reconnecting_client_loop<A: CustomApi>(
     url: Url,
     request_receiver: Receiver<PendingRequest<A>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
-    #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
+    subscribers: SubscriberMap,
 ) -> Result<(), Error<A::Error>> {
     while let Ok(request) = request_receiver.recv_async().await {
         let (stream, _) = match tokio_tungstenite::connect_async(&url).await {
@@ -57,7 +58,6 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
                 receiver,
                 outstanding_requests.clone(),
                 custom_api_callback.as_deref(),
-                #[cfg(feature = "pubsub")]
                 subscribers.clone()
             )
         ) {
@@ -98,7 +98,7 @@ async fn response_processor<A: CustomApi>(
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     outstanding_requests: OutstandingRequestMapHandle<A>,
     custom_api_callback: Option<&dyn CustomApiCallback<A>>,
-    #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
+    subscribers: SubscriberMap,
 ) -> Result<(), Error<A::Error>> {
     while let Some(message) = receiver.next().await {
         let message = message?;
@@ -111,7 +111,6 @@ async fn response_processor<A: CustomApi>(
                     payload,
                     &outstanding_requests,
                     custom_api_callback,
-                    #[cfg(feature = "pubsub")]
                     &subscribers,
                 )
                 .await;

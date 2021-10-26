@@ -29,9 +29,7 @@ use flume::Sender;
 use tokio::task::JoinHandle;
 use url::Url;
 
-pub use self::remote_database::RemoteDatabase;
-#[cfg(feature = "pubsub")]
-pub use self::remote_database::RemoteSubscriber;
+pub use self::remote_database::{RemoteDatabase, RemoteSubscriber};
 use crate::{error::Error, Builder};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -42,10 +40,8 @@ mod tungstenite_worker;
 #[cfg(all(feature = "websockets", target_arch = "wasm32"))]
 mod wasm_websocket_worker;
 
-#[cfg(feature = "pubsub")]
 type SubscriberMap = Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>;
 
-#[cfg(feature = "pubsub")]
 use bonsaidb_core::{circulate::Message, networking::DatabaseRequest};
 
 #[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
@@ -76,7 +72,6 @@ pub struct Data<A: CustomApi> {
     effective_permissions: Mutex<Option<Permissions>>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     request_id: AtomicU32,
-    #[cfg(feature = "pubsub")]
     subscribers: SubscriberMap,
     #[cfg(feature = "test-util")]
     background_task_running: Arc<AtomicBool>,
@@ -157,14 +152,12 @@ impl<A: CustomApi> Client<A> {
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
-        #[cfg(feature = "pubsub")]
         let subscribers = SubscriberMap::default();
         let worker = tokio::task::spawn(quic_worker::reconnecting_client_loop(
             url,
             certificate,
             request_receiver,
             custom_api_callback,
-            #[cfg(feature = "pubsub")]
             subscribers.clone(),
         ));
 
@@ -182,7 +175,6 @@ impl<A: CustomApi> Client<A> {
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
                 effective_permissions: Mutex::default(),
-                #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
                 background_task_running,
@@ -197,14 +189,12 @@ impl<A: CustomApi> Client<A> {
     ) -> Result<Self, Error<A::Error>> {
         let (request_sender, request_receiver) = flume::unbounded();
 
-        #[cfg(feature = "pubsub")]
         let subscribers = SubscriberMap::default();
 
         let worker = tokio::task::spawn(tungstenite_worker::reconnecting_client_loop(
             url,
             request_receiver,
             custom_api_callback,
-            #[cfg(feature = "pubsub")]
             subscribers.clone(),
         ));
 
@@ -223,7 +213,6 @@ impl<A: CustomApi> Client<A> {
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
                 effective_permissions: Mutex::default(),
-                #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
                 background_task_running,
@@ -240,14 +229,12 @@ impl<A: CustomApi> Client<A> {
     ) -> Result<Self, Error> {
         let (request_sender, request_receiver) = flume::unbounded();
 
-        #[cfg(feature = "pubsub")]
         let subscribers = SubscriberMap::default();
 
         wasm_websocket_worker::spawn_client(
             Arc::new(url),
             request_receiver,
             custom_api_callback.clone(),
-            #[cfg(feature = "pubsub")]
             subscribers.clone(),
         );
 
@@ -266,7 +253,6 @@ impl<A: CustomApi> Client<A> {
                 schemas: Mutex::default(),
                 request_id: AtomicU32::default(),
                 effective_permissions: Mutex::default(),
-                #[cfg(feature = "pubsub")]
                 subscribers,
                 #[cfg(feature = "test-util")]
                 background_task_running,
@@ -411,13 +397,11 @@ impl<A: CustomApi> Client<A> {
         self.data.background_task_running.clone()
     }
 
-    #[cfg(feature = "pubsub")]
     pub(crate) async fn register_subscriber(&self, id: u64, sender: flume::Sender<Arc<Message>>) {
         let mut subscribers = self.data.subscribers.lock().await;
         subscribers.insert(id, sender);
     }
 
-    #[cfg(feature = "pubsub")]
     pub(crate) async fn unregister_subscriber(&self, database: String, id: u64) {
         drop(
             self.send_request(Request::Database {
@@ -693,7 +677,7 @@ async fn process_response_payload<A: CustomApi>(
     payload: Payload<Response<CustomApiResult<A>>>,
     outstanding_requests: &OutstandingRequestMapHandle<A>,
     custom_api_callback: Option<&dyn CustomApiCallback<A>>,
-    #[cfg(feature = "pubsub")] subscribers: &SubscriberMap,
+    subscribers: &SubscriberMap,
 ) {
     if let Some(payload_id) = payload.id {
         if let Response::Api(response) = &payload.wrapped {
@@ -718,7 +702,6 @@ async fn process_response_payload<A: CustomApi>(
                     custom_api_callback.response_received(response).await;
                 }
             }
-            #[cfg(feature = "pubsub")]
             Response::Database(bonsaidb_core::networking::DatabaseResponse::MessageReceived {
                 subscriber_id,
                 topic,

@@ -8,12 +8,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-#[cfg(feature = "pubsub")]
 pub use bonsaidb_core::circulate::Relay;
 #[cfg(feature = "internal-apis")]
 use bonsaidb_core::custodian_password::{LoginResponse, ServerLogin};
-#[cfg(feature = "keyvalue")]
-use bonsaidb_core::kv::{KeyOperation, Output};
 use bonsaidb_core::{
     admin::{
         database::{self, ByName, Database as DatabaseRecord},
@@ -24,6 +21,7 @@ use bonsaidb_core::{
     connection::{self, AccessPolicy, Connection, QueryKey, ServerConnection},
     custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
     document::{Document, KeyId},
+    kv::{KeyOperation, Output},
     permissions::Permissions,
     schema::{
         view::map, CollectionDocument, CollectionName, MappedValue, NamedCollection,
@@ -77,7 +75,6 @@ struct Data {
     chunk_cache: ChunkCache,
     pub(crate) check_view_integrity_on_database_open: bool,
     runtime: tokio::runtime::Handle,
-    #[cfg(feature = "pubsub")]
     relay: Relay,
 }
 
@@ -141,7 +138,6 @@ impl Storage {
                     open_roots: Mutex::default(),
                     check_view_integrity_on_database_open,
                     runtime: tokio::runtime::Handle::current(),
-                    #[cfg(feature = "pubsub")]
                     relay: Relay::default(),
                 }),
             })
@@ -358,7 +354,6 @@ impl Storage {
         self.data.check_view_integrity_on_database_open
     }
 
-    #[cfg(feature = "pubsub")]
     pub(crate) fn relay(&self) -> &'_ Relay {
         &self.data.relay
     }
@@ -580,7 +575,6 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error>;
 
-    #[cfg(feature = "keyvalue")]
     async fn execute_key_operation(&self, op: KeyOperation)
         -> Result<Output, bonsaidb_core::Error>;
 }

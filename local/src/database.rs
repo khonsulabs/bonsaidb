@@ -4,11 +4,10 @@ use std::{
 };
 
 use async_trait::async_trait;
-#[cfg(feature = "keyvalue")]
-use bonsaidb_core::kv::{KeyOperation, Kv, Output};
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, ServerConnection},
     document::{Document, Header, KeyId},
+    kv::{KeyOperation, Kv, Output},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
     schema::{
@@ -42,10 +41,8 @@ use crate::{
     },
     Storage,
 };
-#[cfg(feature = "keyvalue")]
 pub mod kv;
 
-#[cfg(feature = "pubsub")]
 pub mod pubsub;
 
 /// A local, file-based database.
@@ -104,7 +101,6 @@ where
             }
         }
 
-        #[cfg(feature = "keyvalue")]
         storage.tasks().spawn_key_value_expiration_loader(&db).await;
 
         Ok(db)
@@ -654,7 +650,6 @@ where
         tree
     }
 
-    #[cfg(feature = "keyvalue")]
     pub(crate) fn update_key_expiration(&self, update: kv::ExpirationUpdate) {
         self.data.context.update_key_expiration(update);
     }
@@ -986,7 +981,6 @@ impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
 #[derive(Debug, Clone)]
 pub(crate) struct Context {
     pub(crate) roots: Roots<StdFile>,
-    #[cfg(feature = "keyvalue")]
     kv_expirer: Arc<std::sync::RwLock<Option<flume::Sender<kv::ExpirationUpdate>>>>,
 }
 
@@ -994,21 +988,17 @@ impl Context {
     pub(crate) fn new(roots: Roots<StdFile>) -> Self {
         Self {
             roots,
-            #[cfg(feature = "keyvalue")]
             kv_expirer: Arc::default(),
         }
     }
 
-    #[cfg_attr(not(feature = "keyvalue"), allow(clippy::unused_self))]
     pub(crate) fn shutdown(&self) {
-        #[cfg(feature = "keyvalue")]
         {
             let mut expirer = self.kv_expirer.write().unwrap();
             *expirer = None;
         }
     }
 
-    #[cfg(feature = "keyvalue")]
     pub(crate) fn update_key_expiration(&self, update: kv::ExpirationUpdate) {
         {
             let sender = self.kv_expirer.read().unwrap();
@@ -1175,7 +1165,6 @@ where
         Connection::last_transaction_id(self).await
     }
 
-    #[cfg(feature = "keyvalue")]
     async fn execute_key_operation(
         &self,
         op: KeyOperation,

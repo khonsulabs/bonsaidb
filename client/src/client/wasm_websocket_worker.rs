@@ -7,10 +7,8 @@ use url::Url;
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
 
-#[cfg(feature = "pubsub")]
-use crate::client::{CustomApiCallback, SubscriberMap};
 use crate::{
-    client::{OutstandingRequestMapHandle, PendingRequest},
+    client::{CustomApiCallback, OutstandingRequestMapHandle, PendingRequest, SubscriberMap},
     Error,
 };
 
@@ -21,13 +19,12 @@ pub fn spawn_client<
     url: Arc<Url>,
     request_receiver: Receiver<PendingRequest<R, O>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
-    #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
+    subscribers: SubscriberMap,
 ) {
     wasm_bindgen_futures::spawn_local(create_websocket(
         url,
         request_receiver,
         custom_api_callback,
-        #[cfg(feature = "pubsub")]
         subscribers,
     ));
 }
@@ -39,7 +36,7 @@ async fn create_websocket<
     url: Arc<Url>,
     request_receiver: Receiver<PendingRequest<R, O>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
-    #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
+    subscribers: SubscriberMap,
 ) {
     // Receive the next/initial request when we are reconnecting.
     let initial_request = match request_receiver.recv_async().await {
@@ -61,7 +58,6 @@ async fn create_websocket<
                 url,
                 request_receiver,
                 custom_api_callback.clone(),
-                #[cfg(feature = "pubsub")]
                 subscribers,
             );
             return;
@@ -91,7 +87,6 @@ async fn create_websocket<
     let onmessage_callback = on_message_callback(
         outstanding_requests.clone(),
         custom_api_callback.clone(),
-        #[cfg(feature = "pubsub")]
         subscribers.clone(),
     );
     ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
@@ -107,7 +102,6 @@ async fn create_websocket<
         ws.clone(),
         initial_request.clone(),
         custom_api_callback.clone(),
-        #[cfg(feature = "pubsub")]
         subscribers.clone(),
     );
     ws.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
@@ -211,7 +205,7 @@ fn on_message_callback<
 >(
     outstanding_requests: OutstandingRequestMapHandle<R, O>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
-    #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
+    subscribers: SubscriberMap,
 ) -> JsValue {
     Closure::wrap(Box::new(move |e: MessageEvent| {
         // Handle difference Text/Binary,...
@@ -226,7 +220,6 @@ fn on_message_callback<
             };
 
             let outstanding_requests = outstanding_requests.clone();
-            #[cfg(feature = "pubsub")]
             let subscribers = subscribers.clone();
             let custom_api_callback = custom_api_callback.clone();
             wasm_bindgen_futures::spawn_local(async move {
@@ -234,7 +227,6 @@ fn on_message_callback<
                     payload,
                     &outstanding_requests,
                     custom_api_callback.as_ref(),
-                    #[cfg(feature = "pubsub")]
                     &subscribers,
                 )
                 .await;
@@ -296,7 +288,7 @@ fn on_close_callback<
     ws: WebSocket,
     initial_request: Arc<Mutex<Option<PendingRequest<R, O>>>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
-    #[cfg(feature = "pubsub")] subscribers: SubscriberMap,
+    subscribers: SubscriberMap,
 ) -> JsValue {
     Closure::once_into_js(move |c: CloseEvent| {
         let _ = shutdown.send(());
@@ -320,7 +312,6 @@ fn on_close_callback<
             url,
             request_receiver,
             custom_api_callback.clone(),
-            #[cfg(feature = "pubsub")]
             subscribers,
         );
     })

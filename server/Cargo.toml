@@ -13,12 +13,10 @@ homepage = "https://dev.bonsaidb.io/"
 
 [features]
 default = ["full"]
-full = ["cli", "websockets", "pubsub", "keyvalue"]
+full = ["cli", "websockets"]
 cli = ["structopt"]
 test-util = ["bonsaidb-core/test-util"]
 websockets = ["bonsaidb-core/websockets", "tokio-tungstenite", "bincode"]
-pubsub = ["bonsaidb-core/pubsub", "bonsaidb-local/pubsub"]
-keyvalue = ["bonsaidb-core/keyvalue", "bonsaidb-local/keyvalue"]
 
 [dependencies]
 bonsaidb-core = { path = "../core", version = "0.1.0-dev.4", default-features = false, features = [
@@ -39,7 +37,6 @@ flume = "0.10"
 itertools = "0.10"
 tokio-tungstenite = { version = "0.15", optional = true }
 bincode = { version = "1", optional = true }
-cfg-if = "1"
 actionable = "0.1.0-rc.1"
 serde_cbor = "0.11"
 fabruic = { version = "0.0.1-dev.2", features = ["dangerous"] }

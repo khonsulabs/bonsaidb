@@ -4,7 +4,6 @@ mod timestamp;
 
 pub use self::timestamp::Timestamp;
 
-#[cfg(feature = "keyvalue")]
 mod implementation {
     use async_trait::async_trait;
     use futures::future::BoxFuture;
@@ -179,7 +178,6 @@ mod implementation {
     }
 }
 
-#[cfg(feature = "keyvalue")]
 pub use implementation::*;
 
 /// Checks for existing keys.
@@ -260,7 +258,6 @@ pub enum Value {
     Numeric(Numeric),
 }
 
-#[cfg(feature = "keyvalue")]
 impl Value {
     /// Deserializes the bytes contained inside of this value. Returns an error
     /// if this value doesn't contain bytes.

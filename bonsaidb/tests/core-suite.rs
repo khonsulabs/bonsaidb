@@ -115,9 +115,7 @@ mod websockets {
 
     bonsaidb_core::define_connection_test_suite!(WebsocketTestHarness);
 
-    #[cfg(feature = "pubsub")]
     bonsaidb_core::define_pubsub_test_suite!(WebsocketTestHarness);
-    #[cfg(feature = "keyvalue")]
     bonsaidb_core::define_kv_test_suite!(WebsocketTestHarness);
 }
 
@@ -186,10 +184,7 @@ mod bonsai {
     }
 
     bonsaidb_core::define_connection_test_suite!(BonsaiTestHarness);
-    #[cfg(feature = "pubsub")]
     bonsaidb_core::define_pubsub_test_suite!(BonsaiTestHarness);
-
-    #[cfg(feature = "keyvalue")]
     bonsaidb_core::define_kv_test_suite!(BonsaiTestHarness);
 }
 
@@ -250,6 +245,7 @@ async fn assume_permissions(
 }
 
 #[tokio::test]
+#[ignore = "https://github.com/khonsulabs/custodian/issues/9"]
 async fn authenticated_permissions_test() -> anyhow::Result<()> {
     let database_path = TestDirectory::new("authenticated-permissions");
     let server = Server::open(

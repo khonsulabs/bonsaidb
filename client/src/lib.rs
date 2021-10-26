@@ -24,10 +24,8 @@ mod error;
 
 pub use fabruic;
 
-#[cfg(feature = "pubsub")]
-pub use self::client::RemoteSubscriber;
 pub use self::{
     builder::Builder,
-    client::{Client, CustomApiCallback, RemoteDatabase},
+    client::{Client, CustomApiCallback, RemoteDatabase, RemoteSubscriber},
     error::Error,
 };

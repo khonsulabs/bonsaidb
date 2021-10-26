@@ -43,14 +43,12 @@ pub mod custom_api;
 /// Types for implementing the `BonsaiDb` network protocol.
 pub mod networking;
 
-#[cfg(feature = "pubsub")]
 /// Types for Publish/Subscribe (`PubSub`) messaging.
 pub mod pubsub;
 
 use std::string::FromUtf8Error;
 
 pub use async_trait;
-#[cfg(feature = "pubsub")]
 pub use circulate;
 pub use custodian_password;
 use custodian_password::{Ake, Argon2Params, Config, Group, Hash, Mhf};

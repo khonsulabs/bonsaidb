@@ -15,6 +15,7 @@ use std::{
 use async_trait::async_trait;
 use bonsaidb_core::{
     admin::{Admin, User},
+    circulate::{Message, Relay, Subscriber},
     connection::{self, AccessPolicy, QueryKey, ServerConnection},
     custodian_password::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
@@ -35,18 +36,13 @@ use bonsaidb_core::{
         },
         Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
     },
+    pubsub::database_topic,
     schema,
     schema::{Collection, CollectionName, NamedReference, Schema, ViewName},
     transaction::{Command, Transaction},
 };
-#[cfg(feature = "pubsub")]
-use bonsaidb_core::{
-    circulate::{Message, Relay, Subscriber},
-    pubsub::database_topic,
-};
 use bonsaidb_jobs::{manager::Manager, Job};
 use bonsaidb_local::{OpenDatabase, Storage};
-use cfg_if::cfg_if;
 use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 #[cfg(feature = "websockets")]
@@ -67,11 +63,9 @@ use crate::{
 mod connected_client;
 mod database;
 use self::connected_client::OwnedClient;
-#[cfg(feature = "pubsub")]
-pub use self::database::ServerSubscriber;
 pub use self::{
     connected_client::{ConnectedClient, Transport},
-    database::ServerDatabase,
+    database::{ServerDatabase, ServerSubscriber},
 };
 
 static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -105,9 +99,7 @@ struct Data<B: Backend = ()> {
     client_simultaneous_request_limit: usize,
     #[cfg(feature = "websockets")]
     websocket_shutdown: RwLock<Option<Sender<()>>>,
-    #[cfg(feature = "pubsub")]
     relay: Relay,
-    #[cfg(feature = "pubsub")]
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
     _backend: PhantomData<B>,
 }
@@ -137,9 +129,7 @@ impl<B: Backend> CustomServer<B> {
                 client_simultaneous_request_limit: configuration.client_simultaneous_request_limit,
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
-                #[cfg(feature = "pubsub")]
                 relay: Relay::default(),
-                #[cfg(feature = "pubsub")]
                 subscribers: Arc::default(),
                 _backend: PhantomData::default(),
             }),
@@ -409,7 +399,7 @@ impl<B: Backend> CustomServer<B> {
                         });
 
                         let task_self = self.clone();
-                        tokio::spawn(async move { 
+                        tokio::spawn(async move {
                             if let Err(err) = task_self.handle_stream(disconnector, sender, receiver).await {
                                 eprintln!("[server] Error handling stream: {:?}", err);
                             }
@@ -565,9 +555,7 @@ impl<B: Backend> CustomServer<B> {
                         Ok(())
                     },
                     client.clone(),
-                    #[cfg(feature = "pubsub")]
                     self.data.subscribers.clone(),
-                    #[cfg(feature = "pubsub")]
                     response_sender.clone(),
                 )
                 .await
@@ -584,10 +572,8 @@ impl<B: Backend> CustomServer<B> {
         request: Request<<B::CustomApi as CustomApi>::Request>,
         callback: F,
         client: ConnectedClient<B>,
-        #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        #[cfg(feature = "pubsub")] response_sender: flume::Sender<
-            Payload<Response<CustomApiResult<B::CustomApi>>>,
-        >,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        response_sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
     ) -> Result<(), Error> {
         let job = self
             .data
@@ -596,9 +582,7 @@ impl<B: Backend> CustomServer<B> {
                 request,
                 self.clone(),
                 client,
-                #[cfg(feature = "pubsub")]
                 subscribers,
-                #[cfg(feature = "pubsub")]
                 response_sender,
             ))
             .await;
@@ -651,7 +635,6 @@ impl<B: Backend> CustomServer<B> {
         Ok(())
     }
 
-    #[cfg(feature = "pubsub")]
     async fn forward_notifications_for(
         &self,
         subscriber_id: u64,
@@ -703,7 +686,6 @@ impl<B: Backend> CustomServer<B> {
         Ok(())
     }
 
-    #[cfg(feature = "pubsub")]
     async fn publish_message(&self, database: &str, topic: &str, payload: Vec<u8>) {
         self.data
             .relay
@@ -714,7 +696,6 @@ impl<B: Backend> CustomServer<B> {
             .await;
     }
 
-    #[cfg(feature = "pubsub")]
     async fn publish_serialized_to_all(&self, database: &str, topics: &[String], payload: Vec<u8>) {
         self.data
             .relay
@@ -728,7 +709,6 @@ impl<B: Backend> CustomServer<B> {
             .await;
     }
 
-    #[cfg(feature = "pubsub")]
     async fn create_subscriber(&self, database: String) -> ServerSubscriber<B> {
         let subscriber = self.data.relay.create_subscriber().await;
 
@@ -745,7 +725,6 @@ impl<B: Backend> CustomServer<B> {
         }
     }
 
-    #[cfg(feature = "pubsub")]
     async fn subscribe_to<S: Into<String> + Send>(
         &self,
         subscriber_id: u64,
@@ -765,7 +744,6 @@ impl<B: Backend> CustomServer<B> {
         }
     }
 
-    #[cfg(feature = "pubsub")]
     async fn unsubscribe_from(
         &self,
         subscriber_id: u64,
@@ -799,9 +777,7 @@ struct ClientRequest<B: Backend> {
     request: Option<Request<<B::CustomApi as CustomApi>::Request>>,
     client: ConnectedClient<B>,
     server: CustomServer<B>,
-    #[cfg(feature = "pubsub")]
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-    #[cfg(feature = "pubsub")]
     sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
 }
 
@@ -810,18 +786,14 @@ impl<B: Backend> ClientRequest<B> {
         request: Request<<B::CustomApi as CustomApi>::Request>,
         server: CustomServer<B>,
         client: ConnectedClient<B>,
-        #[cfg(feature = "pubsub")] subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        #[cfg(feature = "pubsub")] sender: flume::Sender<
-            Payload<Response<CustomApiResult<B::CustomApi>>>,
-        >,
+        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
+        sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
     ) -> Self {
         Self {
             request: Some(request),
             server,
             client,
-            #[cfg(feature = "pubsub")]
             subscribers,
-            #[cfg(feature = "pubsub")]
             sender,
         }
     }
@@ -837,9 +809,7 @@ impl<B: Backend> Job for ClientRequest<B> {
         ServerDispatcher {
             server: &self.server,
             client: &self.client,
-            #[cfg(feature = "pubsub")]
             subscribers: &self.subscribers,
-            #[cfg(feature = "pubsub")]
             response_sender: &self.sender,
         }
         .dispatch(&self.client.permissions().await, request)
@@ -962,9 +932,7 @@ impl<B: Backend> ServerConnection for CustomServer<B> {
 struct ServerDispatcher<'s, B: Backend> {
     server: &'s CustomServer<B>,
     client: &'s ConnectedClient<B>,
-    #[cfg(feature = "pubsub")]
     subscribers: &'s Arc<RwLock<HashMap<u64, Subscriber>>>,
-    #[cfg(feature = "pubsub")]
     response_sender: &'s flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
 }
 
@@ -1656,32 +1624,28 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateSubscriberHandler
         BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::CreateSuscriber))
     }
 
-    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        cfg_if! {
-            if #[cfg(feature = "pubsub")] {
-                let server = self.server_dispatcher.server;
-                let subscriber = server.create_subscriber(self.name.clone()).await;
-                let subscriber_id = subscriber.id;
+        let server = self.server_dispatcher.server;
+        let subscriber = server.create_subscriber(self.name.clone()).await;
+        let subscriber_id = subscriber.id;
 
-                let task_self = server.clone();
-                let response_sender = self.server_dispatcher.response_sender.clone();
-                tokio::spawn(async move {
-                    task_self
-                        .forward_notifications_for(subscriber.id, subscriber.receiver, response_sender.clone())
-                        .await;
-                });
-                Ok(Response::Database(DatabaseResponse::SubscriberCreated {
-                    subscriber_id,
-                }))
-            } else {
-                // don't judge this is going away in a future pr
-                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
-            }
-        }
+        let task_self = server.clone();
+        let response_sender = self.server_dispatcher.response_sender.clone();
+        tokio::spawn(async move {
+            task_self
+                .forward_notifications_for(
+                    subscriber.id,
+                    subscriber.receiver,
+                    response_sender.clone(),
+                )
+                .await;
+        });
+        Ok(Response::Database(DatabaseResponse::SubscriberCreated {
+            subscriber_id,
+        }))
     }
 }
 
@@ -1701,26 +1665,17 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishHandler for DatabaseDispa
         BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish))
     }
 
-    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
         topic: String,
         payload: Vec<u8>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        cfg_if! {
-            if #[cfg(feature = "pubsub")] {
-                self
-                    .server_dispatcher
-                    .server
-                    .publish_message(&self.name, &topic, payload)
-                    .await;
-                Ok(Response::Ok)
-            } else {
-                // don't judge this is going away in a future pr
-                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
-            }
-        }
+        self.server_dispatcher
+            .server
+            .publish_message(&self.name, &topic, payload)
+            .await;
+        Ok(Response::Ok)
     }
 }
 
@@ -1746,30 +1701,17 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishToAllHandler for Database
         Ok(())
     }
 
-    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
         topics: Vec<String>,
         payload: Vec<u8>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        cfg_if! {
-            if #[cfg(feature = "pubsub")] {
-                self
-                    .server_dispatcher
-                    .server
-                    .publish_serialized_to_all(
-                        &self.name,
-                        &topics,
-                        payload,
-                    )
-                    .await;
-                Ok(Response::Ok)
-            } else {
-                // don't judge this is going away in a future pr
-                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
-            }
-        }
+        self.server_dispatcher
+            .server
+            .publish_serialized_to_all(&self.name, &topics, payload)
+            .await;
+        Ok(Response::Ok)
     }
 }
 
@@ -1789,21 +1731,18 @@ impl<'s, B: Backend> bonsaidb_core::networking::SubscribeToHandler for DatabaseD
         BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::SubscribeTo))
     }
 
-    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
         subscriber_id: u64,
         topic: String,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        cfg_if! {
-            if #[cfg(feature = "pubsub")] {
-                self.server_dispatcher.server.subscribe_to(subscriber_id, &self.name, topic).await.map(|_| Response::Ok).map_err(Error::from)
-            } else {
-                // don't judge this is going away in a future pr
-                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
-            }
-        }
+        self.server_dispatcher
+            .server
+            .subscribe_to(subscriber_id, &self.name, topic)
+            .await
+            .map(|_| Response::Ok)
+            .map_err(Error::from)
     }
 }
 
@@ -1825,21 +1764,18 @@ impl<'s, B: Backend> bonsaidb_core::networking::UnsubscribeFromHandler
         BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::UnsubscribeFrom))
     }
 
-    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
         subscriber_id: u64,
         topic: String,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        cfg_if! {
-            if #[cfg(feature = "pubsub")] {
-                self.server_dispatcher.server.unsubscribe_from(subscriber_id, &self.name, &topic).await.map(|_| Response::Ok).map_err(Error::from)
-            } else {
-                // don't judge this is going away in a future pr
-                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
-            }
-        }
+        self.server_dispatcher
+            .server
+            .unsubscribe_from(subscriber_id, &self.name, &topic)
+            .await
+            .map(|_| Response::Ok)
+            .map_err(Error::from)
     }
 }
 
@@ -1847,26 +1783,18 @@ impl<'s, B: Backend> bonsaidb_core::networking::UnsubscribeFromHandler
 impl<'s, B: Backend> bonsaidb_core::networking::UnregisterSubscriberHandler
     for DatabaseDispatcher<'s, B>
 {
-    #[cfg_attr(not(feature = "pubsub"), allow(unused_variables))]
     async fn handle(
         &self,
         _permissions: &Permissions,
         subscriber_id: u64,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        cfg_if! {
-            if #[cfg(feature = "pubsub")] {
-                let mut subscribers = self.server_dispatcher.subscribers.write().await;
-                if subscribers.remove(&subscriber_id).is_none() {
-                    Ok(Response::Error(bonsaidb_core::Error::Server(String::from(
-                        "invalid subscriber id",
-                    ))))
-                } else {
-                    Ok(Response::Ok)
-                }
-            } else {
-                // don't judge this is going away in a future pr
-                Err(Error::from(bonsaidb_core::Error::Server(String::from("pubsub is not enabled on this server"))))
-            }
+        let mut subscribers = self.server_dispatcher.subscribers.write().await;
+        if subscribers.remove(&subscriber_id).is_none() {
+            Ok(Response::Error(bonsaidb_core::Error::Server(String::from(
+                "invalid subscriber id",
+            ))))
+        } else {
+            Ok(Response::Ok)
         }
     }
 }
@@ -1889,20 +1817,12 @@ impl<'s, B: Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
         BonsaiAction::Database(DatabaseAction::Kv(KvAction::ExecuteOperation))
     }
 
-    #[cfg_attr(not(feature = "keyvalue"), allow(unused_variables))]
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
         op: KeyOperation,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        cfg_if! {
-            if #[cfg(feature = "keyvalue")] {
-                let result = self.database.execute_key_operation(op).await?;
-                Ok(Response::Database(DatabaseResponse::KvOutput(result)))
-            } else {
-                // don't judge this is going away in a future pr
-                Err(Error::from(bonsaidb_core::Error::Server(String::from("keyvalue is not enabled on this server"))))
-            }
-        }
+        let result = self.database.execute_key_operation(op).await?;
+        Ok(Response::Database(DatabaseResponse::KvOutput(result)))
     }
 }

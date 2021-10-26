@@ -14,12 +14,9 @@ use bonsaidb_core::{
 
 use crate::Client;
 
-#[cfg(feature = "pubsub")]
 mod pubsub;
-#[cfg(feature = "pubsub")]
 pub use pubsub::*;
 
-#[cfg(feature = "keyvalue")]
 mod kv;
 
 /// A database on a remote server.

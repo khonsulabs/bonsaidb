@@ -34,7 +34,7 @@ required-features = ["local"]
 
 [[example]]
 name = "pubsub"
-required-features = ["local", "local-pubsub"]
+required-features = ["local"]
 
 [[example]]
 name = "server"
@@ -46,7 +46,7 @@ required-features = ["server", "client"]
 
 [[example]]
 name = "key-value-store"
-required-features = ["local", "local-keyvalue"]
+required-features = ["local"]
 
 [[test]]
 name = "core-suite"
@@ -63,23 +63,11 @@ required-features = ["server", "client"]
 [features]
 default = []
 full = ["local-full", "server-full", "client-full"]
-local-full = ["local", "local-pubsub", "local-keyvalue", "local-cli"]
+local-full = ["local", "local-cli"]
 local = ["bonsaidb-local"]
-server-full = [
-    "server",
-    "server-pubsub",
-    "server-keyvalue",
-    "server-websockets",
-    "server-cli",
-]
+server-full = ["server", "server-websockets", "server-cli"]
 server = ["bonsaidb-server"]
-client-full = [
-    "client",
-    "client-pubsub",
-    "client-keyvalue",
-    "client-websockets",
-    "client-trusted-dns",
-]
+client-full = ["client", "client-websockets", "client-trusted-dns"]
 client = ["bonsaidb-client"]
 test-util = ["bonsaidb-client/test-util", "bonsaidb-server/test-util"]
 
@@ -100,16 +88,6 @@ server-websockets = ["bonsaidb-server/websockets"]
 client-websockets = ["bonsaidb-client/websockets"]
 
 client-trusted-dns = ["bonsaidb-client/trusted-dns"]
-
-pubsub = ["server-pubsub", "client-pubsub", "local-pubsub"]
-server-pubsub = ["bonsaidb-server/pubsub", "bonsaidb-core/pubsub"]
-client-pubsub = ["bonsaidb-client/pubsub", "bonsaidb-core/pubsub"]
-local-pubsub = ["bonsaidb-local/pubsub", "bonsaidb-core/pubsub"]
-
-keyvalue = ["server-keyvalue", "client-keyvalue", "local-keyvalue"]
-server-keyvalue = ["bonsaidb-server/keyvalue", "bonsaidb-core/keyvalue"]
-client-keyvalue = ["bonsaidb-client/keyvalue", "bonsaidb-core/keyvalue"]
-local-keyvalue = ["bonsaidb-local/keyvalue", "bonsaidb-core/keyvalue"]
 
 [dependencies]
 bonsaidb-core = { path = "../core", version = "0.1.0-dev.4", default-features = false }

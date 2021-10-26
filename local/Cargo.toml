@@ -15,11 +15,9 @@ homepage = "https://dev.bonsaidb.io/"
 
 [features]
 default = ["full"]
-full = ["cli", "pubsub", "keyvalue"]
+full = ["cli"]
 cli = ["structopt"]
 internal-apis = []
-pubsub = ["bonsaidb-core/pubsub"]
-keyvalue = ["bonsaidb-core/keyvalue"]
 
 [dependencies]
 async-trait = "0.1"

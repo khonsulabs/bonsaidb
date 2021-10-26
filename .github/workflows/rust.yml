@@ -39,37 +39,14 @@ jobs:
           - folder: local
             features: "--no-default-features"
           - folder: local
-            features: "--no-default-features --features pubsub"
-          - folder: local
-            features: "--no-default-features --features keyvalue"
           - folder: server
             features: "--no-default-features"
           - folder: server
-            features: "--no-default-features --features pubsub"
-          - folder: server
-            features: "--no-default-features --features keyvalue"
-          - folder: server
             features: "--no-default-features --features websockets"
-          - folder: server
-            features: "--no-default-features --features pubsub,websockets"
-          - folder: server
-            features: "--no-default-features --features keyvalue,websockets"
-          - folder: server
-            features: "--no-default-features --features pubsub,keyvalue"
           - folder: bonsaidb
             features: "--no-default-features --features server,client,test-util"
           - folder: bonsaidb
-            features: "--no-default-features --features server,client,test-util,pubsub"
-          - folder: bonsaidb
-            features: "--no-default-features --features server,client,test-util,keyvalue"
-          - folder: bonsaidb
             features: "--no-default-features --features server,client,test-util,websockets"
-          - folder: bonsaidb
-            features: "--no-default-features --features server,client,test-util,websockets,pubsub"
-          - folder: bonsaidb
-            features: "--no-default-features --features server,client,test-util,websockets,keyvalue"
-          - folder: bonsaidb
-            features: "--no-default-features --features server,client,test-util,pubsub,keyvalue"
     steps:
       - uses: actions/checkout@v2
 

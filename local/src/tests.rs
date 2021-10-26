@@ -63,10 +63,8 @@ impl TestHarness {
 
 bonsaidb_core::define_connection_test_suite!(TestHarness);
 
-#[cfg(feature = "pubsub")]
 bonsaidb_core::define_pubsub_test_suite!(TestHarness);
 
-#[cfg(feature = "keyvalue")]
 bonsaidb_core::define_kv_test_suite!(TestHarness);
 
 #[test]
@@ -216,7 +214,6 @@ fn encryption() -> anyhow::Result<()> {
 }
 
 #[test]
-#[cfg(feature = "keyvalue")]
 fn expiration_after_close() -> anyhow::Result<()> {
     use bonsaidb_core::{kv::Kv, test_util::TimingTest};
     loop {

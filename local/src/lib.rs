@@ -29,11 +29,13 @@ mod views;
 #[doc(inline)]
 pub use bonsaidb_core as core;
 
-#[cfg(feature = "pubsub")]
-pub use self::database::pubsub::Subscriber;
 #[cfg(feature = "internal-apis")]
 pub use self::storage::OpenDatabase;
-pub use self::{database::Database, error::Error, storage::Storage};
+pub use self::{
+    database::{pubsub::Subscriber, Database},
+    error::Error,
+    storage::Storage,
+};
 
 #[cfg(test)]
 mod tests;

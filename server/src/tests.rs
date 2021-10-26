@@ -59,8 +59,5 @@ impl TestHarness {
 }
 
 bonsaidb_core::define_connection_test_suite!(TestHarness);
-#[cfg(feature = "pubsub")]
 bonsaidb_core::define_pubsub_test_suite!(TestHarness);
-
-#[cfg(feature = "keyvalue")]
 bonsaidb_core::define_kv_test_suite!(TestHarness);
