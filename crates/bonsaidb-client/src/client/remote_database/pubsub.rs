@@ -51,7 +51,7 @@ where
         topic: S,
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
-        let payload = serde_cbor::to_vec(&payload)?;
+        let payload = pot::to_vec(&payload)?;
         match self
             .client
             .send_request(Request::Database {
@@ -76,7 +76,7 @@ where
         topics: Vec<String>,
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
-        let payload = serde_cbor::to_vec(&payload)?;
+        let payload = pot::to_vec(&payload)?;
         match self
             .client
             .send_request(Request::Database {

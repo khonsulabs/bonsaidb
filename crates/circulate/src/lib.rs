@@ -39,24 +39,21 @@ impl Message {
     ///
     /// # Errors
     ///
-    /// Returns an error if `payload` fails to serialize with `serde_cbor`.
-    pub fn new<S: Into<String>, P: Serialize>(
-        topic: S,
-        payload: &P,
-    ) -> Result<Self, serde_cbor::Error> {
+    /// Returns an error if `payload` fails to serialize with `pot`.
+    pub fn new<S: Into<String>, P: Serialize>(topic: S, payload: &P) -> Result<Self, pot::Error> {
         Ok(Self {
             topic: topic.into(),
-            payload: serde_cbor::to_vec(payload)?,
+            payload: pot::to_vec(payload)?,
         })
     }
 
-    /// Deserialize the payload as `P` using CBOR.
+    /// Deserialize the payload as `P` using `pot`.
     ///
     /// # Errors
     ///
-    /// Returns an error if `payload` fails to deserialize with `serde_cbor`.
-    pub fn payload<P: for<'de> Deserialize<'de>>(&self) -> Result<P, serde_cbor::Error> {
-        serde_cbor::from_slice(&self.payload).map_err(serde_cbor::Error::from)
+    /// Returns an error if `payload` fails to deserialize with `pot`.
+    pub fn payload<P: for<'de> Deserialize<'de>>(&self) -> Result<P, pot::Error> {
+        pot::from_slice(&self.payload).map_err(pot::Error::from)
     }
 }
 
@@ -106,12 +103,12 @@ impl Relay {
     ///
     /// # Errors
     ///
-    /// Returns an error if `payload` fails to serialize with `serde_cbor`.
+    /// Returns an error if `payload` fails to serialize with `pot`.
     pub async fn publish<S: Into<String> + Send, P: Serialize + Sync>(
         &self,
         topic: S,
         payload: &P,
-    ) -> Result<(), serde_cbor::Error> {
+    ) -> Result<(), pot::Error> {
         let message = Message::new(topic, payload)?;
         self.publish_message(message).await;
         Ok(())
@@ -121,12 +118,12 @@ impl Relay {
     ///
     /// # Errors
     ///
-    /// Returns an error if `payload` fails to serialize with `serde_cbor`.
+    /// Returns an error if `payload` fails to serialize with `pot`.
     pub async fn publish_to_all<P: Serialize + Sync>(
         &self,
         topics: Vec<String>,
         payload: &P,
-    ) -> Result<(), serde_cbor::Error> {
+    ) -> Result<(), pot::Error> {
         let tasks = topics
             .into_iter()
             .map(|topic| Message::new(topic, payload).map(|message| self.publish_message(message)))

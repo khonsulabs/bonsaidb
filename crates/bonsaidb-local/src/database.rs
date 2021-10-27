@@ -853,7 +853,7 @@ where
                 results.push(Map {
                     source: entry.source,
                     key: key.clone(),
-                    value: serde_cbor::from_slice(&entry.value).map_err(Error::Serialization)?,
+                    value: pot::from_slice(&entry.value).map_err(Error::Serialization)?,
                 });
             }
             Ok(())
@@ -917,7 +917,7 @@ where
                 access_policy,
             )
             .await?;
-        let value = serde_cbor::from_slice(&result).map_err(Error::Serialization)?;
+        let value = pot::from_slice(&result).map_err(Error::Serialization)?;
 
         Ok(value)
     }
@@ -949,7 +949,7 @@ where
                 Ok(MappedValue {
                     key: V::Key::from_big_endian_bytes(&map.key)
                         .map_err(view::Error::key_serialization)?,
-                    value: serde_cbor::from_slice(&map.value)?,
+                    value: pot::from_slice(&map.value)?,
                 })
             })
             .collect::<Result<Vec<_>, bonsaidb_core::Error>>()

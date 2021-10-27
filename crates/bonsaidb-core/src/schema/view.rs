@@ -18,7 +18,7 @@ use map::{Key, Map, MappedValue};
 pub enum Error {
     /// An error occurred while serializing or deserializing.
     #[error("error deserializing document {0}")]
-    Serialization(#[from] serde_cbor::Error),
+    Serialization(#[from] pot::Error),
 
     /// An error occurred while serializing or deserializing keys emitted in a view.
     #[error("error serializing view keys {0}")]
@@ -189,7 +189,7 @@ where
             .iter()
             .map(
                 |(key, value)| match <T::Key as Key>::from_big_endian_bytes(key) {
-                    Ok(key) => match serde_cbor::from_slice::<T::Value>(value) {
+                    Ok(key) => match pot::from_slice::<T::Value>(value) {
                         Ok(value) => Ok(MappedValue { key, value }),
                         Err(err) => Err(Error::from(err)),
                     },
@@ -204,6 +204,6 @@ where
             Err(other) => return Err(other),
         };
 
-        serde_cbor::to_vec(&reduced_value).map_err(Error::from)
+        pot::to_vec(&reduced_value).map_err(Error::from)
     }
 }

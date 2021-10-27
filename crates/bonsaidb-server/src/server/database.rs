@@ -45,7 +45,7 @@ impl<'a, B: Backend, DB: Schema> PubSub for ServerDatabase<'a, B, DB> {
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
         self.server
-            .publish_message(self.db.name(), &topic.into(), serde_cbor::to_vec(payload)?)
+            .publish_message(self.db.name(), &topic.into(), pot::to_vec(payload)?)
             .await;
         Ok(())
     }
@@ -56,7 +56,7 @@ impl<'a, B: Backend, DB: Schema> PubSub for ServerDatabase<'a, B, DB> {
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
         self.server
-            .publish_serialized_to_all(self.db.name(), &topics, serde_cbor::to_vec(payload)?)
+            .publish_serialized_to_all(self.db.name(), &topics, pot::to_vec(payload)?)
             .await;
         Ok(())
     }

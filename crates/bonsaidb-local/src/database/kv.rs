@@ -5,7 +5,6 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use crate::jobs::Job;
 use async_trait::async_trait;
 use bonsaidb_core::{
     kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Numeric, Output, Timestamp, Value},
@@ -18,7 +17,7 @@ use nebari::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{database::Context, Database, Error};
+use crate::{database::Context, jobs::Job, Database, Error};
 
 #[derive(Serialize, Deserialize)]
 pub struct Entry {

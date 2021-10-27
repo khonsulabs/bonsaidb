@@ -1,6 +1,5 @@
 use std::{borrow::Cow, collections::HashSet, hash::Hash, sync::Arc};
 
-use crate::jobs::{Job, Keyed};
 use async_trait::async_trait;
 use bonsaidb_core::schema::{view, CollectionName, Key, Schema, ViewName};
 use nebari::{
@@ -15,6 +14,7 @@ use super::{
 };
 use crate::{
     database::{document_tree_name, Database},
+    jobs::{Job, Keyed},
     Error,
 };
 

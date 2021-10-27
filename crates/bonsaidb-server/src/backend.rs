@@ -142,8 +142,8 @@ impl<E: CustomApiError> From<bincode::Error> for BackendError<E> {
     }
 }
 
-impl<E: CustomApiError> From<serde_cbor::Error> for BackendError<E> {
-    fn from(other: serde_cbor::Error) -> Self {
+impl<E: CustomApiError> From<pot::Error> for BackendError<E> {
+    fn from(other: pot::Error) -> Self {
         Self::Server(Error::from(bonsaidb_local::Error::from(other)))
     }
 }

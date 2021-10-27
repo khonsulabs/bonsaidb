@@ -5,7 +5,6 @@ use std::{
     sync::Arc,
 };
 
-use crate::jobs::{Job, Keyed};
 use async_trait::async_trait;
 use bonsaidb_core::{
     connection::Connection,
@@ -23,6 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     database::{deserialize_document, document_tree_name, Database},
+    jobs::{Job, Keyed},
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
         view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,

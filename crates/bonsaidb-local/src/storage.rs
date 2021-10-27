@@ -7,7 +7,6 @@ use std::{
     sync::Arc,
 };
 
-use crate::jobs::manager::Manager;
 use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
 #[cfg(feature = "internal-apis")]
@@ -49,6 +48,7 @@ use tokio::{
 use crate::{
     config::Configuration,
     database::Context,
+    jobs::manager::Manager,
     tasks::TaskManager,
     vault::{self, LocalVaultKeyStorage, TreeVault, Vault},
     Database, Error,

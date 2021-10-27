@@ -18,7 +18,7 @@ pub enum Error {
 
     /// An error occurred serializing the contents of a `Document` or results of a `View`.
     #[error("error while serializing: {0}")]
-    Serialization(#[from] serde_cbor::Error),
+    Serialization(#[from] pot::Error),
 
     /// An internal error occurred while waiting for a message.
     #[error("error while waiting for a message: {0}")]
@@ -91,8 +91,7 @@ impl From<AbortError<Infallible>> for Error {
 #[test]
 fn test_converting_error() {
     use serde::ser::Error as _;
-    let err: bonsaidb_core::Error =
-        Error::Serialization(serde_cbor::Error::custom("mymessage")).into();
+    let err: bonsaidb_core::Error = Error::Serialization(pot::Error::custom("mymessage")).into();
     match err {
         bonsaidb_core::Error::Database(storage_error) => {
             assert!(storage_error.contains("mymessage"));

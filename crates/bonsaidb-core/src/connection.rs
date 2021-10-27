@@ -194,7 +194,7 @@ where
 
     /// Adds a new `Document<Cl>` with the contents `item`.
     pub async fn push<S: Serialize + Sync>(&self, item: &S) -> Result<Header, crate::Error> {
-        let contents = serde_cbor::to_vec(item)?;
+        let contents = pot::to_vec(item)?;
         Ok(self.connection.insert::<Cl>(contents).await?)
     }
 

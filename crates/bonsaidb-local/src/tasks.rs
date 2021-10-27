@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use crate::jobs::{manager::Manager, task::Handle};
 use bonsaidb_core::{
     connection::Connection,
     schema::{view, CollectionName, Schema, ViewName},
@@ -13,6 +12,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     database::Database,
+    jobs::{manager::Manager, task::Handle},
     views::{
         integrity_scanner::{IntegrityScan, IntegrityScanner},
         mapper::{Map, Mapper},

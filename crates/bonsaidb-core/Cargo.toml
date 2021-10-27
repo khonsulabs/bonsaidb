@@ -22,7 +22,7 @@ actionable-traits = []
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }
 circulate = { path = "../circulate", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
-serde_cbor = "0.11"
+pot = "0.1.0-alpha.1"
 async-trait = "0.1"
 uuid = { version = "0.8", features = ["v4", "serde"], optional = true }
 thiserror = "1"

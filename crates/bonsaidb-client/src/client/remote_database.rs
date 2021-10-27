@@ -216,7 +216,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
             .await?
         {
             Response::Database(DatabaseResponse::ViewReduction(value)) => {
-                let value = serde_cbor::from_slice::<V::Value>(&value)?;
+                let value = pot::from_slice::<V::Value>(&value)?;
                 Ok(value)
             }
             Response::Error(err) => Err(err),
@@ -260,7 +260,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                                 view::Error::key_serialization(err).to_string(),
                             )
                         })?,
-                        value: serde_cbor::from_slice(&map.value)?,
+                        value: pot::from_slice(&map.value)?,
                     })
                 })
                 .collect::<Result<Vec<_>, bonsaidb_core::Error>>(),

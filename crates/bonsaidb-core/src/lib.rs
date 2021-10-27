@@ -185,8 +185,8 @@ pub enum Error {
     InvalidCredentials,
 }
 
-impl From<serde_cbor::Error> for Error {
-    fn from(err: serde_cbor::Error) -> Self {
+impl From<pot::Error> for Error {
+    fn from(err: pot::Error) -> Self {
         Self::Database(err.to_string())
     }
 }

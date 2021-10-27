@@ -133,7 +133,7 @@ impl<C> TryFrom<Document<'static>> for CollectionDocument<C>
 where
     C: Collection + Serialize + for<'de> Deserialize<'de>,
 {
-    type Error = serde_cbor::Error;
+    type Error = pot::Error;
 
     fn try_from(value: Document<'static>) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -147,11 +147,11 @@ impl<'a, C> TryFrom<CollectionDocument<C>> for Document<'a>
 where
     C: Collection + Serialize + for<'de> Deserialize<'de>,
 {
-    type Error = serde_cbor::Error;
+    type Error = pot::Error;
 
     fn try_from(value: CollectionDocument<C>) -> Result<Self, Self::Error> {
         Ok(Self {
-            contents: Cow::Owned(serde_cbor::to_vec(&value.contents)?),
+            contents: Cow::Owned(pot::to_vec(&value.contents)?),
             header: value.header,
         })
     }
@@ -184,7 +184,7 @@ where
     /// Converts this value to a serialized `Document`.
     pub fn to_document(&self) -> Result<Document<'static>, Error> {
         Ok(Document {
-            contents: Cow::Owned(serde_cbor::to_vec(&self.contents)?),
+            contents: Cow::Owned(pot::to_vec(&self.contents)?),
             header: self.header.clone(),
         })
     }

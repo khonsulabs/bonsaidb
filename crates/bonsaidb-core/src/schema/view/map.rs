@@ -32,7 +32,7 @@ impl<K: Key, V: Serialize> Map<K, V> {
                 .as_big_endian_bytes()
                 .map_err(view::Error::key_serialization)?
                 .to_vec(),
-            value: serde_cbor::to_vec(&self.value)?,
+            value: pot::to_vec(&self.value)?,
         })
     }
 }
@@ -78,7 +78,7 @@ impl Serialized {
         Ok(Map {
             source: self.source,
             key: K::from_big_endian_bytes(&self.key).map_err(view::Error::key_serialization)?,
-            value: serde_cbor::from_slice(&self.value)?,
+            value: pot::from_slice(&self.value)?,
         })
     }
 }
@@ -102,7 +102,7 @@ impl MappedSerialized {
         let key = Key::from_big_endian_bytes(&self.key).map_err(|err: K::Error| {
             crate::Error::Database(view::Error::key_serialization(err).to_string())
         })?;
-        let value = serde_cbor::from_slice(&self.value)
+        let value = pot::from_slice(&self.value)
             .map_err(|err| crate::Error::Database(view::Error::from(err).to_string()))?;
 
         Ok(MappedDocument {

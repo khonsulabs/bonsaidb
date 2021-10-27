@@ -171,7 +171,7 @@ mod implementation {
     {
         fn prepare(self) -> Result<Value, Error> {
             match self {
-                Self::Serializeable(value) => Ok(Value::Bytes(serde_cbor::to_vec(value)?)),
+                Self::Serializeable(value) => Ok(Value::Bytes(pot::to_vec(value)?)),
                 Self::Numeric(numeric) => Ok(Value::Numeric(numeric)),
             }
         }
@@ -263,7 +263,7 @@ impl Value {
     /// if this value doesn't contain bytes.
     pub fn deserialize<V: for<'de> Deserialize<'de>>(&self) -> Result<V, crate::Error> {
         match self {
-            Value::Bytes(bytes) => Ok(serde_cbor::from_slice(bytes)?),
+            Value::Bytes(bytes) => Ok(pot::from_slice(bytes)?),
             Value::Numeric(_) => Err(crate::Error::Database(String::from(
                 "key contains numeric value, not serialized data",
             ))),

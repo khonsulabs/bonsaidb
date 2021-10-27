@@ -39,19 +39,19 @@ impl<'a> Document<'a> {
     }
 
     /// Creates a new document with serialized bytes from `contents`.
-    pub fn with_contents<S: Serialize>(id: u64, contents: &S) -> Result<Self, serde_cbor::Error> {
-        let contents = Cow::from(serde_cbor::to_vec(contents)?);
+    pub fn with_contents<S: Serialize>(id: u64, contents: &S) -> Result<Self, pot::Error> {
+        let contents = Cow::from(pot::to_vec(contents)?);
         Ok(Self::new(id, contents))
     }
 
     /// Retrieves `contents` through deserialization into the type `D`.
-    pub fn contents<D: Deserialize<'a>>(&'a self) -> Result<D, serde_cbor::Error> {
-        serde_cbor::from_slice(&self.contents)
+    pub fn contents<D: Deserialize<'a>>(&'a self) -> Result<D, pot::Error> {
+        pot::from_slice(&self.contents)
     }
 
     /// Serializes and stores `contents` into this document.
-    pub fn set_contents<S: Serialize>(&mut self, contents: &S) -> Result<(), serde_cbor::Error> {
-        self.contents = Cow::from(serde_cbor::to_vec(contents)?);
+    pub fn set_contents<S: Serialize>(&mut self, contents: &S) -> Result<(), pot::Error> {
+        self.contents = Cow::from(pot::to_vec(contents)?);
         Ok(())
     }
 
