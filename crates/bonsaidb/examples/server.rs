@@ -7,7 +7,6 @@ use bonsaidb::{
     core::{
         connection::{Connection, ServerConnection},
         schema::Collection,
-        Error,
     },
     server::{Configuration, DefaultPermissions, Server},
 };
@@ -34,14 +33,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let certificate = server.certificate().await?;
     server.register_schema::<Shape>().await?;
-    match server.create_database::<Shape>("my-database").await {
-        Ok(()) => {}
-        Err(Error::DatabaseNameAlreadyTaken(_)) => {}
-        Err(err) => panic!(
-            "Unexpected error from server during create_database: {:?}",
-            err
-        ),
-    }
+    server.create_database::<Shape>("my-database", true).await?;
     // ANCHOR_END: setup
 
     // If websockets are enabled, we'll also listen for websocket traffic. The

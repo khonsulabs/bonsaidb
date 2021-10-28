@@ -80,7 +80,9 @@ mod websockets {
             let client = Client::new(url.clone()).await?;
 
             let dbname = format!("websockets-{}", test);
-            client.create_database::<BasicSchema>(&dbname).await?;
+            client
+                .create_database::<BasicSchema>(&dbname, false)
+                .await?;
             let db = client.database::<BasicSchema>(&dbname).await?;
 
             Ok(Self { client, url, db })
@@ -142,7 +144,9 @@ mod bonsai {
                 .await?;
 
             let dbname = format!("bonsai-{}", test);
-            client.create_database::<BasicSchema>(&dbname).await?;
+            client
+                .create_database::<BasicSchema>(&dbname, false)
+                .await?;
             let db = client.database::<BasicSchema>(&dbname).await?;
 
             Ok(Self {

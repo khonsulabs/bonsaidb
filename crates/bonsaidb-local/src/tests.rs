@@ -24,7 +24,9 @@ impl TestHarness {
         let directory = TestDirectory::new(format!("local-{}", test));
         let storage = Storage::open_local(&directory, Configuration::default()).await?;
         storage.register_schema::<BasicSchema>().await?;
-        storage.create_database::<BasicSchema>("tests").await?;
+        storage
+            .create_database::<BasicSchema>("tests", false)
+            .await?;
         let db = storage.database("tests").await?;
 
         Ok(Self {

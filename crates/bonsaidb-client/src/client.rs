@@ -421,12 +421,16 @@ impl ServerConnection for Client {
         &self,
         name: &str,
         schema: SchemaName,
+        only_if_needed: bool,
     ) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::CreateDatabase(Database {
-                name: name.to_string(),
-                schema,
-            })))
+            .send_request(Request::Server(ServerRequest::CreateDatabase {
+                database: Database {
+                    name: name.to_string(),
+                    schema,
+                },
+                only_if_needed,
+            }))
             .await?
         {
             Response::Server(ServerResponse::DatabaseCreated { .. }) => Ok(()),

@@ -33,10 +33,10 @@ async fn main() -> anyhow::Result<()> {
     // Before you can create a database, you must register the schema you're
     // wanting to use.
     storage.register_schema::<Message>().await?;
-    storage.create_database::<Message>("messages").await?;
+    storage.create_database::<Message>("messages", true).await?;
     let messages = storage.database::<Message>("messages").await?;
     storage
-        .create_database::<Message>("private-messages")
+        .create_database::<Message>("private-messages", true)
         .await?;
     let private_messages =
         storage.database::<Message>("private-messages").await?;

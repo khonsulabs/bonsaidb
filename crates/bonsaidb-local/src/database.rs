@@ -140,10 +140,7 @@ where
         let storage = Storage::open_local(path, configuration).await?;
         storage.register_schema::<DB>().await?;
 
-        match storage.create_database::<DB>("default").await {
-            Ok(_) | Err(bonsaidb_core::Error::DatabaseNameAlreadyTaken(_)) => {}
-            err => err?,
-        }
+        storage.create_database::<DB>("default", true).await?;
 
         Ok(storage.database("default").await?)
     }

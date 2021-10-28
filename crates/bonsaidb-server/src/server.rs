@@ -825,10 +825,11 @@ impl<B: Backend> ServerConnection for CustomServer<B> {
         &self,
         name: &str,
         schema: SchemaName,
+        only_if_needed: bool,
     ) -> Result<(), bonsaidb_core::Error> {
         self.data
             .storage
-            .create_database_with_schema(name, schema)
+            .create_database_with_schema(name, schema, only_if_needed)
             .await
     }
 
@@ -1002,6 +1003,7 @@ impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
     async fn resource_name<'a>(
         &'a self,
         database: &'a bonsaidb_core::connection::Database,
+        _only_if_needed: &'a bool,
     ) -> Result<ResourceName<'a>, Error> {
         Ok(database_resource_name(&database.name))
     }
@@ -1014,9 +1016,10 @@ impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
         &self,
         _permissions: &Permissions,
         database: bonsaidb_core::connection::Database,
+        only_if_needed: bool,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         self.server
-            .create_database_with_schema(&database.name, database.schema)
+            .create_database_with_schema(&database.name, database.schema, only_if_needed)
             .await?;
         Ok(Response::Server(ServerResponse::DatabaseCreated {
             name: database.name.clone(),

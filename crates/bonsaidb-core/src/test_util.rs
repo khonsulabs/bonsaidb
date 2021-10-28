@@ -1778,7 +1778,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(
         schema: Basic::schema_name()?
     }));
 
-    server.create_database::<Basic>(newdb_name).await?;
+    server.create_database::<Basic>(newdb_name, false).await?;
     server.delete_database(newdb_name).await?;
 
     assert!(matches!(
@@ -1787,18 +1787,23 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(
     ));
 
     assert!(matches!(
-        server.create_database::<Basic>("tests").await,
+        server.create_database::<Basic>("tests", false).await,
         Err(Error::DatabaseNameAlreadyTaken(_))
     ));
 
     assert!(matches!(
-        server.create_database::<Basic>("|invalidname").await,
+        server.create_database::<Basic>("tests", true).await,
+        Ok(_)
+    ));
+
+    assert!(matches!(
+        server.create_database::<Basic>("|invalidname", false).await,
         Err(Error::InvalidDatabaseName(_))
     ));
 
     assert!(matches!(
         server
-            .create_database::<UnassociatedCollection>(newdb_name)
+            .create_database::<UnassociatedCollection>(newdb_name, false)
             .await,
         Err(Error::SchemaNotRegistered(_))
     ));

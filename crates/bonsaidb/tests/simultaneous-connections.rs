@@ -47,7 +47,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
 async fn test_one_client(client: Client, database_name: String) -> anyhow::Result<()> {
     for _ in 0u32..50 {
         client
-            .create_database::<Basic>(&database_name)
+            .create_database::<Basic>(&database_name, false)
             .await
             .unwrap();
         let db = client.database::<Basic>(&database_name).await?;

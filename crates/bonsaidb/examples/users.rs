@@ -13,7 +13,6 @@ use bonsaidb::{
             Action, ActionNameList, Permissions, ResourceName, Statement,
         },
         schema::Collection,
-        Error,
     },
     server::{Configuration, DefaultPermissions, Server, StorageConfiguration},
 };
@@ -137,14 +136,7 @@ async fn setup_server() -> anyhow::Result<Server> {
             .await?;
     }
     server.register_schema::<Shape>().await?;
-    match server.create_database::<Shape>("my-database").await {
-        Ok(()) => {}
-        Err(Error::DatabaseNameAlreadyTaken(_)) => {}
-        Err(err) => panic!(
-            "Unexpected error from server during create_database: {:?}",
-            err
-        ),
-    }
+    server.create_database::<Shape>("my-database", true).await?;
 
     // Spawn our QUIC-based protocol listener.
     let task_server = server.clone();

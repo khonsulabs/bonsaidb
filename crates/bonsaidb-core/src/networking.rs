@@ -71,7 +71,12 @@ pub enum ServerRequest {
 
     /// Creates a database.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
-    CreateDatabase(Database),
+    CreateDatabase {
+        /// The database to create.
+        database: Database,
+        /// Only attempts to create the database if it doesn't already exist.
+        only_if_needed: bool,
+    },
     /// Deletes the database named `name`
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     DeleteDatabase {

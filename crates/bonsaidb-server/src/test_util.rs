@@ -22,7 +22,9 @@ pub async fn initialize_basic_server(path: &Path) -> Result<Server, Error> {
         .install_self_signed_certificate(BASIC_SERVER_NAME, false)
         .await?;
 
-    server.create_database::<BasicSchema>("tests").await?;
+    server
+        .create_database::<BasicSchema>("tests", false)
+        .await?;
 
     Ok(server)
 }

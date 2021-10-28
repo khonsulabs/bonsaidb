@@ -228,7 +228,7 @@ impl Storage {
         match self.database::<Admin>("admin").await {
             Ok(_) => {}
             Err(Error::Core(bonsaidb_core::Error::DatabaseNotFound(_))) => {
-                self.create_database::<Admin>("admin").await?;
+                self.create_database::<Admin>("admin", true).await?;
             }
             Err(err) => return Err(err),
         }
@@ -585,6 +585,7 @@ impl ServerConnection for Storage {
         &self,
         name: &str,
         schema: SchemaName,
+        only_if_needed: bool,
     ) -> Result<(), bonsaidb_core::Error> {
         Self::validate_name(name)?;
 
@@ -604,6 +605,10 @@ impl ServerConnection for Storage {
             .await?
             .is_empty()
         {
+            if only_if_needed {
+                return Ok(());
+            }
+
             return Err(bonsaidb_core::Error::DatabaseNameAlreadyTaken(
                 name.to_string(),
             ));

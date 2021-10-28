@@ -406,9 +406,14 @@ pub trait ServerConnection: Send + Sync {
     ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
     /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
-    ///   previous database name. Database names are case insensitive.
-    async fn create_database<DB: Schema>(&self, name: &str) -> Result<(), crate::Error> {
-        self.create_database_with_schema(name, DB::schema_name()?)
+    ///   previous database name. Database names are case insensitive. Returned
+    ///   if `only_if_needed` is false.
+    async fn create_database<DB: Schema>(
+        &self,
+        name: &str,
+        only_if_needed: bool,
+    ) -> Result<(), crate::Error> {
+        self.create_database_with_schema(name, DB::schema_name()?, only_if_needed)
             .await
     }
 
@@ -420,11 +425,13 @@ pub trait ServerConnection: Send + Sync {
     ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
     /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
-    ///   previous database name. Database names are case insensitive.
+    ///   previous database name. Database names are case insensitive. Returned
+    ///   if `only_if_needed` is false.
     async fn create_database_with_schema(
         &self,
         name: &str,
         schema: SchemaName,
+        only_if_needed: bool,
     ) -> Result<(), crate::Error>;
 
     /// Deletes a database named `name`.
