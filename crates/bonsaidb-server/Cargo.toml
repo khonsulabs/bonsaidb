@@ -38,7 +38,7 @@ itertools = "0.10"
 tokio-tungstenite = { version = "0.15", optional = true }
 bincode = { version = "1", optional = true }
 actionable = "0.1.0-rc.1"
-pot = "0.1.0-alpha.1"
+pot = "0.1.0-alpha.2"
 fabruic = { version = "0.0.1-dev.2", features = ["dangerous"] }
 
 [dev-dependencies]

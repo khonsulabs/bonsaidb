@@ -13,7 +13,7 @@ readme = "./README.md"
 [dependencies]
 flume = "0.10"
 serde = { version = "1", features = ["derive"] }
-pot = "0.1.0-alpha.1"
+pot = "0.1.0-alpha.2"
 futures = "0.3"
 async-lock = "2"
 
