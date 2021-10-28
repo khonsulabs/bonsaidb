@@ -17,6 +17,7 @@ full = ["cli", "websockets"]
 cli = ["structopt"]
 test-util = ["bonsaidb-core/test-util"]
 websockets = ["bonsaidb-core/websockets", "tokio-tungstenite", "bincode"]
+tracing = ["pot/tracing"]
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [

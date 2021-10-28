@@ -17,6 +17,7 @@ test-util = ["tokio", "networking", "websockets", "anyhow"]
 networking = []
 websockets = []
 actionable-traits = []
+tracing = ["pot/tracing"]
 
 [dependencies]
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }

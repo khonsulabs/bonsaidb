@@ -18,6 +18,7 @@ default = ["full"]
 full = ["cli"]
 cli = ["structopt"]
 internal-apis = []
+tracing = ["pot/tracing"]
 
 [dependencies]
 async-trait = "0.1"
