@@ -4,7 +4,7 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         connection::ServerConnection,
-        test_util::{self, Basic, TestDirectory},
+        test_util::{self, Basic, BasicSchema, TestDirectory},
     },
     server::{Configuration, DefaultPermissions, Server},
 };
@@ -24,7 +24,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
         .install_self_signed_certificate("test", false)
         .await?;
     let certificate = server.certificate().await?;
-    server.register_schema::<Basic>().await?;
+    server.register_schema::<BasicSchema>().await?;
     tokio::spawn(async move { server.listen_on(12345).await });
 
     let client = Client::build(Url::parse("bonsaidb://localhost:12345?server=test")?)
