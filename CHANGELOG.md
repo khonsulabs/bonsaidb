@@ -14,9 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each `bonsaidb::local::Storage` now has a unique ID. It will be randomly
   generated upon launch. If for some reason a random value isn't desired, it can
   be overridden in the `Configuration`.
-- Centralized secrets vault: Enables limited at-rest encryption. Access to keys
-  can be controlled via permissions. See `bonsaidb::core::vault` for more
-  information.
+- Centralized secrets vault: Enables limited at-rest encryption. See
+  `bonsaidb::core::vault` for more information.
 - For serializable types, `Collection` now defines easier methods for dealing
   with documents. `NamedCollection` allows collections that expose a unique name
   view to have easy ways to convert between IDs and names.
@@ -32,10 +31,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to receive the `server` or `client` during initialization if needed. For
   example, if a custom API needs to know the caller's identity, you can store
   the `client` in your dispatcher and access it in your handlers.
+- `bonsaidb::server::Configuration` has a new setting:
+  `client_simultaneous_request_limit`. It controls the amount of query
+  pipelining a single connection can achieve. Submitting more queries on a
+  single connection will block reading additional requests from the network
+  connection until responses have been sent.
+- `bonsaidb::server::Configuration` now supports `authenticated_permissions`,
+  allowing a set of permissions to be defined that are applied to any user that
+  has successfully authenticated.
+- `Collection::serializer` is a new function that allows a collection to define
+  what serialization format it should use.
 
 ### Changed
 
 - Listing all schemas and databases will now include the built-in admin database.
+- The underlying dependency on `sled` has been changed for an in-house storage
+  implementation [`nebari`](https://github.com/khonsulabs/nebari).
+- The command-line interface has received an overhaul.
+- `View::map` now returns a `Vec` instead of an `Option`, allowing for emitting
+  of multiple keys. This may change again to provide a non-heap allocation
+  mechanism for a single emit. Please provide feedback if this shows up in a
+  benchmark in a meaningful amount.
+- `bonsaidb::server::Configuration::default_permissions` has been changed into a
+  `DefaultPermissions` enum.
+- Changed the default serialization format from `CBOR` to an in-house format,
+  [`Pot`](https://github.com/khonsulabs/pot).
+
+### Removed
+
+- `bonsaidb::local::backup` has been removed. The main limitation arose from how
+  it was written to not need to be aware of the `Schema` type, but to properly
+  support backing up encrypted databases, it must. Never fear, we still have
+  backup strategies in mind -- the tool may be rewritten in the future, but in
+  the nearer term, we are prioritizing
+  [replication](https://github.com/khonsulabs/bonsaidb/issues/90).
+  
 
 ### Fixed
 
