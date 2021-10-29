@@ -14,7 +14,8 @@ use std::{
 use async_lock::Mutex;
 use async_trait::async_trait;
 use bonsaidb_core::{
-    connection::{Database, PasswordResult, ServerConnection},
+    admin::Database,
+    connection::{PasswordResult, ServerConnection},
     custodian_password::{
         ClientConfig, ClientFile, ClientLogin, LoginFinalization, LoginRequest, LoginResponse,
     },

@@ -14,9 +14,9 @@ use std::{
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    admin::{Admin, User},
+    admin::{self, Admin, User},
     circulate::{Message, Relay, Subscriber},
-    connection::{self, AccessPolicy, QueryKey, ServerConnection},
+    connection::{AccessPolicy, QueryKey, ServerConnection},
     custodian_password::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
     },
@@ -837,7 +837,7 @@ impl<B: Backend> ServerConnection for CustomServer<B> {
         self.data.storage.delete_database(name).await
     }
 
-    async fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
+    async fn list_databases(&self) -> Result<Vec<admin::Database>, bonsaidb_core::Error> {
         self.data.storage.list_databases().await
     }
 
@@ -1002,7 +1002,7 @@ impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
 
     async fn resource_name<'a>(
         &'a self,
-        database: &'a bonsaidb_core::connection::Database,
+        database: &'a bonsaidb_core::admin::Database,
         _only_if_needed: &'a bool,
     ) -> Result<ResourceName<'a>, Error> {
         Ok(database_resource_name(&database.name))
@@ -1015,7 +1015,7 @@ impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-        database: bonsaidb_core::connection::Database,
+        database: bonsaidb_core::admin::Database,
         only_if_needed: bool,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         self.server

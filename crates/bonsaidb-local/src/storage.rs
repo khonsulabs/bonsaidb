@@ -13,12 +13,13 @@ pub use bonsaidb_core::circulate::Relay;
 use bonsaidb_core::custodian_password::{LoginResponse, ServerLogin};
 use bonsaidb_core::{
     admin::{
+        self,
         database::{self, ByName, Database as DatabaseRecord},
         password_config::PasswordConfig,
         user::User,
         Admin, PermissionGroup, Role,
     },
-    connection::{self, AccessPolicy, Connection, QueryKey, ServerConnection},
+    connection::{AccessPolicy, Connection, QueryKey, ServerConnection},
     custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
     document::{Document, KeyId},
     kv::{KeyOperation, Output},
@@ -616,7 +617,7 @@ impl ServerConnection for Storage {
 
         admin
             .collection::<DatabaseRecord>()
-            .push(&connection::Database {
+            .push(&admin::Database {
                 name: name.to_string(),
                 schema: schema.clone(),
             })
@@ -658,11 +659,11 @@ impl ServerConnection for Storage {
         }
     }
 
-    async fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
+    async fn list_databases(&self) -> Result<Vec<admin::Database>, bonsaidb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases
             .iter()
-            .map(|(name, schema)| connection::Database {
+            .map(|(name, schema)| admin::Database {
                 name: name.to_string(),
                 schema: schema.clone(),
             })

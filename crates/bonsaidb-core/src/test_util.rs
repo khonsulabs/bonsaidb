@@ -12,7 +12,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    admin::{PermissionGroup, Role, User},
+    admin::{Database, PermissionGroup, Role, User},
     connection::{AccessPolicy, Connection, ServerConnection},
     document::{Document, KeyId},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
@@ -68,6 +68,69 @@ impl Collection for Basic {
         schema.define_view(BasicByParentId)?;
         schema.define_view(BasicByTag)?;
         schema.define_view(BasicByCategory)
+    }
+}
+
+#[cfg(feature = "json")]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
+struct JsonBasic {
+    pub value: u64,
+}
+
+#[cfg(feature = "json")]
+impl Collection for JsonBasic {
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        CollectionName::new("khonsulabs", "json-basic")
+    }
+
+    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn serializer() -> crate::schema::CollectionSerializer {
+        crate::schema::CollectionSerializer::Json
+    }
+}
+
+#[cfg(feature = "cbor")]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
+struct CborBasic {
+    pub value: u64,
+}
+
+#[cfg(feature = "cbor")]
+impl Collection for CborBasic {
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        CollectionName::new("khonsulabs", "cbor-basic")
+    }
+
+    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn serializer() -> crate::schema::CollectionSerializer {
+        crate::schema::CollectionSerializer::Cbor
+    }
+}
+
+#[cfg(feature = "bincode")]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
+struct BincodeBasic {
+    pub value: u64,
+}
+
+#[cfg(feature = "bincode")]
+impl Collection for BincodeBasic {
+    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+        CollectionName::new("khonsulabs", "bincode-basic")
+    }
+
+    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
+        Ok(())
+    }
+
+    fn serializer() -> crate::schema::CollectionSerializer {
+        crate::schema::CollectionSerializer::Bincode
     }
 }
 
@@ -367,6 +430,12 @@ impl Schema for BasicSchema {
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
         schema.define_collection::<Basic>()?;
+        #[cfg(feature = "json")]
+        schema.define_collection::<JsonBasic>()?;
+        #[cfg(feature = "cbor")]
+        schema.define_collection::<CborBasic>()?;
+        #[cfg(feature = "bincode")]
+        schema.define_collection::<BincodeBasic>()?;
         schema.define_collection::<EncryptedBasic>()?;
         schema.define_collection::<Unique>()
     }
@@ -760,6 +829,51 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     doc.update(db).await?;
     let reloaded = Basic::get(doc.header.id, db).await?.unwrap();
     assert_eq!(doc.contents, reloaded.contents);
+
+    // Test alternative serialization strategies
+
+    #[cfg(feature = "json")]
+    {
+        let header = db
+            .collection::<JsonBasic>()
+            .push(&JsonBasic { value: 1 })
+            .await?;
+        let doc = db
+            .get::<JsonBasic>(header.id)
+            .await?
+            .expect("failed to get json doc");
+        assert!(serde_json::from_slice::<JsonBasic>(&doc.contents).is_ok());
+        let deserialized = doc.contents::<JsonBasic>().unwrap();
+        assert_eq!(deserialized.value, 1);
+    }
+    #[cfg(feature = "cbor")]
+    {
+        let header = db
+            .collection::<CborBasic>()
+            .push(&CborBasic { value: 1 })
+            .await?;
+        let doc = db
+            .get::<CborBasic>(header.id)
+            .await?
+            .expect("failed to get cbor doc");
+        assert!(serde_cbor::from_slice::<CborBasic>(&doc.contents).is_ok());
+        let deserialized = doc.contents::<CborBasic>().unwrap();
+        assert_eq!(deserialized.value, 1);
+    }
+    #[cfg(feature = "bincode")]
+    {
+        let header = db
+            .collection::<BincodeBasic>()
+            .push(&BincodeBasic { value: 1 })
+            .await?;
+        let doc = db
+            .get::<BincodeBasic>(header.id)
+            .await?
+            .expect("failed to get json doc");
+        assert!(bincode::deserialize::<BincodeBasic>(&doc.contents).is_ok());
+        let deserialized = doc.contents::<BincodeBasic>().unwrap();
+        assert_eq!(deserialized.value, 1);
+    }
 
     Ok(())
 }
@@ -1773,7 +1887,7 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(
     );
 
     let databases = server.list_databases().await?;
-    assert!(databases.contains(&crate::connection::Database {
+    assert!(databases.contains(&Database {
         name: String::from("tests"),
         schema: Basic::schema_name()?
     }));

@@ -75,6 +75,9 @@ client-full = [
 ]
 client = ["bonsaidb-client"]
 test-util = ["bonsaidb-client/test-util", "bonsaidb-server/test-util"]
+json = ["bonsaidb-core/json"]
+cbor = ["bonsaidb-core/cbor"]
+bincode = ["bonsaidb-core/bincode"]
 
 cli = [
     "anyhow",

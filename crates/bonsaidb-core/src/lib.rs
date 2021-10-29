@@ -101,6 +101,10 @@ pub enum Error {
     #[error("error from storage: {0}")]
     Database(String),
 
+    /// An error serializing data.
+    #[error("error serializing: {0}")]
+    Serialization(String),
+
     /// An error from interacting with a server.
     #[error("error from server: {0}")]
     Server(String),
@@ -187,7 +191,28 @@ pub enum Error {
 
 impl From<pot::Error> for Error {
     fn from(err: pot::Error) -> Self {
-        Self::Database(err.to_string())
+        Self::Serialization(err.to_string())
+    }
+}
+
+#[cfg(feature = "json")]
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Serialization(err.to_string())
+    }
+}
+
+#[cfg(feature = "cbor")]
+impl From<serde_cbor::Error> for Error {
+    fn from(err: serde_cbor::Error) -> Self {
+        Self::Serialization(err.to_string())
+    }
+}
+
+#[cfg(feature = "bincode")]
+impl From<bincode::Error> for Error {
+    fn from(err: bincode::Error) -> Self {
+        Self::Serialization(err.to_string())
     }
 }
 

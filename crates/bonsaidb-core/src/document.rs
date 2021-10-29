@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{Key, Map};
+use crate::schema::{Collection, CollectionSerializer, Key, Map};
 
 mod revision;
 pub use revision::Revision;
@@ -39,19 +39,41 @@ impl<'a> Document<'a> {
     }
 
     /// Creates a new document with serialized bytes from `contents`.
-    pub fn with_contents<S: Serialize>(id: u64, contents: &S) -> Result<Self, pot::Error> {
-        let contents = Cow::from(pot::to_vec(contents)?);
+    pub fn with_contents<S: Collection + Serialize>(
+        id: u64,
+        contents: &S,
+    ) -> Result<Self, crate::Error> {
+        let contents = Cow::from(<S as Collection>::serializer().serialize(contents)?);
         Ok(Self::new(id, contents))
     }
 
     /// Retrieves `contents` through deserialization into the type `D`.
-    pub fn contents<D: Deserialize<'a>>(&'a self) -> Result<D, pot::Error> {
-        pot::from_slice(&self.contents)
+    pub fn contents<D: Collection + Deserialize<'a>>(&'a self) -> Result<D, crate::Error> {
+        match D::serializer() {
+            CollectionSerializer::Pot => {
+                pot::from_slice(&self.contents).map_err(crate::Error::from)
+            }
+            #[cfg(feature = "json")]
+            CollectionSerializer::Json => {
+                serde_json::from_slice(&self.contents).map_err(crate::Error::from)
+            }
+            #[cfg(feature = "cbor")]
+            CollectionSerializer::Cbor => {
+                serde_cbor::from_slice(&self.contents).map_err(crate::Error::from)
+            }
+            #[cfg(feature = "bincode")]
+            CollectionSerializer::Bincode => {
+                bincode::deserialize(&self.contents).map_err(crate::Error::from)
+            }
+        }
     }
 
     /// Serializes and stores `contents` into this document.
-    pub fn set_contents<S: Serialize>(&mut self, contents: &S) -> Result<(), pot::Error> {
-        self.contents = Cow::from(pot::to_vec(contents)?);
+    pub fn set_contents<S: Collection + Serialize>(
+        &mut self,
+        contents: &S,
+    ) -> Result<(), crate::Error> {
+        self.contents = Cow::from(<S as Collection>::serializer().serialize(contents)?);
         Ok(())
     }
 

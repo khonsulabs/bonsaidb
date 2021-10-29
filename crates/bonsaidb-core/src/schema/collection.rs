@@ -31,6 +31,14 @@ pub trait Collection: Debug + Send + Sync {
         None
     }
 
+    /// Returns the serializer to use when accessing and storing the document's
+    /// contents. If you only interact with a document's bytes directly, this
+    /// has no effect.
+    #[must_use]
+    fn serializer() -> CollectionSerializer {
+        CollectionSerializer::default()
+    }
+
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
     async fn get<C: Connection>(
         id: u64,
@@ -64,6 +72,45 @@ pub trait Collection: Debug + Send + Sync {
             header: Cow::Owned(header),
             contents: self,
         })
+    }
+}
+
+/// Serialization format for storing a collection.
+#[derive(Debug)]
+pub enum CollectionSerializer {
+    /// Serialize using the [`Pot`](https://github.com/khonsulabs/pot) format. The default serializer.
+    Pot,
+    /// Serialize using Json. Requires feature `json`.
+    #[cfg(feature = "json")]
+    Json,
+    /// Serialize using [Cbor](https://github.com/pyfisch/cbor). Requires feature `cbor`.
+    #[cfg(feature = "cbor")]
+    Cbor,
+    /// Serialize using [Bincode](https://github.com/bincode-org/bincode). Requires feature `bincode`.
+    #[cfg(feature = "bincode")]
+    Bincode,
+}
+
+impl Default for CollectionSerializer {
+    fn default() -> Self {
+        Self::Pot
+    }
+}
+
+impl CollectionSerializer {
+    /// Serializes `contents`.
+    pub fn serialize<T: Serialize>(&self, contents: &T) -> Result<Vec<u8>, Error> {
+        match self {
+            CollectionSerializer::Pot => pot::to_vec(contents).map_err(crate::Error::from),
+            #[cfg(feature = "json")]
+            CollectionSerializer::Json => serde_json::to_vec(contents).map_err(crate::Error::from),
+            #[cfg(feature = "cbor")]
+            CollectionSerializer::Cbor => serde_cbor::to_vec(contents).map_err(crate::Error::from),
+            #[cfg(feature = "bincode")]
+            CollectionSerializer::Bincode => {
+                bincode::serialize(contents).map_err(crate::Error::from)
+            }
+        }
     }
 }
 
@@ -133,7 +180,7 @@ impl<C> TryFrom<Document<'static>> for CollectionDocument<C>
 where
     C: Collection + Serialize + for<'de> Deserialize<'de>,
 {
-    type Error = pot::Error;
+    type Error = Error;
 
     fn try_from(value: Document<'static>) -> Result<Self, Self::Error> {
         Ok(Self {

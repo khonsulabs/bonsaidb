@@ -18,6 +18,8 @@ networking = []
 websockets = []
 actionable-traits = []
 tracing = ["pot/tracing"]
+json = ["serde_json"]
+cbor = ["serde_cbor"]
 
 [dependencies]
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }
@@ -36,6 +38,9 @@ custodian-password = { git = "https://github.com/khonsulabs/custodian.git", bran
     "blake3",
 ] }
 anyhow = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
+bincode = { version = "1", optional = true }
+serde_cbor = { version = "0.11", optional = true }
 
 [dev-dependencies]
 hex-literal = "0.3"

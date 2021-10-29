@@ -8,6 +8,7 @@ use custodian_password::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    admin::Database,
     document::{Document, Header},
     password_config,
     schema::{
@@ -194,7 +195,7 @@ where
 
     /// Adds a new `Document<Cl>` with the contents `item`.
     pub async fn push<S: Serialize + Sync>(&self, item: &S) -> Result<Header, crate::Error> {
-        let contents = pot::to_vec(item)?;
+        let contents = Cl::serializer().serialize(item)?;
         Ok(self.connection.insert::<Cl>(contents).await?)
     }
 
@@ -531,15 +532,6 @@ pub trait ServerConnection: Send + Sync {
         user: U,
         role: R,
     ) -> Result<(), crate::Error>;
-}
-
-/// A database on a server.
-#[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
-pub struct Database {
-    /// The name of the database.
-    pub name: String,
-    /// The schema defining the database.
-    pub schema: SchemaName,
 }
 
 /// The result of logging in with a password or setting a password.

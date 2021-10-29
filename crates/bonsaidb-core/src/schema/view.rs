@@ -16,10 +16,6 @@ use map::{Key, Map, MappedValue};
 #[derive(thiserror::Error, Debug)]
 // TODO add which view name and collection
 pub enum Error {
-    /// An error occurred while serializing or deserializing.
-    #[error("error deserializing document {0}")]
-    Serialization(#[from] pot::Error),
-
     /// An error occurred while serializing or deserializing keys emitted in a view.
     #[error("error serializing view keys {0}")]
     KeySerialization(Box<dyn AnyError>),
@@ -31,12 +27,43 @@ pub enum Error {
     /// Range queries are not supported on collections with encryptable keys.
     #[error("range queries are not supported on collections with encryptable keys")]
     RangeQueryNotSupported,
+
+    /// An error unrelated to views.
+    #[error("core error: {0}")]
+    Core(#[from] crate::Error),
 }
 
 impl Error {
     /// Returns a [`Self::KeySerialization`] instance after boxing the error.
     pub fn key_serialization<E: AnyError>(error: E) -> Self {
         Self::KeySerialization(Box::new(error))
+    }
+}
+
+impl From<pot::Error> for Error {
+    fn from(err: pot::Error) -> Self {
+        Self::Core(crate::Error::from(err))
+    }
+}
+
+#[cfg(feature = "json")]
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Core(crate::Error::from(err))
+    }
+}
+
+#[cfg(feature = "cbor")]
+impl From<serde_cbor::Error> for Error {
+    fn from(err: serde_cbor::Error) -> Self {
+        Self::Core(crate::Error::from(err))
+    }
+}
+
+#[cfg(feature = "bincode")]
+impl From<bincode::Error> for Error {
+    fn from(err: bincode::Error) -> Self {
+        Self::Core(crate::Error::from(err))
     }
 }
 

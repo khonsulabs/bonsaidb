@@ -7,7 +7,8 @@ use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    connection::{AccessPolicy, Database, QueryKey},
+    admin::Database,
+    connection::{AccessPolicy, QueryKey},
     document::Document,
     kv::{KeyOperation, Output},
     schema::{self, view::map, CollectionName, MappedValue, NamedReference, ViewName},
