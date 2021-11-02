@@ -66,6 +66,10 @@
 //! - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
 //!   enabled, all DNS resolution is done with the OS's default name resolver.
 //! - `client-websockets`: Enables `WebSocket` support for `bonsaidb-client`.
+//!
+//! ### `VaultKeyStorage` options
+//!
+//! - `keystorage-s3`: Enables S3-compatible key storage.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -102,5 +106,6 @@ pub mod cli;
 #[cfg(feature = "keystorage-s3")]
 pub mod keystorage {
     #[cfg(feature = "keystorage-s3")]
+    #[doc(inline)]
     pub use bonsaidb_keystorage_s3 as s3;
 }

@@ -1,4 +1,4 @@
-//! `VaultKeyStorage` using S3-compatible storage.
+//! [`VaultKeyStorage`] using S3-compatible storage.
 //!
 //! This is the recommended method for securing your `BonsaiDb` database. There
 //! are many ways to acquire secure, inexpensive S3-compatible storage, such as
