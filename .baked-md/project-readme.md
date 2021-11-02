@@ -79,14 +79,11 @@ bonsaidb = { version = "*", default-features = false, features = "full" }
 bonsaidb = { version = "*", default-features = false, features = "local-full" }
 ```
 
-- `local-full`: Enables `local`, `local-cli`, `local-keyvalue`, and
-  `local-pubsub`
+- `local-full`: Enables `local` and `local-cli`
 - `local`: Enables the [`local`](https://dev.bonsaidb.io/main/bonsaidb/local/) module, which re-exports the crate
   `bonsaidb-local`.
 - `local-cli`: Enables the `StructOpt` structures for embedding database
   management commands into your own command-line interface.
-- `local-pubsub`: Enables `PubSub` for `bonsaidb-local`.
-- `local-keyvalue`: Enables the key-value store for `bonsaidb-local`.
 
 ### `BonsaiDb` server
 
@@ -95,13 +92,10 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 bonsaidb = { version = "*", default-features = false, features = "server-full" }
 ```
 
-- `server-full`: Enables `server`, `server-websockets`, `server-keyvalue`,
-  and `server-pubsub`
+- `server-full`: Enables `server` and `server-websockets`
 - `server`: Enables the [`server`](https://dev.bonsaidb.io/main/bonsaidb/server/) module, which re-exports the crate
   `bonsaidb-server`.
 - `server-websockets`: Enables `WebSocket` support for `bonsaidb-server`.
-- `server-pubsub`: Enables `PubSub` for `bonsaidb-server`.
-- `server-keyvalue`: Enables the key-value store for `bonsaidb-server`.
 
 ### Client for accessing a `BonsaiDb` server
 
@@ -110,15 +104,12 @@ bonsaidb = { version = "*", default-features = false, features = "server-full" }
 bonsaidb = { version = "*", default-features = false, features = "client-full" }
 ```
 
-- `client-full`: Enables `client`, `client-trusted-dns`,
-  `client-websockets`, `client-keyvalue`, and `client-pubsub`
+- `client-full`: Enables `client`, `client-trusted-dns` and `client-websockets`
 - `client`: Enables the [`client`](https://dev.bonsaidb.io/main/bonsaidb/client/) module, which re-exports the crate
   `bonsaidb-client`.
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
   enabled, all DNS resolution is done with the OS's default name resolver.
 - `client-websockets`: Enables `WebSocket` support for `bonsaidb-client`.
-- `client-pubsub`: Enables `PubSub` for `bonsaidb-client`.
-- `client-keyvalue`: Enables the key-value store for `bonsaidb-client`.
 
 ## Developing BonsaiDb
 

@@ -8,6 +8,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v2
+      
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v1
 
       - name: Run benchmarks
         run: |

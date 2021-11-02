@@ -2,15 +2,15 @@
 name = "xtask"
 version = "0.1.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
-edition = "2018"
+edition = "2021"
 description = "Development-related Tasks"
 repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
 keywords = ["document-database", "database"]
 categories = ["database-implementations"]
-readme = "../README.md"
+readme = "../../README.md"
 homepage = "https://dev.bonsaidb.io/"
 
 [dependencies]
-khonsu-tools = { git="https://github.com/khonsulabs/khonsu-tools.git", branch="main" }
+khonsu-tools = { git = "https://github.com/khonsulabs/khonsu-tools.git", branch = "main" }
 structopt = "0.3"

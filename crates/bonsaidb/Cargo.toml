@@ -1,0 +1,135 @@
+[package]
+name = "bonsaidb"
+version = "0.1.0-dev.4"
+authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
+edition = "2021"
+description = "A programmable, ACID-compliant, document-database inspired by CouchDB."
+repository = "https://github.com/khonsulabs/bonsaidb"
+license = "MIT OR Apache-2.0"
+keywords = ["document-database", "database"]
+categories = ["database-implementations", "database"]
+readme = "../../README.md"
+homepage = "https://dev.bonsaidb.io/"
+
+[[bin]]
+name = "bonsaidb"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[[example]]
+name = "basic-local"
+required-features = ["local"]
+
+[[example]]
+name = "basic-local-multidb"
+required-features = ["local"]
+
+[[example]]
+name = "view-examples"
+required-features = ["local"]
+
+[[example]]
+name = "view-histogram"
+required-features = ["local"]
+
+[[example]]
+name = "pubsub"
+required-features = ["local"]
+
+[[example]]
+name = "server"
+required-features = ["server", "client"]
+
+[[example]]
+name = "users"
+required-features = ["server", "client"]
+
+[[example]]
+name = "key-value-store"
+required-features = ["local"]
+
+[[test]]
+name = "core-suite"
+required-features = ["server", "client", "test-util"]
+
+[[test]]
+name = "simultaneous-connections"
+required-features = ["server", "client"]
+
+[[test]]
+name = "custom-api"
+required-features = ["server", "client"]
+
+[features]
+default = []
+full = ["local-full", "server-full", "client-full"]
+local-full = ["local", "local-cli", "local-tracing"]
+local = ["bonsaidb-local"]
+server-full = ["server", "server-websockets", "server-cli", "server-tracing"]
+server = ["bonsaidb-server"]
+client-full = [
+    "client",
+    "client-websockets",
+    "client-trusted-dns",
+    "client-tracing",
+]
+client = ["bonsaidb-client"]
+test-util = ["bonsaidb-client/test-util", "bonsaidb-server/test-util"]
+json = ["bonsaidb-core/json"]
+cbor = ["bonsaidb-core/cbor"]
+bincode = ["bonsaidb-core/bincode"]
+
+keystorage-s3 = ["bonsaidb-keystorage-s3"]
+
+cli = [
+    "anyhow",
+    "tokio",
+    "structopt",
+    "url",
+    "client-full",
+    "local-cli",
+    "server-cli",
+]
+local-cli = ["bonsaidb-local/cli"]
+server-cli = ["bonsaidb-server/cli"]
+
+websockets = ["server-websockets", "client-websockets"]
+server-websockets = ["bonsaidb-server/websockets"]
+client-websockets = ["bonsaidb-client/websockets"]
+
+client-trusted-dns = ["bonsaidb-client/trusted-dns"]
+
+local-tracing = ["bonsaidb-local/tracing"]
+server-tracing = ["bonsaidb-server/tracing"]
+client-tracing = ["bonsaidb-client/tracing"]
+
+[dependencies]
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false }
+bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.0-dev.4", default-features = false, optional = true }
+bonsaidb-client = { path = "../bonsaidb-client", version = "0.1.0-dev.4", default-features = false, optional = true }
+bonsaidb-server = { path = "../bonsaidb-server", version = "0.1.0-dev.4", default-features = false, optional = true }
+bonsaidb-keystorage-s3 = { path = "../bonsaidb-keystorage-s3", version = "0.1.0-dev.4", default-features = false, optional = true }
+
+tokio = { version = "1", features = ["full"], optional = true }
+structopt = { version = "0.3", optional = true }
+anyhow = { version = "1", optional = true }
+url = { version = "2.2", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [
+    "test-util",
+] }
+futures = "0.3"
+rand = "0.8"
+url = "2.2"
+once_cell = "1.3.0"
+flume = "0.10"
+actionable = "0.1.0-rc.1"
+fabruic = { version = "0.0.1-dev.2" }
+hdrhistogram = "7"
+
+[package.metadata.docs.rs]
+all-features = true

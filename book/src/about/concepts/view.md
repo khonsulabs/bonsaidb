@@ -108,7 +108,7 @@ The [`Key`][key] trait declares two functions: [`as_big_endian_bytes()`](https:/
 Here is how BonsaiDb implements Key for `EnumKey`:
 
 ```rust,noplayground,no_run
-{{#include ../../../../core/src/schema/view/map.rs:impl_key_for_enumkey}}
+{{#include ../../../../crates/bonsaidb-core/src/schema/view/map.rs:impl_key_for_enumkey}}
 ```
 
 By implementing `Key` you can take full control of converting your view keys.

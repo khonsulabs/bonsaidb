@@ -1,0 +1,51 @@
+[package]
+name = "bonsaidb-server"
+version = "0.1.0-dev.4"
+authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
+edition = "2021"
+description = "Database server for BonsaiDb."
+repository = "https://github.com/khonsulabs/bonsaidb"
+license = "MIT OR Apache-2.0"
+keywords = ["document-database", "database"]
+categories = ["database-implementations"]
+readme = "../../README.md"
+homepage = "https://dev.bonsaidb.io/"
+
+[features]
+default = ["full"]
+full = ["cli", "websockets"]
+cli = ["structopt"]
+test-util = ["bonsaidb-core/test-util"]
+websockets = ["bonsaidb-core/websockets", "tokio-tungstenite", "bincode"]
+tracing = ["pot/tracing"]
+
+[dependencies]
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [
+    "networking",
+    "actionable-traits",
+] }
+bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.0-dev.4", default-features = false, features = [
+    "internal-apis",
+] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+thiserror = "1"
+async-trait = "0.1"
+structopt = { version = "0.3", optional = true }
+futures = "0.3"
+flume = "0.10"
+itertools = "0.10"
+tokio-tungstenite = { version = "0.15", optional = true }
+bincode = { version = "1", optional = true }
+actionable = "0.1.0-rc.1"
+pot = "0.1.0-alpha.2"
+fabruic = { version = "0.0.1-dev.2", features = ["dangerous"] }
+
+[dev-dependencies]
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [
+    "test-util",
+] }
+anyhow = "1"
+
+[package.metadata.docs.rs]
+all-features = true

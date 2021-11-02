@@ -1,0 +1,63 @@
+[package]
+name = "bonsaidb-local"
+version = "0.1.0-dev.4"
+authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
+edition = "2021"
+description = "Local database storage for BonsaiDb."
+repository = "https://github.com/khonsulabs/bonsaidb"
+license = "MIT OR Apache-2.0"
+keywords = ["document-database", "database"]
+categories = ["database-implementations", "database"]
+readme = "../../README.md"
+homepage = "https://dev.bonsaidb.io/"
+
+[lib]
+
+[features]
+default = ["full"]
+full = ["cli"]
+cli = ["structopt"]
+internal-apis = []
+tracing = ["pot/tracing"]
+
+[dependencies]
+async-trait = "0.1"
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4" }
+nebari = { version = "0.1.0-rc.4" }
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+pot = "0.1.0-alpha.2"
+bincode = "1.3"
+flume = "0.10"
+itertools = "0.10"
+structopt = { version = "0.3", optional = true }
+rand = "0.8"
+chacha20poly1305 = { version = "0.9" }
+byteorder = "1"
+futures = "0.3"
+zeroize = "1"
+region = "3"
+blake3 = "1"
+x25519-dalek = { version = "1" }
+x25519-rand = { package = "rand", version = "0.7" }
+hpke = { version = "0.7", default-features = false, features = [
+    "x25519",
+    "serde_impls",
+] }
+ranges = "0.3"
+
+[dev-dependencies]
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", features = [
+    "test-util",
+] }
+futures = "0.3"
+criterion = { version = "0.3", features = ["async_tokio"] }
+anyhow = "1"
+
+[[bench]]
+name = "basics"
+harness = false
+
+[package.metadata.docs.rs]
+all-features = true

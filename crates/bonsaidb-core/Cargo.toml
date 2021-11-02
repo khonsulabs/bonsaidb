@@ -1,0 +1,52 @@
+[package]
+name = "bonsaidb-core"
+version = "0.1.0-dev.4"
+authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
+edition = "2021"
+description = "Local storage backend for BonsaiDb."
+repository = "https://github.com/khonsulabs/bonsaidb"
+license = "MIT OR Apache-2.0"
+keywords = ["document-database", "database"]
+categories = ["database-implementations"]
+readme = "../../README.md"
+homepage = "https://dev.bonsaidb.io/"
+
+[features]
+default = []
+test-util = ["tokio", "networking", "websockets", "anyhow"]
+networking = []
+websockets = []
+actionable-traits = []
+tracing = ["pot/tracing"]
+json = ["serde_json"]
+cbor = ["serde_cbor"]
+
+[dependencies]
+bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }
+circulate = { path = "../circulate", version = "0.1.0" }
+serde = { version = "1", features = ["derive"] }
+pot = "0.1.0-alpha.1"
+async-trait = "0.1"
+uuid = { version = "0.8", features = ["v4", "serde"], optional = true }
+thiserror = "1"
+sha2 = "0.9"
+futures = { version = "0.3" }
+tokio = { version = "1", features = ["time"], optional = true }
+num-traits = "0.2"
+actionable = "0.1.0-rc.1"
+custodian-password = { git = "https://github.com/khonsulabs/custodian.git", branch = "main", default-features = false, features = [
+    "blake3",
+] }
+anyhow = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
+bincode = { version = "1", optional = true }
+serde_cbor = { version = "0.11", optional = true }
+
+[dev-dependencies]
+hex-literal = "0.3"
+tokio = { version = "1", features = ["full"] }
+futures = { version = "0.3" }
+num-derive = "0.3"
+
+[package.metadata.docs.rs]
+all-features = true

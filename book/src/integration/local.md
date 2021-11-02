@@ -2,7 +2,7 @@
 
 `BonsaiDb` supports multiple [databases](../about/concepts/database.md) and multiple [schemas](../about/concepts/schema.md). However, for many applications, you only need a single database.
 
-If you're only wanting a single database, the setup is straightforward: (from [`bonsaidb/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/bonsaidb/examples/basic-local.rs))
+If you're only wanting a single database, the setup is straightforward: (from [`bonsaidb/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/crates/bonsaidb/examples/basic-local.rs))
 
 ```rust,noplayground,no_run
 let db = Database::<Message>::open_local(
@@ -11,7 +11,7 @@ let db = Database::<Message>::open_local(
 ).await?;
 ```
 
-Under the hood, `BonsaiDb` is creating a multi-database [`Storage`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html) with a local [`Database`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Database.html) named `default` for you. If you need to switch to a multi-database model, you can open the storage and access the `default` database: (adapted from [`bonsaidb/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/bonsaidb/examples/basic-local-multidb.rs))
+Under the hood, `BonsaiDb` is creating a multi-database [`Storage`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html) with a local [`Database`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Database.html) named `default` for you. If you need to switch to a multi-database model, you can open the storage and access the `default` database: (adapted from [`bonsaidb/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/crates/bonsaidb/examples/basic-local-multidb.rs))
 
 ```rust,noplayground,no_run
 let storage = Storage::open_local(
@@ -31,8 +31,8 @@ To help your code transition between different modes of accessing `BonsaiDb`, yo
 * [`Database`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Database.html) implements [`Connection`](../traits/connection.md), [`Kv`](../traits/kv.md), and [`PubSub`](../traits/kv.md).
 * [`Storage`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html) implements [`ServerConnection`](../traits/server_connection.md).
 
-For example, [`bonsaidb/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/bonsaidb/examples/basic-local-multidb.rs) uses this helper method to insert a record:
+For example, [`bonsaidb/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/crates/bonsaidb/examples/basic-local-multidb.rs) uses this helper method to insert a record:
 
 ```rust,noplayground,no_run
-{{#include ../../../bonsaidb/examples/basic-local-multidb.rs:reusable-code}}
+{{#include ../../../crates/bonsaidb/examples/basic-local-multidb.rs:reusable-code}}
 ```
