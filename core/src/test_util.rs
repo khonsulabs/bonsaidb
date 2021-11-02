@@ -1694,7 +1694,7 @@ macro_rules! define_kv_test_suite {
                     .await?;
                 kv.delete_key("a").await?;
                 kv.set_key("a", &1_u32).await?;
-                if timing.elapsed() > Duration::from_secs(2) {
+                if timing.elapsed() > Duration::from_secs(1) {
                     println!(
                         "Restarting test {}. Took too long {:?}",
                         line!(),
