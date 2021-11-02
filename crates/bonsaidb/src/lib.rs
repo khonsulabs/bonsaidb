@@ -97,3 +97,10 @@ pub use bonsaidb_local as local;
 pub use bonsaidb_server as server;
 #[cfg(feature = "cli")]
 pub mod cli;
+
+/// `VaultKeyStorage` implementors.
+#[cfg(feature = "keystorage-s3")]
+pub mod keystorage {
+    #[cfg(feature = "keystorage-s3")]
+    pub use bonsaidb_keystorage_s3 as s3;
+}

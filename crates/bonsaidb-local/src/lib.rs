@@ -35,7 +35,7 @@ pub use self::storage::OpenDatabase;
 pub use self::{
     database::{pubsub::Subscriber, Database},
     error::Error,
-    storage::Storage,
+    storage::{Storage, StorageId},
 };
 
 #[cfg(test)]

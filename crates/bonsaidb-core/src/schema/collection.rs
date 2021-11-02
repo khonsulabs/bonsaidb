@@ -167,7 +167,7 @@ pub trait NamedCollection: Collection {
 }
 
 /// A document with serializable contents.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CollectionDocument<C: Collection + Serialize + for<'de> Deserialize<'de>> {
     /// The header of the document, which contains the id and `Revision`.
     pub header: Cow<'static, Header>,

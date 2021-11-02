@@ -10,3 +10,4 @@ coverage/
 perf.data
 perf.data.old
 flamegraph.svg
+.env

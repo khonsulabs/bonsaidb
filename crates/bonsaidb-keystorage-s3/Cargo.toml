@@ -1,0 +1,29 @@
+[package]
+name = "bonsaidb-keystorage-s3"
+version = "0.1.0-dev.4"
+authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
+edition = "2021"
+description = "BonsaiDb `VaultKeyStorage` using S3-compatible storage."
+repository = "https://github.com/khonsulabs/bonsaidb"
+license = "MIT OR Apache-2.0"
+keywords = ["s3", "bonsaidb", "keystorage"]
+categories = ["config"]
+readme = "../../README.md"
+homepage = "https://dev.bonsaidb.io/"
+
+
+[dependencies]
+rust-s3 = { version = "0.27", default-features = false, features = [
+    "with-tokio",
+    "tokio-rustls-tls",
+] }
+bonsaidb-local = { version = "0.1.0-dev.4", path = "../bonsaidb-local" }
+async-trait = "0.1"
+anyhow = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+dotenv = "0.15"
+bonsaidb-core = { version = "0.1.0-dev.4", path = "../bonsaidb-core", features = [
+    "test-util",
+] }

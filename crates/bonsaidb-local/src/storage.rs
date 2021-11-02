@@ -835,10 +835,13 @@ fn name_validation_tests() {
     ));
 }
 
+/// The unique id of a [`Storage`] instance.
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 pub struct StorageId(u64);
 
 impl StorageId {
+    /// Returns the id as a u64.
+    #[must_use]
     pub const fn as_u64(self) -> u64 {
         self.0
     }

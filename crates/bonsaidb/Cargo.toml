@@ -8,7 +8,7 @@ repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
 keywords = ["document-database", "database"]
 categories = ["database-implementations", "database"]
-readme = "../README.md"
+readme = "../../README.md"
 homepage = "https://dev.bonsaidb.io/"
 
 [[bin]]
@@ -79,6 +79,8 @@ json = ["bonsaidb-core/json"]
 cbor = ["bonsaidb-core/cbor"]
 bincode = ["bonsaidb-core/bincode"]
 
+keystorage-s3 = ["bonsaidb-keystorage-s3"]
+
 cli = [
     "anyhow",
     "tokio",
@@ -106,6 +108,7 @@ bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-fe
 bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.0-dev.4", default-features = false, optional = true }
 bonsaidb-client = { path = "../bonsaidb-client", version = "0.1.0-dev.4", default-features = false, optional = true }
 bonsaidb-server = { path = "../bonsaidb-server", version = "0.1.0-dev.4", default-features = false, optional = true }
+bonsaidb-keystorage-s3 = { path = "../bonsaidb-keystorage-s3", version = "0.1.0-dev.4", default-features = false, optional = true }
 
 tokio = { version = "1", features = ["full"], optional = true }
 structopt = { version = "0.3", optional = true }
