@@ -58,6 +58,8 @@
     clippy::module_name_repetitions,
 )]
 
+use std::fmt::Display;
+
 use async_trait::async_trait;
 use bonsaidb_local::{
     vault::{PrivateKey, VaultKeyStorage},
@@ -84,6 +86,12 @@ impl From<Bucket> for S3VaultKeyStorage {
 }
 
 impl S3VaultKeyStorage {
+    /// Sets the path prefix for vault keys to be stored within.
+    pub fn path(mut self, prefix: impl Display) -> Self {
+        self.path = prefix.to_string();
+        self
+    }
+
     fn path_for_id(&self, storage_id: StorageId) -> String {
         let mut path = self.path.clone();
         if !path.is_empty() && !path.ends_with('/') {
@@ -164,8 +172,9 @@ async fn basic_test() {
     let endpoint = env_var!("S3_ENDPOINT");
 
     let directory = TestDirectory::new("bonsaidb-keystorage-s3-basic");
-    let configuration = || Configuration {
-        vault_key_storage: Some(Box::new(S3VaultKeyStorage::from(
+
+    let configuration = |prefix| {
+        let mut vault_key_storage = S3VaultKeyStorage::from(
             Bucket::new(
                 &bucket_name,
                 s3::Region::Custom {
@@ -176,12 +185,19 @@ async fn basic_test() {
                     .unwrap(),
             )
             .unwrap(),
-        ))),
-        default_encryption_key: Some(KeyId::Master),
-        ..Configuration::default()
+        );
+        if let Some(prefix) = prefix {
+            vault_key_storage = vault_key_storage.path(prefix);
+        }
+
+        Configuration {
+            vault_key_storage: Some(Box::new(vault_key_storage)),
+            default_encryption_key: Some(KeyId::Master),
+            ..Configuration::default()
+        }
     };
     let document = {
-        let bonsai = Storage::open_local(&directory, configuration())
+        let bonsai = Storage::open_local(&directory, configuration(None))
             .await
             .unwrap();
         bonsai.register_schema::<BasicSchema>().await.unwrap();
@@ -195,7 +211,7 @@ async fn basic_test() {
 
     {
         // Should be able to access the storage again
-        let bonsai = Storage::open_local(&directory, configuration())
+        let bonsai = Storage::open_local(&directory, configuration(None))
             .await
             .unwrap();
 
@@ -208,13 +224,9 @@ async fn basic_test() {
     }
 
     // Verify that we can't access the storage again without the vault
-    assert!(Storage::open_local(
-        &directory,
-        Configuration {
-            default_encryption_key: Some(KeyId::Master),
-            ..Configuration::default()
-        },
-    )
-    .await
-    .is_err());
+    assert!(
+        Storage::open_local(&directory, configuration(Some(String::from("path-prefix"))))
+            .await
+            .is_err()
+    );
 }
