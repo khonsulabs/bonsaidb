@@ -583,6 +583,10 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         &self,
         collection: CollectionName,
     ) -> Result<(), bonsaidb_core::Error>;
+
+    async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error>;
+
+    async fn compact(&self) -> Result<(), bonsaidb_core::Error>;
 }
 
 #[async_trait]

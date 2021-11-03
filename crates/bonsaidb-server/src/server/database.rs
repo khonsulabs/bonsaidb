@@ -177,8 +177,16 @@ impl<'a, B: Backend, DB: Schema> bonsaidb_core::connection::Connection
         self.db.last_transaction_id().await
     }
 
-    async fn compact<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
-        self.db.compact::<C>().await
+    async fn compact_collection<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
+        self.db.compact_collection::<C>().await
+    }
+
+    async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
+        self.db.compact().await
+    }
+
+    async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
+        self.db.compact_key_value_store().await
     }
 }
 

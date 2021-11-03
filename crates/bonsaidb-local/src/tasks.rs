@@ -188,7 +188,31 @@ impl TaskManager {
     ) -> Result<(), Error> {
         Ok(self
             .jobs
-            .lookup_or_enqueue(Compactor::new(database, collection_name))
+            .lookup_or_enqueue(Compactor::collection(database, collection_name))
+            .await
+            .receive()
+            .await??)
+    }
+
+    pub async fn compact_key_value_store<DB: Schema>(
+        &self,
+        database: crate::Database<DB>,
+    ) -> Result<(), Error> {
+        Ok(self
+            .jobs
+            .lookup_or_enqueue(Compactor::keyvalue(database))
+            .await
+            .receive()
+            .await??)
+    }
+
+    pub async fn compact_database<DB: Schema>(
+        &self,
+        database: crate::Database<DB>,
+    ) -> Result<(), Error> {
+        Ok(self
+            .jobs
+            .lookup_or_enqueue(Compactor::database(database))
             .await
             .receive()
             .await??)

@@ -332,7 +332,7 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
         }
     }
 
-    async fn compact<C: Collection>(&self) -> Result<(), bonsaidb_core::Error> {
+    async fn compact_collection<C: Collection>(&self) -> Result<(), bonsaidb_core::Error> {
         match self
             .send_request(Request::Database {
                 database: self.name.to_string(),
@@ -342,7 +342,39 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
             })
             .await?
         {
-            Response::Database(DatabaseResponse::CollectionCompacted) => Ok(()),
+            Response::Ok => Ok(()),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
+        match self
+            .send_request(Request::Database {
+                database: self.name.to_string(),
+                request: DatabaseRequest::Compact,
+            })
+            .await?
+        {
+            Response::Ok => Ok(()),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
+        match self
+            .send_request(Request::Database {
+                database: self.name.to_string(),
+                request: DatabaseRequest::CompactKeyValueStore,
+            })
+            .await?
+        {
+            Response::Ok => Ok(()),
             Response::Error(err) => Err(err),
             other => Err(bonsaidb_core::Error::Networking(
                 bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),

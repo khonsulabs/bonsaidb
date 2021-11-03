@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
     convert::Infallible,
-    hash::Hash,
     sync::atomic::{AtomicBool, Ordering},
 };
 
@@ -43,7 +42,7 @@ where
                 check,
                 return_previous_value,
             } => execute_set_operation(
-                key_tree(op.namespace),
+                op.namespace,
                 op.key,
                 value,
                 expiration,
@@ -53,36 +52,38 @@ where
                 &task_self,
             ),
             Command::Get { delete } => {
-                execute_get_operation(key_tree(op.namespace), &op.key, delete, &task_self)
+                execute_get_operation(op.namespace, op.key, delete, &task_self)
             }
-            Command::Delete => execute_delete_operation(key_tree(op.namespace), op.key, &task_self),
-            Command::Increment { amount, saturating } => execute_increment_operation(
-                key_tree(op.namespace),
-                &op.key,
-                &task_self,
-                &amount,
-                saturating,
-            ),
-            Command::Decrement { amount, saturating } => execute_decrement_operation(
-                key_tree(op.namespace),
-                &op.key,
-                &task_self,
-                &amount,
-                saturating,
-            ),
+            Command::Delete => execute_delete_operation(op.namespace, op.key, &task_self),
+            Command::Increment { amount, saturating } => {
+                execute_increment_operation(op.namespace, op.key, &task_self, &amount, saturating)
+            }
+            Command::Decrement { amount, saturating } => {
+                execute_decrement_operation(op.namespace, op.key, &task_self, &amount, saturating)
+            }
         })
         .await
         .unwrap()
     }
 }
 
-fn key_tree(namespace: Option<impl AsRef<str>>) -> String {
-    namespace.map_or_else(|| String::from("kv."), |ns| format!("kv.{}", ns.as_ref()))
+pub(crate) const KEY_TREE: &str = "kv";
+
+fn full_key(namespace: Option<String>, mut key: String) -> String {
+    if let Some(mut ns) = namespace {
+        ns.reserve(key.len() + 1);
+        ns.push('.');
+        ns.push_str(&key);
+        ns
+    } else {
+        key.insert(0, '.');
+        key
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
 fn execute_set_operation<DB: Schema>(
-    tree_name: String,
+    namespace: Option<String>,
     key: String,
     value: Value,
     expiration: Option<Timestamp>,
@@ -95,41 +96,42 @@ fn execute_set_operation<DB: Schema>(
         .data
         .context
         .roots
-        .tree(Unversioned::tree(tree_name.clone()))
+        .tree(Unversioned::tree(KEY_TREE))
         .map_err(Error::from)?;
+
+    let full_key = full_key(namespace, key);
 
     let mut entry = Entry { value, expiration };
     let mut inserted = false;
     let mut updated = false;
-    let previous_value = fetch_and_update_no_copy(&kv_tree, key.as_bytes(), |existing_value| {
-        let should_update = match check {
-            Some(KeyCheck::OnlyIfPresent) => existing_value.is_some(),
-            Some(KeyCheck::OnlyIfVacant) => existing_value.is_none(),
-            None => true,
-        };
-        if should_update {
-            updated = true;
-            inserted = existing_value.is_none();
-            if keep_existing_expiration && !inserted {
-                if let Ok(previous_entry) = bincode::deserialize::<Entry>(&existing_value.unwrap())
-                {
-                    entry.expiration = previous_entry.expiration;
+    let previous_value =
+        fetch_and_update_no_copy(&kv_tree, full_key.as_bytes(), |existing_value| {
+            let should_update = match check {
+                Some(KeyCheck::OnlyIfPresent) => existing_value.is_some(),
+                Some(KeyCheck::OnlyIfVacant) => existing_value.is_none(),
+                None => true,
+            };
+            if should_update {
+                updated = true;
+                inserted = existing_value.is_none();
+                if keep_existing_expiration && !inserted {
+                    if let Ok(previous_entry) =
+                        bincode::deserialize::<Entry>(&existing_value.unwrap())
+                    {
+                        entry.expiration = previous_entry.expiration;
+                    }
                 }
+                let entry_vec = bincode::serialize(&entry).unwrap();
+                Some(Buffer::from(entry_vec))
+            } else {
+                existing_value
             }
-            let entry_vec = bincode::serialize(&entry).unwrap();
-            Some(Buffer::from(entry_vec))
-        } else {
-            existing_value
-        }
-    })
-    .map_err(Error::from)?;
+        })
+        .map_err(Error::from)?;
 
     if updated {
         db.update_key_expiration(ExpirationUpdate {
-            tree_key: TreeKey {
-                tree: tree_name,
-                key,
-            },
+            tree_key: full_key,
             expiration: entry.expiration,
         });
         if return_previous_value {
@@ -149,8 +151,8 @@ fn execute_set_operation<DB: Schema>(
 }
 
 fn execute_get_operation<DB: Schema>(
-    tree_name: String,
-    key: &str,
+    namespace: Option<String>,
+    key: String,
     delete: bool,
     db: &Database<DB>,
 ) -> Result<Output, bonsaidb_core::Error> {
@@ -158,19 +160,20 @@ fn execute_get_operation<DB: Schema>(
         .data
         .context
         .roots
-        .tree(Unversioned::tree(tree_name.to_string()))
+        .tree(Unversioned::tree(KEY_TREE))
         .map_err(Error::from)?;
+    let full_key = full_key(namespace, key);
     let entry = if delete {
-        let entry = tree.remove(key.as_bytes()).map_err(Error::from)?;
+        let entry = tree.remove(full_key.as_bytes()).map_err(Error::from)?;
         if entry.is_some() {
             db.update_key_expiration(ExpirationUpdate {
-                tree_key: TreeKey::new(tree_name, key.to_string()),
+                tree_key: full_key,
                 expiration: None,
             });
         }
         entry
     } else {
-        tree.get(key.as_bytes()).map_err(Error::from)?
+        tree.get(full_key.as_bytes()).map_err(Error::from)?
     };
 
     let entry = entry
@@ -183,7 +186,7 @@ fn execute_get_operation<DB: Schema>(
 }
 
 fn execute_delete_operation<DB: Schema>(
-    tree_name: String,
+    namespace: Option<String>,
     key: String,
     db: &Database<DB>,
 ) -> Result<Output, bonsaidb_core::Error> {
@@ -191,12 +194,13 @@ fn execute_delete_operation<DB: Schema>(
         .data
         .context
         .roots
-        .tree(Unversioned::tree(tree_name.to_string()))
+        .tree(Unversioned::tree(KEY_TREE))
         .map_err(Error::from)?;
-    let value = tree.remove(key.as_bytes()).map_err(Error::from)?;
+    let full_key = full_key(namespace, key);
+    let value = tree.remove(full_key.as_bytes()).map_err(Error::from)?;
     if value.is_some() {
         db.update_key_expiration(ExpirationUpdate {
-            tree_key: TreeKey::new(tree_name, key),
+            tree_key: full_key,
             expiration: None,
         });
 
@@ -207,28 +211,28 @@ fn execute_delete_operation<DB: Schema>(
 }
 
 fn execute_increment_operation<DB: Schema>(
-    tree_name: String,
-    key: &str,
+    namespace: Option<String>,
+    key: String,
     db: &Database<DB>,
     amount: &Numeric,
     saturating: bool,
 ) -> Result<Output, bonsaidb_core::Error> {
-    execute_numeric_operation(tree_name, key, db, amount, saturating, increment)
+    execute_numeric_operation(namespace, key, db, amount, saturating, increment)
 }
 
 fn execute_decrement_operation<DB: Schema>(
-    tree_name: String,
-    key: &str,
+    namespace: Option<String>,
+    key: String,
     db: &Database<DB>,
     amount: &Numeric,
     saturating: bool,
 ) -> Result<Output, bonsaidb_core::Error> {
-    execute_numeric_operation(tree_name, key, db, amount, saturating, decrement)
+    execute_numeric_operation(namespace, key, db, amount, saturating, decrement)
 }
 
 fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Numeric>(
-    tree_name: String,
-    key: &str,
+    namespace: Option<String>,
+    key: String,
     db: &Database<DB>,
     amount: &Numeric,
     saturating: bool,
@@ -238,10 +242,11 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
         .data
         .context
         .roots
-        .tree(Unversioned::tree(tree_name))
+        .tree(Unversioned::tree(KEY_TREE))
         .map_err(Error::from)?;
 
-    let mut current = tree.get(key.as_bytes()).map_err(Error::from)?;
+    let full_key = full_key(namespace, key);
+    let mut current = tree.get(full_key.as_bytes()).map_err(Error::from)?;
     loop {
         let mut entry = current
             .as_ref()
@@ -259,7 +264,11 @@ fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Nume
                 entry.value = value.clone();
 
                 let result_bytes = Buffer::from(bincode::serialize(&entry).unwrap());
-                match tree.compare_and_swap(key.as_bytes(), current.as_ref(), Some(result_bytes)) {
+                match tree.compare_and_swap(
+                    full_key.as_bytes(),
+                    current.as_ref(),
+                    Some(result_bytes),
+                ) {
                     Ok(_) => return Ok(Output::Value(Some(value))),
                     Err(CompareAndSwapError::Conflict(cur)) => {
                         current = cur;
@@ -335,21 +344,6 @@ fn decrement(existing: &Numeric, amount: &Numeric, saturating: bool) -> Numeric 
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Debug, Clone)]
-pub struct TreeKey {
-    pub tree: String,
-    pub key: String,
-}
-
-impl TreeKey {
-    pub fn new(tree: String, key: impl Into<String>) -> Self {
-        Self {
-            tree,
-            key: key.into(),
-        }
-    }
-}
-
 fn fetch_and_update_no_copy<K, F, R>(
     tree: &Tree<R, StdFile>,
     key: K,
@@ -377,7 +371,7 @@ where
 
 #[derive(Debug)]
 pub struct ExpirationUpdate {
-    pub tree_key: TreeKey,
+    pub tree_key: String,
     pub expiration: Option<Timestamp>,
 }
 
@@ -387,8 +381,8 @@ pub(crate) fn expiration_thread(
     updates: flume::Receiver<ExpirationUpdate>,
 ) -> Result<(), nebari::Error> {
     // expiring_keys will be maintained such that the soonest expiration is at the front and furthest in the future is at the back
-    let mut tracked_keys = HashMap::<TreeKey, Timestamp>::new();
-    let mut expiration_order = VecDeque::<TreeKey>::new();
+    let mut tracked_keys = HashMap::<String, Timestamp>::new();
+    let mut expiration_order = VecDeque::<String>::new();
     loop {
         let update = if expiration_order.is_empty() {
             if let Ok(update) = updates.try_recv() {
@@ -436,10 +430,8 @@ pub(crate) fn expiration_thread(
                 {
                     let key_to_remove = expiration_order.pop_front().unwrap();
                     tracked_keys.remove(&key_to_remove);
-                    let tree = context
-                        .roots
-                        .tree(Unversioned::tree(key_to_remove.tree.clone()))?;
-                    tree.remove(key_to_remove.key.as_bytes())?;
+                    let tree = context.roots.tree(Unversioned::tree(KEY_TREE))?;
+                    tree.remove(key_to_remove.as_bytes())?;
                 }
                 continue;
             }
@@ -528,12 +520,12 @@ mod tests {
     async fn basic_expiration() -> anyhow::Result<()> {
         run_test("kv-basic-expiration", |sender, sled| async move {
             loop {
-                sled.delete_tree("kv.atree")?;
-                let tree = sled.tree(Unversioned::tree("kv.atree"))?;
-                tree.set(b"akey", b"somevalue")?;
+                sled.delete_tree(KEY_TREE)?;
+                let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
+                tree.set(b"atree.akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: TreeKey::new(key_tree(Some("atree")), String::from("akey")),
+                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
                     expiration: Some(Timestamp::now() + Duration::from_millis(100)),
                 });
                 if !timing.wait_until(Duration::from_secs(1)).await {
@@ -553,16 +545,16 @@ mod tests {
     async fn updating_expiration() -> anyhow::Result<()> {
         run_test("kv-updating-expiration", |sender, sled| async move {
             loop {
-                sled.delete_tree("kv.atree")?;
-                let tree = sled.tree(Unversioned::tree("kv.atree"))?;
-                tree.set(b"akey", b"somevalue")?;
+                sled.delete_tree(KEY_TREE)?;
+                let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
+                tree.set(b"atree.akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: TreeKey::new(key_tree(Some("atree")), String::from("akey")),
+                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
                     expiration: Some(Timestamp::now() + Duration::from_millis(100)),
                 });
                 sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: TreeKey::new(key_tree(Some("atree")), String::from("akey")),
+                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
                     expiration: Some(Timestamp::now() + Duration::from_secs(1)),
                 });
                 if timing.elapsed() > Duration::from_millis(100)
@@ -570,10 +562,10 @@ mod tests {
                 {
                     continue;
                 }
-                assert!(tree.get(b"akey")?.is_some());
+                assert!(tree.get(b"atree.akey")?.is_some());
 
                 timing.wait_until(Duration::from_secs_f32(1.5)).await;
-                assert_eq!(tree.get(b"akey")?, None);
+                assert_eq!(tree.get(b"atree.akey")?, None);
                 break;
             }
 
@@ -586,18 +578,18 @@ mod tests {
     async fn multiple_keys_expiration() -> anyhow::Result<()> {
         run_test("kv-multiple-keys-expiration", |sender, sled| async move {
             loop {
-                sled.delete_tree("kv.atree")?;
-                let tree = sled.tree(Unversioned::tree("kv.atree"))?;
-                tree.set(b"akey", b"somevalue")?;
-                tree.set(b"bkey", b"somevalue")?;
+                sled.delete_tree(KEY_TREE)?;
+                let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
+                tree.set(b"atree.akey", b"somevalue")?;
+                tree.set(b"atree.bkey", b"somevalue")?;
 
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: TreeKey::new(key_tree(Some("atree")), String::from("akey")),
+                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
                     expiration: Some(Timestamp::now() + Duration::from_millis(100)),
                 });
                 sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: TreeKey::new(key_tree(Some("atree")), String::from("bkey")),
+                    tree_key: full_key(Some(String::from("atree")), String::from("bkey")),
                     expiration: Some(Timestamp::now() + Duration::from_secs(1)),
                 });
 
@@ -605,10 +597,10 @@ mod tests {
                     continue;
                 }
 
-                assert!(tree.get(b"akey")?.is_none());
-                assert!(tree.get(b"bkey")?.is_some());
+                assert!(tree.get(b"atree.akey")?.is_none());
+                assert!(tree.get(b"atree.bkey")?.is_some());
                 timing.wait_until(Duration::from_millis(1100)).await;
-                assert!(tree.get(b"bkey")?.is_none());
+                assert!(tree.get(b"atree.bkey")?.is_none());
 
                 break;
             }
@@ -622,16 +614,16 @@ mod tests {
     async fn clearing_expiration() -> anyhow::Result<()> {
         run_test("kv-clearing-expiration", |sender, sled| async move {
             loop {
-                sled.delete_tree("kv.atree")?;
-                let tree = sled.tree(Unversioned::tree("kv.atree"))?;
-                tree.set(b"akey", b"somevalue")?;
+                sled.delete_tree(KEY_TREE)?;
+                let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
+                tree.set(b"atree.akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
                 sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: TreeKey::new(key_tree(Some("atree")), String::from("akey")),
+                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
                     expiration: Some(Timestamp::now() + Duration::from_millis(100)),
                 });
                 sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: TreeKey::new(key_tree(Some("atree")), String::from("akey")),
+                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
                     expiration: None,
                 });
                 if timing.elapsed() > Duration::from_millis(100) {
@@ -639,7 +631,7 @@ mod tests {
                     continue;
                 }
                 timing.wait_until(Duration::from_millis(150)).await;
-                assert!(tree.get(b"akey")?.is_some());
+                assert!(tree.get(b"atree.akey")?.is_some());
                 break;
             }
 
@@ -651,31 +643,31 @@ mod tests {
     #[tokio::test]
     async fn out_of_order_expiration() -> anyhow::Result<()> {
         run_test("kv-out-of-order-expiration", |sender, sled| async move {
-            let tree = sled.tree(Unversioned::tree("kv.atree"))?;
-            tree.set(b"akey", b"somevalue")?;
-            tree.set(b"bkey", b"somevalue")?;
-            tree.set(b"ckey", b"somevalue")?;
+            let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
+            tree.set(b"atree.akey", b"somevalue")?;
+            tree.set(b"atree.bkey", b"somevalue")?;
+            tree.set(b"atree.ckey", b"somevalue")?;
             sender.update_key_expiration(ExpirationUpdate {
-                tree_key: TreeKey::new(key_tree(Some("atree")), String::from("akey")),
+                tree_key: full_key(Some(String::from("atree")), String::from("akey")),
                 expiration: Some(Timestamp::now() + Duration::from_secs(3)),
             });
             sender.update_key_expiration(ExpirationUpdate {
-                tree_key: TreeKey::new(key_tree(Some("atree")), String::from("ckey")),
+                tree_key: full_key(Some(String::from("atree")), String::from("ckey")),
                 expiration: Some(Timestamp::now() + Duration::from_secs(1)),
             });
             sender.update_key_expiration(ExpirationUpdate {
-                tree_key: TreeKey::new(key_tree(Some("atree")), String::from("bkey")),
+                tree_key: full_key(Some(String::from("atree")), String::from("bkey")),
                 expiration: Some(Timestamp::now() + Duration::from_secs(2)),
             });
             tokio::time::sleep(Duration::from_millis(1200)).await;
-            assert!(tree.get(b"akey")?.is_some());
-            assert!(tree.get(b"bkey")?.is_some());
-            assert!(tree.get(b"ckey")?.is_none());
+            assert!(tree.get(b"atree.akey")?.is_some());
+            assert!(tree.get(b"atree.bkey")?.is_some());
+            assert!(tree.get(b"atree.ckey")?.is_none());
             tokio::time::sleep(Duration::from_secs(1)).await;
-            assert!(tree.get(b"akey")?.is_some());
-            assert!(tree.get(b"bkey")?.is_none());
+            assert!(tree.get(b"atree.akey")?.is_some());
+            assert!(tree.get(b"atree.bkey")?.is_none());
             tokio::time::sleep(Duration::from_secs(1)).await;
-            assert!(tree.get(b"akey")?.is_none());
+            assert!(tree.get(b"atree.akey")?.is_none());
 
             Ok(())
         })
@@ -700,51 +692,39 @@ impl<DB: Schema> Job for ExpirationLoader<DB> {
         tokio::task::spawn_blocking(move || {
             // Find all trees that start with <database>.kv.
             let keep_scanning = AtomicBool::new(true);
-            for kv_tree in database
+            database
                 .roots()
-                .tree_names()?
-                .into_iter()
-                .filter(|name| name.starts_with("kv."))
-            {
-                database
-                    .roots()
-                    .tree(Unversioned::tree(kv_tree.clone()))?
-                    .scan::<Infallible, _, _, _, _>(
-                        ..,
-                        true,
-                        |_, _, _| true,
-                        |_, _| {
-                            if keep_scanning.load(Ordering::SeqCst) {
-                                KeyEvaluation::ReadData
-                            } else {
-                                KeyEvaluation::Stop
+                .tree(Unversioned::tree(KEY_TREE))?
+                .scan::<Infallible, _, _, _, _>(
+                    ..,
+                    true,
+                    |_, _, _| true,
+                    |_, _| {
+                        if keep_scanning.load(Ordering::SeqCst) {
+                            KeyEvaluation::ReadData
+                        } else {
+                            KeyEvaluation::Stop
+                        }
+                    },
+                    |key, _, entry: Buffer<'static>| {
+                        if let Ok(entry) = bincode::deserialize::<Entry>(&entry) {
+                            if entry.expiration.is_some()
+                                && sender.send((key, entry.expiration)).is_err()
+                            {
+                                keep_scanning.store(false, Ordering::SeqCst);
                             }
-                        },
-                        |key, _, entry: Buffer<'static>| {
-                            if let Ok(entry) = bincode::deserialize::<Entry>(&entry) {
-                                if entry.expiration.is_some()
-                                    && sender
-                                        .send((kv_tree.clone(), key, entry.expiration))
-                                        .is_err()
-                                {
-                                    keep_scanning.store(false, Ordering::SeqCst);
-                                }
-                            }
+                        }
 
-                            Ok(())
-                        },
-                    )?;
-            }
+                        Ok(())
+                    },
+                )?;
 
             Result::<(), Error>::Ok(())
         });
 
-        while let Ok((tree, key, expiration)) = receiver.recv_async().await {
+        while let Ok((key, expiration)) = receiver.recv_async().await {
             self.database.update_key_expiration(ExpirationUpdate {
-                tree_key: TreeKey {
-                    tree,
-                    key: String::from_utf8(key.to_vec())?,
-                },
+                tree_key: String::from_utf8(key.to_vec())?,
                 expiration,
             });
         }

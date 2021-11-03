@@ -134,6 +134,12 @@ impl Schematic {
     pub fn encryption_key_for_collection(&self, collection: &CollectionName) -> Option<&KeyId> {
         self.collection_encryption_keys.get(collection)
     }
+
+    /// Returns a list of all collections contained in this schematic.
+    #[must_use]
+    pub fn collections(&self) -> Vec<CollectionName> {
+        self.contained_collections.iter().cloned().collect()
+    }
 }
 
 #[test]

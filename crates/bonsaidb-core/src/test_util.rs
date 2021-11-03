@@ -15,6 +15,7 @@ use crate::{
     admin::{Database, PermissionGroup, Role, User},
     connection::{AccessPolicy, Connection, ServerConnection},
     document::{Document, KeyId},
+    kv::Kv,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
         view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
@@ -1397,12 +1398,20 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn compaction_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn compaction_tests<C: Connection + Kv>(db: &C) -> anyhow::Result<()> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     collection.push(&original_value).await?;
 
-    db.compact::<Basic>().await?;
+    // Test a collection compaction
+    db.compact_collection::<Basic>().await?;
+
+    // Test the key value store compaction
+    db.set_key("foo", &1_u32).await?;
+    db.compact_key_value_store().await?;
+
+    // Compact everything... again...
+    db.compact().await?;
 
     Ok(())
 }

@@ -956,10 +956,26 @@ where
         Ok(self.roots().transactions().current_transaction_id())
     }
 
-    async fn compact<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
+    async fn compact_collection<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
         self.storage()
             .tasks()
             .compact_collection::<DB>(self.clone(), C::collection_name()?)
+            .await?;
+        Ok(())
+    }
+
+    async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
+        self.storage()
+            .tasks()
+            .compact_database::<DB>(self.clone())
+            .await?;
+        Ok(())
+    }
+
+    async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
+        self.storage()
+            .tasks()
+            .compact_key_value_store::<DB>(self.clone())
             .await?;
         Ok(())
     }
@@ -1184,6 +1200,22 @@ where
         self.storage()
             .tasks()
             .compact_collection(self.clone(), collection)
+            .await?;
+        Ok(())
+    }
+
+    async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
+        self.storage()
+            .tasks()
+            .compact_key_value_store(self.clone())
+            .await?;
+        Ok(())
+    }
+
+    async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
+        self.storage()
+            .tasks()
+            .compact_database(self.clone())
             .await?;
         Ok(())
     }

@@ -30,9 +30,10 @@ use bonsaidb_core::{
     permissions::{
         bonsai::{
             bonsaidb_resource_name, collection_resource_name, database_resource_name,
-            document_resource_name, kv_key_resource_name, pubsub_topic_resource_name,
-            user_resource_name, view_resource_name, BonsaiAction, DatabaseAction, DocumentAction,
-            KvAction, PubSubAction, ServerAction, TransactionAction, ViewAction,
+            document_resource_name, kv_key_resource_name, kv_resource_name,
+            pubsub_topic_resource_name, user_resource_name, view_resource_name, BonsaiAction,
+            DatabaseAction, DocumentAction, KvAction, PubSubAction, ServerAction,
+            TransactionAction, ViewAction,
         },
         Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
     },
@@ -1846,7 +1847,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::CompactCollectionHandler
     }
 
     fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::CompactCollection)
+        BonsaiAction::Database(DatabaseAction::Compact)
     }
 
     async fn handle_protected(
@@ -1856,6 +1857,52 @@ impl<'s, B: Backend> bonsaidb_core::networking::CompactCollectionHandler
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         self.database.compact_collection(collection).await?;
 
-        Ok(Response::Database(DatabaseResponse::CollectionCompacted))
+        Ok(Response::Ok)
+    }
+}
+
+#[async_trait]
+impl<'s, B: Backend> bonsaidb_core::networking::CompactKeyValueStoreHandler
+    for DatabaseDispatcher<'s, B>
+{
+    type Action = BonsaiAction;
+
+    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
+        Ok(kv_resource_name(&self.name))
+    }
+
+    fn action() -> Self::Action {
+        BonsaiAction::Database(DatabaseAction::Compact)
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
+        self.database.compact_key_value_store().await?;
+
+        Ok(Response::Ok)
+    }
+}
+
+#[async_trait]
+impl<'s, B: Backend> bonsaidb_core::networking::CompactHandler for DatabaseDispatcher<'s, B> {
+    type Action = BonsaiAction;
+
+    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
+        Ok(database_resource_name(&self.name))
+    }
+
+    fn action() -> Self::Action {
+        BonsaiAction::Database(DatabaseAction::Compact)
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
+        self.database.compact().await?;
+
+        Ok(Response::Ok)
     }
 }

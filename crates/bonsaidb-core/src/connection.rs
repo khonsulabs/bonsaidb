@@ -173,6 +173,18 @@ pub trait Connection: Send + Sync {
     /// Fetches the last transaction id that has been committed, if any.
     async fn last_transaction_id(&self) -> Result<Option<u64>, Error>;
 
+    /// Compacts the entire database to reclaim unused disk space.
+    ///
+    /// This process is done by writing data to a new file and swapping the file
+    /// once the process completes. This ensures that if a hardware failure,
+    /// power outage, or crash occurs that the original collection data is left
+    /// untouched.
+    ///
+    /// ## Errors
+    ///
+    /// * [`Error::Io)`]: an error occurred while compacting the database.
+    async fn compact(&self) -> Result<(), crate::Error>;
+
     /// Compacts the collection to reclaim unused disk space.
     ///
     /// This process is done by writing data to a new file and swapping the file
@@ -184,7 +196,19 @@ pub trait Connection: Send + Sync {
     ///
     /// * [`Error::CollectionNotFound`]: database `name` does not exist.
     /// * [`Error::Io)`]: an error occurred while compacting the database.
-    async fn compact<C: schema::Collection>(&self) -> Result<(), crate::Error>;
+    async fn compact_collection<C: schema::Collection>(&self) -> Result<(), crate::Error>;
+
+    /// Compacts the key value store to reclaim unused disk space.
+    ///
+    /// This process is done by writing data to a new file and swapping the file
+    /// once the process completes. This ensures that if a hardware failure,
+    /// power outage, or crash occurs that the original collection data is left
+    /// untouched.
+    ///
+    /// ## Errors
+    ///
+    /// * [`Error::Io)`]: an error occurred while compacting the database.
+    async fn compact_key_value_store(&self) -> Result<(), crate::Error>;
 }
 
 /// Interacts with a collection over a `Connection`.

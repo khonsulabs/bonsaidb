@@ -55,6 +55,12 @@ pub fn pubsub_topic_resource_name<'a>(database: &'a str, topic: &'a str) -> Reso
     database_resource_name(database).and("pubsub").and(topic)
 }
 
+/// Creates a resource name for the key-value store in `database`.
+#[must_use]
+pub fn kv_resource_name(database: &str) -> ResourceName<'_> {
+    database_resource_name(database).and("keyvalue")
+}
+
 /// Creates a resource name for `key` within `namespace` within the key-value store of `database`.
 #[must_use]
 pub fn kv_key_resource_name<'a>(
@@ -62,8 +68,7 @@ pub fn kv_key_resource_name<'a>(
     namespace: Option<&'a str>,
     key: &'a str,
 ) -> ResourceName<'a> {
-    database_resource_name(database)
-        .and("pubsub")
+    kv_resource_name(database)
         .and(namespace.unwrap_or(""))
         .and(key)
 }
@@ -128,8 +133,8 @@ pub enum ServerAction {
 /// Actions that operate on a specific database.
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum DatabaseAction {
-    /// The ability to compact a collection.
-    CompactCollection,
+    /// The ability to compact data to reclaim space.
+    Compact,
     /// Actions that operate on a document.
     Document(DocumentAction),
     /// Actions that operate on a view.
