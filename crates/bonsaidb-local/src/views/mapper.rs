@@ -23,9 +23,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     database::{deserialize_document, document_tree_name, Database},
     jobs::{Job, Keyed},
+    tasks::Task,
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        view_omitted_docs_tree_name, EntryMapping, Task, ViewEntry,
+        view_omitted_docs_tree_name, EntryMapping, ViewEntry,
     },
     Error,
 };

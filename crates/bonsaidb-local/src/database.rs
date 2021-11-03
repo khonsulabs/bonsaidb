@@ -955,6 +955,14 @@ where
     async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
         Ok(self.roots().transactions().current_transaction_id())
     }
+
+    async fn compact<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
+        self.storage()
+            .tasks()
+            .compact_collection::<DB>(self.clone(), C::collection_name()?)
+            .await?;
+        Ok(())
+    }
 }
 
 type ViewIterator<'a> =
@@ -1167,5 +1175,16 @@ where
         op: KeyOperation,
     ) -> Result<Output, bonsaidb_core::Error> {
         Kv::execute_key_operation(self, op).await
+    }
+
+    async fn compact_collection(
+        &self,
+        collection: CollectionName,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.storage()
+            .tasks()
+            .compact_collection(self.clone(), collection)
+            .await?;
+        Ok(())
     }
 }

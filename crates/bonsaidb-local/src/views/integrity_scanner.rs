@@ -10,11 +10,12 @@ use nebari::{
 
 use super::{
     mapper::{Map, Mapper},
-    view_document_map_tree_name, view_invalidated_docs_tree_name, view_versions_tree_name, Task,
+    view_document_map_tree_name, view_invalidated_docs_tree_name, view_versions_tree_name,
 };
 use crate::{
     database::{document_tree_name, Database},
     jobs::{Job, Keyed},
+    tasks::Task,
     Error,
 };
 

@@ -176,6 +176,10 @@ impl<'a, B: Backend, DB: Schema> bonsaidb_core::connection::Connection
     async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
         self.db.last_transaction_id().await
     }
+
+    async fn compact<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
+        self.db.compact::<C>().await
+    }
 }
 
 /// Pass-through implementation

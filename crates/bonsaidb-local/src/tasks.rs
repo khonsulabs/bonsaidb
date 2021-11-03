@@ -13,13 +13,18 @@ use tokio::sync::RwLock;
 use crate::{
     database::Database,
     jobs::{manager::Manager, task::Handle},
+    tasks::compactor::Compactor,
     views::{
         integrity_scanner::{IntegrityScan, IntegrityScanner},
         mapper::{Map, Mapper},
-        Task,
     },
     Error,
 };
+
+mod compactor;
+mod task;
+
+pub use task::Task;
 
 #[derive(Debug, Clone)]
 pub struct TaskManager {
@@ -174,5 +179,18 @@ impl TaskManager {
                 database: database.clone(),
             })
             .await
+    }
+
+    pub async fn compact_collection<DB: Schema>(
+        &self,
+        database: crate::Database<DB>,
+        collection_name: CollectionName,
+    ) -> Result<(), Error> {
+        Ok(self
+            .jobs
+            .lookup_or_enqueue(Compactor::new(database, collection_name))
+            .await
+            .receive()
+            .await??)
     }
 }

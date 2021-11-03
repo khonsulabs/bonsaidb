@@ -128,6 +128,8 @@ pub enum ServerAction {
 /// Actions that operate on a specific database.
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum DatabaseAction {
+    /// The ability to compact a collection.
+    CompactCollection,
     /// Actions that operate on a document.
     Document(DocumentAction),
     /// Actions that operate on a view.

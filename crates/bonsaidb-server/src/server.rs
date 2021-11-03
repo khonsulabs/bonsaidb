@@ -1831,3 +1831,31 @@ impl<'s, B: Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
         Ok(Response::Database(DatabaseResponse::KvOutput(result)))
     }
 }
+
+#[async_trait]
+impl<'s, B: Backend> bonsaidb_core::networking::CompactCollectionHandler
+    for DatabaseDispatcher<'s, B>
+{
+    type Action = BonsaiAction;
+
+    async fn resource_name<'a>(
+        &'a self,
+        collection: &'a CollectionName,
+    ) -> Result<ResourceName<'a>, Error> {
+        Ok(collection_resource_name(&self.name, collection))
+    }
+
+    fn action() -> Self::Action {
+        BonsaiAction::Database(DatabaseAction::CompactCollection)
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        collection: CollectionName,
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
+        self.database.compact_collection(collection).await?;
+
+        Ok(Response::Database(DatabaseResponse::CollectionCompacted))
+    }
+}

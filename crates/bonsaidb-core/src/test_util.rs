@@ -569,6 +569,7 @@ pub enum HarnessTest {
     ListTransactions,
     ViewQuery,
     UnassociatedCollection,
+    Compact,
     ViewUpdate,
     ViewMultiEmit,
     ViewAccessPolicies,
@@ -761,6 +762,15 @@ macro_rules! define_connection_test_suite {
                 $harness::server_name(),
             )
             .await?;
+            harness.shutdown().await
+        }
+
+        #[tokio::test]
+        async fn compaction() -> anyhow::Result<()> {
+            let harness = $harness::new($crate::test_util::HarnessTest::Compact).await?;
+            let db = harness.connect().await?;
+
+            $crate::test_util::compaction_tests(&db).await?;
             harness.shutdown().await
         }
     };
@@ -1383,6 +1393,16 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     } else {
         unreachable!("unique key violation not triggered");
     }
+
+    Ok(())
+}
+
+pub async fn compaction_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+    let original_value = Basic::new("initial_value");
+    let collection = db.collection::<Basic>();
+    collection.push(&original_value).await?;
+
+    db.compact::<Basic>().await?;
 
     Ok(())
 }

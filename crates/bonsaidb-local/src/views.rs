@@ -3,8 +3,6 @@ use std::fmt::Display;
 use bonsaidb_core::schema::CollectionName;
 use serde::{Deserialize, Serialize};
 
-use self::{integrity_scanner::IntegrityScan, mapper::Map};
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ViewEntry {
     pub view_version: u64,
@@ -41,10 +39,4 @@ pub fn view_omitted_docs_tree_name(view_name: &impl Display) -> String {
 
 pub fn view_versions_tree_name(collection: &CollectionName) -> String {
     format!("view-versions.{}", collection)
-}
-
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub enum Task {
-    IntegrityScan(IntegrityScan),
-    ViewMap(Map),
 }

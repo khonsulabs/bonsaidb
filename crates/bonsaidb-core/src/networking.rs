@@ -253,6 +253,12 @@ pub enum DatabaseRequest {
     /// Excutes a key-value store operation.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     ExecuteKeyOperation(KeyOperation),
+    /// Compacts the collection.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    CompactCollection {
+        /// The name of the collection to compact.
+        name: CollectionName,
+    },
 }
 
 /// A response from a server.
@@ -331,6 +337,8 @@ pub enum DatabaseResponse {
     ExecutedTransactions(Vec<Executed<'static>>),
     /// Result of [`DatabaseRequest::LastTransactionId`].
     LastTransactionId(Option<u64>),
+    /// A database with `name` was successfully compacted.
+    CollectionCompacted,
     /// A new `PubSub` subscriber was created.
     SubscriberCreated {
         /// The unique ID of the subscriber.

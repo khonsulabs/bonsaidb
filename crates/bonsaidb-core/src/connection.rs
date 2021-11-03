@@ -172,6 +172,19 @@ pub trait Connection: Send + Sync {
 
     /// Fetches the last transaction id that has been committed, if any.
     async fn last_transaction_id(&self) -> Result<Option<u64>, Error>;
+
+    /// Compacts the collection to reclaim unused disk space.
+    ///
+    /// This process is done by writing data to a new file and swapping the file
+    /// once the process completes. This ensures that if a hardware failure,
+    /// power outage, or crash occurs that the original collection data is left
+    /// untouched.
+    ///
+    /// ## Errors
+    ///
+    /// * [`Error::CollectionNotFound`]: database `name` does not exist.
+    /// * [`Error::Io)`]: an error occurred while compacting the database.
+    async fn compact<C: schema::Collection>(&self) -> Result<(), crate::Error>;
 }
 
 /// Interacts with a collection over a `Connection`.

@@ -331,4 +331,22 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
             )),
         }
     }
+
+    async fn compact<C: Collection>(&self) -> Result<(), bonsaidb_core::Error> {
+        match self
+            .send_request(Request::Database {
+                database: self.name.to_string(),
+                request: DatabaseRequest::CompactCollection {
+                    name: C::collection_name()?,
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::CollectionCompacted) => Ok(()),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
 }
