@@ -415,7 +415,7 @@ pub(crate) fn expiration_thread(
                     Err(flume::RecvTimeoutError::Disconnected) => break,
                 }
             } else {
-                Err(())
+                updates.try_recv().map_err(|_| {})
             };
 
             // If we've received an update, we bubble it up to process
