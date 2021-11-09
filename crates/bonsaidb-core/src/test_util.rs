@@ -567,6 +567,7 @@ pub enum HarnessTest {
     BadUpdate,
     NoUpdate,
     GetMultiple,
+    List,
     ListTransactions,
     ViewQuery,
     UnassociatedCollection,
@@ -680,6 +681,15 @@ macro_rules! define_connection_test_suite {
         #[tokio::test]
         async fn get_multiple() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::GetMultiple).await?;
+            let db = harness.connect().await?;
+
+            $crate::test_util::get_multiple_tests(&db).await?;
+            harness.shutdown().await
+        }
+
+        #[tokio::test]
+        async fn list() -> anyhow::Result<()> {
+            let harness = $harness::new($crate::test_util::HarnessTest::List).await?;
             let db = harness.connect().await?;
 
             $crate::test_util::get_multiple_tests(&db).await?;
@@ -982,6 +992,28 @@ pub async fn get_multiple_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         .expect("Couldn't find doc2");
     let doc2 = doc2.contents::<Basic>()?;
     assert_eq!(doc2.value, doc2_value.value);
+
+    Ok(())
+}
+
+pub async fn list_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+    let collection = db.collection::<Basic>();
+    let doc1_value = Basic::new("initial_value");
+    let doc1 = collection.push(&doc1_value).await?;
+
+    let doc2_value = Basic::new("second_value");
+    let doc2 = collection.push(&doc2_value).await?;
+
+    let both_docs = collection.list(doc1.id..=doc2.id).await?;
+    assert_eq!(both_docs.len(), 2);
+
+    let doc1_contents = both_docs[0].contents::<Basic>()?;
+    assert_eq!(doc1_contents.value, doc1_value.value);
+    let doc2_contents = both_docs[1].contents::<Basic>()?;
+    assert_eq!(doc2_contents.value, doc2_value.value);
+
+    let one_doc = collection.list(doc1.id..doc2.id).await?;
+    assert_eq!(one_doc.len(), 1);
 
     Ok(())
 }

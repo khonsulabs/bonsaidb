@@ -156,6 +156,11 @@ pub enum DocumentAction {
     /// See [`document_resource_name()`] for the format of document resource
     /// names.
     Get,
+    /// Allows listing documents through
+    /// [`Connection::list()`](crate::connection::Connection::list). See
+    /// [`collection_resource_name()`] for the format of collection resource
+    /// names.
+    List,
     /// Allows inserting a document through
     /// [`Connection::apply_transaction()`](crate::connection::Connection::apply_transaction).
     /// See [`collection_resource_name()`] for the format of collection resource

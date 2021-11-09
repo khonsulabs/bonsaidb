@@ -82,6 +82,13 @@ pub trait Connection: Send + Sync {
         ids: &[u64],
     ) -> Result<Vec<Document<'static>>, Error>;
 
+    /// Retrieves all documents matching `ids`. Documents that are not found
+    /// are not returned, but no error will be generated.
+    async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
+        &self,
+        ids: R,
+    ) -> Result<Vec<Document<'static>>, Error>;
+
     /// Removes a `Document` from the database.
     async fn delete<C: schema::Collection>(&self, doc: &Document<'_>) -> Result<(), Error> {
         let mut tx = Transaction::default();
@@ -239,6 +246,15 @@ where
     /// Retrieves a `Document<Cl>` with `id` from the connection.
     pub async fn get(&self, id: u64) -> Result<Option<Document<'static>>, Error> {
         self.connection.get::<Cl>(id).await
+    }
+
+    /// Retrieves all documents matching `ids`. Documents that are not found
+    /// are not returned, but no error will be generated.
+    pub async fn list<R: Into<Range<u64>> + Send>(
+        &self,
+        ids: R,
+    ) -> Result<Vec<Document<'static>>, Error> {
+        self.connection.list::<Cl, R>(ids).await
     }
 }
 

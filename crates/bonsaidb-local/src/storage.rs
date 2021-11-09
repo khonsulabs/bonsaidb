@@ -19,7 +19,7 @@ use bonsaidb_core::{
         user::User,
         Admin, PermissionGroup, Role,
     },
-    connection::{AccessPolicy, Connection, QueryKey, ServerConnection},
+    connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection},
     custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
     document::{Document, KeyId},
     kv::{KeyOperation, Output},
@@ -529,6 +529,13 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
     async fn get_multiple_from_collection_id(
         &self,
         ids: &[u64],
+        collection: &CollectionName,
+        permissions: &Permissions,
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error>;
+
+    async fn list_from_collection(
+        &self,
+        ids: Range<u64>,
         collection: &CollectionName,
         permissions: &Permissions,
     ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error>;

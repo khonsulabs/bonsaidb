@@ -2,7 +2,7 @@ use std::{marker::PhantomData, ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    connection::{AccessPolicy, Connection, QueryKey},
+    connection::{AccessPolicy, Connection, QueryKey, Range},
     custom_api::CustomApi,
     document::Document,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
@@ -104,6 +104,29 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                 request: DatabaseRequest::GetMultiple {
                     collection: C::collection_name()?,
                     ids: ids.to_vec(),
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::Documents(documents)) => Ok(documents),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn list<C: Collection, R: Into<Range<u64>> + Send>(
+        &self,
+        ids: R,
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+        match self
+            .client
+            .send_request(Request::Database {
+                database: self.name.to_string(),
+                request: DatabaseRequest::List {
+                    collection: C::collection_name()?,
+                    ids: ids.into(),
                 },
             })
             .await?

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     admin::Database,
-    connection::{AccessPolicy, QueryKey},
+    connection::{AccessPolicy, QueryKey, Range},
     document::Document,
     kv::{KeyOperation, Output},
     schema::{self, view::map, CollectionName, MappedValue, NamedReference, ViewName},
@@ -163,6 +163,14 @@ pub enum DatabaseRequest {
         collection: CollectionName,
         /// The ids of the documents.
         ids: Vec<u64>,
+    },
+    /// Retrieve multiple documents.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    List {
+        /// The collection of the documents.
+        collection: CollectionName,
+        /// The range of ids to list.
+        ids: Range<u64>,
     },
     /// Queries a view.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]

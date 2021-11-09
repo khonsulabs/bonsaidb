@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     admin::{self, Admin, User},
     circulate::{Message, Relay, Subscriber},
-    connection::{AccessPolicy, QueryKey, ServerConnection},
+    connection::{AccessPolicy, QueryKey, Range, ServerConnection},
     custodian_password::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
     },
@@ -1423,6 +1423,36 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseD
         let documents = self
             .database
             .get_multiple_from_collection_id(&ids, &collection, permissions)
+            .await?;
+        Ok(Response::Database(DatabaseResponse::Documents(documents)))
+    }
+}
+
+#[async_trait]
+impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatcher<'s, B> {
+    type Action = BonsaiAction;
+
+    async fn resource_name<'a>(
+        &'a self,
+        collection: &'a CollectionName,
+        _ids: &'a Range<u64>,
+    ) -> Result<ResourceName<'a>, Error> {
+        Ok(collection_resource_name(&self.name, collection))
+    }
+
+    fn action() -> Self::Action {
+        BonsaiAction::Database(DatabaseAction::Document(DocumentAction::List))
+    }
+
+    async fn handle_protected(
+        &self,
+        permissions: &Permissions,
+        collection: CollectionName,
+        ids: Range<u64>,
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
+        let documents = self
+            .database
+            .list_from_collection(ids, &collection, permissions)
             .await?;
         Ok(Response::Database(DatabaseResponse::Documents(documents)))
     }

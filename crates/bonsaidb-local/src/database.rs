@@ -5,7 +5,7 @@ use std::{
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    connection::{AccessPolicy, Connection, QueryKey, ServerConnection},
+    connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection},
     document::{Document, Header, KeyId},
     kv::{KeyOperation, Kv, Output},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
@@ -24,7 +24,7 @@ use itertools::Itertools;
 use nebari::{
     io::fs::StdFile,
     tree::{AnyTreeRoot, KeyEvaluation, Root, TreeRoot, Unversioned, Versioned},
-    Buffer, ExecutingTransaction, Roots, Tree,
+    AbortError, Buffer, ExecutingTransaction, Roots, Tree,
 };
 use ranges::GenericRange;
 
@@ -290,6 +290,7 @@ where
                     ))
                     .map_err(Error::from)?;
             let mut found_docs = Vec::new();
+            // TODO fix this
             for id in ids {
                 if let Some(vec) = tree
                     .get(
@@ -301,6 +302,54 @@ where
                     found_docs.push(deserialize_document(&vec)?.to_owned());
                 }
             }
+
+            Ok(found_docs)
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn list(
+        &self,
+        ids: Range<u64>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        let collection = collection.clone();
+        tokio::task::spawn_blocking(move || {
+            let tree =
+                task_self
+                    .data
+                    .context
+                    .roots
+                    .tree(task_self.collection_tree::<Versioned, _>(
+                        &collection,
+                        document_tree_name(&collection),
+                    ))
+                    .map_err(Error::from)?;
+            let mut found_docs = Vec::new();
+            let ids = ids
+                .as_big_endian_bytes()
+                .map_err(view::Error::key_serialization)?
+                .map(Buffer::from);
+            tree.scan(
+                ids,
+                true,
+                |_, _, _| true,
+                |_, _| KeyEvaluation::ReadData,
+                |_, _, doc| {
+                    found_docs.push(
+                        deserialize_document(&doc)
+                            .map_err(AbortError::Other)?
+                            .to_owned(),
+                    );
+                    Ok(())
+                },
+            )
+            .map_err(|err| match err {
+                AbortError::Other(err) => err,
+                AbortError::Nebari(err) => bonsaidb_core::Error::from(crate::Error::from(err)),
+            })?;
 
             Ok(found_docs)
         })
@@ -775,6 +824,13 @@ where
             .await
     }
 
+    async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
+        &self,
+        ids: R,
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+        self.list(ids.into(), &C::collection_name()?).await
+    }
+
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
@@ -1067,6 +1123,17 @@ where
     ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
         self.with_effective_permissions(permissions.clone())
             .get_multiple_from_collection_id(ids, collection)
+            .await
+    }
+
+    async fn list_from_collection(
+        &self,
+        ids: Range<u64>,
+        collection: &CollectionName,
+        permissions: &Permissions,
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+        self.with_effective_permissions(permissions.clone())
+            .list(ids, collection)
             .await
     }
 

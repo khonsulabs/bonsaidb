@@ -3,7 +3,8 @@ use std::{ops::Deref, sync::Arc};
 use async_trait::async_trait;
 use bonsaidb_core::{
     circulate::Message,
-    connection::{AccessPolicy, QueryKey},
+    connection::{AccessPolicy, QueryKey, Range},
+    document::Document,
     kv::Kv,
     pubsub::{PubSub, Subscriber},
     schema::{self, Collection, Map, MappedValue, Schema, View},
@@ -101,15 +102,22 @@ impl<'a, B: Backend, DB: Schema> bonsaidb_core::connection::Connection
     async fn get<C: Collection>(
         &self,
         id: u64,
-    ) -> Result<Option<bonsaidb_core::document::Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
         self.db.get::<C>(id).await
     }
 
     async fn get_multiple<C: Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<bonsaidb_core::document::Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
         self.db.get_multiple::<C>(ids).await
+    }
+
+    async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
+        &self,
+        ids: R,
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+        self.db.list::<C, R>(ids).await
     }
 
     async fn query<V: View>(
