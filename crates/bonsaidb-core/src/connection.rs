@@ -281,8 +281,8 @@ enum ListState<'a, Cn, Cl, R> {
     Executing(BoxFuture<'a, Result<Vec<Document<'static>>, Error>>),
 }
 
-/// Executes [`Connection::List`] when awaited. Also offers methods to customize
-/// the options for the operation.
+/// Executes [`Connection::list()`] when awaited. Also offers methods to
+/// customize the options for the operation.
 pub struct List<'a, Cn, Cl, R> {
     state: ListState<'a, Cn, Cl, R>,
 }
