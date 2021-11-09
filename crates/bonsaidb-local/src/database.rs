@@ -282,7 +282,7 @@ where
         collection: &CollectionName,
     ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
         let task_self = self.clone();
-        let ids = ids.to_vec();
+        let ids = ids.iter().map(|id| id.to_be_bytes()).collect::<Vec<_>>();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
             let tree =
@@ -295,21 +295,13 @@ where
                         document_tree_name(&collection),
                     ))
                     .map_err(Error::from)?;
-            let mut found_docs = Vec::new();
-            // TODO fix this
-            for id in ids {
-                if let Some(vec) = tree
-                    .get(
-                        &id.as_big_endian_bytes()
-                            .map_err(view::Error::key_serialization)?,
-                    )
-                    .map_err(Error::from)?
-                {
-                    found_docs.push(deserialize_document(&vec)?.to_owned());
-                }
-            }
+            let ids = ids.iter().map(|id| &id[..]).collect::<Vec<_>>();
+            let keys_and_values = tree.get_multiple(&ids).map_err(Error::from)?;
 
-            Ok(found_docs)
+            keys_and_values
+                .into_iter()
+                .map(|(_, value)| deserialize_document(&value).map(|doc| doc.to_owned()))
+                .collect()
         })
         .await
         .unwrap()
