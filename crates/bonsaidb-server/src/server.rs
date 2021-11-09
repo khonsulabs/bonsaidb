@@ -79,7 +79,7 @@ pub struct CustomServer<B: Backend> {
     data: Arc<Data<B>>,
 }
 
-/// A `BonsaiDb` server without a custom bakend.
+/// A `BonsaiDb` server without a custom backend.
 pub type Server = CustomServer<()>;
 
 impl<B: Backend> Clone for CustomServer<B> {

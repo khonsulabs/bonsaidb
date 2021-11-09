@@ -12,7 +12,7 @@ use bonsaidb::{
 };
 use serde::{Deserialize, Serialize};
 
-// [md-bakery: begin @ snippet-a]
+// begin rustme snippet: snippet-a
 #[derive(Debug, Serialize, Deserialize)]
 struct Shape {
     pub sides: u32,
@@ -62,7 +62,7 @@ impl View for ShapesByNumberOfSides {
         Ok(mappings.iter().map(|m| m.value).sum())
     }
 }
-// [md-bakery: end]
+// end rustme snippet
 
 impl Shape {
     fn new(sides: u32) -> Self {
@@ -72,7 +72,7 @@ impl Shape {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // [md-bakery: begin @ snippet-b]
+    // begin rustme snippet: snippet-b
     let db = Database::<Shape>::open_local(
         "view-examples.bonsaidb",
         Configuration::default(),
@@ -81,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Insert a new document into the Shape collection.
     Shape::new(3).insert_into(&db).await?;
-    // [md-bakery: end]
+    // end rustme snippet
 
     // Views in `BonsaiDb` are written using a Map/Reduce approach. In this
     // example, we take a look at how document mapping can be used to filter and
@@ -97,14 +97,14 @@ async fn main() -> anyhow::Result<()> {
     Shape::new(4).insert_into(&db).await?;
 
     // At this point, our database should have 3 triangles:
-    // [md-bakery: begin @ snippet-c]
+    // begin rustme snippet: snippet-c
     let triangles = db
         .view::<ShapesByNumberOfSides>()
         .with_key(3)
         .query()
         .await?;
     println!("Number of triangles: {}", triangles.len());
-    // [md-bakery: end]
+    // end rustme snippet
 
     // What is returned is a list of entries containing the document id
     // (source), the key of the entry, and the value of the entry:

@@ -1,5 +1,3 @@
-# BonsaiDb
-
 ![BonsaiDb is considered experimental and unsupported](https://img.shields.io/badge/status-experimental-blueviolet)
 [![crate version](https://img.shields.io/crates/v/bonsaidb.svg)](https://crates.io/crates/bonsaidb)
 [![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/main)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
@@ -31,20 +29,20 @@ If you're interested in chatting about this project or potentially wanting to co
 
 Check out [./bonsaidb/examples](./bonsaidb/examples) for examples. To get an idea of how it works, this is a simple schema:
 
-```rust: source @ snippet-a
-bonsaidb/examples/view-examples.rs
+```rust
+$../crates/bonsaidb/examples/view-examples.rs:snippet-a$
 ```
 
 After you have your collection(s) defined, you can open up a database and insert documents:
 
-```rust: source @ snippet-b
-bonsaidb/examples/view-examples.rs
+```rust
+$../crates/bonsaidb/examples/view-examples.rs:snippet-b$
 ```
 
 And query data using the Map-Reduce-powered view:
 
-```rust: source @ snippet-c
-bonsaidb/examples/view-examples.rs
+```rust
+$../crates/bonsaidb/examples/view-examples.rs:snippet-c$
 ```
 
 ## Why write another database?
@@ -52,10 +50,6 @@ bonsaidb/examples/view-examples.rs
 - Deploying highly-available databases is hard (and often expensive). It doesn't need to be.
 - We are passionate Rustaceans and are striving for an ideal of supporting a 100% Rust-based deployment ecosystem for newly written software.
 - Specifically for the founding author [@ecton](https://github.com/ecton), the idea for this design dates back to thoughts of fun side-projects while running my last business which was built atop CouchDB. Working on this project is fulfilling a long-time desire of his.
-
-```rust: source @ snippet-c
-bonsaidb/examples/view-examples.rs
-```
 
 ## Feature Flags
 
@@ -122,7 +116,3 @@ Our CI processes require that some commands succeed without warnings or errors. 
 ```
 
 Once done, tools including `cargo fmt`, `cargo doc`, and `cargo test` will all be checked before `git commit` will execute.
-
-## Open-source Licenses
-
-This project, like all projects from [Khonsu Labs](https://khonsulabs.com/), are open-source. This repository is available under the [MIT License](./LICENSE-MIT) or the [Apache License 2.0](./LICENSE-APACHE).

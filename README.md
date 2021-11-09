@@ -67,9 +67,12 @@ impl View for ShapesByNumberOfSides {
         Name::new("by-number-of-sides")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(
+        &self,
+        document: &Document<'_>,
+    ) -> MapResult<Self::Key, Self::Value> {
         let shape = document.contents::<Shape>()?;
-        Ok(Some(document.emit_key_and_value(shape.sides, 1)))
+        Ok(vec![document.emit_key_and_value(shape.sides, 1)])
     }
 
     fn reduce(
@@ -85,11 +88,14 @@ impl View for ShapesByNumberOfSides {
 After you have your collection(s) defined, you can open up a database and insert documents:
 
 ```rust
-    let db =
-        Database::<Shape>::open_local("view-examples.bonsaidb", &Configuration::default()).await?;
+    let db = Database::<Shape>::open_local(
+        "view-examples.bonsaidb",
+        Configuration::default(),
+    )
+    .await?;
 
     // Insert a new document into the Shape collection.
-    db.collection::<Shape>().push(&Shape::new(3)).await?;
+    Shape::new(3).insert_into(&db).await?;
 ```
 
 And query data using the Map-Reduce-powered view:
@@ -108,15 +114,6 @@ println!("Number of triangles: {}", triangles.len());
 - Deploying highly-available databases is hard (and often expensive). It doesn't need to be.
 - We are passionate Rustaceans and are striving for an ideal of supporting a 100% Rust-based deployment ecosystem for newly written software.
 - Specifically for the founding author [@ecton](https://github.com/ecton), the idea for this design dates back to thoughts of fun side-projects while running my last business which was built atop CouchDB. Working on this project is fulfilling a long-time desire of his.
-
-```rust
-let triangles = db
-    .view::<ShapesByNumberOfSides>()
-    .with_key(3)
-    .query()
-    .await?;
-println!("Number of triangles: {}", triangles.len());
-```
 
 ## Feature Flags
 
@@ -140,7 +137,7 @@ bonsaidb = { version = "*", default-features = false, features = "full" }
 bonsaidb = { version = "*", default-features = false, features = "local-full" }
 ```
 
-- `local-full`: Enables `local`, `local-cli`
+- `local-full`: Enables `local` and `local-cli`
 - `local`: Enables the [`local`](https://dev.bonsaidb.io/main/bonsaidb/local/) module, which re-exports the crate
   `bonsaidb-local`.
 - `local-cli`: Enables the `StructOpt` structures for embedding database
@@ -165,8 +162,7 @@ bonsaidb = { version = "*", default-features = false, features = "server-full" }
 bonsaidb = { version = "*", default-features = false, features = "client-full" }
 ```
 
-- `client-full`: Enables `client`, `client-trusted-dns`,
-  and `client-websockets`
+- `client-full`: Enables `client`, `client-trusted-dns` and `client-websockets`
 - `client`: Enables the [`client`](https://dev.bonsaidb.io/main/bonsaidb/client/) module, which re-exports the crate
   `bonsaidb-client`.
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
@@ -187,4 +183,8 @@ Once done, tools including `cargo fmt`, `cargo doc`, and `cargo test` will all b
 
 ## Open-source Licenses
 
-This project, like all projects from [Khonsu Labs](https://khonsulabs.com/), are open-source. This repository is available under the [MIT License](./LICENSE-MIT) or the [Apache License 2.0](./LICENSE-APACHE).
+This project, like all projects from [Khonsu Labs](https://khonsulabs.com/), are
+open-source. This repository is available under the [MIT License](./LICENSE-MIT)
+or the [Apache License 2.0](./LICENSE-APACHE).
+
+To learn more about contributing, please see [CONTRIBUTING.md](./CONTRIBUTING.md).
