@@ -556,22 +556,12 @@ where
         if let Some(key) = key {
             match key {
                 QueryKey::Range(range) => {
-                    let start = Buffer::from(
-                        range
-                            .start
-                            .as_big_endian_bytes()
-                            .map_err(view::Error::key_serialization)?
-                            .to_vec(),
-                    );
-                    let end = Buffer::from(
-                        range
-                            .end
-                            .as_big_endian_bytes()
-                            .map_err(view::Error::key_serialization)?
-                            .to_vec(),
-                    );
+                    let range = range
+                        .as_big_endian_bytes()
+                        .map_err(view::Error::key_serialization)?
+                        .map(Buffer::from);
                     view_entries.scan::<Infallible, _, _, _, _>(
-                        start..end,
+                        range,
                         true,
                         |_, _, _| true,
                         |_, _| KeyEvaluation::ReadData,

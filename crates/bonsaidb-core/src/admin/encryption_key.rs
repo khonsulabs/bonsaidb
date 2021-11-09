@@ -34,7 +34,7 @@ impl EncryptionKeyVersion {
                 KeyVersionId {
                     key_id: key_id.to_string(),
                     version_id: 0,
-                }..KeyVersionId {
+                }..=KeyVersionId {
                     key_id: key_id.to_string(),
                     version_id: u32::MAX,
                 },

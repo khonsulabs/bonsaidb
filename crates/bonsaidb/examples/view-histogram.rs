@@ -17,7 +17,7 @@ use std::ops::Deref;
 
 use bonsaidb::{
     core::{
-        connection::{AccessPolicy, Connection, QueryKey},
+        connection::{AccessPolicy, Connection},
         document::Document,
         schema::{
             view, Collection, CollectionName, InvalidNameError, MappedValue,
@@ -69,10 +69,9 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
 
     // Or we can request just a specific range:
     let range_histogram = db
-        .reduce::<AsHistogram>(
-            Some(QueryKey::Range(10..20)),
-            AccessPolicy::UpdateBefore,
-        )
+        .view::<AsHistogram>()
+        .with_key_range(10..20)
+        .reduce()
         .await?;
     println!(
         "99th Percentile from 10..20: {} ({} samples)",
@@ -80,10 +79,9 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
         range_histogram.len()
     );
     let range_histogram = db
-        .reduce::<AsHistogram>(
-            Some(QueryKey::Range(80..100)),
-            AccessPolicy::UpdateBefore,
-        )
+        .view::<AsHistogram>()
+        .with_key_range(80..100)
+        .reduce()
         .await?;
     println!(
         "99th Percentile from 80..100: {} ({} samples)",

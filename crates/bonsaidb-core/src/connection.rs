@@ -1,4 +1,4 @@
-use std::{borrow::Cow, marker::PhantomData, ops::Range};
+use std::{borrow::Cow, marker::PhantomData};
 
 use async_trait::async_trait;
 use custodian_password::{
@@ -282,8 +282,8 @@ where
 
     /// Filters for entries in the view with the range `keys`.
     #[must_use]
-    pub fn with_key_range(mut self, range: Range<V::Key>) -> Self {
-        self.key = Some(QueryKey::Range(range));
+    pub fn with_key_range<R: Into<Range<V::Key>>>(mut self, range: R) -> Self {
+        self.key = Some(QueryKey::Range(range.into()));
         self
     }
 
@@ -344,23 +344,9 @@ impl<K: Key> QueryKey<K> {
                 .as_big_endian_bytes()
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
                 .map(|v| QueryKey::Matches(v.to_vec())),
-            Self::Range(range) => {
-                let start = range
-                    .start
-                    .as_big_endian_bytes()
-                    .map_err(|err| {
-                        Error::Database(view::Error::key_serialization(err).to_string())
-                    })?
-                    .to_vec();
-                let end = range
-                    .end
-                    .as_big_endian_bytes()
-                    .map_err(|err| {
-                        Error::Database(view::Error::key_serialization(err).to_string())
-                    })?
-                    .to_vec();
-                Ok(QueryKey::Range(start..end))
-            }
+            Self::Range(range) => Ok(QueryKey::Range(range.as_big_endian_bytes().map_err(
+                |err| Error::Database(view::Error::key_serialization(err).to_string()),
+            )?)),
             Self::Multiple(keys) => {
                 let keys = keys
                     .iter()
@@ -387,15 +373,9 @@ impl QueryKey<Vec<u8>> {
             Self::Matches(key) => K::from_big_endian_bytes(key)
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
                 .map(QueryKey::Matches),
-            Self::Range(range) => {
-                let start = K::from_big_endian_bytes(&range.start).map_err(|err| {
-                    Error::Database(view::Error::key_serialization(err).to_string())
-                })?;
-                let end = K::from_big_endian_bytes(&range.end).map_err(|err| {
-                    Error::Database(view::Error::key_serialization(err).to_string())
-                })?;
-                Ok(QueryKey::Range(start..end))
-            }
+            Self::Range(range) => Ok(QueryKey::Range(range.deserialize().map_err(|err| {
+                Error::Database(view::Error::key_serialization(err).to_string())
+            })?)),
             Self::Multiple(keys) => {
                 let keys = keys
                     .iter()
@@ -408,6 +388,163 @@ impl QueryKey<Vec<u8>> {
 
                 Ok(QueryKey::Multiple(keys))
             }
+        }
+    }
+}
+
+/// A range type that can represent all std range types and be serialized.
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
+pub struct Range<T> {
+    /// The start of the range.
+    pub start: Bound<T>,
+    /// The end of the range.
+    pub end: Bound<T>,
+}
+
+/// A range bound that can be serialized.
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Bound<T> {
+    /// No bound.
+    Unbounded,
+    /// Bounded by the contained value (inclusive).
+    Included(T),
+    /// Bounded by the contained value (exclusive).
+    Excluded(T),
+}
+
+impl<T> Range<T> {
+    /// Maps each contained value with the function provided.
+    pub fn map<U, F: Fn(T) -> U>(self, map: F) -> Range<U> {
+        Range {
+            start: self.start.map(&map),
+            end: self.end.map(&map),
+        }
+    }
+}
+
+impl<T: Key> Range<T> {
+    /// Serializes the range's contained values to big-endian bytes.
+    pub fn as_big_endian_bytes(&self) -> Result<Range<Vec<u8>>, T::Error> {
+        Ok(Range {
+            start: self.start.as_big_endian_bytes()?,
+            end: self.end.as_big_endian_bytes()?,
+        })
+    }
+}
+
+impl Range<Vec<u8>> {
+    /// Deserializes the range's contained values from big-endian bytes.
+    pub fn deserialize<T: Key>(&self) -> Result<Range<T>, T::Error> {
+        Ok(Range {
+            start: self.start.deserialize()?,
+            end: self.start.deserialize()?,
+        })
+    }
+}
+
+impl<T> Bound<T> {
+    /// Maps the contained value, if any, and returns the resulting `Bound`.
+    pub fn map<U, F: Fn(T) -> U>(self, map: F) -> Bound<U> {
+        match self {
+            Bound::Unbounded => Bound::Unbounded,
+            Bound::Included(value) => Bound::Included(map(value)),
+            Bound::Excluded(value) => Bound::Excluded(map(value)),
+        }
+    }
+}
+
+impl<T: Key> Bound<T> {
+    /// Serializes the contained value to big-endian bytes.
+    pub fn as_big_endian_bytes(&self) -> Result<Bound<Vec<u8>>, T::Error> {
+        match self {
+            Bound::Unbounded => Ok(Bound::Unbounded),
+            Bound::Included(value) => Ok(Bound::Included(value.as_big_endian_bytes()?.to_vec())),
+            Bound::Excluded(value) => Ok(Bound::Excluded(value.as_big_endian_bytes()?.to_vec())),
+        }
+    }
+}
+
+impl Bound<Vec<u8>> {
+    /// Deserializes the bound's contained value from big-endian bytes.
+    pub fn deserialize<T: Key>(&self) -> Result<Bound<T>, T::Error> {
+        match self {
+            Bound::Unbounded => Ok(Bound::Unbounded),
+            Bound::Included(value) => Ok(Bound::Included(T::from_big_endian_bytes(value)?)),
+            Bound::Excluded(value) => Ok(Bound::Excluded(T::from_big_endian_bytes(value)?)),
+        }
+    }
+}
+
+impl<T> std::ops::RangeBounds<T> for Range<T> {
+    fn start_bound(&self) -> std::ops::Bound<&T> {
+        std::ops::Bound::from(&self.start)
+    }
+
+    fn end_bound(&self) -> std::ops::Bound<&T> {
+        std::ops::Bound::from(&self.end)
+    }
+}
+
+impl<'a, T> From<&'a Bound<T>> for std::ops::Bound<&'a T> {
+    fn from(bound: &'a Bound<T>) -> Self {
+        match bound {
+            Bound::Unbounded => std::ops::Bound::Unbounded,
+            Bound::Included(value) => std::ops::Bound::Included(value),
+            Bound::Excluded(value) => std::ops::Bound::Excluded(value),
+        }
+    }
+}
+
+impl<T> From<std::ops::Range<T>> for Range<T> {
+    fn from(range: std::ops::Range<T>) -> Self {
+        Self {
+            start: Bound::Included(range.start),
+            end: Bound::Excluded(range.end),
+        }
+    }
+}
+
+impl<T> From<std::ops::RangeFrom<T>> for Range<T> {
+    fn from(range: std::ops::RangeFrom<T>) -> Self {
+        Self {
+            start: Bound::Included(range.start),
+            end: Bound::Unbounded,
+        }
+    }
+}
+
+impl<T> From<std::ops::RangeTo<T>> for Range<T> {
+    fn from(range: std::ops::RangeTo<T>) -> Self {
+        Self {
+            start: Bound::Unbounded,
+            end: Bound::Excluded(range.end),
+        }
+    }
+}
+
+impl<T: Clone> From<std::ops::RangeInclusive<T>> for Range<T> {
+    fn from(range: std::ops::RangeInclusive<T>) -> Self {
+        Self {
+            start: Bound::Included(range.start().clone()),
+            end: Bound::Included(range.end().clone()),
+        }
+    }
+}
+
+impl<T> From<std::ops::RangeToInclusive<T>> for Range<T> {
+    fn from(range: std::ops::RangeToInclusive<T>) -> Self {
+        Self {
+            start: Bound::Unbounded,
+            end: Bound::Included(range.end),
+        }
+    }
+}
+
+impl<T> From<std::ops::RangeFull> for Range<T> {
+    fn from(_: std::ops::RangeFull) -> Self {
+        Self {
+            start: Bound::Unbounded,
+            end: Bound::Unbounded,
         }
     }
 }

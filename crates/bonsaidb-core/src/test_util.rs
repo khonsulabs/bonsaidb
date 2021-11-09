@@ -1085,7 +1085,7 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         // here. RangeBounds is a trait. We'll need to use something else, but
         // my quick search doesn't find a serde-compatible library already
         // written. This should be an inclusive range
-        .with_key_range(Some(0)..Some(u64::MAX))
+        .with_key_range(Some(0)..=Some(u64::MAX))
         .query()
         .await?;
     assert_eq!(has_parent.len(), 3);
