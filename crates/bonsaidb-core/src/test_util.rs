@@ -9,6 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -1015,6 +1016,15 @@ pub async fn list_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let one_doc = collection.list(doc1.id..doc2.id).await?;
     assert_eq!(one_doc.len(), 1);
 
+    let limited = collection
+        .list(doc1.id..=doc2.id)
+        .limit(1)
+        .descending()
+        .await?;
+    assert_eq!(limited.len(), 1);
+    let limited = limited[0].contents::<Basic>()?;
+    assert_eq!(limited.value, doc2_contents.value);
+
     Ok(())
 }
 
@@ -1113,14 +1123,25 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 
     let has_parent = db
         .view::<BasicByParentId>()
-        // TODO range is tough because there's no single structure that works
-        // here. RangeBounds is a trait. We'll need to use something else, but
-        // my quick search doesn't find a serde-compatible library already
-        // written. This should be an inclusive range
         .with_key_range(Some(0)..=Some(u64::MAX))
         .query()
         .await?;
     assert_eq!(has_parent.len(), 3);
+    // Verify the result is sorted ascending
+    assert!(has_parent
+        .windows(2)
+        .all(|window| window[0].key <= window[1].key));
+
+    // Test limiting and descending order
+    let last_with_parent = db
+        .view::<BasicByParentId>()
+        .with_key_range(Some(0)..=Some(u64::MAX))
+        .descending()
+        .limit(1)
+        .query()
+        .await?;
+    assert_eq!(last_with_parent.iter().map(|m| m.key).unique().count(), 1);
+    assert_eq!(last_with_parent[0].key, has_parent[2].key);
 
     let items_with_categories = db.view::<BasicByCategory>().query().await?;
     assert_eq!(items_with_categories.len(), 3);

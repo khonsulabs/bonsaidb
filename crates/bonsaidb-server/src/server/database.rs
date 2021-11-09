@@ -3,7 +3,7 @@ use std::{ops::Deref, sync::Arc};
 use async_trait::async_trait;
 use bonsaidb_core::{
     circulate::Message,
-    connection::{AccessPolicy, QueryKey, Range},
+    connection::{AccessPolicy, QueryKey, Range, Sort},
     document::Document,
     kv::Kv,
     pubsub::{PubSub, Subscriber},
@@ -116,30 +116,38 @@ impl<'a, B: Backend, DB: Schema> bonsaidb_core::connection::Connection
     async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
         &self,
         ids: R,
+        order: Sort,
+        limit: Option<usize>,
     ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
-        self.db.list::<C, R>(ids).await
+        self.db.list::<C, R>(ids, order, limit).await
     }
 
     async fn query<V: View>(
         &self,
         key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
-        self.db.query::<V>(key, access_policy).await
+        self.db.query::<V>(key, order, limit, access_policy).await
     }
 
     async fn query_with_docs<V: View>(
         &self,
         key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<schema::MappedDocument<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
-        self.db.query_with_docs::<V>(key, access_policy).await
+        self.db
+            .query_with_docs::<V>(key, order, limit, access_policy)
+            .await
     }
 
     async fn reduce<V: View>(

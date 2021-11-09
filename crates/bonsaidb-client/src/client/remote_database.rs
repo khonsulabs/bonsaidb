@@ -2,7 +2,7 @@ use std::{marker::PhantomData, ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    connection::{AccessPolicy, Connection, QueryKey, Range},
+    connection::{AccessPolicy, Connection, QueryKey, Range, Sort},
     custom_api::CustomApi,
     document::Document,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
@@ -119,6 +119,8 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
     async fn list<C: Collection, R: Into<Range<u64>> + Send>(
         &self,
         ids: R,
+        order: Sort,
+        limit: Option<usize>,
     ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
         match self
             .client
@@ -127,6 +129,8 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                 request: DatabaseRequest::List {
                     collection: C::collection_name()?,
                     ids: ids.into(),
+                    order,
+                    limit,
                 },
             })
             .await?
@@ -142,6 +146,8 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
     async fn query<V: View>(
         &self,
         key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
@@ -158,6 +164,8 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                         .ok_or(bonsaidb_core::Error::CollectionNotFound)?
                         .view_name()?,
                     key: key.map(|key| key.serialized()).transpose()?,
+                    order,
+                    limit,
                     access_policy,
                     with_docs: false,
                 },
@@ -179,6 +187,8 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
     async fn query_with_docs<V: View>(
         &self,
         key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, bonsaidb_core::Error>
     where
@@ -195,6 +205,8 @@ impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
                         .ok_or(bonsaidb_core::Error::CollectionNotFound)?
                         .view_name()?,
                     key: key.map(|key| key.serialized()).transpose()?,
+                    order,
+                    limit,
                     access_policy,
                     with_docs: true,
                 },

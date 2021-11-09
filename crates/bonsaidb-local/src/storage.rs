@@ -19,7 +19,7 @@ use bonsaidb_core::{
         user::User,
         Admin, PermissionGroup, Role,
     },
-    connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection},
+    connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection, Sort},
     custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
     document::{Document, KeyId},
     kv::{KeyOperation, Output},
@@ -536,6 +536,8 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
     async fn list_from_collection(
         &self,
         ids: Range<u64>,
+        order: Sort,
+        limit: Option<usize>,
         collection: &CollectionName,
         permissions: &Permissions,
     ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error>;
@@ -550,6 +552,8 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         &self,
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<map::Serialized>, bonsaidb_core::Error>;
 
@@ -557,6 +561,8 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         &self,
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
         permissions: &Permissions,
     ) -> Result<Vec<map::MappedSerialized>, bonsaidb_core::Error>;

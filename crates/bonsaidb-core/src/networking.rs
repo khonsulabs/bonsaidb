@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     admin::Database,
-    connection::{AccessPolicy, QueryKey, Range},
+    connection::{AccessPolicy, QueryKey, Range, Sort},
     document::Document,
     kv::{KeyOperation, Output},
     schema::{self, view::map, CollectionName, MappedValue, NamedReference, ViewName},
@@ -171,6 +171,10 @@ pub enum DatabaseRequest {
         collection: CollectionName,
         /// The range of ids to list.
         ids: Range<u64>,
+        /// The order for the query into the collection.
+        order: Sort,
+        /// The maximum number of results to return.
+        limit: Option<usize>,
     },
     /// Queries a view.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
@@ -179,6 +183,10 @@ pub enum DatabaseRequest {
         view: ViewName,
         /// The filter for the view.
         key: Option<QueryKey<Vec<u8>>>,
+        /// The order for the query into the view.
+        order: Sort,
+        /// The maximum number of results to return.
+        limit: Option<usize>,
         /// The access policy for the query.
         access_policy: AccessPolicy,
         /// If true, [`DatabaseResponse::ViewMappingsWithDocs`] will be

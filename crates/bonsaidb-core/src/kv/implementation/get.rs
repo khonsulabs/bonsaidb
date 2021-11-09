@@ -37,7 +37,7 @@ where
         if let BuilderState::Pending(Some(options)) = &mut self.state {
             options
         } else {
-            panic!("Attempted to use after retrieving the result")
+            unreachable!("Attempted to use after retrieving the result")
         }
     }
 

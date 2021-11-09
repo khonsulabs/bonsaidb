@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     admin::{self, Admin, User},
     circulate::{Message, Relay, Subscriber},
-    connection::{AccessPolicy, QueryKey, Range, ServerConnection},
+    connection::{AccessPolicy, QueryKey, Range, ServerConnection, Sort},
     custodian_password::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
     },
@@ -1436,6 +1436,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
         &'a self,
         collection: &'a CollectionName,
         _ids: &'a Range<u64>,
+        _order: &'a Sort,
+        _limit: &'a Option<usize>,
     ) -> Result<ResourceName<'a>, Error> {
         Ok(collection_resource_name(&self.name, collection))
     }
@@ -1449,10 +1451,12 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
         permissions: &Permissions,
         collection: CollectionName,
         ids: Range<u64>,
+        order: Sort,
+        limit: Option<usize>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let documents = self
             .database
-            .list_from_collection(ids, &collection, permissions)
+            .list_from_collection(ids, order, limit, &collection, permissions)
             .await?;
         Ok(Response::Database(DatabaseResponse::Documents(documents)))
     }
@@ -1466,6 +1470,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
         &'a self,
         view: &'a ViewName,
         _key: &'a Option<QueryKey<Vec<u8>>>,
+        _order: &'a Sort,
+        _limit: &'a Option<usize>,
         _access_policy: &'a AccessPolicy,
         _with_docs: &'a bool,
     ) -> Result<ResourceName<'a>, Error> {
@@ -1481,19 +1487,24 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
         permissions: &Permissions,
         view: ViewName,
         key: Option<QueryKey<Vec<u8>>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
         with_docs: bool,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         if with_docs {
             let mappings = self
                 .database
-                .query_with_docs(&view, key, access_policy, permissions)
+                .query_with_docs(&view, key, order, limit, access_policy, permissions)
                 .await?;
             Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
                 mappings,
             )))
         } else {
-            let mappings = self.database.query(&view, key, access_policy).await?;
+            let mappings = self
+                .database
+                .query(&view, key, order, limit, access_policy)
+                .await?;
             Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
         }
     }

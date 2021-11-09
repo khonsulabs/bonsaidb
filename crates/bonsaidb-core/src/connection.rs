@@ -5,6 +5,7 @@ use custodian_password::{
     ClientConfig, ClientFile, ClientRegistration, ExportKey, RegistrationFinalization,
     RegistrationRequest, RegistrationResponse,
 };
+use futures::{future::BoxFuture, Future, FutureExt};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -87,6 +88,8 @@ pub trait Connection: Send + Sync {
     async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
         &self,
         ids: R,
+        order: Sort,
+        limit: Option<usize>,
     ) -> Result<Vec<Document<'static>>, Error>;
 
     /// Removes a `Document` from the database.
@@ -122,6 +125,8 @@ pub trait Connection: Send + Sync {
     async fn query<V: schema::View>(
         &self,
         key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, Error>
     where
@@ -132,6 +137,8 @@ pub trait Connection: Send + Sync {
     async fn query_with_docs<V: schema::View>(
         &self,
         key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error>
     where
@@ -250,11 +257,101 @@ where
 
     /// Retrieves all documents matching `ids`. Documents that are not found
     /// are not returned, but no error will be generated.
-    pub async fn list<R: Into<Range<u64>> + Send>(
-        &self,
-        ids: R,
-    ) -> Result<Vec<Document<'static>>, Error> {
-        self.connection.list::<Cl, R>(ids).await
+    pub fn list<R: Into<Range<u64>> + Send>(&self, ids: R) -> List<'_, Cn, Cl, R> {
+        List {
+            state: ListState::Pending(Some(ListBuilder {
+                collection: self,
+                range: ids,
+                sort: Sort::Ascending,
+                limit: None,
+            })),
+        }
+    }
+}
+
+struct ListBuilder<'a, Cn, Cl, R> {
+    collection: &'a Collection<'a, Cn, Cl>,
+    range: R,
+    sort: Sort,
+    limit: Option<usize>,
+}
+
+enum ListState<'a, Cn, Cl, R> {
+    Pending(Option<ListBuilder<'a, Cn, Cl, R>>),
+    Executing(BoxFuture<'a, Result<Vec<Document<'static>>, Error>>),
+}
+
+/// Executes [`Connection::List`] when awaited. Also offers methods to customize
+/// the options for the operation.
+pub struct List<'a, Cn, Cl, R> {
+    state: ListState<'a, Cn, Cl, R>,
+}
+
+impl<'a, Cn, Cl, R> List<'a, Cn, Cl, R>
+where
+    R: Into<Range<u64>> + Send + 'a + Unpin,
+{
+    fn builder(&mut self) -> &mut ListBuilder<'a, Cn, Cl, R> {
+        if let ListState::Pending(Some(builder)) = &mut self.state {
+            builder
+        } else {
+            unreachable!("Attempted to use after retrieving the result")
+        }
+    }
+
+    /// Queries the view in ascending order.
+    pub fn ascending(mut self) -> Self {
+        self.builder().sort = Sort::Ascending;
+        self
+    }
+
+    /// Queries the view in descending order.
+    pub fn descending(mut self) -> Self {
+        self.builder().sort = Sort::Descending;
+        self
+    }
+
+    /// Sets the maximum number of results to return.
+    pub fn limit(mut self, maximum_results: usize) -> Self {
+        self.builder().limit = Some(maximum_results);
+        self
+    }
+}
+
+impl<'a, Cn, Cl, R> Future for List<'a, Cn, Cl, R>
+where
+    Cn: Connection,
+    Cl: schema::Collection,
+    R: Into<Range<u64>> + Send + 'a + Unpin,
+{
+    type Output = Result<Vec<Document<'static>>, Error>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        match &mut self.state {
+            ListState::Executing(future) => future.as_mut().poll(cx),
+            ListState::Pending(builder) => {
+                let ListBuilder {
+                    collection,
+                    range,
+                    sort,
+                    limit,
+                } = builder.take().unwrap();
+
+                let future = async move {
+                    collection
+                        .connection
+                        .list::<Cl, R>(range, sort, limit)
+                        .await
+                }
+                .boxed();
+
+                self.state = ListState::Executing(future);
+                self.poll(cx)
+            }
+        }
     }
 }
 
@@ -267,6 +364,12 @@ pub struct View<'a, Cn, V: schema::View> {
 
     /// The view's data access policy. The default value is [`AccessPolicy::UpdateBefore`].
     pub access_policy: AccessPolicy,
+
+    /// The sort order of the query.
+    pub sort: Sort,
+
+    /// The maximum number of results to return.
+    pub limit: Option<usize>,
 }
 
 impl<'a, Cn, V> View<'a, Cn, V>
@@ -279,6 +382,8 @@ where
             connection,
             key: None,
             access_policy: AccessPolicy::UpdateBefore,
+            sort: Sort::Ascending,
+            limit: None,
         }
     }
 
@@ -309,17 +414,35 @@ where
         self
     }
 
+    /// Queries the view in ascending order.
+    pub fn ascending(mut self) -> Self {
+        self.sort = Sort::Ascending;
+        self
+    }
+
+    /// Queries the view in descending order.
+    pub fn descending(mut self) -> Self {
+        self.sort = Sort::Descending;
+        self
+    }
+
+    /// Sets the maximum number of results to return.
+    pub fn limit(mut self, maximum_results: usize) -> Self {
+        self.limit = Some(maximum_results);
+        self
+    }
+
     /// Executes the query and retrieves the results.
     pub async fn query(self) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
         self.connection
-            .query::<V>(self.key, self.access_policy)
+            .query::<V>(self.key, self.sort, self.limit, self.access_policy)
             .await
     }
 
     /// Executes the query and retrieves the results with the associated `Document`s.
     pub async fn query_with_docs(self) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error> {
         self.connection
-            .query_with_docs::<V>(self.key, self.access_policy)
+            .query_with_docs::<V>(self.key, self.sort, self.limit, self.access_policy)
             .await
     }
 
@@ -336,6 +459,15 @@ where
             .reduce_grouped::<V>(self.key, self.access_policy)
             .await
     }
+}
+
+/// A sort order.
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
+pub enum Sort {
+    /// Sort ascending (A -> Z).
+    Ascending,
+    /// Sort descending (Z -> A).
+    Descending,
 }
 
 /// Filters a [`View`] by key.

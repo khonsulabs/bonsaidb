@@ -5,7 +5,7 @@ use std::{
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection},
+    connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection, Sort},
     document::{Document, Header, KeyId},
     kv::{KeyOperation, Kv, Output},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
@@ -167,6 +167,8 @@ where
         &self,
         view: &dyn view::Serialized,
         key: Option<QueryKey<Vec<u8>>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
         mut callback: F,
     ) -> Result<(), bonsaidb_core::Error> {
@@ -187,7 +189,7 @@ where
             .map_err(Error::from)?;
 
         {
-            for entry in Self::create_view_iterator(&view_entries, key)? {
+            for entry in Self::create_view_iterator(&view_entries, key, order, limit)? {
                 callback(entry)?;
             }
         }
@@ -218,6 +220,8 @@ where
     >(
         &self,
         key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
         callback: F,
     ) -> Result<(), bonsaidb_core::Error> {
@@ -230,6 +234,8 @@ where
         self.for_each_in_view(
             view,
             key.map(|key| key.serialized()).transpose()?,
+            order,
+            limit,
             access_policy,
             callback,
         )
@@ -312,6 +318,8 @@ where
     async fn list(
         &self,
         ids: Range<u64>,
+        sort: Sort,
+        limit: Option<usize>,
         collection: &CollectionName,
     ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
         let task_self = self.clone();
@@ -328,15 +336,28 @@ where
                     ))
                     .map_err(Error::from)?;
             let mut found_docs = Vec::new();
+            let mut keys_read = 0;
             let ids = ids
                 .as_big_endian_bytes()
                 .map_err(view::Error::key_serialization)?
                 .map(Buffer::from);
             tree.scan(
                 ids,
-                true,
+                match sort {
+                    Sort::Ascending => true,
+                    Sort::Descending => false,
+                },
                 |_, _, _| true,
-                |_, _| KeyEvaluation::ReadData,
+                |_, _| {
+                    if let Some(limit) = limit {
+                        if keys_read >= limit {
+                            return KeyEvaluation::Stop;
+                        }
+
+                        keys_read += 1;
+                    }
+                    KeyEvaluation::ReadData
+                },
                 |_, _, doc| {
                     found_docs.push(
                         deserialize_document(&doc)
@@ -400,7 +421,7 @@ where
             .view_by_name(view_name)
             .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
         let mut mappings = Vec::new();
-        self.for_each_in_view(view, key, access_policy, |entry| {
+        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
             let entry = ViewEntry::from(entry);
             mappings.push(MappedValue {
                 key: entry.key,
@@ -600,8 +621,15 @@ where
     fn create_view_iterator<'a, K: Key + 'a>(
         view_entries: &'a Tree<Unversioned, StdFile>,
         key: Option<QueryKey<K>>,
+        order: Sort,
+        limit: Option<usize>,
     ) -> Result<Vec<ViewEntryCollection>, Error> {
         let mut values = Vec::new();
+        let forwards = match order {
+            Sort::Ascending => true,
+            Sort::Descending => false,
+        };
+        let mut values_read = 0;
         if let Some(key) = key {
             match key {
                 QueryKey::Range(range) => {
@@ -611,9 +639,17 @@ where
                         .map(Buffer::from);
                     view_entries.scan::<Infallible, _, _, _, _>(
                         range,
-                        true,
+                        forwards,
                         |_, _, _| true,
-                        |_, _| KeyEvaluation::ReadData,
+                        |_, _| {
+                            if let Some(limit) = limit {
+                                if values_read >= limit {
+                                    return KeyEvaluation::Stop;
+                                }
+                                values_read += 1;
+                            }
+                            KeyEvaluation::ReadData
+                        },
                         |_key, _index, value| {
                             values.push(value);
                             Ok(())
@@ -649,9 +685,17 @@ where
         } else {
             view_entries.scan::<Infallible, _, _, _, _>(
                 ..,
-                true,
+                forwards,
                 |_, _, _| true,
-                |_, _| KeyEvaluation::ReadData,
+                |_, _| {
+                    if let Some(limit) = limit {
+                        if values_read >= limit {
+                            return KeyEvaluation::Stop;
+                        }
+                        values_read += 1;
+                    }
+                    KeyEvaluation::ReadData
+                },
                 |_, _, value| {
                     values.push(value);
                     Ok(())
@@ -827,8 +871,11 @@ where
     async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
         &self,
         ids: R,
+        order: Sort,
+        limit: Option<usize>,
     ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
-        self.list(ids.into(), &C::collection_name()?).await
+        self.list(ids.into(), order, limit, &C::collection_name()?)
+            .await
     }
 
     async fn list_executed_transactions(
@@ -881,13 +928,15 @@ where
     async fn query<V: schema::View>(
         &self,
         key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
         let mut results = Vec::new();
-        self.for_each_view_entry::<V, _>(key, access_policy, |collection| {
+        self.for_each_view_entry::<V, _>(key, order, limit, access_policy, |collection| {
             let entry = ViewEntry::from(collection);
             let key = <V::Key as Key>::from_big_endian_bytes(&entry.key)
                 .map_err(view::Error::key_serialization)
@@ -909,12 +958,14 @@ where
     async fn query_with_docs<V: schema::View>(
         &self,
         key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
-        let results = Connection::query::<V>(self, key, access_policy).await?;
+        let results = Connection::query::<V>(self, key, order, limit, access_policy).await?;
 
         let mut documents = self
             .get_multiple::<V::Collection>(&results.iter().map(|m| m.source).collect::<Vec<_>>())
@@ -1129,11 +1180,13 @@ where
     async fn list_from_collection(
         &self,
         ids: Range<u64>,
+        order: Sort,
+        limit: Option<usize>,
         collection: &CollectionName,
         permissions: &Permissions,
     ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
         self.with_effective_permissions(permissions.clone())
-            .list(ids, collection)
+            .list(ids, order, limit, collection)
             .await
     }
 
@@ -1153,11 +1206,13 @@ where
         &self,
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<map::Serialized>, bonsaidb_core::Error> {
         if let Some(view) = self.schematic().view_by_name(view) {
             let mut results = Vec::new();
-            self.for_each_in_view(view, key, access_policy, |collection| {
+            self.for_each_in_view(view, key, order, limit, access_policy, |collection| {
                 let entry = ViewEntry::from(collection);
                 for mapping in entry.mappings {
                     results.push(map::Serialized {
@@ -1180,10 +1235,12 @@ where
         &self,
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
+        order: Sort,
+        limit: Option<usize>,
         access_policy: AccessPolicy,
         permissions: &Permissions,
     ) -> Result<Vec<map::MappedSerialized>, bonsaidb_core::Error> {
-        let results = OpenDatabase::query(self, view, key, access_policy).await?;
+        let results = OpenDatabase::query(self, view, key, order, limit, access_policy).await?;
         let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
 
         let mut documents = self
