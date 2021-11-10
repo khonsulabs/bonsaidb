@@ -46,7 +46,7 @@ use bonsaidb_local::{
     jobs::{manager::Manager, Job},
     OpenDatabase, Storage,
 };
-use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
+use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 #[cfg(feature = "websockets")]
 use futures::SinkExt;
@@ -178,25 +178,25 @@ impl<B: Backend> CustomServer<B> {
     ) -> Result<(), Error> {
         let keypair = KeyPair::new_self_signed(server_name);
 
-        if self.certificate_path().exists() && !overwrite {
+        if self.certificate_chain_path().exists() && !overwrite {
             return Err(Error::Core(bonsaidb_core::Error::Configuration(String::from("Certificate already installed. Enable overwrite if you wish to replace the existing certificate."))));
         }
 
-        self.install_certificate(keypair.end_entity_certificate(), keypair.private_key())
+        self.install_certificate(keypair.certificate_chain(), keypair.private_key())
             .await?;
 
         Ok(())
     }
 
-    /// Installs an X.509 certificate used for general purpose connections.
-    /// These currently must be in DER binary format, not ASCII PEM format.
+    /// Installs a certificate chain and private key used for TLS connections.
     pub async fn install_certificate(
         &self,
-        certificate: &Certificate,
+        certificate: &CertificateChain,
         private_key: &PrivateKey,
     ) -> Result<(), Error> {
-        File::create(self.certificate_path())
-            .and_then(|file| file.write_all(certificate.as_ref()))
+        let serialized = pot::to_vec(certificate).unwrap();
+        File::create(self.certificate_chain_path())
+            .and_then(|file| file.write_all(&serialized))
             .await
             .map_err(|err| {
                 Error::Core(bonsaidb_core::Error::Configuration(format!(
@@ -217,22 +217,28 @@ impl<B: Backend> CustomServer<B> {
         Ok(())
     }
 
-    fn certificate_path(&self) -> PathBuf {
-        self.data.directory.join("public-certificate.der")
+    fn certificate_chain_path(&self) -> PathBuf {
+        self.data.directory.join("public-certificate.pot")
     }
 
-    /// Returns the current certificate.
-    pub async fn certificate(&self) -> Result<Certificate, Error> {
-        Ok(File::open(self.certificate_path())
+    /// Returns the current certificate chain.
+    pub async fn certificate_chain(&self) -> Result<CertificateChain, Error> {
+        let certificate = File::open(self.certificate_chain_path())
             .and_then(FileExt::read_all)
             .await
-            .map(Certificate::unchecked_from_der)
             .map_err(|err| {
                 Error::Core(bonsaidb_core::Error::Configuration(format!(
                     "Error reading certificate file: {}",
                     err
                 )))
-            })?)
+            })?;
+        let chain = pot::from_slice(&certificate).map_err(|err| {
+            Error::Core(bonsaidb_core::Error::Configuration(format!(
+                "Invalid certificate file contents: {}",
+                err
+            )))
+        })?;
+        Ok(chain)
     }
 
     fn private_key_path(&self) -> PathBuf {
@@ -242,7 +248,6 @@ impl<B: Backend> CustomServer<B> {
     /// Listens for incoming client connections. Does not return until the
     /// server shuts down.
     pub async fn listen_on(&self, port: u16) -> Result<(), Error> {
-        let certificate = self.certificate().await?;
         let private_key = File::open(self.private_key_path())
             .and_then(FileExt::read_all)
             .await
@@ -253,8 +258,7 @@ impl<B: Backend> CustomServer<B> {
                     err
                 )))
             })??;
-        let certchain = CertificateChain::from_certificates(vec![certificate])?;
-        let keypair = KeyPair::from_parts(certchain, private_key)?;
+        let keypair = KeyPair::from_parts(self.certificate_chain().await?, private_key)?;
 
         let mut server = Endpoint::new_server(port, keypair)?;
         {

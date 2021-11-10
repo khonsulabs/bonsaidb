@@ -26,12 +26,15 @@ async fn main() -> anyhow::Result<()> {
         },
     )
     .await?;
-    if server.certificate().await.is_err() {
+    if server.certificate_chain().await.is_err() {
         server
             .install_self_signed_certificate("example-server", true)
             .await?;
     }
-    let certificate = server.certificate().await?;
+    let certificate = server
+        .certificate_chain()
+        .await?
+        .into_end_entity_certificate();
     server.register_schema::<Shape>().await?;
     server.create_database::<Shape>("my-database", true).await?;
     // ANCHOR_END: setup

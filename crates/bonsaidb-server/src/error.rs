@@ -39,6 +39,12 @@ pub enum Error {
     /// An error occurred with a certificate.
     #[error("a certificate error: {0}")]
     Certificate(#[from] fabruic::error::Certificate),
+
+    /// An error occurred parsing a PEM file.
+    #[error("an invalid PEM file: {0}")]
+    #[cfg(feature = "pem")]
+    Pem(#[from] pem::PemError),
+
     /// An error occurred with handling opaque-ke.
     #[error("an opaque-ke error: {0}")]
     Password(#[from] core::custodian_password::Error),
@@ -52,12 +58,9 @@ impl From<Error> for core::Error {
             Error::Core(core) => core,
             Error::Io(io) => Self::Io(io.to_string()),
             Error::Transport(networking) => Self::Transport(networking),
-            Error::InternalCommunication(err) => Self::Server(err.to_string()),
-            Error::Certificate(err) => Self::Server(err.to_string()),
             #[cfg(feature = "websockets")]
             Error::Websocket(err) => Self::Websocket(err.to_string()),
-            Error::Request(err) => Self::Server(err.to_string()),
-            Error::Password(err) => Self::Server(err.to_string()),
+            err => Self::Server(err.to_string()),
         }
     }
 }

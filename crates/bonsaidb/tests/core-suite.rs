@@ -43,7 +43,13 @@ fn run_shared_server(certificate_sender: flume::Sender<Certificate>) -> anyhow::
         let directory = TestDirectory::new("shared-server");
         let server = initialize_basic_server(directory.as_ref()).await.unwrap();
         certificate_sender
-            .send(server.certificate().await.unwrap())
+            .send(
+                server
+                    .certificate_chain()
+                    .await
+                    .unwrap()
+                    .into_end_entity_certificate(),
+            )
             .unwrap();
 
         #[cfg(feature = "websockets")]
@@ -271,7 +277,10 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
     server
         .install_self_signed_certificate("authenticated-permissions-test", false)
         .await?;
-    let certificate = server.certificate().await?;
+    let certificate = server
+        .certificate_chain()
+        .await?
+        .into_end_entity_certificate();
 
     server.create_user("ecton").await?;
     server.set_user_password_str("ecton", "hunter2").await?;

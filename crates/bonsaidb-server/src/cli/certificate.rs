@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use fabruic::{Certificate, PrivateKey};
+use fabruic::{Certificate, CertificateChain, PrivateKey};
 use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
 
@@ -27,16 +27,16 @@ pub enum Command {
         #[structopt(short, long)]
         overwrite: bool,
     },
-    /// Installs a X.509 certificate and associated private key in binary DER
-    /// format.
+    /// Installs a X.509 certificate and associated private key in PEM format.
     ///
     /// This command reads the files `private_key` and `certificate` and
-    /// executes [`Server::install_certificate()`](crate::CustomServer::install_certificate).
+    /// executes
+    /// [`Server::install_certificate()`](crate::CustomServer::install_certificate).
     Install {
-        /// A private key used to generate `certificate` in binary DER format.
+        /// A private key used to generate `certificate` in the ASCII PEM format.
         private_key: PathBuf,
-        /// The X.509 certificate in binary DER format.
-        certificate: PathBuf,
+        /// The X.509 certificate chain in the ASCII PEM format.
+        certificate_chain: PathBuf,
     },
 }
 
@@ -54,20 +54,28 @@ impl Command {
             }
             Self::Install {
                 private_key,
-                certificate,
+                certificate_chain,
             } => {
                 let mut private_key_file = tokio::fs::File::open(&private_key).await?;
                 let mut private_key = Vec::new();
                 private_key_file.read_to_end(&mut private_key).await?;
 
-                let mut certificate_file = tokio::fs::File::open(&certificate).await?;
-                let mut certificate = Vec::new();
-                certificate_file.read_to_end(&mut certificate).await?;
+                let mut certificate_chain_file = tokio::fs::File::open(&certificate_chain).await?;
+                let mut certificate_chain = Vec::new();
+                certificate_chain_file
+                    .read_to_end(&mut certificate_chain)
+                    .await?;
 
+                // PEM format
+                let private_key = pem::parse(&private_key)?;
+                let certificates = pem::parse_many(&certificate_chain)?
+                    .into_iter()
+                    .map(|entry| Certificate::unchecked_from_der(entry.contents))
+                    .collect::<Vec<_>>();
                 server
                     .install_certificate(
-                        &Certificate::from_der(certificate)?,
-                        &PrivateKey::from_der(private_key)?,
+                        &CertificateChain::unchecked_from_certificates(certificates),
+                        &PrivateKey::unchecked_from_der(private_key.contents),
                     )
                     .await?;
             }

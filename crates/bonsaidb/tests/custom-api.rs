@@ -62,7 +62,10 @@ async fn custom_api() -> anyhow::Result<()> {
     server
         .install_self_signed_certificate("test", false)
         .await?;
-    let certificate = server.certificate().await?;
+    let certificate = server
+        .certificate_chain()
+        .await?
+        .into_end_entity_certificate();
     server.register_schema::<Basic>().await?;
     tokio::spawn(async move { server.listen_on(12346).await });
 

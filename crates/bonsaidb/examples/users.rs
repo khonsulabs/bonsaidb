@@ -73,7 +73,12 @@ async fn main() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     let client = Client::build(Url::parse("bonsaidb://localhost")?)
-        .with_certificate(server.certificate().await?)
+        .with_certificate(
+            server
+                .certificate_chain()
+                .await?
+                .into_end_entity_certificate(),
+        )
         .finish()
         .await?;
     let db = client.database::<Shape>("my-database").await?;
@@ -130,7 +135,7 @@ async fn setup_server() -> anyhow::Result<Server> {
         },
     )
     .await?;
-    if server.certificate().await.is_err() {
+    if server.certificate_chain().await.is_err() {
         server
             .install_self_signed_certificate("example-server", true)
             .await?;

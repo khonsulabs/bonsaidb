@@ -14,7 +14,7 @@ homepage = "https://dev.bonsaidb.io/"
 [features]
 default = ["full"]
 full = ["cli", "websockets"]
-cli = ["structopt"]
+cli = ["structopt", "pem"]
 test-util = ["bonsaidb-core/test-util"]
 websockets = ["bonsaidb-core/websockets", "tokio-tungstenite", "bincode"]
 tracing = ["pot/tracing"]
@@ -40,6 +40,7 @@ bincode = { version = "1", optional = true }
 actionable = "0.1.0-rc.2"
 pot = "0.1.0-alpha.2"
 fabruic = { version = "0.0.1-dev.2", features = ["dangerous"] }
+pem = { version = "1", optional = true }
 
 [dev-dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [
