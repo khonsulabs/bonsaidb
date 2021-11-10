@@ -17,7 +17,7 @@ rust-s3 = { version = "0.27", default-features = false, features = [
     "with-tokio",
     "tokio-rustls-tls",
 ] }
-bonsaidb-local = { version = "0.1.0-dev.4", path = "../bonsaidb-local" }
+bonsaidb-local = { version = "0.1.0-dev.4", path = "../bonsaidb-local", default-features = false }
 async-trait = "0.1"
 anyhow = "1"
 

@@ -81,15 +81,7 @@ bincode = ["bonsaidb-core/bincode"]
 
 keystorage-s3 = ["bonsaidb-keystorage-s3"]
 
-cli = [
-    "anyhow",
-    "tokio",
-    "structopt",
-    "url",
-    "client-full",
-    "local-cli",
-    "server-cli",
-]
+cli = ["anyhow", "tokio", "structopt", "url", "local-cli", "server-cli"]
 local-cli = ["bonsaidb-local/cli"]
 server-cli = ["bonsaidb-server/cli"]
 
