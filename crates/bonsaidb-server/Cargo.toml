@@ -43,7 +43,7 @@ pot = "0.1.0-alpha.2"
 fabruic = { version = "0.0.1-dev.2", features = ["dangerous"] }
 cfg-if = "1"
 pem = { version = "1", optional = true }
-async-acme = { git = "https://github.com/khonsulabs/async-acme", branch = "main", optional = true, features = [
+async-acme = { git = "https://github.com/khonsulabs/async-acme", branch = "custom-cache", optional = true, features = [
     "hyper_rustls",
 ] }
 rcgen = { version = "0.8", optional = true }

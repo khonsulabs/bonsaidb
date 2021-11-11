@@ -2,12 +2,7 @@ use std::net::SocketAddr;
 #[cfg(feature = "acme")]
 use std::sync::Arc;
 
-use rcgen::{Certificate, CertificateParams, CustomExtension, PKCS_ECDSA_P256_SHA256};
-use rustls::{
-    server::ResolvesServerCert,
-    sign::{any_ecdsa_type, CertifiedKey},
-    PrivateKey,
-};
+use rustls::server::ResolvesServerCert;
 #[cfg(feature = "websockets")]
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
@@ -76,7 +71,7 @@ impl<B: Backend> CustomServer<B> {
 
         let account = Account::load_or_create(
             Directory::discover(&self.data.acme.directory).await?,
-            Some(self.directory().join("acme")),
+            Some(self),
             self.data.acme.contact_email.as_ref(),
         )
         .await?;
@@ -98,8 +93,10 @@ impl<B: Backend> CustomServer<B> {
                                 } => {
                                     let Identifier::Dns(domain) = identifier;
                                     let (challenge, auth_key) = account.tls_alpn_01(&challenges)?;
-                                    let auth_key =
-                                        gen_acme_cert(vec![domain.clone()], auth_key.as_ref())?;
+                                    let auth_key = super::acme::gen_acme_cert(
+                                        vec![domain.clone()],
+                                        auth_key.as_ref(),
+                                    )?;
 
                                     let mut auth_keys = self.data.alpn_keys.lock().unwrap();
                                     auth_keys.insert(domain.clone(), Arc::new(auth_key));
@@ -166,16 +163,24 @@ impl<B: Backend> CustomServer<B> {
         #[cfg(feature = "acme")]
         {
             let task_self = self.clone();
-            tokio::task::spawn(async move { task_self.update_acme_certificates().await });
+            tokio::task::spawn(async move {
+                if let Err(err) = task_self.update_acme_certificates().await {
+                    eprintln!("[server] acme task error: {0}", err);
+                }
+            });
         }
 
         // We may not have a certificate yet, so we ignore any errors.
         drop(self.refresh_certified_key().await);
 
-        let config = rustls::ServerConfig::builder()
+        let mut config = rustls::ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
             .with_cert_resolver(Arc::new(self.clone()));
+        #[cfg(feature = "acme")]
+        {
+            config.alpn_protocols = vec![async_acme::acme::ACME_TLS_ALPN_NAME.to_vec()];
+        }
 
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
         let listener = TcpListener::bind(&addr).await?;
@@ -310,8 +315,10 @@ impl<B: Backend> ResolvesServerCert for CustomServer<B> {
         &self,
         client_hello: rustls::server::ClientHello<'_>,
     ) -> Option<Arc<rustls::sign::CertifiedKey>> {
-        if client_hello.alpn().and_then(|mut iter| iter.next())
-            == Some(async_acme::acme::ACME_TLS_ALPN_NAME)
+        if client_hello
+            .alpn()
+            .map(|mut iter| iter.any(|n| n == async_acme::acme::ACME_TLS_ALPN_NAME))
+            .unwrap_or_default()
         {
             let server_name = client_hello.server_name()?.to_owned();
             let keys = self.data.alpn_keys.lock().unwrap();
@@ -330,19 +337,4 @@ impl<B: Backend> ResolvesServerCert for CustomServer<B> {
             }
         }
     }
-}
-
-fn gen_acme_cert(
-    domains: Vec<String>,
-    acme_hash: &[u8],
-) -> Result<CertifiedKey, rcgen::RcgenError> {
-    let mut params = CertificateParams::new(domains);
-    params.alg = &PKCS_ECDSA_P256_SHA256;
-    params.custom_extensions = vec![CustomExtension::new_acme_identifier(acme_hash)];
-    let cert = Certificate::from_params(params)?;
-    let key = any_ecdsa_type(&PrivateKey(cert.serialize_private_key_der())).unwrap();
-    Ok(CertifiedKey::new(
-        vec![rustls::Certificate(cert.serialize_der()?)],
-        key,
-    ))
 }

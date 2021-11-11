@@ -62,6 +62,7 @@ use crate::{
     Backend, Configuration,
 };
 
+mod acme;
 mod connected_client;
 mod database;
 
@@ -141,6 +142,12 @@ impl<B: Backend> CustomServer<B> {
         }
 
         let storage = Storage::open_local(directory, configuration.storage).await?;
+
+        #[cfg(feature = "acme")]
+        {
+            storage.register_schema::<acme::Acme>().await?;
+            storage.create_database::<acme::Acme>("acme", true).await?;
+        }
 
         let default_permissions = Permissions::from(configuration.default_permissions);
         let authenticated_permissions = Permissions::from(configuration.authenticated_permissions);
