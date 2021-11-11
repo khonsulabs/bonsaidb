@@ -1,20 +1,19 @@
-use super::{Backend, CustomServer};
-use crate::Error;
+use std::net::SocketAddr;
+#[cfg(feature = "acme")]
+use std::sync::Arc;
+
 use rcgen::{Certificate, CertificateParams, CustomExtension, PKCS_ECDSA_P256_SHA256};
 use rustls::{
     server::ResolvesServerCert,
     sign::{any_ecdsa_type, CertifiedKey},
     PrivateKey,
 };
-use std::net::SocketAddr;
-
 #[cfg(feature = "websockets")]
 use tokio::io::{AsyncRead, AsyncWrite};
-
-#[cfg(feature = "acme")]
-use std::sync::Arc;
-
 use tokio::net::TcpListener;
+
+use super::{Backend, CustomServer};
+use crate::Error;
 
 impl<B: Backend> CustomServer<B> {
     /// Listens for HTTP traffic on `port`. This port will also receive
@@ -85,7 +84,7 @@ impl<B: Backend> CustomServer<B> {
         let mut order = account.new_order(domains).await?;
 
         loop {
-            order = match dbg!(order) {
+            order = match order {
                 Order::Pending {
                     authorizations,
                     finalize,
@@ -103,7 +102,6 @@ impl<B: Backend> CustomServer<B> {
                                         gen_acme_cert(vec![domain.clone()], auth_key.as_ref())?;
 
                                     let mut auth_keys = self.data.alpn_keys.lock().unwrap();
-                                    println!("Inserting new auth key for {}", domain);
                                     auth_keys.insert(domain.clone(), Arc::new(auth_key));
                                     (domain, challenge.url.clone())
                                 }
@@ -114,7 +112,10 @@ impl<B: Backend> CustomServer<B> {
                             tokio::time::sleep(Duration::from_secs(1 << attempt)).await;
                             match account.check_auth(&authorization).await? {
                                 Auth::Pending { .. } => {
-                                    eprintln!("authorization for {} still pending", &domain);
+                                    eprintln!(
+                                        "[server] acme authorization for {} still pending",
+                                        &domain
+                                    );
                                     account.trigger_challenge(&challenge_url).await?;
                                 }
                                 Auth::Valid => continue 'auth,
@@ -133,19 +134,17 @@ impl<B: Backend> CustomServer<B> {
                     account.send_csr(finalize, csr).await?
                 }
                 Order::Valid { certificate } => {
-                    let certificate = dbg!(account.obtain_certificate(certificate).await)?;
+                    let certificate = account.obtain_certificate(certificate).await?;
 
-                    dbg!(
-                        self.install_pem_certificate(
-                            certificate.as_bytes(),
-                            pem::encode(&pem::Pem {
-                                tag: String::from("BEGIN PRIVATE KEY"),
-                                contents: pk
-                            })
-                            .as_bytes()
-                        )
-                        .await
-                    )?;
+                    self.install_pem_certificate(
+                        certificate.as_bytes(),
+                        pem::encode(&pem::Pem {
+                            tag: String::from("BEGIN PRIVATE KEY"),
+                            contents: pk,
+                        })
+                        .as_bytes(),
+                    )
+                    .await?;
                     return Ok(());
                 }
                 Order::Invalid => {
@@ -169,6 +168,10 @@ impl<B: Backend> CustomServer<B> {
             let task_self = self.clone();
             tokio::task::spawn(async move { task_self.update_acme_certificates().await });
         }
+
+        // We may not have a certificate yet, so we ignore any errors.
+        drop(self.refresh_certified_key().await);
+
         let config = rustls::ServerConfig::builder()
             .with_safe_defaults()
             .with_no_client_auth()
@@ -178,7 +181,6 @@ impl<B: Backend> CustomServer<B> {
         let listener = TcpListener::bind(&addr).await?;
         loop {
             let (stream, peer_addr) = listener.accept().await?;
-            println!("new connection");
             let acceptor = acceptor.clone();
 
             let task_self = self.clone();
@@ -190,7 +192,6 @@ impl<B: Backend> CustomServer<B> {
                         return;
                     }
                 };
-                println!("Accepted tls session");
 
                 if stream.get_ref().1.alpn_protocol().is_none() {
                     // Only pass non ALPN traffic on.
@@ -312,17 +313,21 @@ impl<B: Backend> ResolvesServerCert for CustomServer<B> {
         if client_hello.alpn().and_then(|mut iter| iter.next())
             == Some(async_acme::acme::ACME_TLS_ALPN_NAME)
         {
-            let server_name = dbg!(client_hello.server_name())?.to_owned();
-            println!("Looking for key");
+            let server_name = client_hello.server_name()?.to_owned();
             let keys = self.data.alpn_keys.lock().unwrap();
             if let Some(key) = keys.get(AsRef::<str>::as_ref(&server_name)) {
-                println!("Key found");
                 return Some(key.clone());
             }
 
             None
         } else {
-            todo!("return the server's certified key")
+            let cached_key = self.data.primary_tls_key.lock();
+            if let Some(key) = cached_key.as_ref() {
+                Some(key.clone())
+            } else {
+                eprintln!("[server] inbound tls connection with no certificate installed");
+                None
+            }
         }
     }
 }

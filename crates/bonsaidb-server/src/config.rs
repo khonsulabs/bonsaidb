@@ -39,6 +39,7 @@ impl Default for Configuration {
 
 #[cfg(feature = "acme")]
 mod acme {
+    /// The Automated Certificate Management Environment (ACME) configuration.
     #[derive(Debug)]
     pub struct AcmeConfiguration {
         /// The domain to request an ACME certificate for. This certificate will

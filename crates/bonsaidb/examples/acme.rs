@@ -26,8 +26,7 @@ async fn main() -> anyhow::Result<()> {
             acme: AcmeConfiguration {
                 primary_domain: String::from("dev.ncog.id"),
                 contact_email: None,
-                // directory: LETS_ENCRYPT_STAGING_DIRECTORY.to_string(),
-                ..Default::default()
+                directory: LETS_ENCRYPT_STAGING_DIRECTORY.to_string(),
             },
             ..Default::default()
         },
@@ -62,13 +61,13 @@ async fn main() -> anyhow::Result<()> {
     // into a collection and use join_all to wait until they finish.
     let mut tasks = Vec::new();
     // To connect over websockets, use the websocket scheme.
-    // tasks.push(do_some_database_work(
-    //     Client::new(Url::parse("wss://dev.ncog.id")?)
-    //         .await?
-    //         .database::<Shape>("my-database")
-    //         .await?,
-    //     "websockets",
-    // ));
+    tasks.push(do_some_database_work(
+        Client::new(Url::parse("wss://dev.ncog.id")?)
+            .await?
+            .database::<Shape>("my-database")
+            .await?,
+        "websockets",
+    ));
 
     // To connect over QUIC, use the bonsaidb scheme.
     tasks.push(do_some_database_work(

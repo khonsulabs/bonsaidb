@@ -27,6 +27,10 @@ mod config;
 mod error;
 mod server;
 
+#[cfg(feature = "acme")]
+pub use config::{
+    AcmeConfiguration, LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY,
+};
 pub use server::ServerSubscriber;
 
 pub use self::{
@@ -34,11 +38,6 @@ pub use self::{
     config::{Configuration, DefaultPermissions, StorageConfiguration},
     error::Error,
     server::{ConnectedClient, CustomServer, Server, ServerDatabase, Transport},
-};
-
-#[cfg(feature = "acme")]
-pub use config::{
-    AcmeConfiguration, LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY,
 };
 
 #[cfg(test)]

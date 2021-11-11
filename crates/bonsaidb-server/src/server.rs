@@ -49,6 +49,7 @@ use bonsaidb_local::{
 use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 use futures::{Future, StreamExt, TryFutureExt};
+use rustls::sign::CertifiedKey;
 use schema::SchemaName;
 use tokio::{fs::File, sync::RwLock};
 
@@ -102,6 +103,7 @@ struct Data<B: Backend = ()> {
     authenticated_permissions: Permissions,
     endpoint: RwLock<Option<Endpoint>>,
     client_simultaneous_request_limit: usize,
+    primary_tls_key: CachedCertifiedKey,
     #[cfg(feature = "acme")]
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
@@ -111,6 +113,23 @@ struct Data<B: Backend = ()> {
     relay: Relay,
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
     _backend: PhantomData<B>,
+}
+
+#[derive(Default)]
+struct CachedCertifiedKey(parking_lot::Mutex<Option<Arc<CertifiedKey>>>);
+
+impl Debug for CachedCertifiedKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("CachedCertifiedKey").finish()
+    }
+}
+
+impl Deref for CachedCertifiedKey {
+    type Target = parking_lot::Mutex<Option<Arc<CertifiedKey>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl<B: Backend> CustomServer<B> {
@@ -136,6 +155,7 @@ impl<B: Backend> CustomServer<B> {
                 default_permissions,
                 authenticated_permissions,
                 client_simultaneous_request_limit: configuration.client_simultaneous_request_limit,
+                primary_tls_key: CachedCertifiedKey::default(),
                 #[cfg(feature = "acme")]
                 acme: configuration.acme,
                 #[cfg(feature = "acme")]
@@ -243,6 +263,26 @@ impl<B: Backend> CustomServer<B> {
                 )))
             })?;
 
+        self.refresh_certified_key().await?;
+
+        Ok(())
+    }
+
+    async fn refresh_certified_key(&self) -> Result<(), Error> {
+        let mut cached_key = self.data.primary_tls_key.lock();
+        let private_key = self.private_key().await?;
+        let private_key =
+            rustls::PrivateKey(fabruic::dangerous::PrivateKey::as_ref(&private_key).to_vec());
+        let private_key = rustls::sign::any_ecdsa_type(&Arc::new(private_key))?;
+
+        let certificate_chain = self.certificate_chain().await?;
+        let certificates = certificate_chain
+            .iter()
+            .map(|cert| rustls::Certificate(cert.as_ref().to_vec()))
+            .collect::<Vec<_>>();
+
+        let certified_key = Arc::new(CertifiedKey::new(certificates, private_key));
+        *cached_key = Some(certified_key);
         Ok(())
     }
 
@@ -274,19 +314,23 @@ impl<B: Backend> CustomServer<B> {
         self.data.directory.join("private-key.der")
     }
 
-    /// Listens for incoming client connections. Does not return until the
-    /// server shuts down.
-    pub async fn listen_on(&self, port: u16) -> Result<(), Error> {
-        let private_key = File::open(self.private_key_path())
+    async fn private_key(&self) -> Result<PrivateKey, Error> {
+        let contents = File::open(self.private_key_path())
             .and_then(FileExt::read_all)
             .await
-            .map(PrivateKey::from_der)
             .map_err(|err| {
                 Error::Core(bonsaidb_core::Error::Configuration(format!(
                     "Error reading private key file: {}",
                     err
                 )))
-            })??;
+            })?;
+        Ok(PrivateKey::from_der(contents)?)
+    }
+
+    /// Listens for incoming client connections. Does not return until the
+    /// server shuts down.
+    pub async fn listen_on(&self, port: u16) -> Result<(), Error> {
+        let private_key = self.private_key().await?;
         let keypair = KeyPair::from_parts(self.certificate_chain().await?, private_key)?;
 
         let mut server = Endpoint::new_server(port, keypair)?;
