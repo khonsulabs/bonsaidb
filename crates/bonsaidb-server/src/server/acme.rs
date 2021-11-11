@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_acme::acme::AcmeCache;
 use async_trait::async_trait;
 use bonsaidb_core::{
@@ -140,12 +142,43 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
 
     async fn write_certificate(
         &self,
-        domains: &[String],
-        directory_url: &str,
+        _domains: &[String],
+        _directory_url: &str,
         key_pem: &str,
         certificate_pem: &str,
     ) -> Result<(), Self::Error> {
         self.install_pem_certificate(certificate_pem.as_bytes(), key_pem.as_bytes())
             .await
+    }
+}
+
+impl<B: Backend> CustomServer<B> {
+    pub(crate) async fn update_acme_certificates(&self) -> Result<(), Error> {
+        if self.certificate_chain_path().exists() {
+            // TODO check cert expiration
+            return Ok(());
+        }
+
+        let domains = vec![self.data.acme.primary_domain.clone()];
+        async_acme::rustls_helper::order(
+            |domain, key| {
+                let mut auth_keys = self.data.alpn_keys.lock().unwrap();
+                auth_keys.insert(domain, Arc::new(key));
+                Ok(())
+            },
+            &self.data.acme.directory,
+            &domains,
+            Some(self),
+            &self
+                .data
+                .acme
+                .contact_email
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+
+        Ok(())
     }
 }
