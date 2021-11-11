@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use async_acme::acme::AcmeCache;
 use async_trait::async_trait;
@@ -136,31 +136,35 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
 
 impl<B: Backend> CustomServer<B> {
     pub(crate) async fn update_acme_certificates(&self) -> Result<(), Error> {
-        if self.certificate_chain_path().exists() {
-            // TODO check cert expiration
-            return Ok(());
+        loop {
+            {
+                let key = self.data.primary_tls_key.lock().clone();
+                while async_acme::rustls_helper::duration_until_renewal_attempt(key.as_deref(), 0)
+                    > Duration::from_secs(24 * 60 * 60 * 14)
+                {
+                    tokio::time::sleep(Duration::from_secs(60 * 60)).await;
+                }
+            }
+
+            let domains = vec![self.data.acme.primary_domain.clone()];
+            async_acme::rustls_helper::order(
+                |domain, key| {
+                    let mut auth_keys = self.data.alpn_keys.lock().unwrap();
+                    auth_keys.insert(domain, Arc::new(key));
+                    Ok(())
+                },
+                &self.data.acme.directory,
+                &domains,
+                Some(self),
+                &self
+                    .data
+                    .acme
+                    .contact_email
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )
+            .await?;
         }
-
-        let domains = vec![self.data.acme.primary_domain.clone()];
-        async_acme::rustls_helper::order(
-            |domain, key| {
-                let mut auth_keys = self.data.alpn_keys.lock().unwrap();
-                auth_keys.insert(domain, Arc::new(key));
-                Ok(())
-            },
-            &self.data.acme.directory,
-            &domains,
-            Some(self),
-            &self
-                .data
-                .acme
-                .contact_email
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>(),
-        )
-        .await?;
-
-        Ok(())
     }
 }
