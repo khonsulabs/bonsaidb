@@ -49,9 +49,9 @@ jobs:
           - folder: crates/bonsaidb
             features: "--no-default-features --features server,client,test-util,websockets"
           - folder: crates/bonsaidb
-            features: "--no-default-features --features server,client,test-util,acme"
+            features: "--no-default-features --features server,client,test-util,server-acme"
           - folder: crates/bonsaidb
-            features: "--no-default-features --features server,client,test-util,acme,websockets"
+            features: "--no-default-features --features server,client,test-util,server-acme,websockets"
     steps:
       - uses: actions/checkout@v2
 
