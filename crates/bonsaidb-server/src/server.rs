@@ -67,7 +67,7 @@ mod connected_client;
 mod database;
 use self::connected_client::OwnedClient;
 pub use self::{
-    connected_client::{ConnectedClient, Transport},
+    connected_client::{ConnectedClient, LockedClientDataGuard, Transport},
     database::{ServerDatabase, ServerSubscriber},
 };
 

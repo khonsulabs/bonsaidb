@@ -16,18 +16,22 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Dispatcher)]
 #[dispatcher(input = CustomRequest)]
-struct CustomBackend;
+struct CustomBackend {
+    client: ConnectedClient<Self>,
+}
 
 impl Backend for CustomBackend {
     type CustomApi = Self;
-
     type CustomApiDispatcher = Self;
+    type ClientData = u64;
 
     fn dispatcher_for(
         _server: &CustomServer<Self>,
-        _client: &ConnectedClient<Self>,
+        client: &ConnectedClient<Self>,
     ) -> Self::CustomApiDispatcher {
-        CustomBackend
+        CustomBackend {
+            client: client.clone(),
+        }
     }
 }
 
@@ -40,12 +44,12 @@ impl CustomApi for CustomBackend {
 #[derive(Serialize, Deserialize, Debug, Actionable)]
 enum CustomRequest {
     #[actionable(protection = "none")]
-    Ping,
+    SetValue(u64),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 enum CustomResponse {
-    Pong,
+    ExistingValue(Option<u64>),
 }
 
 #[tokio::test]
@@ -75,7 +79,12 @@ async fn custom_api() -> anyhow::Result<()> {
         .finish()
         .await?;
 
-    let CustomResponse::Pong = client.send_api_request(CustomRequest::Ping).await?;
+    let CustomResponse::ExistingValue(old_data) =
+        client.send_api_request(CustomRequest::SetValue(1)).await?;
+    assert_eq!(old_data, None);
+    let CustomResponse::ExistingValue(old_data) =
+        client.send_api_request(CustomRequest::SetValue(2)).await?;
+    assert_eq!(old_data, Some(1));
 
     Ok(())
 }
@@ -86,11 +95,14 @@ impl CustomRequestDispatcher for CustomBackend {
 }
 
 #[actionable::async_trait]
-impl PingHandler for CustomBackend {
+impl SetValueHandler for CustomBackend {
     async fn handle(
         &self,
         _permissions: &Permissions,
+        value: u64,
     ) -> Result<CustomResponse, BackendError<Infallible>> {
-        Ok(CustomResponse::Pong)
+        let mut data = self.client.client_data().await;
+        let existing_value = data.replace(value);
+        Ok(CustomResponse::ExistingValue(existing_value))
     }
 }

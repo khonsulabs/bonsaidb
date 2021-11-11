@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, ops::Deref, sync::Arc};
+use std::{
+    net::SocketAddr,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 use actionable::Permissions;
 use bonsaidb_core::{
@@ -6,7 +10,7 @@ use bonsaidb_core::{
     custom_api::CustomApiResult,
 };
 use flume::Sender;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, MutexGuard, RwLock};
 
 use crate::{Backend, CustomServer};
 
@@ -34,6 +38,7 @@ struct Data<B: Backend = ()> {
     response_sender: Sender<CustomApiResult<B::CustomApi>>,
     auth_state: RwLock<AuthenticationState>,
     pending_password_login: Mutex<Option<(Option<u64>, ServerLogin)>>,
+    client_data: Mutex<Option<B::ClientData>>,
 }
 
 #[derive(Debug, Default)]
@@ -118,6 +123,34 @@ impl<B: Backend> ConnectedClient<B> {
     ) -> Result<(), flume::SendError<CustomApiResult<B::CustomApi>>> {
         self.data.response_sender.send(response)
     }
+
+    /// Returns a locked reference to the stored client data.
+    pub async fn client_data(&self) -> LockedClientDataGuard<'_, B::ClientData> {
+        LockedClientDataGuard(self.data.client_data.lock().await)
+    }
+
+    /// Sets the associated data for this client.
+    pub async fn set_client_data(&self, data: B::ClientData) {
+        let mut client_data = self.data.client_data.lock().await;
+        *client_data = Some(data);
+    }
+}
+
+/// A locked reference to associated client data.
+pub struct LockedClientDataGuard<'client, ClientData>(MutexGuard<'client, Option<ClientData>>);
+
+impl<'client, ClientData> Deref for LockedClientDataGuard<'client, ClientData> {
+    type Target = Option<ClientData>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'client, ClientData> DerefMut for LockedClientDataGuard<'client, ClientData> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 #[derive(Debug)]
@@ -147,6 +180,7 @@ impl<B: Backend> OwnedClient<B> {
                         user_id: None,
                     }),
                     pending_password_login: Mutex::default(),
+                    client_data: Mutex::default(),
                 }),
             },
             runtime: tokio::runtime::Handle::current(),

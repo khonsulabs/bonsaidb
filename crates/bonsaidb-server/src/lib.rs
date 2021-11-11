@@ -33,7 +33,9 @@ pub use self::{
     backend::{Backend, BackendError, ConnectionHandling},
     config::{Configuration, DefaultPermissions, StorageConfiguration},
     error::Error,
-    server::{ConnectedClient, CustomServer, Server, ServerDatabase, Transport},
+    server::{
+        ConnectedClient, CustomServer, LockedClientDataGuard, Server, ServerDatabase, Transport,
+    },
 };
 
 #[cfg(test)]

@@ -16,6 +16,11 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// The custom API definition. If you do not wish to have an API, `()` may be provided.
     type CustomApi: CustomApi;
 
+    /// The type of data that can be stored in
+    /// [`ConnectedClient::set_client_data`]. This allows state to be stored
+    /// associated with each connected client.
+    type ClientData: Send + Sync + Debug;
+
     /// The type that implements the
     /// [`Dispatcher`](bonsaidb_core::permissions::Dispatcher) trait.
     type CustomApiDispatcher: Dispatcher<
@@ -76,6 +81,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
 impl Backend for () {
     type CustomApi = ();
     type CustomApiDispatcher = NoDispatcher;
+    type ClientData = ();
 
     fn dispatcher_for(
         _server: &CustomServer<Self>,

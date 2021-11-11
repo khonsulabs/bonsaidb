@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to receive the `server` or `client` during initialization if needed. For
   example, if a custom API needs to know the caller's identity, you can store
   the `client` in your dispatcher and access it in your handlers.
+- `Backend` has a new associated type: `ClientData`. This associated type can be
+  used to associate data on a per-`ConnectedClient` basis.
 - `bonsaidb::server::Configuration` has a new setting:
   `client_simultaneous_request_limit`. It controls the amount of query
   pipelining a single connection can achieve. Submitting more queries on a
