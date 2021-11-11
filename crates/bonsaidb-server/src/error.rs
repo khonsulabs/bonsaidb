@@ -103,13 +103,6 @@ impl<T> From<InsertError<T>> for Error {
     }
 }
 
-#[cfg(feature = "acme")]
-impl From<rcgen::RcgenError> for Error {
-    fn from(err: rcgen::RcgenError) -> Self {
-        Self::Acme(async_acme::acme::AcmeError::RcgenError(err))
-    }
-}
-
 pub trait ResultExt<R> {
     fn map_err_to_core(self) -> Result<R, core::Error>
     where

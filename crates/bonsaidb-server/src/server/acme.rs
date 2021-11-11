@@ -6,14 +6,9 @@ use bonsaidb_core::{
     connection::Connection,
     document::{Document, KeyId},
     schema::{
-        Collection, CollectionName, InvalidNameError, MapResult, Name, Schema, SchemaName,
-        Schematic, View,
+        Collection, CollectionDocument, CollectionName, InvalidNameError, MapResult, Name, Schema,
+        SchemaName, Schematic, View,
     },
-};
-use rcgen::{Certificate, CertificateParams, CustomExtension, PKCS_ECDSA_P256_SHA256};
-use rustls::{
-    sign::{any_ecdsa_type, CertifiedKey},
-    PrivateKey,
 };
 use serde::{Deserialize, Serialize};
 
@@ -80,21 +75,6 @@ impl View for AcmeAccountByContacts {
     }
 }
 
-pub fn gen_acme_cert(
-    domains: Vec<String>,
-    acme_hash: &[u8],
-) -> Result<CertifiedKey, rcgen::RcgenError> {
-    let mut params = CertificateParams::new(domains);
-    params.alg = &PKCS_ECDSA_P256_SHA256;
-    params.custom_extensions = vec![CustomExtension::new_acme_identifier(acme_hash)];
-    let cert = Certificate::from_params(params)?;
-    let key = any_ecdsa_type(&PrivateKey(cert.serialize_private_key_der())).unwrap();
-    Ok(CertifiedKey::new(
-        vec![rustls::Certificate(cert.serialize_der()?)],
-        key,
-    ))
-}
-
 #[async_trait]
 impl<B: Backend> AcmeCache for CustomServer<B> {
     type Error = Error;
@@ -110,7 +90,7 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
             .next();
 
         if let Some(contact) = contact {
-            let contact = dbg!(contact.document.contents::<AcmeAccount>()?);
+            let contact = contact.document.contents::<AcmeAccount>()?;
             Ok(Some(contact.data))
         } else {
             Ok(None)
@@ -119,23 +99,25 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
 
     async fn write_account(&self, contacts: &[&str], contents: &[u8]) -> Result<(), Self::Error> {
         let db = self.database::<Acme>("acme").await?;
-        let contact = db
+        let mapped_account = db
             .view::<AcmeAccountByContacts>()
             .with_key(contacts.join(";"))
             .query_with_docs()
             .await?
             .into_iter()
             .next();
-        if let Some(contact) = contact {
-            db.delete::<AcmeAccount>(&contact.document).await?;
+        if let Some(mapped_account) = mapped_account {
+            let mut account = CollectionDocument::<AcmeAccount>::try_from(mapped_account.document)?;
+            account.contents.data = contents.to_vec();
+            account.update(&db).await?;
+        } else {
+            AcmeAccount {
+                contacts: contacts.iter().map(|&c| c.to_string()).collect(),
+                data: contents.to_vec(),
+            }
+            .insert_into(&db)
+            .await?;
         }
-
-        AcmeAccount {
-            contacts: contacts.iter().map(|&c| c.to_string()).collect(),
-            data: contents.to_vec(),
-        }
-        .insert_into(&db)
-        .await?;
 
         Ok(())
     }
