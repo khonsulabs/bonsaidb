@@ -16,6 +16,9 @@ pub struct Configuration {
     pub default_permissions: DefaultPermissions,
     /// The permissions granted to authenticated connections to this server.
     pub authenticated_permissions: DefaultPermissions,
+    /// The ACME settings for automatic TLS certificate management.
+    #[cfg(feature = "acme")]
+    pub acme: AcmeConfiguration,
 }
 
 impl Default for Configuration {
@@ -28,9 +31,41 @@ impl Default for Configuration {
             storage: bonsaidb_local::config::Configuration::default(),
             default_permissions: DefaultPermissions::Permissions(Permissions::default()),
             authenticated_permissions: DefaultPermissions::Permissions(Permissions::default()),
+            #[cfg(feature = "acme")]
+            acme: AcmeConfiguration::default(),
         }
     }
 }
+
+#[cfg(feature = "acme")]
+mod acme {
+    #[derive(Debug)]
+    pub struct AcmeConfiguration {
+        /// The domain to request an ACME certificate for. This certificate will
+        /// also be used for the QUIC-based connection as well.
+        pub primary_domain: String,
+        /// The contact email to register with the ACME directory for the account.
+        pub contact_email: Option<String>,
+        /// The ACME directory to use for registration. The default is
+        /// [`LETS_ENCRYPT_PRODUCTION_DIRECTORY`].
+        pub directory: String,
+    }
+
+    impl Default for AcmeConfiguration {
+        fn default() -> Self {
+            Self {
+                primary_domain: String::default(),
+                contact_email: None,
+                directory: LETS_ENCRYPT_PRODUCTION_DIRECTORY.to_string(),
+            }
+        }
+    }
+
+    pub use async_acme::acme::{LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY};
+}
+
+#[cfg(feature = "acme")]
+pub use acme::*;
 
 /// The default permissions to use for all connections to the server.
 #[derive(Debug)]

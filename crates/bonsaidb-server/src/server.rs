@@ -46,16 +46,14 @@ use bonsaidb_local::{
     jobs::{manager::Manager, Job},
     OpenDatabase, Storage,
 };
-use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
+use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
-#[cfg(feature = "websockets")]
-use futures::SinkExt;
 use futures::{Future, StreamExt, TryFutureExt};
 use schema::SchemaName;
-#[cfg(feature = "websockets")]
-use tokio::net::TcpListener;
 use tokio::{fs::File, sync::RwLock};
 
+#[cfg(feature = "acme")]
+use crate::config::AcmeConfiguration;
 use crate::{
     async_io_util::FileExt,
     backend::{BackendError, ConnectionHandling},
@@ -65,6 +63,10 @@ use crate::{
 
 mod connected_client;
 mod database;
+
+#[cfg(any(feature = "acme", feature = "websockets"))]
+mod http;
+
 use self::connected_client::OwnedClient;
 pub use self::{
     connected_client::{ConnectedClient, Transport},
@@ -100,6 +102,10 @@ struct Data<B: Backend = ()> {
     authenticated_permissions: Permissions,
     endpoint: RwLock<Option<Endpoint>>,
     client_simultaneous_request_limit: usize,
+    #[cfg(feature = "acme")]
+    acme: AcmeConfiguration,
+    #[cfg(feature = "acme")]
+    alpn_keys: AlpnKeys,
     #[cfg(feature = "websockets")]
     websocket_shutdown: RwLock<Option<Sender<()>>>,
     relay: Relay,
@@ -130,6 +136,10 @@ impl<B: Backend> CustomServer<B> {
                 default_permissions,
                 authenticated_permissions,
                 client_simultaneous_request_limit: configuration.client_simultaneous_request_limit,
+                #[cfg(feature = "acme")]
+                acme: configuration.acme,
+                #[cfg(feature = "acme")]
+                alpn_keys: AlpnKeys::default(),
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
                 relay: Relay::default(),
@@ -186,6 +196,25 @@ impl<B: Backend> CustomServer<B> {
             .await?;
 
         Ok(())
+    }
+
+    /// Installs a certificate chain and private key used for TLS connections.
+    pub async fn install_pem_certificate(
+        &self,
+        certificate_chain: &[u8],
+        private_key: &[u8],
+    ) -> Result<(), Error> {
+        let private_key = pem::parse(&private_key)?;
+        let certificates = pem::parse_many(&certificate_chain)?
+            .into_iter()
+            .map(|entry| Certificate::unchecked_from_der(entry.contents))
+            .collect::<Vec<_>>();
+
+        self.install_certificate(
+            &CertificateChain::unchecked_from_certificates(certificates),
+            &PrivateKey::unchecked_from_der(private_key.contents),
+        )
+        .await
     }
 
     /// Installs a certificate chain and private key used for TLS connections.
@@ -275,43 +304,6 @@ impl<B: Backend> CustomServer<B> {
                     eprintln!("[server] closing connection {}: {:?}", address, err);
                 }
             });
-        }
-
-        Ok(())
-    }
-
-    /// Listens for `WebSocket` traffic on `port`.
-    #[cfg(feature = "websockets")]
-    pub async fn listen_for_websockets_on<T: tokio::net::ToSocketAddrs + Send + Sync>(
-        &self,
-        addr: T,
-    ) -> Result<(), Error> {
-        let listener = TcpListener::bind(&addr).await?;
-        let (shutdown_sender, shutdown_receiver) = flume::bounded(1);
-        {
-            let mut shutdown = self.data.websocket_shutdown.write().await;
-            *shutdown = Some(shutdown_sender);
-        }
-
-        loop {
-            tokio::select! {
-                _ = shutdown_receiver.recv_async() => {
-                    break;
-                }
-                incoming = listener.accept() => {
-                    if incoming.is_err() {
-                        continue;
-                    }
-                    let (connection, remote_addr) = incoming.unwrap();
-
-                    let task_self = self.clone();
-                    tokio::spawn(async move {
-                        if let Err(err) = task_self.handle_websocket_connection(connection).await {
-                            eprintln!("[server] closing connection {}: {:?}", remote_addr, err);
-                        }
-                    });
-                }
-            }
         }
 
         Ok(())
@@ -422,95 +414,6 @@ impl<B: Backend> CustomServer<B> {
                 }
             }
         }
-        Ok(())
-    }
-
-    #[cfg(feature = "websockets")]
-    async fn handle_websocket_connection(
-        &self,
-        connection: tokio::net::TcpStream,
-    ) -> Result<(), Error> {
-        use tokio_tungstenite::tungstenite::Message;
-        let address = connection.peer_addr()?;
-        let stream = tokio_tungstenite::accept_async(connection).await?;
-        let (mut sender, mut receiver) = stream.split();
-        let (response_sender, response_receiver) = flume::unbounded();
-        let (message_sender, message_receiver) = flume::unbounded();
-
-        let (api_response_sender, api_response_receiver) = flume::unbounded();
-        let client = if let Some(client) = self
-            .initialize_client(Transport::WebSocket, address, api_response_sender)
-            .await
-        {
-            client
-        } else {
-            return Ok(());
-        };
-        let task_sender = response_sender.clone();
-        tokio::spawn(async move {
-            while let Ok(response) = api_response_receiver.recv_async().await {
-                if task_sender
-                    .send(Payload {
-                        id: None,
-                        wrapped: Response::Api(response),
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
-
-        tokio::spawn(async move {
-            while let Ok(response) = message_receiver.recv_async().await {
-                sender.send(response).await?;
-            }
-
-            Result::<(), Error>::Ok(())
-        });
-        let task_sender = message_sender.clone();
-        tokio::spawn(async move {
-            while let Ok(response) = response_receiver.recv_async().await {
-                if task_sender
-                    .send(Message::Binary(bincode::serialize(&response)?))
-                    .is_err()
-                {
-                    break;
-                }
-            }
-
-            Result::<(), Error>::Ok(())
-        });
-
-        let (request_sender, request_receiver) =
-            flume::bounded::<Payload<Request<<B::CustomApi as CustomApi>::Request>>>(
-                self.data.client_simultaneous_request_limit,
-            );
-        let task_self = self.clone();
-        tokio::spawn(async move {
-            task_self
-                .handle_client_requests(client.clone(), request_receiver, response_sender)
-                .await;
-        });
-
-        while let Some(payload) = receiver.next().await {
-            match payload? {
-                Message::Binary(binary) => {
-                    let payload = bincode::deserialize::<
-                        Payload<Request<<B::CustomApi as CustomApi>::Request>>,
-                    >(&binary)?;
-                    drop(request_sender.send_async(payload).await);
-                }
-                Message::Close(_) => break,
-                Message::Ping(payload) => {
-                    drop(message_sender.send(Message::Pong(payload)));
-                }
-                other => {
-                    eprintln!("[server] unexpected message: {:?}", other);
-                }
-            }
-        }
-
         Ok(())
     }
 
@@ -1949,5 +1852,22 @@ impl<'s, B: Backend> bonsaidb_core::networking::CompactHandler for DatabaseDispa
         self.database.compact().await?;
 
         Ok(Response::Ok)
+    }
+}
+
+#[derive(Default)]
+struct AlpnKeys(Arc<std::sync::Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>>);
+
+impl Debug for AlpnKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("AlpnKeys").finish()
+    }
+}
+
+impl Deref for AlpnKeys {
+    type Target = Arc<std::sync::Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }

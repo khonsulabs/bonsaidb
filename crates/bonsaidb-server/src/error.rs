@@ -48,6 +48,16 @@ pub enum Error {
     /// An error occurred with handling opaque-ke.
     #[error("an opaque-ke error: {0}")]
     Password(#[from] core::custodian_password::Error),
+
+    /// An error occurred requesting an ACME certificate.
+    #[error("an error requesting an ACME certificate: {0}")]
+    #[cfg(feature = "acme")]
+    Acme(#[from] async_acme::acme::AcmeError),
+
+    /// An error occurred while processing an ACME order.
+    #[error("an error occurred while processing an ACME order: {0}")]
+    #[cfg(feature = "acme")]
+    AcmeOrder(#[from] async_acme::rustls_helper::OrderError),
 }
 
 impl From<Error> for core::Error {
@@ -80,6 +90,13 @@ impl From<InvalidNameError> for Error {
 impl<T> From<InsertError<T>> for Error {
     fn from(error: InsertError<T>) -> Self {
         Self::from(error.error)
+    }
+}
+
+#[cfg(feature = "acme")]
+impl From<rcgen::RcgenError> for Error {
+    fn from(err: rcgen::RcgenError) -> Self {
+        Self::Acme(async_acme::acme::AcmeError::RcgenError(err))
     }
 }
 

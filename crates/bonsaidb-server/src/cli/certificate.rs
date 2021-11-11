@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use fabruic::{Certificate, CertificateChain, PrivateKey};
 use structopt::StructOpt;
 use tokio::io::AsyncReadExt;
 
@@ -66,17 +65,8 @@ impl Command {
                     .read_to_end(&mut certificate_chain)
                     .await?;
 
-                // PEM format
-                let private_key = pem::parse(&private_key)?;
-                let certificates = pem::parse_many(&certificate_chain)?
-                    .into_iter()
-                    .map(|entry| Certificate::unchecked_from_der(entry.contents))
-                    .collect::<Vec<_>>();
                 server
-                    .install_certificate(
-                        &CertificateChain::unchecked_from_certificates(certificates),
-                        &PrivateKey::unchecked_from_der(private_key.contents),
-                    )
+                    .install_pem_certificate(&certificate_chain, &private_key)
                     .await?;
             }
         }

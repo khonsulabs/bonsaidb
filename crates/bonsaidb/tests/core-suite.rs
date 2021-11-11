@@ -57,7 +57,7 @@ fn run_shared_server(certificate_sender: flume::Sender<Certificate>) -> anyhow::
             let task_server = server.clone();
             tokio::spawn(async move {
                 task_server
-                    .listen_for_websockets_on("localhost:6001")
+                    .listen_for_http_on("localhost:6001")
                     .await
                     .unwrap();
             });

@@ -36,6 +36,11 @@ pub use self::{
     server::{ConnectedClient, CustomServer, Server, ServerDatabase, Transport},
 };
 
+#[cfg(feature = "acme")]
+pub use config::{
+    AcmeConfiguration, LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY,
+};
+
 #[cfg(test)]
 mod tests;
 

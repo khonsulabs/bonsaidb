@@ -10,6 +10,7 @@ use bonsaidb::{
     },
     server::{Configuration, DefaultPermissions, Server},
 };
+use bonsaidb_server::{AcmeConfiguration, LETS_ENCRYPT_STAGING_DIRECTORY};
 use rand::{thread_rng, Rng};
 
 mod support;
@@ -19,22 +20,20 @@ use support::schema::{Shape, ShapesByNumberOfSides};
 async fn main() -> anyhow::Result<()> {
     // ANCHOR: setup
     let server = Server::open(
-        Path::new("server-data.bonsaidb"),
+        Path::new("acme-server-data.bonsaidb"),
         Configuration {
             default_permissions: DefaultPermissions::AllowAll,
+            acme: AcmeConfiguration {
+                primary_domain: String::from("dev.ncog.id"),
+                contact_email: None,
+                // directory: LETS_ENCRYPT_STAGING_DIRECTORY.to_string(),
+                ..Default::default()
+            },
             ..Default::default()
         },
     )
     .await?;
-    if server.certificate_chain().await.is_err() {
-        server
-            .install_self_signed_certificate("example-server", true)
-            .await?;
-    }
-    let certificate = server
-        .certificate_chain()
-        .await?
-        .into_end_entity_certificate();
+
     server.register_schema::<Shape>().await?;
     server.create_database::<Shape>("my-database", true).await?;
     // ANCHOR_END: setup
@@ -42,12 +41,14 @@ async fn main() -> anyhow::Result<()> {
     // If websockets are enabled, we'll also listen for websocket traffic. The
     // QUIC-based connection should be overall better to use than WebSockets,
     // but it's much easier to route WebSocket traffic across the internet.
-    #[cfg(feature = "websockets")]
-    {
-        let server = server.clone();
-        tokio::spawn(async move {
-            server.listen_for_http_on("localhost:8080").await
-        });
+    let task_server = server.clone();
+    tokio::spawn(async move {
+        task_server.listen_for_https_on("0.0.0.0:5001").await
+    });
+
+    // ugly, wait for the certificate
+    while server.certificate_chain().await.is_err() {
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
     // Spawn our QUIC-based protocol listener.
@@ -60,22 +61,18 @@ async fn main() -> anyhow::Result<()> {
     // To allow this example to run both websockets and QUIC, we're going to gather the clients
     // into a collection and use join_all to wait until they finish.
     let mut tasks = Vec::new();
-    #[cfg(feature = "websockets")]
-    {
-        // To connect over websockets, use the websocket scheme.
-        tasks.push(do_some_database_work(
-            Client::new(Url::parse("ws://localhost:8080")?)
-                .await?
-                .database::<Shape>("my-database")
-                .await?,
-            "websockets",
-        ));
-    }
+    // To connect over websockets, use the websocket scheme.
+    // tasks.push(do_some_database_work(
+    //     Client::new(Url::parse("wss://dev.ncog.id")?)
+    //         .await?
+    //         .database::<Shape>("my-database")
+    //         .await?,
+    //     "websockets",
+    // ));
 
     // To connect over QUIC, use the bonsaidb scheme.
     tasks.push(do_some_database_work(
-        Client::<()>::build(Url::parse("bonsaidb://localhost")?)
-            .with_certificate(certificate)
+        Client::<()>::build(Url::parse("bonsaidb://dev.ncog.id")?)
             .finish()
             .await?
             .database::<Shape>("my-database")
