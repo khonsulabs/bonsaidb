@@ -46,7 +46,7 @@ use bonsaidb_local::{
     jobs::{manager::Manager, Job},
     OpenDatabase, Storage,
 };
-use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
+use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 use futures::{Future, StreamExt, TryFutureExt};
 use rustls::sign::CertifiedKey;
@@ -62,6 +62,7 @@ use crate::{
     Backend, Configuration,
 };
 
+#[cfg(feature = "acme")]
 mod acme;
 mod connected_client;
 mod database;
@@ -226,11 +227,14 @@ impl<B: Backend> CustomServer<B> {
     }
 
     /// Installs a certificate chain and private key used for TLS connections.
+    #[cfg(feature = "pem")]
     pub async fn install_pem_certificate(
         &self,
         certificate_chain: &[u8],
         private_key: &[u8],
     ) -> Result<(), Error> {
+        use fabruic::Certificate;
+
         let private_key = pem::parse(&private_key)?;
         let certificates = pem::parse_many(&certificate_chain)?
             .into_iter()

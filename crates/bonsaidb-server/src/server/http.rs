@@ -1,6 +1,4 @@
-use std::net::SocketAddr;
-#[cfg(feature = "acme")]
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use rustls::server::ResolvesServerCert;
 #[cfg(feature = "websockets")]
@@ -212,6 +210,7 @@ impl<B: Backend> ResolvesServerCert for CustomServer<B> {
         &self,
         client_hello: rustls::server::ClientHello<'_>,
     ) -> Option<Arc<rustls::sign::CertifiedKey>> {
+        #[cfg(feature = "acme")]
         if client_hello
             .alpn()
             .map(|mut iter| iter.any(|n| n == async_acme::acme::ACME_TLS_ALPN_NAME))
@@ -223,15 +222,15 @@ impl<B: Backend> ResolvesServerCert for CustomServer<B> {
                 return Some(key.clone());
             }
 
-            None
+            return None;
+        }
+
+        let cached_key = self.data.primary_tls_key.lock();
+        if let Some(key) = cached_key.as_ref() {
+            Some(key.clone())
         } else {
-            let cached_key = self.data.primary_tls_key.lock();
-            if let Some(key) = cached_key.as_ref() {
-                Some(key.clone())
-            } else {
-                eprintln!("[server] inbound tls connection with no certificate installed");
-                None
-            }
+            eprintln!("[server] inbound tls connection with no certificate installed");
+            None
         }
     }
 }
