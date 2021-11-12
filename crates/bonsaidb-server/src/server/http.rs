@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
 use rustls::server::ResolvesServerCert;
 #[cfg(feature = "websockets")]
@@ -11,6 +11,7 @@ use crate::Error;
 impl<B: Backend> CustomServer<B> {
     /// Listens for HTTP traffic on `port`. This port will also receive
     /// `WebSocket` connections if feature `websockets` is enabled.
+    #[cfg(feature = "websockets")]
     pub async fn listen_for_http_on<T: tokio::net::ToSocketAddrs + Send + Sync>(
         &self,
         addr: T,
@@ -51,6 +52,8 @@ impl<B: Backend> CustomServer<B> {
     /// `acme` is enabled, this connection will automatically manage the
     /// server's private key and certificate, which is also used for the
     /// QUIC-based protocol.
+    #[cfg_attr(not(feature = "websockets"), allow(unused_variables))]
+    #[cfg_attr(not(feature = "acme"), allow(unused_mut))]
     pub async fn listen_for_https_on<T: tokio::net::ToSocketAddrs + Send + Sync>(
         &self,
         addr: T,
@@ -93,6 +96,7 @@ impl<B: Backend> CustomServer<B> {
                     }
                 };
 
+                #[cfg(feature = "websockets")]
                 if stream.get_ref().1.alpn_protocol().is_none() {
                     // Only pass non ALPN traffic on.
                     if let Err(err) = task_self
@@ -110,7 +114,7 @@ impl<B: Backend> CustomServer<B> {
     async fn handle_websocket_connection<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
         &self,
         connection: S,
-        peer_address: SocketAddr,
+        peer_address: std::net::SocketAddr,
     ) -> Result<(), Error> {
         use bonsaidb_core::{
             custom_api::CustomApi,
@@ -206,6 +210,7 @@ impl<B: Backend> CustomServer<B> {
 }
 
 impl<B: Backend> ResolvesServerCert for CustomServer<B> {
+    #[cfg_attr(not(feature = "acme"), allow(unused_variables))]
     fn resolve(
         &self,
         client_hello: rustls::server::ClientHello<'_>,
