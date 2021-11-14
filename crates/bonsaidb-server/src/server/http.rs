@@ -58,6 +58,9 @@ impl<B: Backend> CustomServer<B> {
         &self,
         addr: T,
     ) -> Result<(), Error> {
+        // We may not have a certificate yet, so we ignore any errors.
+        drop(self.refresh_certified_key().await);
+
         #[cfg(feature = "acme")]
         {
             let task_self = self.clone();
@@ -67,9 +70,6 @@ impl<B: Backend> CustomServer<B> {
                 }
             });
         }
-
-        // We may not have a certificate yet, so we ignore any errors.
-        drop(self.refresh_certified_key().await);
 
         let mut config = rustls::ServerConfig::builder()
             .with_safe_defaults()

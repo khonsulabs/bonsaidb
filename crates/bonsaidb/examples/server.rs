@@ -27,9 +27,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
     if server.certificate_chain().await.is_err() {
-        server
-            .install_self_signed_certificate("example-server", true)
-            .await?;
+        server.install_self_signed_certificate(true).await?;
     }
     let certificate = server
         .certificate_chain()

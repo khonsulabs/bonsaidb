@@ -6,28 +6,11 @@ use bonsaidb_core::{
     connection::Connection,
     define_basic_unique_mapped_view,
     document::KeyId,
-    schema::{
-        Collection, CollectionDocument, CollectionName, InvalidNameError, Schema, SchemaName,
-        Schematic,
-    },
+    schema::{Collection, CollectionDocument, CollectionName, InvalidNameError, Schematic},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{Backend, CustomServer, Error};
-
-#[derive(Debug)]
-pub struct Acme;
-
-impl Schema for Acme {
-    fn schema_name() -> Result<SchemaName, InvalidNameError> {
-        SchemaName::new("khonsulabs", "acme")
-    }
-
-    fn define_collections(schema: &mut Schematic) -> Result<(), bonsaidb_core::Error> {
-        schema.define_collection::<AcmeAccount>()?;
-        Ok(())
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AcmeAccount {
@@ -68,7 +51,7 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
     type Error = Error;
 
     async fn read_account(&self, contacts: &[&str]) -> Result<Option<Vec<u8>>, Self::Error> {
-        let db = self.database::<Acme>("acme").await?;
+        let db = self.hosted().await;
         let contact = db
             .view::<AcmeAccountByContacts>()
             .with_key(contacts.join(";"))
@@ -86,7 +69,7 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
     }
 
     async fn write_account(&self, contacts: &[&str], contents: &[u8]) -> Result<(), Self::Error> {
-        let db = self.database::<Acme>("acme").await?;
+        let db = self.hosted().await;
         let mapped_account = db
             .view::<AcmeAccountByContacts>()
             .with_key(contacts.join(";"))
@@ -134,7 +117,7 @@ impl<B: Backend> CustomServer<B> {
                 }
             }
 
-            let domains = vec![self.data.acme.primary_domain.clone()];
+            let domains = vec![self.data.primary_domain.clone()];
             async_acme::rustls_helper::order(
                 |domain, key| {
                     let mut auth_keys = self.data.alpn_keys.lock().unwrap();

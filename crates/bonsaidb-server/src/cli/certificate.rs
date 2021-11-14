@@ -15,12 +15,6 @@ pub enum Command {
     /// [`Error::Configuration`](bonsaidb_core::Error::Configuration) is
     /// returned.
     InstallSelfSigned {
-        /// The name of the server. If this server has a DNS name, you should
-        /// use the hostname here. This value is required to be passed in when
-        /// connecting for validation.
-        #[structopt(short = "n", long)]
-        server_name: String,
-
         /// If an existing certificate exists, an error will be returned unless
         /// `overwrite` is true.
         #[structopt(short, long)]
@@ -43,13 +37,8 @@ impl Command {
     /// Executes the command.
     pub async fn execute<B: Backend>(&self, server: CustomServer<B>) -> Result<(), Error> {
         match self {
-            Self::InstallSelfSigned {
-                server_name,
-                overwrite,
-            } => {
-                server
-                    .install_self_signed_certificate(server_name, *overwrite)
-                    .await?;
+            Self::InstallSelfSigned { overwrite } => {
+                server.install_self_signed_certificate(*overwrite).await?;
             }
             Self::Install {
                 private_key,

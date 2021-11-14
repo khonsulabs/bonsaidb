@@ -25,6 +25,7 @@ mod backend;
 pub mod cli;
 mod config;
 mod error;
+pub(crate) mod hosted;
 mod server;
 
 #[cfg(feature = "acme")]

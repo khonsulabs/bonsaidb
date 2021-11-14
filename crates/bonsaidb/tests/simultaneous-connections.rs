@@ -20,9 +20,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
         },
     )
     .await?;
-    server
-        .install_self_signed_certificate("test", false)
-        .await?;
+    server.install_self_signed_certificate(false).await?;
     let certificate = server
         .certificate_chain()
         .await?
@@ -30,7 +28,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
     server.register_schema::<BasicSchema>().await?;
     tokio::spawn(async move { server.listen_on(12345).await });
 
-    let client = Client::build(Url::parse("bonsaidb://localhost:12345?server=test")?)
+    let client = Client::build(Url::parse("bonsaidb://localhost:12345")?)
         .with_certificate(certificate)
         .finish()
         .await?;

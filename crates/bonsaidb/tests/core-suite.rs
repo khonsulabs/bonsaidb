@@ -275,9 +275,7 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
         },
     )
     .await?;
-    server
-        .install_self_signed_certificate("authenticated-permissions-test", false)
-        .await?;
+    server.install_self_signed_certificate(false).await?;
     let certificate = server
         .certificate_chain()
         .await?

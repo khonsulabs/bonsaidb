@@ -3,6 +3,8 @@ pub use bonsaidb_local::config::Configuration as StorageConfiguration;
 
 /// Configuration options for [`Server`](crate::Server)
 pub struct Configuration {
+    /// The DNS name of the server.
+    pub server_name: String,
     /// Number of sumultaneous requests a single client can have in flight at a
     /// time. Default value is 16. It is important to have this number be tuned
     /// relative to `request_workers` such that one client cannot overwhelm the
@@ -24,6 +26,7 @@ pub struct Configuration {
 impl Default for Configuration {
     fn default() -> Self {
         Self {
+            server_name: String::from("bonsaidb"),
             client_simultaneous_request_limit: 16,
             // TODO this was arbitrarily picked, it probably should be higher,
             // but it also should probably be based on the cpu's capabilities
@@ -42,9 +45,6 @@ mod acme {
     /// The Automated Certificate Management Environment (ACME) configuration.
     #[derive(Debug)]
     pub struct AcmeConfiguration {
-        /// The domain to request an ACME certificate for. This certificate will
-        /// also be used for the QUIC-based connection as well.
-        pub primary_domain: String,
         /// The contact email to register with the ACME directory for the account.
         pub contact_email: Option<String>,
         /// The ACME directory to use for registration. The default is
@@ -55,7 +55,6 @@ mod acme {
     impl Default for AcmeConfiguration {
         fn default() -> Self {
             Self {
-                primary_domain: String::default(),
                 contact_email: None,
                 directory: LETS_ENCRYPT_PRODUCTION_DIRECTORY.to_string(),
             }

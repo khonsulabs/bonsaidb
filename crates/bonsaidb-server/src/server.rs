@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     admin::{self, Admin, User},
     circulate::{Message, Relay, Subscriber},
-    connection::{AccessPolicy, QueryKey, Range, ServerConnection, Sort},
+    connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection, Sort},
     custodian_password::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
     },
@@ -38,8 +38,7 @@ use bonsaidb_core::{
         Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
     },
     pubsub::database_topic,
-    schema,
-    schema::{Collection, CollectionName, NamedReference, Schema, ViewName},
+    schema::{self, Collection, CollectionName, NamedCollection, NamedReference, Schema, ViewName},
     transaction::{Command, Transaction},
 };
 use bonsaidb_local::{
@@ -48,22 +47,22 @@ use bonsaidb_local::{
 };
 use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
-use futures::{Future, StreamExt, TryFutureExt};
+use futures::{Future, StreamExt};
 use rustls::sign::CertifiedKey;
 use schema::SchemaName;
-use tokio::{fs::File, sync::RwLock};
+use tokio::sync::RwLock;
 
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
 use crate::{
-    async_io_util::FileExt,
     backend::{BackendError, ConnectionHandling},
     error::Error,
+    hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
     Backend, Configuration,
 };
 
 #[cfg(feature = "acme")]
-mod acme;
+pub mod acme;
 mod connected_client;
 mod database;
 
@@ -106,6 +105,7 @@ struct Data<B: Backend = ()> {
     endpoint: RwLock<Option<Endpoint>>,
     client_simultaneous_request_limit: usize,
     primary_tls_key: CachedCertifiedKey,
+    primary_domain: String,
     #[cfg(feature = "acme")]
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
@@ -144,11 +144,8 @@ impl<B: Backend> CustomServer<B> {
 
         let storage = Storage::open_local(directory, configuration.storage).await?;
 
-        #[cfg(feature = "acme")]
-        {
-            storage.register_schema::<acme::Acme>().await?;
-            storage.create_database::<acme::Acme>("acme", true).await?;
-        }
+        storage.register_schema::<Hosted>().await?;
+        storage.create_database::<Hosted>("_hosted", true).await?;
 
         let default_permissions = Permissions::from(configuration.default_permissions);
         let authenticated_permissions = Permissions::from(configuration.authenticated_permissions);
@@ -164,6 +161,7 @@ impl<B: Backend> CustomServer<B> {
                 authenticated_permissions,
                 client_simultaneous_request_limit: configuration.client_simultaneous_request_limit,
                 primary_tls_key: CachedCertifiedKey::default(),
+                primary_domain: configuration.server_name,
                 #[cfg(feature = "acme")]
                 acme: configuration.acme,
                 #[cfg(feature = "acme")]
@@ -200,6 +198,11 @@ impl<B: Backend> CustomServer<B> {
         ServerDatabase { server: self, db }
     }
 
+    pub(crate) async fn hosted(&self) -> ServerDatabase<'_, B, Hosted> {
+        let db = self.data.storage.database("_hosted").await.unwrap();
+        ServerDatabase { server: self, db }
+    }
+
     pub(crate) async fn database_without_schema(
         &self,
         name: &'_ str,
@@ -209,14 +212,10 @@ impl<B: Backend> CustomServer<B> {
     }
 
     /// Installs an X.509 certificate used for general purpose connections.
-    pub async fn install_self_signed_certificate(
-        &self,
-        server_name: &str,
-        overwrite: bool,
-    ) -> Result<(), Error> {
-        let keypair = KeyPair::new_self_signed(server_name);
+    pub async fn install_self_signed_certificate(&self, overwrite: bool) -> Result<(), Error> {
+        let keypair = KeyPair::new_self_signed(&self.data.primary_domain);
 
-        if self.certificate_chain_path().exists() && !overwrite {
+        if self.certificate_chain().await.is_ok() && !overwrite {
             return Err(Error::Core(bonsaidb_core::Error::Configuration(String::from("Certificate already installed. Enable overwrite if you wish to replace the existing certificate."))));
         }
 
@@ -254,28 +253,25 @@ impl<B: Backend> CustomServer<B> {
     /// Installs a certificate chain and private key used for TLS connections.
     pub async fn install_certificate(
         &self,
-        certificate: &CertificateChain,
+        certificate_chain: &CertificateChain,
         private_key: &PrivateKey,
     ) -> Result<(), Error> {
-        let serialized = pot::to_vec(certificate).unwrap();
-        File::create(self.certificate_chain_path())
-            .and_then(|file| file.write_all(&serialized))
-            .await
-            .map_err(|err| {
-                Error::Core(bonsaidb_core::Error::Configuration(format!(
-                    "Error writing certificate file: {}",
-                    err
-                )))
-            })?;
-        File::create(self.private_key_path())
-            .and_then(|file| file.write_all(fabruic::dangerous::PrivateKey::as_ref(private_key)))
-            .await
-            .map_err(|err| {
-                Error::Core(bonsaidb_core::Error::Configuration(format!(
-                    "Error writing private key file: {}",
-                    err
-                )))
-            })?;
+        let db = self.hosted().await;
+        if let Some(mut existing_record) =
+            TlsCertificate::load(&self.data.primary_domain, &db).await?
+        {
+            existing_record.contents.certificate_chain = certificate_chain.clone();
+            existing_record.contents.private_key = SerializablePrivateKey(private_key.clone());
+            existing_record.update(&db).await?;
+        } else {
+            TlsCertificate {
+                domains: vec![self.data.primary_domain.clone()],
+                private_key: SerializablePrivateKey(private_key.clone()),
+                certificate_chain: certificate_chain.clone(),
+            }
+            .insert_into(&db)
+            .await?;
+        }
 
         self.refresh_certified_key().await?;
 
@@ -283,14 +279,16 @@ impl<B: Backend> CustomServer<B> {
     }
 
     async fn refresh_certified_key(&self) -> Result<(), Error> {
+        let certificate = self.tls_certificate().await?;
+
         let mut cached_key = self.data.primary_tls_key.lock();
-        let private_key = self.private_key().await?;
-        let private_key =
-            rustls::PrivateKey(fabruic::dangerous::PrivateKey::as_ref(&private_key).to_vec());
+        let private_key = rustls::PrivateKey(
+            fabruic::dangerous::PrivateKey::as_ref(&certificate.private_key.0).to_vec(),
+        );
         let private_key = rustls::sign::any_ecdsa_type(&Arc::new(private_key))?;
 
-        let certificate_chain = self.certificate_chain().await?;
-        let certificates = certificate_chain
+        let certificates = certificate
+            .certificate_chain
             .iter()
             .map(|cert| rustls::Certificate(cert.as_ref().to_vec()))
             .collect::<Vec<_>>();
@@ -300,52 +298,50 @@ impl<B: Backend> CustomServer<B> {
         Ok(())
     }
 
-    fn certificate_chain_path(&self) -> PathBuf {
-        self.data.directory.join("public-certificate.pot")
+    async fn tls_certificate(&self) -> Result<TlsCertificate, Error> {
+        let db = self.hosted().await;
+        let certificate = db
+            .view::<TlsCertificatesByDomain>()
+            .with_key(self.data.primary_domain.clone())
+            .query_with_docs()
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                Error::Core(bonsaidb_core::Error::Configuration(format!(
+                    "no certificate found for {}",
+                    self.data.primary_domain
+                )))
+            })?;
+        Ok(certificate.document.contents()?)
     }
 
     /// Returns the current certificate chain.
     pub async fn certificate_chain(&self) -> Result<CertificateChain, Error> {
-        let certificate = File::open(self.certificate_chain_path())
-            .and_then(FileExt::read_all)
-            .await
-            .map_err(|err| {
-                Error::Core(bonsaidb_core::Error::Configuration(format!(
-                    "Error reading certificate file: {}",
-                    err
-                )))
-            })?;
-        let chain = pot::from_slice(&certificate).map_err(|err| {
-            Error::Core(bonsaidb_core::Error::Configuration(format!(
-                "Invalid certificate file contents: {}",
-                err
-            )))
-        })?;
-        Ok(chain)
-    }
-
-    fn private_key_path(&self) -> PathBuf {
-        self.data.directory.join("private-key.der")
-    }
-
-    async fn private_key(&self) -> Result<PrivateKey, Error> {
-        let contents = File::open(self.private_key_path())
-            .and_then(FileExt::read_all)
-            .await
-            .map_err(|err| {
-                Error::Core(bonsaidb_core::Error::Configuration(format!(
-                    "Error reading private key file: {}",
-                    err
-                )))
-            })?;
-        Ok(PrivateKey::from_der(contents)?)
+        let db = self.hosted().await;
+        if let Some(mapping) = db
+            .view::<TlsCertificatesByDomain>()
+            .with_key(self.data.primary_domain.clone())
+            .query()
+            .await?
+            .into_iter()
+            .next()
+        {
+            Ok(mapping.value)
+        } else {
+            Err(Error::Core(bonsaidb_core::Error::Configuration(format!(
+                "no certificate found for {}",
+                self.data.primary_domain
+            ))))
+        }
     }
 
     /// Listens for incoming client connections. Does not return until the
     /// server shuts down.
     pub async fn listen_on(&self, port: u16) -> Result<(), Error> {
-        let private_key = self.private_key().await?;
-        let keypair = KeyPair::from_parts(self.certificate_chain().await?, private_key)?;
+        let certificate = self.tls_certificate().await?;
+        let keypair =
+            KeyPair::from_parts(certificate.certificate_chain, certificate.private_key.0)?;
 
         let mut server = Endpoint::new_server(port, keypair)?;
         {
