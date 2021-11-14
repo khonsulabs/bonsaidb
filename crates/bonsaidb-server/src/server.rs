@@ -235,7 +235,10 @@ impl<B: Backend> CustomServer<B> {
     ) -> Result<(), Error> {
         use fabruic::Certificate;
 
-        let private_key = pem::parse(&private_key)?;
+        let private_key = match pem::parse(private_key) {
+            Ok(pem) => PrivateKey::unchecked_from_der(pem.contents),
+            Err(_) => PrivateKey::from_der(private_key)?,
+        };
         let certificates = pem::parse_many(&certificate_chain)?
             .into_iter()
             .map(|entry| Certificate::unchecked_from_der(entry.contents))
@@ -243,7 +246,7 @@ impl<B: Backend> CustomServer<B> {
 
         self.install_certificate(
             &CertificateChain::unchecked_from_certificates(certificates),
-            &PrivateKey::unchecked_from_der(private_key.contents),
+            &private_key,
         )
         .await
     }

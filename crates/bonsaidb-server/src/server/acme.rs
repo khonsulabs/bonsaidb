@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use async_acme::acme::AcmeCache;
+use async_acme::cache::AcmeCache;
 use async_trait::async_trait;
 use bonsaidb_core::{
     connection::Connection,
