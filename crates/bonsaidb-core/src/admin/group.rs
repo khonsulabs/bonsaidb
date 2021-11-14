@@ -2,11 +2,11 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::Document,
+    define_basic_unique_mapped_view,
     permissions::Statement,
     schema::{
-        Collection, CollectionName, InvalidNameError, MapResult, Name, NamedCollection, Schematic,
-        View,
+        Collection, CollectionDocument, CollectionName, InvalidNameError, NamedCollection,
+        Schematic,
     },
     Error,
 };
@@ -51,29 +51,13 @@ impl NamedCollection for PermissionGroup {
     type ByNameView = ByName;
 }
 
-/// A unique view of permission groups by name.
-#[derive(Debug)]
-pub struct ByName;
-
-impl View for ByName {
-    type Collection = PermissionGroup;
-    type Key = String;
-    type Value = ();
-
-    fn unique(&self) -> bool {
-        true
+define_basic_unique_mapped_view!(
+    ByName,
+    PermissionGroup,
+    1,
+    "by-name",
+    String,
+    |document: CollectionDocument<PermissionGroup>| {
+        vec![document.header.emit_key(document.contents.name)]
     }
-
-    fn version(&self) -> u64 {
-        1
-    }
-
-    fn name(&self) -> Result<Name, InvalidNameError> {
-        Name::new("by-name")
-    }
-
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        let group = document.contents::<PermissionGroup>()?;
-        Ok(vec![document.emit_key(group.name)])
-    }
-}
+);

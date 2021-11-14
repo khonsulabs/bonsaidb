@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     convert::{TryFrom, TryInto},
     fmt::Debug,
+    ops::Deref,
 };
 
 use async_trait::async_trait;
@@ -69,7 +70,7 @@ pub trait Collection: Debug + Send + Sync {
             }
         };
         Ok(CollectionDocument {
-            header: Cow::Owned(header),
+            header,
             contents: self,
         })
     }
@@ -170,10 +171,32 @@ pub trait NamedCollection: Collection {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CollectionDocument<C: Collection + Serialize + for<'de> Deserialize<'de>> {
     /// The header of the document, which contains the id and `Revision`.
-    pub header: Cow<'static, Header>,
+    pub header: Header,
 
     /// The document's contents.
     pub contents: C,
+}
+
+impl<'a, C: Collection + Serialize + for<'de> Deserialize<'de>> Deref for CollectionDocument<C> {
+    type Target = Header;
+
+    fn deref(&self) -> &Self::Target {
+        &self.header
+    }
+}
+
+impl<'b, 'a, C> TryFrom<&'b Document<'a>> for CollectionDocument<C>
+where
+    C: Collection + Serialize + for<'de> Deserialize<'de>,
+{
+    type Error = Error;
+
+    fn try_from(value: &'b Document<'a>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            contents: value.contents::<C>()?,
+            header: value.header.clone(),
+        })
+    }
 }
 
 impl<C> TryFrom<Document<'static>> for CollectionDocument<C>

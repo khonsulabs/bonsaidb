@@ -4,10 +4,11 @@ use async_acme::cache::AcmeCache;
 use async_trait::async_trait;
 use bonsaidb_core::{
     connection::Connection,
-    document::{Document, KeyId},
+    define_basic_unique_mapped_view,
+    document::KeyId,
     schema::{
-        Collection, CollectionDocument, CollectionName, InvalidNameError, MapResult, Name, Schema,
-        SchemaName, Schematic, View,
+        Collection, CollectionDocument, CollectionName, InvalidNameError, Schema, SchemaName,
+        Schematic,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -49,31 +50,18 @@ impl Collection for AcmeAccount {
     }
 }
 
-#[derive(Debug)]
-pub struct AcmeAccountByContacts;
-
-impl View for AcmeAccountByContacts {
-    type Collection = AcmeAccount;
-    type Key = String;
-    type Value = ();
-
-    fn unique(&self) -> bool {
-        true
+define_basic_unique_mapped_view!(
+    AcmeAccountByContacts,
+    AcmeAccount,
+    1,
+    "by-contacts",
+    String,
+    |document: CollectionDocument<AcmeAccount>| {
+        vec![document
+            .header
+            .emit_key(document.contents.contacts.join(";"))]
     }
-
-    fn version(&self) -> u64 {
-        1
-    }
-
-    fn name(&self) -> Result<Name, InvalidNameError> {
-        Name::new("by-contacts")
-    }
-
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        let account = document.contents::<AcmeAccount>()?;
-        Ok(vec![document.emit_key(account.contacts.join(";"))])
-    }
-}
+);
 
 #[async_trait]
 impl<B: Backend> AcmeCache for CustomServer<B> {

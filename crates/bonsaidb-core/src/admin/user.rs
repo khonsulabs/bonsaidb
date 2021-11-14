@@ -5,11 +5,12 @@ use crate::{
     admin::{group, role},
     connection::Connection,
     custodian_password::{ServerFile, ServerRegistration},
-    document::{Document, KeyId},
+    define_basic_unique_mapped_view,
+    document::KeyId,
     permissions::Permissions,
     schema::{
-        Collection, CollectionName, InvalidNameError, MapResult, Name, NamedCollection, Schematic,
-        View,
+        Collection, CollectionDocument, CollectionName, InvalidNameError, NamedCollection,
+        Schematic,
     },
     Error,
 };
@@ -111,29 +112,13 @@ impl NamedCollection for User {
     type ByNameView = ByName;
 }
 
-/// A unique view of users by name.
-#[derive(Debug)]
-pub struct ByName;
-
-impl View for ByName {
-    type Collection = User;
-    type Key = String;
-    type Value = ();
-
-    fn unique(&self) -> bool {
-        true
+define_basic_unique_mapped_view!(
+    ByName,
+    User,
+    1,
+    "by-name",
+    String,
+    |document: CollectionDocument<User>| {
+        vec![document.header.emit_key(document.contents.username)]
     }
-
-    fn version(&self) -> u64 {
-        1
-    }
-
-    fn name(&self) -> Result<Name, InvalidNameError> {
-        Name::new("by-name")
-    }
-
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        let role = document.contents::<User>()?;
-        Ok(vec![document.emit_key(role.username)])
-    }
-}
+);

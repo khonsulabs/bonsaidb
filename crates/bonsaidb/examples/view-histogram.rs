@@ -18,10 +18,9 @@ use std::ops::Deref;
 use bonsaidb::{
     core::{
         connection::{AccessPolicy, Connection},
-        document::Document,
         schema::{
-            view, Collection, CollectionName, InvalidNameError, MappedValue,
-            Name, Schematic, View,
+            view, view::CollectionView, Collection, CollectionDocument,
+            CollectionName, InvalidNameError, MappedValue, Name, Schematic,
         },
     },
     local::{config::Configuration, Database},
@@ -117,7 +116,7 @@ impl Collection for Samples {
 #[derive(Debug)]
 pub struct AsHistogram;
 
-impl View for AsHistogram {
+impl CollectionView for AsHistogram {
     type Collection = Samples;
 
     type Key = u64;
@@ -134,16 +133,15 @@ impl View for AsHistogram {
 
     fn map(
         &self,
-        document: &Document<'_>,
+        document: CollectionDocument<Self::Collection>,
     ) -> bonsaidb::core::schema::MapResult<Self::Key, Self::Value> {
-        let samples = document.contents::<Samples>()?;
         let mut histogram = Histogram::new(4).unwrap();
-        for sample in &samples.entries {
+        for sample in &document.contents.entries {
             histogram.record(*sample).unwrap();
         }
 
         Ok(vec![document.emit_key_and_value(
-            samples.timestamp,
+            document.contents.timestamp,
             StoredHistogram(histogram.into_sync()),
         )])
     }

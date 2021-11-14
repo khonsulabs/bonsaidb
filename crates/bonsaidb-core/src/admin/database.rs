@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::Document,
+    define_basic_unique_mapped_view,
     schema::{
-        self, Collection, CollectionName, InvalidNameError, Name, SchemaName, Schematic, View,
+        Collection, CollectionDocument, CollectionName, InvalidNameError, SchemaName, Schematic,
     },
     Error,
 };
@@ -27,31 +27,17 @@ impl Collection for Database {
     }
 }
 
-#[derive(Debug)]
-pub struct ByName;
-
-impl View for ByName {
-    type Collection = Database;
-    type Key = String;
-    type Value = schema::SchemaName;
-
-    fn unique(&self) -> bool {
-        true
-    }
-
-    fn version(&self) -> u64 {
-        1
-    }
-
-    fn name(&self) -> Result<Name, InvalidNameError> {
-        Name::new("by-name")
-    }
-
-    fn map(&self, document: &Document<'_>) -> schema::MapResult<Self::Key, Self::Value> {
-        let database = document.contents::<Database>()?;
-        Ok(vec![document.emit_key_and_value(
-            database.name.to_ascii_lowercase(),
-            database.schema,
-        )])
-    }
-}
+define_basic_unique_mapped_view!(
+    ByName,
+    Database,
+    1,
+    "by-name",
+    String,
+    SchemaName,
+    |document: CollectionDocument<Database>| {
+        vec![document.header.emit_key_and_value(
+            document.contents.name.to_ascii_lowercase(),
+            document.contents.schema,
+        )]
+    },
+);

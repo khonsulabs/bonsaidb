@@ -1,8 +1,8 @@
 use bonsaidb_core::{
-    document::Document,
     schema::{
-        view, Collection, CollectionName, InvalidNameError, MapResult,
-        MappedValue, Name, Schematic, View,
+        view::{self, CollectionView},
+        Collection, CollectionDocument, CollectionName, InvalidNameError,
+        MapResult, MappedValue, Name, Schematic,
     },
     Error,
 };
@@ -32,7 +32,7 @@ impl Collection for Shape {
 #[derive(Debug)]
 pub struct ShapesByNumberOfSides;
 
-impl View for ShapesByNumberOfSides {
+impl CollectionView for ShapesByNumberOfSides {
     type Collection = Shape;
 
     type Key = u32;
@@ -49,10 +49,9 @@ impl View for ShapesByNumberOfSides {
 
     fn map(
         &self,
-        document: &Document<'_>,
+        document: CollectionDocument<Self::Collection>,
     ) -> MapResult<Self::Key, Self::Value> {
-        let shape = document.contents::<Shape>()?;
-        Ok(vec![document.emit_key_and_value(shape.sides, 1)])
+        Ok(vec![document.emit_key_and_value(document.contents.sides, 1)])
     }
 
     fn reduce(

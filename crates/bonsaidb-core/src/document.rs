@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::Deref};
 
 use serde::{Deserialize, Serialize};
 
@@ -17,11 +17,41 @@ pub struct Header {
     pub revision: Revision,
 }
 
+impl Header {
+    /// Creates a `Map` result with an empty key and value.
+    #[must_use]
+    pub fn emit(&self) -> Map<(), ()> {
+        self.emit_key_and_value((), ())
+    }
+
+    /// Creates a `Map` result with a `key` and an empty value.
+    #[must_use]
+    pub fn emit_key<K: Key>(&self, key: K) -> Map<K, ()> {
+        self.emit_key_and_value(key, ())
+    }
+
+    /// Creates a `Map` result with `value` and an empty key.
+    #[must_use]
+    pub fn emit_value<Value: Serialize>(&self, value: Value) -> Map<(), Value> {
+        self.emit_key_and_value((), value)
+    }
+
+    /// Creates a `Map` result with a `key` and `value`.
+    #[must_use]
+    pub fn emit_key_and_value<K: Key, Value: Serialize>(
+        &self,
+        key: K,
+        value: Value,
+    ) -> Map<K, Value> {
+        Map::new(self.id, key, value)
+    }
+}
+
 /// Contains a serialized document in the database.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Document<'a> {
     /// The header of the document, which contains the id and `Revision`.
-    pub header: Cow<'a, Header>,
+    pub header: Header,
 
     /// The serialized bytes of the stored item.
     pub contents: Cow<'a, [u8]>,
@@ -33,7 +63,7 @@ impl<'a> Document<'a> {
     pub fn new(id: u64, contents: Cow<'a, [u8]>) -> Self {
         let revision = Revision::new(&contents);
         Self {
-            header: Cow::Owned(Header { id, revision }),
+            header: Header { id, revision },
             contents,
         }
     }
@@ -88,49 +118,29 @@ impl<'a> Document<'a> {
             .revision
             .next_revision(&contents)
             .map(|revision| Self {
-                header: Cow::Owned(Header {
+                header: Header {
                     id: self.header.id,
                     revision,
-                }),
+                },
                 contents,
             })
-    }
-
-    /// Creates a `Map` result with an empty key and value.
-    #[must_use]
-    pub fn emit(&self) -> Map<(), ()> {
-        self.emit_key_and_value((), ())
-    }
-
-    /// Creates a `Map` result with a `key` and an empty value.
-    #[must_use]
-    pub fn emit_key<K: Key>(&self, key: K) -> Map<K, ()> {
-        self.emit_key_and_value(key, ())
-    }
-
-    /// Creates a `Map` result with `value` and an empty key.
-    #[must_use]
-    pub fn emit_value<Value: Serialize>(&self, value: Value) -> Map<(), Value> {
-        self.emit_key_and_value((), value)
-    }
-
-    /// Creates a `Map` result with a `key` and `value`.
-    #[must_use]
-    pub fn emit_key_and_value<K: Key, Value: Serialize>(
-        &self,
-        key: K,
-        value: Value,
-    ) -> Map<K, Value> {
-        Map::new(self.header.id, key, value)
     }
 
     /// Clone the document's data so that it's no longer borrowed in the original lifetime `'a`.
     #[must_use]
     pub fn to_owned(&self) -> Document<'static> {
         Document::<'static> {
-            header: Cow::Owned(self.header.as_ref().clone()),
+            header: self.header.clone(),
             contents: Cow::Owned(self.contents.as_ref().to_vec()),
         }
+    }
+}
+
+impl<'a> Deref for Document<'a> {
+    type Target = Header;
+
+    fn deref(&self) -> &Self::Target {
+        &self.header
     }
 }
 

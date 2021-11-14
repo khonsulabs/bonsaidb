@@ -14,7 +14,7 @@ pub use self::{
     schematic::Schematic,
     view::{
         map::{Key, Map, MappedDocument, MappedValue},
-        MapResult, View,
+        CollectionView, MapResult, View,
     },
 };
 use crate::Error;

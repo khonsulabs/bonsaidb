@@ -13,6 +13,7 @@ use bonsaidb::{
     server::test_util::{initialize_basic_server, BASIC_SERVER_NAME},
 };
 use bonsaidb_core::{
+    admin::ADMIN_DATABASE_NAME,
     permissions::bonsai::{BonsaiAction, ServerAction},
     schema::InsertError,
 };
@@ -216,7 +217,7 @@ async fn assume_permissions(
                 .unwrap();
 
             // Create an administrators permission group, or get its ID if it already existed.
-            let admin = connection.database::<Admin>("admin").await?;
+            let admin = connection.database::<Admin>(ADMIN_DATABASE_NAME).await?;
             let administrator_group_id = match (PermissionGroup {
                 name: String::from(label),
                 statements,
