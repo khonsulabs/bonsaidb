@@ -13,12 +13,21 @@ homepage = "https://dev.bonsaidb.io/"
 
 [features]
 default = ["full"]
-full = ["cli", "websockets", "acme"]
+full = ["cli", "http", "websockets", "acme"]
 cli = ["structopt", "pem"]
 test-util = ["bonsaidb-core/test-util"]
-websockets = ["bonsaidb-core/websockets", "tokio-tungstenite", "bincode"]
+websockets = [
+    "bonsaidb-core/websockets",
+    "tokio-tungstenite",
+    "bincode",
+    "http",
+    "base64",
+    "sha-1",
+    "hyper",
+]
 tracing = ["pot/tracing"]
-acme = ["async-acme", "pem"]
+acme = ["async-acme", "pem", "http"]
+http = []
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [
@@ -36,20 +45,23 @@ structopt = { version = "0.3", optional = true }
 futures = "0.3"
 flume = "0.10"
 itertools = "0.10"
-tokio-tungstenite = { version = "0.15", optional = true }
+tokio-tungstenite = { version = "0.16", optional = true }
 bincode = { version = "1", optional = true }
 actionable = "0.1.0-rc.2"
 pot = "0.1.0-alpha.2"
 fabruic = { version = "0.0.1-dev.2", features = ["dangerous"] }
 cfg-if = "1"
 pem = { version = "1", optional = true }
-async-acme = { git = "https://github.com/khonsulabs/async-acme", branch = "custom-cache", optional = true, features = [
+async-acme = { version = "0.3", optional = true, features = [
     "hyper_rustls",
 ] }
 rustls = "0.20"
 tokio-rustls = { version = "0.23" }
-tower-http = { version = "0.1", optional = true }
 parking_lot = "0.11"
+hyper = { version = "0.14", optional = true, features = ["server", "http1"] }
+sha-1 = { version = "0.9", optional = true }
+base64 = { version = "0.13", optional = true }
+
 
 [dev-dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [

@@ -41,6 +41,10 @@ name = "server"
 required-features = ["server", "client"]
 
 [[example]]
+name = "axum"
+required-features = ["server", "server-http", "websockets"]
+
+[[example]]
 name = "users"
 required-features = ["server", "client"]
 
@@ -75,6 +79,7 @@ server-full = [
     "server-cli",
     "server-tracing",
     "server-acme",
+    "server-http",
 ]
 server = ["bonsaidb-server"]
 client-full = [
@@ -106,6 +111,7 @@ server-tracing = ["bonsaidb-server/tracing"]
 client-tracing = ["bonsaidb-client/tracing"]
 
 server-acme = ["bonsaidb-server/acme"]
+server-http = ["bonsaidb-server/http"]
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false }
@@ -134,6 +140,9 @@ flume = "0.10"
 actionable = "0.1.0-rc.2"
 fabruic = { version = "0.0.1-dev.2" }
 hdrhistogram = "7"
+axum = { version = "0.3" }
+async-trait = "0.1"
+hyper = { version = "0.14", features = ["http1", "server"] }
 
 [package.metadata.docs.rs]
 all-features = true

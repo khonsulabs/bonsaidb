@@ -35,7 +35,7 @@ pub use config::{
 pub use server::ServerSubscriber;
 
 pub use self::{
-    backend::{Backend, BackendError, ConnectionHandling},
+    backend::{Backend, BackendError, ConnectionHandling, NoDispatcher},
     config::{Configuration, DefaultPermissions, StorageConfiguration},
     error::Error,
     server::{
