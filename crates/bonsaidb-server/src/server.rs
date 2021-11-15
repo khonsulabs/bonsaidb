@@ -55,7 +55,7 @@ use tokio::sync::RwLock;
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
 use crate::{
-    backend::{BackendError, ConnectionHandling},
+    backend::{BackendError, ConnectionHandling, CustomApiDispatcher},
     error::Error,
     hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
     Backend, Configuration,
@@ -914,7 +914,8 @@ impl<'s, B: Backend> RequestDispatcher for ServerDispatcher<'s, B> {
         permissions: &Permissions,
         subaction: Self::Subaction,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let dispatcher = B::dispatcher_for(self.server, self.client);
+        let dispatcher =
+            <B::CustomApiDispatcher as CustomApiDispatcher<B>>::new(self.server, self.client);
         match dispatcher.dispatch(permissions, subaction).await {
             Ok(response) => Ok(Response::Api(Ok(response))),
             Err(err) => match err {

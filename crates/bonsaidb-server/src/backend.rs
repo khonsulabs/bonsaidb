@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, marker::PhantomData};
 
 use actionable::PermissionDenied;
 use async_trait::async_trait;
@@ -23,18 +23,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
 
     /// The type that implements the
     /// [`Dispatcher`](bonsaidb_core::permissions::Dispatcher) trait.
-    type CustomApiDispatcher: Dispatcher<
-            <Self::CustomApi as CustomApi>::Request,
-            Result = BackendApiResult<Self::CustomApi>,
-        > + Debug;
-
-    /// Returns a dispatcher to handle custom api requests. The `server` and
-    /// `client` parameters are provided to allow the dispatcher to have access
-    /// to them when handling the individual actions.
-    fn dispatcher_for(
-        server: &CustomServer<Self>,
-        client: &ConnectedClient<Self>,
-    ) -> Self::CustomApiDispatcher;
+    type CustomApiDispatcher: CustomApiDispatcher<Self>;
 
     /// Invoked once upon the server starting up.
     #[allow(unused_variables)]
@@ -92,25 +81,34 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     }
 }
 
+/// A trait that can dispatch requests for a [`CustomApi`].
+pub trait CustomApiDispatcher<B: Backend>:
+    Dispatcher<<B::CustomApi as CustomApi>::Request, Result = BackendApiResult<B::CustomApi>> + Debug
+{
+    /// Returns a dispatcher to handle custom api requests. The `server` and
+    /// `client` parameters are provided to allow the dispatcher to have access
+    /// to them when handling the individual actions.
+    fn new(server: &CustomServer<B>, client: &ConnectedClient<B>) -> Self;
+}
+
 impl Backend for () {
     type CustomApi = ();
-    type CustomApiDispatcher = NoDispatcher;
+    type CustomApiDispatcher = NoDispatcher<Self>;
     type ClientData = ();
-
-    fn dispatcher_for(
-        _server: &CustomServer<Self>,
-        _client: &ConnectedClient<Self>,
-    ) -> Self::CustomApiDispatcher {
-        NoDispatcher
-    }
 }
 
 /// Defines a no-op dispatcher for a backend with no custom api.
 #[derive(Debug)]
-pub struct NoDispatcher;
+pub struct NoDispatcher<B: Backend>(PhantomData<B>);
+
+impl<B: Backend<CustomApi = ()>> CustomApiDispatcher<B> for NoDispatcher<B> {
+    fn new(_server: &CustomServer<B>, _client: &ConnectedClient<B>) -> Self {
+        Self(PhantomData)
+    }
+}
 
 #[async_trait]
-impl actionable::Dispatcher<()> for NoDispatcher {
+impl<B: Backend<CustomApi = ()>> actionable::Dispatcher<()> for NoDispatcher<B> {
     type Result = Result<(), BackendError>;
 
     async fn dispatch(&self, _permissions: &actionable::Permissions, _request: ()) -> Self::Result {

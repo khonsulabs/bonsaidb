@@ -12,6 +12,7 @@ use bonsaidb::{
     },
 };
 use bonsaidb_core::custom_api::Infallible;
+use bonsaidb_server::CustomApiDispatcher;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Dispatcher)]
@@ -24,12 +25,11 @@ impl Backend for CustomBackend {
     type CustomApi = Self;
     type CustomApiDispatcher = Self;
     type ClientData = u64;
+}
 
-    fn dispatcher_for(
-        _server: &CustomServer<Self>,
-        client: &ConnectedClient<Self>,
-    ) -> Self::CustomApiDispatcher {
-        CustomBackend {
+impl CustomApiDispatcher<Self> for CustomBackend {
+    fn new(_server: &CustomServer<Self>, client: &ConnectedClient<Self>) -> Self {
+        Self {
             client: client.clone(),
         }
     }

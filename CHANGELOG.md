@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `CustomApi` responses can now be sent by the server via
   `ConnectedClient::send()`. The client can now register a callback to receive
   out-of-band responses.
-- `Backend` has a new method, `dispatcher_for` which replaces
+- `Backend` has a new associated type, `CustomApiDispatcher` which replaces
   `Server::set_custom_api_dispatcher`. This change allows custom api dispatchers
   to receive the `server` or `client` during initialization if needed. For
   example, if a custom API needs to know the caller's identity, you can store

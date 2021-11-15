@@ -49,15 +49,8 @@ impl Backend for AxumBackend {
     }
 
     type CustomApi = ();
-    type CustomApiDispatcher = NoDispatcher;
+    type CustomApiDispatcher = NoDispatcher<Self>;
     type ClientData = ();
-
-    fn dispatcher_for(
-        _server: &CustomServer<Self>,
-        _client: &bonsaidb_server::ConnectedClient<Self>,
-    ) -> Self::CustomApiDispatcher {
-        unimplemented!("server has no custom api")
-    }
 }
 
 #[tokio::main]
