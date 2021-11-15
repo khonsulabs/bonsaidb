@@ -71,6 +71,20 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
             client.user_id().await.unwrap()
         );
     }
+
+    /// Handle an incoming HTTP connection for `connection`. Return
+    /// `Err(connection)` to have BonsaiDb handle the connection internally.
+    #[cfg(feature = "http")]
+    #[allow(unused_variables)]
+    async fn handle_http_connection<
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    >(
+        connection: S,
+        peer_address: std::net::SocketAddr,
+        server: &CustomServer<Self>,
+    ) -> Result<(), S> {
+        Err(connection)
+    }
 }
 
 impl Backend for () {

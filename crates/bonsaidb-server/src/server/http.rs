@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
 use rustls::server::ResolvesServerCert;
-#[cfg(feature = "websockets")]
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpListener;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpListener,
+};
 
-use super::{Backend, CustomServer};
-use crate::Error;
+use crate::{Backend, CustomServer, Error};
 
 impl<B: Backend> CustomServer<B> {
     /// Listens for HTTP traffic on `port`. This port will also receive
     /// `WebSocket` connections if feature `websockets` is enabled.
-    #[cfg(feature = "websockets")]
+    #[cfg(feature = "http")]
     pub async fn listen_for_http_on<T: tokio::net::ToSocketAddrs + Send + Sync>(
         &self,
         addr: T,
@@ -36,7 +36,7 @@ impl<B: Backend> CustomServer<B> {
 
                     let task_self = self.clone();
                     tokio::spawn(async move {
-                        if let Err(err) = task_self.handle_websocket_connection(connection, remote_addr).await {
+                        if let Err(err) = task_self.handle_http_connection(connection, remote_addr).await {
                             eprintln!("[server] closing connection {}: {:?}", remote_addr, err);
                         }
                     });
@@ -99,10 +99,7 @@ impl<B: Backend> CustomServer<B> {
                 #[cfg(feature = "websockets")]
                 if stream.get_ref().1.alpn_protocol().is_none() {
                     // Only pass non ALPN traffic on.
-                    if let Err(err) = task_self
-                        .handle_websocket_connection(stream, peer_addr)
-                        .await
-                    {
+                    if let Err(err) = task_self.handle_http_connection(stream, peer_addr).await {
                         eprintln!("[server] error for client {}: {:?}", peer_addr, err);
                     }
                 }
@@ -110,98 +107,22 @@ impl<B: Backend> CustomServer<B> {
         }
     }
 
-    #[cfg(feature = "websockets")]
-    async fn handle_websocket_connection<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
+    #[cfg_attr(not(feature = "websockets"), allow(unused_variables))]
+    async fn handle_http_connection<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
         &self,
         connection: S,
         peer_address: std::net::SocketAddr,
     ) -> Result<(), Error> {
-        use bonsaidb_core::{
-            custom_api::CustomApi,
-            networking::{Payload, Request, Response},
-        };
-        use futures::{SinkExt, StreamExt};
-        use tokio_tungstenite::tungstenite::Message;
-
-        use crate::Transport;
-
-        let stream = tokio_tungstenite::accept_async(connection).await?;
-        let (mut sender, mut receiver) = stream.split();
-        let (response_sender, response_receiver) = flume::unbounded();
-        let (message_sender, message_receiver) = flume::unbounded();
-
-        let (api_response_sender, api_response_receiver) = flume::unbounded();
-        let client = if let Some(client) = self
-            .initialize_client(Transport::WebSocket, peer_address, api_response_sender)
-            .await
-        {
-            client
-        } else {
-            return Ok(());
-        };
-        let task_sender = response_sender.clone();
-        tokio::spawn(async move {
-            while let Ok(response) = api_response_receiver.recv_async().await {
-                if task_sender
-                    .send(Payload {
-                        id: None,
-                        wrapped: Response::Api(response),
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
-
-        tokio::spawn(async move {
-            while let Ok(response) = message_receiver.recv_async().await {
-                sender.send(response).await?;
-            }
-
-            Result::<(), Error>::Ok(())
-        });
-
-        let task_sender = message_sender.clone();
-        tokio::spawn(async move {
-            while let Ok(response) = response_receiver.recv_async().await {
-                if task_sender
-                    .send(Message::Binary(bincode::serialize(&response)?))
-                    .is_err()
-                {
-                    break;
-                }
-            }
-
-            Result::<(), Error>::Ok(())
-        });
-
-        let (request_sender, request_receiver) =
-            flume::bounded::<Payload<Request<<B::CustomApi as CustomApi>::Request>>>(
-                self.data.client_simultaneous_request_limit,
-            );
-        let task_self = self.clone();
-        tokio::spawn(async move {
-            task_self
-                .handle_client_requests(client.clone(), request_receiver, response_sender)
-                .await;
-        });
-
-        while let Some(payload) = receiver.next().await {
-            match payload? {
-                Message::Binary(binary) => {
-                    let payload = bincode::deserialize::<
-                        Payload<Request<<B::CustomApi as CustomApi>::Request>>,
-                    >(&binary)?;
-                    drop(request_sender.send_async(payload).await);
-                }
-                Message::Close(_) => break,
-                Message::Ping(payload) => {
-                    drop(message_sender.send(Message::Pong(payload)));
-                }
-                other => {
-                    eprintln!("[server] unexpected message: {:?}", other);
-                }
+        if let Err(connection) = B::handle_http_connection(connection, peer_address, self).await {
+            #[cfg(feature = "websockets")]
+            if let Err(err) = self
+                .handle_raw_websocket_connection(connection, peer_address)
+                .await
+            {
+                eprintln!(
+                    "[server] error on websocket for {}: {:?}",
+                    peer_address, err
+                );
             }
         }
 

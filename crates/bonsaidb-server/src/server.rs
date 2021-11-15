@@ -66,8 +66,10 @@ pub mod acme;
 mod connected_client;
 mod database;
 
-#[cfg(any(feature = "acme", feature = "websockets"))]
+#[cfg(feature = "http")]
 mod http;
+#[cfg(feature = "websockets")]
+mod websockets;
 
 use self::connected_client::OwnedClient;
 pub use self::{
