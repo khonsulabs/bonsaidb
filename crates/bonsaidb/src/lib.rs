@@ -47,10 +47,11 @@
 //! bonsaidb = { version = "*", default-features = false, features = "server-full" }
 //! ```
 //!
-//! - `server-full`: Enables `server` and `server-websockets`
+//! - `server-full`: Enables `server`, `server-acme`, and `server-websockets`
 //! - `server`: Enables the [`server`] module, which re-exports the crate
 //!   `bonsaidb-server`.
 //! - `server-websockets`: Enables `WebSocket` support for `bonsaidb-server`.
+//! - `server-acme`: Enables automatic TLS certificate acquisition via `ACME`.
 //!
 //! ### Client for accessing a `BonsaiDb` server.
 //!
