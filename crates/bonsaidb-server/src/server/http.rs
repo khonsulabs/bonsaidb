@@ -19,7 +19,7 @@ impl<B: Backend> CustomServer<B> {
         let listener = TcpListener::bind(&addr).await?;
         let (shutdown_sender, shutdown_receiver) = flume::bounded(1);
         {
-            let mut shutdown = self.data.websocket_shutdown.write().await;
+            let mut shutdown = self.data.http_shutdown.write().await;
             *shutdown = Some(shutdown_sender);
         }
 

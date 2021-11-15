@@ -112,8 +112,8 @@ struct Data<B: Backend = ()> {
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
     alpn_keys: AlpnKeys,
-    #[cfg(feature = "websockets")]
-    websocket_shutdown: RwLock<Option<Sender<()>>>,
+    #[cfg(feature = "http")]
+    http_shutdown: RwLock<Option<Sender<()>>>,
     relay: Relay,
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
     _backend: PhantomData<B>,
@@ -168,8 +168,8 @@ impl<B: Backend> CustomServer<B> {
                 acme: configuration.acme,
                 #[cfg(feature = "acme")]
                 alpn_keys: AlpnKeys::default(),
-                #[cfg(feature = "websockets")]
-                websocket_shutdown: RwLock::default(),
+                #[cfg(feature = "http")]
+                http_shutdown: RwLock::default(),
                 relay: Relay::default(),
                 subscribers: Arc::default(),
                 _backend: PhantomData::default(),
