@@ -13,6 +13,7 @@ use bonsaidb::{
     server::test_util::{initialize_basic_server, BASIC_SERVER_NAME},
 };
 use bonsaidb_core::{
+    admin::ADMIN_DATABASE_NAME,
     permissions::bonsai::{BonsaiAction, ServerAction},
     schema::InsertError,
 };
@@ -57,7 +58,7 @@ fn run_shared_server(certificate_sender: flume::Sender<Certificate>) -> anyhow::
             let task_server = server.clone();
             tokio::spawn(async move {
                 task_server
-                    .listen_for_websockets_on("localhost:6001")
+                    .listen_for_http_on("localhost:6001")
                     .await
                     .unwrap();
             });
@@ -216,7 +217,7 @@ async fn assume_permissions(
                 .unwrap();
 
             // Create an administrators permission group, or get its ID if it already existed.
-            let admin = connection.database::<Admin>("admin").await?;
+            let admin = connection.database::<Admin>(ADMIN_DATABASE_NAME).await?;
             let administrator_group_id = match (PermissionGroup {
                 name: String::from(label),
                 statements,
@@ -274,9 +275,7 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
         },
     )
     .await?;
-    server
-        .install_self_signed_certificate("authenticated-permissions-test", false)
-        .await?;
+    server.install_self_signed_certificate(false).await?;
     let certificate = server
         .certificate_chain()
         .await?

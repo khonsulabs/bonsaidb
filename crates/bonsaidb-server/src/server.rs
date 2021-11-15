@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     admin::{self, Admin, User},
     circulate::{Message, Relay, Subscriber},
-    connection::{AccessPolicy, QueryKey, Range, ServerConnection, Sort},
+    connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection, Sort},
     custodian_password::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
     },
@@ -38,8 +38,7 @@ use bonsaidb_core::{
         Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
     },
     pubsub::database_topic,
-    schema,
-    schema::{Collection, CollectionName, NamedReference, Schema, ViewName},
+    schema::{self, Collection, CollectionName, NamedCollection, NamedReference, Schema, ViewName},
     transaction::{Command, Transaction},
 };
 use bonsaidb_local::{
@@ -48,23 +47,28 @@ use bonsaidb_local::{
 };
 use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
-#[cfg(feature = "websockets")]
-use futures::SinkExt;
-use futures::{Future, StreamExt, TryFutureExt};
+use futures::{Future, StreamExt};
+use rustls::sign::CertifiedKey;
 use schema::SchemaName;
-#[cfg(feature = "websockets")]
-use tokio::net::TcpListener;
-use tokio::{fs::File, sync::RwLock};
+use tokio::sync::RwLock;
 
+#[cfg(feature = "acme")]
+use crate::config::AcmeConfiguration;
 use crate::{
-    async_io_util::FileExt,
     backend::{BackendError, ConnectionHandling},
     error::Error,
+    hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
     Backend, Configuration,
 };
 
+#[cfg(feature = "acme")]
+pub mod acme;
 mod connected_client;
 mod database;
+
+#[cfg(any(feature = "acme", feature = "websockets"))]
+mod http;
+
 use self::connected_client::OwnedClient;
 pub use self::{
     connected_client::{ConnectedClient, LockedClientDataGuard, Transport},
@@ -100,11 +104,34 @@ struct Data<B: Backend = ()> {
     authenticated_permissions: Permissions,
     endpoint: RwLock<Option<Endpoint>>,
     client_simultaneous_request_limit: usize,
+    primary_tls_key: CachedCertifiedKey,
+    primary_domain: String,
+    #[cfg(feature = "acme")]
+    acme: AcmeConfiguration,
+    #[cfg(feature = "acme")]
+    alpn_keys: AlpnKeys,
     #[cfg(feature = "websockets")]
     websocket_shutdown: RwLock<Option<Sender<()>>>,
     relay: Relay,
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
     _backend: PhantomData<B>,
+}
+
+#[derive(Default)]
+struct CachedCertifiedKey(parking_lot::Mutex<Option<Arc<CertifiedKey>>>);
+
+impl Debug for CachedCertifiedKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("CachedCertifiedKey").finish()
+    }
+}
+
+impl Deref for CachedCertifiedKey {
+    type Target = parking_lot::Mutex<Option<Arc<CertifiedKey>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl<B: Backend> CustomServer<B> {
@@ -116,6 +143,9 @@ impl<B: Backend> CustomServer<B> {
         }
 
         let storage = Storage::open_local(directory, configuration.storage).await?;
+
+        storage.register_schema::<Hosted>().await?;
+        storage.create_database::<Hosted>("_hosted", true).await?;
 
         let default_permissions = Permissions::from(configuration.default_permissions);
         let authenticated_permissions = Permissions::from(configuration.authenticated_permissions);
@@ -130,6 +160,12 @@ impl<B: Backend> CustomServer<B> {
                 default_permissions,
                 authenticated_permissions,
                 client_simultaneous_request_limit: configuration.client_simultaneous_request_limit,
+                primary_tls_key: CachedCertifiedKey::default(),
+                primary_domain: configuration.server_name,
+                #[cfg(feature = "acme")]
+                acme: configuration.acme,
+                #[cfg(feature = "acme")]
+                alpn_keys: AlpnKeys::default(),
                 #[cfg(feature = "websockets")]
                 websocket_shutdown: RwLock::default(),
                 relay: Relay::default(),
@@ -162,6 +198,11 @@ impl<B: Backend> CustomServer<B> {
         ServerDatabase { server: self, db }
     }
 
+    pub(crate) async fn hosted(&self) -> ServerDatabase<'_, B, Hosted> {
+        let db = self.data.storage.database("_hosted").await.unwrap();
+        ServerDatabase { server: self, db }
+    }
+
     pub(crate) async fn database_without_schema(
         &self,
         name: &'_ str,
@@ -171,14 +212,10 @@ impl<B: Backend> CustomServer<B> {
     }
 
     /// Installs an X.509 certificate used for general purpose connections.
-    pub async fn install_self_signed_certificate(
-        &self,
-        server_name: &str,
-        overwrite: bool,
-    ) -> Result<(), Error> {
-        let keypair = KeyPair::new_self_signed(server_name);
+    pub async fn install_self_signed_certificate(&self, overwrite: bool) -> Result<(), Error> {
+        let keypair = KeyPair::new_self_signed(&self.data.primary_domain);
 
-        if self.certificate_chain_path().exists() && !overwrite {
+        if self.certificate_chain().await.is_ok() && !overwrite {
             return Err(Error::Core(bonsaidb_core::Error::Configuration(String::from("Certificate already installed. Enable overwrite if you wish to replace the existing certificate."))));
         }
 
@@ -189,76 +226,122 @@ impl<B: Backend> CustomServer<B> {
     }
 
     /// Installs a certificate chain and private key used for TLS connections.
+    #[cfg(feature = "pem")]
+    pub async fn install_pem_certificate(
+        &self,
+        certificate_chain: &[u8],
+        private_key: &[u8],
+    ) -> Result<(), Error> {
+        use fabruic::Certificate;
+
+        let private_key = match pem::parse(private_key) {
+            Ok(pem) => PrivateKey::unchecked_from_der(pem.contents),
+            Err(_) => PrivateKey::from_der(private_key)?,
+        };
+        let certificates = pem::parse_many(&certificate_chain)?
+            .into_iter()
+            .map(|entry| Certificate::unchecked_from_der(entry.contents))
+            .collect::<Vec<_>>();
+
+        self.install_certificate(
+            &CertificateChain::unchecked_from_certificates(certificates),
+            &private_key,
+        )
+        .await
+    }
+
+    /// Installs a certificate chain and private key used for TLS connections.
     pub async fn install_certificate(
         &self,
-        certificate: &CertificateChain,
+        certificate_chain: &CertificateChain,
         private_key: &PrivateKey,
     ) -> Result<(), Error> {
-        let serialized = pot::to_vec(certificate).unwrap();
-        File::create(self.certificate_chain_path())
-            .and_then(|file| file.write_all(&serialized))
-            .await
-            .map_err(|err| {
-                Error::Core(bonsaidb_core::Error::Configuration(format!(
-                    "Error writing certificate file: {}",
-                    err
-                )))
-            })?;
-        File::create(self.private_key_path())
-            .and_then(|file| file.write_all(fabruic::dangerous::PrivateKey::as_ref(private_key)))
-            .await
-            .map_err(|err| {
-                Error::Core(bonsaidb_core::Error::Configuration(format!(
-                    "Error writing private key file: {}",
-                    err
-                )))
-            })?;
+        let db = self.hosted().await;
+        if let Some(mut existing_record) =
+            TlsCertificate::load(&self.data.primary_domain, &db).await?
+        {
+            existing_record.contents.certificate_chain = certificate_chain.clone();
+            existing_record.contents.private_key = SerializablePrivateKey(private_key.clone());
+            existing_record.update(&db).await?;
+        } else {
+            TlsCertificate {
+                domains: vec![self.data.primary_domain.clone()],
+                private_key: SerializablePrivateKey(private_key.clone()),
+                certificate_chain: certificate_chain.clone(),
+            }
+            .insert_into(&db)
+            .await?;
+        }
+
+        self.refresh_certified_key().await?;
 
         Ok(())
     }
 
-    fn certificate_chain_path(&self) -> PathBuf {
-        self.data.directory.join("public-certificate.pot")
+    async fn refresh_certified_key(&self) -> Result<(), Error> {
+        let certificate = self.tls_certificate().await?;
+
+        let mut cached_key = self.data.primary_tls_key.lock();
+        let private_key = rustls::PrivateKey(
+            fabruic::dangerous::PrivateKey::as_ref(&certificate.private_key.0).to_vec(),
+        );
+        let private_key = rustls::sign::any_ecdsa_type(&Arc::new(private_key))?;
+
+        let certificates = certificate
+            .certificate_chain
+            .iter()
+            .map(|cert| rustls::Certificate(cert.as_ref().to_vec()))
+            .collect::<Vec<_>>();
+
+        let certified_key = Arc::new(CertifiedKey::new(certificates, private_key));
+        *cached_key = Some(certified_key);
+        Ok(())
+    }
+
+    async fn tls_certificate(&self) -> Result<TlsCertificate, Error> {
+        let db = self.hosted().await;
+        let certificate = db
+            .view::<TlsCertificatesByDomain>()
+            .with_key(self.data.primary_domain.clone())
+            .query_with_docs()
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                Error::Core(bonsaidb_core::Error::Configuration(format!(
+                    "no certificate found for {}",
+                    self.data.primary_domain
+                )))
+            })?;
+        Ok(certificate.document.contents()?)
     }
 
     /// Returns the current certificate chain.
     pub async fn certificate_chain(&self) -> Result<CertificateChain, Error> {
-        let certificate = File::open(self.certificate_chain_path())
-            .and_then(FileExt::read_all)
-            .await
-            .map_err(|err| {
-                Error::Core(bonsaidb_core::Error::Configuration(format!(
-                    "Error reading certificate file: {}",
-                    err
-                )))
-            })?;
-        let chain = pot::from_slice(&certificate).map_err(|err| {
-            Error::Core(bonsaidb_core::Error::Configuration(format!(
-                "Invalid certificate file contents: {}",
-                err
-            )))
-        })?;
-        Ok(chain)
-    }
-
-    fn private_key_path(&self) -> PathBuf {
-        self.data.directory.join("private-key.der")
+        let db = self.hosted().await;
+        if let Some(mapping) = db
+            .view::<TlsCertificatesByDomain>()
+            .with_key(self.data.primary_domain.clone())
+            .query()
+            .await?
+            .into_iter()
+            .next()
+        {
+            Ok(mapping.value)
+        } else {
+            Err(Error::Core(bonsaidb_core::Error::Configuration(format!(
+                "no certificate found for {}",
+                self.data.primary_domain
+            ))))
+        }
     }
 
     /// Listens for incoming client connections. Does not return until the
     /// server shuts down.
     pub async fn listen_on(&self, port: u16) -> Result<(), Error> {
-        let private_key = File::open(self.private_key_path())
-            .and_then(FileExt::read_all)
-            .await
-            .map(PrivateKey::from_der)
-            .map_err(|err| {
-                Error::Core(bonsaidb_core::Error::Configuration(format!(
-                    "Error reading private key file: {}",
-                    err
-                )))
-            })??;
-        let keypair = KeyPair::from_parts(self.certificate_chain().await?, private_key)?;
+        let certificate = self.tls_certificate().await?;
+        let keypair =
+            KeyPair::from_parts(certificate.certificate_chain, certificate.private_key.0)?;
 
         let mut server = Endpoint::new_server(port, keypair)?;
         {
@@ -275,43 +358,6 @@ impl<B: Backend> CustomServer<B> {
                     eprintln!("[server] closing connection {}: {:?}", address, err);
                 }
             });
-        }
-
-        Ok(())
-    }
-
-    /// Listens for `WebSocket` traffic on `port`.
-    #[cfg(feature = "websockets")]
-    pub async fn listen_for_websockets_on<T: tokio::net::ToSocketAddrs + Send + Sync>(
-        &self,
-        addr: T,
-    ) -> Result<(), Error> {
-        let listener = TcpListener::bind(&addr).await?;
-        let (shutdown_sender, shutdown_receiver) = flume::bounded(1);
-        {
-            let mut shutdown = self.data.websocket_shutdown.write().await;
-            *shutdown = Some(shutdown_sender);
-        }
-
-        loop {
-            tokio::select! {
-                _ = shutdown_receiver.recv_async() => {
-                    break;
-                }
-                incoming = listener.accept() => {
-                    if incoming.is_err() {
-                        continue;
-                    }
-                    let (connection, remote_addr) = incoming.unwrap();
-
-                    let task_self = self.clone();
-                    tokio::spawn(async move {
-                        if let Err(err) = task_self.handle_websocket_connection(connection).await {
-                            eprintln!("[server] closing connection {}: {:?}", remote_addr, err);
-                        }
-                    });
-                }
-            }
         }
 
         Ok(())
@@ -422,95 +468,6 @@ impl<B: Backend> CustomServer<B> {
                 }
             }
         }
-        Ok(())
-    }
-
-    #[cfg(feature = "websockets")]
-    async fn handle_websocket_connection(
-        &self,
-        connection: tokio::net::TcpStream,
-    ) -> Result<(), Error> {
-        use tokio_tungstenite::tungstenite::Message;
-        let address = connection.peer_addr()?;
-        let stream = tokio_tungstenite::accept_async(connection).await?;
-        let (mut sender, mut receiver) = stream.split();
-        let (response_sender, response_receiver) = flume::unbounded();
-        let (message_sender, message_receiver) = flume::unbounded();
-
-        let (api_response_sender, api_response_receiver) = flume::unbounded();
-        let client = if let Some(client) = self
-            .initialize_client(Transport::WebSocket, address, api_response_sender)
-            .await
-        {
-            client
-        } else {
-            return Ok(());
-        };
-        let task_sender = response_sender.clone();
-        tokio::spawn(async move {
-            while let Ok(response) = api_response_receiver.recv_async().await {
-                if task_sender
-                    .send(Payload {
-                        id: None,
-                        wrapped: Response::Api(response),
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        });
-
-        tokio::spawn(async move {
-            while let Ok(response) = message_receiver.recv_async().await {
-                sender.send(response).await?;
-            }
-
-            Result::<(), Error>::Ok(())
-        });
-        let task_sender = message_sender.clone();
-        tokio::spawn(async move {
-            while let Ok(response) = response_receiver.recv_async().await {
-                if task_sender
-                    .send(Message::Binary(bincode::serialize(&response)?))
-                    .is_err()
-                {
-                    break;
-                }
-            }
-
-            Result::<(), Error>::Ok(())
-        });
-
-        let (request_sender, request_receiver) =
-            flume::bounded::<Payload<Request<<B::CustomApi as CustomApi>::Request>>>(
-                self.data.client_simultaneous_request_limit,
-            );
-        let task_self = self.clone();
-        tokio::spawn(async move {
-            task_self
-                .handle_client_requests(client.clone(), request_receiver, response_sender)
-                .await;
-        });
-
-        while let Some(payload) = receiver.next().await {
-            match payload? {
-                Message::Binary(binary) => {
-                    let payload = bincode::deserialize::<
-                        Payload<Request<<B::CustomApi as CustomApi>::Request>>,
-                    >(&binary)?;
-                    drop(request_sender.send_async(payload).await);
-                }
-                Message::Close(_) => break,
-                Message::Ping(payload) => {
-                    drop(message_sender.send(Message::Pong(payload)));
-                }
-                other => {
-                    eprintln!("[server] unexpected message: {:?}", other);
-                }
-            }
-        }
-
         Ok(())
     }
 
@@ -1949,5 +1906,22 @@ impl<'s, B: Backend> bonsaidb_core::networking::CompactHandler for DatabaseDispa
         self.database.compact().await?;
 
         Ok(Response::Ok)
+    }
+}
+
+#[derive(Default)]
+struct AlpnKeys(Arc<std::sync::Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>>);
+
+impl Debug for AlpnKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("AlpnKeys").finish()
+    }
+}
+
+impl Deref for AlpnKeys {
+    type Target = Arc<std::sync::Mutex<HashMap<String, Arc<rustls::sign::CertifiedKey>>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }

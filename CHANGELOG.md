@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has successfully authenticated.
 - `Collection::serializer` is a new function that allows a collection to define
   what serialization format it should use.
+- `CollectionView` is a new trait that can be implemented instead of `View`. The
+  `map()` function takes a `CollectionDocument` parameter that is already
+  deserialized for you.
+- `bonsaidb_core` now has two new macros to ease some tedium of writing simple
+  views: `define_basic_mapped_view` and `define_basic_unique_mapped_view`.
 
 ### Changed
 

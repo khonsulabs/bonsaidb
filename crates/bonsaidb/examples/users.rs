@@ -136,9 +136,7 @@ async fn setup_server() -> anyhow::Result<Server> {
     )
     .await?;
     if server.certificate_chain().await.is_err() {
-        server
-            .install_self_signed_certificate("example-server", true)
-            .await?;
+        server.install_self_signed_certificate(true).await?;
     }
     server.register_schema::<Shape>().await?;
     server.create_database::<Shape>("my-database", true).await?;

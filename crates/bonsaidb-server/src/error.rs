@@ -48,6 +48,20 @@ pub enum Error {
     /// An error occurred with handling opaque-ke.
     #[error("an opaque-ke error: {0}")]
     Password(#[from] core::custodian_password::Error),
+
+    /// An error occurred requesting an ACME certificate.
+    #[error("an error requesting an ACME certificate: {0}")]
+    #[cfg(feature = "acme")]
+    Acme(#[from] async_acme::acme::AcmeError),
+
+    /// An error occurred while processing an ACME order.
+    #[error("an error occurred while processing an ACME order: {0}")]
+    #[cfg(feature = "acme")]
+    AcmeOrder(#[from] async_acme::rustls_helper::OrderError),
+
+    /// An error occurred during tls signing.
+    #[error("an error occurred during tls signing")]
+    TlsSigningError,
 }
 
 impl From<Error> for core::Error {
@@ -74,6 +88,12 @@ impl From<PermissionDenied> for Error {
 impl From<InvalidNameError> for Error {
     fn from(err: InvalidNameError) -> Self {
         Self::Core(core::Error::InvalidName(err))
+    }
+}
+
+impl From<rustls::sign::SignError> for Error {
+    fn from(_: rustls::sign::SignError) -> Self {
+        Self::TlsSigningError
     }
 }
 

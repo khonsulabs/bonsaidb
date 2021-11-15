@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     document::Document,
-    schema::{Collection, CollectionName, InvalidNameError, Name, ViewName},
+    schema::{Collection, CollectionDocument, CollectionName, InvalidNameError, Name, ViewName},
     AnyError,
 };
 
@@ -134,6 +134,104 @@ pub trait View: Send + Sync + Debug + 'static {
     }
 }
 
+/// A [`View`] for a [`Collection`] that stores serde-compatible documents. The
+/// only difference between implmementing this and [`View`] is that the `map`
+/// function receives a [`CollectionDocument`] instead of a [`Document`].
+pub trait CollectionView: Send + Sync + Debug + 'static {
+    /// The collection this view belongs to
+    type Collection: Collection + Serialize + for<'de> Deserialize<'de>;
+
+    /// The key for this view.
+    type Key: Key + 'static;
+
+    /// An associated type that can be stored with each entry in the view.
+    type Value: Serialize + for<'de> Deserialize<'de> + Send + Sync;
+
+    /// If true, no two documents may emit the same key. Unique views are
+    /// updated when the document is saved, allowing for this check to be done
+    /// atomically. When a document is updated, all unique views will be
+    /// updated, and if any of them fail, the document will not be allowed to
+    /// update and an
+    /// [`Error::UniqueKeyViolation`](crate::Error::UniqueKeyViolation) will be
+    /// returned.
+    fn unique(&self) -> bool {
+        false
+    }
+
+    /// The version of the view. Changing this value will cause indexes to be rebuilt.
+    fn version(&self) -> u64;
+
+    /// The name of the view. Must be unique per collection.
+    fn name(&self) -> Result<Name, InvalidNameError>;
+
+    /// The namespaced name of the view.
+    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
+        Ok(ViewName {
+            collection: Self::Collection::collection_name()?,
+            name: self.name()?,
+        })
+    }
+
+    /// The map function for this view. This function is responsible for
+    /// emitting entries for any documents that should be contained in this
+    /// View. If None is returned, the View will not include the document.
+    fn map(
+        &self,
+        document: CollectionDocument<Self::Collection>,
+    ) -> MapResult<Self::Key, Self::Value>;
+
+    /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
+    /// is returned, queries that ask for a reduce operation will return an
+    /// error. See [`CouchDB`'s Reduce/Rereduce
+    /// documentation](https://docs.couchdb.org/en/stable/ddocs/views/intro.html#reduce-rereduce)
+    /// for the design this implementation will be inspired by
+    #[allow(unused_variables)]
+    fn reduce(
+        &self,
+        mappings: &[MappedValue<Self::Key, Self::Value>],
+        rereduce: bool,
+    ) -> Result<Self::Value, Error> {
+        Err(Error::ReduceUnimplemented)
+    }
+}
+
+impl<T> View for T
+where
+    T: CollectionView,
+{
+    type Collection = T::Collection;
+    type Key = T::Key;
+    type Value = T::Value;
+
+    fn version(&self) -> u64 {
+        T::version(self)
+    }
+
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        T::name(self)
+    }
+
+    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+        T::map(self, CollectionDocument::try_from(document)?)
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[MappedValue<Self::Key, Self::Value>],
+        rereduce: bool,
+    ) -> Result<Self::Value, Error> {
+        T::reduce(self, mappings, rereduce)
+    }
+
+    fn unique(&self) -> bool {
+        T::unique(self)
+    }
+
+    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
+        T::view_name(self)
+    }
+}
+
 /// Represents either an owned value or a borrowed value. Functionally
 /// equivalent to `std::borrow::Cow` except this type doesn't require the
 /// wrapped type to implement `Clone`.
@@ -233,4 +331,98 @@ where
 
         pot::to_vec(&reduced_value).map_err(Error::from)
     }
+}
+
+/// Defines an unique view named `$view_name` for `$collection` with the
+/// mapping provided.
+#[macro_export(local_inner_macros)]
+macro_rules! define_basic_unique_mapped_view {
+    ($view_name:ident, $collection:ty, $version:literal, $name:literal, $key:ty, $mapping:expr $(,)?) => {
+        define_mapped_view!(
+            $view_name,
+            $collection,
+            $version,
+            $name,
+            $key,
+            (),
+            true,
+            $mapping
+        );
+    };
+    ($view_name:ident, $collection:ty, $version:literal, $name:literal, $key:ty, $value:ty, $mapping:expr $(,)?) => {
+        define_mapped_view!(
+            $view_name,
+            $collection,
+            $version,
+            $name,
+            $key,
+            $value,
+            true,
+            $mapping
+        );
+    };
+}
+
+/// Defines a non-unique view named `$view_name` for `$collection` with the
+/// mapping provided.
+#[macro_export(local_inner_macros)]
+macro_rules! define_basic_mapped_view {
+    ($view_name:ident, $collection:ty, $version:literal, $name:literal, $key:ty, $mapping:expr $(,)?) => {
+        define_mapped_view!(
+            $view_name,
+            $collection,
+            $version,
+            $name,
+            $key,
+            (),
+            false,
+            $mapping
+        );
+    };
+    ($view_name:ident, $collection:ty, $version:literal, $name:literal, $key:ty, $value:ty, $mapping:expr $(,)?) => {
+        define_mapped_view!(
+            $view_name,
+            $collection,
+            $version,
+            $name,
+            $key,
+            $value,
+            false,
+            $mapping
+        );
+    };
+}
+
+/// Defines a view using the mapping provided.
+#[macro_export]
+macro_rules! define_mapped_view {
+    ($view_name:ident, $collection:ty, $version:literal, $name:literal, $key:ty, $value:ty, $unique:literal, $mapping:expr) => {
+        #[derive(Debug)]
+        pub struct $view_name;
+
+        impl $crate::schema::CollectionView for $view_name {
+            type Collection = $collection;
+            type Key = $key;
+            type Value = $value;
+
+            fn unique(&self) -> bool {
+                $unique
+            }
+
+            fn version(&self) -> u64 {
+                $version
+            }
+
+            fn name(&self) -> Result<$crate::schema::Name, $crate::schema::InvalidNameError> {
+                $crate::schema::Name::new($name)
+            }
+
+            fn map(
+                &self,
+                document: $crate::schema::CollectionDocument<Self::Collection>,
+            ) -> $crate::schema::MapResult<Self::Key, Self::Value> {
+                Ok($mapping(document))
+            }
+        }
+    };
 }

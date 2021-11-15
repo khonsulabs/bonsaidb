@@ -1,7 +1,6 @@
 #![allow(clippy::missing_panics_doc)]
 
 use std::{
-    borrow::Cow,
     fmt::{Debug, Display},
     io::ErrorKind,
     ops::Deref,
@@ -766,7 +765,9 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::UserManagement).await?;
             let _db = harness.connect().await?;
             let server = harness.server();
-            let admin = server.database::<$crate::admin::Admin>("admin").await?;
+            let admin = server
+                .database::<$crate::admin::Admin>($crate::admin::ADMIN_DATABASE_NAME)
+                .await?;
 
             $crate::test_util::user_management_tests(
                 &admin,
@@ -924,7 +925,7 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 
     // To generate a conflict, let's try to do the same update again by
     // reverting the header
-    doc.header = Cow::Owned(header);
+    doc.header = header;
     match db
         .update::<Basic>(&mut doc)
         .await
@@ -963,7 +964,7 @@ pub async fn no_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         .expect("couldn't retrieve stored item");
     db.update::<Basic>(&mut doc).await?;
 
-    assert_eq!(doc.header.as_ref(), &header);
+    assert_eq!(doc.header, header);
 
     Ok(())
 }
@@ -1150,12 +1151,14 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 }
 
 pub async fn unassociated_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    assert!(matches!(
-        db.collection::<UnassociatedCollection>()
-            .push(&Basic::default())
-            .await,
-        Err(Error::CollectionNotFound)
-    ));
+    let result = db
+        .collection::<UnassociatedCollection>()
+        .push(&Basic::default())
+        .await;
+    match result {
+        Err(Error::CollectionNotFound) => {}
+        other => unreachable!("unexpected result: {:?}", other),
+    }
 
     Ok(())
 }
@@ -1960,13 +1963,8 @@ pub async fn basic_server_connection_tests<C: ServerConnection>(
 ) -> anyhow::Result<()> {
     let mut schemas = server.list_available_schemas().await?;
     schemas.sort();
-    assert_eq!(
-        schemas,
-        vec![
-            Basic::schema_name()?,
-            SchemaName::new("khonsulabs", "bonsaidb-admin")?
-        ]
-    );
+    assert!(schemas.contains(&Basic::schema_name()?));
+    assert!(schemas.contains(&SchemaName::new("khonsulabs", "bonsaidb-admin")?));
 
     let databases = server.list_databases().await?;
     assert!(databases.contains(&Database {

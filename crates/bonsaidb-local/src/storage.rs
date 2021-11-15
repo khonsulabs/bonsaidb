@@ -17,7 +17,7 @@ use bonsaidb_core::{
         database::{self, ByName, Database as DatabaseRecord},
         password_config::PasswordConfig,
         user::User,
-        Admin, PermissionGroup, Role,
+        Admin, PermissionGroup, Role, ADMIN_DATABASE_NAME,
     },
     connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection, Sort},
     custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
@@ -226,10 +226,11 @@ impl Storage {
 
     async fn create_admin_database_if_needed(&self) -> Result<(), Error> {
         self.register_schema::<Admin>().await?;
-        match self.database::<Admin>("admin").await {
+        match self.database::<Admin>(ADMIN_DATABASE_NAME).await {
             Ok(_) => {}
             Err(Error::Core(bonsaidb_core::Error::DatabaseNotFound(_))) => {
-                self.create_database::<Admin>("admin", true).await?;
+                self.create_database::<Admin>(ADMIN_DATABASE_NAME, true)
+                    .await?;
             }
             Err(err) => return Err(err),
         }
@@ -360,11 +361,11 @@ impl Storage {
     }
 
     fn validate_name(name: &str) -> Result<(), Error> {
-        if name
-            .chars()
-            .enumerate()
-            .all(|(index, c)| c.is_ascii_alphanumeric() || (index > 0 && (c == '.' || c == '-')))
-        {
+        if name.chars().enumerate().all(|(index, c)| {
+            c.is_ascii_alphanumeric()
+                || (index == 0 && c == '_')
+                || (index > 0 && (c == '.' || c == '-'))
+        }) {
             Ok(())
         } else {
             Err(Error::Core(bonsaidb_core::Error::InvalidDatabaseName(
@@ -377,8 +378,8 @@ impl Storage {
     #[allow(clippy::missing_panics_doc)]
     pub async fn admin(&self) -> Database<Admin> {
         Database::new(
-            "admin",
-            self.open_roots("admin").await.unwrap(),
+            ADMIN_DATABASE_NAME,
+            self.open_roots(ADMIN_DATABASE_NAME).await.unwrap(),
             self.clone(),
         )
         .await
@@ -844,8 +845,8 @@ impl ServerConnection for Storage {
 fn name_validation_tests() {
     assert!(matches!(Storage::validate_name("azAZ09.-"), Ok(())));
     assert!(matches!(
-        Storage::validate_name(".alphaunmericfirstrequired"),
-        Err(Error::Core(bonsaidb_core::Error::InvalidDatabaseName(_)))
+        Storage::validate_name("_internal-names-work"),
+        Ok(())
     ));
     assert!(matches!(
         Storage::validate_name("-alphaunmericfirstrequired"),

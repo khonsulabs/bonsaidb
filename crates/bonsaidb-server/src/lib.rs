@@ -25,8 +25,13 @@ mod backend;
 pub mod cli;
 mod config;
 mod error;
+pub(crate) mod hosted;
 mod server;
 
+#[cfg(feature = "acme")]
+pub use config::{
+    AcmeConfiguration, LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY,
+};
 pub use server::ServerSubscriber;
 
 pub use self::{

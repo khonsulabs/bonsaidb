@@ -57,13 +57,13 @@ pub trait Connection: Send + Sync {
         tx.push(Operation {
             collection: C::collection_name()?,
             command: Command::Update {
-                header: Cow::Owned(doc.header.as_ref().clone()),
+                header: Cow::Owned(doc.header.clone()),
                 contents: Cow::Owned(doc.contents.to_vec()),
             },
         });
         let results = self.apply_transaction(tx).await?;
-        if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
-            doc.header = Cow::Owned(header.clone());
+        if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
+            doc.header = header;
             Ok(())
         } else {
             unreachable!(
@@ -98,7 +98,7 @@ pub trait Connection: Send + Sync {
         tx.push(Operation {
             collection: C::collection_name()?,
             command: Command::Delete {
-                header: Cow::Owned(doc.header.as_ref().clone()),
+                header: Cow::Owned(doc.header.clone()),
             },
         });
         let results = self.apply_transaction(tx).await?;

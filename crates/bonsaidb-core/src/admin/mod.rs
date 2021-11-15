@@ -5,7 +5,6 @@ use crate::{
 
 #[doc(hidden)]
 pub mod database;
-// pub(crate) mod encryption_key;
 #[doc(hidden)]
 pub mod group;
 #[doc(hidden)]
@@ -37,3 +36,6 @@ impl Schema for Admin {
         Ok(())
     }
 }
+
+/// The name of the admin database.
+pub const ADMIN_DATABASE_NAME: &str = "_admin";

@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::Document,
+    define_basic_unique_mapped_view,
     schema::{
-        Collection, CollectionName, InvalidNameError, MapResult, Name, NamedCollection, Schematic,
-        View,
+        Collection, CollectionDocument, CollectionName, InvalidNameError, NamedCollection,
+        Schematic,
     },
     Error,
 };
@@ -48,29 +48,11 @@ impl NamedCollection for Role {
     type ByNameView = ByName;
 }
 
-/// A unique view of roles by name.
-#[derive(Debug)]
-pub struct ByName;
-
-impl View for ByName {
-    type Collection = Role;
-    type Key = String;
-    type Value = ();
-
-    fn unique(&self) -> bool {
-        true
-    }
-
-    fn version(&self) -> u64 {
-        1
-    }
-
-    fn name(&self) -> Result<Name, InvalidNameError> {
-        Name::new("by-name")
-    }
-
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        let role = document.contents::<Role>()?;
-        Ok(vec![document.emit_key(role.name)])
-    }
-}
+define_basic_unique_mapped_view!(
+    ByName,
+    Role,
+    1,
+    "by-name",
+    String,
+    |document: CollectionDocument<Role>| { vec![document.header.emit_key(document.contents.name)] }
+);

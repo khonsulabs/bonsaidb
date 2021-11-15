@@ -482,7 +482,7 @@ where
 
                     Ok(OperationResult::DocumentUpdated {
                         collection: operation.collection.clone(),
-                        header: updated_doc.header.as_ref().clone(),
+                        header: updated_doc.header,
                     })
                 } else {
                     // If no new revision was made, it means an attempt to
@@ -491,7 +491,7 @@ where
                     // version
                     Ok(OperationResult::DocumentUpdated {
                         collection: operation.collection.clone(),
-                        header: doc.header.as_ref().clone(),
+                        header: doc.header,
                     })
                 }
             } else {
@@ -531,7 +531,7 @@ where
 
         Ok(OperationResult::DocumentUpdated {
             collection: operation.collection.clone(),
-            header: doc.header.as_ref().clone(),
+            header: doc.header,
         })
     }
 
@@ -548,7 +548,7 @@ where
         let document_id = header.id.as_big_endian_bytes().unwrap();
         if let Some(vec) = documents.remove(&document_id)? {
             let doc = deserialize_document(&vec)?;
-            if doc.header.as_ref() == header {
+            if &doc.header == header {
                 self.update_unique_views(
                     document_id.as_ref(),
                     operation,
