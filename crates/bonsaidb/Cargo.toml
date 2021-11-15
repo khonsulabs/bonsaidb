@@ -62,7 +62,7 @@ required-features = ["server", "client"]
 
 [[example]]
 name = "acme"
-required-features = ["server", "client", "server-acme", "websockets"]
+required-features = ["server", "client", "server-acme"]
 
 [features]
 default = []
