@@ -138,22 +138,55 @@ macro_rules! define_pubsub_test_suite {
             Subscriber::subscribe_to(&subscriber_ab, "a").await?;
             Subscriber::subscribe_to(&subscriber_ab, "b").await?;
 
+            let mut messages_a = Vec::new();
+            let mut messages_ab = Vec::new();
             pubsub.publish("a", &String::from("a1")).await?;
+            messages_a.push(
+                subscriber_a
+                    .receiver()
+                    .recv_async()
+                    .await?
+                    .payload::<String>()?,
+            );
+            messages_ab.push(
+                subscriber_ab
+                    .receiver()
+                    .recv_async()
+                    .await?
+                    .payload::<String>()?,
+            );
+
             pubsub.publish("b", &String::from("b1")).await?;
+            messages_ab.push(
+                subscriber_ab
+                    .receiver()
+                    .recv_async()
+                    .await?
+                    .payload::<String>()?,
+            );
+
             pubsub.publish("a", &String::from("a2")).await?;
+            messages_a.push(
+                subscriber_a
+                    .receiver()
+                    .recv_async()
+                    .await?
+                    .payload::<String>()?,
+            );
+            messages_ab.push(
+                subscriber_ab
+                    .receiver()
+                    .recv_async()
+                    .await?
+                    .payload::<String>()?,
+            );
 
-            // Check subscriber_a for a1 and a2.
-            let message = subscriber_a.receiver().recv_async().await?;
-            assert_eq!(message.payload::<String>()?, "a1");
-            let message = subscriber_a.receiver().recv_async().await?;
-            assert_eq!(message.payload::<String>()?, "a2");
+            assert_eq!(&messages_a[0], "a1");
+            assert_eq!(&messages_a[1], "a2");
 
-            let message = subscriber_ab.receiver().recv_async().await?;
-            assert_eq!(message.payload::<String>()?, "a1");
-            let message = subscriber_ab.receiver().recv_async().await?;
-            assert_eq!(message.payload::<String>()?, "b1");
-            let message = subscriber_ab.receiver().recv_async().await?;
-            assert_eq!(message.payload::<String>()?, "a2");
+            assert_eq!(&messages_ab[0], "a1");
+            assert_eq!(&messages_ab[1], "b1");
+            assert_eq!(&messages_ab[2], "a2");
 
             Ok(())
         }
