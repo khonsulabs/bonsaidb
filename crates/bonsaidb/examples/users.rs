@@ -23,6 +23,7 @@ use support::schema::Shape;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    env_logger::init();
     let server = setup_server().await?;
 
     // Create a database user, or get its ID if it already existed.
@@ -89,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
             error: bonsaidb_core::Error::PermissionDenied(denied),
             ..
         }) => {
-            println!(
+            log::info!(
                 "Permission was correctly denied before logging in: {:?}",
                 denied
             );
@@ -102,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
         .login_with_password_str("ecton", "hunter2", None)
         .await?;
     let shape_doc = Shape::new(3).insert_into(&db).await?;
-    println!("Successully inserted document {:?}", shape_doc);
+    log::info!("Successully inserted document {:?}", shape_doc);
 
     drop(db);
     drop(client);

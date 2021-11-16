@@ -71,23 +71,18 @@ required-features = ["server", "client", "server-acme"]
 [features]
 default = []
 full = ["local-full", "server-full", "client-full"]
-local-full = ["local", "local-cli", "local-tracing"]
+local-full = ["local", "local-cli", "local-instrument"]
 local = ["bonsaidb-local"]
 server-full = [
     "server",
     "server-websockets",
     "server-cli",
-    "server-tracing",
+    "server-instrument",
     "server-acme",
     "server-http",
 ]
 server = ["bonsaidb-server"]
-client-full = [
-    "client",
-    "client-websockets",
-    "client-trusted-dns",
-    "client-tracing",
-]
+client-full = ["client", "client-websockets", "client-trusted-dns"]
 client = ["bonsaidb-client"]
 test-util = ["bonsaidb-client/test-util", "bonsaidb-server/test-util"]
 json = ["bonsaidb-core/json"]
@@ -106,9 +101,8 @@ client-websockets = ["bonsaidb-client/websockets"]
 
 client-trusted-dns = ["bonsaidb-client/trusted-dns"]
 
-local-tracing = ["bonsaidb-local/tracing"]
-server-tracing = ["bonsaidb-server/tracing"]
-client-tracing = ["bonsaidb-client/tracing"]
+local-instrument = ["bonsaidb-local/instrument"]
+server-instrument = ["bonsaidb-server/instrument"]
 
 server-acme = ["bonsaidb-server/acme"]
 server-http = ["bonsaidb-server/http"]
@@ -143,6 +137,8 @@ hdrhistogram = "7"
 axum = { version = "0.3" }
 async-trait = "0.1"
 hyper = { version = "0.14", features = ["http1", "server"] }
+env_logger = "0.9"
+log = "0.4"
 
 [package.metadata.docs.rs]
 all-features = true

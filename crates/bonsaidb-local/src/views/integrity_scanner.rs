@@ -41,6 +41,7 @@ where
     type Output = ();
     type Error = Error;
 
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
     #[allow(clippy::too_many_lines)]
     async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         let documents =

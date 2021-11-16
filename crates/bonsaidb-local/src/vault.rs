@@ -447,7 +447,7 @@ impl EncryptionKey {
         if self.1.is_none() {
             match region::lock(self.key().as_ptr(), self.key().len()) {
                 Ok(guard) => self.1 = Some(guard),
-                Err(err) => eprintln!("Security Warning: Unable to lock memory {:?}", err),
+                Err(err) => log::error!("Security Warning: Unable to lock memory {:?}", err),
             }
         }
     }

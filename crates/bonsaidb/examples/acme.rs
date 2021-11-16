@@ -13,6 +13,7 @@ const DOMAIN: &str = "example.com";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    env_logger::init();
     let server = Server::open(
         Path::new("acme-server-data.bonsaidb"),
         Configuration {

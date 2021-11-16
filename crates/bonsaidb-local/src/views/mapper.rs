@@ -52,6 +52,7 @@ where
     type Output = u64;
     type Error = Error;
 
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
     #[allow(clippy::too_many_lines)]
     async fn execute(&mut self) -> Result<Self::Output, Error> {
         let documents =

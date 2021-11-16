@@ -357,7 +357,7 @@ impl<B: Backend> CustomServer<B> {
             tokio::spawn(async move {
                 let address = connection.remote_address();
                 if let Err(err) = task_self.handle_bonsai_connection(connection).await {
-                    eprintln!("[server] closing connection {}: {:?}", address, err);
+                    log::error!("[server] closing connection {}: {:?}", address, err);
                 }
             });
         }
@@ -429,7 +429,7 @@ impl<B: Backend> CustomServer<B> {
             let incoming = match incoming {
                 Ok(incoming) => incoming,
                 Err(err) => {
-                    eprintln!("[server] Error establishing a stream: {:?}", err);
+                    log::error!("[server] Error establishing a stream: {:?}", err);
                     return Ok(());
                 }
             };
@@ -456,16 +456,16 @@ impl<B: Backend> CustomServer<B> {
                         let task_self = self.clone();
                         tokio::spawn(async move {
                             if let Err(err) = task_self.handle_stream(disconnector, sender, receiver).await {
-                                eprintln!("[server] Error handling stream: {:?}", err);
+                                log::error!("[server] Error handling stream: {:?}", err);
                             }
                         });
                     } else {
-                        eprintln!("[server] Backend rejected connection.");
+                        log::error!("[server] Backend rejected connection.");
                         return Ok(())
                     }
                 }
                 Err(err) => {
-                    eprintln!("[server] Error accepting incoming stream: {:?}", err);
+                    log::error!("[server] Error accepting incoming stream: {:?}", err);
                     return Ok(());
                 }
             }
@@ -770,6 +770,7 @@ impl<B: Backend> Job for ClientRequest<B> {
     type Output = Response<CustomApiResult<B::CustomApi>>;
     type Error = Error;
 
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         let request = self.request.take().unwrap();
         ServerDispatcher {

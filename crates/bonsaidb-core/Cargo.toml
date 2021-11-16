@@ -17,7 +17,7 @@ test-util = ["tokio", "networking", "websockets", "anyhow"]
 networking = []
 websockets = []
 actionable-traits = []
-tracing = ["pot/tracing"]
+instrument = ["pot/tracing"]
 json = ["serde_json"]
 cbor = ["serde_cbor"]
 

@@ -37,7 +37,7 @@ impl<B: Backend> CustomServer<B> {
                     let task_self = self.clone();
                     tokio::spawn(async move {
                         if let Err(err) = task_self.handle_http_connection(connection, remote_addr).await {
-                            eprintln!("[server] closing connection {}: {:?}", remote_addr, err);
+                            log::error!("[server] closing connection {}: {:?}", remote_addr, err);
                         }
                     });
                 }
@@ -66,7 +66,7 @@ impl<B: Backend> CustomServer<B> {
             let task_self = self.clone();
             tokio::task::spawn(async move {
                 if let Err(err) = task_self.update_acme_certificates().await {
-                    eprintln!("[server] acme task error: {0}", err);
+                    log::error!("[server] acme task error: {0}", err);
                 }
             });
         }
@@ -91,7 +91,7 @@ impl<B: Backend> CustomServer<B> {
                 let stream = match acceptor.accept(stream).await {
                     Ok(stream) => stream,
                     Err(err) => {
-                        eprintln!("[server] error during tls handshake: {:?}", err);
+                        log::error!("[server] error during tls handshake: {:?}", err);
                         return;
                     }
                 };
@@ -100,7 +100,7 @@ impl<B: Backend> CustomServer<B> {
                 if stream.get_ref().1.alpn_protocol().is_none() {
                     // Only pass non ALPN traffic on.
                     if let Err(err) = task_self.handle_http_connection(stream, peer_addr).await {
-                        eprintln!("[server] error for client {}: {:?}", peer_addr, err);
+                        log::error!("[server] error for client {}: {:?}", peer_addr, err);
                     }
                 }
             });
@@ -119,9 +119,10 @@ impl<B: Backend> CustomServer<B> {
                 .handle_raw_websocket_connection(connection, peer_address)
                 .await
             {
-                eprintln!(
+                log::error!(
                     "[server] error on websocket for {}: {:?}",
-                    peer_address, err
+                    peer_address,
+                    err
                 );
             }
         }
@@ -155,7 +156,7 @@ impl<B: Backend> ResolvesServerCert for CustomServer<B> {
         if let Some(key) = cached_key.as_ref() {
             Some(key.clone())
         } else {
-            eprintln!("[server] inbound tls connection with no certificate installed");
+            log::error!("[server] inbound tls connection with no certificate installed");
             None
         }
     }

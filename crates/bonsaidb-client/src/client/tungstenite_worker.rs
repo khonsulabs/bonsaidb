@@ -66,7 +66,7 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
             for (_, pending) in outstanding_requests.drain() {
                 drop(pending.responder.send(Err(Error::Disconnected)));
             }
-            eprintln!("Error on socket {:?}", err);
+            log::error!("Error on socket {:?}", err);
         }
     }
 
@@ -116,7 +116,7 @@ async fn response_processor<A: CustomApi>(
                 .await;
             }
             other => {
-                eprintln!("Unexpected websocket message: {:?}", other);
+                log::error!("Unexpected websocket message: {:?}", other);
             }
         }
     }

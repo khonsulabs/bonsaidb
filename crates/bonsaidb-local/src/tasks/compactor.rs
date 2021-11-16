@@ -113,6 +113,7 @@ impl<DB: Schema> Job for Compactor<DB> {
 
     type Error = Error;
 
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn execute(&mut self) -> Result<Self::Output, Error> {
         self.compaction.target.clone().compact(&self.database).await
     }

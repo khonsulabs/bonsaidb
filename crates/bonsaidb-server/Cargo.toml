@@ -25,7 +25,7 @@ websockets = [
     "sha-1",
     "hyper",
 ]
-tracing = ["pot/tracing"]
+instrument = ["tracing", "pot/tracing"]
 acme = ["async-acme", "pem", "http"]
 http = []
 
@@ -52,15 +52,17 @@ pot = "0.1.0-alpha.2"
 fabruic = { version = "0.0.1-dev.2", features = ["dangerous"] }
 cfg-if = "1"
 pem = { version = "1", optional = true }
-async-acme = { version = "0.3", optional = true, features = [
-    "hyper_rustls",
-] }
+async-acme = { version = "0.3", optional = true, features = ["hyper_rustls"] }
 rustls = "0.20"
 tokio-rustls = { version = "0.23" }
 parking_lot = "0.11"
 hyper = { version = "0.14", optional = true, features = ["server", "http1"] }
 sha-1 = { version = "0.9", optional = true }
 base64 = { version = "0.13", optional = true }
+tracing = { version = "0.1", optional = true, default-features = false, features = [
+    "attributes",
+] }
+log = "0.4"
 
 
 [dev-dependencies]

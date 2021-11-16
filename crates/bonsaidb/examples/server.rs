@@ -17,6 +17,7 @@ use support::schema::{Shape, ShapesByNumberOfSides};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    env_logger::init();
     // ANCHOR: setup
     let server = Server::open(
         Path::new("server-data.bonsaidb"),
@@ -106,7 +107,7 @@ async fn do_some_database_work<'a, C: Connection>(
         Shape::new(sides).insert_into(&database).await?;
     }
 
-    println!("Client {} finished", client_name);
+    log::info!("Client {} finished", client_name);
 
     // Print a summary of all the shapes
     for result in database
@@ -114,9 +115,10 @@ async fn do_some_database_work<'a, C: Connection>(
         .reduce_grouped()
         .await?
     {
-        println!(
+        log::info!(
             "Number of entries with {:02} sides: {}",
-            result.key, result.value
+            result.key,
+            result.value
         );
     }
 

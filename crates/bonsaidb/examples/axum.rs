@@ -42,7 +42,7 @@ impl Backend for AxumBackend {
             .with_upgrades()
             .await
         {
-            eprintln!("[http] error serving {}: {:?}", peer_address, err);
+            log::error!("[http] error serving {}: {:?}", peer_address, err);
         }
 
         Ok(())
@@ -55,6 +55,7 @@ impl Backend for AxumBackend {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    env_logger::init();
     let server = CustomServer::<AxumBackend>::open(
         Path::new("http-server-data.bonsaidb"),
         Configuration {
@@ -75,7 +76,6 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(1)).await;
-                println!("attempting increment");
                 let db = client.database::<()>("storage").await.unwrap();
                 db.increment_key_by("uptime", 1_u64).await.unwrap();
             }

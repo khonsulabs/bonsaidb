@@ -605,6 +605,10 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
 
 #[async_trait]
 impl ServerConnection for Storage {
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(name, schema, only_if_needed))
+    )]
     async fn create_database_with_schema(
         &self,
         name: &str,
@@ -650,6 +654,7 @@ impl ServerConnection for Storage {
         Ok(())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(name)))]
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
         let admin = self.admin().await;
         let mut available_databases = self.data.available_databases.write().await;
@@ -682,6 +687,7 @@ impl ServerConnection for Storage {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn list_databases(&self) -> Result<Vec<admin::Database>, bonsaidb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases
@@ -693,11 +699,13 @@ impl ServerConnection for Storage {
             .collect())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases.values().unique().cloned().collect())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
     async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         let result = self
             .admin()
@@ -708,6 +716,7 @@ impl ServerConnection for Storage {
         Ok(result.id)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password_request)))]
     async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
@@ -729,6 +738,10 @@ impl ServerConnection for Storage {
         }
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(user, password_finalization))
+    )]
     async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
@@ -754,6 +767,7 @@ impl ServerConnection for Storage {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
     async fn add_permission_group_to_user<
         'user,
         'group,
@@ -779,6 +793,7 @@ impl ServerConnection for Storage {
         .await
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
     async fn remove_permission_group_from_user<
         'user,
         'group,
@@ -801,6 +816,7 @@ impl ServerConnection for Storage {
         .await
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
     async fn add_role_to_user<
         'user,
         'group,
@@ -822,6 +838,7 @@ impl ServerConnection for Storage {
         .await
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
     async fn remove_role_from_user<
         'user,
         'group,

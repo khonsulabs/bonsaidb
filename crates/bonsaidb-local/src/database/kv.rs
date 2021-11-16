@@ -685,6 +685,7 @@ impl<DB: Schema> Job for ExpirationLoader<DB> {
     type Output = ();
     type Error = Error;
 
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         let database = self.database.clone();
         let (sender, receiver) = flume::unbounded();

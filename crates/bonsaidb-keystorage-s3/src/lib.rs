@@ -156,7 +156,7 @@ async fn basic_test() {
             match std::env::var($name) {
                 Ok(value) => value,
                 Err(_) => {
-                    eprintln!(
+                    log::error!(
                         "Ignoring basic_test because of missing environment variable: {}",
                         $name
                     );

@@ -51,7 +51,7 @@ impl<B: Backend> CustomServer<B> {
                     task_self.handle_websocket(ws, peer_address).await;
                 }
                 Err(err) => {
-                    eprintln!("Error upgrading websocket: {:?}", err);
+                    log::error!("Error upgrading websocket: {:?}", err);
                 }
             }
         });
@@ -164,7 +164,7 @@ impl<B: Backend> CustomServer<B> {
                     {
                         Ok(payload) => drop(request_sender.send_async(payload).await),
                         Err(err) => {
-                            eprintln!("[server] error decoding message: {:?}", err);
+                            log::error!("[server] error decoding message: {:?}", err);
                             break;
                         }
                     }
@@ -174,7 +174,7 @@ impl<B: Backend> CustomServer<B> {
                     drop(message_sender.send(Message::Pong(payload)));
                 }
                 other => {
-                    eprintln!("[server] unexpected message: {:?}", other);
+                    log::error!("[server] unexpected message: {:?}", other);
                 }
             }
         }

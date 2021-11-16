@@ -745,6 +745,7 @@ impl<'a, DB> Connection for Database<DB>
 where
     DB: Schema,
 {
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(transaction)))]
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,
@@ -844,6 +845,7 @@ where
         .map_err(bonsaidb_core::Error::from)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(id)))]
     async fn get<C: schema::Collection>(
         &self,
         id: u64,
@@ -852,6 +854,7 @@ where
             .await
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
     async fn get_multiple<C: schema::Collection>(
         &self,
         ids: &[u64],
@@ -860,6 +863,7 @@ where
             .await
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids, order, limit)))]
     async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
         &self,
         ids: R,
@@ -870,6 +874,10 @@ where
             .await
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(starting_id, result_limit))
+    )]
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
@@ -916,6 +924,10 @@ where
         }
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(key, order, limit, access_policy))
+    )]
     #[must_use]
     async fn query<V: schema::View>(
         &self,
@@ -947,6 +959,10 @@ where
         Ok(results)
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(key, order, limit, access_policy))
+    )]
     async fn query_with_docs<V: schema::View>(
         &self,
         key: Option<QueryKey<V::Key>>,
@@ -982,6 +998,7 @@ where
             .collect())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
     async fn reduce<V: schema::View>(
         &self,
         key: Option<QueryKey<V::Key>>,
@@ -1008,6 +1025,7 @@ where
         Ok(value)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
     async fn reduce_grouped<V: schema::View>(
         &self,
         key: Option<QueryKey<V::Key>>,
@@ -1041,10 +1059,12 @@ where
             .collect::<Result<Vec<_>, bonsaidb_core::Error>>()
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
         Ok(self.roots().transactions().current_transaction_id())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn compact_collection<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
         self.storage()
             .tasks()
@@ -1053,6 +1073,7 @@ where
         Ok(())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
         self.storage()
             .tasks()
@@ -1061,6 +1082,7 @@ where
         Ok(())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
         self.storage()
             .tasks()

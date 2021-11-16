@@ -37,7 +37,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
         client: &ConnectedClient<Self>,
         server: &CustomServer<Self>,
     ) -> ConnectionHandling {
-        println!(
+        log::info!(
             "{:?} client connected from {:?}",
             client.transport(),
             client.address()
@@ -49,7 +49,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// A client disconnected from the server.
     #[allow(unused_variables)]
     async fn client_disconnected(client: ConnectedClient<Self>, server: &CustomServer<Self>) {
-        println!(
+        log::info!(
             "{:?} client disconnected ({:?})",
             client.transport(),
             client.address()
@@ -59,7 +59,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// A client successfully authenticated.
     #[allow(unused_variables)]
     async fn client_authenticated(client: ConnectedClient<Self>, server: &CustomServer<Self>) {
-        println!(
+        log::info!(
             "{:?} client authenticated as user: {}",
             client.transport(),
             client.user_id().await.unwrap()
