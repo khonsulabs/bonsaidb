@@ -50,7 +50,11 @@ use flume::Sender;
 use futures::{Future, StreamExt};
 use rustls::sign::CertifiedKey;
 use schema::SchemaName;
-use tokio::sync::RwLock;
+use signal_hook::{
+    consts::{SIGINT, SIGQUIT},
+    iterator::Signals,
+};
+use tokio::sync::{Mutex, RwLock};
 
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
@@ -648,6 +652,69 @@ impl<B: Backend> CustomServer<B> {
                 }
             } else {
                 server.close().await;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Listens for signals from the operating system that the server should
+    /// shut down and attempts to gracefully shut down.
+    pub async fn listen_for_shutdown(&self) -> Result<(), Error> {
+        let shutdown_state = Arc::new(Mutex::new(ShutdownState::Running));
+        match Signals::new(&[SIGINT, SIGQUIT]) {
+            Ok(mut signals) => {
+                'outer: loop {
+                    for signal in signals.pending() {
+                        match signal {
+                            SIGINT => {
+                                let mut state = shutdown_state.lock().await;
+                                match *state {
+                                    ShutdownState::Running => {
+                                        log::error!(
+                                            "Interrupt signal received. Shutting down gracefully."
+                                        );
+                                        let task_server = self.clone();
+                                        let (shutdown_sender, shutdown_receiver) =
+                                            flume::bounded(1);
+                                        tokio::task::spawn(async move {
+                                            task_server
+                                                .shutdown(Some(Duration::from_secs(30)))
+                                                .await?;
+                                            let _ = shutdown_sender.send(());
+                                            Result::<(), Error>::Ok(())
+                                        });
+                                        *state = ShutdownState::ShuttingDown(shutdown_receiver);
+                                    }
+                                    ShutdownState::ShuttingDown(_) => {
+                                        // Two interrupts, go ahead and force the shutdown
+                                        break 'outer;
+                                    }
+                                }
+                            }
+                            SIGQUIT => {
+                                log::error!("Quit signal received. Shutting down.");
+                                break 'outer;
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+
+                    let state = shutdown_state.lock().await;
+                    if let ShutdownState::ShuttingDown(receiver) = &*state {
+                        if receiver.try_recv().is_ok() {
+                            // Fully shut down.
+                            return Ok(());
+                        }
+                    }
+
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                }
+                self.shutdown(None).await?;
+            }
+            Err(err) => {
+                log::error!("Error installing signals for graceful shutdown: {:?}", err);
+                tokio::time::sleep(Duration::MAX).await;
             }
         }
 
@@ -1943,4 +2010,9 @@ impl Deref for AlpnKeys {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
+
+enum ShutdownState {
+    Running,
+    ShuttingDown(flume::Receiver<()>),
 }
