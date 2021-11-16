@@ -48,6 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deserialized for you.
 - `bonsaidb_core` now has two new macros to ease some tedium of writing simple
   views: `define_basic_mapped_view` and `define_basic_unique_mapped_view`.
+- BonsaiDb now uses [`log`](https://crates.io/crates/log) internally to report
+  errors that are being ignored or happened in a background task.
+- Multiple crates now offer an "instrument" feature which enables
+  instrumentation using the [`tracing`](https://tracing.rs/) ecosystem.
 
 ### Changed
 
