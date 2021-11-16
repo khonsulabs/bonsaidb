@@ -5,6 +5,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     marker::PhantomData,
+    ops::Deref,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc,
@@ -41,7 +42,23 @@ mod tungstenite_worker;
 #[cfg(all(feature = "websockets", target_arch = "wasm32"))]
 mod wasm_websocket_worker;
 
-type SubscriberMap = Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>;
+#[derive(Debug, Clone, Default)]
+pub struct SubscriberMap(Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>);
+
+impl SubscriberMap {
+    pub async fn clear(&self) {
+        let mut data = self.lock().await;
+        data.clear();
+    }
+}
+
+impl Deref for SubscriberMap {
+    type Target = Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 use bonsaidb_core::{circulate::Message, networking::DatabaseRequest};
 

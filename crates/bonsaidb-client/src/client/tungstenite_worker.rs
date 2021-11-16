@@ -25,7 +25,10 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     subscribers: SubscriberMap,
 ) -> Result<(), Error<A::Error>> {
-    while let Ok(request) = request_receiver.recv_async().await {
+    while let Ok(request) = {
+        subscribers.clear().await;
+        request_receiver.recv_async().await
+    } {
         let (stream, _) = match tokio_tungstenite::connect_async(&url).await {
             Ok(result) => result,
             Err(err) => {
