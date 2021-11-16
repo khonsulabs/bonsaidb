@@ -27,8 +27,8 @@ impl Collection for Message {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let db = Database::<Message>::open_local(
-        "basic.bonsaidb",
+    let db = Database::open_local::<Message>(
+        "basic.bonsaidb".as_ref(),
         Configuration::default(),
     )
     .await?;

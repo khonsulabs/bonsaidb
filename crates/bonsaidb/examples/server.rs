@@ -73,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
 
     // To connect over QUIC, use the bonsaidb scheme.
     tasks.push(do_some_database_work(
-        Client::<()>::build(Url::parse("bonsaidb://localhost")?)
+        Client::build(Url::parse("bonsaidb://localhost")?)
             .with_certificate(certificate)
             .finish()
             .await?

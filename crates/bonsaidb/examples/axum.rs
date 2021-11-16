@@ -69,9 +69,10 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(all(feature = "client", feature = "websockets"))]
     {
-        let client = bonsaidb::client::Client::<()>::new(Url::parse(
+        let client = bonsaidb::client::Client::build(Url::parse(
             "ws://localhost:8080/ws",
         )?)
+        .finish()
         .await?;
         tokio::spawn(async move {
             loop {

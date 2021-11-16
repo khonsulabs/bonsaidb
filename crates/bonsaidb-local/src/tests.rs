@@ -16,7 +16,7 @@ use crate::Database;
 
 struct TestHarness {
     _directory: TestDirectory,
-    db: Database<BasicSchema>,
+    db: Database,
 }
 
 impl TestHarness {
@@ -27,7 +27,7 @@ impl TestHarness {
         storage
             .create_database::<BasicSchema>("tests", false)
             .await?;
-        let db = storage.database("tests").await?;
+        let db = storage.database::<BasicSchema>("tests").await?;
 
         Ok(Self {
             _directory: directory,
@@ -48,13 +48,13 @@ impl TestHarness {
         &self,
         permissions: Vec<Statement>,
         _label: &str,
-    ) -> anyhow::Result<Database<BasicSchema>> {
+    ) -> anyhow::Result<Database> {
         Ok(self
             .db
             .with_effective_permissions(Permissions::from(permissions)))
     }
 
-    async fn connect(&self) -> anyhow::Result<Database<BasicSchema>> {
+    async fn connect(&self) -> anyhow::Result<Database> {
         Ok(self.db.clone())
     }
 
@@ -81,7 +81,7 @@ fn integrity_checks() -> anyhow::Result<()> {
             .build()?;
         rt.block_on(async {
             {
-                let db = Database::<BasicCollectionWithNoViews>::open_local(
+                let db = Database::open_local::<BasicCollectionWithNoViews>(
                     &path,
                     Configuration::default(),
                 )
@@ -100,7 +100,7 @@ fn integrity_checks() -> anyhow::Result<()> {
             .enable_all()
             .build()?;
         rt.block_on(async {
-            let db = Database::<BasicCollectionWithOnlyBrokenParentId>::open_local(
+            let db = Database::open_local::<BasicCollectionWithOnlyBrokenParentId>(
                 &path,
                 Configuration::default(),
             )
@@ -131,7 +131,7 @@ fn integrity_checks() -> anyhow::Result<()> {
             .enable_all()
             .build()?;
         rt.block_on(async {
-            let db = Database::<Basic>::open_local(
+            let db = Database::open_local::<Basic>(
                 &path,
                 Configuration {
                     views: config::Views {
@@ -170,7 +170,7 @@ fn encryption() -> anyhow::Result<()> {
     let document_header = {
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async {
-            let db = Database::<BasicSchema>::open_local(&path, Configuration::default()).await?;
+            let db = Database::open_local::<BasicSchema>(&path, Configuration::default()).await?;
 
             let document_header = db
                 .collection::<EncryptedBasic>()
@@ -196,7 +196,7 @@ fn encryption() -> anyhow::Result<()> {
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
-        let db = Database::<BasicSchema>::open_local(&path, Configuration::default()).await?;
+        let db = Database::open_local::<BasicSchema>(&path, Configuration::default()).await?;
 
         // Try retrieving the document, but expect an error decrypting.
         if let Err(bonsaidb_core::Error::Database(err)) = db
@@ -227,7 +227,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
-                let db = Database::<()>::open_local(&path, Configuration::default()).await?;
+                let db = Database::open_local::<()>(&path, Configuration::default()).await?;
 
                 db.set_key("a", &0_u32)
                     .expire_in(Duration::from_secs(3))
@@ -240,7 +240,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             let retry = rt.block_on(async {
-                let db = Database::<()>::open_local(&path, Configuration::default()).await?;
+                let db = Database::open_local::<()>(&path, Configuration::default()).await?;
 
                 if timing.elapsed() > Duration::from_secs(1) {
                     return Ok(true);

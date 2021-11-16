@@ -6,7 +6,7 @@ use std::{
 
 use bonsaidb_core::{
     connection::Connection,
-    schema::{view, CollectionName, Schema, ViewName},
+    schema::{view, CollectionName, ViewName},
 };
 use tokio::sync::RwLock;
 
@@ -48,10 +48,10 @@ impl TaskManager {
         }
     }
 
-    pub async fn update_view_if_needed<DB: Schema>(
+    pub async fn update_view_if_needed(
         &self,
         view: &dyn view::Serialized,
-        database: &Database<DB>,
+        database: &Database,
     ) -> Result<(), crate::Error> {
         let view_name = view.view_name();
         if let Some(job) = self.spawn_integrity_check(view, database).await? {
@@ -113,10 +113,10 @@ impl TaskManager {
             .contains(&(database, collection.clone(), view_name))
     }
 
-    pub async fn spawn_integrity_check<DB: Schema>(
+    pub async fn spawn_integrity_check(
         &self,
         view: &dyn view::Serialized,
-        database: &Database<DB>,
+        database: &Database,
     ) -> Result<Option<Handle<(), Error, Task>>, crate::Error> {
         let view_name = view.view_name()?;
         if !self
@@ -170,9 +170,9 @@ impl TaskManager {
             .insert((database, collection, view_name), transaction_id);
     }
 
-    pub async fn spawn_key_value_expiration_loader<DB: Schema>(
+    pub async fn spawn_key_value_expiration_loader(
         &self,
-        database: &crate::Database<DB>,
+        database: &crate::Database,
     ) -> Handle<(), Error, Task> {
         self.jobs
             .enqueue(crate::database::kv::ExpirationLoader {
@@ -181,9 +181,9 @@ impl TaskManager {
             .await
     }
 
-    pub async fn compact_collection<DB: Schema>(
+    pub async fn compact_collection(
         &self,
-        database: crate::Database<DB>,
+        database: crate::Database,
         collection_name: CollectionName,
     ) -> Result<(), Error> {
         Ok(self
@@ -194,10 +194,7 @@ impl TaskManager {
             .await??)
     }
 
-    pub async fn compact_key_value_store<DB: Schema>(
-        &self,
-        database: crate::Database<DB>,
-    ) -> Result<(), Error> {
+    pub async fn compact_key_value_store(&self, database: crate::Database) -> Result<(), Error> {
         Ok(self
             .jobs
             .lookup_or_enqueue(Compactor::keyvalue(database))
@@ -206,10 +203,7 @@ impl TaskManager {
             .await??)
     }
 
-    pub async fn compact_database<DB: Schema>(
-        &self,
-        database: crate::Database<DB>,
-    ) -> Result<(), Error> {
+    pub async fn compact_database(&self, database: crate::Database) -> Result<(), Error> {
         Ok(self
             .jobs
             .lookup_or_enqueue(Compactor::database(database))

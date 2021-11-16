@@ -5,9 +5,8 @@ use std::{
 };
 
 use async_trait::async_trait;
-use bonsaidb_core::{
-    kv::{Command, KeyCheck, KeyOperation, KeyStatus, Kv, Numeric, Output, Timestamp, Value},
-    schema::Schema,
+use bonsaidb_core::kv::{
+    Command, KeyCheck, KeyOperation, KeyStatus, Kv, Numeric, Output, Timestamp, Value,
 };
 use nebari::{
     io::fs::StdFile,
@@ -25,10 +24,7 @@ pub struct Entry {
 }
 
 #[async_trait]
-impl<DB> Kv for Database<DB>
-where
-    DB: Schema,
-{
+impl Kv for Database {
     async fn execute_key_operation(
         &self,
         op: KeyOperation,
@@ -82,7 +78,7 @@ fn full_key(namespace: Option<String>, mut key: String) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn execute_set_operation<DB: Schema>(
+fn execute_set_operation(
     namespace: Option<String>,
     key: String,
     value: Value,
@@ -90,7 +86,7 @@ fn execute_set_operation<DB: Schema>(
     keep_existing_expiration: bool,
     check: Option<KeyCheck>,
     return_previous_value: bool,
-    db: &Database<DB>,
+    db: &Database,
 ) -> Result<Output, bonsaidb_core::Error> {
     let kv_tree = db
         .data
@@ -150,11 +146,11 @@ fn execute_set_operation<DB: Schema>(
     }
 }
 
-fn execute_get_operation<DB: Schema>(
+fn execute_get_operation(
     namespace: Option<String>,
     key: String,
     delete: bool,
-    db: &Database<DB>,
+    db: &Database,
 ) -> Result<Output, bonsaidb_core::Error> {
     let tree = db
         .data
@@ -185,10 +181,10 @@ fn execute_get_operation<DB: Schema>(
     Ok(Output::Value(entry))
 }
 
-fn execute_delete_operation<DB: Schema>(
+fn execute_delete_operation(
     namespace: Option<String>,
     key: String,
-    db: &Database<DB>,
+    db: &Database,
 ) -> Result<Output, bonsaidb_core::Error> {
     let tree = db
         .data
@@ -210,30 +206,30 @@ fn execute_delete_operation<DB: Schema>(
     }
 }
 
-fn execute_increment_operation<DB: Schema>(
+fn execute_increment_operation(
     namespace: Option<String>,
     key: String,
-    db: &Database<DB>,
+    db: &Database,
     amount: &Numeric,
     saturating: bool,
 ) -> Result<Output, bonsaidb_core::Error> {
     execute_numeric_operation(namespace, key, db, amount, saturating, increment)
 }
 
-fn execute_decrement_operation<DB: Schema>(
+fn execute_decrement_operation(
     namespace: Option<String>,
     key: String,
-    db: &Database<DB>,
+    db: &Database,
     amount: &Numeric,
     saturating: bool,
 ) -> Result<Output, bonsaidb_core::Error> {
     execute_numeric_operation(namespace, key, db, amount, saturating, decrement)
 }
 
-fn execute_numeric_operation<DB: Schema, F: Fn(&Numeric, &Numeric, bool) -> Numeric>(
+fn execute_numeric_operation<F: Fn(&Numeric, &Numeric, bool) -> Numeric>(
     namespace: Option<String>,
     key: String,
-    db: &Database<DB>,
+    db: &Database,
     amount: &Numeric,
     saturating: bool,
     op: F,
@@ -676,12 +672,12 @@ mod tests {
 }
 
 #[derive(Debug)]
-pub struct ExpirationLoader<DB> {
-    pub database: Database<DB>,
+pub struct ExpirationLoader {
+    pub database: Database,
 }
 
 #[async_trait]
-impl<DB: Schema> Job for ExpirationLoader<DB> {
+impl Job for ExpirationLoader {
     type Output = ();
     type Error = Error;
 

@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::HashSet, hash::Hash, sync::Arc};
 
 use async_trait::async_trait;
-use bonsaidb_core::schema::{view, CollectionName, Key, Schema, ViewName};
+use bonsaidb_core::schema::{view, CollectionName, Key, ViewName};
 use nebari::{
     io::fs::StdFile,
     tree::{KeyEvaluation, Unversioned, Versioned},
@@ -20,8 +20,8 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct IntegrityScanner<DB> {
-    pub database: Database<DB>,
+pub struct IntegrityScanner {
+    pub database: Database,
     pub scan: IntegrityScan,
 }
 
@@ -34,10 +34,7 @@ pub struct IntegrityScan {
 }
 
 #[async_trait]
-impl<DB> Job for IntegrityScanner<DB>
-where
-    DB: Schema,
-{
+impl Job for IntegrityScanner {
     type Output = ();
     type Error = Error;
 
@@ -179,10 +176,7 @@ fn tree_keys<K: Key + Hash + Eq + Clone, R: nebari::tree::Root>(
         .collect::<Result<HashSet<_>, view::Error>>()?)
 }
 
-impl<DB> Keyed<Task> for IntegrityScanner<DB>
-where
-    DB: Schema,
-{
+impl Keyed<Task> for IntegrityScanner {
     fn key(&self) -> Task {
         Task::IntegrityScan(self.scan.clone())
     }

@@ -77,7 +77,7 @@ mod websockets {
     struct WebsocketTestHarness {
         client: Client,
         url: Url,
-        db: RemoteDatabase<BasicSchema>,
+        db: RemoteDatabase,
     }
 
     impl WebsocketTestHarness {
@@ -103,7 +103,7 @@ mod websockets {
             &self.client
         }
 
-        pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
+        pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase> {
             Ok(self.db.clone())
         }
 
@@ -112,7 +112,7 @@ mod websockets {
             &self,
             permissions: Vec<Statement>,
             label: &str,
-        ) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
+        ) -> anyhow::Result<RemoteDatabase> {
             let client = Client::new(self.url.clone()).await?;
             assume_permissions(client, label, self.db.name(), permissions).await
         }
@@ -134,7 +134,7 @@ mod bonsai {
         client: Client,
         url: Url,
         certificate: Certificate,
-        db: RemoteDatabase<BasicSchema>,
+        db: RemoteDatabase,
     }
 
     impl BonsaiTestHarness {
@@ -172,7 +172,7 @@ mod bonsai {
             &self.client
         }
 
-        pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
+        pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase> {
             Ok(self.db.clone())
         }
 
@@ -181,7 +181,7 @@ mod bonsai {
             &self,
             statements: Vec<Statement>,
             label: &str,
-        ) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
+        ) -> anyhow::Result<RemoteDatabase> {
             let client = Client::build(self.url.clone())
                 .with_certificate(self.certificate.clone())
                 .finish()
@@ -205,7 +205,7 @@ async fn assume_permissions(
     label: &str,
     database_name: &str,
     statements: Vec<Statement>,
-) -> anyhow::Result<RemoteDatabase<BasicSchema>> {
+) -> anyhow::Result<RemoteDatabase> {
     let username = format!("{}-{}", database_name, label);
     match connection.create_user(&username).await {
         Ok(user_id) => {

@@ -263,29 +263,6 @@ impl<A: CustomApi> Client<A> {
         Ok(client)
     }
 
-    /// Returns a structure representing a remote database. No validations are
-    /// done when this method is executed. The server will validate the schema
-    /// and database name when a [`Connection`](bonsaidb_core::connection::Connection) function is called.
-    pub async fn database<DB: Schema>(
-        &self,
-        name: &str,
-    ) -> Result<RemoteDatabase<DB, A>, Error<A::Error>> {
-        let mut schemas = self.data.schemas.lock().await;
-        let type_id = TypeId::of::<DB>();
-        let schematic = if let Some(schematic) = schemas.get(&type_id) {
-            schematic.clone()
-        } else {
-            let schematic = Arc::new(DB::schematic()?);
-            schemas.insert(type_id, schematic.clone());
-            schematic
-        };
-        Ok(RemoteDatabase::new(
-            self.clone(),
-            name.to_string(),
-            schematic,
-        ))
-    }
-
     /// Logs in as a user with a password, using `custodian-password` to login using `OPAQUE-PAKE`.
     pub async fn login_with_password(
         &self,
@@ -417,7 +394,9 @@ impl<A: CustomApi> Client<A> {
 }
 
 #[async_trait]
-impl ServerConnection for Client {
+impl<A: CustomApi> ServerConnection for Client<A> {
+    type Database = RemoteDatabase<A>;
+
     async fn create_database_with_schema(
         &self,
         name: &str,
@@ -440,6 +419,26 @@ impl ServerConnection for Client {
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
             )),
         }
+    }
+
+    async fn database<DB: Schema>(
+        &self,
+        name: &str,
+    ) -> Result<Self::Database, bonsaidb_core::Error> {
+        let mut schemas = self.data.schemas.lock().await;
+        let type_id = TypeId::of::<DB>();
+        let schematic = if let Some(schematic) = schemas.get(&type_id) {
+            schematic.clone()
+        } else {
+            let schematic = Arc::new(DB::schematic()?);
+            schemas.insert(type_id, schematic.clone());
+            schematic
+        };
+        Ok(RemoteDatabase::new(
+            self.clone(),
+            name.to_string(),
+            schematic,
+        ))
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {

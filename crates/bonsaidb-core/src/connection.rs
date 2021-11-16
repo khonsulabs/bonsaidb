@@ -721,6 +721,9 @@ pub enum AccessPolicy {
 /// Functions for interacting with a multi-database `BonsaiDb` instance.
 #[async_trait]
 pub trait ServerConnection: Send + Sync {
+    /// The type that represents a database for this implementation.
+    type Database: Connection;
+
     /// Creates a database named `name` with the `Schema` provided.
     ///
     /// ## Errors
@@ -739,6 +742,9 @@ pub trait ServerConnection: Send + Sync {
         self.create_database_with_schema(name, DB::schema_name()?, only_if_needed)
             .await
     }
+
+    /// Returns a reference to database `name` with schema `DB`.
+    async fn database<DB: Schema>(&self, name: &str) -> Result<Self::Database, crate::Error>;
 
     /// Creates a database named `name` using the [`SchemaName`] `schema`.
     ///

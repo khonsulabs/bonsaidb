@@ -1,5 +1,8 @@
 use actionable::{Permissions, Statement};
-use bonsaidb_core::test_util::{self, BasicSchema, HarnessTest, TestDirectory};
+use bonsaidb_core::{
+    connection::ServerConnection,
+    test_util::{self, BasicSchema, HarnessTest, TestDirectory},
+};
 
 use crate::{server::ServerDatabase, test_util::initialize_basic_server, Server};
 
@@ -34,7 +37,7 @@ impl TestHarness {
         &self.server
     }
 
-    pub async fn connect(&self) -> anyhow::Result<ServerDatabase<'_, (), BasicSchema>> {
+    pub async fn connect(&self) -> anyhow::Result<ServerDatabase<()>> {
         let db = self.server.database::<BasicSchema>("tests").await?;
         Ok(db)
     }
@@ -44,7 +47,7 @@ impl TestHarness {
         &self,
         permissions: Vec<Statement>,
         _label: &str,
-    ) -> anyhow::Result<ServerDatabase<'_, (), BasicSchema>> {
+    ) -> anyhow::Result<ServerDatabase<()>> {
         let mut db = self.connect().await?;
         db.db = db
             .db

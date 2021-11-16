@@ -5,15 +5,11 @@ pub use bonsaidb_core::circulate::Relay;
 use bonsaidb_core::{
     circulate,
     pubsub::{self, database_topic, PubSub},
-    schema::Schema,
     Error,
 };
 
 #[async_trait]
-impl<DB> PubSub for super::Database<DB>
-where
-    DB: Schema,
-{
+impl PubSub for super::Database {
     type Subscriber = Subscriber;
 
     async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {

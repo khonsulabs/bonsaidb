@@ -10,7 +10,7 @@ use bonsaidb_core::{
     connection::Connection,
     schema::{
         view::{map, Serialized},
-        CollectionName, Key, Schema, ViewName,
+        CollectionName, Key, ViewName,
     },
 };
 use nebari::{
@@ -32,8 +32,8 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Mapper<DB> {
-    pub database: Database<DB>,
+pub struct Mapper {
+    pub database: Database,
     pub map: Map,
 }
 
@@ -45,10 +45,7 @@ pub struct Map {
 }
 
 #[async_trait]
-impl<DB> Job for Mapper<DB>
-where
-    DB: Schema,
-{
+impl Job for Mapper {
     type Output = u64;
     type Error = Error;
 
@@ -132,13 +129,13 @@ where
     }
 }
 
-fn map_view<DB: Schema>(
+fn map_view(
     invalidated_entries: &Tree<Unversioned, StdFile>,
     document_map: &Tree<Unversioned, StdFile>,
     documents: &Tree<Versioned, StdFile>,
     omitted_entries: &Tree<Unversioned, StdFile>,
     view_entries: &Tree<Unversioned, StdFile>,
-    database: &Database<DB>,
+    database: &Database,
     map_request: &Map,
 ) -> Result<(), Error> {
     // Only do any work if there are invalidated documents to process
@@ -184,10 +181,10 @@ fn map_view<DB: Schema>(
     Ok(())
 }
 
-pub struct DocumentRequest<'a, DB> {
+pub struct DocumentRequest<'a> {
     pub document_id: &'a [u8],
     pub map_request: &'a Map,
-    pub database: &'a Database<DB>,
+    pub database: &'a Database,
 
     pub transaction: &'a mut ExecutingTransaction<StdFile>,
     pub document_map_index: usize,
@@ -197,7 +194,7 @@ pub struct DocumentRequest<'a, DB> {
     pub view: &'a dyn Serialized,
 }
 
-impl<'a, DB: Schema> DocumentRequest<'a, DB> {
+impl<'a> DocumentRequest<'a> {
     pub fn map(&mut self) -> Result<(), Error> {
         let documents = self
             .transaction
@@ -407,10 +404,7 @@ impl<'a, DB: Schema> DocumentRequest<'a, DB> {
     }
 }
 
-impl<DB> Keyed<Task> for Mapper<DB>
-where
-    DB: Schema,
-{
+impl Keyed<Task> for Mapper {
     fn key(&self) -> Task {
         Task::ViewMap(self.map.clone())
     }

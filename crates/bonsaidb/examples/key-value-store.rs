@@ -11,8 +11,8 @@ use bonsaidb_local::{config::Configuration, Database};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let db = Database::<()>::open_local(
-        "key-value-store.bonsaidb",
+    let db = Database::open_local::<()>(
+        "key-value-store.bonsaidb".as_ref(),
         Configuration::default(),
     )
     .await?;

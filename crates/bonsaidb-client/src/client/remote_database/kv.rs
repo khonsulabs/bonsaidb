@@ -3,13 +3,11 @@ use bonsaidb_core::{
     custom_api::CustomApi,
     kv::Kv,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
-    schema::Schema,
 };
 
 #[async_trait]
-impl<DB, A> Kv for super::RemoteDatabase<DB, A>
+impl<A> Kv for super::RemoteDatabase<A>
 where
-    DB: Schema,
     A: CustomApi,
 {
     async fn execute_key_operation(

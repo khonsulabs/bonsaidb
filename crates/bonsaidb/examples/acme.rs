@@ -52,14 +52,17 @@ async fn main() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Test connecting using both clients.
-    let client =
-        Client::new(Url::parse(&format!("bonsaidb://{}", DOMAIN))?).await?;
+    let client = Client::build(Url::parse(&format!("bonsaidb://{}", DOMAIN))?)
+        .finish()
+        .await?;
     client.create_database::<()>("test-database", true).await?;
 
     #[cfg(feature = "websockets")]
     {
         let websockets =
-            Client::new(Url::parse(&format!("wss://{}", DOMAIN))?).await?;
+            Client::build(Url::parse(&format!("wss://{}", DOMAIN))?)
+                .finish()
+                .await?;
         websockets
             .create_database::<()>("test-database", true)
             .await?;

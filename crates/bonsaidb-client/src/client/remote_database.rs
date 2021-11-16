@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, ops::Deref, sync::Arc};
+use std::{ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
 use bonsaidb_core::{
@@ -6,9 +6,7 @@ use bonsaidb_core::{
     custom_api::CustomApi,
     document::Document,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
-    schema::{
-        view, view::map, Collection, Key, Map, MappedDocument, MappedValue, Schema, Schematic, View,
-    },
+    schema::{view, view::map, Collection, Key, Map, MappedDocument, MappedValue, Schematic, View},
     transaction::{Executed, OperationResult, Transaction},
 };
 
@@ -21,13 +19,12 @@ mod kv;
 
 /// A database on a remote server.
 #[derive(Debug)]
-pub struct RemoteDatabase<DB: Schema, A: CustomApi = ()> {
+pub struct RemoteDatabase<A: CustomApi = ()> {
     client: Client<A>,
     name: Arc<String>,
     schema: Arc<Schematic>,
-    _phantom: PhantomData<DB>,
 }
-impl<DB: Schema, A: CustomApi> RemoteDatabase<DB, A> {
+impl<A: CustomApi> RemoteDatabase<A> {
     /// Returns the name of the database.
     #[must_use]
     pub fn name(&self) -> &str {
@@ -35,7 +32,7 @@ impl<DB: Schema, A: CustomApi> RemoteDatabase<DB, A> {
     }
 }
 
-impl<DB: Schema, A: CustomApi> Deref for RemoteDatabase<DB, A> {
+impl<A: CustomApi> Deref for RemoteDatabase<A> {
     type Target = Client<A>;
 
     fn deref(&self) -> &Self::Target {
@@ -43,30 +40,28 @@ impl<DB: Schema, A: CustomApi> Deref for RemoteDatabase<DB, A> {
     }
 }
 
-impl<DB: Schema, A: CustomApi> Clone for RemoteDatabase<DB, A> {
+impl<A: CustomApi> Clone for RemoteDatabase<A> {
     fn clone(&self) -> Self {
         Self {
             client: self.client.clone(),
             name: self.name.clone(),
             schema: self.schema.clone(),
-            _phantom: PhantomData::default(),
         }
     }
 }
 
-impl<DB: Schema, A: CustomApi> RemoteDatabase<DB, A> {
+impl<A: CustomApi> RemoteDatabase<A> {
     pub(crate) fn new(client: Client<A>, name: String, schema: Arc<Schematic>) -> Self {
         Self {
             client,
             name: Arc::new(name),
             schema,
-            _phantom: PhantomData::default(),
         }
     }
 }
 
 #[async_trait]
-impl<DB: Schema, A: CustomApi> Connection for RemoteDatabase<DB, A> {
+impl<A: CustomApi> Connection for RemoteDatabase<A> {
     async fn get<C: Collection>(
         &self,
         id: u64,

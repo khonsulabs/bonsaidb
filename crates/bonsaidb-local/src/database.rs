@@ -1,6 +1,5 @@
 use std::{
-    any::Any, borrow::Cow, collections::HashMap, convert::Infallible, marker::PhantomData,
-    path::Path, sync::Arc, u8,
+    any::Any, borrow::Cow, collections::HashMap, convert::Infallible, path::Path, sync::Arc, u8,
 };
 
 use async_trait::async_trait;
@@ -47,20 +46,19 @@ pub mod pubsub;
 
 /// A local, file-based database.
 #[derive(Debug)]
-pub struct Database<DB> {
-    pub(crate) data: Arc<Data<DB>>,
+pub struct Database {
+    pub(crate) data: Arc<Data>,
 }
 
 #[derive(Debug)]
-pub struct Data<DB> {
+pub struct Data {
     pub name: Arc<Cow<'static, str>>,
     context: Context,
     pub(crate) storage: Storage,
     pub(crate) schema: Arc<Schematic>,
     pub(crate) effective_permissions: Option<Permissions>,
-    _schema: PhantomData<DB>,
 }
-impl<DB> Clone for Database<DB> {
+impl Clone for Database {
     fn clone(&self) -> Self {
         Self {
             data: self.data.clone(),
@@ -68,12 +66,9 @@ impl<DB> Clone for Database<DB> {
     }
 }
 
-impl<DB> Database<DB>
-where
-    DB: Schema,
-{
+impl Database {
     /// Opens a local file as a bonsaidb.
-    pub(crate) async fn new<S: Into<Cow<'static, str>> + Send>(
+    pub(crate) async fn new<DB: Schema, S: Into<Cow<'static, str>> + Send>(
         name: S,
         context: Context,
         storage: Storage,
@@ -87,7 +82,6 @@ where
                 storage: storage.clone(),
                 schema,
                 effective_permissions: None,
-                _schema: PhantomData::default(),
             }),
         };
 
@@ -121,7 +115,6 @@ where
                 storage: self.data.storage.clone(),
                 schema: self.data.schema.clone(),
                 effective_permissions: Some(effective_permissions),
-                _schema: PhantomData::default(),
             }),
         }
     }
@@ -133,8 +126,8 @@ where
     }
 
     /// Creates a `Storage` with a single-database named "default" with its data stored at `path`.
-    pub async fn open_local<P: AsRef<Path> + Send>(
-        path: P,
+    pub async fn open_local<DB: Schema>(
+        path: &Path,
         configuration: Configuration,
     ) -> Result<Self, Error> {
         let storage = Storage::open_local(path, configuration).await?;
@@ -142,7 +135,7 @@ where
 
         storage.create_database::<DB>("default", true).await?;
 
-        Ok(storage.database("default").await?)
+        Ok(storage.database::<DB>("default").await?)
     }
 
     /// Returns the [`Storage`] that this database belongs to.
@@ -151,7 +144,7 @@ where
         &self.data.storage
     }
 
-    /// Returns the [`Schematic`] for `DB`.
+    /// Returns the [`Schematic`] for the schema for this database.
     #[must_use]
     pub fn schematic(&self) -> &'_ Schematic {
         &self.data.schema
@@ -741,10 +734,7 @@ fn serialize_document(document: &Document<'_>) -> Result<Vec<u8>, bonsaidb_core:
 }
 
 #[async_trait]
-impl<'a, DB> Connection for Database<DB>
-where
-    DB: Schema,
-{
+impl Connection for Database {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(transaction)))]
     async fn apply_transaction(
         &self,
@@ -1068,7 +1058,7 @@ where
     async fn compact_collection<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
         self.storage()
             .tasks()
-            .compact_collection::<DB>(self.clone(), C::collection_name()?)
+            .compact_collection(self.clone(), C::collection_name()?)
             .await?;
         Ok(())
     }
@@ -1077,7 +1067,7 @@ where
     async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
         self.storage()
             .tasks()
-            .compact_database::<DB>(self.clone())
+            .compact_database(self.clone())
             .await?;
         Ok(())
     }
@@ -1086,7 +1076,7 @@ where
     async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
         self.storage()
             .tasks()
-            .compact_key_value_store::<DB>(self.clone())
+            .compact_key_value_store(self.clone())
             .await?;
         Ok(())
     }
@@ -1161,10 +1151,7 @@ pub fn document_tree_name(collection: &CollectionName) -> String {
 }
 
 #[async_trait]
-impl<DB> OpenDatabase for Database<DB>
-where
-    DB: Schema,
-{
+impl OpenDatabase for Database {
     fn as_any(&self) -> &'_ dyn Any {
         self
     }

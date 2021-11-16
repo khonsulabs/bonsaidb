@@ -14,7 +14,7 @@ use std::{
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    admin::{self, Admin, User},
+    admin::{self, User},
     circulate::{Message, Relay, Subscriber},
     connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection, Sort},
     custodian_password::{
@@ -185,29 +185,31 @@ impl<B: Backend> CustomServer<B> {
         &self.data.directory
     }
 
-    /// Retrieves a database. This function only verifies that the database exists.
-    pub async fn database<DB: Schema>(
-        &self,
-        name: &'_ str,
-    ) -> Result<ServerDatabase<'_, B, DB>, Error> {
-        let db = self.data.storage.database(name).await?;
-        Ok(ServerDatabase { server: self, db })
-    }
-
     /// Returns the administration database.
-    pub async fn admin(&self) -> ServerDatabase<'_, B, Admin> {
+    pub async fn admin(&self) -> ServerDatabase<B> {
         let db = self.data.storage.admin().await;
-        ServerDatabase { server: self, db }
+        ServerDatabase {
+            server: self.clone(),
+            db,
+        }
     }
 
-    pub(crate) async fn hosted(&self) -> ServerDatabase<'_, B, Hosted> {
-        let db = self.data.storage.database("_hosted").await.unwrap();
-        ServerDatabase { server: self, db }
+    pub(crate) async fn hosted(&self) -> ServerDatabase<B> {
+        let db = self
+            .data
+            .storage
+            .database::<Hosted>("_hosted")
+            .await
+            .unwrap();
+        ServerDatabase {
+            server: self.clone(),
+            db,
+        }
     }
 
     pub(crate) async fn database_without_schema(
         &self,
-        name: &'_ str,
+        name: &str,
     ) -> Result<Box<dyn OpenDatabase>, Error> {
         let db = self.data.storage.database_without_schema(name).await?;
         Ok(db)
@@ -786,6 +788,8 @@ impl<B: Backend> Job for ClientRequest<B> {
 
 #[async_trait]
 impl<B: Backend> ServerConnection for CustomServer<B> {
+    type Database = ServerDatabase<B>;
+
     async fn create_database_with_schema(
         &self,
         name: &str,
@@ -796,6 +800,17 @@ impl<B: Backend> ServerConnection for CustomServer<B> {
             .storage
             .create_database_with_schema(name, schema, only_if_needed)
             .await
+    }
+
+    async fn database<DB: Schema>(
+        &self,
+        name: &str,
+    ) -> Result<Self::Database, bonsaidb_core::Error> {
+        let db = self.data.storage.database::<DB>(name).await?;
+        Ok(ServerDatabase {
+            server: self.clone(),
+            db,
+        })
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {

@@ -52,7 +52,7 @@ impl<'a> Collection for ResizableDocument<'a> {
     }
 }
 
-async fn save_document(doc: &ResizableDocument<'_>, db: &Database<ResizableDocument<'static>>) {
+async fn save_document(doc: &ResizableDocument<'_>, db: &Database) {
     db.collection::<ResizableDocument<'static>>()
         .push(doc)
         .await
@@ -76,7 +76,10 @@ fn criterion_benchmark(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(*size as u64), size, |b, _| {
             let path = TestDirectory::new(format!("benches-basics-{}.bonsaidb", size));
             let db = runtime
-                .block_on(Database::open_local(&path, Configuration::default()))
+                .block_on(Database::open_local::<ResizableDocument<'static>>(
+                    &path,
+                    Configuration::default(),
+                ))
                 .unwrap();
             b.to_async(&runtime).iter(|| save_document(doc, &db));
         });

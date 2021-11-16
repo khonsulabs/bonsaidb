@@ -34,8 +34,8 @@ use serde::{de::Visitor, Deserialize, Serialize};
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::local::Error> {
-    let db = Database::<Samples>::open_local(
-        "view-histogram.bonsaidb",
+    let db = Database::open_local::<Samples>(
+        "view-histogram.bonsaidb".as_ref(),
         Configuration::default(),
     )
     .await?;

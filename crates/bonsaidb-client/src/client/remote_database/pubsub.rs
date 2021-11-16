@@ -6,16 +6,14 @@ use bonsaidb_core::{
     custom_api::CustomApi,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     pubsub::{PubSub, Subscriber},
-    schema::Schema,
 };
 use serde::Serialize;
 
 use crate::Client;
 
 #[async_trait]
-impl<DB, A> PubSub for super::RemoteDatabase<DB, A>
+impl<A> PubSub for super::RemoteDatabase<A>
 where
-    DB: Schema,
     A: CustomApi,
 {
     type Subscriber = RemoteSubscriber<A>;

@@ -228,11 +228,11 @@ impl Storage {
         self.register_schema::<Admin>().await?;
         match self.database::<Admin>(ADMIN_DATABASE_NAME).await {
             Ok(_) => {}
-            Err(Error::Core(bonsaidb_core::Error::DatabaseNotFound(_))) => {
+            Err(bonsaidb_core::Error::DatabaseNotFound(_)) => {
                 self.create_database::<Admin>(ADMIN_DATABASE_NAME, true)
                     .await?;
             }
-            Err(err) => return Err(err),
+            Err(err) => return Err(Error::Core(err)),
         }
         Ok(())
     }
@@ -278,31 +278,6 @@ impl Storage {
         }
     }
 
-    /// Retrieves a database. This function checks that the database exists and
-    /// that the schema matches.
-    pub async fn database<DB: Schema>(&self, name: &'_ str) -> Result<Database<DB>, Error> {
-        let available_databases = self.data.available_databases.read().await;
-
-        if let Some(stored_schema) = available_databases.get(name) {
-            if stored_schema == &DB::schema_name()? {
-                Ok(
-                    Database::new(name.to_owned(), self.open_roots(name).await?, self.clone())
-                        .await?,
-                )
-            } else {
-                Err(Error::Core(bonsaidb_core::Error::SchemaMismatch {
-                    database_name: name.to_owned(),
-                    schema: DB::schema_name()?,
-                    stored_schema: stored_schema.clone(),
-                }))
-            }
-        } else {
-            Err(Error::Core(bonsaidb_core::Error::DatabaseNotFound(
-                name.to_owned(),
-            )))
-        }
-    }
-
     pub(crate) async fn open_roots(&self, name: &str) -> Result<Context, Error> {
         let mut open_roots = self.data.open_roots.lock().await;
         if let Some(roots) = open_roots.get(name) {
@@ -333,21 +308,6 @@ impl Storage {
         }
     }
 
-    // pub async fn database_with_foreign_schema<DB: Schema>(
-    //     &self,
-    //     name: &'_ str,
-    // ) -> Result<Database<DB>, Error> {
-    //     let available_databases = self.data.available_databases.read().await;
-
-    //     if let Some(stored_schema) = available_databases.get(name) {
-    //         Ok(Database::new(name.to_owned(), self.clone()).await?)
-    //     } else {
-    //         Err(Error::Core(bonsaidb_core::Error::DatabaseNotFound(
-    //             name.to_owned(),
-    //         )))
-    //     }
-    // }
-
     pub(crate) fn tasks(&self) -> &'_ TaskManager {
         &self.data.tasks
     }
@@ -376,8 +336,8 @@ impl Storage {
 
     /// Returns the administration database.
     #[allow(clippy::missing_panics_doc)]
-    pub async fn admin(&self) -> Database<Admin> {
-        Database::new(
+    pub async fn admin(&self) -> Database {
+        Database::new::<Admin, _>(
             ADMIN_DATABASE_NAME,
             self.open_roots(ADMIN_DATABASE_NAME).await.unwrap(),
             self.clone(),
@@ -509,7 +469,7 @@ where
 
     async fn open(&self, name: String, storage: Storage) -> Result<Box<dyn OpenDatabase>, Error> {
         let roots = storage.open_roots(&name).await?;
-        let db = Database::<DB>::new(name, roots, storage).await?;
+        let db = Database::new::<DB, _>(name, roots, storage).await?;
         Ok(Box::new(db))
     }
 }
@@ -605,6 +565,8 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
 
 #[async_trait]
 impl ServerConnection for Storage {
+    type Database = Database;
+
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(skip(name, schema, only_if_needed))
@@ -652,6 +614,32 @@ impl ServerConnection for Storage {
         available_databases.insert(name.to_string(), schema);
 
         Ok(())
+    }
+
+    async fn database<DB: Schema>(
+        &self,
+        name: &str,
+    ) -> Result<Self::Database, bonsaidb_core::Error> {
+        let available_databases = self.data.available_databases.read().await;
+
+        if let Some(stored_schema) = available_databases.get(name) {
+            if stored_schema == &DB::schema_name()? {
+                Ok(Database::new::<DB, _>(
+                    name.to_owned(),
+                    self.open_roots(name).await?,
+                    self.clone(),
+                )
+                .await?)
+            } else {
+                Err(bonsaidb_core::Error::SchemaMismatch {
+                    database_name: name.to_owned(),
+                    schema: DB::schema_name()?,
+                    stored_schema: stored_schema.clone(),
+                })
+            }
+        } else {
+            Err(bonsaidb_core::Error::DatabaseNotFound(name.to_owned()))
+        }
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(name)))]

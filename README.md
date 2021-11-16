@@ -87,8 +87,8 @@ impl CollectionView for ShapesByNumberOfSides {
 After you have your collection(s) defined, you can open up a database and insert documents:
 
 ```rust
-    let db = Database::<Shape>::open_local(
-        "view-examples.bonsaidb",
+    let db = Database::open_local::<Shape>(
+        "view-examples.bonsaidb".as_ref(),
         Configuration::default(),
     )
     .await?;

@@ -5,7 +5,10 @@
 use std::{path::PathBuf, str::FromStr};
 
 use bonsaidb_client::Client;
-use bonsaidb_core::admin::{Admin, ADMIN_DATABASE_NAME};
+use bonsaidb_core::{
+    admin::{Admin, ADMIN_DATABASE_NAME},
+    connection::ServerConnection,
+};
 use bonsaidb_local::Storage;
 use bonsaidb_server::Backend;
 use structopt::StructOpt;
@@ -81,7 +84,7 @@ impl<B: Backend> Args<B> {
                     Ok(())
                 }
                 ConnectionTarget::Url(server_url) => {
-                    let client = Client::new(server_url).await?;
+                    let client = Client::<B::CustomApi>::new(server_url).await?;
                     let admin = client.database::<Admin>(ADMIN_DATABASE_NAME).await?;
 
                     command.execute(admin, client).await?;

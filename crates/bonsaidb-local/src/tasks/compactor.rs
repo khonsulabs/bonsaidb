@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use async_trait::async_trait;
-use bonsaidb_core::schema::{CollectionName, Schema, ViewName};
+use bonsaidb_core::schema::{CollectionName, ViewName};
 use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use nebari::tree::{Root, Unversioned, Versioned};
 
@@ -17,13 +17,13 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Compactor<DB: Schema> {
-    pub database: Database<DB>,
+pub struct Compactor {
+    pub database: Database,
     pub compaction: Compaction,
 }
 
-impl<DB: Schema> Compactor<DB> {
-    pub fn collection(database: Database<DB>, collection: CollectionName) -> Self {
+impl Compactor {
+    pub fn collection(database: Database, collection: CollectionName) -> Self {
         Self {
             compaction: Compaction {
                 database_name: database.name().to_string(),
@@ -32,7 +32,7 @@ impl<DB: Schema> Compactor<DB> {
             database,
         }
     }
-    pub fn database(database: Database<DB>) -> Self {
+    pub fn database(database: Database) -> Self {
         Self {
             compaction: Compaction {
                 database_name: database.name().to_string(),
@@ -41,7 +41,7 @@ impl<DB: Schema> Compactor<DB> {
             database,
         }
     }
-    pub fn keyvalue(database: Database<DB>) -> Self {
+    pub fn keyvalue(database: Database) -> Self {
         Self {
             compaction: Compaction {
                 database_name: database.name().to_string(),
@@ -66,7 +66,7 @@ enum Target {
 }
 
 impl Target {
-    async fn compact<DB: Schema>(self, database: &Database<DB>) -> Result<(), Error> {
+    async fn compact(self, database: &Database) -> Result<(), Error> {
         match self {
             Target::Collection(collection) => {
                 let database = database.clone();
@@ -76,7 +76,7 @@ impl Target {
             Target::KeyValue => {
                 let database = database.clone();
                 tokio::task::spawn_blocking(move || {
-                    compact_tree::<DB, Unversioned, _>(&database, KEY_TREE)
+                    compact_tree::<Unversioned, _>(&database, KEY_TREE)
                 })
                 .await?
             }
@@ -108,7 +108,7 @@ impl Target {
 }
 
 #[async_trait]
-impl<DB: Schema> Job for Compactor<DB> {
+impl Job for Compactor {
     type Output = ();
 
     type Error = Error;
@@ -119,17 +119,14 @@ impl<DB: Schema> Job for Compactor<DB> {
     }
 }
 
-impl<DB: Schema> Keyed<Task> for Compactor<DB> {
+impl Keyed<Task> for Compactor {
     fn key(&self) -> Task {
         Task::Compaction(self.compaction.clone())
     }
 }
-fn compact_collection<DB: Schema>(
-    database: &Database<DB>,
-    collection: &CollectionName,
-) -> Result<(), Error> {
+fn compact_collection(database: &Database, collection: &CollectionName) -> Result<(), Error> {
     // Compact the main database file
-    compact_tree::<DB, Versioned, _>(database, document_tree_name(collection))?;
+    compact_tree::<Versioned, _>(database, document_tree_name(collection))?;
 
     // Compact the views
     if let Some(views) = database.data.schema.views_in_collection(collection) {
@@ -137,21 +134,21 @@ fn compact_collection<DB: Schema>(
             compact_view(database, &view.view_name()?)?;
         }
     }
-    compact_tree::<DB, Unversioned, _>(database, view_versions_tree_name(collection))?;
+    compact_tree::<Unversioned, _>(database, view_versions_tree_name(collection))?;
     Ok(())
 }
 
-fn compact_view<DB: Schema>(database: &Database<DB>, name: &ViewName) -> Result<(), Error> {
-    compact_tree::<DB, Unversioned, _>(database, view_entries_tree_name(name))?;
-    compact_tree::<DB, Unversioned, _>(database, view_document_map_tree_name(name))?;
-    compact_tree::<DB, Unversioned, _>(database, view_invalidated_docs_tree_name(name))?;
-    compact_tree::<DB, Unversioned, _>(database, view_omitted_docs_tree_name(name))?;
+fn compact_view(database: &Database, name: &ViewName) -> Result<(), Error> {
+    compact_tree::<Unversioned, _>(database, view_entries_tree_name(name))?;
+    compact_tree::<Unversioned, _>(database, view_document_map_tree_name(name))?;
+    compact_tree::<Unversioned, _>(database, view_invalidated_docs_tree_name(name))?;
+    compact_tree::<Unversioned, _>(database, view_omitted_docs_tree_name(name))?;
 
     Ok(())
 }
 
-fn compact_tree<DB: Schema, R: Root, S: Into<Cow<'static, str>>>(
-    database: &Database<DB>,
+fn compact_tree<R: Root, S: Into<Cow<'static, str>>>(
+    database: &Database,
     name: S,
 ) -> Result<(), Error> {
     let documents = database.roots().tree(R::tree(name))?;

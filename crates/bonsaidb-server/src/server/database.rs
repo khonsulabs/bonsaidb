@@ -7,7 +7,7 @@ use bonsaidb_core::{
     document::Document,
     kv::Kv,
     pubsub::{PubSub, Subscriber},
-    schema::{self, Collection, Map, MappedValue, Schema, View},
+    schema::{self, Collection, Map, MappedValue, View},
     transaction::Transaction,
 };
 use bonsaidb_local::Database;
@@ -15,13 +15,13 @@ use bonsaidb_local::Database;
 use crate::{Backend, CustomServer};
 
 /// A database belonging to a [`CustomServer`].
-pub struct ServerDatabase<'a, B: Backend, DB: Schema> {
-    pub(crate) server: &'a CustomServer<B>,
-    pub(crate) db: Database<DB>,
+pub struct ServerDatabase<B: Backend> {
+    pub(crate) server: CustomServer<B>,
+    pub(crate) db: Database,
 }
 
-impl<'a, B: Backend, DB: Schema> Deref for ServerDatabase<'a, B, DB> {
-    type Target = Database<DB>;
+impl<B: Backend> Deref for ServerDatabase<B> {
+    type Target = Database;
 
     fn deref(&self) -> &Self::Target {
         &self.db
@@ -30,7 +30,7 @@ impl<'a, B: Backend, DB: Schema> Deref for ServerDatabase<'a, B, DB> {
 
 /// Uses `CustomServer`'s `PubSub` relay.
 #[async_trait]
-impl<'a, B: Backend, DB: Schema> PubSub for ServerDatabase<'a, B, DB> {
+impl<B: Backend> PubSub for ServerDatabase<B> {
     type Subscriber = ServerSubscriber<B>;
 
     async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
@@ -96,9 +96,7 @@ impl<B: Backend> Subscriber for ServerSubscriber<B> {
 
 /// Pass-through implementation
 #[async_trait]
-impl<'a, B: Backend, DB: Schema> bonsaidb_core::connection::Connection
-    for ServerDatabase<'a, B, DB>
-{
+impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
     async fn get<C: Collection>(
         &self,
         id: u64,
@@ -208,7 +206,7 @@ impl<'a, B: Backend, DB: Schema> bonsaidb_core::connection::Connection
 
 /// Pass-through implementation
 #[async_trait]
-impl<'a, B: Backend, DB: Schema> Kv for ServerDatabase<'a, B, DB> {
+impl<B: Backend> Kv for ServerDatabase<B> {
     async fn execute_key_operation(
         &self,
         op: bonsaidb_core::kv::KeyOperation,

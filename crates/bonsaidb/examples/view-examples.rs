@@ -72,8 +72,8 @@ impl Shape {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // begin rustme snippet: snippet-b
-    let db = Database::<Shape>::open_local(
-        "view-examples.bonsaidb",
+    let db = Database::open_local::<Shape>(
+        "view-examples.bonsaidb".as_ref(),
         Configuration::default(),
     )
     .await?;
