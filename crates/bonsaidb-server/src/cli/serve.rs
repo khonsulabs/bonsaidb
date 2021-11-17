@@ -14,12 +14,12 @@ pub struct Serve<B: Backend> {
     #[cfg(feature = "websockets")]
     /// The bind port and address for HTTP traffic. Defaults to 80.
     #[structopt(long = "http")]
-    pub http_port: Option<SocketAddr>,
+    pub http_port: Option<std::net::SocketAddr>,
 
     #[cfg(feature = "websockets")]
     /// The bind port and address for HTTPS traffic. Defaults to 443.
     #[structopt(long = "https")]
-    pub https_port: Option<SocketAddr>,
+    pub https_port: Option<std::net::SocketAddr>,
 
     #[structopt(skip)]
     _backend: PhantomData<B>,
@@ -38,19 +38,21 @@ impl<B: Backend> Serve<B> {
 
         #[cfg(feature = "websockets")]
         {
-            if let Some(http_port) = self.http_port {
-                let task_server = server.clone();
-                tokio::task::spawn(async move {
-                    task_server.listen_for_websockets_on(http_port, false).await
-                });
-            }
+            let listen_address = self.http_port.unwrap_or_else(|| ":::80".parse().unwrap());
+            let task_server = server.clone();
+            tokio::task::spawn(async move {
+                task_server
+                    .listen_for_websockets_on(listen_address, false)
+                    .await
+            });
 
-            if let Some(https_port) = self.https_port {
-                let task_server = server.clone();
-                tokio::task::spawn(async move {
-                    task_server.listen_for_websockets_on(https_port, true).await
-                });
-            }
+            let listen_address = self.https_port.unwrap_or_else(|| ":::443".parse().unwrap());
+            let task_server = server.clone();
+            tokio::task::spawn(async move {
+                task_server
+                    .listen_for_websockets_on(listen_address, true)
+                    .await
+            });
         }
 
         server.listen_for_shutdown().await?;
