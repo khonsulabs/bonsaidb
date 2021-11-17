@@ -56,6 +56,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generic code to be written against a "server".
 - Added `listen_for_shutdown()` which listens for SIGINT and SIGQUIT and attemps
   to shut the server down gracefully.
+- Automatic TLS certificate acquisition can be performed using ACME on TCP port
+  443. This is automatically performed if the feature flag is enabled.
+- BonsaiDb server can now listen for generic TCP connections with and without
+  TLS. This is primarily designed to allow extending the HTTP port to support
+  additional HTTP endpoints than just websockets. However, because the TLS
+  certificate aquired on port 443 can be used in other protocols such as SMTP,
+  it can be useful to allow BonsaiDb to control the networking connections.
+  `listen_for_tcp_on` and `listen_for_secure_tcp_on` accept a parameter that
+  implements the `TcpService` trait. See the Axum example for how this
+  integration can be used in conjunction with websockets.
 
 ### Changed
 

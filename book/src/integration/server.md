@@ -10,7 +10,7 @@ The first step is to create a [`Server`][storage], which uses local [`Storage`][
 {{#include ../../../crates/bonsaidb/examples/server.rs:setup}}
 ```
 
-Once you have a server initialized, calling [`listen_on`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html#method.listen_on) will begin listening for connections on the port specified. This uses the preferred native protocol which uses UDP. If you find that UDP is not working for your setup or want to put `BonsaiDb` behind a load balancer that doesn't support UDP, you can enable WebSocket support and call [`listen_for_http_on`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html#method.listen_for_http_on).
+Once you have a server initialized, calling [`listen_on`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html#method.listen_on) will begin listening for connections on the port specified. This uses the preferred native protocol which uses UDP. If you find that UDP is not working for your setup or want to put `BonsaiDb` behind a load balancer that doesn't support UDP, you can enable WebSocket support and call [`listen_for_websockets_on`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html#method.listen_for_websockets_on).
 
 You can call both, but since these functions don't return until the server is shut down, you should spawn them instead:
 
@@ -21,7 +21,7 @@ tokio::spawn(async move {
 });
 let server = server.clone();
 tokio::spawn(async move {
-    task_server.listen_for_http_on("localhost:8080").await
+    task_server.listen_for_websockets_on("localhost:8080", false).await
 });
 ```
 

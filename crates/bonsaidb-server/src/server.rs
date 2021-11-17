@@ -70,8 +70,7 @@ pub mod acme;
 mod connected_client;
 mod database;
 
-#[cfg(feature = "http")]
-mod http;
+mod tcp;
 #[cfg(feature = "websockets")]
 mod websockets;
 
@@ -79,6 +78,7 @@ use self::connected_client::OwnedClient;
 pub use self::{
     connected_client::{ConnectedClient, LockedClientDataGuard, Transport},
     database::{ServerDatabase, ServerSubscriber},
+    tcp::{ApplicationProtocols, Peer, StandardTcpProtocols, TcpService},
 };
 
 static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -116,8 +116,7 @@ struct Data<B: Backend = ()> {
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
     alpn_keys: AlpnKeys,
-    #[cfg(feature = "http")]
-    http_shutdown: RwLock<Option<Sender<()>>>,
+    tcp_shutdown: RwLock<Option<Sender<()>>>,
     relay: Relay,
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
     _backend: PhantomData<B>,
@@ -172,8 +171,7 @@ impl<B: Backend> CustomServer<B> {
                 acme: configuration.acme,
                 #[cfg(feature = "acme")]
                 alpn_keys: AlpnKeys::default(),
-                #[cfg(feature = "http")]
-                http_shutdown: RwLock::default(),
+                tcp_shutdown: RwLock::default(),
                 relay: Relay::default(),
                 subscribers: Arc::default(),
                 _backend: PhantomData::default(),

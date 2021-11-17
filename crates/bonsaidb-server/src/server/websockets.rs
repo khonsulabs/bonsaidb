@@ -9,6 +9,19 @@ use tokio_tungstenite::{tungstenite::protocol::Role, WebSocketStream};
 use crate::{Backend, CustomServer, Error};
 
 impl<B: Backend> CustomServer<B> {
+    /// Listens for websocket connections on `addr`.
+    pub async fn listen_for_websockets_on<T: tokio::net::ToSocketAddrs + Send + Sync>(
+        &self,
+        addr: T,
+        with_tls: bool,
+    ) -> Result<(), Error> {
+        if with_tls {
+            self.listen_for_secure_tcp_on(addr, ()).await
+        } else {
+            self.listen_for_tcp_on(addr, ()).await
+        }
+    }
+
     pub(crate) async fn handle_raw_websocket_connection<
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     >(
@@ -22,7 +35,8 @@ impl<B: Backend> CustomServer<B> {
     }
 
     /// Handles upgrading an HTTP connection to the `WebSocket` protocol based
-    /// on the upgrade `request`.
+    /// on the upgrade `request`. Requires feature `hyper` to be enabled.
+    #[cfg(feature = "hyper")]
     pub async fn upgrade_websocket(
         &self,
         peer_address: std::net::SocketAddr,

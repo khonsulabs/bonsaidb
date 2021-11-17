@@ -13,21 +13,18 @@ homepage = "https://dev.bonsaidb.io/"
 
 [features]
 default = ["full"]
-full = ["cli", "http", "websockets", "acme"]
+full = ["cli", "websockets", "acme"]
 cli = ["structopt", "pem", "env_logger"]
 test-util = ["bonsaidb-core/test-util"]
 websockets = [
     "bonsaidb-core/websockets",
     "tokio-tungstenite",
     "bincode",
-    "http",
     "base64",
     "sha-1",
-    "hyper",
 ]
 instrument = ["tracing", "pot/tracing"]
-acme = ["async-acme", "pem", "http"]
-http = []
+acme = ["async-acme", "pem"]
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [
@@ -56,7 +53,7 @@ async-acme = { version = "0.3", optional = true, features = ["hyper_rustls"] }
 rustls = "0.20"
 tokio-rustls = { version = "0.23" }
 parking_lot = "0.11"
-hyper = { version = "0.14", optional = true, features = ["server", "http1"] }
+hyper = { version = "0.14", optional = true }
 sha-1 = { version = "0.9", optional = true }
 base64 = { version = "0.13", optional = true }
 tracing = { version = "0.1", optional = true, default-features = false, features = [

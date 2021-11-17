@@ -42,7 +42,7 @@ required-features = ["server", "client"]
 
 [[example]]
 name = "axum"
-required-features = ["server", "server-http", "websockets"]
+required-features = ["server", "server-hyper", "websockets"]
 
 [[example]]
 name = "users"
@@ -79,7 +79,7 @@ server-full = [
     "server-cli",
     "server-instrument",
     "server-acme",
-    "server-http",
+    "server-hyper",
 ]
 server = ["bonsaidb-server"]
 client-full = ["client", "client-websockets", "client-trusted-dns"]
@@ -105,7 +105,7 @@ local-instrument = ["bonsaidb-local/instrument"]
 server-instrument = ["bonsaidb-server/instrument"]
 
 server-acme = ["bonsaidb-server/acme"]
-server-http = ["bonsaidb-server/http"]
+server-hyper = ["bonsaidb-server/hyper"]
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false }

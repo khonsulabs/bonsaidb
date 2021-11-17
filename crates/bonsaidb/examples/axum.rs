@@ -7,56 +7,55 @@ use async_trait::async_trait;
 use axum::{extract, routing::get, AddExtensionLayer, Router};
 use bonsaidb::{
     core::{connection::ServerConnection, kv::Kv},
-    server::{Backend, Configuration, CustomServer, DefaultPermissions},
+    server::{
+        Configuration, DefaultPermissions, Peer, Server, StandardTcpProtocols,
+        TcpService,
+    },
 };
-use bonsaidb_server::NoDispatcher;
 use hyper::{server::conn::Http, Body, Request, Response};
 
 use url::Url;
 
-/// The `AxumBackend` implements `Backend` and overrides
-/// `handle_http_connection` by serving the response using
-/// [`axum`](https://github.com/tokio-rs/axum).
-#[derive(Debug)]
-pub struct AxumBackend;
+#[derive(Debug, Clone)]
+pub struct AxumService {
+    server: Server,
+}
 
 #[async_trait]
-impl Backend for AxumBackend {
-    async fn handle_http_connection<
+impl TcpService for AxumService {
+    type ApplicationProtocols = StandardTcpProtocols;
+
+    async fn handle_connection<
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     >(
+        &self,
         connection: S,
-        peer_address: std::net::SocketAddr,
-        server: &CustomServer<Self>,
+        peer: &Peer<Self::ApplicationProtocols>,
     ) -> Result<(), S> {
-        let server = server.clone();
+        let server = self.server.clone();
         let app = Router::new()
             .route("/", get(uptime_handler))
             .route("/ws", get(upgrade_websocket))
             // Attach the server and the remote address as extractable data for the /ws route
             .layer(AddExtensionLayer::new(server))
-            .layer(AddExtensionLayer::new(peer_address));
+            .layer(AddExtensionLayer::new(peer.address));
 
         if let Err(err) = Http::new()
             .serve_connection(connection, app)
             .with_upgrades()
             .await
         {
-            log::error!("[http] error serving {}: {:?}", peer_address, err);
+            log::error!("[http] error serving {}: {:?}", peer.address, err);
         }
 
         Ok(())
     }
-
-    type CustomApi = ();
-    type CustomApiDispatcher = NoDispatcher<Self>;
-    type ClientData = ();
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
-    let server = CustomServer::<AxumBackend>::open(
+    let server = Server::open(
         Path::new("http-server-data.bonsaidb"),
         Configuration {
             default_permissions: DefaultPermissions::AllowAll,
@@ -69,6 +68,9 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(all(feature = "client", feature = "websockets"))]
     {
+        // This is silly to do over a websocket connection, because it can
+        // easily be done by just using `server` instead. However, this is to
+        // demonstrate that websocket connections work in this example.
         let client = bonsaidb::client::Client::build(Url::parse(
             "ws://localhost:8080/ws",
         )?)
@@ -83,14 +85,19 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    server.listen_for_http_on("localhost:8080").await?;
+    server
+        .listen_for_tcp_on(
+            "localhost:8080",
+            AxumService {
+                server: server.clone(),
+            },
+        )
+        .await?;
 
     Ok(())
 }
 
-async fn uptime_handler(
-    server: extract::Extension<CustomServer<AxumBackend>>,
-) -> String {
+async fn uptime_handler(server: extract::Extension<Server>) -> String {
     let db = server.database::<()>("storage").await.unwrap();
     format!(
         "Current uptime: {} seconds",
@@ -103,7 +110,7 @@ async fn uptime_handler(
 }
 
 async fn upgrade_websocket(
-    server: extract::Extension<CustomServer<AxumBackend>>,
+    server: extract::Extension<Server>,
     peer_address: extract::Extension<std::net::SocketAddr>,
     req: Request<Body>,
 ) -> Response<Body> {

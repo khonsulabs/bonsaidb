@@ -32,14 +32,14 @@ mod server;
 pub use config::{
     AcmeConfiguration, LETS_ENCRYPT_PRODUCTION_DIRECTORY, LETS_ENCRYPT_STAGING_DIRECTORY,
 };
-pub use server::ServerSubscriber;
 
 pub use self::{
     backend::{Backend, BackendError, ConnectionHandling, CustomApiDispatcher, NoDispatcher},
     config::{Configuration, DefaultPermissions, StorageConfiguration},
     error::Error,
     server::{
-        ConnectedClient, CustomServer, LockedClientDataGuard, Server, ServerDatabase, Transport,
+        ApplicationProtocols, ConnectedClient, CustomServer, LockedClientDataGuard, Peer, Server,
+        ServerDatabase, ServerSubscriber, StandardTcpProtocols, TcpService, Transport,
     },
 };
 

@@ -34,7 +34,12 @@ async fn main() -> anyhow::Result<()> {
     // HTTPS traffic will automatically.
     let task_server = server.clone();
     tokio::spawn(async move {
-        task_server.listen_for_https_on("0.0.0.0:443").await
+        // This call is equivalent to listen_for_websockets_on("0.0.0.0:443",
+        // true). This example, however, is meant to work with or without
+        // websockets.
+        task_server
+            .listen_for_secure_tcp_on("0.0.0.0:443", ())
+            .await
     });
 
     // Once the ACME process has succeded, the certificate_chain will be able to

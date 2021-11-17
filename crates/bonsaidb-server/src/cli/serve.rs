@@ -11,12 +11,12 @@ pub struct Serve<B: Backend> {
     #[structopt(short = "l", long = "listen-on")]
     pub listen_on: Option<u16>,
 
-    #[cfg(feature = "http")]
+    #[cfg(feature = "websockets")]
     /// The bind port and address for HTTP traffic. Defaults to 80.
     #[structopt(long = "http")]
     pub http_port: Option<SocketAddr>,
 
-    #[cfg(feature = "http")]
+    #[cfg(feature = "websockets")]
     /// The bind port and address for HTTPS traffic. Defaults to 443.
     #[structopt(long = "https")]
     pub https_port: Option<SocketAddr>,
@@ -36,18 +36,20 @@ impl<B: Backend> Serve<B> {
         let task_server = server.clone();
         tokio::task::spawn(async move { task_server.listen_on(listen_on).await });
 
-        #[cfg(feature = "http")]
+        #[cfg(feature = "websockets")]
         {
             if let Some(http_port) = self.http_port {
                 let task_server = server.clone();
-                tokio::task::spawn(async move { task_server.listen_for_http_on(http_port).await });
+                tokio::task::spawn(async move {
+                    task_server.listen_for_websockets_on(http_port, false).await
+                });
             }
 
             if let Some(https_port) = self.https_port {
                 let task_server = server.clone();
-                tokio::task::spawn(
-                    async move { task_server.listen_for_https_on(https_port).await },
-                );
+                tokio::task::spawn(async move {
+                    task_server.listen_for_websockets_on(https_port, true).await
+                });
             }
         }
 
