@@ -77,7 +77,10 @@ impl<B: Backend> CustomServer<B> {
             .with_cert_resolver(Arc::new(self.clone()));
         #[cfg(feature = "acme")]
         {
-            config.alpn_protocols = vec![async_acme::acme::ACME_TLS_ALPN_NAME.to_vec()];
+            config.alpn_protocols = vec![
+                async_acme::acme::ACME_TLS_ALPN_NAME.to_vec(),
+                b"http/1.1".to_vec(),
+            ];
         }
 
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
@@ -96,7 +99,7 @@ impl<B: Backend> CustomServer<B> {
                     }
                 };
 
-                #[cfg(feature = "websockets")]
+                #[cfg(feature = "http")]
                 if stream.get_ref().1.alpn_protocol().is_none() {
                     // Only pass non ALPN traffic on.
                     if let Err(err) = task_self.handle_http_connection(stream, peer_addr).await {
