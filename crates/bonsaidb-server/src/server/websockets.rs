@@ -1,10 +1,4 @@
-use hyper::{
-    header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE},
-    StatusCode,
-};
-use sha1::Digest;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_tungstenite::{tungstenite::protocol::Role, WebSocketStream};
 
 use crate::{Backend, CustomServer, Error};
 
@@ -42,6 +36,12 @@ impl<B: Backend> CustomServer<B> {
         peer_address: std::net::SocketAddr,
         mut request: hyper::Request<hyper::Body>,
     ) -> hyper::Response<hyper::Body> {
+        use hyper::{
+            header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE},
+            StatusCode,
+        };
+        use tokio_tungstenite::{tungstenite::protocol::Role, WebSocketStream};
+
         let mut response = hyper::Response::new(hyper::Body::empty());
         // Send a 400 to any request that doesn't have
         // an `Upgrade` header.
@@ -197,7 +197,9 @@ impl<B: Backend> CustomServer<B> {
 
 #[cfg(feature = "hyper")]
 fn compute_websocket_accept_header(key: &[u8]) -> hyper::header::HeaderValue {
-    let mut digest = sha1::Sha1::default();
+    use sha1::{Digest, Sha1};
+
+    let mut digest = Sha1::default();
     digest.update(key);
     digest.update(&b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"[..]);
     let encoded = base64::encode(&digest.finalize());

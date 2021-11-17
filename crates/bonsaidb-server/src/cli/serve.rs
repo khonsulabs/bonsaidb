@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, net::SocketAddr};
+use std::marker::PhantomData;
 
 use structopt::StructOpt;
 
