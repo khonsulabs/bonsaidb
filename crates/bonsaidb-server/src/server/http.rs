@@ -100,10 +100,13 @@ impl<B: Backend> CustomServer<B> {
                 };
 
                 #[cfg(feature = "http")]
-                if stream.get_ref().1.alpn_protocol().is_none() {
-                    // Only pass non ALPN traffic on.
-                    if let Err(err) = task_self.handle_http_connection(stream, peer_addr).await {
-                        log::error!("[server] error for client {}: {:?}", peer_addr, err);
+                {
+                    let protocol = stream.get_ref().1.alpn_protocol();
+                    if protocol.is_none() || protocol.unwrap() == b"http/1.1" {
+                        if let Err(err) = task_self.handle_http_connection(stream, peer_addr).await
+                        {
+                            log::error!("[server] error for client {}: {:?}", peer_addr, err);
+                        }
                     }
                 }
             });
