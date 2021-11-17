@@ -195,6 +195,7 @@ impl<B: Backend> CustomServer<B> {
     }
 }
 
+#[cfg(feature = "hyper")]
 fn compute_websocket_accept_header(key: &[u8]) -> hyper::header::HeaderValue {
     let mut digest = sha1::Sha1::default();
     digest.update(key);
