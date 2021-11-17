@@ -87,13 +87,10 @@ impl<B: Backend> CustomServer<B> {
             .with_safe_defaults()
             .with_no_client_auth()
             .with_cert_resolver(Arc::new(self.clone()));
-        #[cfg(feature = "acme")]
-        {
-            config.alpn_protocols = <S::ApplicationProtocols as ApplicationProtocols>::all()
-                .iter()
-                .map(|proto| proto.to_vec())
-                .collect();
-        }
+        config.alpn_protocols = <S::ApplicationProtocols as ApplicationProtocols>::all()
+            .iter()
+            .map(|proto| proto.to_vec())
+            .collect();
 
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
         let listener = TcpListener::bind(&addr).await?;
