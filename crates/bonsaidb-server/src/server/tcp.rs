@@ -89,7 +89,7 @@ impl<B: Backend> CustomServer<B> {
             .with_cert_resolver(Arc::new(self.clone()));
         config.alpn_protocols = <S::ApplicationProtocols as ApplicationProtocols>::all()
             .iter()
-            .map(|proto| proto.to_vec())
+            .map(|proto| proto.alpn_name().to_vec())
             .collect();
 
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
@@ -113,8 +113,11 @@ impl<B: Backend> CustomServer<B> {
                     .get_ref()
                     .1
                     .alpn_protocol()
-                    .map(|protocol| {
-                        <S::ApplicationProtocols as ApplicationProtocols>::find(protocol)
+                    .and_then(|protocol| {
+                        <S::ApplicationProtocols as ApplicationProtocols>::all()
+                            .iter()
+                            .find(|p| p.alpn_name() == protocol)
+                            .cloned()
                     })
                     .unwrap_or_default();
                 let peer = Peer {
@@ -228,9 +231,10 @@ impl TcpService for () {
 /// A collection of supported protocols for a network service.
 pub trait ApplicationProtocols: Clone + Default + std::fmt::Debug + Send + Sync {
     /// Returns all supported protocols.
-    fn all() -> &'static [&'static [u8]];
-    /// Finds the matching protocol.
-    fn find(protocol: &[u8]) -> Self;
+    fn all() -> &'static [Self];
+
+    /// Returns the identifier to use in ALPN during TLS negotiation.
+    fn alpn_name(&self) -> &'static [u8];
 
     /// Return true if this connection should be allowed to switch to websockets
     /// if [`TcpService::handle_connection`] returns an error.
@@ -267,30 +271,26 @@ impl Default for StandardTcpProtocols {
 
 impl ApplicationProtocols for StandardTcpProtocols {
     #[cfg(feature = "acme")]
-    fn all() -> &'static [&'static [u8]] {
-        &[b"http/1.1", async_acme::acme::ACME_TLS_ALPN_NAME]
+    fn all() -> &'static [Self] {
+        &[Self::Http1, Self::Acme]
     }
 
     #[cfg(not(feature = "acme"))]
-    fn all() -> &'static [&'static [u8]] {
-        &[b"http/1.1"]
-    }
-
-    fn find(protocol: &[u8]) -> Self {
-        if protocol == b"http/1.1" {
-            return Self::Http1;
-        }
-
-        #[cfg(feature = "acme")]
-        if protocol == async_acme::acme::ACME_TLS_ALPN_NAME {
-            return Self::Acme;
-        }
-
-        Self::Other
+    fn all() -> &'static [Self] {
+        &[Self::Http1]
     }
 
     #[cfg(feature = "websockets")]
     fn fallback_to_websockets(&self) -> bool {
         matches!(self, StandardTcpProtocols::Http1)
+    }
+
+    fn alpn_name(&self) -> &'static [u8] {
+        match self {
+            StandardTcpProtocols::Http1 => b"http/1.1",
+            #[cfg(feature = "acme")]
+            StandardTcpProtocols::Acme => async_acme::acme::ACME_TLS_ALPN_NAME,
+            StandardTcpProtocols::Other => unreachable!(),
+        }
     }
 }
