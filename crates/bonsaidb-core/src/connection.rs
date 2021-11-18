@@ -396,8 +396,8 @@ where
 
     /// Filters for entries in the view with `keys`.
     #[must_use]
-    pub fn with_keys(mut self, keys: Vec<V::Key>) -> Self {
-        self.key = Some(QueryKey::Multiple(keys));
+    pub fn with_keys<IntoIter: IntoIterator<Item = V::Key>>(mut self, keys: IntoIter) -> Self {
+        self.key = Some(QueryKey::Multiple(keys.into_iter().collect()));
         self
     }
 

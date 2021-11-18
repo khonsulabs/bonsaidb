@@ -1120,7 +1120,7 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 
     let a_and_b_children = db
         .view::<BasicByParentId>()
-        .with_keys(vec![Some(a.id), Some(b.id)])
+        .with_keys([Some(a.id), Some(b.id)])
         .query()
         .await?;
     assert_eq!(a_and_b_children.len(), 3);
@@ -1128,7 +1128,7 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     // Test out of order keys
     let a_and_b_children = db
         .view::<BasicByParentId>()
-        .with_keys(vec![Some(b.id), Some(a.id)])
+        .with_keys([Some(b.id), Some(a.id)])
         .query()
         .await?;
     assert_eq!(a_and_b_children.len(), 3);

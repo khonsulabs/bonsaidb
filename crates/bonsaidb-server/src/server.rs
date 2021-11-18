@@ -188,6 +188,7 @@ impl<B: Backend> CustomServer<B> {
     }
 
     /// Returns the primary domain configured for this server.
+    #[must_use]
     pub fn primary_domain(&self) -> &str {
         &self.data.primary_domain
     }

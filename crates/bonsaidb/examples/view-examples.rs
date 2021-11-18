@@ -142,7 +142,7 @@ async fn main() -> anyhow::Result<()> {
     println!(
         "Number of quads and triangles: {} (expected 5)",
         db.view::<ShapesByNumberOfSides>()
-            .with_keys(vec![3, 4])
+            .with_keys([3, 4])
             .reduce()
             .await?
     );
