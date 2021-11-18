@@ -117,6 +117,10 @@ impl<B: Backend> CustomServer<B> {
                 }
             }
 
+            log::info!(
+                "requesting new tls certificate for {}",
+                self.data.primary_domain
+            );
             let domains = vec![self.data.primary_domain.clone()];
             async_acme::rustls_helper::order(
                 |domain, key| {

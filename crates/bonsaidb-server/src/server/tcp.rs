@@ -148,6 +148,7 @@ impl<B: Backend> CustomServer<B> {
         // For ACME, don't send any traffic over the connection.
         #[cfg(feature = "acme")]
         if peer.protocol.alpn_name() == async_acme::acme::ACME_TLS_ALPN_NAME {
+            log::info!("received acme challenge connection");
             return Ok(());
         }
 
@@ -184,9 +185,14 @@ impl<B: Backend> ResolvesServerCert for CustomServer<B> {
             let server_name = client_hello.server_name()?.to_owned();
             let keys = self.data.alpn_keys.lock().unwrap();
             if let Some(key) = keys.get(AsRef::<str>::as_ref(&server_name)) {
+                log::info!("returning acme challenge");
                 return Some(key.clone());
             }
 
+            log::error!(
+                "acme alpn challenge received with no key for {}",
+                server_name
+            );
             return None;
         }
 
