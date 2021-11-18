@@ -37,7 +37,7 @@ impl<B: Backend> CustomServer<B> {
 
                     let peer = Peer {
                         address: remote_addr,
-                        protocol: <S::ApplicationProtocols as Default>::default(),
+                        protocol: service.available_protocols()[0].clone(),
                         secure: false,
                     };
 
@@ -87,7 +87,8 @@ impl<B: Backend> CustomServer<B> {
             .with_safe_defaults()
             .with_no_client_auth()
             .with_cert_resolver(Arc::new(self.clone()));
-        config.alpn_protocols = <S::ApplicationProtocols as ApplicationProtocols>::all()
+        config.alpn_protocols = service
+            .available_protocols()
             .iter()
             .map(|proto| proto.alpn_name().to_vec())
             .collect();
@@ -109,17 +110,18 @@ impl<B: Backend> CustomServer<B> {
                     }
                 };
 
+                let available_protocols = task_service.available_protocols();
                 let protocol = stream
                     .get_ref()
                     .1
                     .alpn_protocol()
                     .and_then(|protocol| {
-                        <S::ApplicationProtocols as ApplicationProtocols>::all()
+                        available_protocols
                             .iter()
                             .find(|p| p.alpn_name() == protocol)
                             .cloned()
                     })
-                    .unwrap_or_default();
+                    .unwrap_or_else(|| available_protocols[0].clone());
                 let peer = Peer {
                     address: peer_addr,
                     secure: true,
@@ -212,6 +214,11 @@ pub trait TcpService: Clone + Send + Sync + 'static {
     /// The application layer protocols that this service supports.
     type ApplicationProtocols: ApplicationProtocols;
 
+    /// Returns all available protocols for this service. The first will be the
+    /// default used if a connection is made without negotiating the application
+    /// protocol.
+    fn available_protocols(&self) -> &[Self::ApplicationProtocols];
+
     /// Handle an incoming `connection` for `peer`. Return `Err(connection)` to
     /// have BonsaiDb handle the connection internally.
     async fn handle_connection<
@@ -223,26 +230,59 @@ pub trait TcpService: Clone + Send + Sync + 'static {
     ) -> Result<(), S>;
 }
 
+/// A service that can handle incoming HTTP connections. A convenience
+/// implementation of [`TcpService`] that is useful is you are only serving HTTP
+/// and WebSockets over a service.
 #[async_trait]
-impl TcpService for () {
+pub trait HttpService: Clone + Send + Sync + 'static {
+    /// Handle an incoming `connection` for `peer`. Return `Err(connection)` to
+    /// have BonsaiDb handle the connection internally.
+    async fn handle_connection<
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    >(
+        &self,
+        connection: S,
+        peer: &Peer<StandardTcpProtocols>,
+    ) -> Result<(), S>;
+}
+
+#[async_trait]
+impl<T> TcpService for T
+where
+    T: HttpService,
+{
     type ApplicationProtocols = StandardTcpProtocols;
+
+    fn available_protocols(&self) -> &[Self::ApplicationProtocols] {
+        StandardTcpProtocols::all()
+    }
 
     async fn handle_connection<
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     >(
         &self,
         connection: S,
-        _peer: &Peer<Self::ApplicationProtocols>,
+        peer: &Peer<Self::ApplicationProtocols>,
+    ) -> Result<(), S> {
+        HttpService::handle_connection(self, connection, peer).await
+    }
+}
+
+#[async_trait]
+impl HttpService for () {
+    async fn handle_connection<
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    >(
+        &self,
+        connection: S,
+        _peer: &Peer<StandardTcpProtocols>,
     ) -> Result<(), S> {
         Err(connection)
     }
 }
 
 /// A collection of supported protocols for a network service.
-pub trait ApplicationProtocols: Clone + Default + std::fmt::Debug + Send + Sync {
-    /// Returns all supported protocols.
-    fn all() -> &'static [Self];
-
+pub trait ApplicationProtocols: Clone + std::fmt::Debug + Send + Sync {
     /// Returns the identifier to use in ALPN during TLS negotiation.
     fn alpn_name(&self) -> &'static [u8];
 }
@@ -268,6 +308,18 @@ pub enum StandardTcpProtocols {
     Other,
 }
 
+impl StandardTcpProtocols {
+    #[cfg(feature = "acme")]
+    const fn all() -> &'static [Self] {
+        &[Self::Http1, Self::Acme]
+    }
+
+    #[cfg(not(feature = "acme"))]
+    const fn all() -> &'static [Self] {
+        &[Self::Http1]
+    }
+}
+
 impl Default for StandardTcpProtocols {
     fn default() -> Self {
         Self::Http1
@@ -275,16 +327,6 @@ impl Default for StandardTcpProtocols {
 }
 
 impl ApplicationProtocols for StandardTcpProtocols {
-    #[cfg(feature = "acme")]
-    fn all() -> &'static [Self] {
-        &[Self::Http1, Self::Acme]
-    }
-
-    #[cfg(not(feature = "acme"))]
-    fn all() -> &'static [Self] {
-        &[Self::Http1]
-    }
-
     fn alpn_name(&self) -> &'static [u8] {
         match self {
             StandardTcpProtocols::Http1 => b"http/1.1",

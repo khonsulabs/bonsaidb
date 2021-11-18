@@ -78,7 +78,7 @@ use self::connected_client::OwnedClient;
 pub use self::{
     connected_client::{ConnectedClient, LockedClientDataGuard, Transport},
     database::{ServerDatabase, ServerSubscriber},
-    tcp::{ApplicationProtocols, Peer, StandardTcpProtocols, TcpService},
+    tcp::{ApplicationProtocols, HttpService, Peer, StandardTcpProtocols, TcpService},
 };
 
 static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);

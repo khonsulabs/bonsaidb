@@ -8,8 +8,8 @@ use axum::{extract, routing::get, AddExtensionLayer, Router};
 use bonsaidb::{
     core::{connection::ServerConnection, kv::Kv},
     server::{
-        Configuration, DefaultPermissions, Peer, Server, StandardTcpProtocols,
-        TcpService,
+        Configuration, DefaultPermissions, HttpService, Peer, Server,
+        StandardTcpProtocols,
     },
 };
 use hyper::{server::conn::Http, Body, Request, Response};
@@ -22,15 +22,13 @@ pub struct AxumService {
 }
 
 #[async_trait]
-impl TcpService for AxumService {
-    type ApplicationProtocols = StandardTcpProtocols;
-
+impl HttpService for AxumService {
     async fn handle_connection<
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     >(
         &self,
         connection: S,
-        peer: &Peer<Self::ApplicationProtocols>,
+        peer: &Peer<StandardTcpProtocols>,
     ) -> Result<(), S> {
         let server = self.server.clone();
         let app = Router::new()

@@ -38,8 +38,9 @@ pub use self::{
     config::{Configuration, DefaultPermissions, StorageConfiguration},
     error::Error,
     server::{
-        ApplicationProtocols, ConnectedClient, CustomServer, LockedClientDataGuard, Peer, Server,
-        ServerDatabase, ServerSubscriber, StandardTcpProtocols, TcpService, Transport,
+        ApplicationProtocols, ConnectedClient, CustomServer, HttpService, LockedClientDataGuard,
+        Peer, Server, ServerDatabase, ServerSubscriber, StandardTcpProtocols, TcpService,
+        Transport,
     },
 };
 
