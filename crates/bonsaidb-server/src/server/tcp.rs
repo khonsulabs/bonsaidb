@@ -242,7 +242,7 @@ pub trait HttpService: Clone + Send + Sync + 'static {
     >(
         &self,
         connection: S,
-        peer: &Peer<StandardTcpProtocols>,
+        peer: &Peer,
     ) -> Result<(), S>;
 }
 
@@ -289,7 +289,7 @@ pub trait ApplicationProtocols: Clone + std::fmt::Debug + Send + Sync {
 
 /// A connected network peer.
 #[derive(Debug, Clone)]
-pub struct Peer<P: ApplicationProtocols> {
+pub struct Peer<P: ApplicationProtocols = StandardTcpProtocols> {
     /// The remote address of the peer.
     pub address: std::net::SocketAddr,
     /// If true, the connection is secured with TLS.
