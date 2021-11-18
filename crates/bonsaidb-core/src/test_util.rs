@@ -692,7 +692,7 @@ macro_rules! define_connection_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::List).await?;
             let db = harness.connect().await?;
 
-            $crate::test_util::get_multiple_tests(&db).await?;
+            $crate::test_util::list_tests(&db).await?;
             harness.shutdown().await
         }
 
@@ -980,6 +980,9 @@ pub async fn get_multiple_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let both_docs = db.get_multiple::<Basic>(&[doc1.id, doc2.id]).await?;
     assert_eq!(both_docs.len(), 2);
 
+    let out_of_order = db.get_multiple::<Basic>(&[doc2.id, doc1.id]).await?;
+    assert_eq!(out_of_order.len(), 2);
+
     // The order of get_multiple isn't guaranteed, so these two checks are done
     // with iterators instead of direct indexing
     let doc1 = both_docs
@@ -1118,6 +1121,14 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let a_and_b_children = db
         .view::<BasicByParentId>()
         .with_keys(vec![Some(a.id), Some(b.id)])
+        .query()
+        .await?;
+    assert_eq!(a_and_b_children.len(), 3);
+
+    // Test out of order keys
+    let a_and_b_children = db
+        .view::<BasicByParentId>()
+        .with_keys(vec![Some(b.id), Some(a.id)])
         .query()
         .await?;
     assert_eq!(a_and_b_children.len(), 3);

@@ -288,7 +288,8 @@ impl Database {
                         document_tree_name(&collection),
                     ))
                     .map_err(Error::from)?;
-            let ids = ids.iter().map(|id| &id[..]).collect::<Vec<_>>();
+            let mut ids = ids.iter().map(|id| &id[..]).collect::<Vec<_>>();
+            ids.sort();
             let keys_and_values = tree.get_multiple(&ids).map_err(Error::from)?;
 
             keys_and_values
@@ -650,7 +651,7 @@ impl Database {
                     values.extend(view_entries.get(&key)?);
                 }
                 QueryKey::Multiple(list) => {
-                    let list = list
+                    let mut list = list
                         .into_iter()
                         .map(|key| {
                             key.as_big_endian_bytes()
@@ -658,6 +659,8 @@ impl Database {
                                 .map_err(view::Error::key_serialization)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
+
+                    list.sort();
 
                     values.extend(
                         view_entries
