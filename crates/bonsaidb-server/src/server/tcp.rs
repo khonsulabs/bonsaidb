@@ -145,19 +145,23 @@ impl<B: Backend> CustomServer<B> {
         peer: Peer<S::ApplicationProtocols>,
         service: &S,
     ) -> Result<(), Error> {
+        // For ACME, don't send any traffic over the connection.
+        #[cfg(feature = "acme")]
+        if peer.protocol.alpn_name() == async_acme::acme::ACME_TLS_ALPN_NAME {
+            return Ok(());
+        }
+
         if let Err(connection) = service.handle_connection(connection, &peer).await {
             #[cfg(feature = "websockets")]
-            if peer.protocol.fallback_to_websockets() {
-                if let Err(err) = self
-                    .handle_raw_websocket_connection(connection, peer.address)
-                    .await
-                {
-                    log::error!(
-                        "[server] error on websocket for {}: {:?}",
-                        peer.address,
-                        err
-                    );
-                }
+            if let Err(err) = self
+                .handle_raw_websocket_connection(connection, peer.address)
+                .await
+            {
+                log::error!(
+                    "[server] error on websocket for {}: {:?}",
+                    peer.address,
+                    err
+                );
             }
         }
 
@@ -235,11 +239,6 @@ pub trait ApplicationProtocols: Clone + Default + std::fmt::Debug + Send + Sync 
 
     /// Returns the identifier to use in ALPN during TLS negotiation.
     fn alpn_name(&self) -> &'static [u8];
-
-    /// Return true if this connection should be allowed to switch to websockets
-    /// if [`TcpService::handle_connection`] returns an error.
-    #[cfg(feature = "websockets")]
-    fn fallback_to_websockets(&self) -> bool;
 }
 
 /// A connected network peer.
@@ -278,11 +277,6 @@ impl ApplicationProtocols for StandardTcpProtocols {
     #[cfg(not(feature = "acme"))]
     fn all() -> &'static [Self] {
         &[Self::Http1]
-    }
-
-    #[cfg(feature = "websockets")]
-    fn fallback_to_websockets(&self) -> bool {
-        matches!(self, StandardTcpProtocols::Http1)
     }
 
     fn alpn_name(&self) -> &'static [u8] {
