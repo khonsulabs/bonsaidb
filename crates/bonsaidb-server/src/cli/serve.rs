@@ -1,11 +1,10 @@
 use std::marker::PhantomData;
+#[cfg(feature = "websockets")]
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 
 use structopt::StructOpt;
 
-use crate::{Backend, CustomServer, Error};
-
-#[cfg(feature = "websockets")]
-use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+use crate::{Backend, CustomServer, Error, TcpService};
 
 /// Execute the server
 #[derive(StructOpt, Debug)]
@@ -31,6 +30,15 @@ pub struct Serve<B: Backend> {
 impl<B: Backend> Serve<B> {
     /// Starts the server.
     pub async fn execute(&self, server: CustomServer<B>) -> Result<(), Error> {
+        self.execute_with(server, ()).await
+    }
+
+    /// Starts the server using `service` for websocket connections, if enabled.
+    pub async fn execute_with<S: TcpService>(
+        &self,
+        server: CustomServer<B>,
+        service: S,
+    ) -> Result<(), Error> {
         // Try to initialize a logger, but ignore it if it fails. This API is
         // public and another logger may already be installed.
         drop(env_logger::try_init());
@@ -45,9 +53,10 @@ impl<B: Backend> Serve<B> {
                 SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 80, 0, 0))
             });
             let task_server = server.clone();
+            let task_service = service.clone();
             tokio::task::spawn(async move {
                 task_server
-                    .listen_for_websockets_on(listen_address, false)
+                    .listen_for_tcp_on(listen_address, task_service)
                     .await
             });
 
@@ -57,7 +66,7 @@ impl<B: Backend> Serve<B> {
             let task_server = server.clone();
             tokio::task::spawn(async move {
                 task_server
-                    .listen_for_websockets_on(listen_address, true)
+                    .listen_for_secure_tcp_on(listen_address, service)
                     .await
             });
         }
