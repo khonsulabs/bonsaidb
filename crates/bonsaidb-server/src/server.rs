@@ -187,6 +187,11 @@ impl<B: Backend> CustomServer<B> {
         &self.data.directory
     }
 
+    /// Returns the primary domain configured for this server.
+    pub fn primary_domain(&self) -> &str {
+        &self.data.primary_domain
+    }
+
     /// Returns the administration database.
     pub async fn admin(&self) -> ServerDatabase<B> {
         let db = self.data.storage.admin().await;
