@@ -42,7 +42,7 @@ impl<B: Backend> Serve<B> {
         #[cfg(feature = "websockets")]
         {
             let listen_address = self.http_port.unwrap_or_else(|| {
-                SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 80, 0, 0))
+                SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 80, 0, 0))
             });
             let task_server = server.clone();
             tokio::task::spawn(async move {
@@ -52,7 +52,7 @@ impl<B: Backend> Serve<B> {
             });
 
             let listen_address = self.https_port.unwrap_or_else(|| {
-                SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 443, 0, 0))
+                SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 443, 0, 0))
             });
             let task_server = server.clone();
             tokio::task::spawn(async move {
