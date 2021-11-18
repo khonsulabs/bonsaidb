@@ -4,6 +4,9 @@ use structopt::StructOpt;
 
 use crate::{Backend, CustomServer, Error};
 
+#[cfg(feature = "websockets")]
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+
 /// Execute the server
 #[derive(StructOpt, Debug)]
 pub struct Serve<B: Backend> {
@@ -14,12 +17,12 @@ pub struct Serve<B: Backend> {
     #[cfg(feature = "websockets")]
     /// The bind port and address for HTTP traffic. Defaults to 80.
     #[structopt(long = "http")]
-    pub http_port: Option<std::net::SocketAddr>,
+    pub http_port: Option<SocketAddr>,
 
     #[cfg(feature = "websockets")]
     /// The bind port and address for HTTPS traffic. Defaults to 443.
     #[structopt(long = "https")]
-    pub https_port: Option<std::net::SocketAddr>,
+    pub https_port: Option<SocketAddr>,
 
     #[structopt(skip)]
     _backend: PhantomData<B>,
@@ -38,7 +41,9 @@ impl<B: Backend> Serve<B> {
 
         #[cfg(feature = "websockets")]
         {
-            let listen_address = self.http_port.unwrap_or_else(|| ":::80".parse().unwrap());
+            let listen_address = self.http_port.unwrap_or_else(|| {
+                SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 80, 0, 0))
+            });
             let task_server = server.clone();
             tokio::task::spawn(async move {
                 task_server
@@ -46,7 +51,9 @@ impl<B: Backend> Serve<B> {
                     .await
             });
 
-            let listen_address = self.https_port.unwrap_or_else(|| ":::443".parse().unwrap());
+            let listen_address = self.https_port.unwrap_or_else(|| {
+                SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::LOCALHOST, 443, 0, 0))
+            });
             let task_server = server.clone();
             tokio::task::spawn(async move {
                 task_server
