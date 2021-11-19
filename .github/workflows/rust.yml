@@ -52,11 +52,17 @@ jobs:
             features: "--no-default-features --features server,client,test-util,server-acme"
           - folder: crates/bonsaidb
             features: "--no-default-features --features server,client,test-util,server-acme,websockets"
+          - folder: crates/bonsaidb-client
+            features: "--target wasm32-unknown-unknown"
     steps:
       - uses: actions/checkout@v2
 
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1
+
+      - name: Install wasm32-unknown-unknown
+        run: |
+          rustup target add wasm32-unknown-unknown
 
       - name: Run clippy
         run: |
