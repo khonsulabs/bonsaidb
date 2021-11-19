@@ -22,6 +22,7 @@ mod builder;
 mod client;
 mod error;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub use fabruic;
 
 pub use self::{

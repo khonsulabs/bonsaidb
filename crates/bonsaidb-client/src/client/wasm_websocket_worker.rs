@@ -1,6 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use bonsaidb_core::networking::{Payload, Response};
+use bonsaidb_core::{
+    custom_api::{CustomApi, CustomApiResult},
+    networking::{Payload, Response},
+};
 use flume::Receiver;
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -12,13 +15,10 @@ use crate::{
     Error,
 };
 
-pub fn spawn_client<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(
+pub fn spawn_client<Api: CustomApi>(
     url: Arc<Url>,
-    request_receiver: Receiver<PendingRequest<R, O>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
+    request_receiver: Receiver<PendingRequest<Api>>,
+    custom_api_callback: Option<Arc<dyn CustomApiCallback<Api>>>,
     subscribers: SubscriberMap,
 ) {
     wasm_bindgen_futures::spawn_local(create_websocket(
@@ -29,13 +29,10 @@ pub fn spawn_client<
     ));
 }
 
-async fn create_websocket<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(
+async fn create_websocket<Api: CustomApi>(
     url: Arc<Url>,
-    request_receiver: Receiver<PendingRequest<R, O>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
+    request_receiver: Receiver<PendingRequest<Api>>,
+    custom_api_callback: Option<Arc<dyn CustomApiCallback<Api>>>,
     subscribers: SubscriberMap,
 ) {
     subscribers.clear().await;
@@ -110,13 +107,10 @@ async fn create_websocket<
     ws.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
 }
 
-fn forward_request_with_shutdown<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(
-    request_receiver: flume::Receiver<PendingRequest<R, O>>,
+fn forward_request_with_shutdown<Api: CustomApi>(
+    request_receiver: flume::Receiver<PendingRequest<Api>>,
     shutdown_receiver: flume::Receiver<()>,
-    request_sender: flume::Sender<PendingRequest<R, O>>,
+    request_sender: flume::Sender<PendingRequest<Api>>,
 ) {
     wasm_bindgen_futures::spawn_local(async move {
         let mut receive_request = Box::pin(request_receiver.recv_async());
@@ -137,13 +131,10 @@ fn forward_request_with_shutdown<
     });
 }
 
-fn on_open_callback<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(
-    request_receiver: Receiver<PendingRequest<R, O>>,
-    initial_request: Arc<Mutex<Option<PendingRequest<R, O>>>>,
-    requests: OutstandingRequestMapHandle<R, O>,
+fn on_open_callback<Api: CustomApi>(
+    request_receiver: Receiver<PendingRequest<Api>>,
+    initial_request: Arc<Mutex<Option<PendingRequest<Api>>>>,
+    requests: OutstandingRequestMapHandle<Api>,
     ws: WebSocket,
 ) -> JsValue {
     Closure::once_into_js(move || {
@@ -165,13 +156,10 @@ fn on_open_callback<
 }
 
 #[must_use]
-async fn send_request<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(
+async fn send_request<Api: CustomApi>(
     ws: &WebSocket,
-    pending: PendingRequest<R, O>,
-    requests: &OutstandingRequestMapHandle<R, O>,
+    pending: PendingRequest<Api>,
+    requests: &OutstandingRequestMapHandle<Api>,
 ) -> bool {
     let mut outstanding_requests = requests.lock().await;
     let bytes = match bincode::serialize(&pending.request) {
@@ -202,19 +190,18 @@ async fn send_request<
     }
 }
 
-fn on_message_callback<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(
-    outstanding_requests: OutstandingRequestMapHandle<R, O>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
+fn on_message_callback<Api: CustomApi>(
+    outstanding_requests: OutstandingRequestMapHandle<Api>,
+    custom_api_callback: Option<Arc<dyn CustomApiCallback<Api>>>,
     subscribers: SubscriberMap,
 ) -> JsValue {
     Closure::wrap(Box::new(move |e: MessageEvent| {
         // Handle difference Text/Binary,...
         if let Ok(abuf) = e.data().dyn_into::<js_sys::ArrayBuffer>() {
             let array = js_sys::Uint8Array::new(&abuf);
-            let payload = match bincode::deserialize::<Payload<Response<O>>>(&array.to_vec()) {
+            let payload = match bincode::deserialize::<Payload<Response<CustomApiResult<Api>>>>(
+                &array.to_vec(),
+            ) {
                 Ok(payload) => payload,
                 Err(err) => {
                     log::error!("error deserializing response: {:?}", err);
@@ -226,10 +213,10 @@ fn on_message_callback<
             let subscribers = subscribers.clone();
             let custom_api_callback = custom_api_callback.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                super::process_response_payload::<R, O>(
+                super::process_response_payload::<Api>(
                     payload,
                     &outstanding_requests,
-                    custom_api_callback.as_ref(),
+                    custom_api_callback.as_deref(),
                     &subscribers,
                 )
                 .await;
@@ -241,12 +228,9 @@ fn on_message_callback<
     .into_js_value()
 }
 
-fn on_error_callback<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(
+fn on_error_callback<Api: CustomApi>(
     ws: WebSocket,
-    initial_request: Arc<Mutex<Option<PendingRequest<R, O>>>>,
+    initial_request: Arc<Mutex<Option<PendingRequest<Api>>>>,
     shutdown: flume::Sender<()>,
 ) -> JsValue {
     Closure::once_into_js(move |e: ErrorEvent| {
@@ -271,26 +255,20 @@ fn on_error_callback<
     })
 }
 
-fn take_initial_request<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(
-    initial_request: Arc<Mutex<Option<PendingRequest<R, O>>>>,
-) -> Option<PendingRequest<R, O>> {
+fn take_initial_request<Api: CustomApi>(
+    initial_request: Arc<Mutex<Option<PendingRequest<Api>>>>,
+) -> Option<PendingRequest<Api>> {
     let mut initial_request = initial_request.lock().unwrap();
     initial_request.take()
 }
 
-fn on_close_callback<
-    R: Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
-    O: Serialize + for<'de> Deserialize<'de> + Send + Sync + 'static,
->(
+fn on_close_callback<Api: CustomApi>(
     url: Arc<Url>,
-    request_receiver: Receiver<PendingRequest<R, O>>,
+    request_receiver: Receiver<PendingRequest<Api>>,
     shutdown: flume::Sender<()>,
     ws: WebSocket,
-    initial_request: Arc<Mutex<Option<PendingRequest<R, O>>>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<O>>>,
+    initial_request: Arc<Mutex<Option<PendingRequest<Api>>>>,
+    custom_api_callback: Option<Arc<dyn CustomApiCallback<Api>>>,
     subscribers: SubscriberMap,
 ) -> JsValue {
     Closure::once_into_js(move |c: CloseEvent| {
