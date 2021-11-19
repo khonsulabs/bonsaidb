@@ -5,9 +5,11 @@ use std::{path::Path, time::Duration};
 use bonsaidb::{
     client::{url::Url, Client},
     core::connection::ServerConnection,
-    server::{Configuration, DefaultPermissions, Server},
+    server::{
+        AcmeConfiguration, Configuration, DefaultPermissions, Server,
+        LETS_ENCRYPT_STAGING_DIRECTORY,
+    },
 };
-use bonsaidb_server::{AcmeConfiguration, LETS_ENCRYPT_STAGING_DIRECTORY};
 
 const DOMAIN: &str = "example.com";
 

@@ -1,7 +1,9 @@
 use std::time::Duration;
 
-use bonsaidb::local::{config::Configuration, Database};
-use bonsaidb_core::pubsub::{PubSub, Subscriber};
+use bonsaidb::{
+    core::pubsub::{PubSub, Subscriber},
+    local::{config::Configuration, Database},
+};
 use tokio::time::sleep;
 
 #[tokio::main]

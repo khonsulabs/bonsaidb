@@ -13,7 +13,6 @@ use bonsaidb::{
     },
 };
 use hyper::{server::conn::Http, Body, Request, Response};
-
 use url::Url;
 
 #[derive(Debug, Clone)]

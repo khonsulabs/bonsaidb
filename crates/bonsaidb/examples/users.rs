@@ -12,13 +12,12 @@ use bonsaidb::{
             bonsai::{BonsaiAction, ServerAction},
             Action, ActionNameList, Permissions, ResourceName, Statement,
         },
-        schema::Collection,
+        schema::{Collection, InsertError},
     },
     server::{Configuration, DefaultPermissions, Server, StorageConfiguration},
 };
 
 mod support;
-use bonsaidb_core::schema::InsertError;
 use support::schema::Shape;
 
 #[tokio::main]

@@ -31,7 +31,7 @@ If you're interested in chatting about this project or potentially wanting to co
 
 ## Example
 
-Check out [./bonsaidb/examples](./bonsaidb/examples) for examples. To get an idea of how it works, this is a simple schema:
+Check out [crates/bonsaidb/examples](https://github.com/khonsulabs/bonsaidb/tree/main/crates/bonsaidb/examples) for examples. To get an idea of how it works, this is a simple schema:
 
 ```rust
 #[derive(Debug, Serialize, Deserialize)]
@@ -107,6 +107,8 @@ let triangles = db
     .await?;
 println!("Number of triangles: {}", triangles.len());
 ```
+
+See the [README](https://github.com/khonsulabs/bonsaidb/blob/main/crates/bonsaidb/examples/README.md) in the examples folder for a list of all available examples.
 
 ## Why write another database?
 
