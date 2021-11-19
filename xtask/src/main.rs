@@ -8,7 +8,7 @@ use khonsu_tools::{
     code_coverage::{self, CodeCoverage},
     devx_cmd::Cmd,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -46,10 +46,15 @@ impl code_coverage::Config for CoverageConfig {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct TestSuite {
     folder: &'static str,
     cargo_args: &'static str,
+}
+
+#[derive(Serialize)]
+struct TestMatrix {
+    include: &'static [TestSuite],
 }
 
 fn all_tests() -> &'static [TestSuite] {
@@ -134,9 +139,9 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
     }
 
     println!("Running clippy for wasm32 client");
+    set_current_dir(executing_dir)?;
     let mut clippy = Cmd::new("cargo");
     let mut clippy = clippy.args([
-        "cargo",
         "clippy",
         "--target",
         "wasm32-unknown-unknown",
