@@ -5,7 +5,6 @@ use bonsaidb_core::{
     networking::{Payload, Response},
 };
 use flume::Receiver;
-use serde::{Deserialize, Serialize};
 use url::Url;
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
@@ -85,7 +84,7 @@ async fn create_websocket<Api: CustomApi>(
     ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
 
     let onmessage_callback = on_message_callback(
-        outstanding_requests.clone(),
+        outstanding_requests,
         custom_api_callback.clone(),
         subscribers.clone(),
     );
@@ -98,15 +97,16 @@ async fn create_websocket<Api: CustomApi>(
     let onclose_callback = on_close_callback(
         url.clone(),
         request_receiver.clone(),
-        shutdown_sender.clone(),
+        shutdown_sender,
         ws.clone(),
-        initial_request.clone(),
+        initial_request,
         custom_api_callback.clone(),
         subscribers.clone(),
     );
     ws.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
 }
 
+#[allow(clippy::mut_mut)] // futures::select!
 fn forward_request_with_shutdown<Api: CustomApi>(
     request_receiver: flume::Receiver<PendingRequest<Api>>,
     shutdown_receiver: flume::Receiver<()>,
@@ -139,7 +139,7 @@ fn on_open_callback<Api: CustomApi>(
 ) -> JsValue {
     Closure::once_into_js(move || {
         wasm_bindgen_futures::spawn_local(async move {
-            if let Some(initial_request) = take_initial_request(initial_request) {
+            if let Some(initial_request) = take_initial_request(&initial_request) {
                 if send_request(&ws, initial_request, &requests).await {
                     while let Ok(pending) = request_receiver.recv_async().await {
                         if !send_request(&ws, pending, &requests).await {
@@ -155,7 +155,7 @@ fn on_open_callback<Api: CustomApi>(
     })
 }
 
-#[must_use]
+#[allow(clippy::future_not_send)]
 async fn send_request<Api: CustomApi>(
     ws: &WebSocket,
     pending: PendingRequest<Api>,
@@ -236,7 +236,7 @@ fn on_error_callback<Api: CustomApi>(
     Closure::once_into_js(move |e: ErrorEvent| {
         ws.set_onerror(None);
         let _ = shutdown.send(());
-        if let Some(initial_request) = take_initial_request(initial_request) {
+        if let Some(initial_request) = take_initial_request(&initial_request) {
             drop(
                 initial_request
                     .responder
@@ -256,7 +256,7 @@ fn on_error_callback<Api: CustomApi>(
 }
 
 fn take_initial_request<Api: CustomApi>(
-    initial_request: Arc<Mutex<Option<PendingRequest<Api>>>>,
+    initial_request: &Mutex<Option<PendingRequest<Api>>>,
 ) -> Option<PendingRequest<Api>> {
     let mut initial_request = initial_request.lock().unwrap();
     initial_request.take()
@@ -275,7 +275,7 @@ fn on_close_callback<Api: CustomApi>(
         let _ = shutdown.send(());
         ws.set_onclose(None);
 
-        if let Some(initial_request) = take_initial_request(initial_request) {
+        if let Some(initial_request) = take_initial_request(&initial_request) {
             drop(
                 initial_request
                     .responder

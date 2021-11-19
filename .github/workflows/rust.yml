@@ -58,14 +58,10 @@ jobs:
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1
 
-      - name: Install wasm32-unknown-unknown
-        run: |
-          rustup target add wasm32-unknown-unknown
-
       - name: Run clippy
         run: |
           cd ${{ matrix.folder }}
-          cargo clippy ${{ matrix.features }}
+          cargo clippy ${{ matrix.features }} -- -D warnings 
 
       - name: Run unit tests
         run: |
@@ -92,7 +88,7 @@ jobs:
 
       - name: Run clippy
         run: |
-          cargo clippy --target wasm32-unknown-unknown --package bonsaidb-client
+          cargo clippy --target wasm32-unknown-unknown --package bonsaidb-client -- -D warnings
 
   docs:
     runs-on: ubuntu-latest
