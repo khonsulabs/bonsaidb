@@ -27,31 +27,31 @@ jobs:
         run: |
           cargo audit -D warnings --ignore RUSTSEC-2020-0159 --ignore RUSTSEC-2020-0071
 
+  xtask-test-matrix:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v1
+
+      - name: Generate matrix
+        id: xtask
+        run: |
+          cargo xtask test-matrix
+
+    outputs:
+      matrix: ${{ steps.xtask.test-matrix }}
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: xtask-test-matrix
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - folder: "./"
-            features: "--all-features"
-          - folder: crates/bonsaidb-local
-            features: "--no-default-features"
-          - folder: crates/bonsaidb-server
-            features: "--no-default-features"
-          - folder: crates/bonsaidb-server
-            features: "--no-default-features --features websockets"
-          - folder: crates/bonsaidb-server
-            features: "--no-default-features --features acme"
-          - folder: crates/bonsaidb
-            features: "--no-default-features --features server,client,test-util"
-          - folder: crates/bonsaidb
-            features: "--no-default-features --features server,client,test-util,websockets"
-          - folder: crates/bonsaidb
-            features: "--no-default-features --features server,client,test-util,server-acme"
-          - folder: crates/bonsaidb
-            features: "--no-default-features --features server,client,test-util,server-acme,websockets"
+        package: ${{ fromJson(needs.xtask-test-matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v2
 
@@ -61,12 +61,12 @@ jobs:
       - name: Run clippy
         run: |
           cd ${{ matrix.folder }}
-          cargo clippy ${{ matrix.features }} -- -D warnings 
+          cargo clippy ${{ matrix.cargo_args }} -- -D warnings 
 
       - name: Run unit tests
         run: |
           cd ${{ matrix.folder }}
-          cargo test ${{ matrix.features }} -- --nocapture
+          cargo test ${{ matrix.cargo_args }} -- --nocapture
         env:
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
           S3_ACCESS_KEY_SECRET: ${{ secrets.S3_ACCESS_KEY_SECRET }}
