@@ -244,7 +244,7 @@ impl<A: CustomApi> Client<A> {
     async fn new_websocket_client(
         url: Url,
         custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, Error<A::Error>> {
         let (request_sender, request_receiver) = flume::unbounded();
 
         let subscribers = SubscriberMap::default();
