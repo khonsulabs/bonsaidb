@@ -5,24 +5,17 @@ on: [push]
 jobs:
   audit:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        checks:
+          - advisories
+          - bans licenses sources
+
+    # Prevent sudden announcement of a new advisory from failing ci:
+    continue-on-error: ${{ matrix.checks == 'advisories' }}
 
     steps:
-      - name: Install Rust
-        uses: hecrj/setup-rust-action@v1
-      - name: Cache
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/.crates.toml
-            ~/.cargo/.crates2.json
-            ~/.cargo/bin/cargo-audit
-          key: cargo-audit
-      - name: Install cargo-audit
-        run: cargo -v install cargo-audit
-      - name: Checkout
-        uses: actions/checkout@v2
-        with:
-          ref: ${{ matrix.branch }}
-      - name: Audit
-        run: |
-          cargo audit -D warnings --ignore RUSTSEC-2020-0159 --ignore RUSTSEC-2020-0071
+    - uses: actions/checkout@v2
+    - uses: EmbarkStudios/cargo-deny-action@v1
+      with:
+        command: --exclude=xtask --all-features check ${{ matrix.checks }}
