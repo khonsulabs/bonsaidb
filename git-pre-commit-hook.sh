@@ -11,16 +11,5 @@ if [[ $1 == "install" ]]; then
   popd
 else
   cargo +nightly fmt
-  cargo clippy -- -D warnings
-  pushd local
-  cargo clippy --no-default-features
-  popd
-  pushd server
-  cargo clippy --no-default-features
-  popd
-  pushd client
-  cargo clippy --no-default-features
-  popd
-  cargo doc --no-deps --all-features
-  cargo test --all-features
+  cargo xtask test --fail-on-warnings
 fi
