@@ -1,0 +1,34 @@
+targets = []
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "warn"
+notice = "warn"
+ignore = ["RUSTSEC-2020-0071", "RUSTSEC-2020-0159", "RUSTSEC-2021-0124"]
+
+[licenses]
+unlicensed = "deny"
+allow = ["MPL-2.0"]
+deny = []
+copyleft = "deny"
+allow-osi-fsf-free = "either"
+default = "deny"
+confidence-threshold = 0.8
+exceptions = []
+
+[[licenses.clarify]]
+name = "ring"
+version = "*"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
