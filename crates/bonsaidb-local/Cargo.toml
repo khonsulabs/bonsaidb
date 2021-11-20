@@ -45,7 +45,6 @@ hpke = { version = "0.7", default-features = false, features = [
     "x25519",
     "serde_impls",
 ] }
-ranges = "0.3"
 tracing = { version = "0.1", optional = true, default-features = false, features = [
     "attributes",
 ] }

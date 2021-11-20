@@ -25,7 +25,6 @@ use nebari::{
     tree::{AnyTreeRoot, KeyEvaluation, Root, TreeRoot, Unversioned, Versioned},
     AbortError, Buffer, ExecutingTransaction, Roots, Tree,
 };
-use ranges::GenericRange;
 
 use crate::{
     config::Configuration,
@@ -884,9 +883,9 @@ impl Connection for Database {
             tokio::task::spawn_blocking::<_, Result<Vec<transaction::Executed<'static>>, Error>>(
                 move || {
                     let range = if let Some(starting_id) = starting_id {
-                        GenericRange::from(starting_id..)
+                        Range::from(starting_id..)
                     } else {
-                        GenericRange::from(..)
+                        Range::from(..)
                     };
 
                     let mut entries = Vec::new();
