@@ -5,6 +5,7 @@ use std::{
 
 use khonsu_tools::{
     anyhow,
+    audit::{self, Audit},
     code_coverage::{self, CodeCoverage},
     devx_cmd::Cmd,
 };
@@ -22,6 +23,9 @@ pub enum Commands {
         #[structopt(long)]
         fail_on_warnings: bool,
     },
+    Audit {
+        command: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -32,6 +36,7 @@ fn main() -> anyhow::Result<()> {
         } => CodeCoverage::<CoverageConfig>::execute(install_dependencies),
         Commands::TestMatrix => generate_test_matrix_output(),
         Commands::Test { fail_on_warnings } => run_all_tests(fail_on_warnings),
+        Commands::Audit { command } => Audit::<audit::DefaultConfig>::execute(command),
     }
 }
 
