@@ -2,9 +2,8 @@ use bonsaidb::{
     core::{
         connection::Connection,
         schema::{
-            view, view::CollectionView, Collection, CollectionDocument,
-            CollectionName, InvalidNameError, MapResult, MappedValue, Name,
-            Schematic,
+            view, view::CollectionView, Collection, CollectionDocument, CollectionName,
+            InvalidNameError, MapResult, MappedValue, Name, Schematic,
         },
         Error,
     },
@@ -46,10 +45,7 @@ impl CollectionView for ShapesByNumberOfSides {
         Name::new("by-number-of-sides")
     }
 
-    fn map(
-        &self,
-        document: CollectionDocument<Shape>,
-    ) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: CollectionDocument<Shape>) -> MapResult<Self::Key, Self::Value> {
         Ok(vec![document.emit_key_and_value(document.contents.sides, 1)])
     }
 
@@ -70,13 +66,11 @@ impl Shape {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), bonsaidb::core::Error> {
     // begin rustme snippet: snippet-b
-    let db = Database::open_local::<Shape>(
-        "view-examples.bonsaidb".as_ref(),
-        Configuration::default(),
-    )
-    .await?;
+    let db =
+        Database::open_local::<Shape>("view-examples.bonsaidb".as_ref(), Configuration::default())
+            .await?;
 
     // Insert a new document into the Shape collection.
     Shape::new(3).insert_into(&db).await?;

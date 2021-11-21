@@ -12,7 +12,7 @@ use bonsaidb::{
 // the Key-Value store is supported across all methods of accessing BonsaiDb.
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<(), bonsaidb::core::Error> {
     let db = Database::open_local::<()>(
         "key-value-store.bonsaidb".as_ref(),
         Configuration::default(),

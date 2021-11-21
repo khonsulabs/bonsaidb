@@ -27,9 +27,8 @@ impl Collection for Message {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let storage =
-        Storage::open_local("basic.bonsaidb", Configuration::default()).await?;
+async fn main() -> Result<(), bonsaidb::core::Error> {
+    let storage = Storage::open_local("basic.bonsaidb", Configuration::default()).await?;
     // Before you can create a database, you must register the schema you're
     // wanting to use.
     storage.register_schema::<Message>().await?;
@@ -38,8 +37,7 @@ async fn main() -> anyhow::Result<()> {
     storage
         .create_database::<Message>("private-messages", true)
         .await?;
-    let private_messages =
-        storage.database::<Message>("private-messages").await?;
+    let private_messages = storage.database::<Message>("private-messages").await?;
 
     insert_a_message(&messages, "Hello, World!").await?;
     insert_a_message(&private_messages, "Hey!").await?;
@@ -51,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
 async fn insert_a_message<C: Connection>(
     connection: &C,
     value: &str,
-) -> anyhow::Result<()> {
+) -> Result<(), bonsaidb::core::Error> {
     Message {
         contents: String::from(value),
         timestamp: SystemTime::now(),

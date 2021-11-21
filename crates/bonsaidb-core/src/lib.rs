@@ -56,6 +56,8 @@ pub use num_traits;
 use schema::{view, CollectionName, SchemaName, ViewName};
 use serde::{Deserialize, Serialize};
 
+use crate::schema::InsertError;
+
 /// an enumeration of errors that this crate can produce
 #[derive(Clone, thiserror::Error, Debug, Serialize, Deserialize)]
 pub enum Error {
@@ -192,6 +194,12 @@ pub enum Error {
 impl From<pot::Error> for Error {
     fn from(err: pot::Error) -> Self {
         Self::Serialization(err.to_string())
+    }
+}
+
+impl<T> From<InsertError<T>> for Error {
+    fn from(err: InsertError<T>) -> Self {
+        err.error
     }
 }
 

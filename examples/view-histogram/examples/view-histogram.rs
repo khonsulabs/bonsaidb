@@ -19,8 +19,8 @@ use bonsaidb::{
     core::{
         connection::{AccessPolicy, Connection},
         schema::{
-            view, view::CollectionView, Collection, CollectionDocument,
-            CollectionName, InvalidNameError, MappedValue, Name, Schematic,
+            view, view::CollectionView, Collection, CollectionDocument, CollectionName,
+            InvalidNameError, MappedValue, Name, Schematic,
         },
     },
     local::{config::Configuration, Database},
@@ -105,9 +105,7 @@ impl Collection for Samples {
         CollectionName::new("histogram-example", "samples")
     }
 
-    fn define_views(
-        schema: &mut Schematic,
-    ) -> Result<(), bonsaidb::core::Error> {
+    fn define_views(schema: &mut Schematic) -> Result<(), bonsaidb::core::Error> {
         schema.define_view(AsHistogram)
     }
 }
@@ -177,10 +175,7 @@ impl Deref for StoredHistogram {
 }
 
 impl serde::Serialize for StoredHistogram {
-    fn serialize<S: serde::Serializer>(
-        &self,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut vec = Vec::new();
         V2Serializer::new()
             .serialize(&self.0, &mut vec)
@@ -203,10 +198,7 @@ struct StoredHistogramVisitor;
 impl<'de> Visitor<'de> for StoredHistogramVisitor {
     type Value = StoredHistogram;
 
-    fn expecting(
-        &self,
-        formatter: &mut std::fmt::Formatter,
-    ) -> std::fmt::Result {
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str("expected borrowed bytes")
     }
 

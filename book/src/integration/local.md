@@ -34,5 +34,5 @@ To help your code transition between different modes of accessing `BonsaiDb`, yo
 For example, [`bonsaidb/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/crates/bonsaidb/examples/basic-local-multidb.rs) uses this helper method to insert a record:
 
 ```rust,noplayground,no_run
-{{#include ../../../crates/bonsaidb/examples/basic-local-multidb.rs:reusable-code}}
+{{#include ../../../examples/basic-local/examples/basic-local-multidb.rs:reusable-code}}
 ```

@@ -16,42 +16,6 @@ name = "bonsaidb"
 path = "src/main.rs"
 required-features = ["cli"]
 
-[[example]]
-name = "basic-local"
-required-features = ["local"]
-
-[[example]]
-name = "basic-local-multidb"
-required-features = ["local"]
-
-[[example]]
-name = "view-examples"
-required-features = ["local"]
-
-[[example]]
-name = "view-histogram"
-required-features = ["local"]
-
-[[example]]
-name = "pubsub"
-required-features = ["local"]
-
-[[example]]
-name = "server"
-required-features = ["server", "client"]
-
-[[example]]
-name = "axum"
-required-features = ["server", "server-hyper", "websockets"]
-
-[[example]]
-name = "users"
-required-features = ["server", "client"]
-
-[[example]]
-name = "key-value-store"
-required-features = ["local"]
-
 [[test]]
 name = "core-suite"
 required-features = ["server", "client", "test-util"]
@@ -63,10 +27,6 @@ required-features = ["server", "client"]
 [[test]]
 name = "custom-api"
 required-features = ["server", "client"]
-
-[[example]]
-name = "acme"
-required-features = ["server", "client", "server-acme"]
 
 [features]
 default = []
@@ -128,17 +88,8 @@ bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-fe
 ] }
 futures = "0.3"
 rand = "0.8"
-url = "2.2"
 once_cell = "1.3.0"
-flume = "0.10"
 actionable = "0.1.0-rc.2"
-fabruic = { version = "0.0.1-dev.2" }
-hdrhistogram = "7"
-axum = { version = "0.3" }
-async-trait = "0.1"
-hyper = { version = "0.14", features = ["http1", "server"] }
-env_logger = "0.9"
-log = "0.4"
 
 [package.metadata.docs.rs]
 all-features = true

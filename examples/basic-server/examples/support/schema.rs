@@ -1,8 +1,8 @@
-use bonsaidb_core::{
+use bonsaidb::core::{
     schema::{
         view::{self, CollectionView},
-        Collection, CollectionDocument, CollectionName, InvalidNameError,
-        MapResult, MappedValue, Name, Schematic,
+        Collection, CollectionDocument, CollectionName, InvalidNameError, MapResult, MappedValue,
+        Name, Schematic,
     },
     Error,
 };

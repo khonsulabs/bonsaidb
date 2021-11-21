@@ -66,10 +66,9 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(feature = "websockets")]
     {
-        let websockets =
-            Client::build(Url::parse(&format!("wss://{}", DOMAIN))?)
-                .finish()
-                .await?;
+        let websockets = Client::build(Url::parse(&format!("wss://{}", DOMAIN))?)
+            .finish()
+            .await?;
         websockets
             .create_database::<()>("test-database", true)
             .await?;

@@ -27,25 +27,25 @@ If you're interested in chatting about this project or potentially wanting to co
 
 ## Example
 
-Check out [crates/bonsaidb/examples](https://github.com/khonsulabs/bonsaidb/tree/main/crates/bonsaidb/examples) for examples. To get an idea of how it works, this is a simple schema:
+Check out [./examples](https://github.com/khonsulabs/bonsaidb/tree/main/examples) for examples. To get an idea of how it works, this is a simple schema:
 
 ```rust
-$../crates/bonsaidb/examples/view-examples.rs:snippet-a$
+$../examples/basic-local/examples/view-examples.rs:snippet-a$
 ```
 
 After you have your collection(s) defined, you can open up a database and insert documents:
 
 ```rust
-$../crates/bonsaidb/examples/view-examples.rs:snippet-b$
+$../examples/basic-local/examples/view-examples.rs:snippet-b$
 ```
 
 And query data using the Map-Reduce-powered view:
 
 ```rust
-$../crates/bonsaidb/examples/view-examples.rs:snippet-c$
+$../examples/basic-local/examples/view-examples.rs:snippet-c$
 ```
 
-See the [README](https://github.com/khonsulabs/bonsaidb/blob/main/crates/bonsaidb/examples/README.md) in the examples folder for a list of all available examples.
+See the [examples README](https://github.com/khonsulabs/bonsaidb/blob/main/examples/README.md) for a list of all available examples.
 
 ## Why write another database?
 

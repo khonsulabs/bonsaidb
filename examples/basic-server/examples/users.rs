@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
 
             id
         }
-        Err(bonsaidb_core::Error::UniqueKeyViolation {
+        Err(bonsaidb::core::Error::UniqueKeyViolation {
             existing_document_id,
             ..
         }) => existing_document_id,
@@ -53,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
         Ok(doc) => doc.header.id,
         Err(InsertError {
             error:
-                bonsaidb_core::Error::UniqueKeyViolation {
+                bonsaidb::core::Error::UniqueKeyViolation {
                     existing_document_id,
                     ..
                 },
@@ -86,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
     // Before authenticating, inserting a shape shouldn't work.
     match Shape::new(3).insert_into(&db).await {
         Err(InsertError {
-            error: bonsaidb_core::Error::PermissionDenied(denied),
+            error: bonsaidb::core::Error::PermissionDenied(denied),
             ..
         }) => {
             log::info!(
@@ -117,16 +117,15 @@ async fn setup_server() -> anyhow::Result<Server> {
     let server = Server::open(
         Path::new("users-server-data.bonsaidb"),
         Configuration {
-            default_permissions: DefaultPermissions::Permissions(
-                Permissions::from(vec![Statement {
+            default_permissions: DefaultPermissions::Permissions(Permissions::from(vec![
+                Statement {
                     resources: vec![ResourceName::any()],
                     actions: ActionNameList::List(vec![
                         BonsaiAction::Server(ServerAction::Connect).name(),
-                        BonsaiAction::Server(ServerAction::LoginWithPassword)
-                            .name(),
+                        BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
                     ]),
-                }]),
-            ),
+                },
+            ])),
             storage: StorageConfiguration {
                 default_encryption_key: Some(KeyId::Master),
                 ..Default::default()

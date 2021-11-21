@@ -1,19 +1,17 @@
 //! Shows how to use the axum web framework with BonsaiDb. Any hyper-compatible
 //! framework should be usable.
 
-use std::{path::Path, time::Duration};
+use std::path::Path;
 
 use async_trait::async_trait;
 use axum::{extract, routing::get, AddExtensionLayer, Router};
 use bonsaidb::{
     core::{connection::ServerConnection, kv::Kv},
-    server::{
-        Configuration, DefaultPermissions, HttpService, Peer, Server,
-        StandardTcpProtocols,
-    },
+    server::{Configuration, DefaultPermissions, HttpService, Peer, Server, StandardTcpProtocols},
 };
 use hyper::{server::conn::Http, Body, Request, Response};
-use url::Url;
+#[cfg(feature = "client")]
+use ::{std::time::Duration, url::Url};
 
 #[derive(Debug, Clone)]
 pub struct AxumService {
@@ -63,16 +61,14 @@ async fn main() -> anyhow::Result<()> {
     server.register_schema::<()>().await?;
     server.create_database::<()>("storage", true).await?;
 
-    #[cfg(all(feature = "client", feature = "websockets"))]
+    #[cfg(all(feature = "client"))]
     {
         // This is silly to do over a websocket connection, because it can
         // easily be done by just using `server` instead. However, this is to
         // demonstrate that websocket connections work in this example.
-        let client = bonsaidb::client::Client::build(Url::parse(
-            "ws://localhost:8080/ws",
-        )?)
-        .finish()
-        .await?;
+        let client = bonsaidb::client::Client::build(Url::parse("ws://localhost:8080/ws")?)
+            .finish()
+            .await?;
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(1)).await;

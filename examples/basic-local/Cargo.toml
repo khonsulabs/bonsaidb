@@ -1,0 +1,12 @@
+[package]
+name = "basic-local"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+bonsaidb = { path = "../../crates/bonsaidb", version = "0.1.0-dev.4", features = [
+    "local",
+] }

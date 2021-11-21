@@ -88,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
     futures::future::join_all(tasks)
         .await
         .into_iter()
-        .collect::<anyhow::Result<()>>()?;
+        .collect::<Result<_, _>>()?;
 
     // Shut the server down gracefully (or forcefully after 5 seconds).
     server.shutdown(Some(Duration::from_secs(5))).await?;
@@ -99,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
 async fn do_some_database_work<'a, C: Connection>(
     database: C,
     client_name: &str,
-) -> anyhow::Result<()> {
+) -> Result<(), bonsaidb::core::Error> {
     // Insert 50 random shapes
     for _ in 0u32..50 {
         let sides = {

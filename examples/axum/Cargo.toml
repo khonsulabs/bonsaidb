@@ -1,0 +1,25 @@
+[package]
+name = "axum"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+client = ["bonsaidb/client"]
+
+[dependencies]
+bonsaidb = { path = "../../crates/bonsaidb", version = "0.1.0-dev.4", features = [
+    "server",
+    "server-hyper",
+    "websockets",
+] }
+
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+axum = { version = "0.3" }
+async-trait = "0.1"
+hyper = { version = "0.14", features = ["http1", "server"] }
+env_logger = "0.9"
+log = "0.4"
+anyhow = "1"
+url = "2.2"

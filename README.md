@@ -31,7 +31,7 @@ If you're interested in chatting about this project or potentially wanting to co
 
 ## Example
 
-Check out [crates/bonsaidb/examples](https://github.com/khonsulabs/bonsaidb/tree/main/crates/bonsaidb/examples) for examples. To get an idea of how it works, this is a simple schema:
+Check out [./examples](https://github.com/khonsulabs/bonsaidb/tree/main/examples) for examples. To get an idea of how it works, this is a simple schema:
 
 ```rust
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,10 +67,7 @@ impl CollectionView for ShapesByNumberOfSides {
         Name::new("by-number-of-sides")
     }
 
-    fn map(
-        &self,
-        document: CollectionDocument<Shape>,
-    ) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: CollectionDocument<Shape>) -> MapResult<Self::Key, Self::Value> {
         Ok(vec![document.emit_key_and_value(document.contents.sides, 1)])
     }
 
@@ -87,11 +84,9 @@ impl CollectionView for ShapesByNumberOfSides {
 After you have your collection(s) defined, you can open up a database and insert documents:
 
 ```rust
-    let db = Database::open_local::<Shape>(
-        "view-examples.bonsaidb".as_ref(),
-        Configuration::default(),
-    )
-    .await?;
+    let db =
+        Database::open_local::<Shape>("view-examples.bonsaidb".as_ref(), Configuration::default())
+            .await?;
 
     // Insert a new document into the Shape collection.
     Shape::new(3).insert_into(&db).await?;
@@ -108,7 +103,7 @@ let triangles = db
 println!("Number of triangles: {}", triangles.len());
 ```
 
-See the [README](https://github.com/khonsulabs/bonsaidb/blob/main/crates/bonsaidb/examples/README.md) in the examples folder for a list of all available examples.
+See the [examples README](https://github.com/khonsulabs/bonsaidb/blob/main/examples/README.md) for a list of all available examples.
 
 ## Why write another database?
 

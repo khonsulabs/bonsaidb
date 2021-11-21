@@ -36,7 +36,7 @@ fn main() -> anyhow::Result<()> {
         } => CodeCoverage::<CoverageConfig>::execute(install_dependencies),
         Commands::TestMatrix => generate_test_matrix_output(),
         Commands::Test { fail_on_warnings } => run_all_tests(fail_on_warnings),
-        Commands::Audit { command } => Audit::<audit::DefaultConfig>::execute(command),
+        Commands::Audit { command } => Audit::<AuditConfig>::execute(command),
     }
 }
 
@@ -161,4 +161,21 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
 
     clippy.run()?;
     Ok(())
+}
+
+struct AuditConfig;
+
+impl audit::Config for AuditConfig {
+    fn args() -> Vec<String> {
+        vec![
+            String::from("--all-features"),
+            String::from("--exclude=xtask"),
+            // examples
+            String::from("--exclude=axum"),
+            String::from("--exclude=acme"),
+            String::from("--exclude=basic-local"),
+            String::from("--exclude=basic-server"),
+            String::from("--exclude=view-histogram"),
+        ]
+    }
 }

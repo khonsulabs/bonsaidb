@@ -26,12 +26,9 @@ impl Collection for Message {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let db = Database::open_local::<Message>(
-        "basic.bonsaidb".as_ref(),
-        Configuration::default(),
-    )
-    .await?;
+async fn main() -> Result<(), bonsaidb::core::Error> {
+    let db = Database::open_local::<Message>("basic.bonsaidb".as_ref(), Configuration::default())
+        .await?;
 
     // Insert a new `Message` into the database. `Message` is a `Collection`
     // implementor, which makes them act in a similar fashion to tables in other
