@@ -3,6 +3,7 @@ Configuration(
         "../README.md":  [
             "header.md",
             "docs.md",
+            "contributing.md",
             "https://github.com/khonsulabs/.github/raw/main/snippets/readme-footer.md",
         ],
         "../CONTRIBUTING.md":  [

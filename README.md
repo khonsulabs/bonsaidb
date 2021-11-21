@@ -169,13 +169,17 @@ bonsaidb = { version = "*", default-features = false, features = "client-full" }
 
 ### Pre-commit hook
 
-Our CI processes require that some commands succeed without warnings or errors. To ensure that code you submit passes the basic checks, install the included [pre-commit](./git-pre-commit-hook.sh) hook:
+Our CI processes require that some commands succeed without warnings or errors. These checks can be performed manually by running:
 
 ```bash
-./git-pre-commit-hook.sh install
+cargo xtask test --fail-on-warnings
 ```
 
-Once done, tools including `cargo fmt`, `cargo doc`, and `cargo test` will all be checked before `git commit` will execute.
+Or, if you would like to run all these checks before each commit, you can install the check as a pre-commit hook:
+
+```bash
+cargo xtask install-pre-commit-hook
+```
 
 ## Open-source Licenses
 

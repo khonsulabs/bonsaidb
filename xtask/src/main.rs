@@ -7,7 +7,7 @@ use khonsu_tools::{
     anyhow,
     audit::{self, Audit},
     code_coverage::{self, CodeCoverage},
-    devx_cmd::Cmd,
+    devx_cmd::{run, Cmd},
 };
 use serde::Serialize;
 use structopt::StructOpt;
@@ -26,17 +26,23 @@ pub enum Commands {
     Audit {
         command: Option<String>,
     },
+    InstallPreCommitHook,
 }
 
 fn main() -> anyhow::Result<()> {
-    let command = Commands::from_args();
-    match command {
-        Commands::GenerateCodeCoverageReport {
-            install_dependencies,
-        } => CodeCoverage::<CoverageConfig>::execute(install_dependencies),
-        Commands::TestMatrix => generate_test_matrix_output(),
-        Commands::Test { fail_on_warnings } => run_all_tests(fail_on_warnings),
-        Commands::Audit { command } => Audit::<AuditConfig>::execute(command),
+    if std::env::args().len() > 1 {
+        let command = Commands::from_args();
+        match command {
+            Commands::GenerateCodeCoverageReport {
+                install_dependencies,
+            } => CodeCoverage::<CoverageConfig>::execute(install_dependencies),
+            Commands::TestMatrix => generate_test_matrix_output(),
+            Commands::Test { fail_on_warnings } => run_all_tests(fail_on_warnings),
+            Commands::Audit { command } => Audit::<AuditConfig>::execute(command),
+            Commands::InstallPreCommitHook => khonsu_tools::pre_commit::install(),
+        }
+    } else {
+        run_all_tests(true)
     }
 }
 
@@ -160,6 +166,9 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
     }
 
     clippy.run()?;
+
+    println!("Generating docs");
+    run!("cargo", "doc", "--all-features", "--no-deps")?;
     Ok(())
 }
 

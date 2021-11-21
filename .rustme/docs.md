@@ -106,15 +106,3 @@ bonsaidb = { version = "*", default-features = false, features = "client-full" }
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
   enabled, all DNS resolution is done with the OS's default name resolver.
 - `client-websockets`: Enables `WebSocket` support for `bonsaidb-client`.
-
-## Developing BonsaiDb
-
-### Pre-commit hook
-
-Our CI processes require that some commands succeed without warnings or errors. To ensure that code you submit passes the basic checks, install the included [pre-commit](./git-pre-commit-hook.sh) hook:
-
-```bash
-./git-pre-commit-hook.sh install
-```
-
-Once done, tools including `cargo fmt`, `cargo doc`, and `cargo test` will all be checked before `git commit` will execute.
