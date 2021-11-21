@@ -7,13 +7,17 @@ use std::{
 use num_traits::{FromPrimitive, ToPrimitive};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::{document::Document, schema::view, AnyError};
+use crate::{
+    document::{Document, Header},
+    schema::view,
+    AnyError,
+};
 
 /// A document's entry in a View's mappings.
 #[derive(PartialEq, Debug)]
 pub struct Map<K: Key = (), V: Serialize = ()> {
     /// The id of the document that emitted this entry.
-    pub source: u64,
+    pub source: Header,
 
     /// The key used to index the View.
     pub key: K,
@@ -26,7 +30,7 @@ impl<K: Key, V: Serialize> Map<K, V> {
     /// Serializes this map.
     pub fn serialized(&self) -> Result<Serialized, view::Error> {
         Ok(Serialized {
-            source: self.source,
+            source: self.source.clone(),
             key: self
                 .key
                 .as_big_endian_bytes()
@@ -52,7 +56,7 @@ pub struct MappedDocument<K: Key = (), V: Serialize = ()> {
 
 impl<K: Key, V: Serialize> Map<K, V> {
     /// Creates a new Map entry for the document with id `source`.
-    pub fn new(source: u64, key: K, value: V) -> Self {
+    pub fn new(source: Header, key: K, value: V) -> Self {
         Self { source, key, value }
     }
 }
@@ -60,8 +64,8 @@ impl<K: Key, V: Serialize> Map<K, V> {
 /// Represents a document's entry in a View's mappings, serialized and ready to store.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Serialized {
-    /// The id of the document that emitted this entry.
-    pub source: u64,
+    /// The header of the document that emitted this entry.
+    pub source: Header,
 
     /// The key used to index the View.
     pub key: Vec<u8>,
@@ -76,7 +80,7 @@ impl Serialized {
         &self,
     ) -> Result<Map<K, V>, view::Error> {
         Ok(Map {
-            source: self.source,
+            source: self.source.clone(),
             key: K::from_big_endian_bytes(&self.key).map_err(view::Error::key_serialization)?,
             value: pot::from_slice(&self.value)?,
         })

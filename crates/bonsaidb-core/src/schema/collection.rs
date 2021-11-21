@@ -334,7 +334,7 @@ impl<'a> NamedReference<'a> {
                 .await?
                 .into_iter()
                 .next()
-                .map(|e| e.source)),
+                .map(|e| e.source.id)),
             Self::Id(id) => Ok(Some(*id)),
         }
     }

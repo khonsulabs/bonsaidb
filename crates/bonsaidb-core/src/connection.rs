@@ -1,4 +1,4 @@
-use std::{borrow::Cow, marker::PhantomData};
+use std::marker::PhantomData;
 
 use async_trait::async_trait;
 use custodian_password::{
@@ -15,7 +15,7 @@ use crate::{
     schema::{
         self, view, Key, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
     },
-    transaction::{self, Command, Operation, OperationResult, Transaction},
+    transaction::{self, Operation, OperationResult, Transaction},
     Error,
 };
 
@@ -33,12 +33,7 @@ pub trait Connection: Send + Sync {
     /// Inserts a newly created document into the connected [`schema::Schema`] for the [`Collection`] `C`.
     async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error> {
         let mut tx = Transaction::default();
-        tx.push(Operation {
-            collection: C::collection_name()?,
-            command: Command::Insert {
-                contents: Cow::from(contents),
-            },
-        });
+        tx.push(Operation::insert(C::collection_name()?, contents));
         let results = self.apply_transaction(tx).await?;
         if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
             Ok(header.clone())
@@ -54,13 +49,11 @@ pub trait Connection: Send + Sync {
     /// the new revision.
     async fn update<C: schema::Collection>(&self, doc: &mut Document<'_>) -> Result<(), Error> {
         let mut tx = Transaction::default();
-        tx.push(Operation {
-            collection: C::collection_name()?,
-            command: Command::Update {
-                header: Cow::Owned(doc.header.clone()),
-                contents: Cow::Owned(doc.contents.to_vec()),
-            },
-        });
+        tx.push(Operation::update(
+            C::collection_name()?,
+            doc.header.clone(),
+            doc.contents.to_vec(),
+        ));
         let results = self.apply_transaction(tx).await?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
             doc.header = header;
@@ -95,12 +88,7 @@ pub trait Connection: Send + Sync {
     /// Removes a `Document` from the database.
     async fn delete<C: schema::Collection>(&self, doc: &Document<'_>) -> Result<(), Error> {
         let mut tx = Transaction::default();
-        tx.push(Operation {
-            collection: C::collection_name()?,
-            command: Command::Delete {
-                header: Cow::Owned(doc.header.clone()),
-            },
-        });
+        tx.push(Operation::delete(C::collection_name()?, doc.header.clone()));
         let results = self.apply_transaction(tx).await?;
         if let OperationResult::DocumentDeleted { .. } = &results[0] {
             Ok(())
@@ -162,6 +150,16 @@ pub trait Connection: Send + Sync {
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error>
+    where
+        Self: Sized;
+
+    /// Deletes all of the documents associated with this view.
+    #[must_use]
+    async fn delete_docs<V: schema::View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, Error>
     where
         Self: Sized;
 
@@ -457,6 +455,13 @@ where
     pub async fn reduce_grouped(self) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error> {
         self.connection
             .reduce_grouped::<V>(self.key, self.access_policy)
+            .await
+    }
+
+    /// Deletes all of the associated documents that match this view query.
+    pub async fn delete_docs(self) -> Result<u64, Error> {
+        self.connection
+            .delete_docs::<V>(self.key, self.access_policy)
             .await
     }
 }

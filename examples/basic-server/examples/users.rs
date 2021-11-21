@@ -35,9 +35,8 @@ async fn main() -> anyhow::Result<()> {
             id
         }
         Err(bonsaidb::core::Error::UniqueKeyViolation {
-            existing_document_id,
-            ..
-        }) => existing_document_id,
+            existing_document, ..
+        }) => existing_document.id,
         Err(other) => anyhow::bail!(other),
     };
 
@@ -54,11 +53,10 @@ async fn main() -> anyhow::Result<()> {
         Err(InsertError {
             error:
                 bonsaidb::core::Error::UniqueKeyViolation {
-                    existing_document_id,
-                    ..
+                    existing_document, ..
                 },
             ..
-        }) => existing_document_id,
+        }) => existing_document.id,
         Err(other) => anyhow::bail!(other),
     };
 

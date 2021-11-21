@@ -1653,6 +1653,37 @@ impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
 }
 
 #[async_trait]
+impl<'s, B: Backend> bonsaidb_core::networking::DeleteDocsHandler for DatabaseDispatcher<'s, B> {
+    type Action = BonsaiAction;
+
+    async fn resource_name<'a>(
+        &'a self,
+        view: &'a ViewName,
+        _key: &'a Option<QueryKey<Vec<u8>>>,
+        _access_policy: &'a AccessPolicy,
+    ) -> Result<ResourceName<'a>, Error> {
+        Ok(view_resource_name(&self.name, view))
+    }
+
+    fn action() -> Self::Action {
+        BonsaiAction::Database(DatabaseAction::View(ViewAction::DeleteDocs))
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        view: ViewName,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
+        let count = self.database.delete_docs(&view, key, access_policy).await?;
+        Ok(Response::Database(DatabaseResponse::DocumentsDeleted(
+            count,
+        )))
+    }
+}
+
+#[async_trait]
 impl<'s, B: Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
     for DatabaseDispatcher<'s, B>
 {

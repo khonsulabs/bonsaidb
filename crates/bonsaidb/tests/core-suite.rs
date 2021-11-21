@@ -229,11 +229,10 @@ async fn assume_permissions(
                 Err(InsertError {
                     error:
                         bonsaidb_core::Error::UniqueKeyViolation {
-                            existing_document_id,
-                            ..
+                            existing_document, ..
                         },
                     ..
-                }) => existing_document_id,
+                }) => existing_document.id,
                 Err(other) => anyhow::bail!(other),
             };
 

@@ -8,6 +8,7 @@ use std::{
 use async_trait::async_trait;
 use bonsaidb_core::{
     connection::Connection,
+    document::Header,
     schema::{
         view::{map, Serialized},
         CollectionName, Key, ViewName,
@@ -275,15 +276,15 @@ impl<'a> DocumentRequest<'a> {
         Ok(())
     }
 
-    fn save_mapping(&mut self, source: u64, key: &[u8], value: Vec<u8>) -> Result<(), Error> {
+    fn save_mapping(&mut self, source: Header, key: &[u8], value: Vec<u8>) -> Result<(), Error> {
         // Before altering any data, verify that the key is unique if this is a unique view.
         if self.view.unique() {
             if let Some(existing_entry) = self.load_entry_for_key(key)? {
-                if existing_entry.mappings[0].source != source {
+                if existing_entry.mappings[0].source.id != source.id {
                     return Err(Error::Core(bonsaidb_core::Error::UniqueKeyViolation {
                         view: self.map_request.view_name.clone(),
-                        conflicting_document_id: source,
-                        existing_document_id: existing_entry.mappings[0].source,
+                        conflicting_document: source,
+                        existing_document: existing_entry.mappings[0].source.clone(),
                     }));
                 }
             }
@@ -304,7 +305,7 @@ impl<'a> DocumentRequest<'a> {
             // present
             let mut found = false;
             for mapping in &mut entry.mappings {
-                if mapping.source == source {
+                if mapping.source.id == entry_mapping.source.id {
                     found = true;
                     mapping.value = entry_mapping.value.clone();
                     break;
@@ -366,7 +367,7 @@ impl<'a> DocumentRequest<'a> {
                 let document_id = u64::from_big_endian_bytes(self.document_id).unwrap();
                 entry_collection
                     .mappings
-                    .retain(|m| m.source != document_id);
+                    .retain(|m| m.source.id != document_id);
 
                 if entry_collection.mappings.is_empty() {
                     entry_collection.remove_active_entry();

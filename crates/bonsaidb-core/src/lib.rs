@@ -56,7 +56,7 @@ pub use num_traits;
 use schema::{view, CollectionName, SchemaName, ViewName};
 use serde::{Deserialize, Serialize};
 
-use crate::schema::InsertError;
+use crate::{document::Header, schema::InsertError};
 
 /// an enumeration of errors that this crate can produce
 #[derive(Clone, thiserror::Error, Debug, Serialize, Deserialize)]
@@ -154,14 +154,14 @@ pub enum Error {
     DocumentConflict(CollectionName, u64),
 
     /// When saving a document in a collection with unique views, a document emits a key that is already emitted by an existing ocument, this error is returned.
-    #[error("a unique key violation occurred: document `{existing_document_id}` already has the same key as `{conflicting_document_id}` for {view}")]
+    #[error("a unique key violation occurred: document `{existing_document}` already has the same key as `{conflicting_document}` for {view}")]
     UniqueKeyViolation {
         /// The name of the view that the unique key violation occurred.
         view: ViewName,
         /// The document that caused the violation.
-        conflicting_document_id: u64,
+        conflicting_document: Header,
         /// The document that already uses the same key.
-        existing_document_id: u64,
+        existing_document: Header,
     },
 
     /// An invalid name was specified during schema creation.

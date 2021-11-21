@@ -1158,6 +1158,22 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let items_with_categories = db.view::<BasicByCategory>().query().await?;
     assert_eq!(items_with_categories.len(), 3);
 
+    // Test deleting
+    let deleted_count = db
+        .view::<BasicByParentId>()
+        .with_key(Some(b.id))
+        .delete_docs()
+        .await?;
+    assert_eq!(b_children.len() as u64, deleted_count);
+    assert_eq!(
+        db.view::<BasicByParentId>()
+            .with_key(Some(b.id))
+            .query()
+            .await?
+            .len(),
+        0
+    );
+
     Ok(())
 }
 
@@ -1430,16 +1446,16 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 
     if let Err(Error::UniqueKeyViolation {
         view,
-        existing_document_id,
-        conflicting_document_id,
+        existing_document,
+        conflicting_document,
     }) = db.collection::<Unique>().push(&Unique { value: 1 }).await
     {
         assert_eq!(view, UniqueValue.view_name()?);
-        assert_eq!(existing_document_id, first_doc.id);
+        assert_eq!(existing_document.id, first_doc.id);
         // We can't predict the conflicting document id since it's generated
         // inside of the transaction, but we can assert that it's different than
         // the document that was previously stored.
-        assert_ne!(conflicting_document_id, existing_document_id);
+        assert_ne!(conflicting_document, existing_document);
     } else {
         unreachable!("unique key violation not triggered");
     }
@@ -1451,13 +1467,13 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     second_doc.set_contents(&contents)?;
     if let Err(Error::UniqueKeyViolation {
         view,
-        existing_document_id,
-        conflicting_document_id,
+        existing_document,
+        conflicting_document,
     }) = db.update::<Unique>(&mut second_doc).await
     {
         assert_eq!(view, UniqueValue.view_name()?);
-        assert_eq!(existing_document_id, first_doc.id);
-        assert_eq!(conflicting_document_id, second_doc.header.id);
+        assert_eq!(existing_document.id, first_doc.id);
+        assert_eq!(conflicting_document.id, second_doc.header.id);
     } else {
         unreachable!("unique key violation not triggered");
     }

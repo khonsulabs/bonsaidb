@@ -1,4 +1,8 @@
-use std::{borrow::Cow, ops::Deref};
+use std::{
+    borrow::Cow,
+    fmt::{Display, Write},
+    ops::Deref,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -43,7 +47,15 @@ impl Header {
         key: K,
         value: Value,
     ) -> Map<K, Value> {
-        Map::new(self.id, key, value)
+        Map::new(self.clone(), key, value)
+    }
+}
+
+impl Display for Header {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.id.fmt(f)?;
+        f.write_char('@')?;
+        self.revision.fmt(f)
     }
 }
 
@@ -161,13 +173,27 @@ fn emissions_tests() -> Result<(), crate::Error> {
 
     let doc = Document::with_contents(1, &Basic::default())?;
 
-    assert_eq!(doc.emit(), Map::new(doc.header.id, (), ()));
+    assert_eq!(doc.emit(), Map::new(doc.header.clone(), (), ()));
 
-    assert_eq!(doc.emit_key(1), Map::new(doc.header.id, 1, ()));
+    assert_eq!(doc.emit_key(1), Map::new(doc.header.clone(), 1, ()));
 
-    assert_eq!(doc.emit_value(1), Map::new(doc.header.id, (), 1));
+    assert_eq!(doc.emit_value(1), Map::new(doc.header.clone(), (), 1));
 
-    assert_eq!(doc.emit_key_and_value(1, 2), Map::new(doc.header.id, 1, 2));
+    assert_eq!(
+        doc.emit_key_and_value(1, 2),
+        Map::new(doc.header.clone(), 1, 2)
+    );
 
     Ok(())
+}
+
+#[test]
+fn header_display_test() {
+    let original_contents = b"one";
+    let revision = Revision::new(original_contents);
+    let header = Header { id: 42, revision };
+    assert_eq!(
+        header.to_string(),
+        "42@0-7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed"
+    );
 }

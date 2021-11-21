@@ -22,12 +22,46 @@ impl<'a> Transaction<'a> {
 
 /// A single operation performed on a `Collection`.
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[must_use]
 pub struct Operation<'a> {
     /// The id of the `Collection`.
     pub collection: CollectionName,
 
     /// The command being performed.
     pub command: Command<'a>,
+}
+
+impl Operation<'static> {
+    /// Inserts a new document with `contents` into `collection`.
+    pub const fn insert(collection: CollectionName, contents: Vec<u8>) -> Self {
+        Self {
+            collection,
+            command: Command::Insert {
+                contents: Cow::Owned(contents),
+            },
+        }
+    }
+
+    /// Updates a document in `collection`.
+    pub const fn update(collection: CollectionName, header: Header, contents: Vec<u8>) -> Self {
+        Self {
+            collection,
+            command: Command::Update {
+                header: Cow::Owned(header),
+                contents: Cow::Owned(contents),
+            },
+        }
+    }
+
+    /// Deletes a document from a `collection`.
+    pub const fn delete(collection: CollectionName, header: Header) -> Self {
+        Self {
+            collection,
+            command: Command::Delete {
+                header: Cow::Owned(header),
+            },
+        }
+    }
 }
 
 /// A command to execute within a `Collection`.

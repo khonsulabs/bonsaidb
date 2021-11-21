@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use bonsaidb_core::schema::CollectionName;
+use bonsaidb_core::{document::Header, schema::CollectionName};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -13,7 +13,7 @@ pub struct ViewEntry {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EntryMapping {
-    pub source: u64,
+    pub source: Header,
     pub value: Vec<u8>,
 }
 

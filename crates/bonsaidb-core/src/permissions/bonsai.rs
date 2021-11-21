@@ -189,6 +189,10 @@ pub enum ViewAction {
     /// [`Connection::reduce()`](crate::connection::Connection::reduce). See
     /// [`view_resource_name`] for the format of view resource names.
     Reduce,
+    /// Allows deleting associated docs with
+    /// [`Connection::delete_docs()`](crate::connection::Connection::delete_docs).
+    /// See [`view_resource_name`] for the format of view resource names.
+    DeleteDocs,
 }
 
 /// Actions that operate on transactions.

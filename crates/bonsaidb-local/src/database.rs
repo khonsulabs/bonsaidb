@@ -12,7 +12,8 @@ use bonsaidb_core::{
     schema::{
         self,
         view::{self, map},
-        CollectionName, Key, Map, MappedDocument, MappedValue, Schema, Schematic, ViewName,
+        Collection, CollectionName, Key, Map, MappedDocument, MappedValue, Schema, Schematic,
+        ViewName,
     },
     transaction::{
         self, ChangedDocument, Command, Executed, Operation, OperationResult, Transaction,
@@ -417,6 +418,35 @@ impl Database {
         .await?;
 
         Ok(mappings)
+    }
+
+    async fn delete_from_view(
+        &self,
+        view_name: &ViewName,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        let view = self
+            .data
+            .schema
+            .view_by_name(view_name)
+            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
+        let collection = view.collection()?;
+        let mut transaction = Transaction::default();
+        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
+            let entry = ViewEntry::from(entry);
+
+            for mapping in entry.mappings {
+                transaction.push(Operation::delete(collection.clone(), mapping.source));
+            }
+
+            Ok(())
+        })
+        .await?;
+
+        let results = Connection::apply_transaction(self, transaction).await?;
+
+        Ok(results.len() as u64)
     }
 
     fn execute_operation(
@@ -968,7 +998,7 @@ impl Connection for Database {
         let results = Connection::query::<V>(self, key, order, limit, access_policy).await?;
 
         let mut documents = self
-            .get_multiple::<V::Collection>(&results.iter().map(|m| m.source).collect::<Vec<_>>())
+            .get_multiple::<V::Collection>(&results.iter().map(|m| m.source.id).collect::<Vec<_>>())
             .await?
             .into_iter()
             .map(|doc| (doc.header.id, doc))
@@ -977,7 +1007,7 @@ impl Connection for Database {
         Ok(results
             .into_iter()
             .filter_map(|map| {
-                if let Some(document) = documents.remove(&map.source) {
+                if let Some(document) = documents.remove(&map.source.id) {
                     Some(MappedDocument {
                         key: map.key,
                         value: map.value,
@@ -1049,6 +1079,38 @@ impl Connection for Database {
                 })
             })
             .collect::<Result<Vec<_>, bonsaidb_core::Error>>()
+    }
+
+    async fn delete_docs<V: schema::View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error>
+    where
+        Self: Sized,
+    {
+        let collection = <V::Collection as Collection>::collection_name()?;
+        let mut transaction = Transaction::default();
+        self.for_each_view_entry::<V, _>(
+            key,
+            Sort::Ascending,
+            None,
+            access_policy,
+            |entry_collection| {
+                let entry = ViewEntry::from(entry_collection);
+
+                for mapping in entry.mappings {
+                    transaction.push(Operation::delete(collection.clone(), mapping.source));
+                }
+
+                Ok(())
+            },
+        )
+        .await?;
+
+        let results = Connection::apply_transaction(self, transaction).await?;
+
+        Ok(results.len() as u64)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
@@ -1249,7 +1311,7 @@ impl OpenDatabase for Database {
         let mut documents = self
             .with_effective_permissions(permissions.clone())
             .get_multiple_from_collection_id(
-                &results.iter().map(|m| m.source).collect::<Vec<_>>(),
+                &results.iter().map(|m| m.source.id).collect::<Vec<_>>(),
                 &view.collection()?,
             )
             .await?
@@ -1260,7 +1322,7 @@ impl OpenDatabase for Database {
         Ok(results
             .into_iter()
             .filter_map(|map| {
-                if let Some(source) = documents.remove(&map.source) {
+                if let Some(source) = documents.remove(&map.source.id) {
                     Some(map::MappedSerialized {
                         key: map.key,
                         value: map.value,
@@ -1289,6 +1351,15 @@ impl OpenDatabase for Database {
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, bonsaidb_core::Error> {
         self.grouped_reduce_in_view(view, key, access_policy).await
+    }
+
+    async fn delete_docs(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        self.delete_from_view(view, key, access_policy).await
     }
 
     async fn list_executed_transactions(

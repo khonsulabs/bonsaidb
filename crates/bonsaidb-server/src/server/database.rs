@@ -170,6 +170,17 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         self.db.reduce_grouped::<V>(key, access_policy).await
     }
 
+    async fn delete_docs<V: View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error>
+    where
+        Self: Sized,
+    {
+        self.db.delete_docs::<V>(key, access_policy).await
+    }
+
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,

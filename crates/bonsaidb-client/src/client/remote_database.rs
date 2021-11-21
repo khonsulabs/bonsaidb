@@ -301,6 +301,38 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
+    async fn delete_docs<V: View>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error>
+    where
+        Self: Sized,
+    {
+        match self
+            .client
+            .send_request(Request::Database {
+                database: self.name.to_string(),
+                request: DatabaseRequest::DeleteDocs {
+                    view: self
+                        .schema
+                        .view::<V>()
+                        .ok_or(bonsaidb_core::Error::CollectionNotFound)?
+                        .view_name()?,
+                    key: key.map(|key| key.serialized()).transpose()?,
+                    access_policy,
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::DocumentsDeleted(count)) => Ok(count),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
     async fn apply_transaction(
         &self,
         transaction: Transaction<'static>,

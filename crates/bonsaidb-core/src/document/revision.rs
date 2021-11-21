@@ -1,3 +1,5 @@
+use std::fmt::{Display, Write};
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -49,6 +51,17 @@ impl Revision {
     }
 }
 
+impl Display for Revision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.id.fmt(f)?;
+        f.write_char('-')?;
+        for byte in self.sha256 {
+            f.write_fmt(format_args!("{:02x}", byte))?;
+        }
+        Ok(())
+    }
+}
+
 fn digest(payload: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::default();
     hasher.update(payload);
@@ -91,5 +104,15 @@ fn revision_tests() {
             id: 2,
             sha256: original_digest
         })
+    );
+}
+
+#[test]
+fn revision_display_test() {
+    let original_contents = b"one";
+    let first_revision = Revision::new(original_contents);
+    assert_eq!(
+        first_revision.to_string(),
+        "0-7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed"
     );
 }

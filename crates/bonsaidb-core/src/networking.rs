@@ -208,6 +208,16 @@ pub enum DatabaseRequest {
         /// If false, [`DatabaseResponse::ViewReduction`] is returned.
         grouped: bool,
     },
+    /// Deletes the associated documents resulting from the view query.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    DeleteDocs {
+        /// The name of the view.
+        view: ViewName,
+        /// The filter for the view.
+        key: Option<QueryKey<Vec<u8>>>,
+        /// The access policy for the query.
+        access_policy: AccessPolicy,
+    },
     /// Applies a transaction.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
     ApplyTransaction {
@@ -345,6 +355,8 @@ pub enum ServerResponse {
 pub enum DatabaseResponse {
     /// One or more documents.
     Documents(Vec<Document<'static>>),
+    /// A number of documents were deleted.
+    DocumentsDeleted(u64),
     /// Results of [`DatabaseRequest::ApplyTransaction`].
     TransactionResults(Vec<OperationResult>),
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is false.

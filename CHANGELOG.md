@@ -77,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of multiple keys. This may change again to provide a non-heap allocation
   mechanism for a single emit. Please provide feedback if this shows up in a
   benchmark in a meaningful amount.
+- View mapping now stores the source document header, not just the ID.
 - `bonsaidb::server::Configuration::default_permissions` has been changed into a
   `DefaultPermissions` enum.
 - Changed the default serialization format from `CBOR` to an in-house format,

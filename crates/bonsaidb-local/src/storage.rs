@@ -542,6 +542,13 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, bonsaidb_core::Error>;
 
+    async fn delete_docs(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error>;
+
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
