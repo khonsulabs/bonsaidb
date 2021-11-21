@@ -4,7 +4,7 @@ use std::{
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection, Sort},
+    connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     document::{Document, Header, KeyId},
     kv::{KeyOperation, Kv, Output},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},

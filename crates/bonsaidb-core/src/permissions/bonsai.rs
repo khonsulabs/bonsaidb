@@ -109,24 +109,24 @@ pub enum ServerAction {
     /// permissions to `Connect`. If not allowed, the connection will be
     /// terminated.
     Connect,
-    /// Permits [`ServerConnection::list_available_schemas`](crate::connection::ServerConnection::list_available_schemas).
+    /// Permits [`StorageConnection::list_available_schemas`](crate::connection::StorageConnection::list_available_schemas).
     ListAvailableSchemas,
-    /// Permits [`ServerConnection::list_databases`](crate::connection::ServerConnection::list_databases).
+    /// Permits [`StorageConnection::list_databases`](crate::connection::StorageConnection::list_databases).
     ListDatabases,
-    /// Permits [`ServerConnection::create_database`](crate::connection::ServerConnection::create_database).
+    /// Permits [`StorageConnection::create_database`](crate::connection::StorageConnection::create_database).
     CreateDatabase,
-    /// Permits [`ServerConnection::delete_database`](crate::connection::ServerConnection::delete_database).
+    /// Permits [`StorageConnection::delete_database`](crate::connection::StorageConnection::delete_database).
     DeleteDatabase,
-    /// Permits [`ServerConnection::create_user`](crate::connection::ServerConnection::create_user).
+    /// Permits [`StorageConnection::create_user`](crate::connection::StorageConnection::create_user).
     CreateUser,
-    /// Permits [`ServerConnection::set_user_password`](crate::connection::ServerConnection::set_user_password).
+    /// Permits [`StorageConnection::set_user_password`](crate::connection::StorageConnection::set_user_password).
     SetPassword,
     /// Permits the ability to log in with a password.
     LoginWithPassword,
-    /// Permits [`ServerConnection::add_permission_group_to_user`](crate::connection::ServerConnection::add_permission_group_to_user) and [`ServerConnection::remove_permission_group_from_user`](crate::connection::ServerConnection::remove_permission_group_from_user).
+    /// Permits [`StorageConnection::add_permission_group_to_user`](crate::connection::StorageConnection::add_permission_group_to_user) and [`StorageConnection::remove_permission_group_from_user`](crate::connection::StorageConnection::remove_permission_group_from_user).
     ModifyUserPermissionGroups,
     /// Permits .
-    /// Permits [`ServerConnection::add_role_to_user`](crate::connection::ServerConnection::add_role_to_user) and [`ServerConnection::remove_role_from_user`](crate::connection::ServerConnection::remove_role_from_user).
+    /// Permits [`StorageConnection::add_role_to_user`](crate::connection::StorageConnection::add_role_to_user) and [`StorageConnection::remove_role_from_user`](crate::connection::StorageConnection::remove_role_from_user).
     ModifyUserRoles,
 }
 

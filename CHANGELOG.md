@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   errors that are being ignored or happened in a background task.
 - Multiple crates now offer an "instrument" feature which enables
   instrumentation using the [`tracing`](https://tracing.rs/) ecosystem.
-- Moved all `database()` functions to `ServerConnection`. This allows fully
+- Moved all `database()` functions to `StorageConnection`. This allows fully
   generic code to be written against a "server".
 - Added `listen_for_shutdown()` which listens for SIGINT and SIGQUIT and attemps
   to shut the server down gracefully.

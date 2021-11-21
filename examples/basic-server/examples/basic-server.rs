@@ -5,7 +5,7 @@ use std::{path::Path, time::Duration};
 use bonsaidb::{
     client::{url::Url, Client},
     core::{
-        connection::{Connection, ServerConnection},
+        connection::{Connection, StorageConnection},
         schema::Collection,
     },
     server::{Configuration, DefaultPermissions, Server},

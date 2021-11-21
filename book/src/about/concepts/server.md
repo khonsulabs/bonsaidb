@@ -1,6 +1,6 @@
 # Server
 
-A [Server](https://dev.bonsaidb.io/main/bonsaidb/core/connection/trait.ServerConnection.html) oversees one or more [Schemas](./schema.md) and named [Databases](./database.md). Over time, this concept will be extended to have support for other features including users and permissions.
+A [Server](https://dev.bonsaidb.io/main/bonsaidb/core/connection/trait.StorageConnection.html) oversees one or more [Schemas](./schema.md) and named [Databases](./database.md). Over time, this concept will be extended to have support for other features including users and permissions.
 
 There are two ways to initialize a `BonsaiDb` server:
 

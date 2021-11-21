@@ -3,7 +3,7 @@
 use bonsaidb::{
     client::{url::Url, Client},
     core::{
-        connection::ServerConnection,
+        connection::StorageConnection,
         test_util::{self, Basic, BasicSchema, TestDirectory},
     },
     server::{Configuration, DefaultPermissions, Server},

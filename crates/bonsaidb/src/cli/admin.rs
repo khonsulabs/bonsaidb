@@ -1,4 +1,4 @@
-use bonsaidb_core::connection::{Connection, ServerConnection};
+use bonsaidb_core::connection::{Connection, StorageConnection};
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -14,7 +14,7 @@ pub enum UserCommand {
 }
 
 impl Command {
-    pub async fn execute<C: Connection, SC: ServerConnection>(
+    pub async fn execute<C: Connection, SC: StorageConnection>(
         self,
         _admin: C,
         server: SC,

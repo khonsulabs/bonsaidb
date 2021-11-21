@@ -86,7 +86,7 @@ pub enum Error {
     SchemaNotRegistered(SchemaName),
 
     /// An invalid database name was specified. See
-    /// [`ServerConnection::create_database()`](connection::ServerConnection::create_database)
+    /// [`StorageConnection::create_database()`](connection::StorageConnection::create_database)
     /// for database name requirements.
     #[error("invalid database name: {0}")]
     InvalidDatabaseName(String),

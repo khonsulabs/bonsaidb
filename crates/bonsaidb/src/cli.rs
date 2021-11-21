@@ -7,7 +7,7 @@ use std::{path::PathBuf, str::FromStr};
 use bonsaidb_client::Client;
 use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
-    connection::ServerConnection,
+    connection::StorageConnection,
 };
 use bonsaidb_local::Storage;
 use bonsaidb_server::Backend;

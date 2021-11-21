@@ -720,7 +720,7 @@ pub enum AccessPolicy {
 
 /// Functions for interacting with a multi-database `BonsaiDb` instance.
 #[async_trait]
-pub trait ServerConnection: Send + Sync {
+pub trait StorageConnection: Send + Sync {
     /// The type that represents a database for this implementation.
     type Database: Connection;
 
@@ -771,10 +771,10 @@ pub trait ServerConnection: Send + Sync {
     /// * [`Error::Io)`]: an error occurred while deleting files.
     async fn delete_database(&self, name: &str) -> Result<(), crate::Error>;
 
-    /// Lists the databases on this server.
+    /// Lists the databases in this storage.
     async fn list_databases(&self) -> Result<Vec<Database>, crate::Error>;
 
-    /// Lists the [`SchemaName`]s on this server.
+    /// Lists the [`SchemaName`]s registered with this storage.
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, crate::Error>;
 
     /// Creates a user.
@@ -866,7 +866,7 @@ pub trait ServerConnection: Send + Sync {
 pub struct PasswordResult {
     /// A file that can be stored locally that can be used to further validate
     /// future login attempts. This does not need to be stored, but can be used
-    /// to detect if the server key has been changed without our knowledge.
+    /// to detect if the `BonsaiDb` key has been changed without our knowledge.
     pub file: ClientFile,
     /// A keypair derived from the OPAQUE-KE session. This key is
     /// deterministically derived from the key exchange with the server such

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bonsaidb_core::{
-    connection::{AccessPolicy, Connection, ServerConnection},
+    connection::{AccessPolicy, Connection, StorageConnection},
     permissions::{Permissions, Statement},
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,

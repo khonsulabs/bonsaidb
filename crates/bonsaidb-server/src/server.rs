@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     admin::{self, User},
     circulate::{Message, Relay, Subscriber},
-    connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection, Sort},
+    connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     custodian_password::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
     },
@@ -858,7 +858,7 @@ impl<B: Backend> Job for ClientRequest<B> {
 }
 
 #[async_trait]
-impl<B: Backend> ServerConnection for CustomServer<B> {
+impl<B: Backend> StorageConnection for CustomServer<B> {
     type Database = ServerDatabase<B>;
 
     async fn create_database_with_schema(

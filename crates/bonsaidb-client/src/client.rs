@@ -16,7 +16,7 @@ use async_lock::Mutex;
 use async_trait::async_trait;
 use bonsaidb_core::{
     admin::Database,
-    connection::{PasswordResult, ServerConnection},
+    connection::{PasswordResult, StorageConnection},
     custodian_password::{
         ClientConfig, ClientFile, ClientLogin, LoginFinalization, LoginRequest, LoginResponse,
     },
@@ -411,7 +411,7 @@ impl<A: CustomApi> Client<A> {
 }
 
 #[async_trait]
-impl<A: CustomApi> ServerConnection for Client<A> {
+impl<A: CustomApi> StorageConnection for Client<A> {
     type Database = RemoteDatabase<A>;
 
     async fn create_database_with_schema(

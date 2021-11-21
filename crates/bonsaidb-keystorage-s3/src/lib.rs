@@ -12,7 +12,7 @@
 //!
 //! ```rust
 //! # use bonsaidb_core::{
-//! # connection::ServerConnection,
+//! # connection::StorageConnection,
 //! # document::KeyId,
 //! # schema::Collection,
 //! # test_util::{Basic, BasicSchema, TestDirectory},
@@ -143,7 +143,7 @@ impl VaultKeyStorage for S3VaultKeyStorage {
 #[tokio::test]
 async fn basic_test() {
     use bonsaidb_core::{
-        connection::ServerConnection,
+        connection::StorageConnection,
         document::KeyId,
         schema::Collection,
         test_util::{Basic, BasicSchema, TestDirectory},

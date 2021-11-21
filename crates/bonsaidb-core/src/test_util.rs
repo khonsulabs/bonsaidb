@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     admin::{Database, PermissionGroup, Role, User},
-    connection::{AccessPolicy, Connection, ServerConnection},
+    connection::{AccessPolicy, Connection, StorageConnection},
     document::{Document, KeyId},
     kv::Kv,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
@@ -1483,7 +1483,7 @@ pub async fn compaction_tests<C: Connection + Kv>(db: &C) -> anyhow::Result<()> 
     Ok(())
 }
 
-pub async fn user_management_tests<C: Connection, S: ServerConnection>(
+pub async fn user_management_tests<C: Connection, S: StorageConnection>(
     admin: &C,
     server: S,
     server_name: &str,
@@ -1968,7 +1968,7 @@ impl TimingTest {
     }
 }
 
-pub async fn basic_server_connection_tests<C: ServerConnection>(
+pub async fn basic_server_connection_tests<C: StorageConnection>(
     server: C,
     newdb_name: &str,
 ) -> anyhow::Result<()> {

@@ -12,7 +12,7 @@ Also within the same module are the built-in `Action`s. The base enum for all ac
 
 ### Server
 
-The [`ServerAction`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/enum.ServerAction.html) enum contains the actions that are related to [`ServerConnection`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/trait.ServerConnection.html). For APIs that accept a database name parameter, the resource name will be [`database_resource_name(database)`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/fn.database_resource_name.html). For all other actions, the resource name is [`bonsaidb_resource_name()`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/fn.bonsaidb_resource_name.html).
+The [`ServerAction`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/enum.ServerAction.html) enum contains the actions that are related to [`StorageConnection`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/trait.StorageConnection.html). For APIs that accept a database name parameter, the resource name will be [`database_resource_name(database)`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/fn.database_resource_name.html). For all other actions, the resource name is [`bonsaidb_resource_name()`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/fn.bonsaidb_resource_name.html).
 
 For actions that operate upon users (e.g., creating a user), the resource name is [user_resource_name(username)](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/fn.user_resource_name.html).
 

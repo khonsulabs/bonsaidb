@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use bonsaidb::{
     core::{
-        connection::{Connection, ServerConnection},
+        connection::{Connection, StorageConnection},
         schema::{Collection, CollectionName, InvalidNameError, Schematic},
         Error,
     },

@@ -19,7 +19,7 @@ use bonsaidb_core::{
         user::User,
         Admin, PermissionGroup, Role, ADMIN_DATABASE_NAME,
     },
-    connection::{AccessPolicy, Connection, QueryKey, Range, ServerConnection, Sort},
+    connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
     document::{Document, KeyId},
     kv::{KeyOperation, Output},
@@ -564,7 +564,7 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
 }
 
 #[async_trait]
-impl ServerConnection for Storage {
+impl StorageConnection for Storage {
     type Database = Database;
 
     #[cfg_attr(

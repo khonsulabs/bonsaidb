@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use bonsaidb_core::{connection::ServerConnection, test_util::BasicSchema};
+use bonsaidb_core::{connection::StorageConnection, test_util::BasicSchema};
 
 use crate::{config::DefaultPermissions, Configuration, Error, Server};
 

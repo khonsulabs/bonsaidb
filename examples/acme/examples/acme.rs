@@ -4,7 +4,7 @@ use std::{path::Path, time::Duration};
 
 use bonsaidb::{
     client::{url::Url, Client},
-    core::connection::ServerConnection,
+    core::connection::StorageConnection,
     server::{
         AcmeConfiguration, Configuration, DefaultPermissions, Server,
         LETS_ENCRYPT_STAGING_DIRECTORY,
