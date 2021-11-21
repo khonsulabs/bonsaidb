@@ -4,7 +4,7 @@ To access `BonsaiDb` over the network, you're going to be writing two pieces of 
 
 ## Your BonsaiDb Server
 
-The first step is to create a [`Server`][storage], which uses local [`Storage`][storage] under the hood. This means that if you're already using `BonsaiDb` in local mode, you can swap your usage of [`Storage`][storage] with [`Server`][server] in your server code without running your database through any tools. Here's the setup code from [`bonsaidb/examples/server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/crates/bonsaidb/examples/server.rs)
+The first step is to create a [`Server`][storage], which uses local [`Storage`][storage] under the hood. This means that if you're already using `BonsaiDb` in local mode, you can swap your usage of [`Storage`][storage] with [`Server`][server] in your server code without running your database through any tools. Here's the setup code from [`basic-server/examples/basic-server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/basic-server.rs)
 
 ```rust,noplayground,no_run
 {{#include ../../../examples/basic-server/examples/basic-server.rs:setup}}
@@ -36,7 +36,7 @@ The [`Client`][client] can support both the native protocol and WebSockets. It d
 * `bonsaidb://host:port` will connect using the native `BonsaiDb` protocol.
 * `ws://host:port` will connect using WebSockets.
 
-Here's how to connect, from [`bonsaidb/examples/server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/crates/bonsaidb/examples/server.rs):
+Here's how to connect, from [`examples/basic-server/examples/basic-server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/basic-server.rs):
 
 ```rust,noplayground,no_run
 Client::new(

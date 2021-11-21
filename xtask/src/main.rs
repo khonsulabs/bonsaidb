@@ -46,7 +46,7 @@ impl code_coverage::Config for CoverageConfig {
     fn ignore_paths() -> Vec<String> {
         vec![
             String::from("crates/circulate/examples/*"),
-            String::from("crates/bonsaidb/examples/*"),
+            String::from("examples/*"),
         ]
     }
 }
