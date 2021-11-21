@@ -23,7 +23,7 @@ instrument = ["pot/tracing", "nebari/tracing", "tracing"]
 [dependencies]
 async-trait = "0.1"
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4" }
-nebari = { version = "0.1.0-rc.5" }
+nebari = { version = "0.1.0-rc.6" }
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
