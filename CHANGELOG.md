@@ -66,6 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `listen_for_tcp_on` and `listen_for_secure_tcp_on` accept a parameter that
   implements the `TcpService` trait. See the Axum example for how this
   integration can be used in conjunction with websockets.
+- Added convenience methods to `Transaction` and `Operation` to make it easier
+  to build multi-operation transactions.
 
 ### Changed
 

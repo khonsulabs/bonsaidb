@@ -8,15 +8,52 @@ use crate::{document::Header, schema::CollectionName};
 /// all changes are aborted. Reads that happen while the transaction is in
 /// progress will return old data and not block.
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[must_use]
 pub struct Transaction<'a> {
     /// The operations in this transaction.
     pub operations: Vec<Operation<'a>>,
 }
 
 impl<'a> Transaction<'a> {
+    /// Returns a new, empty transaction.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Adds an operation to the transaction.
     pub fn push(&mut self, operation: Operation<'a>) {
         self.operations.push(operation);
+    }
+
+    /// Appends an operation to the transaction and returns self.
+    pub fn with(mut self, operation: Operation<'a>) -> Self {
+        self.push(operation);
+        self
+    }
+}
+
+impl<'a> From<Operation<'a>> for Transaction<'a> {
+    fn from(operation: Operation<'a>) -> Self {
+        Self {
+            operations: vec![operation],
+        }
+    }
+}
+
+impl Transaction<'static> {
+    /// Inserts a new document with `contents` into `collection`.
+    pub fn insert(collection: CollectionName, contents: Vec<u8>) -> Self {
+        Self::from(Operation::insert(collection, contents))
+    }
+
+    /// Updates a document in `collection`.
+    pub fn update(collection: CollectionName, header: Header, contents: Vec<u8>) -> Self {
+        Self::from(Operation::update(collection, header, contents))
+    }
+
+    /// Deletes a document from a `collection`.
+    pub fn delete(collection: CollectionName, header: Header) -> Self {
+        Self::from(Operation::delete(collection, header))
     }
 }
 

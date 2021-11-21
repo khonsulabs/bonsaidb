@@ -15,7 +15,7 @@ use crate::{
     schema::{
         self, view, Key, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
     },
-    transaction::{self, Operation, OperationResult, Transaction},
+    transaction::{self, OperationResult, Transaction},
     Error,
 };
 
@@ -32,9 +32,9 @@ pub trait Connection: Send + Sync {
 
     /// Inserts a newly created document into the connected [`schema::Schema`] for the [`Collection`] `C`.
     async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error> {
-        let mut tx = Transaction::default();
-        tx.push(Operation::insert(C::collection_name()?, contents));
-        let results = self.apply_transaction(tx).await?;
+        let results = self
+            .apply_transaction(Transaction::insert(C::collection_name()?, contents))
+            .await?;
         if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
             Ok(header.clone())
         } else {
@@ -48,13 +48,13 @@ pub trait Connection: Send + Sync {
     /// [`Collection`] `C`. Upon success, `doc.revision` will be updated with
     /// the new revision.
     async fn update<C: schema::Collection>(&self, doc: &mut Document<'_>) -> Result<(), Error> {
-        let mut tx = Transaction::default();
-        tx.push(Operation::update(
-            C::collection_name()?,
-            doc.header.clone(),
-            doc.contents.to_vec(),
-        ));
-        let results = self.apply_transaction(tx).await?;
+        let results = self
+            .apply_transaction(Transaction::update(
+                C::collection_name()?,
+                doc.header.clone(),
+                doc.contents.to_vec(),
+            ))
+            .await?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
             doc.header = header;
             Ok(())
@@ -87,9 +87,12 @@ pub trait Connection: Send + Sync {
 
     /// Removes a `Document` from the database.
     async fn delete<C: schema::Collection>(&self, doc: &Document<'_>) -> Result<(), Error> {
-        let mut tx = Transaction::default();
-        tx.push(Operation::delete(C::collection_name()?, doc.header.clone()));
-        let results = self.apply_transaction(tx).await?;
+        let results = self
+            .apply_transaction(Transaction::delete(
+                C::collection_name()?,
+                doc.header.clone(),
+            ))
+            .await?;
         if let OperationResult::DocumentDeleted { .. } = &results[0] {
             Ok(())
         } else {
