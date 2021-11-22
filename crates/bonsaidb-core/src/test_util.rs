@@ -12,16 +12,22 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    admin::{Database, PermissionGroup, Role, User},
+    admin::Database,
     connection::{AccessPolicy, Connection, StorageConnection},
     document::{Document, KeyId},
     kv::Kv,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
-        view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
-        NamedCollection, Schema, SchemaName, Schematic, View,
+        view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name, Schema,
+        SchemaName, Schematic, View,
     },
     Error, ENCRYPTION_ENABLED,
+};
+
+#[cfg(feature = "multiuser")]
+use crate::{
+    admin::{PermissionGroup, Role, User},
+    schema::NamedCollection,
 };
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
@@ -765,6 +771,7 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
+        #[cfg(any(feature = "multiuser", feature = "local-multiuser", feature = "server"))]
         async fn user_management() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::UserManagement).await?;
             let _db = harness.connect().await?;
@@ -1503,6 +1510,7 @@ pub async fn compaction_tests<C: Connection + Kv>(db: &C) -> anyhow::Result<()> 
     Ok(())
 }
 
+#[cfg(feature = "multiuser")]
 pub async fn user_management_tests<C: Connection, S: StorageConnection>(
     admin: &C,
     server: S,

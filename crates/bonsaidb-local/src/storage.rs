@@ -15,19 +15,13 @@ use bonsaidb_core::{
     admin::{
         self,
         database::{self, ByName, Database as DatabaseRecord},
-        password_config::PasswordConfig,
-        user::User,
-        Admin, PermissionGroup, Role, ADMIN_DATABASE_NAME,
+        Admin, ADMIN_DATABASE_NAME,
     },
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
     document::{Document, KeyId},
     kv::{KeyOperation, Output},
     permissions::Permissions,
-    schema::{
-        view::map, CollectionDocument, CollectionName, MappedValue, NamedCollection,
-        NamedReference, Schema, SchemaName, Schematic, ViewName,
-    },
+    schema::{view::map, CollectionName, MappedValue, Schema, SchemaName, Schematic, ViewName},
     transaction::{Executed, OperationResult, Transaction},
 };
 use futures::TryFutureExt;
@@ -44,6 +38,13 @@ use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{Mutex, RwLock},
+};
+
+#[cfg(feature = "multiuser")]
+use bonsaidb_core::{
+    admin::{password_config::PasswordConfig, user::User, PermissionGroup, Role},
+    custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
+    schema::{CollectionDocument, NamedCollection, NamedReference},
 };
 
 use crate::{
@@ -420,6 +421,7 @@ impl Storage {
         Ok((user_id, login, response))
     }
 
+    #[cfg(feature = "multiuser")]
     async fn update_user_with_named_id<
         'user,
         'other,
@@ -719,6 +721,7 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
+    #[cfg(feature = "multiuser")]
     async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         let result = self
             .admin()
@@ -730,6 +733,7 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password_request)))]
+    #[cfg(feature = "multiuser")]
     async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
@@ -755,6 +759,7 @@ impl StorageConnection for Storage {
         feature = "tracing",
         tracing::instrument(skip(user, password_finalization))
     )]
+    #[cfg(feature = "multiuser")]
     async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
@@ -781,6 +786,7 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
+    #[cfg(feature = "multiuser")]
     async fn add_permission_group_to_user<
         'user,
         'group,
@@ -807,6 +813,7 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
+    #[cfg(feature = "multiuser")]
     async fn remove_permission_group_from_user<
         'user,
         'group,
@@ -830,6 +837,7 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
+    #[cfg(feature = "multiuser")]
     async fn add_role_to_user<
         'user,
         'group,
@@ -852,6 +860,7 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
+    #[cfg(feature = "multiuser")]
     async fn remove_role_from_user<
         'user,
         'group,

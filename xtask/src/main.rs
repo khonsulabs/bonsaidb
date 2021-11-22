@@ -59,7 +59,6 @@ impl code_coverage::Config for CoverageConfig {
 
 #[derive(Serialize)]
 struct TestSuite {
-    folder: &'static str,
     cargo_args: &'static str,
 }
 
@@ -71,53 +70,44 @@ struct TestMatrix {
 fn all_tests() -> &'static [TestSuite] {
     &[
         TestSuite {
-            folder: "./",
+            cargo_args: "--package bonsaidb-core --no-default-features",
+        },
+        TestSuite {
+            cargo_args: "--package bonsaidb-local --no-default-features",
+        },
+        TestSuite {
             cargo_args: "--all-features",
         },
         TestSuite {
-            folder: "crates/bonsaidb-local",
-            cargo_args: "--no-default-features",
+            cargo_args: "--package bonsaidb-local --no-default-features --features encryption",
         },
         TestSuite {
-            folder: "crates/bonsaidb-local",
-            cargo_args: "--no-default-features --features encryption",
+            cargo_args: "--package bonsaidb-local --no-default-features --features multiuser",
         },
         TestSuite {
-            folder: "crates/bonsaidb-local",
-            cargo_args: "--no-default-features --features multiuser",
+            cargo_args: "--package bonsaidb-server --no-default-features",
         },
         TestSuite {
-            folder: "crates/bonsaidb-server",
-            cargo_args: "--no-default-features",
+            cargo_args: "--package bonsaidb-server --no-default-features --features encryption",
         },
         TestSuite {
-            folder: "crates/bonsaidb-server",
-            cargo_args: "--no-default-features --features encryption",
+            cargo_args: "--package bonsaidb-server --no-default-features --features websockets",
         },
         TestSuite {
-            folder: "crates/bonsaidb-server",
-            cargo_args: "--no-default-features --features websockets",
+            cargo_args: "--package bonsaidb-server --no-default-features --features acme",
         },
         TestSuite {
-            folder: "crates/bonsaidb-server",
-            cargo_args: "--no-default-features --features acme",
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util",
         },
         TestSuite {
-            folder: "crates/bonsaidb",
-            cargo_args: "--no-default-features --features server,client,test-util",
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,websockets",
         },
         TestSuite {
-            folder: "crates/bonsaidb",
-            cargo_args: "--no-default-features --features server,client,test-util,websockets",
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-acme",
         },
         TestSuite {
-            folder: "crates/bonsaidb",
-            cargo_args: "--no-default-features --features server,client,test-util,server-acme",
-        },
-        TestSuite {
-            folder: "crates/bonsaidb",
             cargo_args:
-                "--no-default-features --features server,client,test-util,server-acme,websockets",
+                "--package bonsaidb --no-default-features --features server,client,test-util,server-acme,websockets",
         },
     ]
 }
@@ -134,27 +124,24 @@ fn generate_test_matrix_output() -> anyhow::Result<()> {
 fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
     let executing_dir = current_dir()?;
     for test in all_tests() {
-        println!(
-            "Running clippy for folder {} and arguments {}",
-            test.folder, test.cargo_args
-        );
-        set_current_dir(executing_dir.join(test.folder))?;
+        println!("Running clippy for {}", test.cargo_args);
         let mut clippy = Cmd::new("cargo");
         let mut clippy = clippy.arg("clippy").arg("--tests");
+
         for arg in test.cargo_args.split(' ') {
             clippy = clippy.arg(arg);
         }
+
         if fail_on_warnings {
             clippy = clippy.arg("--").arg("-D").arg("warnings");
         }
+
         clippy.run()?;
 
-        println!(
-            "Running tests for folder {} and arguments {}",
-            test.folder, test.cargo_args
-        );
+        println!("Running tests for {}", test.cargo_args);
         let mut cargo = Cmd::new("cargo");
         let mut cargo = cargo.arg("test");
+
         for arg in test.cargo_args.split(' ') {
             cargo = cargo.arg(arg);
         }

@@ -9,13 +9,13 @@ use custodian_password::{
 use futures::{future::BoxFuture, Future, FutureExt};
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "multiuser")]
+use crate::schema::NamedReference;
+
 use crate::{
     admin::Database,
     document::{Document, Header},
-    password_config,
-    schema::{
-        self, view, Key, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
-    },
+    schema::{self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName},
     transaction::{self, OperationResult, Transaction},
     Error,
 };
@@ -787,6 +787,7 @@ pub trait StorageConnection: Send + Sync {
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, crate::Error>;
 
     /// Creates a user.
+    #[cfg(feature = "multiuser")]
     async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
 
     /// Sets a user's password using `custodian-password` to register a password using `OPAQUE-PAKE`.
@@ -817,8 +818,10 @@ pub trait StorageConnection: Send + Sync {
         password: &str,
     ) -> Result<PasswordResult, crate::Error> {
         let user = user.into();
-        let (registration, request) =
-            ClientRegistration::register(ClientConfig::new(password_config(), None)?, password)?;
+        let (registration, request) = ClientRegistration::register(
+            ClientConfig::new(crate::password_config(), None)?,
+            password,
+        )?;
         let response = self.set_user_password(user.clone(), request).await?;
         let (file, finalization, export_key) = registration.finish(response)?;
         self.finish_set_user_password(user, finalization).await?;

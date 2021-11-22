@@ -50,8 +50,8 @@ use std::string::FromUtf8Error;
 
 pub use async_trait;
 pub use circulate;
+#[cfg(feature = "multiuser")]
 pub use custodian_password;
-use custodian_password::{Ake, Argon2Params, Config, Group, Hash, Mhf};
 pub use num_traits;
 use schema::{view, CollectionName, SchemaName, ViewName};
 use serde::{Deserialize, Serialize};
@@ -241,6 +241,10 @@ impl From<FromUtf8Error> for Error {
 #[allow(missing_docs)]
 pub mod test_util;
 
+#[cfg(feature = "multiuser")]
+use custodian_password::{Ake, Argon2Params, Config, Group, Hash, Mhf};
+
+#[cfg(feature = "multiuser")]
 impl From<custodian_password::Error> for Error {
     fn from(err: custodian_password::Error) -> Self {
         Self::Password(err.to_string())
@@ -249,6 +253,7 @@ impl From<custodian_password::Error> for Error {
 
 /// The configuration used for `OPAQUE` password authentication.
 #[must_use]
+#[cfg(feature = "multiuser")]
 pub fn password_config() -> Config {
     Config::new(
         Ake::Ristretto255,
@@ -258,11 +263,6 @@ pub fn password_config() -> Config {
     )
 }
 
-/// A type that implements [`Error`](std::error::Error) and is threadsafe.
-pub trait AnyError: std::error::Error + Send + Sync + 'static {}
-
-impl<T> AnyError for T where T: std::error::Error + Send + Sync + 'static {}
-
 /// When true, encryption was enabled at build-time.
 #[cfg(feature = "encryption")]
 pub const ENCRYPTION_ENABLED: bool = true;
@@ -270,3 +270,8 @@ pub const ENCRYPTION_ENABLED: bool = true;
 /// When true, encryption was enabled at build-time.
 #[cfg(not(feature = "encryption"))]
 pub const ENCRYPTION_ENABLED: bool = false;
+
+/// A type that implements [`Error`](std::error::Error) and is threadsafe.
+pub trait AnyError: std::error::Error + Send + Sync + 'static {}
+
+impl<T> AnyError for T where T: std::error::Error + Send + Sync + 'static {}
