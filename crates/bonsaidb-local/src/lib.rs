@@ -24,6 +24,7 @@ pub mod jobs;
 mod open_trees;
 mod storage;
 mod tasks;
+#[cfg(feature = "encryption")]
 pub mod vault;
 mod views;
 

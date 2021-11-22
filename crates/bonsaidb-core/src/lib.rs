@@ -262,3 +262,11 @@ pub fn password_config() -> Config {
 pub trait AnyError: std::error::Error + Send + Sync + 'static {}
 
 impl<T> AnyError for T where T: std::error::Error + Send + Sync + 'static {}
+
+/// When true, encryption was enabled at build-time.
+#[cfg(feature = "encryption")]
+pub const ENCRYPTION_ENABLED: bool = true;
+
+/// When true, encryption was enabled at build-time.
+#[cfg(not(feature = "encryption"))]
+pub const ENCRYPTION_ENABLED: bool = false;

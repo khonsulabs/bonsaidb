@@ -34,12 +34,15 @@
 //! bonsaidb = { version = "*", default-features = false, features = "local-full" }
 //! ```
 //!
-//! - `local-full`: Enables `local`, `local-instrument`, and `local-cli`
+//! - `local-full`: Enables `local`, `local-encryption`, `local-instrument`,
+//!   `local-multiuser`, and `local-cli`
 //! - `local`: Enables the [`local`] module, which re-exports the crate
 //!   `bonsaidb-local`.
 //! - `local-cli`: Enables the `StructOpt` structures for embedding database
 //!   management commands into your own command-line interface.
+//! - `local-encryption`: Enables at-rest encryption support.
 //! - `local-instrument`: Enables `tracing` instrumentation.
+//! - `local-multiuser`: Enables multi-user support.
 //!
 //! ### `BonsaiDb` server
 //!
@@ -48,10 +51,12 @@
 //! bonsaidb = { version = "*", default-features = false, features = "server-full" }
 //! ```
 //!
-//! - `server-full`: Enables `server`, `server-acme`, `server-instrument`, and `server-websockets`
+//! - `server-full`: Enables `server`, `server-acme`, `server-encryption`,
+//!   `server-instrument`, and `server-websockets`
 //! - `server`: Enables the [`server`] module, which re-exports the crate
 //!   `bonsaidb-server`.
 //! - `server-acme`: Enables automatic TLS certificate acquisition via `ACME`.
+//! - `server-encryption`: Enables at-rest encryption support.
 //! - `server-instrument`: Enables `tracing` instrumentation.
 //! - `server-websockets`: Enables `WebSocket` support for `bonsaidb-server`.
 //!

@@ -13,7 +13,7 @@ homepage = "https://dev.bonsaidb.io/"
 
 [features]
 default = ["full"]
-full = ["cli", "websockets", "acme"]
+full = ["cli", "websockets", "acme", "encryption"]
 cli = ["structopt", "pem", "env_logger"]
 test-util = ["bonsaidb-core/test-util"]
 websockets = [
@@ -25,14 +25,17 @@ websockets = [
 ]
 instrument = ["tracing", "pot/tracing"]
 acme = ["async-acme", "pem"]
+encryption = ["bonsaidb-local/encryption", "bonsaidb-core/encryption"]
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [
     "networking",
     "actionable-traits",
+    "multiuser",
 ] }
 bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.0-dev.4", default-features = false, features = [
     "internal-apis",
+    "multiuser",
 ] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }

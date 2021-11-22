@@ -31,11 +31,18 @@ required-features = ["server", "client"]
 [features]
 default = []
 full = ["local-full", "server-full", "client-full"]
-local-full = ["local", "local-cli", "local-instrument"]
+local-full = [
+    "local",
+    "local-cli",
+    "local-instrument",
+    "local-encryption",
+    "local-multiuser",
+]
 local = ["bonsaidb-local"]
 server-full = [
     "server",
     "server-websockets",
+    "server-encryption",
     "server-cli",
     "server-instrument",
     "server-acme",
@@ -66,6 +73,11 @@ server-instrument = ["bonsaidb-server/instrument"]
 
 server-acme = ["bonsaidb-server/acme"]
 server-hyper = ["bonsaidb-server/hyper"]
+
+server-encryption = ["bonsaidb-server/encryption"]
+local-encryption = ["bonsaidb-local/encryption"]
+
+local-multiuser = ["bonsaidb-local/multiuser"]
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false }

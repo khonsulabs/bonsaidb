@@ -7,6 +7,7 @@ use bonsaidb_core::{
     define_basic_unique_mapped_view,
     document::KeyId,
     schema::{Collection, CollectionDocument, CollectionName, InvalidNameError, Schematic},
+    ENCRYPTION_ENABLED,
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +21,11 @@ pub struct AcmeAccount {
 
 impl Collection for AcmeAccount {
     fn encryption_key() -> Option<KeyId> {
-        Some(KeyId::Master)
+        if ENCRYPTION_ENABLED {
+            Some(KeyId::Master)
+        } else {
+            None
+        }
     }
 
     fn collection_name() -> Result<CollectionName, InvalidNameError> {

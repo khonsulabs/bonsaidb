@@ -5,6 +5,7 @@ use bonsaidb_core::{
         Collection, CollectionDocument, CollectionName, InvalidNameError, NamedCollection, Schema,
         SchemaName, Schematic,
     },
+    ENCRYPTION_ENABLED,
 };
 use fabruic::{CertificateChain, PrivateKey};
 use serde::{de::Visitor, Deserialize, Serialize};
@@ -38,7 +39,11 @@ impl NamedCollection for TlsCertificate {
 
 impl Collection for TlsCertificate {
     fn encryption_key() -> Option<KeyId> {
-        Some(KeyId::Master)
+        if ENCRYPTION_ENABLED {
+            Some(KeyId::Master)
+        } else {
+            None
+        }
     }
 
     fn collection_name() -> Result<CollectionName, InvalidNameError> {

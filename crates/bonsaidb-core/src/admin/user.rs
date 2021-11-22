@@ -12,7 +12,7 @@ use crate::{
         Collection, CollectionDocument, CollectionName, InvalidNameError, NamedCollection,
         Schematic,
     },
-    Error,
+    Error, ENCRYPTION_ENABLED,
 };
 
 /// A user that can authenticate with `BonsaiDb`.
@@ -96,7 +96,11 @@ impl User {
 #[async_trait]
 impl Collection for User {
     fn encryption_key() -> Option<KeyId> {
-        Some(KeyId::Master)
+        if ENCRYPTION_ENABLED {
+            Some(KeyId::Master)
+        } else {
+            None
+        }
     }
 
     fn collection_name() -> Result<CollectionName, InvalidNameError> {

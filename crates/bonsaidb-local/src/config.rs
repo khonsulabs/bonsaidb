@@ -1,5 +1,7 @@
+#[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
 
+#[cfg(feature = "encryption")]
 use crate::vault::AnyVaultKeyStorage;
 
 /// Configuration options for [`Storage`](crate::storage::Storage).
@@ -14,12 +16,14 @@ pub struct Configuration {
     /// The vault key storage to use. If not specified and running in debug
     /// mode, [`LocalVaultKeyStorage`](crate::vault::LocalVaultKeyStorage) will
     /// be used with the server's data folder as the path.
+    #[cfg(feature = "encryption")]
     pub vault_key_storage: Option<Box<dyn AnyVaultKeyStorage>>,
 
     /// The default encryption key for the database. If specified, all documents
     /// will be stored encrypted at-rest using the key specified. Having this
     /// key specified will also encrypt views. Without this, views will be
     /// stored unencrypted.
+    #[cfg(feature = "encryption")]
     pub default_encryption_key: Option<KeyId>,
 
     /// Configuration options related to background tasks.
@@ -32,9 +36,11 @@ pub struct Configuration {
 impl Default for Configuration {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "encryption")]
             default_encryption_key: None,
-            unique_id: None,
+            #[cfg(feature = "encryption")]
             vault_key_storage: None,
+            unique_id: None,
             workers: Tasks::default(),
             views: Views::default(),
         }

@@ -59,7 +59,7 @@ impl Job for Mapper {
                 .tree(self.database.collection_tree::<Versioned, _>(
                     &self.map.collection,
                     document_tree_name(&self.map.collection),
-                ))?;
+                )?)?;
 
         let view_entries =
             self.database
@@ -67,7 +67,7 @@ impl Job for Mapper {
                 .tree(self.database.collection_tree::<Unversioned, _>(
                     &self.map.collection,
                     view_entries_tree_name(&self.map.view_name),
-                ))?;
+                )?)?;
 
         let document_map =
             self.database
@@ -75,7 +75,7 @@ impl Job for Mapper {
                 .tree(self.database.collection_tree::<Unversioned, _>(
                     &self.map.collection,
                     view_document_map_tree_name(&self.map.view_name),
-                ))?;
+                )?)?;
 
         let invalidated_entries =
             self.database
@@ -83,7 +83,7 @@ impl Job for Mapper {
                 .tree(self.database.collection_tree::<Unversioned, _>(
                     &self.map.collection,
                     view_invalidated_docs_tree_name(&self.map.view_name),
-                ))?;
+                )?)?;
 
         let omitted_entries =
             self.database
@@ -91,7 +91,7 @@ impl Job for Mapper {
                 .tree(self.database.collection_tree::<Unversioned, _>(
                     &self.map.collection,
                     view_omitted_docs_tree_name(&self.map.view_name),
-                ))?;
+                )?)?;
         let transaction_id = self
             .database
             .last_transaction_id()

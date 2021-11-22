@@ -47,13 +47,12 @@ use tokio::{
 };
 
 use crate::{
-    config::Configuration,
-    database::Context,
-    jobs::manager::Manager,
-    tasks::TaskManager,
-    vault::{self, LocalVaultKeyStorage, TreeVault, Vault},
-    Database, Error,
+    config::Configuration, database::Context, jobs::manager::Manager, tasks::TaskManager, Database,
+    Error,
 };
+
+#[cfg(feature = "encryption")]
+use crate::vault::{self, LocalVaultKeyStorage, TreeVault, Vault};
 
 /// A file-based, multi-database, multi-user database engine.
 #[derive(Debug, Clone)]
@@ -68,10 +67,12 @@ struct Data {
     threadpool: ThreadPool<StdFile>,
     file_manager: StdFileManager,
     pub(crate) tasks: TaskManager,
-    pub(crate) vault: Arc<Vault>,
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
     open_roots: Mutex<HashMap<String, Context>>,
+    #[cfg(feature = "encryption")]
+    pub(crate) vault: Arc<Vault>,
+    #[cfg(feature = "encryption")]
     default_encryption_key: Option<KeyId>,
     chunk_cache: ChunkCache,
     pub(crate) check_view_integrity_on_database_open: bool,
@@ -110,25 +111,31 @@ impl Storage {
 
         let id = Self::lookup_or_create_id(&configuration, &owned_path).await?;
 
-        let vault_key_storage = match configuration.vault_key_storage {
-            Some(storage) => storage,
-            None => Box::new(
-                LocalVaultKeyStorage::new(owned_path.join("vault-keys"))
-                    .await
-                    .map_err(|err| Error::Vault(vault::Error::Initializing(err.to_string())))?,
-            ),
+        #[cfg(feature = "encryption")]
+        let vault = {
+            let vault_key_storage = match configuration.vault_key_storage {
+                Some(storage) => storage,
+                None => Box::new(
+                    LocalVaultKeyStorage::new(owned_path.join("vault-keys"))
+                        .await
+                        .map_err(|err| Error::Vault(vault::Error::Initializing(err.to_string())))?,
+                ),
+            };
+
+            Arc::new(Vault::initialize(id, &owned_path, vault_key_storage).await?)
         };
 
-        let vault = Arc::new(Vault::initialize(id, &owned_path, vault_key_storage).await?);
-
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
+        #[cfg(feature = "encryption")]
         let default_encryption_key = configuration.default_encryption_key;
         let storage = tokio::task::spawn_blocking::<_, Result<Self, Error>>(move || {
             Ok(Self {
                 data: Arc::new(Data {
                     id,
                     tasks,
+                    #[cfg(feature = "encryption")]
                     vault,
+                    #[cfg(feature = "encryption")]
                     default_encryption_key,
                     path: owned_path,
                     file_manager: StdFileManager::default(),
@@ -251,13 +258,22 @@ impl Storage {
     }
 
     #[must_use]
+    #[cfg(feature = "encryption")]
     pub(crate) fn vault(&self) -> &Arc<Vault> {
         &self.data.vault
     }
 
     #[must_use]
+    #[cfg(feature = "encryption")]
     pub(crate) fn default_encryption_key(&self) -> Option<&KeyId> {
         self.data.default_encryption_key.as_ref()
+    }
+
+    #[must_use]
+    #[cfg(not(feature = "encryption"))]
+    #[allow(clippy::unused_self)]
+    pub(crate) fn default_encryption_key(&self) -> Option<&KeyId> {
+        None
     }
 
     /// Registers a schema for use within the server.
@@ -278,6 +294,7 @@ impl Storage {
         }
     }
 
+    #[cfg_attr(not(feature = "encryption"), allow(unused_mut))]
     pub(crate) async fn open_roots(&self, name: &str) -> Result<Context, Error> {
         let mut open_roots = self.data.open_roots.lock().await;
         if let Some(roots) = open_roots.get(name) {
@@ -290,6 +307,7 @@ impl Storage {
                     .cache(task_self.data.chunk_cache.clone())
                     .shared_thread_pool(&task_self.data.threadpool)
                     .file_manager(task_self.data.file_manager.clone());
+                #[cfg(feature = "encryption")]
                 if let Some(key) = task_self.default_encryption_key() {
                     config = config.vault(TreeVault {
                         key: key.clone(),

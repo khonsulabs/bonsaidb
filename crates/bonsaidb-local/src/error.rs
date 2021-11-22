@@ -3,8 +3,6 @@ use std::{convert::Infallible, string::FromUtf8Error, sync::Arc};
 use bonsaidb_core::schema::{view, InvalidNameError};
 use nebari::AbortError;
 
-use crate::vault;
-
 /// Errors that can occur from interacting with storage.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -30,7 +28,13 @@ pub enum Error {
 
     /// An error occurred in the secrets storage layer.
     #[error("a vault error occurred: {0}")]
-    Vault(#[from] vault::Error),
+    #[cfg(feature = "encryption")]
+    Vault(#[from] crate::vault::Error),
+
+    /// A collection requested to be encrypted, but encryption is disabled.
+    #[error("encryption is disabled, but a collection is requesting encryption")]
+    #[cfg(not(feature = "encryption"))]
+    EncryptionDisabled,
 
     /// An core error occurred.
     #[error("a core error occurred: {0}")]

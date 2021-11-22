@@ -32,7 +32,6 @@ use crate::{
     error::Error,
     open_trees::OpenTrees,
     storage::OpenDatabase,
-    vault::TreeVault,
     views::{
         mapper::{self, ViewEntryCollection},
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
@@ -40,6 +39,10 @@ use crate::{
     },
     Storage,
 };
+
+#[cfg(feature = "encryption")]
+use crate::vault::TreeVault;
+
 pub mod kv;
 
 pub mod pubsub;
@@ -178,7 +181,7 @@ impl Database {
             .tree(self.collection_tree(
                 &view.collection()?,
                 view_entries_tree_name(&view.view_name()?),
-            ))
+            )?)
             .map_err(Error::from)?;
 
         {
@@ -243,16 +246,15 @@ impl Database {
         let task_self = self.clone();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
-            let tree =
-                task_self
-                    .data
-                    .context
-                    .roots
-                    .tree(task_self.collection_tree::<Versioned, _>(
-                        &collection,
-                        document_tree_name(&collection),
-                    ))
-                    .map_err(Error::from)?;
+            let tree = task_self
+                .data
+                .context
+                .roots
+                .tree(task_self.collection_tree::<Versioned, _>(
+                    &collection,
+                    document_tree_name(&collection),
+                )?)
+                .map_err(Error::from)?;
             if let Some(vec) = tree
                 .get(
                     &id.as_big_endian_bytes()
@@ -278,16 +280,15 @@ impl Database {
         let ids = ids.iter().map(|id| id.to_be_bytes()).collect::<Vec<_>>();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
-            let tree =
-                task_self
-                    .data
-                    .context
-                    .roots
-                    .tree(task_self.collection_tree::<Versioned, _>(
-                        &collection,
-                        document_tree_name(&collection),
-                    ))
-                    .map_err(Error::from)?;
+            let tree = task_self
+                .data
+                .context
+                .roots
+                .tree(task_self.collection_tree::<Versioned, _>(
+                    &collection,
+                    document_tree_name(&collection),
+                )?)
+                .map_err(Error::from)?;
             let mut ids = ids.iter().map(|id| &id[..]).collect::<Vec<_>>();
             ids.sort();
             let keys_and_values = tree.get_multiple(&ids).map_err(Error::from)?;
@@ -311,16 +312,15 @@ impl Database {
         let task_self = self.clone();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
-            let tree =
-                task_self
-                    .data
-                    .context
-                    .roots
-                    .tree(task_self.collection_tree::<Versioned, _>(
-                        &collection,
-                        document_tree_name(&collection),
-                    ))
-                    .map_err(Error::from)?;
+            let tree = task_self
+                .data
+                .context
+                .roots
+                .tree(task_self.collection_tree::<Versioned, _>(
+                    &collection,
+                    document_tree_name(&collection),
+                )?)
+                .map_err(Error::from)?;
             let mut found_docs = Vec::new();
             let mut keys_read = 0;
             let ids = ids
@@ -732,19 +732,34 @@ impl Database {
             .or_else(|| self.storage().default_encryption_key())
     }
 
+    #[cfg_attr(
+        not(feature = "encryption"),
+        allow(unused_mut, unused_variables, clippy::let_and_return)
+    )]
+    #[cfg_attr(feature = "encryption", allow(clippy::unnecessary_wraps))]
     pub(crate) fn collection_tree<R: Root, S: Into<Cow<'static, str>>>(
         &self,
         collection: &CollectionName,
         name: S,
-    ) -> TreeRoot<R, StdFile> {
+    ) -> Result<TreeRoot<R, StdFile>, Error> {
         let mut tree = R::tree(name);
+
         if let Some(key) = self.collection_encryption_key(collection) {
-            tree = tree.with_vault(TreeVault {
-                key: key.clone(),
-                vault: self.storage().vault().clone(),
-            });
+            #[cfg(feature = "encryption")]
+            {
+                tree = tree.with_vault(TreeVault {
+                    key: key.clone(),
+                    vault: self.storage().vault().clone(),
+                });
+            }
+
+            #[cfg(not(feature = "encryption"))]
+            {
+                return Err(Error::EncryptionDisabled);
+            }
         }
-        tree
+
+        Ok(tree)
     }
 
     pub(crate) fn update_key_expiration(&self, update: kv::ExpirationUpdate) {
@@ -786,6 +801,7 @@ impl Connection for Database {
                             &op.collection,
                             &task_self.data.schema,
                             task_self.collection_encryption_key(&op.collection),
+                            #[cfg(feature = "encryption")]
                             task_self.storage().vault(),
                         )?;
                     }

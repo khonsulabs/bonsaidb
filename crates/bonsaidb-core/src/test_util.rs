@@ -21,7 +21,7 @@ use crate::{
         view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
         NamedCollection, Schema, SchemaName, Schematic, View,
     },
-    Error,
+    Error, ENCRYPTION_ENABLED,
 };
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
@@ -314,7 +314,11 @@ impl EncryptedBasic {
 
 impl Collection for EncryptedBasic {
     fn encryption_key() -> Option<KeyId> {
-        Some(KeyId::Master)
+        if ENCRYPTION_ENABLED {
+            Some(KeyId::Master)
+        } else {
+            None
+        }
     }
 
     fn collection_name() -> Result<CollectionName, InvalidNameError> {

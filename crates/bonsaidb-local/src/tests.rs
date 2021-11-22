@@ -5,11 +5,13 @@ use bonsaidb_core::{
     permissions::{Permissions, Statement},
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
-        BasicCollectionWithOnlyBrokenParentId, BasicSchema, EncryptedBasic, HarnessTest,
-        TestDirectory,
+        BasicCollectionWithOnlyBrokenParentId, BasicSchema, HarnessTest, TestDirectory,
     },
 };
 use config::Configuration;
+
+#[cfg(feature = "encryption")]
+use bonsaidb_core::test_util::EncryptedBasic;
 
 use super::*;
 use crate::Database;
@@ -165,6 +167,7 @@ fn integrity_checks() -> anyhow::Result<()> {
 }
 
 #[test]
+#[cfg(feature = "encryption")]
 fn encryption() -> anyhow::Result<()> {
     let path = TestDirectory::new("encryption");
     let document_header = {

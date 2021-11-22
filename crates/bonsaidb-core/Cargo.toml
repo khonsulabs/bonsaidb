@@ -14,18 +14,20 @@ homepage = "https://dev.bonsaidb.io/"
 [features]
 default = []
 test-util = ["tokio", "networking", "websockets", "anyhow"]
-networking = []
+networking = ["multiuser"]
 websockets = []
 actionable-traits = []
 instrument = ["pot/tracing"]
 json = ["serde_json"]
 cbor = ["serde_cbor"]
+multiuser = ["custodian-password"]
+encryption = []
 
 [dependencies]
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }
 circulate = { path = "../circulate", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
-pot = "0.1.0-alpha.1"
+pot = "0.1.0-alpha.2"
 async-trait = "0.1"
 uuid = { version = "0.8", features = ["v4", "serde"], optional = true }
 thiserror = "1"
@@ -36,7 +38,7 @@ num-traits = "0.2"
 actionable = "0.1.0-rc.2"
 custodian-password = { git = "https://github.com/khonsulabs/custodian.git", branch = "main", default-features = false, features = [
     "blake3",
-] }
+], optional = true }
 anyhow = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 bincode = { version = "1", optional = true }

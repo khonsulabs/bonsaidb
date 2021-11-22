@@ -377,10 +377,15 @@ impl Vault {
         payload: &[u8],
         permissions: Option<&Permissions>,
     ) -> Result<Vec<u8>, crate::Error> {
-        let payload = VaultPayload::from_slice(payload).map_err(|err| {
+        if let Ok(payload) = VaultPayload::from_slice(payload).map_err(|err| {
             Error::Encryption(format!("error deserializing encrypted payload: {:?}", err))
-        })?;
-        self.decrypt(&payload, permissions)
+        }) {
+            self.decrypt(&payload, permissions)
+        } else {
+            // If we can't parse it as a VaultPayload, it might have been stored
+            // decrypted originally.
+            Ok(payload.to_vec())
+        }
     }
 
     fn decrypt(

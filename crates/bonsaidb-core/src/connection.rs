@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
+#[cfg(feature = "multiuser")]
 use custodian_password::{
     ClientConfig, ClientFile, ClientRegistration, ExportKey, RegistrationFinalization,
     RegistrationRequest, RegistrationResponse,
@@ -789,6 +790,7 @@ pub trait StorageConnection: Send + Sync {
     async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
 
     /// Sets a user's password using `custodian-password` to register a password using `OPAQUE-PAKE`.
+    #[cfg(feature = "multiuser")]
     async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
@@ -797,6 +799,7 @@ pub trait StorageConnection: Send + Sync {
 
     /// Finishes setting a user's password by finishing the `OPAQUE-PAKE`
     /// registration.
+    #[cfg(feature = "multiuser")]
     async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
@@ -807,6 +810,7 @@ pub trait StorageConnection: Send + Sync {
     /// will never leave the machine that is calling this function. Internally
     /// uses `set_user_password` and `finish_set_user_password` in conjunction
     /// with `custodian-password`.
+    #[cfg(feature = "multiuser")]
     async fn set_user_password_str<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
@@ -822,6 +826,7 @@ pub trait StorageConnection: Send + Sync {
     }
 
     /// Adds a user to a permission group.
+    #[cfg(feature = "multiuser")]
     async fn add_permission_group_to_user<
         'user,
         'group,
@@ -834,6 +839,7 @@ pub trait StorageConnection: Send + Sync {
     ) -> Result<(), crate::Error>;
 
     /// Removes a user from a permission group.
+    #[cfg(feature = "multiuser")]
     async fn remove_permission_group_from_user<
         'user,
         'group,
@@ -846,6 +852,7 @@ pub trait StorageConnection: Send + Sync {
     ) -> Result<(), crate::Error>;
 
     /// Adds a user to a permission group.
+    #[cfg(feature = "multiuser")]
     async fn add_role_to_user<
         'user,
         'role,
@@ -858,6 +865,7 @@ pub trait StorageConnection: Send + Sync {
     ) -> Result<(), crate::Error>;
 
     /// Removes a user from a permission group.
+    #[cfg(feature = "multiuser")]
     async fn remove_role_from_user<
         'user,
         'role,
@@ -871,6 +879,7 @@ pub trait StorageConnection: Send + Sync {
 }
 
 /// The result of logging in with a password or setting a password.
+#[cfg(feature = "multiuser")]
 pub struct PasswordResult {
     /// A file that can be stored locally that can be used to further validate
     /// future login attempts. This does not need to be stored, but can be used

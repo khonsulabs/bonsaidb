@@ -47,12 +47,12 @@ impl Job for IntegrityScanner {
                 .tree(self.database.collection_tree::<Versioned, _>(
                     &self.scan.collection,
                     document_tree_name(&self.scan.collection),
-                ))?;
+                )?)?;
 
         let view_versions_tree = self.database.collection_tree::<Unversioned, _>(
             &self.scan.collection,
             view_versions_tree_name(&self.scan.collection),
-        );
+        )?;
         let view_versions = self.database.roots().tree(view_versions_tree.clone())?;
 
         let document_map =
@@ -61,12 +61,12 @@ impl Job for IntegrityScanner {
                 .tree(self.database.collection_tree::<Unversioned, _>(
                     &self.scan.collection,
                     view_document_map_tree_name(&self.scan.view_name),
-                ))?;
+                )?)?;
 
         let invalidated_entries_tree = self.database.collection_tree::<Unversioned, _>(
             &self.scan.collection,
             view_invalidated_docs_tree_name(&self.scan.view_name),
-        );
+        )?;
 
         let view_name = self.scan.view_name.clone();
         let view_version = self.scan.view_version;

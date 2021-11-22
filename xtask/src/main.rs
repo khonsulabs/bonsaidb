@@ -79,8 +79,20 @@ fn all_tests() -> &'static [TestSuite] {
             cargo_args: "--no-default-features",
         },
         TestSuite {
+            folder: "crates/bonsaidb-local",
+            cargo_args: "--no-default-features --features encryption",
+        },
+        TestSuite {
+            folder: "crates/bonsaidb-local",
+            cargo_args: "--no-default-features --features multiuser",
+        },
+        TestSuite {
             folder: "crates/bonsaidb-server",
             cargo_args: "--no-default-features",
+        },
+        TestSuite {
+            folder: "crates/bonsaidb-server",
+            cargo_args: "--no-default-features --features encryption",
         },
         TestSuite {
             folder: "crates/bonsaidb-server",
@@ -128,7 +140,7 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
         );
         set_current_dir(executing_dir.join(test.folder))?;
         let mut clippy = Cmd::new("cargo");
-        let mut clippy = clippy.arg("clippy");
+        let mut clippy = clippy.arg("clippy").arg("--tests");
         for arg in test.cargo_args.split(' ') {
             clippy = clippy.arg(arg);
         }
@@ -141,12 +153,12 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
             "Running tests for folder {} and arguments {}",
             test.folder, test.cargo_args
         );
-        let mut clippy = Cmd::new("cargo");
-        let mut clippy = clippy.arg("test");
+        let mut cargo = Cmd::new("cargo");
+        let mut cargo = cargo.arg("test");
         for arg in test.cargo_args.split(' ') {
-            clippy = clippy.arg(arg);
+            cargo = cargo.arg(arg);
         }
-        clippy.run()?;
+        cargo.run()?;
     }
 
     println!("Running clippy for wasm32 client");
