@@ -361,6 +361,8 @@ impl<'a> NamedReference<'a> {
     }
 }
 
+/// A future that resolves to an entry in a [`NamedCollection`].
+#[must_use]
 pub struct Entry<'a, 'name, Connection, Col>
 where
     Col: NamedCollection + Serialize + for<'de> Deserialize<'de>,
@@ -386,13 +388,28 @@ where
             EntryState::Executing(_) => unreachable!(),
         }
     }
+
+    /// If an entry with the key doesn't exist, `cb` will be executed to provide
+    /// an initial document. This document will be saved before being returned.
     pub fn or_insert_with<F: FnOnce() -> Col + Send + 'static>(mut self, cb: F) -> Self {
         self.pending().insert = Some(Box::new(Some(cb)));
         self
     }
 
+    /// If an entry with the keys exists, `cb` will be executed with the stored
+    /// value, allowing an opportunity to update the value. This new value will
+    /// be saved to the database before returning. If an error occurs during
+    /// update, `cb` may be invoked multiple times, up to the
+    /// [`retry_limit`](Self::retry_limit()).
     pub fn update_with<F: Fn(&mut Col) + Send + 'static>(mut self, cb: F) -> Self {
         self.pending().update = Some(Box::new(cb));
+        self
+    }
+
+    /// The number of attempts to attempt updating the document using
+    /// `update_with` before returning an error.
+    pub fn retry_limit(mut self, attempts: usize) -> Self {
+        self.pending().retry_limit = attempts;
         self
     }
 }
