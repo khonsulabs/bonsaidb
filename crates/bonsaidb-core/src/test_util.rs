@@ -11,6 +11,8 @@ use std::{
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "multiuser")]
+use crate::admin::{PermissionGroup, Role, User};
 use crate::{
     admin::Database,
     connection::{AccessPolicy, Connection, StorageConnection},
@@ -18,15 +20,10 @@ use crate::{
     kv::Kv,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
-        view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name, Schema,
-        SchemaName, Schematic, View,
+        view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
+        NamedCollection, Schema, SchemaName, Schematic, View,
     },
     Error, ENCRYPTION_ENABLED,
-};
-#[cfg(feature = "multiuser")]
-use crate::{
-    admin::{PermissionGroup, Role, User},
-    schema::NamedCollection,
 };
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
