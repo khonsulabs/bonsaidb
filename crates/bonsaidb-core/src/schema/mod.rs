@@ -7,7 +7,7 @@ use std::fmt::Debug;
 
 pub use self::{
     collection::{
-        Collection, CollectionDocument, CollectionSerializer, InsertError, NamedCollection,
+        Collection, CollectionDocument, CollectionSerializer, Entry, InsertError, NamedCollection,
         NamedReference,
     },
     names::{Authority, CollectionName, InvalidNameError, Name, SchemaName, ViewName},

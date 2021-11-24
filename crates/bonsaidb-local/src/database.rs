@@ -27,6 +27,8 @@ use nebari::{
     AbortError, Buffer, ExecutingTransaction, Roots, Tree,
 };
 
+#[cfg(feature = "encryption")]
+use crate::vault::TreeVault;
 use crate::{
     config::Configuration,
     error::Error,
@@ -39,9 +41,6 @@ use crate::{
     },
     Storage,
 };
-
-#[cfg(feature = "encryption")]
-use crate::vault::TreeVault;
 
 pub mod kv;
 

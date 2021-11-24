@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "multiuser")]
 use crate::schema::NamedReference;
-
 use crate::{
     admin::Database,
     document::{Document, Header},

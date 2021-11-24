@@ -24,6 +24,12 @@ use bonsaidb_core::{
     schema::{view::map, CollectionName, MappedValue, Schema, SchemaName, Schematic, ViewName},
     transaction::{Executed, OperationResult, Transaction},
 };
+#[cfg(feature = "multiuser")]
+use bonsaidb_core::{
+    admin::{password_config::PasswordConfig, user::User, PermissionGroup, Role},
+    custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
+    schema::{CollectionDocument, NamedCollection, NamedReference},
+};
 use futures::TryFutureExt;
 use itertools::Itertools;
 use nebari::{
@@ -40,20 +46,12 @@ use tokio::{
     sync::{Mutex, RwLock},
 };
 
-#[cfg(feature = "multiuser")]
-use bonsaidb_core::{
-    admin::{password_config::PasswordConfig, user::User, PermissionGroup, Role},
-    custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
-    schema::{CollectionDocument, NamedCollection, NamedReference},
-};
-
+#[cfg(feature = "encryption")]
+use crate::vault::{self, LocalVaultKeyStorage, TreeVault, Vault};
 use crate::{
     config::Configuration, database::Context, jobs::manager::Manager, tasks::TaskManager, Database,
     Error,
 };
-
-#[cfg(feature = "encryption")]
-use crate::vault::{self, LocalVaultKeyStorage, TreeVault, Vault};
 
 /// A file-based, multi-database, multi-user database engine.
 #[derive(Debug, Clone)]

@@ -11,6 +11,8 @@ use std::{
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "multiuser")]
+use crate::admin::{PermissionGroup, Role, User};
 use crate::{
     admin::Database,
     connection::{AccessPolicy, Connection, StorageConnection},
@@ -18,16 +20,10 @@ use crate::{
     kv::Kv,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
-        view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name, Schema,
-        SchemaName, Schematic, View,
+        view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
+        NamedCollection, Schema, SchemaName, Schematic, View,
     },
     Error, ENCRYPTION_ENABLED,
-};
-
-#[cfg(feature = "multiuser")]
-use crate::{
-    admin::{PermissionGroup, Role, User},
-    schema::NamedCollection,
 };
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
@@ -454,7 +450,15 @@ impl Schema for BasicSchema {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
 pub struct Unique {
-    pub value: u32,
+    pub value: String,
+}
+
+impl Unique {
+    pub fn new(value: impl Display) -> Self {
+        Self {
+            value: value.to_string(),
+        }
+    }
 }
 
 impl Collection for Unique {
@@ -472,7 +476,7 @@ pub struct UniqueValue;
 
 impl View for UniqueValue {
     type Collection = Unique;
-    type Key = u32;
+    type Key = String;
     type Value = ();
 
     fn unique(&self) -> bool {
@@ -491,6 +495,10 @@ impl View for UniqueValue {
         let entry = document.contents::<Unique>()?;
         Ok(vec![document.emit_key(entry.value)])
     }
+}
+
+impl NamedCollection for Unique {
+    type ByNameView = UniqueValue;
 }
 
 pub struct TestDirectory(pub PathBuf);
@@ -587,6 +595,7 @@ pub enum HarnessTest {
     ViewAccessPolicies,
     Encryption,
     UniqueViews,
+    NamedCollection,
     PubSubSimple,
     UserManagement,
     PubSubMultipleSubscribers,
@@ -767,6 +776,15 @@ macro_rules! define_connection_test_suite {
             let db = harness.connect().await?;
 
             $crate::test_util::unique_view_tests(&db).await?;
+            harness.shutdown().await
+        }
+
+        #[tokio::test]
+        async fn named_collection() -> anyhow::Result<()> {
+            let harness = $harness::new($crate::test_util::HarnessTest::NamedCollection).await?;
+            let db = harness.connect().await?;
+
+            $crate::test_util::named_collection_tests(&db).await?;
             harness.shutdown().await
         }
 
@@ -1453,13 +1471,13 @@ pub async fn view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<(
 }
 
 pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    let first_doc = db.collection::<Unique>().push(&Unique { value: 1 }).await?;
+    let first_doc = db.collection::<Unique>().push(&Unique::new("1")).await?;
 
     if let Err(Error::UniqueKeyViolation {
         view,
         existing_document,
         conflicting_document,
-    }) = db.collection::<Unique>().push(&Unique { value: 1 }).await
+    }) = db.collection::<Unique>().push(&Unique::new("1")).await
     {
         assert_eq!(view, UniqueValue.view_name()?);
         assert_eq!(existing_document.id, first_doc.id);
@@ -1471,10 +1489,10 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         unreachable!("unique key violation not triggered");
     }
 
-    let second_doc = db.collection::<Unique>().push(&Unique { value: 2 }).await?;
+    let second_doc = db.collection::<Unique>().push(&Unique::new("2")).await?;
     let mut second_doc = db.collection::<Unique>().get(second_doc.id).await?.unwrap();
     let mut contents = second_doc.contents::<Unique>()?;
-    contents.value = 1;
+    contents.value = String::from("1");
     second_doc.set_contents(&contents)?;
     if let Err(Error::UniqueKeyViolation {
         view,
@@ -1488,6 +1506,37 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     } else {
         unreachable!("unique key violation not triggered");
     }
+
+    Ok(())
+}
+
+pub async fn named_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+    Unique::new("0").insert_into(db).await?;
+    let original_entry = Unique::entry("1", db)
+        .update_with(|_existing| unreachable!())
+        .or_insert_with(|| Unique::new("1"))
+        .await?
+        .expect("Document not inserted");
+
+    let updated = Unique::entry("1", db)
+        .update_with(|existing| {
+            existing.value = String::from("2");
+        })
+        .or_insert_with(|| unreachable!())
+        .await?
+        .unwrap();
+    assert_eq!(original_entry.id, updated.id);
+    assert_ne!(original_entry.contents.value, updated.contents.value);
+
+    let retrieved = Unique::entry("2", db).await?.unwrap();
+    assert_eq!(retrieved.contents.value, updated.contents.value);
+
+    let conflict = Unique::entry("2", db)
+        .update_with(|existing| {
+            existing.value = String::from("0");
+        })
+        .await;
+    assert!(matches!(conflict, Err(Error::UniqueKeyViolation { .. })));
 
     Ok(())
 }
