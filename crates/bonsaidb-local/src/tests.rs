@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+#[cfg(feature = "encryption")]
+use bonsaidb_core::test_util::EncryptedBasic;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, StorageConnection},
     permissions::{Permissions, Statement},
@@ -9,9 +11,6 @@ use bonsaidb_core::{
     },
 };
 use config::Configuration;
-
-#[cfg(feature = "encryption")]
-use bonsaidb_core::test_util::EncryptedBasic;
 
 use super::*;
 use crate::Database;

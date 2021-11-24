@@ -23,7 +23,6 @@ use crate::{
     },
     Error, ENCRYPTION_ENABLED,
 };
-
 #[cfg(feature = "multiuser")]
 use crate::{
     admin::{PermissionGroup, Role, User},

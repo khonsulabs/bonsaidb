@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+#[cfg(feature = "encryption")]
+use std::sync::Arc;
 
 use bonsaidb_core::{
     document::KeyId,
@@ -9,6 +11,8 @@ use nebari::{
     tree::{AnyTreeRoot, Root, Unversioned, Versioned},
 };
 
+#[cfg(feature = "encryption")]
+use crate::vault::{TreeVault, Vault};
 use crate::{
     database::document_tree_name,
     views::{
@@ -17,12 +21,6 @@ use crate::{
     },
     Error,
 };
-
-#[cfg(feature = "encryption")]
-use crate::vault::{TreeVault, Vault};
-
-#[cfg(feature = "encryption")]
-use std::sync::Arc;
 
 #[derive(Default)]
 pub(crate) struct OpenTrees {
