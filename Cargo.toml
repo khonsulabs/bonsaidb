@@ -2,7 +2,6 @@
 
 members = [
     "crates/bonsaidb",
-    "crates/circulate",
     "crates/bonsaidb-client",
     "crates/bonsaidb-core",
     "crates/bonsaidb-local",
