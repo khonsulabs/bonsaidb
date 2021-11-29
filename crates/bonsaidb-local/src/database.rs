@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     document::{Document, Header, KeyId},
-    kv::{KeyOperation, Kv, Output},
+    kv::{KeyOperation, Kv, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
     schema::{
@@ -761,8 +761,10 @@ impl Database {
         Ok(tree)
     }
 
-    pub(crate) fn update_key_expiration(&self, update: kv::ExpirationUpdate) {
-        self.data.context.update_key_expiration(update);
+    pub(crate) fn update_key_expiration(&self, tree_key: String, expiration: Option<Timestamp>) {
+        self.data
+            .context
+            .update_key_expiration(tree_key, expiration);
     }
 }
 
@@ -1200,28 +1202,39 @@ impl Context {
         }
     }
 
-    pub(crate) fn update_key_expiration(&self, update: kv::ExpirationUpdate) {
+    pub(crate) fn update_key_expiration(&self, tree_key: String, expiration: Option<Timestamp>) {
+        let (update, completion_receiver) = kv::ExpirationUpdate::new(tree_key, expiration);
+
+        // Assume that the expiration thread is initialized, as it is generally the positive-flow.
+        let mut update = Some(update);
         {
             let sender = self.kv_expirer.read().unwrap();
             if let Some(sender) = sender.as_ref() {
-                drop(sender.send(update));
+                drop(sender.send(update.take().unwrap()));
+            } else if expiration.is_none() {
+                // If there is no thread, this key can't be waiting to be
+                // deleted.
                 return;
             }
         }
 
         // If we fall through, we need to initialize the expirer task
-        let mut sender = self.kv_expirer.write().unwrap();
-        if let Some(kv_sender) = sender.as_ref() {
-            drop(kv_sender.send(update));
-        } else {
-            let (kv_sender, kv_expirer_receiver) = flume::unbounded();
-            kv_sender.send(update).unwrap();
-            let context = self.clone();
-            tokio::task::spawn_blocking(move || {
-                kv::expiration_thread(context, kv_expirer_receiver)
-            });
-            *sender = Some(kv_sender);
+        if let Some(update) = update {
+            let mut sender = self.kv_expirer.write().unwrap();
+            if let Some(kv_sender) = sender.as_ref() {
+                drop(kv_sender.send(update));
+            } else {
+                let (kv_sender, kv_expirer_receiver) = flume::unbounded();
+                kv_sender.send(update).unwrap();
+                let context = self.clone();
+                tokio::task::spawn_blocking(move || {
+                    kv::expiration_thread(context, kv_expirer_receiver)
+                });
+                *sender = Some(kv_sender);
+            }
         }
+
+        let _ = completion_receiver.recv();
     }
 }
 

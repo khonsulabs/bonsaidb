@@ -126,10 +126,7 @@ fn execute_set_operation(
         .map_err(Error::from)?;
 
     if updated {
-        db.update_key_expiration(ExpirationUpdate {
-            tree_key: full_key,
-            expiration: entry.expiration,
-        });
+        db.update_key_expiration(full_key, entry.expiration);
         if return_previous_value {
             if let Some(Ok(entry)) = previous_value.map(|v| bincode::deserialize::<Entry>(&v)) {
                 Ok(Output::Value(Some(entry.value)))
@@ -162,10 +159,7 @@ fn execute_get_operation(
     let entry = if delete {
         let entry = tree.remove(full_key.as_bytes()).map_err(Error::from)?;
         if entry.is_some() {
-            db.update_key_expiration(ExpirationUpdate {
-                tree_key: full_key,
-                expiration: None,
-            });
+            db.update_key_expiration(full_key, None);
         }
         entry
     } else {
@@ -195,10 +189,7 @@ fn execute_delete_operation(
     let full_key = full_key(namespace, key);
     let value = tree.remove(full_key.as_bytes()).map_err(Error::from)?;
     if value.is_some() {
-        db.update_key_expiration(ExpirationUpdate {
-            tree_key: full_key,
-            expiration: None,
-        });
+        db.update_key_expiration(full_key, None);
 
         Ok(Output::Status(KeyStatus::Deleted))
     } else {
@@ -369,6 +360,27 @@ where
 pub struct ExpirationUpdate {
     pub tree_key: String,
     pub expiration: Option<Timestamp>,
+    completion_sender: flume::Sender<()>,
+}
+
+impl ExpirationUpdate {
+    pub fn new(tree_key: String, expiration: Option<Timestamp>) -> (Self, flume::Receiver<()>) {
+        let (completion_sender, completion_receiver) = flume::bounded(1);
+        (
+            Self {
+                tree_key,
+                expiration,
+                completion_sender,
+            },
+            completion_receiver,
+        )
+    }
+}
+
+impl Drop for ExpirationUpdate {
+    fn drop(&mut self) {
+        let _ = self.completion_sender.send(());
+    }
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -520,10 +532,10 @@ mod tests {
                 let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
                 tree.set(b"atree.akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
-                    expiration: Some(Timestamp::now() + Duration::from_millis(100)),
-                });
+                sender.update_key_expiration(
+                    full_key(Some(String::from("atree")), String::from("akey")),
+                    Some(Timestamp::now() + Duration::from_millis(100)),
+                );
                 if !timing.wait_until(Duration::from_secs(1)).await {
                     println!("basic_expiration restarting due to timing discrepency");
                     continue;
@@ -545,14 +557,14 @@ mod tests {
                 let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
                 tree.set(b"atree.akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
-                    expiration: Some(Timestamp::now() + Duration::from_millis(100)),
-                });
-                sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
-                    expiration: Some(Timestamp::now() + Duration::from_secs(1)),
-                });
+                sender.update_key_expiration(
+                    full_key(Some(String::from("atree")), String::from("akey")),
+                    Some(Timestamp::now() + Duration::from_millis(100)),
+                );
+                sender.update_key_expiration(
+                    full_key(Some(String::from("atree")), String::from("akey")),
+                    Some(Timestamp::now() + Duration::from_secs(1)),
+                );
                 if timing.elapsed() > Duration::from_millis(100)
                     || !timing.wait_until(Duration::from_millis(500)).await
                 {
@@ -580,14 +592,14 @@ mod tests {
                 tree.set(b"atree.bkey", b"somevalue")?;
 
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
-                    expiration: Some(Timestamp::now() + Duration::from_millis(100)),
-                });
-                sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: full_key(Some(String::from("atree")), String::from("bkey")),
-                    expiration: Some(Timestamp::now() + Duration::from_secs(1)),
-                });
+                sender.update_key_expiration(
+                    full_key(Some(String::from("atree")), String::from("akey")),
+                    Some(Timestamp::now() + Duration::from_millis(100)),
+                );
+                sender.update_key_expiration(
+                    full_key(Some(String::from("atree")), String::from("bkey")),
+                    Some(Timestamp::now() + Duration::from_secs(1)),
+                );
 
                 if !timing.wait_until(Duration::from_millis(200)).await {
                     continue;
@@ -614,14 +626,14 @@ mod tests {
                 let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
                 tree.set(b"atree.akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
-                    expiration: Some(Timestamp::now() + Duration::from_millis(100)),
-                });
-                sender.update_key_expiration(ExpirationUpdate {
-                    tree_key: full_key(Some(String::from("atree")), String::from("akey")),
-                    expiration: None,
-                });
+                sender.update_key_expiration(
+                    full_key(Some(String::from("atree")), String::from("akey")),
+                    Some(Timestamp::now() + Duration::from_millis(100)),
+                );
+                sender.update_key_expiration(
+                    full_key(Some(String::from("atree")), String::from("akey")),
+                    None,
+                );
                 if timing.elapsed() > Duration::from_millis(100) {
                     // Restart, took too long.
                     continue;
@@ -643,18 +655,18 @@ mod tests {
             tree.set(b"atree.akey", b"somevalue")?;
             tree.set(b"atree.bkey", b"somevalue")?;
             tree.set(b"atree.ckey", b"somevalue")?;
-            sender.update_key_expiration(ExpirationUpdate {
-                tree_key: full_key(Some(String::from("atree")), String::from("akey")),
-                expiration: Some(Timestamp::now() + Duration::from_secs(3)),
-            });
-            sender.update_key_expiration(ExpirationUpdate {
-                tree_key: full_key(Some(String::from("atree")), String::from("ckey")),
-                expiration: Some(Timestamp::now() + Duration::from_secs(1)),
-            });
-            sender.update_key_expiration(ExpirationUpdate {
-                tree_key: full_key(Some(String::from("atree")), String::from("bkey")),
-                expiration: Some(Timestamp::now() + Duration::from_secs(2)),
-            });
+            sender.update_key_expiration(
+                full_key(Some(String::from("atree")), String::from("akey")),
+                Some(Timestamp::now() + Duration::from_secs(3)),
+            );
+            sender.update_key_expiration(
+                full_key(Some(String::from("atree")), String::from("ckey")),
+                Some(Timestamp::now() + Duration::from_secs(1)),
+            );
+            sender.update_key_expiration(
+                full_key(Some(String::from("atree")), String::from("bkey")),
+                Some(Timestamp::now() + Duration::from_secs(2)),
+            );
             tokio::time::sleep(Duration::from_millis(1200)).await;
             assert!(tree.get(b"atree.akey")?.is_some());
             assert!(tree.get(b"atree.bkey")?.is_some());
@@ -720,10 +732,8 @@ impl Job for ExpirationLoader {
         });
 
         while let Ok((key, expiration)) = receiver.recv_async().await {
-            self.database.update_key_expiration(ExpirationUpdate {
-                tree_key: String::from_utf8(key.to_vec())?,
-                expiration,
-            });
+            self.database
+                .update_key_expiration(String::from_utf8(key.to_vec())?, expiration);
         }
 
         Ok(())
