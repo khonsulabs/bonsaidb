@@ -10,7 +10,10 @@ use crate::{
 
 /// Types for defining a `Map` within a `View`.
 pub mod map;
-use map::{Key, Map, MappedValue};
+use map::{Map, MappedValue};
+
+mod key;
+pub use self::key::*;
 
 /// Errors that arise when interacting with views.
 #[derive(thiserror::Error, Debug)]

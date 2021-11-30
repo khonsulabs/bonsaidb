@@ -68,6 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   integration can be used in conjunction with websockets.
 - Added convenience methods to `Transaction` and `Operation` to make it easier
   to build multi-operation transactions.
+- The `Key` trait is now automatically implemented for tuples of up to 8 entries
+  in length.
 
 ### Changed
 
@@ -84,6 +86,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DefaultPermissions` enum.
 - Changed the default serialization format from `CBOR` to an in-house format,
   [`Pot`](https://github.com/khonsulabs/pot).
+- `Key` now has a new associated constant: `LENGTH`. If a value is provided, the
+  result of converting the value should always produce the length specified.
+  This new information is used to automatically implement the `Key` trait for
+  tuples.
 
 ### Removed
 

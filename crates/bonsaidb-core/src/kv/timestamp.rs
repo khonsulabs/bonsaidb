@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{view::map::IncorrectByteLength, Key};
+use crate::schema::{view::IncorrectByteLength, Key};
 
 /// A timestamp relative to [`UNIX_EPOCH`].
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
@@ -66,6 +66,8 @@ impl std::ops::Add<Duration> for Timestamp {
 
 impl Key for Timestamp {
     type Error = IncorrectByteLength;
+    const LENGTH: Option<usize> = Some(12);
+
     fn as_big_endian_bytes(&self) -> Result<std::borrow::Cow<'_, [u8]>, Self::Error> {
         let seconds_bytes: &[u8] = &self.seconds.to_be_bytes();
         let nanos_bytes = &self.nanos.to_be_bytes();

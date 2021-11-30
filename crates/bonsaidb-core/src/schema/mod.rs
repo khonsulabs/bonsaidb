@@ -13,8 +13,8 @@ pub use self::{
     names::{Authority, CollectionName, InvalidNameError, Name, SchemaName, ViewName},
     schematic::Schematic,
     view::{
-        map::{Key, Map, MappedDocument, MappedValue},
-        CollectionView, MapResult, View,
+        map::{Map, MappedDocument, MappedValue},
+        CollectionView, Key, MapResult, View,
     },
 };
 use crate::Error;
