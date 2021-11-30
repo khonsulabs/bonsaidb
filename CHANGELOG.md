@@ -90,6 +90,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   result of converting the value should always produce the length specified.
   This new information is used to automatically implement the `Key` trait for
   tuples.
+- The `Key` implementation for `EnumKey` has been updated to use
+  `ordered-varint` to minimize the size of the indexes. Previously, each entry
+  in the view was always 8 bytes.
 
 ### Removed
 

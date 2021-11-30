@@ -410,6 +410,11 @@ pub trait EnumKey: ToPrimitive + FromPrimitive + Clone + Send + Sync {}
 #[error("incorrect byte length")]
 pub struct IncorrectByteLength;
 
+/// An error that indicates an unexpected enum variant value was found.
+#[derive(thiserror::Error, Debug)]
+#[error("unknown enum variant")]
+pub struct UnknownEnumVariant;
+
 impl From<std::array::TryFromSliceError> for IncorrectByteLength {
     fn from(_: std::array::TryFromSliceError) -> Self {
         Self
@@ -421,19 +426,21 @@ impl<T> Key for T
 where
     T: EnumKey,
 {
-    type Error = IncorrectByteLength;
-    const LENGTH: Option<usize> = Some(8); // TODO change this for varint
+    type Error = std::io::Error;
+    const LENGTH: Option<usize> = None;
 
     fn as_big_endian_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
-        self.to_u64()
-            .ok_or(IncorrectByteLength)?
-            .as_big_endian_bytes()
-            .map(|bytes| Cow::Owned(bytes.to_vec()))
+        let integer = self
+            .to_u64()
+            .map(Unsigned::from)
+            .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, IncorrectByteLength))?;
+        Ok(Cow::Owned(integer.to_variable_vec()?))
     }
 
     fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let primitive = u64::from_big_endian_bytes(bytes)?;
-        Self::from_u64(primitive).ok_or(IncorrectByteLength)
+        let primitive = u64::decode_variable(bytes)?;
+        Self::from_u64(primitive)
+            .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, UnknownEnumVariant))
     }
 }
 // ANCHOR_END: impl_key_for_enumkey
