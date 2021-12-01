@@ -53,6 +53,7 @@ pub use circulate;
 #[cfg(feature = "multiuser")]
 pub use custodian_password;
 pub use num_traits;
+pub use ordered_varint;
 use schema::{view, CollectionName, SchemaName, ViewName};
 use serde::{Deserialize, Serialize};
 
