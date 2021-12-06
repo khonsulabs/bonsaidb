@@ -17,21 +17,10 @@ mod tests;
 
 /// A background jobs manager.
 #[derive(Debug, DeriveWhere)]
-#[derive_where(Clone)]
+#[derive_where(Clone, Default)]
 pub struct Manager<Key = ()> {
     // #[derive_where(default)]
     pub(crate) jobs: Arc<RwLock<jobs::Jobs<Key>>>,
-}
-
-impl<Key> Default for Manager<Key>
-where
-    Key: Clone + std::hash::Hash + Eq + Send + Sync + Debug + 'static,
-{
-    fn default() -> Self {
-        Self {
-            jobs: Arc::new(RwLock::new(jobs::Jobs::new())),
-        }
-    }
 }
 
 impl<Key> Manager<Key>
