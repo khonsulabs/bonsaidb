@@ -9,6 +9,7 @@ use bonsaidb_core::{
     schema::{view, view::map, Collection, Key, Map, MappedDocument, MappedValue, Schematic, View},
     transaction::{Executed, OperationResult, Transaction},
 };
+use derive_where::DeriveWhere;
 
 use crate::Client;
 
@@ -18,7 +19,8 @@ pub use pubsub::*;
 mod keyvalue;
 
 /// A database on a remote server.
-#[derive(Debug)]
+#[derive(Debug, DeriveWhere)]
+#[derive_where(Clone)]
 pub struct RemoteDatabase<A: CustomApi = ()> {
     client: Client<A>,
     name: Arc<String>,
@@ -37,16 +39,6 @@ impl<A: CustomApi> Deref for RemoteDatabase<A> {
 
     fn deref(&self) -> &Self::Target {
         &self.client
-    }
-}
-
-impl<A: CustomApi> Clone for RemoteDatabase<A> {
-    fn clone(&self) -> Self {
-        Self {
-            client: self.client.clone(),
-            name: self.name.clone(),
-            schema: self.schema.clone(),
-        }
     }
 }
 

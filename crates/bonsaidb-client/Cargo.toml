@@ -34,6 +34,7 @@ bincode = { version = "1", optional = true }
 async-lock = "2"
 js-sys = "0.3"
 log = "0.4"
+derive-where = { git = "https://github.com/khonsulabs/derive-where.git", branch = "tests" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = [
