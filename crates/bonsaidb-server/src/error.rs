@@ -146,3 +146,4 @@ impl_from_fabruic!(fabruic::error::KeyPair);
 impl_from_fabruic!(fabruic::error::Connection);
 impl_from_fabruic!(fabruic::error::Incoming);
 impl_from_fabruic!(fabruic::error::AlreadyClosed);
+impl_from_fabruic!(fabruic::error::Config);
