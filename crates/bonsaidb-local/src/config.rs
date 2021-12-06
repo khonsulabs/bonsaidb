@@ -5,7 +5,7 @@ use bonsaidb_core::document::KeyId;
 use crate::vault::AnyVaultKeyStorage;
 
 /// Configuration options for [`Storage`](crate::storage::Storage).
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Configuration {
     /// The unique id of the server. If not specified, the server will randomly
     /// generate a unique id on startup. If the server generated an id and this
@@ -33,20 +33,6 @@ pub struct Configuration {
     pub views: Views,
 }
 
-impl Default for Configuration {
-    fn default() -> Self {
-        Self {
-            #[cfg(feature = "encryption")]
-            default_encryption_key: None,
-            #[cfg(feature = "encryption")]
-            vault_key_storage: None,
-            unique_id: None,
-            workers: Tasks::default(),
-            views: Views::default(),
-        }
-    }
-}
-
 /// Configujration options for background tasks.
 #[derive(Debug)]
 pub struct Tasks {
@@ -66,7 +52,7 @@ impl Default for Tasks {
 }
 
 /// Configuration options for views.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Views {
     /// If true, the database will scan all views during the call to
     /// `open_local`. This will cause database opening to take longer, but once
@@ -74,12 +60,4 @@ pub struct Views {
     /// be checked. However, for faster startup time, you may wish to delay the
     /// integrity scan. Default value is `false`.
     pub check_integrity_on_open: bool,
-}
-
-impl Default for Views {
-    fn default() -> Self {
-        Self {
-            check_integrity_on_open: false,
-        }
-    }
 }

@@ -86,7 +86,7 @@ impl<A: CustomApi> Clone for Client<A> {
 pub struct Data<A: CustomApi> {
     request_sender: Sender<PendingRequest<A>>,
     #[cfg(not(target_arch = "wasm32"))]
-    worker: CancellableHandle<Result<(), Error<A::Error>>>,
+    _worker: CancellableHandle<Result<(), Error<A::Error>>>,
     effective_permissions: Mutex<Option<Permissions>>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     request_id: AtomicU32,
@@ -185,7 +185,7 @@ impl<A: CustomApi> Client<A> {
         Self {
             data: Arc::new(Data {
                 request_sender,
-                worker: CancellableHandle {
+                _worker: CancellableHandle {
                     worker,
                     #[cfg(feature = "test-util")]
                     background_task_running: background_task_running.clone(),
@@ -223,7 +223,7 @@ impl<A: CustomApi> Client<A> {
             data: Arc::new(Data {
                 request_sender,
                 #[cfg(not(target_arch = "wasm32"))]
-                worker: CancellableHandle {
+                _worker: CancellableHandle {
                     worker,
                     #[cfg(feature = "test-util")]
                     background_task_running: background_task_running.clone(),

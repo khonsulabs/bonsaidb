@@ -50,7 +50,7 @@ pub trait Collection: Debug + Send + Sync {
         Self: Serialize + for<'de> Deserialize<'de>,
     {
         let possible_doc = connection.get::<Self>(id).await?;
-        Ok(possible_doc.map(|doc| doc.try_into()).transpose()?)
+        Ok(possible_doc.map(Document::try_into).transpose()?)
     }
 
     /// Inserts this value into the collection, returning the created document.
@@ -141,7 +141,7 @@ pub trait NamedCollection: Collection {
         Self: Serialize + for<'de> Deserialize<'de>,
     {
         let possible_doc = Self::load_document(id, connection).await?;
-        Ok(possible_doc.map(|doc| doc.try_into()).transpose()?)
+        Ok(possible_doc.map(Document::try_into).transpose()?)
     }
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.

@@ -58,6 +58,7 @@ pub struct Data {
     context: Context,
     pub(crate) storage: Storage,
     pub(crate) schema: Arc<Schematic>,
+    #[allow(dead_code)] // This code was previously used, it works, but is currently unused.
     pub(crate) effective_permissions: Option<Permissions>,
 }
 impl Clone for Database {

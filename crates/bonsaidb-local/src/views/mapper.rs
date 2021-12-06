@@ -416,8 +416,6 @@ pub struct ViewEntryCollection {
     entries: Vec<ViewEntry>,
     #[serde(skip)]
     active_index: usize,
-    #[serde(skip)]
-    loaded_from: Option<[u8; 32]>,
 }
 
 impl From<ViewEntry> for ViewEntryCollection {
@@ -425,7 +423,6 @@ impl From<ViewEntry> for ViewEntryCollection {
         Self {
             entries: vec![entry],
             active_index: 0,
-            loaded_from: None,
         }
     }
 }
