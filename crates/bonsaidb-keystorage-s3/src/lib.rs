@@ -29,7 +29,7 @@
 //! };
 //! ```
 //!
-//! The API calls are performed by the [`s3`] crate.
+//! The API calls are performed by the [`aws-sdk-s3`](aws_sdk_s3) crate.
 
 #![forbid(unsafe_code)]
 #![warn(
