@@ -197,7 +197,7 @@ pub trait Connection: Send + Sync {
     ///
     /// ## Errors
     ///
-    /// * [`Error::Io)`]: an error occurred while compacting the database.
+    /// * [`Error::Io`]: an error occurred while compacting the database.
     async fn compact(&self) -> Result<(), crate::Error>;
 
     /// Compacts the collection to reclaim unused disk space.
@@ -210,7 +210,7 @@ pub trait Connection: Send + Sync {
     /// ## Errors
     ///
     /// * [`Error::CollectionNotFound`]: database `name` does not exist.
-    /// * [`Error::Io)`]: an error occurred while compacting the database.
+    /// * [`Error::Io`]: an error occurred while compacting the database.
     async fn compact_collection<C: schema::Collection>(&self) -> Result<(), crate::Error>;
 
     /// Compacts the key value store to reclaim unused disk space.
@@ -222,7 +222,7 @@ pub trait Connection: Send + Sync {
     ///
     /// ## Errors
     ///
-    /// * [`Error::Io)`]: an error occurred while compacting the database.
+    /// * [`Error::Io`]: an error occurred while compacting the database.
     async fn compact_key_value_store(&self) -> Result<(), crate::Error>;
 }
 
@@ -739,7 +739,7 @@ pub trait StorageConnection: Send + Sync {
     /// * [`Error::InvalidDatabaseName`]: `name` must begin with an alphanumeric
     ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
-    /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
+    /// * [`Error::DatabaseNameAlreadyTaken`]: `name` was already used for a
     ///   previous database name. Database names are case insensitive. Returned
     ///   if `only_if_needed` is false.
     async fn create_database<DB: Schema>(
@@ -761,7 +761,7 @@ pub trait StorageConnection: Send + Sync {
     /// * [`Error::InvalidDatabaseName`]: `name` must begin with an alphanumeric
     ///   character (`[a-zA-Z0-9]`), and all remaining characters must be
     ///   alphanumeric, a period (`.`), or a hyphen (`-`).
-    /// * [`Error::DatabaseNameAlreadyTaken]: `name` was already used for a
+    /// * [`Error::DatabaseNameAlreadyTaken`]: `name` was already used for a
     ///   previous database name. Database names are case insensitive. Returned
     ///   if `only_if_needed` is false.
     async fn create_database_with_schema(
@@ -776,7 +776,7 @@ pub trait StorageConnection: Send + Sync {
     /// ## Errors
     ///
     /// * [`Error::DatabaseNotFound`]: database `name` does not exist.
-    /// * [`Error::Io)`]: an error occurred while deleting files.
+    /// * [`Error::Io`]: an error occurred while deleting files.
     async fn delete_database(&self, name: &str) -> Result<(), crate::Error>;
 
     /// Lists the databases in this storage.

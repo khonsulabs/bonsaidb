@@ -48,6 +48,7 @@ pub mod pubsub;
 
 use std::string::FromUtf8Error;
 
+pub use actionable;
 pub use async_trait;
 pub use circulate;
 #[cfg(feature = "multiuser")]
