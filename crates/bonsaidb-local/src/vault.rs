@@ -61,7 +61,7 @@ use bonsaidb_core::{
     document::KeyId,
     permissions::{
         bonsai::{encryption_key_resource_name, EncryptionKeyAction},
-        Action, PermissionDenied, Permissions,
+        Permissions,
     },
 };
 use chacha20poly1305::{
@@ -350,17 +350,10 @@ impl Vault {
         permissions: Option<&Permissions>,
     ) -> Result<Vec<u8>, crate::Error> {
         if let Some(permissions) = permissions {
-            if !permissions.allowed_to(
+            permissions.check(
                 encryption_key_resource_name(key_id),
                 &EncryptionKeyAction::Encrypt,
-            ) {
-                return Err(crate::Error::Core(bonsaidb_core::Error::from(
-                    PermissionDenied {
-                        resource: encryption_key_resource_name(key_id).to_owned(),
-                        action: EncryptionKeyAction::Encrypt.name(),
-                    },
-                )));
-            }
+            )?;
         }
 
         let (key, version) = match key_id {
@@ -394,17 +387,10 @@ impl Vault {
         permissions: Option<&Permissions>,
     ) -> Result<Vec<u8>, crate::Error> {
         if let Some(permissions) = permissions {
-            if !permissions.allowed_to(
+            permissions.check(
                 encryption_key_resource_name(&payload.key_id),
                 &EncryptionKeyAction::Decrypt,
-            ) {
-                return Err(crate::Error::Core(bonsaidb_core::Error::from(
-                    PermissionDenied {
-                        resource: encryption_key_resource_name(&payload.key_id).to_owned(),
-                        action: EncryptionKeyAction::Decrypt.name(),
-                    },
-                )));
-            }
+            )?;
         }
 
         // TODO handle key version

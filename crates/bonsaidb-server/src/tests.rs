@@ -1,5 +1,5 @@
-use actionable::{Permissions, Statement};
 use bonsaidb_core::{
+    actionable::{Permissions, Statement},
     connection::StorageConnection,
     test_util::{self, BasicSchema, HarnessTest, TestDirectory},
 };

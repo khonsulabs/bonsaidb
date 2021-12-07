@@ -982,7 +982,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
 }
 
 #[derive(Dispatcher, Debug)]
-#[dispatcher(input = Request<<B::CustomApi as CustomApi>::Request>, input = ServerRequest)]
+#[dispatcher(input = Request<<B::CustomApi as CustomApi>::Request>, input = ServerRequest, actionable = bonsaidb_core::actionable)]
 struct ServerDispatcher<'s, B: Backend> {
     server: &'s CustomServer<B>,
     client: &'s ConnectedClient<B>,
@@ -1227,7 +1227,12 @@ impl<'s, B: Backend> bonsaidb_core::networking::FinishPasswordLoginHandler
 
             let permissions = user.contents.effective_permissions(&admin).await?;
             let permissions = Permissions::merged(
-                [&permissions, &self.server.data.authenticated_permissions].into_iter(),
+                [
+                    &permissions,
+                    &self.server.data.authenticated_permissions,
+                    &self.server.data.default_permissions,
+                ]
+                .into_iter(),
             );
             self.client.logged_in_as(user_id, permissions.clone()).await;
 
@@ -1254,23 +1259,16 @@ impl<'s, B: Backend> bonsaidb_core::networking::SetPasswordHandler for ServerDis
             .await?
             .ok_or(bonsaidb_core::Error::UserNotFound)?;
 
-        if self.client.user_id().await == Some(id) {
-            // Users can always set their own password
-            Ok(())
-        } else {
+        // Users can always set their own password
+        if self.client.user_id().await != Some(id) {
             let user_resource_id = user_resource_name(id);
-            if permissions.allowed_to(
+            permissions.check(
                 &user_resource_id,
                 &BonsaiAction::Server(ServerAction::SetPassword),
-            ) {
-                Ok(())
-            } else {
-                Err(Error::from(PermissionDenied {
-                    resource: user_resource_id.to_owned(),
-                    action: BonsaiAction::Server(ServerAction::SetPassword).name(),
-                }))
-            }
+            )?;
         }
+
+        Ok(())
     }
 
     async fn handle_protected(
@@ -1393,7 +1391,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::AlterUserRoleMembershipHandler
 }
 
 #[derive(Dispatcher, Debug)]
-#[dispatcher(input = DatabaseRequest)]
+#[dispatcher(input = DatabaseRequest, actionable = bonsaidb_core::actionable)]
 struct DatabaseDispatcher<'s, B>
 where
     B: Backend,
@@ -1454,12 +1452,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseD
         for &id in ids {
             let document_name = document_resource_name(&self.name, collection, id);
             let action = BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get));
-            if !permissions.allowed_to(&document_name, &action) {
-                return Err(Error::from(PermissionDenied {
-                    resource: document_name.to_owned(),
-                    action: action.name(),
-                }));
-            }
+            permissions.check(&document_name, &action)?;
         }
 
         Ok(())
@@ -1626,12 +1619,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
                     BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
                 ),
             };
-            if !permissions.allowed_to(&resource, &action) {
-                return Err(Error::from(PermissionDenied {
-                    resource: resource.to_owned(),
-                    action: action.name(),
-                }));
-            }
+            permissions.check(&resource, &action)?;
         }
 
         Ok(())

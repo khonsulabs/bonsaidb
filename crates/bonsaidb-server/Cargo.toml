@@ -47,7 +47,6 @@ flume = "0.10"
 itertools = "0.10"
 tokio-tungstenite = { version = "0.16", optional = true }
 bincode = { version = "1", optional = true }
-actionable = "0.1.0-rc.2"
 pot = "0.1.0-alpha.2"
 fabruic = { version = "0.0.1-dev.3", features = ["dangerous"] }
 cfg-if = "1"

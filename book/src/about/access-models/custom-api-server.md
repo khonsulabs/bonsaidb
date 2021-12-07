@@ -23,3 +23,19 @@ Finally, the client can issue the API call and receive the response, without nee
 ```rust,noplayground,no_run
 {{#include ../../../../examples/basic-server/examples/custom-api.rs:api-call}}
 ```
+
+## Permissions
+
+One of the strengths of using BonsaiDb's custom api functionality is the ability to tap into the permissions handling that BonsaiDb uses. The Ping request was defined with `protection = "none"` which skips all permission validation. However, `DoSomethingSimple` uses the "simple" protection model, and `DoSomethingCustom` uses the "custom" protection model. The comments in the example below should help explain the rationale:
+
+```rust,noplayground,no_run
+{{#include ../../../../examples/basic-server/examples/custom-api.rs:permission-handles}}
+```
+
+This example uses `authenticated_permissions` to grant access to `ExampleAction::DoSomethingSimple` and `ExampleAction::DoSomethingCustom` to all users who have logged in:
+
+```rust,noplayground,no_run
+{{#include ../../../../examples/basic-server/examples/custom-api.rs:server-init}}
+```
+
+For more information on managing permissions, [see Administration/Permissions](../../administration/permissions.md)

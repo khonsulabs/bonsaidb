@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use actionable::PermissionDenied;
-use bonsaidb_local::core::{self, schema, schema::InsertError, AnyError};
+use bonsaidb_local::core::{
+    self, permissions::PermissionDenied, schema, schema::InsertError, AnyError,
+};
 use schema::InvalidNameError;
 
 /// An error occurred while interacting with a [`Server`](crate::Server).

@@ -1,4 +1,6 @@
 //! Shows basic setup of a custom api server.
+//!
+//! This example has a section in the User Guide: https://dev.bonsaidb.io/guide/about/access-models/custom-api-server.html
 
 use std::{path::Path, time::Duration};
 
@@ -7,7 +9,12 @@ use bonsaidb::{
     core::{
         actionable::{Actionable, Dispatcher, Permissions},
         async_trait::async_trait,
+        connection::StorageConnection,
         custom_api::{CustomApi, Infallible},
+        permissions::{
+            bonsai::{BonsaiAction, ServerAction},
+            Action, ActionNameList, ResourceName, Statement,
+        },
     },
     server::{
         Backend, BackendError, Configuration, ConnectedClient, CustomApiDispatcher, CustomServer,
@@ -16,11 +23,38 @@ use bonsaidb::{
 };
 use serde::{Deserialize, Serialize};
 
+/// The `Backend` for the BonsaiDb server.
 #[derive(Debug)]
 pub struct ExampleBackend;
 
+/// The `CustomApi` for this example.
 #[derive(Debug)]
 pub enum ExampleApi {}
+
+// ANCHOR: api-types
+#[derive(Serialize, Deserialize, Actionable, Debug)]
+#[actionable(actionable = bonsaidb::core::actionable)]
+pub enum Request {
+    #[actionable(protection = "none")]
+    Ping,
+    #[actionable(protection = "simple")]
+    DoSomethingSimple { some_argument: u32 },
+    #[actionable(protection = "custom")]
+    DoSomethingCustom { some_argument: u32 },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum Response {
+    Pong,
+    DidSomething,
+}
+
+impl CustomApi for ExampleApi {
+    type Request = Request;
+    type Response = Response;
+    type Error = Infallible;
+}
+// ANCHOR_END: api-types
 
 // ANCHOR: server-traits
 impl Backend for ExampleBackend {
@@ -29,10 +63,16 @@ impl Backend for ExampleBackend {
     type ClientData = ();
 }
 
+/// Dispatches Requests and returns Responses.
 #[derive(Debug, Dispatcher)]
 #[dispatcher(input = Request, actionable = bonsaidb::core::actionable)]
 pub struct ExampleDispatcher {
-    server: CustomServer<ExampleBackend>,
+    // While this example doesn't use the server reference, this is how a custom
+    // API can gain access to the running server to perform database operations
+    // within the handlers. The `ConnectedClient` can also be cloned and stored
+    // in the dispatcher if handlers need to interact with clients outside of a
+    // simple Request/Response exchange.
+    _server: CustomServer<ExampleBackend>,
 }
 
 impl CustomApiDispatcher<ExampleBackend> for ExampleDispatcher {
@@ -41,7 +81,7 @@ impl CustomApiDispatcher<ExampleBackend> for ExampleDispatcher {
         _client: &ConnectedClient<ExampleBackend>,
     ) -> Self {
         Self {
-            server: server.clone(),
+            _server: server.clone(),
         }
     }
 }
@@ -52,6 +92,9 @@ impl RequestDispatcher for ExampleDispatcher {
     type Error = BackendError<Infallible>;
 }
 
+/// The Request::Ping variant has `#[actionable(protection = "none")]`, which
+/// causes `PingHandler` to be generated with a single method and no implicit
+/// permission handling.
 #[async_trait]
 impl PingHandler for ExampleDispatcher {
     async fn handle(
@@ -63,37 +106,119 @@ impl PingHandler for ExampleDispatcher {
 }
 // ANCHOR_END: server-traits
 
-// ANCHOR: api-types
-#[derive(Serialize, Deserialize, Actionable, Debug)]
-#[actionable(actionable = bonsaidb::core::actionable)]
-pub enum Request {
-    #[actionable(protection = "none")]
-    Ping,
+// ANCHOR: permission-handles
+/// The permissible actions that can be granted for this example api.
+#[derive(Debug, Action)]
+#[action(actionable = bonsaidb::core::actionable)]
+pub enum ExampleActions {
+    DoSomethingSimple,
+    DoSomethingCustom,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Response {
-    Pong,
+/// With `protection = "simple"`, `actionable` will generate a trait that allows
+/// you to return a `ResourceName` and an `Action`, and the handler will
+/// automatically confirm that the connected user has been granted the ability
+/// to perform `Action` against `ResourceName`.
+#[async_trait]
+impl DoSomethingSimpleHandler for ExampleDispatcher {
+    type Action = ExampleActions;
+
+    async fn resource_name<'a>(
+        &'a self,
+        _some_argument: &'a u32,
+    ) -> Result<ResourceName<'a>, BackendError<Infallible>> {
+        Ok(ResourceName::named("example"))
+    }
+
+    fn action() -> Self::Action {
+        ExampleActions::DoSomethingSimple
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        _some_argument: u32,
+    ) -> Result<Response, BackendError<Infallible>> {
+        // The permissions have already been checked.
+        Ok(Response::DidSomething)
+    }
 }
 
-impl CustomApi for ExampleApi {
-    type Request = Request;
-    type Response = Response;
-    type Error = Infallible;
+/// With `protection = "custom"`, `actionable` will generate a trait with two
+/// functions: one to verify the permissions are valid, and one to do the
+/// protected action. This is useful if there are multiple actions or resource
+/// names that need to be checked, or if permissions change based on the
+/// arguments passed.
+#[async_trait]
+impl DoSomethingCustomHandler for ExampleDispatcher {
+    async fn verify_permissions(
+        &self,
+        permissions: &Permissions,
+        some_argument: &u32,
+    ) -> Result<(), BackendError<Infallible>> {
+        if *some_argument == 42 {
+            Ok(())
+        } else {
+            permissions.check(
+                ResourceName::named("example"),
+                &ExampleActions::DoSomethingCustom,
+            )?;
+
+            Ok(())
+        }
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        _some_argument: u32,
+    ) -> Result<Response, BackendError<Infallible>> {
+        // `verify_permissions` has already been executed, so no permissions
+        // logic needs to live here.
+        Ok(Response::DidSomething)
+    }
 }
-// ANCHOR_END: api-types
+// ANCHOR_END: permission-handles
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
+    // ANCHOR: server-init
     let server = CustomServer::<ExampleBackend>::open(
         Path::new("server-data.bonsaidb"),
         Configuration {
-            default_permissions: DefaultPermissions::AllowAll,
+            default_permissions: DefaultPermissions::Permissions(Permissions::from(vec![
+                Statement {
+                    resources: vec![ResourceName::any()],
+                    actions: ActionNameList::List(vec![
+                        BonsaiAction::Server(ServerAction::Connect).name(),
+                        BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
+                    ]),
+                },
+            ])),
+            authenticated_permissions: DefaultPermissions::Permissions(Permissions::from(vec![
+                Statement {
+                    resources: vec![ResourceName::any()],
+                    actions: ActionNameList::List(vec![
+                        ExampleActions::DoSomethingSimple.name(),
+                        ExampleActions::DoSomethingCustom.name(),
+                    ]),
+                },
+            ])),
             ..Default::default()
         },
     )
     .await?;
+    // ANCHOR_END: server-init
+
+    // Create a user to allow testing authenticated permissions
+    match server.create_user("test-user").await {
+        Ok(_) | Err(bonsaidb::core::Error::UniqueKeyViolation { .. }) => {}
+        Err(other) => anyhow::bail!(other),
+    }
+
+    server.set_user_password_str("test-user", "hunter2").await?;
+
     if server.certificate_chain().await.is_err() {
         server.install_self_signed_certificate(true).await?;
     }
@@ -102,9 +227,7 @@ async fn main() -> anyhow::Result<()> {
         .await?
         .into_end_entity_certificate();
 
-    // If websockets are enabled, we'll also listen for websocket traffic. The
-    // QUIC-based connection should be overall better to use than WebSockets,
-    // but it's much easier to route WebSocket traffic across the internet.
+    // If websockets are enabled, we'll also listen for websocket traffic.
     #[cfg(feature = "websockets")]
     {
         let server = server.clone();
@@ -128,7 +251,7 @@ async fn main() -> anyhow::Result<()> {
     #[cfg(feature = "websockets")]
     {
         // To connect over websockets, use the websocket scheme.
-        tasks.push(ping_the_server(
+        tasks.push(invoke_apis(
             Client::build(Url::parse("ws://localhost:8080")?)
                 .with_custom_api()
                 .finish()
@@ -138,7 +261,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // To connect over QUIC, use the bonsaidb scheme.
-    tasks.push(ping_the_server(
+    tasks.push(invoke_apis(
         Client::build(Url::parse("bonsaidb://localhost")?)
             .with_custom_api()
             .with_certificate(certificate)
@@ -158,10 +281,60 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
+async fn invoke_apis(
+    client: Client<ExampleApi>,
+    client_name: &str,
+) -> Result<(), bonsaidb::core::Error> {
+    ping_the_server(&client, client_name).await?;
+
+    // Calling DoSomethingSimple and DoSomethingCustom will check permissions, which our client currently doesn't have access to.
+    assert!(matches!(
+        client
+            .send_api_request(Request::DoSomethingSimple { some_argument: 1 })
+            .await,
+        Err(bonsaidb::client::Error::Core(
+            bonsaidb::core::Error::PermissionDenied(_)
+        ))
+    ));
+    assert!(matches!(
+        client
+            .send_api_request(Request::DoSomethingCustom { some_argument: 1 })
+            .await,
+        Err(bonsaidb::client::Error::Core(
+            bonsaidb::core::Error::PermissionDenied(_)
+        ))
+    ));
+    // However, DoSomethingCustom with the argument `42` will succeed, because that argument has special logic in the handler.
+    assert!(matches!(
+        client
+            .send_api_request(Request::DoSomethingCustom { some_argument: 42 })
+            .await,
+        Ok(Response::DidSomething)
+    ));
+
+    // Now, let's authenticate and try calling the APIs that previously were denied permissions
+    client
+        .login_with_password_str("test-user", "hunter2", None)
+        .await?;
+    assert!(matches!(
+        client
+            .send_api_request(Request::DoSomethingSimple { some_argument: 1 })
+            .await,
+        Ok(Response::DidSomething)
+    ));
+    assert!(matches!(
+        client
+            .send_api_request(Request::DoSomethingCustom { some_argument: 1 })
+            .await,
+        Ok(Response::DidSomething)
+    ));
+
+    Ok(())
+}
 
 // ANCHOR: api-call
 async fn ping_the_server(
-    client: Client<ExampleApi>,
+    client: &Client<ExampleApi>,
     client_name: &str,
 ) -> Result<(), bonsaidb::core::Error> {
     match client.send_api_request(Request::Ping).await {

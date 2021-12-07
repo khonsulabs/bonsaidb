@@ -1,10 +1,10 @@
 use std::{fmt::Debug, marker::PhantomData};
 
-use actionable::PermissionDenied;
 use async_trait::async_trait;
 use bonsaidb_core::{
+    actionable,
     custom_api::{CustomApi, CustomApiError, Infallible},
-    permissions::Dispatcher,
+    permissions::{Dispatcher, PermissionDenied},
     schema::{InsertError, InvalidNameError},
 };
 

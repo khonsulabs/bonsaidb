@@ -3,6 +3,7 @@
 use bonsaidb::{
     client::{url::Url, Client},
     core::{
+        async_trait::async_trait,
         custom_api::CustomApi,
         permissions::{Actionable, Dispatcher, Permissions},
         test_util::{Basic, TestDirectory},
@@ -16,7 +17,7 @@ use bonsaidb_server::CustomApiDispatcher;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Dispatcher)]
-#[dispatcher(input = CustomRequest)]
+#[dispatcher(input = CustomRequest, actionable = bonsaidb::core::actionable)]
 struct CustomBackend {
     client: ConnectedClient<Self>,
 }
@@ -42,6 +43,7 @@ impl CustomApi for CustomBackend {
 }
 
 #[derive(Serialize, Deserialize, Debug, Actionable)]
+#[actionable(actionable = bonsaidb_core::actionable)]
 enum CustomRequest {
     #[actionable(protection = "none")]
     SetValue(u64),
@@ -92,7 +94,7 @@ impl CustomRequestDispatcher for CustomBackend {
     type Error = BackendError<Infallible>;
 }
 
-#[actionable::async_trait]
+#[async_trait]
 impl SetValueHandler for CustomBackend {
     async fn handle(
         &self,

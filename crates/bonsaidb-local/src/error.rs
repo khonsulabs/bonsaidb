@@ -1,6 +1,9 @@
 use std::{convert::Infallible, string::FromUtf8Error, sync::Arc};
 
-use bonsaidb_core::schema::{view, InvalidNameError};
+use bonsaidb_core::{
+    permissions::PermissionDenied,
+    schema::{view, InvalidNameError},
+};
 use nebari::AbortError;
 
 /// Errors that can occur from interacting with storage.
@@ -89,6 +92,12 @@ impl From<AbortError<Infallible>> for Error {
             AbortError::Nebari(error) => Self::Nebari(error),
             AbortError::Other(_) => unreachable!(),
         }
+    }
+}
+
+impl From<PermissionDenied> for Error {
+    fn from(err: PermissionDenied) -> Self {
+        Self::Core(bonsaidb_core::Error::from(err))
     }
 }
 

@@ -35,7 +35,7 @@ sha2 = "0.9"
 futures = { version = "0.3" }
 tokio = { version = "1", features = ["time"], optional = true }
 num-traits = "0.2"
-actionable = "0.1.0-rc.2"
+actionable = "0.1.0-rc.3"
 custodian-password = { git = "https://github.com/khonsulabs/custodian.git", branch = "main", default-features = false, features = [
     "blake3",
 ], optional = true }

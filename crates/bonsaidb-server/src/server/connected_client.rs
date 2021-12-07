@@ -4,10 +4,10 @@ use std::{
     sync::Arc,
 };
 
-use actionable::Permissions;
 use bonsaidb_core::{
     custodian_password::{LoginRequest, LoginResponse, ServerLogin},
     custom_api::CustomApiResult,
+    permissions::Permissions,
 };
 use flume::Sender;
 use tokio::sync::{Mutex, MutexGuard, RwLock};

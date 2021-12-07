@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use actionable::{Action, ActionNameList, Permissions, ResourceName};
 use bonsaidb::{
     client::{url::Url, Client, RemoteDatabase},
     core::{
+        actionable::{Action, ActionNameList, Permissions, ResourceName},
         admin::{Admin, PermissionGroup, ADMIN_DATABASE_NAME},
         circulate::flume,
         connection::StorageConnection,
