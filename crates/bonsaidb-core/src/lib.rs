@@ -34,7 +34,7 @@ pub mod schema;
 pub mod transaction;
 
 /// Types for utilizing a lightweight atomic Key-Value store.
-pub mod kv;
+pub mod keyvalue;
 
 /// Traits for tailoring a server.
 pub mod custom_api;

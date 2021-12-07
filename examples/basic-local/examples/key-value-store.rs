@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use bonsaidb::{
-    core::kv::{KeyStatus, Kv},
+    core::keyvalue::{KeyStatus, KeyValue},
     local::{config::Configuration, Database},
 };
 

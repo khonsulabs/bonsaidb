@@ -6,7 +6,7 @@ use std::path::Path;
 use async_trait::async_trait;
 use axum::{extract, routing::get, AddExtensionLayer, Router};
 use bonsaidb::{
-    core::{connection::StorageConnection, kv::Kv},
+    core::{connection::StorageConnection, keyvalue::KeyValue},
     server::{Configuration, DefaultPermissions, HttpService, Peer, Server, StandardTcpProtocols},
 };
 use hyper::{server::conn::Http, Body, Request, Response};

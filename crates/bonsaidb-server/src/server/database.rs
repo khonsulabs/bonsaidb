@@ -5,7 +5,7 @@ use bonsaidb_core::{
     circulate::Message,
     connection::{AccessPolicy, QueryKey, Range, Sort},
     document::Document,
-    kv::Kv,
+    keyvalue::KeyValue,
     pubsub::{PubSub, Subscriber},
     schema::{self, Collection, Map, MappedValue, View},
     transaction::Transaction,
@@ -217,11 +217,11 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
 
 /// Pass-through implementation
 #[async_trait]
-impl<B: Backend> Kv for ServerDatabase<B> {
+impl<B: Backend> KeyValue for ServerDatabase<B> {
     async fn execute_key_operation(
         &self,
-        op: bonsaidb_core::kv::KeyOperation,
-    ) -> Result<bonsaidb_core::kv::Output, bonsaidb_core::Error> {
+        op: bonsaidb_core::keyvalue::KeyOperation,
+    ) -> Result<bonsaidb_core::keyvalue::Output, bonsaidb_core::Error> {
         self.db.execute_key_operation(op).await
     }
 }

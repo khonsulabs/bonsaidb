@@ -6,7 +6,7 @@ use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use nebari::tree::{Root, Unversioned, Versioned};
 
 use crate::{
-    database::{document_tree_name, kv::KEY_TREE},
+    database::{document_tree_name, keyvalue::KEY_TREE},
     jobs::{Job, Keyed},
     tasks::Task,
     views::{

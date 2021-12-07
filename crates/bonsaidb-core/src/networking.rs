@@ -10,7 +10,7 @@ use crate::{
     admin::Database,
     connection::{AccessPolicy, QueryKey, Range, Sort},
     document::Document,
-    kv::{KeyOperation, Output},
+    keyvalue::{KeyOperation, Output},
     schema::{self, view::map, CollectionName, MappedValue, NamedReference, ViewName},
     transaction::{Executed, OperationResult, Transaction},
 };

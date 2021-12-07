@@ -144,7 +144,7 @@ pub enum DatabaseAction {
     /// Actions that operate on the `PubSub` system.
     PubSub(PubSubAction),
     /// Actions that operate on the key-value store.
-    Kv(KvAction),
+    KeyValue(KvAction),
 }
 
 /// Actions that operate on a document.
@@ -239,7 +239,7 @@ pub enum PubSubAction {
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum KvAction {
     /// Allows executing a key-value store operation with
-    /// [`Kv::execute_key_operation()`](crate::kv::Kv::execute_key_operation).
+    /// [`KeyValue::execute_key_operation()`](crate::kv::KeyValue::execute_key_operation).
     /// See [`kv_key_resource_name()`] for the format of key resource names.
     ExecuteOperation,
 }

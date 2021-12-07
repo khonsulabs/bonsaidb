@@ -1,20 +1,20 @@
 use futures::{Future, FutureExt};
 
-use super::{BuilderState, Command, KeyOperation, Kv, Output};
+use super::{BuilderState, Command, KeyOperation, KeyValue, Output};
 use crate::{
-    kv::{IncompatibleTypeError, Numeric, Value},
+    keyvalue::{IncompatibleTypeError, Numeric, Value},
     Error,
 };
 
 /// Executes [`Command::Set`] when awaited. Also offers methods to customize the
 /// options for the operation.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct Builder<'a, Kv, V> {
-    state: BuilderState<'a, Options<'a, Kv>, Result<V, Error>>,
+pub struct Builder<'a, KeyValue, V> {
+    state: BuilderState<'a, Options<'a, KeyValue>, Result<V, Error>>,
 }
 
-struct Options<'a, Kv> {
-    kv: &'a Kv,
+struct Options<'a, KeyValue> {
+    kv: &'a KeyValue,
     namespace: Option<String>,
     key: String,
     increment: bool,
@@ -24,7 +24,7 @@ struct Options<'a, Kv> {
 
 impl<'a, K, V> Builder<'a, K, V>
 where
-    K: Kv,
+    K: KeyValue,
 {
     pub(crate) fn new(
         kv: &'a K,
@@ -62,7 +62,7 @@ where
 
 impl<'a, K, V> Future for Builder<'a, K, V>
 where
-    K: Kv,
+    K: KeyValue,
     V: TryFrom<Numeric, Error = IncompatibleTypeError>,
 {
     type Output = Result<V, Error>;

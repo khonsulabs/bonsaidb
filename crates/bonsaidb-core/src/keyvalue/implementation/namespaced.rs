@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use super::{KeyOperation, Kv, Output};
+use super::{KeyOperation, KeyValue, Output};
 use crate::Error;
 
 /// A namespaced key-value store. All operations performed with this will be
@@ -17,9 +17,9 @@ impl<'a, K> Namespaced<'a, K> {
 }
 
 #[async_trait]
-impl<'a, K> Kv for Namespaced<'a, K>
+impl<'a, K> KeyValue for Namespaced<'a, K>
 where
-    K: Kv,
+    K: KeyValue,
 {
     async fn execute_key_operation(&self, op: KeyOperation) -> Result<Output, Error> {
         self.kv.execute_key_operation(op).await

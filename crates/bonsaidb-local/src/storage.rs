@@ -19,7 +19,7 @@ use bonsaidb_core::{
     },
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     document::{Document, KeyId},
-    kv::{KeyOperation, Output},
+    keyvalue::{KeyOperation, Output},
     permissions::Permissions,
     schema::{view::map, CollectionName, MappedValue, Schema, SchemaName, Schematic, ViewName},
     transaction::{Executed, OperationResult, Transaction},

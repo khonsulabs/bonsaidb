@@ -10,7 +10,7 @@ mod implementation {
     use serde::Serialize;
 
     use crate::{
-        kv::{Command, KeyCheck, KeyOperation, KeyStatus, Output, Timestamp},
+        keyvalue::{Command, KeyCheck, KeyOperation, KeyStatus, Output, Timestamp},
         Error,
     };
 
@@ -38,7 +38,7 @@ mod implementation {
     /// supports are executed atomically, the Key-Value store can also be utilized
     /// for synchronized locking.
     #[async_trait]
-    pub trait Kv: Sized + Send + Sync {
+    pub trait KeyValue: Sized + Send + Sync {
         /// Executes a single [`KeyOperation`].
         async fn execute_key_operation(&self, op: KeyOperation) -> Result<Output, Error>;
 

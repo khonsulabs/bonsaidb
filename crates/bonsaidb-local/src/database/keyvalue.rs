@@ -5,8 +5,8 @@ use std::{
 };
 
 use async_trait::async_trait;
-use bonsaidb_core::kv::{
-    Command, KeyCheck, KeyOperation, KeyStatus, Kv, Numeric, Output, Timestamp, Value,
+use bonsaidb_core::keyvalue::{
+    Command, KeyCheck, KeyOperation, KeyStatus, KeyValue, Numeric, Output, Timestamp, Value,
 };
 use nebari::{
     io::fs::StdFile,
@@ -24,7 +24,7 @@ pub struct Entry {
 }
 
 #[async_trait]
-impl Kv for Database {
+impl KeyValue for Database {
     async fn execute_key_operation(
         &self,
         op: KeyOperation,

@@ -219,7 +219,7 @@ fn encryption() -> anyhow::Result<()> {
 
 #[test]
 fn expiration_after_close() -> anyhow::Result<()> {
-    use bonsaidb_core::{kv::Kv, test_util::TimingTest};
+    use bonsaidb_core::{keyvalue::KeyValue, test_util::TimingTest};
     loop {
         let path = TestDirectory::new("expiration-after-close");
         // To ensure full cleanup between each block, each runs in its own runtime;

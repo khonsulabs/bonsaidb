@@ -1,18 +1,18 @@
 use futures::{Future, FutureExt};
 use serde::Deserialize;
 
-use super::{BuilderState, Command, KeyOperation, Kv, Output};
-use crate::{kv::Value, Error};
+use super::{BuilderState, Command, KeyOperation, KeyValue, Output};
+use crate::{keyvalue::Value, Error};
 
 /// Executes [`Command::Get`] when awaited. Also offers methods to customize the
 /// options for the operation.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct Builder<'a, Kv> {
-    state: BuilderState<'a, Options<'a, Kv>, Result<Option<Value>, Error>>,
+pub struct Builder<'a, KeyValue> {
+    state: BuilderState<'a, Options<'a, KeyValue>, Result<Option<Value>, Error>>,
 }
 
-struct Options<'a, Kv> {
-    kv: &'a Kv,
+struct Options<'a, KeyValue> {
+    kv: &'a KeyValue,
     namespace: Option<String>,
     key: String,
     delete: bool,
@@ -20,7 +20,7 @@ struct Options<'a, Kv> {
 
 impl<'a, K> Builder<'a, K>
 where
-    K: Kv,
+    K: KeyValue,
 {
     pub(crate) fn new(kv: &'a K, namespace: Option<String>, key: String) -> Self {
         Self {
@@ -151,7 +151,7 @@ where
 
 impl<'a, K> Future for Builder<'a, K>
 where
-    K: Kv,
+    K: KeyValue,
 {
     type Output = Result<Option<Value>, Error>;
 

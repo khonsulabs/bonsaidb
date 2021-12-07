@@ -7,19 +7,20 @@ use futures::{Future, FutureExt};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BuilderState, Command, KeyCheck, KeyOperation, KeyStatus, Kv, Output, PendingValue, Timestamp,
+    BuilderState, Command, KeyCheck, KeyOperation, KeyStatus, KeyValue, Output, PendingValue,
+    Timestamp,
 };
-use crate::{kv::Value, Error};
+use crate::{keyvalue::Value, Error};
 
 /// Executes [`Command::Set`] when awaited. Also offers methods to customize the
 /// options for the operation.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct Builder<'a, Kv, V> {
-    state: BuilderState<'a, Options<'a, Kv, V>, Result<KeyStatus, Error>>,
+pub struct Builder<'a, KeyValue, V> {
+    state: BuilderState<'a, Options<'a, KeyValue, V>, Result<KeyStatus, Error>>,
 }
 
-struct Options<'a, Kv, V> {
-    kv: &'a Kv,
+struct Options<'a, KeyValue, V> {
+    kv: &'a KeyValue,
     namespace: Option<String>,
     key: String,
     value: PendingValue<'a, V>,
@@ -30,7 +31,7 @@ struct Options<'a, Kv, V> {
 
 impl<'a, K, V> Builder<'a, K, V>
 where
-    K: Kv,
+    K: KeyValue,
     V: Serialize + Send + Sync,
 {
     pub(crate) fn new(
@@ -145,7 +146,7 @@ where
 
 impl<'a, K, V> Future for Builder<'a, K, V>
 where
-    K: Kv,
+    K: KeyValue,
     V: Serialize + Send + Sync,
 {
     type Output = Result<KeyStatus, Error>;

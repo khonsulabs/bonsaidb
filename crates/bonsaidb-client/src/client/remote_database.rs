@@ -15,7 +15,7 @@ use crate::Client;
 mod pubsub;
 pub use pubsub::*;
 
-mod kv;
+mod keyvalue;
 
 /// A database on a remote server.
 #[derive(Debug)]

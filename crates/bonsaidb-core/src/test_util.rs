@@ -17,7 +17,7 @@ use crate::{
     admin::Database,
     connection::{AccessPolicy, Connection, StorageConnection},
     document::{Document, KeyId},
-    kv::Kv,
+    keyvalue::KeyValue,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
         view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
@@ -1541,7 +1541,7 @@ pub async fn named_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()>
     Ok(())
 }
 
-pub async fn compaction_tests<C: Connection + Kv>(db: &C) -> anyhow::Result<()> {
+pub async fn compaction_tests<C: Connection + KeyValue>(db: &C) -> anyhow::Result<()> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     collection.push(&original_value).await?;
@@ -1637,13 +1637,13 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
     Ok(())
 }
 
-/// Defines the Kv test suite
+/// Defines the `KeyValue` test suite
 #[macro_export]
 macro_rules! define_kv_test_suite {
     ($harness:ident) => {
         #[tokio::test]
         async fn basic_kv_test() -> anyhow::Result<()> {
-            use $crate::kv::{KeyStatus, Kv};
+            use $crate::keyvalue::{KeyStatus, KeyValue};
             let harness = $harness::new($crate::test_util::HarnessTest::KvBasic).await?;
             let db = harness.connect().await?;
             assert_eq!(
@@ -1685,7 +1685,7 @@ macro_rules! define_kv_test_suite {
 
         #[tokio::test]
         async fn kv_set_tests() -> anyhow::Result<()> {
-            use $crate::kv::{KeyStatus, Kv};
+            use $crate::keyvalue::{KeyStatus, KeyValue};
             let harness = $harness::new($crate::test_util::HarnessTest::KvSet).await?;
             let db = harness.connect().await?;
             let kv = db.with_key_namespace("set");
@@ -1718,7 +1718,7 @@ macro_rules! define_kv_test_suite {
 
         #[tokio::test]
         async fn kv_increment_decrement_tests() -> anyhow::Result<()> {
-            use $crate::kv::{KeyStatus, Kv};
+            use $crate::keyvalue::{KeyStatus, KeyValue};
             let harness =
                 $harness::new($crate::test_util::HarnessTest::KvIncrementDecrement).await?;
             let db = harness.connect().await?;
@@ -1887,7 +1887,7 @@ macro_rules! define_kv_test_suite {
         async fn kv_expiration_tests() -> anyhow::Result<()> {
             use std::time::Duration;
 
-            use $crate::kv::{KeyStatus, Kv};
+            use $crate::keyvalue::{KeyStatus, KeyValue};
 
             let harness = $harness::new($crate::test_util::HarnessTest::KvExpiration).await?;
             let db = harness.connect().await?;
@@ -1961,7 +1961,7 @@ macro_rules! define_kv_test_suite {
         async fn delete_expire_tests() -> anyhow::Result<()> {
             use std::time::Duration;
 
-            use $crate::kv::{KeyStatus, Kv};
+            use $crate::keyvalue::{KeyStatus, KeyValue};
 
             let harness = $harness::new($crate::test_util::HarnessTest::KvDeleteExpire).await?;
             let db = harness.connect().await?;

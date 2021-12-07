@@ -21,7 +21,7 @@ use bonsaidb_core::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
     },
     custom_api::{CustomApi, CustomApiResult},
-    kv::KeyOperation,
+    keyvalue::KeyOperation,
     networking::{
         self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
         DeleteDatabaseHandler, Payload, Request, RequestDispatcher, Response, ServerRequest,
@@ -1931,7 +1931,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
     }
 
     fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::Kv(KvAction::ExecuteOperation))
+        BonsaiAction::Database(DatabaseAction::KeyValue(KvAction::ExecuteOperation))
     }
 
     async fn handle_protected(

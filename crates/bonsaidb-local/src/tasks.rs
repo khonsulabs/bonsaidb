@@ -175,7 +175,7 @@ impl TaskManager {
         database: &crate::Database,
     ) -> Handle<(), Error, Task> {
         self.jobs
-            .enqueue(crate::database::kv::ExpirationLoader {
+            .enqueue(crate::database::keyvalue::ExpirationLoader {
                 database: database.clone(),
             })
             .await

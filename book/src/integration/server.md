@@ -53,9 +53,9 @@ This is using a pinned certificate to connect. Other methods are supported, but 
 ## Common Traits
 
 * [`Server`][server] implements [`StorageConnection`](../traits/storage_connection.md).
-* [`Server::database()`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html#method.database) returns a local [`Database`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Database.html), which implements [`Connection`](../traits/connection.md), [`Kv`](../traits/kv.md), and [`PubSub`](../traits/kv.md). Local access in the server executable doesn't go over the network.
+* [`Server::database()`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html#method.database) returns a local [`Database`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Database.html), which implements [`Connection`](../traits/connection.md), [`KeyValue`](../traits/key-value.md), and [`PubSub`](../traits/pubsub.md). Local access in the server executable doesn't go over the network.
 * [`Client`][client] implements [`StorageConnection`](../traits/storage_connection.md).
-* [`Client::database()`](https://dev.bonsaidb.io/main/bonsaidb/client/struct.Client.html#method.database) returns a [`RemoteDatabase`](https://dev.bonsaidb.io/main/bonsaidb/client/struct.RemoteDatabase.html), which implements [`Connection`](../traits/connection.md), [`Kv`](../traits/kv.md), and [`PubSub`](../traits/kv.md).
+* [`Client::database()`](https://dev.bonsaidb.io/main/bonsaidb/client/struct.Client.html#method.database) returns a [`RemoteDatabase`](https://dev.bonsaidb.io/main/bonsaidb/client/struct.RemoteDatabase.html), which implements [`Connection`](../traits/connection.md), [`KeyValue`](../traits/key-value.md), and [`PubSub`](../traits/pubsub.md).
 
 [server]: https://dev.bonsaidb.io/main/bonsaidb/server/type.Server.html
 [storage]: https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html

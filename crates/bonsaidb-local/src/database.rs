@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     document::{Document, Header, KeyId},
-    kv::{KeyOperation, Kv, Output, Timestamp},
+    keyvalue::{KeyOperation, KeyValue, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
     schema::{
@@ -42,7 +42,7 @@ use crate::{
     Storage,
 };
 
-pub mod kv;
+pub mod keyvalue;
 
 pub mod pubsub;
 
@@ -1185,7 +1185,7 @@ impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
 #[derive(Debug, Clone)]
 pub(crate) struct Context {
     pub(crate) roots: Roots<StdFile>,
-    kv_expirer: Arc<std::sync::RwLock<Option<flume::Sender<kv::ExpirationUpdate>>>>,
+    kv_expirer: Arc<std::sync::RwLock<Option<flume::Sender<keyvalue::ExpirationUpdate>>>>,
 }
 
 impl Context {
@@ -1204,7 +1204,7 @@ impl Context {
     }
 
     pub(crate) fn update_key_expiration(&self, tree_key: String, expiration: Option<Timestamp>) {
-        let (update, completion_receiver) = kv::ExpirationUpdate::new(tree_key, expiration);
+        let (update, completion_receiver) = keyvalue::ExpirationUpdate::new(tree_key, expiration);
 
         // Assume that the expiration thread is initialized, as it is generally the positive-flow.
         let mut update = Some(update);
@@ -1229,7 +1229,7 @@ impl Context {
                 kv_sender.send(update).unwrap();
                 let context = self.clone();
                 tokio::task::spawn_blocking(move || {
-                    kv::expiration_thread(context, kv_expirer_receiver)
+                    keyvalue::expiration_thread(context, kv_expirer_receiver)
                 });
                 *sender = Some(kv_sender);
             }
@@ -1407,7 +1407,7 @@ impl OpenDatabase for Database {
         &self,
         op: KeyOperation,
     ) -> Result<Output, bonsaidb_core::Error> {
-        Kv::execute_key_operation(self, op).await
+        KeyValue::execute_key_operation(self, op).await
     }
 
     async fn compact_collection(
