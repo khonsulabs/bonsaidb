@@ -34,7 +34,7 @@ impl CustomApi for () {
 /// still must be declared as Serializable.
 #[derive(thiserror::Error, Debug, Clone, Serialize, Deserialize)]
 #[error("an unreachable error")]
-pub struct Infallible;
+pub enum Infallible {}
 
 /// An error that can be used within a [`CustomApi`] definition.
 pub trait CustomApiError:
