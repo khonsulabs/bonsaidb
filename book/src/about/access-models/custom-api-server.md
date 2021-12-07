@@ -4,7 +4,7 @@ The [`CustomApi`](https://dev.bonsaidb.io/main/bonsaidb/core/custom_api/trait.Cu
 
 > All code on this page comes from this example: [`examples/basic-server/examples/custom-api.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/custom-api.rs).
 
-This example defines a Request and a Response type, but uses `BonsaiDb`'s [`Infallible`](https://dev.bonsaidb.io/main/bonsaidb/core/custom_api/struct.Infallible.html) type for the error:
+This example defines a Request and a Response type, but uses `BonsaiDb`'s [`Infallible`](https://dev.bonsaidb.io/main/bonsaidb/core/custom_api/enum.Infallible.html) type for the error:
 
 ```rust,noplayground,no_run
 {{#include ../../../../examples/basic-server/examples/custom-api.rs:api-types}}
