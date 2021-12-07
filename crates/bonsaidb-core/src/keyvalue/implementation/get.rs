@@ -48,13 +48,13 @@ where
     }
 
     /// Deserializes the [`Value`] before returning. If the value is a
-    /// [`Numeric`](crate::kv::Numeric), an error will be returned.
+    /// [`Numeric`](crate::keyvalue::Numeric), an error will be returned.
     pub async fn into<V: for<'de> Deserialize<'de>>(self) -> Result<Option<V>, Error> {
         self.await?.map(|value| value.deserialize()).transpose()
     }
 
     /// Converts the [`Value`] to an `u64` before returning. If the value is not
-    /// a [`Numeric`](crate::kv::Numeric), an error will be returned. If the conversion to `u64`
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned. If the conversion to `u64`
     /// cannot be done without losing data, an error will be returned.
     #[allow(clippy::cast_sign_loss)]
     pub async fn into_u64(self) -> Result<Option<u64>, Error> {
@@ -72,7 +72,7 @@ where
     }
 
     /// Converts the [`Value`] to an `i64` before returning. If the value is not
-    /// a [`Numeric`](crate::kv::Numeric), an error will be returned. If the conversion to `i64`
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned. If the conversion to `i64`
     /// cannot be done without losing data, an error will be returned.
     #[allow(clippy::cast_possible_wrap)]
     pub async fn into_i64(self) -> Result<Option<i64>, Error> {
@@ -90,7 +90,7 @@ where
     }
 
     /// Converts the [`Value`] to an `f64` before returning. If the value is not
-    /// a [`Numeric`](crate::kv::Numeric), an error will be returned. If the conversion to `f64`
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned. If the conversion to `f64`
     /// cannot be done without losing data, an error will be returned.
     #[allow(clippy::cast_precision_loss)]
     pub async fn into_f64(self) -> Result<Option<f64>, Error> {
@@ -108,7 +108,7 @@ where
     }
 
     /// Converts the [`Value`] to an `u64` before returning. If the value is not
-    /// a [`Numeric`](crate::kv::Numeric), an error will be returned. If `saturating` is true, no
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned. If `saturating` is true, no
     /// overflows will be allowed during conversion.
     #[allow(clippy::cast_sign_loss)]
     pub async fn into_u64_lossy(self, saturating: bool) -> Result<Option<u64>, Error> {
@@ -122,7 +122,7 @@ where
     }
 
     /// Converts the [`Value`] to an `i64` before returning. If the value is not
-    /// a [`Numeric`](crate::kv::Numeric), an error will be returned. If `saturating` is true, no
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned. If `saturating` is true, no
     /// overflows will be allowed during conversion.
     #[allow(clippy::cast_possible_wrap)]
     pub async fn into_i64_lossy(self, saturating: bool) -> Result<Option<i64>, Error> {
@@ -136,7 +136,7 @@ where
     }
 
     /// Converts the [`Value`] to an `f64` before returning. If the value is not
-    /// a [`Numeric`](crate::kv::Numeric), an error will be returned.
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned.
     #[allow(clippy::cast_precision_loss)]
     pub async fn into_f64_lossy(self) -> Result<Option<f64>, Error> {
         match self.await? {

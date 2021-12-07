@@ -30,9 +30,9 @@ use bonsaidb_core::{
     permissions::{
         bonsai::{
             bonsaidb_resource_name, collection_resource_name, database_resource_name,
-            document_resource_name, kv_key_resource_name, kv_resource_name,
+            document_resource_name, keyvalue_key_resource_name, kv_resource_name,
             pubsub_topic_resource_name, user_resource_name, view_resource_name, BonsaiAction,
-            DatabaseAction, DocumentAction, KvAction, PubSubAction, ServerAction,
+            DatabaseAction, DocumentAction, KeyValueAction, PubSubAction, ServerAction,
             TransactionAction, ViewAction,
         },
         Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
@@ -1923,7 +1923,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
     type Action = BonsaiAction;
 
     async fn resource_name<'a>(&'a self, op: &'a KeyOperation) -> Result<ResourceName<'a>, Error> {
-        Ok(kv_key_resource_name(
+        Ok(keyvalue_key_resource_name(
             &self.name,
             op.namespace.as_deref(),
             &op.key,
@@ -1931,7 +1931,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
     }
 
     fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::KeyValue(KvAction::ExecuteOperation))
+        BonsaiAction::Database(DatabaseAction::KeyValue(KeyValueAction::ExecuteOperation))
     }
 
     async fn handle_protected(

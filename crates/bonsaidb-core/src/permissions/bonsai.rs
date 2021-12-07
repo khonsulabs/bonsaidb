@@ -63,7 +63,7 @@ pub fn kv_resource_name(database: &str) -> ResourceName<'_> {
 
 /// Creates a resource name for `key` within `namespace` within the key-value store of `database`.
 #[must_use]
-pub fn kv_key_resource_name<'a>(
+pub fn keyvalue_key_resource_name<'a>(
     database: &'a str,
     namespace: Option<&'a str>,
     key: &'a str,
@@ -144,7 +144,7 @@ pub enum DatabaseAction {
     /// Actions that operate on the `PubSub` system.
     PubSub(PubSubAction),
     /// Actions that operate on the key-value store.
-    KeyValue(KvAction),
+    KeyValue(KeyValueAction),
 }
 
 /// Actions that operate on a document.
@@ -237,10 +237,10 @@ pub enum PubSubAction {
 
 /// Actions that operate on the key-value store.
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
-pub enum KvAction {
+pub enum KeyValueAction {
     /// Allows executing a key-value store operation with
-    /// [`KeyValue::execute_key_operation()`](crate::kv::KeyValue::execute_key_operation).
-    /// See [`kv_key_resource_name()`] for the format of key resource names.
+    /// [`KeyValue::execute_key_operation()`](crate::keyvalue::KeyValue::execute_key_operation).
+    /// See [`keyvalue_key_resource_name()`] for the format of key resource names.
     ExecuteOperation,
 }
 
