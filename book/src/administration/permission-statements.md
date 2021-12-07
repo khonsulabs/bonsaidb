@@ -28,7 +28,7 @@ The [`DatabaseAction`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bo
 
 For `Collection`s, there are three resource names used. For actions that operate on the collection directly, the resource name is [`collection_resource_name(database, collection)`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/fn.database_resource_name.html). For actions that operate on a document, the resource name is [`document_resource_name(database, collection, id)`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/fn.document_resource_name.html). Finally, for actions that operate on a `View`, the resource name is [`view_resource_name(database, view)`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/fn.view_resource_name.html).
 
-For actions that operate upon the key-value entry, the resource name is [`kv_key_resource_name(database, namespace, key)`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/fn.kv_key_resource_name.html).
+For actions that operate upon the key-value entry, the resource name is [`keyvalue_key_resource_name(database, namespace, key)`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/fn.keyvalue_key_resource_name.html).
 
 For actions that operate on a `PubSub` topic, the resource name is [`pubsub_topic_resource_name(database, topic)`](https://dev.bonsaidb.io/main/bonsaidb/core/permissions/bonsai/fn.pubsub_topic_resource_name.html).
 
