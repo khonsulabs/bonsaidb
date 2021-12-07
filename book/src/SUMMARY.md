@@ -10,10 +10,10 @@
   - [View](./about/concepts/view.md)
   - [Schema](./about/concepts/schema.md)
   - [Database](./about/concepts/database.md)
-  - [Server](./about/concepts/server.md)
-  - [Client](./about/concepts/client.md)
+  - [Storage](./about/concepts/storage.md)
   - [PubSub](./about/concepts/pubsub.md)
 - [How can BonsaiDb be accessed?](./about/access_models.md)
+  - [Custom Api Server](./about/access-models/custom-api-server.md)
 
 # Integration
 

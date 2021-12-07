@@ -7,6 +7,5 @@ This is a list of common concepts that will be used throughout this book as well
 - [View](./concepts/view.md)
 - [Schema](./concepts/schema.md)
 - [Database](./concepts/database.md)
-- [Server](./concepts/server.md)
-- [Client](./concepts/client.md)
+- [Storage](./concepts/storage.md)
 - [PubSub](./concepts/pubsub.md)

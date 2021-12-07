@@ -46,9 +46,9 @@ graph LR
 
 A working example of this model can be found at [`examples/basic-server/examples/basic-server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/basic-server.rs). When writing client/server applications that utilize `BonsaiDb`, you can have the `BonsaiDb` server running withing your server application. This means that your server still has the ability not use networking to interact with `BonsaiDb`. Regardless of if you run any other server code, your `BonsaiDb` server will be accessible through a `Client` over the network.
 
-## Coming Later: API Platform model (QUIC or WebSockets)
+## API Platform model (QUIC or WebSockets)
 
-If you're finding yourself developing an API for your application, and all of the consumers of this API are already connected to `BonsaiDb`, you may want to take advantage of the `platform` feature. This is not implemented yet, but the vision is that by implementing a few callbacks to handle and respond to your own serde-compatible request type, you can implement a custom API that can be used directly from clients. And, by taking advantage of the permissions model that will be developed, you can even expose this API over the internet safely.
+If you're finding yourself developing an API for your application, and all of the consumers of this API are already connected to `BonsaiDb`, you may want to take advantage of the custom api functionality of the server:
 
 ```mermaid
 graph LR
@@ -56,15 +56,19 @@ graph LR
   server-code{{Rust Server Code}}
   client[[bonsaidb-client]]
   server[[bonsaidb-server]]
-  platform[[bonsaidb-platform]]
+  backend[[Backend]]
   local[(bonsaidb-local)]
   client-code <--> client
   client <-. network .-> server
   server <--> local
   server-code <--> server
-  server-code <--> platform
-  platform <--> server
+  server-code <--> backend
+  backend <--> server
 ```
+
+The `BonsaiDb` [`CustomServer`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html) type accepts one generic parameter that implements the [`Backend`](https://dev.bonsaidb.io/main/bonsaidb/server/trait.Backend.html) trait. This trait is used to customize the server in many ways, but one of the associated types is a [`CustomApi`](https://dev.bonsaidb.io/main/bonsaidb/core/custom_api/trait.CustomApi.html) implementor.
+
+See [this page](./access-models/custom-api-server.md) for an overview of how to set up a custom api server.
 
 ## Coming Later: Cluster model
 
