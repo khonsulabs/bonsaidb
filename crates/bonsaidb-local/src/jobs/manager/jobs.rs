@@ -18,11 +18,8 @@ pub struct Jobs<Key> {
     queue: Receiver<Box<dyn Executable>>,
 }
 
-impl<Key> Jobs<Key>
-where
-    Key: Clone + std::hash::Hash + Eq + Send + Sync + Debug + 'static,
-{
-    pub fn new() -> Self {
+impl<Key> Default for Jobs<Key> {
+    fn default() -> Self {
         let (queuer, queue) = flume::unbounded();
 
         Self {
@@ -33,7 +30,12 @@ where
             queue,
         }
     }
+}
 
+impl<Key> Jobs<Key>
+where
+    Key: Clone + std::hash::Hash + Eq + Send + Sync + Debug + 'static,
+{
     pub fn queue(&self) -> Receiver<Box<dyn Executable>> {
         self.queue.clone()
     }

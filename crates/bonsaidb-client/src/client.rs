@@ -26,6 +26,7 @@ use bonsaidb_core::{
     permissions::Permissions,
     schema::{NamedReference, Schema, SchemaName, Schematic},
 };
+use derive_where::DeriveWhere;
 use flume::Sender;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::task::JoinHandle;
@@ -69,17 +70,10 @@ pub type WebSocketError = tokio_tungstenite::tungstenite::Error;
 pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 
 /// Client for connecting to a `BonsaiDb` server.
-#[derive(Debug)]
+#[derive(Debug, DeriveWhere)]
+#[derive_where(Clone)]
 pub struct Client<A: CustomApi = ()> {
     pub(crate) data: Arc<Data<A>>,
-}
-
-impl<A: CustomApi> Clone for Client<A> {
-    fn clone(&self) -> Self {
-        Self {
-            data: self.data.clone(),
-        }
-    }
 }
 
 #[derive(Debug)]

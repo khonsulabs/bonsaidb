@@ -45,6 +45,7 @@ bincode = { version = "1", optional = true }
 serde_cbor = { version = "0.11", optional = true }
 itertools = "0.10"
 ordered-varint = "0.1.0-dev.1"
+derive-where = "1.0.0-rc.1"
 
 [dev-dependencies]
 hex-literal = "0.3"

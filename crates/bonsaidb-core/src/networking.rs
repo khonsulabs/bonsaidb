@@ -3,6 +3,7 @@ use custodian_password::{
     LoginFinalization, LoginRequest, LoginResponse, RegistrationFinalization, RegistrationRequest,
     RegistrationResponse,
 };
+use derive_where::DeriveWhere;
 use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 
@@ -25,7 +26,8 @@ pub struct Payload<T> {
 }
 
 /// A request made to a server.
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, DeriveWhere)]
+#[derive_where(Debug)]
 #[cfg_attr(feature = "actionable-traits", derive(actionable::Actionable))]
 pub enum Request<T> {
     /// A server-related request.
@@ -46,6 +48,7 @@ pub enum Request<T> {
         feature = "actionable-traits",
         actionable(protection = "none", subaction)
     )]
+    #[derive_where(skip_inner)]
     Api(T),
 }
 
@@ -294,7 +297,8 @@ pub enum DatabaseRequest {
 }
 
 /// A response from a server.
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, DeriveWhere)]
+#[derive_where(Debug)]
 pub enum Response<T> {
     /// A request succeded but provided no output.
     Ok,
@@ -303,6 +307,7 @@ pub enum Response<T> {
     /// A response to a [`DatabaseRequest`].
     Database(DatabaseResponse),
     /// A response to an Api request.
+    #[derive_where(skip_inner)]
     Api(T),
     /// An error occurred processing a request.
     Error(crate::Error),

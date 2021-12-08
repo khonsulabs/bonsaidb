@@ -45,6 +45,7 @@ use bonsaidb_local::{
     jobs::{manager::Manager, Job},
     OpenDatabase, Storage,
 };
+use derive_where::DeriveWhere;
 use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 use futures::{Future, StreamExt};
@@ -84,21 +85,14 @@ pub use self::{
 static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// A `BonsaiDb` server.
-#[derive(Debug)]
+#[derive(Debug, DeriveWhere)]
+#[derive_where(Clone)]
 pub struct CustomServer<B: Backend> {
     data: Arc<Data<B>>,
 }
 
 /// A `BonsaiDb` server without a custom backend.
 pub type Server = CustomServer<()>;
-
-impl<B: Backend> Clone for CustomServer<B> {
-    fn clone(&self) -> Self {
-        Self {
-            data: self.data.clone(),
-        }
-    }
-}
 
 #[derive(Debug)]
 struct Data<B: Backend = ()> {

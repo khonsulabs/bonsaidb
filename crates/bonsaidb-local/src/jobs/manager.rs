@@ -1,5 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
+use derive_where::DeriveWhere;
 use tokio::sync::RwLock;
 
 use crate::jobs::{
@@ -15,28 +16,11 @@ pub(crate) use managed_job::ManagedJob;
 mod tests;
 
 /// A background jobs manager.
-#[derive(Debug)]
+#[derive(Debug, DeriveWhere)]
+#[derive_where(Clone, Default)]
 pub struct Manager<Key = ()> {
+    // #[derive_where(default)]
     pub(crate) jobs: Arc<RwLock<jobs::Jobs<Key>>>,
-}
-
-impl<Key> Default for Manager<Key>
-where
-    Key: Clone + std::hash::Hash + Eq + Send + Sync + Debug + 'static,
-{
-    fn default() -> Self {
-        Self {
-            jobs: Arc::new(RwLock::new(jobs::Jobs::new())),
-        }
-    }
-}
-
-impl<Key> Clone for Manager<Key> {
-    fn clone(&self) -> Self {
-        Self {
-            jobs: self.jobs.clone(),
-        }
-    }
 }
 
 impl<Key> Manager<Key>

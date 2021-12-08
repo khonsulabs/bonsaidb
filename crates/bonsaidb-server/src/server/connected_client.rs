@@ -9,6 +9,7 @@ use bonsaidb_core::{
     custom_api::CustomApiResult,
     permissions::Permissions,
 };
+use derive_where::DeriveWhere;
 use flume::Sender;
 use tokio::sync::{Mutex, MutexGuard, RwLock};
 
@@ -25,7 +26,8 @@ pub enum Transport {
 }
 
 /// A connected database client.
-#[derive(Debug)]
+#[derive(Debug, DeriveWhere)]
+#[derive_where(Clone)]
 pub struct ConnectedClient<B: Backend = ()> {
     data: Arc<Data<B>>,
 }
@@ -45,14 +47,6 @@ struct Data<B: Backend = ()> {
 struct AuthenticationState {
     user_id: Option<u64>,
     permissions: Permissions,
-}
-
-impl<B: Backend> Clone for ConnectedClient<B> {
-    fn clone(&self) -> Self {
-        Self {
-            data: self.data.clone(),
-        }
-    }
 }
 
 impl<B: Backend> ConnectedClient<B> {
