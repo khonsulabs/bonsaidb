@@ -156,7 +156,12 @@ async fn connect<A: CustomApi>(
     ),
     Error<A::Error>,
 > {
-    let endpoint = Endpoint::new_client()
+    let mut endpoint = Endpoint::builder();
+    endpoint
+        .set_max_idle_timeout(None)
+        .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
+    let endpoint = endpoint
+        .build()
         .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
     let connecting = if let Some(certificate) = certificate {
         endpoint.connect_pinned(url, certificate, None).await?

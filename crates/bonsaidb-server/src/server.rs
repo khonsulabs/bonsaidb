@@ -348,8 +348,15 @@ impl<B: Backend> CustomServer<B> {
         let certificate = self.tls_certificate().await?;
         let keypair =
             KeyPair::from_parts(certificate.certificate_chain, certificate.private_key.0)?;
-
-        let mut server = Endpoint::new_server(port, keypair)?;
+        let mut builder = Endpoint::builder();
+        builder.set_address(([0; 8], port).into());
+        builder
+            .set_max_idle_timeout(None)
+            .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
+        builder.set_server_key_pair(Some(keypair));
+        let mut server = builder
+            .build()
+            .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
         {
             let mut endpoint = self.data.endpoint.write().await;
             *endpoint = Some(server.clone());
