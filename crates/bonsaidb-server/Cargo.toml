@@ -63,7 +63,6 @@ tracing = { version = "0.1", optional = true, default-features = false, features
 ] }
 log = "0.4"
 signal-hook = "0.3"
-signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 env_logger = { version = "0.9", optional = true }
 derive-where = "1.0.0-rc.1"
 

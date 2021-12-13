@@ -51,10 +51,10 @@ use flume::Sender;
 use futures::{Future, StreamExt};
 use rustls::sign::CertifiedKey;
 use schema::SchemaName;
-#[cfg(not(windows))]
-use signal_hook::consts::signal::SIGQUIT;
-use signal_hook::consts::signal::{SIGINT, SIGTERM};
-use signal_hook_tokio::Signals;
+use signal_hook::{
+    consts::{SIGINT, SIGQUIT},
+    iterator::Signals,
+};
 use tokio::sync::{Mutex, RwLock};
 
 #[cfg(feature = "acme")]
@@ -667,15 +667,10 @@ impl<B: Backend> CustomServer<B> {
     /// shut down and attempts to gracefully shut down.
     pub async fn listen_for_shutdown(&self) -> Result<(), Error> {
         let shutdown_state = Arc::new(Mutex::new(ShutdownState::Running));
-        match Signals::new(&[
-            SIGINT,
-            SIGTERM,
-            #[cfg(not(windows))]
-            SIGQUIT,
-        ]) {
+        match Signals::new(&[SIGINT, SIGQUIT]) {
             Ok(mut signals) => {
                 'outer: loop {
-                    while let Some(signal) = signals.next().await {
+                    for signal in signals.pending() {
                         match signal {
                             SIGINT => {
                                 let mut state = shutdown_state.lock().await;
