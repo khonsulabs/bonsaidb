@@ -54,5 +54,5 @@ define_basic_unique_mapped_view!(
     1,
     "by-name",
     String,
-    |document: CollectionDocument<Role>| { vec![document.header.emit_key(document.contents.name)] }
+    |document: CollectionDocument<Role>| { document.header.emit_key(document.contents.name) }
 );

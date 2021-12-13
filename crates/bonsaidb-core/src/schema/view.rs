@@ -4,13 +4,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     document::Document,
-    schema::{Collection, CollectionDocument, CollectionName, InvalidNameError, Name, ViewName},
+    schema::{
+        view::map::{MappedValue, Mappings},
+        Collection, CollectionDocument, CollectionName, InvalidNameError, Name, ViewName,
+    },
     AnyError,
 };
 
 /// Types for defining a `Map` within a `View`.
 pub mod map;
-use map::{Map, MappedValue};
 
 mod key;
 pub use self::key::*;
@@ -71,7 +73,7 @@ impl From<bincode::Error> for Error {
 }
 
 /// A type alias for the result of `View::map()`.
-pub type MapResult<K = (), V = ()> = Result<Vec<Map<K, V>>, Error>;
+pub type MapResult<K = (), V = ()> = Result<Mappings<K, V>, Error>;
 
 /// A map/reduce powered indexing and aggregation schema.
 ///

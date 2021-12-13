@@ -77,10 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The underlying dependency on `sled` has been changed for an in-house storage
   implementation [`nebari`](https://github.com/khonsulabs/nebari).
 - The command-line interface has received an overhaul.
-- `View::map` now returns a `Vec` instead of an `Option`, allowing for emitting
-  of multiple keys. This may change again to provide a non-heap allocation
-  mechanism for a single emit. Please provide feedback if this shows up in a
-  benchmark in a meaningful amount.
+- `View::map` now returns a `Mappings` instead of an `Option`, allowing for
+  emitting of multiple keys.
 - View mapping now stores the source document header, not just the ID.
 - `bonsaidb::server::Configuration::default_permissions` has been changed into a
   `DefaultPermissions` enum.

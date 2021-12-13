@@ -33,6 +33,105 @@ impl<K: Key, V: Serialize> Map<K, V> {
     }
 }
 
+/// A collection of [`Map`]s.
+#[derive(Debug, PartialEq)]
+pub enum Mappings<K: Key = (), V: Serialize = ()> {
+    /// Zero or one mappings.
+    Simple(Option<Map<K, V>>),
+    /// More than one mapping.
+    List(Vec<Map<K, V>>),
+}
+
+impl<K: Key, V: Serialize> Mappings<K, V> {
+    /// Returns an empty collection of mappings.
+    pub fn none() -> Self {
+        Self::Simple(None)
+    }
+
+    /// Appends `mapping` to the end of this collection.
+    pub fn push(&mut self, mapping: Map<K, V>) {
+        match self {
+            Self::Simple(existing_mapping) => {
+                *self = if let Some(existing_mapping) = existing_mapping.take() {
+                    Self::List(vec![existing_mapping, mapping])
+                } else {
+                    Self::Simple(Some(mapping))
+                };
+            }
+            Self::List(vec) => vec.push(mapping),
+        }
+    }
+
+    /// Appends `mappings` to the end of this collection and returns self.
+    pub fn and(mut self, mappings: Self) -> Self {
+        self.extend(mappings);
+        self
+    }
+}
+
+impl<K: Key, V: Serialize> Extend<Map<K, V>> for Mappings<K, V> {
+    fn extend<T: IntoIterator<Item = Map<K, V>>>(&mut self, iter: T) {
+        let iter = iter.into_iter();
+        for map in iter {
+            self.push(map);
+        }
+    }
+}
+
+impl<K: Key, V: Serialize> FromIterator<Map<K, V>> for Mappings<K, V> {
+    fn from_iter<T: IntoIterator<Item = Map<K, V>>>(iter: T) -> Self {
+        let mut mappings = Self::none();
+        mappings.extend(iter);
+        mappings
+    }
+}
+
+impl<K: Key, V: Serialize> FromIterator<Self> for Mappings<K, V> {
+    fn from_iter<T: IntoIterator<Item = Self>>(iter: T) -> Self {
+        let mut iter = iter.into_iter();
+        if let Some(mut collected) = iter.next() {
+            for mappings in iter {
+                collected.extend(mappings);
+            }
+            collected
+        } else {
+            Self::none()
+        }
+    }
+}
+
+impl<K: Key, V: Serialize> IntoIterator for Mappings<K, V> {
+    type Item = Map<K, V>;
+
+    type IntoIter = MappingsIter<K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            Mappings::Simple(option) => MappingsIter::Inline(option),
+            Mappings::List(list) => MappingsIter::Vec(list.into_iter()),
+        }
+    }
+}
+
+/// An iterator over [`Mappings`].
+pub enum MappingsIter<K: Key = (), V: Serialize = ()> {
+    /// An iterator over a [`Mappings::Simple`] value.
+    Inline(Option<Map<K, V>>),
+    /// An iterator over a [`Mappings::List`] value.
+    Vec(std::vec::IntoIter<Map<K, V>>),
+}
+
+impl<K: Key, V: Serialize> Iterator for MappingsIter<K, V> {
+    type Item = Map<K, V>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            MappingsIter::Inline(opt) => opt.take(),
+            MappingsIter::Vec(iter) => iter.next(),
+        }
+    }
+}
+
 /// A document's entry in a View's mappings.
 #[derive(Debug)]
 pub struct MappedDocument<K: Key = (), V: Serialize = ()> {

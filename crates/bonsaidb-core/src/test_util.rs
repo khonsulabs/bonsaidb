@@ -20,7 +20,8 @@ use crate::{
     keyvalue::KeyValue,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
-        view, Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
+        view::{self, map::Mappings},
+        Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
         NamedCollection, Schema, SchemaName, Schematic, View,
     },
     Error, ENCRYPTION_ENABLED,
@@ -154,7 +155,7 @@ impl View for BasicCount {
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        Ok(vec![document.emit_key_and_value((), 1)])
+        Ok(document.emit_key_and_value((), 1))
     }
 
     fn reduce(
@@ -184,7 +185,7 @@ impl View for BasicByParentId {
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<Basic>()?;
-        Ok(vec![document.emit_key_and_value(contents.parent_id, 1)])
+        Ok(document.emit_key_and_value(contents.parent_id, 1))
     }
 
     fn reduce(
@@ -215,9 +216,9 @@ impl View for BasicByCategory {
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<Basic>()?;
         if let Some(category) = &contents.category {
-            Ok(vec![document.emit_key_and_value(category.to_lowercase(), 1)])
+            Ok(document.emit_key_and_value(category.to_lowercase(), 1))
         } else {
-            Ok(Vec::new())
+            Ok(Mappings::none())
         }
     }
 
@@ -282,7 +283,7 @@ impl View for BasicByBrokenParentId {
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        Ok(vec![document.emit()])
+        Ok(document.emit())
     }
 }
 
@@ -351,7 +352,7 @@ impl View for EncryptedBasicCount {
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        Ok(vec![document.emit_key_and_value((), 1)])
+        Ok(document.emit_key_and_value((), 1))
     }
 
     fn reduce(
@@ -381,7 +382,7 @@ impl View for EncryptedBasicByParentId {
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<EncryptedBasic>()?;
-        Ok(vec![document.emit_key_and_value(contents.parent_id, 1)])
+        Ok(document.emit_key_and_value(contents.parent_id, 1))
     }
 
     fn reduce(
@@ -412,9 +413,9 @@ impl View for EncryptedBasicByCategory {
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<EncryptedBasic>()?;
         if let Some(category) = &contents.category {
-            Ok(vec![document.emit_key_and_value(category.to_lowercase(), 1)])
+            Ok(document.emit_key_and_value(category.to_lowercase(), 1))
         } else {
-            Ok(Vec::new())
+            Ok(Mappings::none())
         }
     }
 
@@ -493,7 +494,7 @@ impl View for UniqueValue {
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
         let entry = document.contents::<Unique>()?;
-        Ok(vec![document.emit_key(entry.value)])
+        Ok(document.emit_key(entry.value))
     }
 }
 

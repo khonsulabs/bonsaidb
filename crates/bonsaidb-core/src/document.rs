@@ -6,7 +6,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{Collection, CollectionSerializer, Key, Map};
+use crate::schema::{view::map::Mappings, Collection, CollectionSerializer, Key, Map};
 
 mod revision;
 pub use revision::Revision;
@@ -24,19 +24,19 @@ pub struct Header {
 impl Header {
     /// Creates a `Map` result with an empty key and value.
     #[must_use]
-    pub fn emit(&self) -> Map<(), ()> {
+    pub fn emit(&self) -> Mappings<(), ()> {
         self.emit_key_and_value((), ())
     }
 
     /// Creates a `Map` result with a `key` and an empty value.
     #[must_use]
-    pub fn emit_key<K: Key>(&self, key: K) -> Map<K, ()> {
+    pub fn emit_key<K: Key>(&self, key: K) -> Mappings<K, ()> {
         self.emit_key_and_value(key, ())
     }
 
     /// Creates a `Map` result with `value` and an empty key.
     #[must_use]
-    pub fn emit_value<Value: Serialize>(&self, value: Value) -> Map<(), Value> {
+    pub fn emit_value<Value: Serialize>(&self, value: Value) -> Mappings<(), Value> {
         self.emit_key_and_value((), value)
     }
 
@@ -46,8 +46,8 @@ impl Header {
         &self,
         key: K,
         value: Value,
-    ) -> Map<K, Value> {
-        Map::new(self.clone(), key, value)
+    ) -> Mappings<K, Value> {
+        Mappings::Simple(Some(Map::new(self.clone(), key, value)))
     }
 }
 
@@ -173,15 +173,41 @@ fn emissions_tests() -> Result<(), crate::Error> {
 
     let doc = Document::with_contents(1, &Basic::default())?;
 
-    assert_eq!(doc.emit(), Map::new(doc.header.clone(), (), ()));
+    assert_eq!(
+        doc.emit(),
+        Mappings::Simple(Some(Map::new(doc.header.clone(), (), ())))
+    );
 
-    assert_eq!(doc.emit_key(1), Map::new(doc.header.clone(), 1, ()));
+    assert_eq!(
+        doc.emit_key(1),
+        Mappings::Simple(Some(Map::new(doc.header.clone(), 1, ())))
+    );
 
-    assert_eq!(doc.emit_value(1), Map::new(doc.header.clone(), (), 1));
+    assert_eq!(
+        doc.emit_value(1),
+        Mappings::Simple(Some(Map::new(doc.header.clone(), (), 1)))
+    );
 
     assert_eq!(
         doc.emit_key_and_value(1, 2),
-        Map::new(doc.header.clone(), 1, 2)
+        Mappings::Simple(Some(Map::new(doc.header.clone(), 1, 2)))
+    );
+
+    Ok(())
+}
+
+#[test]
+fn chained_mappings_test() -> Result<(), crate::Error> {
+    use crate::{schema::Map, test_util::Basic};
+
+    let doc = Document::with_contents(1, &Basic::default())?;
+
+    assert_eq!(
+        doc.emit().and(doc.emit()),
+        Mappings::List(vec![
+            Map::new(doc.header.clone(), (), ()),
+            Map::new(doc.header.clone(), (), ())
+        ])
     );
 
     Ok(())

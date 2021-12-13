@@ -138,10 +138,10 @@ impl CollectionView for AsHistogram {
             histogram.record(*sample).unwrap();
         }
 
-        Ok(vec![document.emit_key_and_value(
+        Ok(document.emit_key_and_value(
             document.contents.timestamp,
             StoredHistogram(histogram.into_sync()),
-        )])
+        ))
     }
 
     fn reduce(

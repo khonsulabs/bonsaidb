@@ -95,6 +95,6 @@ impl View for Singleton {
     }
 
     fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
-        Ok(vec![document.emit()])
+        Ok(document.emit())
     }
 }

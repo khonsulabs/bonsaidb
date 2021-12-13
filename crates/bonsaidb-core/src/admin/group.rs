@@ -58,6 +58,6 @@ define_basic_unique_mapped_view!(
     "by-name",
     String,
     |document: CollectionDocument<PermissionGroup>| {
-        vec![document.header.emit_key(document.contents.name)]
+        document.header.emit_key(document.contents.name)
     }
 );

@@ -45,9 +45,9 @@ define_basic_unique_mapped_view!(
     "by-contacts",
     String,
     |document: CollectionDocument<AcmeAccount>| {
-        vec![document
+        document
             .header
-            .emit_key(document.contents.contacts.join(";"))]
+            .emit_key(document.contents.contacts.join(";"))
     }
 );
 

@@ -122,7 +122,5 @@ define_basic_unique_mapped_view!(
     1,
     "by-name",
     String,
-    |document: CollectionDocument<User>| {
-        vec![document.header.emit_key(document.contents.username)]
-    }
+    |document: CollectionDocument<User>| { document.header.emit_key(document.contents.username) }
 );

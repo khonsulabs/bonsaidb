@@ -35,9 +35,9 @@ define_basic_unique_mapped_view!(
     String,
     SchemaName,
     |document: CollectionDocument<Database>| {
-        vec![document.header.emit_key_and_value(
+        document.header.emit_key_and_value(
             document.contents.name.to_ascii_lowercase(),
             document.contents.schema,
-        )]
+        )
     },
 );

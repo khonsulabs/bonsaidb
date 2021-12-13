@@ -68,7 +68,7 @@ impl CollectionView for ShapesByNumberOfSides {
     }
 
     fn map(&self, document: CollectionDocument<Shape>) -> MapResult<Self::Key, Self::Value> {
-        Ok(vec![document.emit_key_and_value(document.contents.sides, 1)])
+        Ok(document.emit_key_and_value(document.contents.sides, 1))
     }
 
     fn reduce(
