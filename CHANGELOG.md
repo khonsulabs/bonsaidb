@@ -70,6 +70,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to build multi-operation transactions.
 - The `Key` trait is now automatically implemented for tuples of up to 8 entries
   in length.
+- `CollectionDocument::modify()` enables updating a document using a flow that
+  will automatically fetch the document if a conflict is detected, re-invoking
+  the callback to redo the modifications. This is useful for situations where
+  you may have cached a document locally and wish to update it in the future,
+  but don't want to refresh it before saving. It also will help, in general,
+  with saving documents that might have some contention.
+- `CustomServer::authenticate_client_as()` allows setting a `ConnectedClient`'s
+  authenticated user, skipping BonsaiDb's authentication. This allows developers
+  to still utilize the users and permissions within BonsaiDb while
+  authenticating via some other mechanism.
 
 ### Changed
 
