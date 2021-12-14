@@ -896,6 +896,10 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     Ok(())
 }
 
+#[cfg_attr(
+    not(any(feature = "json", feature = "cbor", feature = "bincode")),
+    allow(clippy::unused_async, unused_variables)
+)]
 pub async fn collection_serialization_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     #[cfg(feature = "json")]
     {
