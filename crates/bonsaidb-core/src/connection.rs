@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "multiuser")]
 use crate::schema::NamedReference;
 use crate::{
-    admin::Database,
     document::{Document, Header},
     schema::{self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName},
     transaction::{self, OperationResult, Transaction},
@@ -892,4 +891,13 @@ pub struct PasswordResult {
     /// that upon logging in with your password, this key will always be the
     /// same until you change your password.
     pub export_key: ExportKey,
+}
+
+/// A database stored in `BonsaiDb`.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct Database {
+    /// The name of the database.
+    pub name: String,
+    /// The schema defining the database.
+    pub schema: SchemaName,
 }

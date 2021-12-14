@@ -14,15 +14,14 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "multiuser")]
 use crate::admin::{PermissionGroup, Role, User};
 use crate::{
-    admin::Database,
     connection::{AccessPolicy, Connection, StorageConnection},
     document::{Document, KeyId},
     keyvalue::KeyValue,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
         view::{self, map::Mappings},
-        Collection, CollectionName, InvalidNameError, MapResult, MappedValue, Name,
-        NamedCollection, Schema, SchemaName, Schematic, View,
+        Collection, CollectionDocument, CollectionName, InvalidNameError, MapResult, MappedValue,
+        Name, NamedCollection, Schema, SchemaName, Schematic, View,
     },
     Error, ENCRYPTION_ENABLED,
 };
@@ -998,6 +997,16 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         }
         other => return Err(anyhow::Error::from(other)),
     }
+
+    // Now, let's use the CollectionDocument API to modify the document through a refetch.
+    let mut doc = CollectionDocument::<Basic>::try_from(doc)?;
+    doc.modify(db, |doc| {
+        doc.contents.value = String::from("modify worked");
+    })
+    .await?;
+    assert_eq!(doc.contents.value, "modify worked");
+    let doc = Basic::get(doc.id, db).await?.unwrap();
+    assert_eq!(doc.contents.value, "modify worked");
 
     Ok(())
 }
@@ -2087,10 +2096,7 @@ pub async fn basic_server_connection_tests<C: StorageConnection>(
     assert!(schemas.contains(&SchemaName::new("khonsulabs", "bonsaidb-admin")?));
 
     let databases = server.list_databases().await?;
-    assert!(databases.contains(&Database {
-        name: String::from("tests"),
-        schema: Basic::schema_name()?
-    }));
+    assert!(databases.iter().any(|db| db.name == "tests"));
 
     server.create_database::<Basic>(newdb_name, false).await?;
     server.delete_database(newdb_name).await?;

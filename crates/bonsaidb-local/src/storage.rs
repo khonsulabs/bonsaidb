@@ -17,7 +17,7 @@ use bonsaidb_core::{
         database::{self, ByName, Database as DatabaseRecord},
         Admin, ADMIN_DATABASE_NAME,
     },
-    connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
+    connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     document::{Document, KeyId},
     keyvalue::{KeyOperation, Output},
     permissions::Permissions,
@@ -701,11 +701,11 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn list_databases(&self) -> Result<Vec<admin::Database>, bonsaidb_core::Error> {
+    async fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
         let available_databases = self.data.available_databases.read().await;
         Ok(available_databases
             .iter()
-            .map(|(name, schema)| admin::Database {
+            .map(|(name, schema)| connection::Database {
                 name: name.to_string(),
                 schema: schema.clone(),
             })

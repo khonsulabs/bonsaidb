@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     define_basic_unique_mapped_view,
     schema::{
-        Collection, CollectionDocument, CollectionName, InvalidNameError, SchemaName, Schematic,
+        Collection, CollectionDocument, CollectionName, InvalidNameError, NamedCollection,
+        SchemaName, Schematic,
     },
     Error,
 };
@@ -41,3 +42,7 @@ define_basic_unique_mapped_view!(
         )
     },
 );
+
+impl NamedCollection for Database {
+    type ByNameView = ByName;
+}

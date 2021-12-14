@@ -263,6 +263,44 @@ where
         Ok(())
     }
 
+    /// Modifies `self`, automatically retrying the modification if the document
+    /// has been updated on the server.
+    ///
+    /// ## Data loss warning
+    ///
+    /// If you've modified `self` before calling this function and a conflict
+    /// occurs, all changes to self will be lost when the current document is
+    /// fetched before retrying the process again. When you use this function,
+    /// you should limit the edits to the value to within the `modifier`
+    /// callback.
+    pub async fn modify<Cn: Connection, Modifier: FnMut(&mut Self) + Send + Sync>(
+        &mut self,
+        connection: &Cn,
+        mut modifier: Modifier,
+    ) -> Result<(), Error> {
+        let mut is_first_loop = true;
+        // TODO this should have a retry-limit.
+        loop {
+            // On the first attempt, we want to try sending the update to the
+            // database without fetching new contents. If we receive a conflict,
+            // on future iterations we will first re-load the data.
+            if is_first_loop {
+                is_first_loop = false;
+            } else {
+                *self = C::get(self.header.id, connection).await?.ok_or_else(|| {
+                    C::collection_name().map_or_else(Error::from, |collection| {
+                        Error::DocumentNotFound(collection, self.header.id)
+                    })
+                })?;
+            }
+            modifier(&mut *self);
+            match dbg!(self.update(connection).await) {
+                Err(Error::DocumentConflict(..)) => {}
+                other => return other,
+            }
+        }
+    }
+
     /// Removes the document from the collection.
     pub async fn delete<Cn: Connection>(&self, connection: &Cn) -> Result<(), Error> {
         let doc = self.to_document()?;
