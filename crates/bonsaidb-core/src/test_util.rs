@@ -581,6 +581,7 @@ impl Collection for UnassociatedCollection {
 pub enum HarnessTest {
     ServerConnectionTests = 1,
     StoreRetrieveUpdate,
+    CollectionSerialization,
     NotFound,
     Conflict,
     BadUpdate,
@@ -659,6 +660,15 @@ macro_rules! define_connection_test_suite {
                 $harness::new($crate::test_util::HarnessTest::StoreRetrieveUpdate).await?;
             let db = harness.connect().await?;
             $crate::test_util::store_retrieve_update_delete_tests(&db).await?;
+            harness.shutdown().await
+        }
+
+        #[tokio::test]
+        async fn collection_serialization() -> anyhow::Result<()> {
+            let harness =
+                $harness::new($crate::test_util::HarnessTest::CollectionSerialization).await?;
+            let db = harness.connect().await?;
+            $crate::test_util::collection_serialization_tests(&db).await?;
             harness.shutdown().await
         }
 
@@ -883,8 +893,10 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     let reloaded = Basic::get(doc.header.id, db).await?.unwrap();
     assert_eq!(doc.contents, reloaded.contents);
 
-    // Test alternative serialization strategies
+    Ok(())
+}
 
+pub async fn collection_serialization_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     #[cfg(feature = "json")]
     {
         let header = db
@@ -898,6 +910,11 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         assert!(serde_json::from_slice::<JsonBasic>(&doc.contents).is_ok());
         let deserialized = doc.contents::<JsonBasic>().unwrap();
         assert_eq!(deserialized.value, 1);
+
+        // Use the CollectionDocument interface
+        let inserted = JsonBasic { value: 2 }.insert_into(db).await?;
+        let retrieved = JsonBasic::get(inserted.id, db).await?;
+        assert_eq!(Some(inserted), retrieved);
     }
     #[cfg(feature = "cbor")]
     {
@@ -912,6 +929,11 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         assert!(serde_cbor::from_slice::<CborBasic>(&doc.contents).is_ok());
         let deserialized = doc.contents::<CborBasic>().unwrap();
         assert_eq!(deserialized.value, 1);
+
+        // Use the CollectionDocument interface
+        let inserted = CborBasic { value: 2 }.insert_into(db).await?;
+        let retrieved = CborBasic::get(inserted.id, db).await?;
+        assert_eq!(Some(inserted), retrieved);
     }
     #[cfg(feature = "bincode")]
     {
@@ -926,6 +948,11 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         assert!(bincode::deserialize::<BincodeBasic>(&doc.contents).is_ok());
         let deserialized = doc.contents::<BincodeBasic>().unwrap();
         assert_eq!(deserialized.value, 1);
+
+        // Use the CollectionDocument interface
+        let inserted = BincodeBasic { value: 2 }.insert_into(db).await?;
+        let retrieved = BincodeBasic::get(inserted.id, db).await?;
+        assert_eq!(Some(inserted), retrieved);
     }
 
     Ok(())
