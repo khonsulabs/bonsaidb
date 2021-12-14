@@ -729,6 +729,32 @@ impl<B: Backend> CustomServer<B> {
         Ok(())
     }
 
+    /// Manually authenticates `client` as `user`. `user` can be the user's id
+    /// ([`u64`]) or the username ([`String`]/[`str`]). Returns the permissions
+    /// that the user now has.
+    pub async fn authenticate_client_as<'name, N: Into<NamedReference<'name>> + Send + Sync>(
+        &self,
+        user: N,
+        client: &ConnectedClient<B>,
+    ) -> Result<Permissions, Error> {
+        let admin = self.data.storage.admin().await;
+        let user = User::load(user, &admin)
+            .await?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
+
+        let permissions = user.contents.effective_permissions(&admin).await?;
+        let permissions = Permissions::merged(
+            [
+                &permissions,
+                &self.data.authenticated_permissions,
+                &self.data.default_permissions,
+            ]
+            .into_iter(),
+        );
+        client.logged_in_as(user.id, permissions.clone()).await;
+        Ok(permissions)
+    }
+
     async fn publish_message(&self, database: &str, topic: &str, payload: Vec<u8>) {
         self.data
             .relay
@@ -1224,21 +1250,10 @@ impl<'s, B: Backend> bonsaidb_core::networking::FinishPasswordLoginHandler
         if let Some((user_id, login)) = self.client.take_pending_password_login().await {
             login.finish(password_request)?;
             let user_id = user_id.expect("logged in without a user_id");
-            let admin = self.server.data.storage.admin().await;
-            let user = User::get(user_id, &admin)
-                .await?
-                .ok_or(bonsaidb_core::Error::UserNotFound)?;
-
-            let permissions = user.contents.effective_permissions(&admin).await?;
-            let permissions = Permissions::merged(
-                [
-                    &permissions,
-                    &self.server.data.authenticated_permissions,
-                    &self.server.data.default_permissions,
-                ]
-                .into_iter(),
-            );
-            self.client.logged_in_as(user_id, permissions.clone()).await;
+            let permissions = self
+                .server
+                .authenticate_client_as(user_id, self.client)
+                .await?;
 
             Ok(Response::Server(ServerResponse::LoggedIn { permissions }))
         } else {
