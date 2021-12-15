@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
-#[cfg(feature = "websockets")]
+#[cfg(any(feature = "websockets", feature = "acme"))]
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
+#[cfg(feature = "acme")]
+use std::time::Duration;
 
 use structopt::StructOpt;
 
@@ -13,12 +15,12 @@ pub struct Serve<B: Backend> {
     #[structopt(short = "l", long = "listen-on")]
     pub listen_on: Option<u16>,
 
-    #[cfg(feature = "websockets")]
+    #[cfg(any(feature = "websockets", feature = "acme"))]
     /// The bind port and address for HTTP traffic. Defaults to 80.
     #[structopt(long = "http")]
     pub http_port: Option<SocketAddr>,
 
-    #[cfg(feature = "websockets")]
+    #[cfg(any(feature = "websockets", feature = "acme"))]
     /// The bind port and address for HTTPS traffic. Defaults to 443.
     #[structopt(long = "https")]
     pub https_port: Option<SocketAddr>,
@@ -34,6 +36,10 @@ impl<B: Backend> Serve<B> {
     }
 
     /// Starts the server using `service` for websocket connections, if enabled.
+    #[cfg_attr(
+        not(any(feature = "websockets", feature = "acme")),
+        allow(unused_variables)
+    )]
     pub async fn execute_with<S: TcpService>(
         &self,
         server: CustomServer<B>,
@@ -44,10 +50,7 @@ impl<B: Backend> Serve<B> {
         drop(env_logger::try_init());
         let listen_on = self.listen_on.unwrap_or(5645);
 
-        let task_server = server.clone();
-        tokio::task::spawn(async move { task_server.listen_on(listen_on).await });
-
-        #[cfg(feature = "websockets")]
+        #[cfg(any(feature = "websockets", feature = "acme"))]
         {
             let listen_address = self.http_port.unwrap_or_else(|| {
                 SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 80, 0, 0))
@@ -69,7 +72,19 @@ impl<B: Backend> Serve<B> {
                     .listen_for_secure_tcp_on(listen_address, service)
                     .await
             });
+
+            #[cfg(feature = "acme")]
+            if server.certificate_chain().await.is_err() {
+                log::warn!("Server has no certificate chain. Because acme is enabled, waiting for certificate to be acquired.");
+                while server.certificate_chain().await.is_err() {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                log::info!("Server certificate acquired. Listening for certificate");
+            }
         }
+
+        let task_server = server.clone();
+        tokio::task::spawn(async move { task_server.listen_on(listen_on).await });
 
         server.listen_for_shutdown().await?;
 
