@@ -33,7 +33,7 @@ use crate::{
     config::Configuration,
     error::Error,
     open_trees::OpenTrees,
-    storage::OpenDatabase,
+    storage::{AnyBackupLocation, OpenDatabase},
     views::{
         mapper::{self, ViewEntryCollection},
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
@@ -302,7 +302,7 @@ impl Database {
         .unwrap()
     }
 
-    async fn list(
+    pub(crate) async fn list(
         &self,
         ids: Range<u64>,
         sort: Sort,
@@ -456,9 +456,13 @@ impl Database {
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<OperationResult, Error> {
         match &operation.command {
-            Command::Insert { contents } => {
-                self.execute_insert(operation, transaction, tree_index_map, contents.clone())
-            }
+            Command::Insert { id, contents } => self.execute_insert(
+                operation,
+                transaction,
+                tree_index_map,
+                *id,
+                contents.clone(),
+            ),
             Command::Update { header, contents } => self.execute_update(
                 operation,
                 transaction,
@@ -536,26 +540,41 @@ impl Database {
         operation: &Operation<'_>,
         transaction: &mut ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
+        id: Option<u64>,
         contents: Cow<'_, [u8]>,
     ) -> Result<OperationResult, Error> {
         let documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
-        let last_key = documents
-            .last_key()?
-            .map(|bytes| BigEndian::read_u64(&bytes))
-            .unwrap_or_default();
-        let doc = Document::new(last_key + 1, contents);
+        let id = if let Some(id) = id {
+            id
+        } else {
+            let last_key = documents
+                .last_key()?
+                .map(|bytes| BigEndian::read_u64(&bytes))
+                .unwrap_or_default();
+            last_key + 1
+        };
+
+        let doc = Document::new(id, contents);
         let serialized: Vec<u8> = serialize_document(&doc)?;
         let document_id = Buffer::from(doc.header.id.as_big_endian_bytes().unwrap().to_vec());
-        documents.set(document_id.clone(), serialized)?;
+        if documents
+            .replace(document_id.clone(), serialized)?
+            .is_some()
+        {
+            Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
+                operation.collection.clone(),
+                id,
+            )))
+        } else {
+            self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
 
-        self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
-
-        Ok(OperationResult::DocumentUpdated {
-            collection: operation.collection.clone(),
-            header: doc.header,
-        })
+            Ok(OperationResult::DocumentUpdated {
+                collection: operation.collection.clone(),
+                header: doc.header,
+            })
+        }
     }
 
     fn execute_delete(
@@ -1435,5 +1454,13 @@ impl OpenDatabase for Database {
             .compact_database(self.clone())
             .await?;
         Ok(())
+    }
+
+    async fn backup(&self, location: &dyn AnyBackupLocation) -> Result<(), Error> {
+        self.storage().backup_database(self, location).await
+    }
+
+    async fn restore(&self, location: &dyn AnyBackupLocation) -> Result<(), Error> {
+        self.storage().restore_database(self, location).await
     }
 }

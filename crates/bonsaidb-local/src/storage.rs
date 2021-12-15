@@ -53,6 +53,10 @@ use crate::{
     Error,
 };
 
+mod backup;
+pub(crate) use backup::AnyBackupLocation;
+pub use backup::BackupLocation;
+
 /// A file-based, multi-database, multi-user database engine.
 #[derive(Debug, Clone)]
 pub struct Storage {
@@ -363,10 +367,8 @@ impl Storage {
         .unwrap()
     }
 
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
     /// Opens a database through a generic-free trait.
-    pub async fn database_without_schema(
+    pub(crate) async fn database_without_schema(
         &self,
         name: &str,
     ) -> Result<Box<dyn OpenDatabase>, Error> {
@@ -395,6 +397,16 @@ impl Storage {
                 schema,
             )))
         }
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    /// Opens a database through a generic-free trait.
+    pub async fn database_without_schema_internal(
+        &self,
+        name: &str,
+    ) -> Result<Box<dyn OpenDatabase>, Error> {
+        self.database_without_schema(name).await
     }
 
     #[cfg(feature = "internal-apis")]
@@ -586,6 +598,10 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
     async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error>;
 
     async fn compact(&self) -> Result<(), bonsaidb_core::Error>;
+
+    async fn backup(&self, location: &dyn AnyBackupLocation) -> Result<(), Error>;
+
+    async fn restore(&self, location: &dyn AnyBackupLocation) -> Result<(), Error>;
 }
 
 #[async_trait]

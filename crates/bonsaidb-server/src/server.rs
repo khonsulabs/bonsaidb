@@ -208,14 +208,6 @@ impl<B: Backend> CustomServer<B> {
         }
     }
 
-    pub(crate) async fn database_without_schema(
-        &self,
-        name: &str,
-    ) -> Result<Box<dyn OpenDatabase>, Error> {
-        let db = self.data.storage.database_without_schema(name).await?;
-        Ok(db)
-    }
-
     /// Installs an X.509 certificate used for general purpose connections.
     pub async fn install_self_signed_certificate(&self, overwrite: bool) -> Result<(), Error> {
         let keypair = KeyPair::new_self_signed(&self.data.primary_domain);
@@ -1062,7 +1054,10 @@ impl<'s, B: Backend> bonsaidb_core::networking::DatabaseHandler for ServerDispat
         database_name: String,
         request: DatabaseRequest,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let database = self.server.database_without_schema(&database_name).await?;
+        let database = self
+            .server
+            .database_without_schema_internal(&database_name)
+            .await?;
         DatabaseDispatcher {
             name: database_name,
             database: database.as_ref(),

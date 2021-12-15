@@ -41,9 +41,11 @@ impl<'a> From<Operation<'a>> for Transaction<'a> {
 }
 
 impl Transaction<'static> {
-    /// Inserts a new document with `contents` into `collection`.
-    pub fn insert(collection: CollectionName, contents: Vec<u8>) -> Self {
-        Self::from(Operation::insert(collection, contents))
+    /// Inserts a new document with `contents` into `collection`.  If `id` is
+    /// `None` a unique id will be generated. If an id is provided and a
+    /// document already exists with that id, a conflict error will be returned.
+    pub fn insert(collection: CollectionName, id: Option<u64>, contents: Vec<u8>) -> Self {
+        Self::from(Operation::insert(collection, id, contents))
     }
 
     /// Updates a document in `collection`.
@@ -69,11 +71,14 @@ pub struct Operation<'a> {
 }
 
 impl Operation<'static> {
-    /// Inserts a new document with `contents` into `collection`.
-    pub const fn insert(collection: CollectionName, contents: Vec<u8>) -> Self {
+    /// Inserts a new document with `contents` into `collection`.  If `id` is
+    /// `None` a unique id will be generated. If an id is provided and a
+    /// document already exists with that id, a conflict error will be returned.
+    pub const fn insert(collection: CollectionName, id: Option<u64>, contents: Vec<u8>) -> Self {
         Self {
             collection,
             command: Command::Insert {
+                id,
                 contents: Cow::Owned(contents),
             },
         }
@@ -106,6 +111,10 @@ impl Operation<'static> {
 pub enum Command<'a> {
     /// Inserts a new document containing `contents`.
     Insert {
+        /// An optional id for the document. If this is `None`, a unique id will
+        /// be generated. If this is `Some()` and a document already exists with
+        /// that id, a conflict error will be returned.
+        id: Option<u64>,
         /// The initial contents of the document.
         contents: Cow<'a, [u8]>,
     },

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashSet, hash::Hash, sync::Arc};
+use std::{borrow::Cow, collections::HashSet, convert::Infallible, hash::Hash, sync::Arc};
 
 use async_trait::async_trait;
 use bonsaidb_core::schema::{view, CollectionName, Key, ViewName};
@@ -159,7 +159,7 @@ fn tree_keys<K: Key + Hash + Eq + Clone, R: nebari::tree::Root>(
     tree: &Tree<R, StdFile>,
 ) -> Result<HashSet<K>, crate::Error> {
     let mut ids = Vec::new();
-    tree.scan(
+    tree.scan::<Infallible, _, _, _, _>(
         ..,
         true,
         |_, _, _| true,

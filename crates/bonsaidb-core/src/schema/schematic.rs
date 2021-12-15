@@ -9,14 +9,16 @@ use crate::{
     schema::{
         collection::Collection,
         view::{self, Serialized},
-        CollectionName, View, ViewName,
+        CollectionName, Schema, SchemaName, View, ViewName,
     },
     Error,
 };
 
 /// A collection of defined collections and views.
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Schematic {
+    /// The name of the schema this was built from.
+    pub name: SchemaName,
     contained_collections: HashSet<CollectionName>,
     collections_by_type_id: HashMap<TypeId, CollectionName>,
     collection_encryption_keys: HashMap<CollectionName, KeyId>,
@@ -27,6 +29,22 @@ pub struct Schematic {
 }
 
 impl Schematic {
+    /// Returns an initialized version from `S`.
+    pub fn from_schema<S: Schema + ?Sized>() -> Result<Self, Error> {
+        let mut schematic = Self {
+            name: S::schema_name()?,
+            contained_collections: HashSet::new(),
+            collections_by_type_id: HashMap::new(),
+            collection_encryption_keys: HashMap::new(),
+            views: HashMap::new(),
+            views_by_name: HashMap::new(),
+            views_by_collection: HashMap::new(),
+            unique_views_by_collection: HashMap::new(),
+        };
+        S::define_collections(&mut schematic)?;
+        Ok(schematic)
+    }
+
     /// Adds the collection `C` and its views.
     pub fn define_collection<C: Collection + 'static>(&mut self) -> Result<(), Error> {
         let name = C::collection_name()?;
@@ -144,12 +162,8 @@ impl Schematic {
 
 #[test]
 fn schema_tests() -> anyhow::Result<()> {
-    use crate::{
-        schema::Schema,
-        test_util::{Basic, BasicCount},
-    };
-    let mut schema = Schematic::default();
-    Basic::define_collections(&mut schema)?;
+    use crate::test_util::{Basic, BasicCount};
+    let schema = Schematic::from_schema::<Basic>()?;
 
     assert_eq!(schema.collections_by_type_id.len(), 1);
     assert_eq!(

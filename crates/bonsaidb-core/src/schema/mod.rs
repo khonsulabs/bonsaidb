@@ -29,9 +29,7 @@ pub trait Schema: Send + Sync + Debug + 'static {
 
     /// Retrieves the [`Schematic`] for this schema.
     fn schematic() -> Result<Schematic, Error> {
-        let mut schematic = Schematic::default();
-        Self::define_collections(&mut schematic)?;
-        Ok(schematic)
+        Schematic::from_schema::<Self>()
     }
 }
 

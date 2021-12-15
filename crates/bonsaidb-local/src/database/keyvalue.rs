@@ -11,7 +11,7 @@ use bonsaidb_core::keyvalue::{
 use nebari::{
     io::fs::StdFile,
     tree::{KeyEvaluation, Root, Unversioned},
-    Buffer, CompareAndSwapError, Tree,
+    AbortError, Buffer, CompareAndSwapError, Tree,
 };
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +21,30 @@ use crate::{database::Context, jobs::Job, Database, Error};
 pub struct Entry {
     pub value: Value,
     pub expiration: Option<Timestamp>,
+}
+
+impl Entry {
+    pub(crate) async fn restore(
+        self,
+        key: String,
+        database: &Database,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let task_self = database.clone();
+        tokio::task::spawn_blocking(move || {
+            execute_set_operation(
+                key,
+                self.value,
+                self.expiration,
+                false,
+                None,
+                false,
+                &task_self,
+            )
+        })
+        .await
+        .unwrap()
+        .map(|_| {})
+    }
 }
 
 #[async_trait]
@@ -38,8 +62,7 @@ impl KeyValue for Database {
                 check,
                 return_previous_value,
             } => execute_set_operation(
-                op.namespace,
-                op.key,
+                full_key(op.namespace, op.key),
                 value,
                 expiration,
                 keep_existing_expiration,
@@ -63,6 +86,38 @@ impl KeyValue for Database {
     }
 }
 
+impl Database {
+    pub(crate) async fn all_key_value_entries(&self) -> Result<HashMap<String, Entry>, Error> {
+        let database = self.clone();
+        tokio::task::spawn_blocking(move || {
+            // Find all trees that start with <database>.kv.
+            let mut all_entries = HashMap::new();
+            database
+                .roots()
+                .tree(Unversioned::tree(KEY_TREE))?
+                .scan::<Error, _, _, _, _>(
+                    ..,
+                    true,
+                    |_, _, _| true,
+                    |_, _| KeyEvaluation::ReadData,
+                    |key, _, entry: Buffer<'static>| {
+                        let entry = bincode::deserialize::<Entry>(&entry)
+                            .map_err(|err| AbortError::Other(Error::from(err)))?;
+                        all_entries.insert(
+                            String::from_utf8(key.to_vec())
+                                .map_err(|err| AbortError::Other(Error::from(err)))?,
+                            entry,
+                        );
+
+                        Ok(())
+                    },
+                )?;
+            Ok(all_entries)
+        })
+        .await?
+    }
+}
+
 pub(crate) const KEY_TREE: &str = "kv";
 
 fn full_key(namespace: Option<String>, mut key: String) -> String {
@@ -79,8 +134,7 @@ fn full_key(namespace: Option<String>, mut key: String) -> String {
 
 #[allow(clippy::too_many_arguments)]
 fn execute_set_operation(
-    namespace: Option<String>,
-    key: String,
+    full_key: String,
     value: Value,
     expiration: Option<Timestamp>,
     keep_existing_expiration: bool,
@@ -94,8 +148,6 @@ fn execute_set_operation(
         .roots
         .tree(Unversioned::tree(KEY_TREE))
         .map_err(Error::from)?;
-
-    let full_key = full_key(namespace, key);
 
     let mut entry = Entry { value, expiration };
     let mut inserted = false;

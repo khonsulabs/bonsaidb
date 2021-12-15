@@ -101,6 +101,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `Key` implementation for `EnumKey` has been updated to use
   `ordered-varint` to minimize the size of the indexes. Previously, each entry
   in the view was always 8 bytes.
+- `Connection::insert`, `Operation::insert`, and `Command::Insert` now takes an
+  optional u64 parameter which can be used to insert a document with a specific
+  ID rather than having one chosen. If an document exists already, a conflict
+  error will be returned.
 
 ### Removed
 
