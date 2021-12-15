@@ -1,4 +1,4 @@
-#![doc = include_str!("../../../.rustme/docs.md")]
+#![doc = include_str!("../crate-docs.md")]
 #![forbid(unsafe_code)]
 #![warn(
     clippy::cargo,

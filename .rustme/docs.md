@@ -23,19 +23,19 @@ If you're interested in chatting about this project or potentially wanting to co
 
 Check out [./examples](https://github.com/khonsulabs/bonsaidb/tree/main/examples) for examples. To get an idea of how it works, this is a simple schema:
 
-```rust
+```rust,ignore
 $../examples/basic-local/examples/view-examples.rs:snippet-a$
 ```
 
 After you have your collection(s) defined, you can open up a database and insert documents:
 
-```rust
+```rust,ignore
 $../examples/basic-local/examples/view-examples.rs:snippet-b$
 ```
 
 And query data using the Map-Reduce-powered view:
 
-```rust
+```rust,ignore
 $../examples/basic-local/examples/view-examples.rs:snippet-c$
 ```
 

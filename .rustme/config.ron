@@ -6,6 +6,11 @@ Configuration(
             "contributing.md",
             "https://github.com/khonsulabs/.github/raw/main/snippets/readme-footer.md",
         ],
+        "../crates/bonsaidb/crate-docs.md":  [
+            "docs.md",
+            "contributing.md",
+            "https://github.com/khonsulabs/.github/raw/main/snippets/readme-footer.md",
+        ],
         "../CONTRIBUTING.md":  [
             "https://github.com/khonsulabs/.github/raw/main/docs/CONTRIBUTING.md",
         ],
