@@ -13,11 +13,11 @@ The high-level goals for this project are:
 - ☑️ Be able to build a document-based database's schema using Rust types.
 - ☑️ Run within your Rust binary, simplifying basic deployments.
 - ☑️ Run as a local-only file-based database with no networking involved.
-- ☑️ Run as a networked server using QUIC with TLS enabled by default
-- Easily set up read-replicas between multiple servers.
-- Easily run a highly-available quorum-based cluster across at least 3 servers
-- ☑️ Expose a Publish/Subscribe eventing system
-- Expose a Job queue and scheduling system -- a la [Sidekiq](https://sidekiq.org/) or [SQS](https://aws.amazon.com/sqs/)
+- ☑️ Run as a networked server using QUIC with TLS enabled by default.
+- ☑️ Expose a Publish/Subscribe eventing system.
+- ☐ Expose a Job queue and scheduling system -- a la [Sidekiq](https://sidekiq.org/) or [SQS](https://aws.amazon.com/sqs/) (tracking issue [#78](https://github.com/khonsulabs/bonsaidb/issues/78))
+- ☐ Easily set up read-replicas between multiple servers (tracking issue [#90](https://github.com/khonsulabs/bonsaidb/issues/90))
+- ☐ Easily run a highly-available quorum-based cluster across at least 3 servers (tracking issue [#104](https://github.com/khonsulabs/bonsaidb/issues/104))
 
 ## ⚠️ Status of this project
 

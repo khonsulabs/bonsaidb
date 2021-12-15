@@ -105,15 +105,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   optional u64 parameter which can be used to insert a document with a specific
   ID rather than having one chosen. If an document exists already, a conflict
   error will be returned.
-
-### Removed
-
-- `bonsaidb::local::backup` has been removed. The main limitation arose from how
-  it was written to not need to be aware of the `Schema` type, but to properly
-  support backing up encrypted databases, it must. Never fear, we still have
-  backup strategies in mind -- the tool may be rewritten in the future, but in
-  the nearer term, we are prioritizing
-  [replication](https://github.com/khonsulabs/bonsaidb/issues/90).
+- `bonsaidb::local::backup` has been replaced with `Storage::backup` and
+  `Storage::restore`. This backup format is incompatible with the old format,
+  but is built with proper support for restoring at-rest encrypted collections.
+  Backups are *not* encrypted, but the old implementation could not be updated
+  to support restoring the documents into an encrypted state.
+  
+  This new functionality exposes `BackupLocation`, an async_trait that enables
+  arbitrary backup locations.
   
 
 ### Fixed
