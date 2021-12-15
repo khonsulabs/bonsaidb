@@ -294,7 +294,7 @@ where
                 })?;
             }
             modifier(&mut *self);
-            match dbg!(self.update(connection).await) {
+            match self.update(connection).await {
                 Err(Error::DocumentConflict(..)) => {}
                 other => return other,
             }

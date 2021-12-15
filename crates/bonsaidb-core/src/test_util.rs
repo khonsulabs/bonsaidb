@@ -892,6 +892,19 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     let reloaded = Basic::get(doc.header.id, db).await?.unwrap();
     assert_eq!(doc.contents, reloaded.contents);
 
+    // Test Connection::insert with a specified id
+    let doc = Document::with_contents(42, &Basic::new("42"))?;
+    let document_42 = db
+        .insert::<Basic>(Some(doc.id), doc.contents.to_vec())
+        .await?;
+    assert_eq!(document_42.id, 42);
+
+    // Test that inserting a document with the same ID restuls in a conflict:
+    let conflict_err = db
+        .insert::<Basic>(Some(doc.id), doc.contents.to_vec())
+        .await;
+    assert!(matches!(conflict_err, Err(Error::DocumentConflict(..))));
+
     Ok(())
 }
 

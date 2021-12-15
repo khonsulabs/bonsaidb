@@ -3,6 +3,7 @@ use std::{convert::Infallible, string::FromUtf8Error, sync::Arc};
 use bonsaidb_core::{
     permissions::PermissionDenied,
     schema::{view, InvalidNameError},
+    AnyError,
 };
 use nebari::AbortError;
 
@@ -54,6 +55,10 @@ pub enum Error {
     /// An error occurred from a job and couldn't be unwrapped due to clones.
     #[error("an error from a job occurred: {0}")]
     Job(Arc<Error>),
+
+    /// An error occurred from backing up or restoring.
+    #[error("a backup error: {0}")]
+    Backup(Box<dyn AnyError>),
 }
 
 impl From<Error> for bonsaidb_core::Error {
@@ -91,6 +96,15 @@ impl From<AbortError<Infallible>> for Error {
         match err {
             AbortError::Nebari(error) => Self::Nebari(error),
             AbortError::Other(_) => unreachable!(),
+        }
+    }
+}
+
+impl From<AbortError<Error>> for Error {
+    fn from(err: AbortError<Error>) -> Self {
+        match err {
+            AbortError::Nebari(error) => Self::Nebari(error),
+            AbortError::Other(error) => error,
         }
     }
 }

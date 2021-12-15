@@ -29,10 +29,17 @@ pub trait Connection: Send + Sync {
         Collection::new(self)
     }
 
-    /// Inserts a newly created document into the connected [`schema::Schema`] for the [`Collection`] `C`.
-    async fn insert<C: schema::Collection>(&self, contents: Vec<u8>) -> Result<Header, Error> {
+    /// Inserts a newly created document into the connected [`schema::Schema`]
+    /// for the [`Collection`] `C`. If `id` is `None` a unique id will be
+    /// generated. If an id is provided and a document already exists with that
+    /// id, a conflict error will be returned.
+    async fn insert<C: schema::Collection>(
+        &self,
+        id: Option<u64>,
+        contents: Vec<u8>,
+    ) -> Result<Header, Error> {
         let results = self
-            .apply_transaction(Transaction::insert(C::collection_name()?, contents))
+            .apply_transaction(Transaction::insert(C::collection_name()?, id, contents))
             .await?;
         if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
             Ok(header.clone())
@@ -247,7 +254,7 @@ where
     /// Adds a new `Document<Cl>` with the contents `item`.
     pub async fn push<S: Serialize + Sync>(&self, item: &S) -> Result<Header, crate::Error> {
         let contents = Cl::serializer().serialize(item)?;
-        Ok(self.connection.insert::<Cl>(contents).await?)
+        Ok(self.connection.insert::<Cl>(None, contents).await?)
     }
 
     /// Retrieves a `Document<Cl>` with `id` from the connection.
