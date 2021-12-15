@@ -47,6 +47,7 @@ server-full = [
     "server-instrument",
     "server-acme",
     "server-hyper",
+    "server-pem",
 ]
 server = ["bonsaidb-server"]
 client-full = ["client", "client-websockets", "client-trusted-dns"]
@@ -73,6 +74,7 @@ server-instrument = ["bonsaidb-server/instrument"]
 
 server-acme = ["bonsaidb-server/acme"]
 server-hyper = ["bonsaidb-server/hyper"]
+server-pem = ["bonsaidb-server/pem"]
 
 server-encryption = ["bonsaidb-server/encryption"]
 local-encryption = ["bonsaidb-local/encryption"]

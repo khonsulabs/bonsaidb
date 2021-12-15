@@ -133,11 +133,14 @@ bonsaidb = { version = "*", default-features = false, features = "full" }
 bonsaidb = { version = "*", default-features = false, features = "local-full" }
 ```
 
-- `local-full`: Enables `local` and `local-cli`
+- `local-full`: Enables all the flags below
 - `local`: Enables the [`local`](https://dev.bonsaidb.io/main/bonsaidb/local/) module, which re-exports the crate
   `bonsaidb-local`.
 - `local-cli`: Enables the `StructOpt` structures for embedding database
   management commands into your own command-line interface.
+- `local-encryption`: Enables at-rest encryption.
+- `local-instrument`: Enables instrumenting with `tracing`.
+- `local-multiuser`: Enables multi-user support.
 
 ### `BonsaiDb` server
 
@@ -146,10 +149,16 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 bonsaidb = { version = "*", default-features = false, features = "server-full" }
 ```
 
-- `server-full`: Enables `server` and `server-websockets`
+- `server-full`: Enables all the flags below,
 - `server`: Enables the [`server`](https://dev.bonsaidb.io/main/bonsaidb/server/) module, which re-exports the crate
   `bonsaidb-server`.
-- `server-websockets`: Enables `WebSocket` support for `bonsaidb-server`.
+- `server-acme`: Enables automtic certificate acquisition through ACME/LetsEncrypt.
+- `server-cli`: Enables the `cli` module.
+- `server-encryption`: Enables at-rest encryption.
+- `server-hyper`: Enables convenience functions for upgrading websockets using `hyper`.
+- `server-instrument`: Enables instrumenting with `tracing`.
+- `server-pem`: Enables the ability to install a certificate using the PEM format.
+- `server-websockets`: Enables `WebSocket` support.
 
 ### Client for accessing a `BonsaiDb` server
 
