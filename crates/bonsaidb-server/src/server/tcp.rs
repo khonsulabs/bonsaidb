@@ -18,15 +18,16 @@ impl<B: Backend> CustomServer<B> {
         service: S,
     ) -> Result<(), Error> {
         let listener = TcpListener::bind(&addr).await?;
-        let (shutdown_sender, shutdown_receiver) = flume::bounded(1);
-        {
-            let mut shutdown = self.data.tcp_shutdown.write().await;
-            *shutdown = Some(shutdown_sender);
-        }
+        let mut shutdown_watcher = self
+            .data
+            .shutdown
+            .watcher()
+            .await
+            .expect("server already shutdown");
 
         loop {
             tokio::select! {
-                _ = shutdown_receiver.recv_async() => {
+                _ = shutdown_watcher.wait_for_shutdown() => {
                     break;
                 }
                 incoming = listener.accept() => {

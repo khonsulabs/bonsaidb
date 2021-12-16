@@ -62,6 +62,7 @@ use crate::{
     backend::{BackendError, ConnectionHandling, CustomApiDispatcher},
     error::Error,
     hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
+    server::shutdown::{Shutdown, ShutdownState},
     Backend, Configuration,
 };
 
@@ -70,6 +71,7 @@ pub mod acme;
 mod connected_client;
 mod database;
 
+mod shutdown;
 mod tcp;
 #[cfg(feature = "websockets")]
 mod websockets;
@@ -109,7 +111,7 @@ struct Data<B: Backend = ()> {
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
     alpn_keys: AlpnKeys,
-    tcp_shutdown: RwLock<Option<Sender<()>>>,
+    shutdown: Shutdown,
     relay: Relay,
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
     _backend: PhantomData<B>,
@@ -164,7 +166,7 @@ impl<B: Backend> CustomServer<B> {
                 acme: configuration.acme,
                 #[cfg(feature = "acme")]
                 alpn_keys: AlpnKeys::default(),
-                tcp_shutdown: RwLock::default(),
+                shutdown: Shutdown::new(),
                 relay: Relay::default(),
                 subscribers: Arc::default(),
                 _backend: PhantomData::default(),
@@ -353,7 +355,24 @@ impl<B: Backend> CustomServer<B> {
             *endpoint = Some(server.clone());
         }
 
-        while let Some(result) = server.next().await {
+        let mut shutdown_watcher = self
+            .data
+            .shutdown
+            .watcher()
+            .await
+            .expect("server already shut down");
+
+        while let Some(result) = tokio::select! {
+            shutdown_state = shutdown_watcher.wait_for_shutdown() => {
+                drop(server.close_incoming());
+                if matches!(shutdown_state, ShutdownState::GracefulShutdown) {
+                    server.wait_idle().await;
+                }
+                drop(server.close());
+                None
+            },
+            msg = server.next() => msg
+        } {
             let connection = result.accept::<()>().await?;
             let task_self = self.clone();
             tokio::spawn(async move {
@@ -631,24 +650,10 @@ impl<B: Backend> CustomServer<B> {
     /// requests already being processed. After the `timeout` has elapsed or if
     /// no `timeout` was provided, the server is forcefully shut down.
     pub async fn shutdown(&self, timeout: Option<Duration>) -> Result<(), Error> {
-        let endpoint = {
-            let endpoint = self.data.endpoint.read().await;
-            endpoint.clone()
-        };
-
-        if let Some(server) = endpoint {
-            if let Some(timeout) = timeout {
-                server.close_incoming().await?;
-
-                if tokio::time::timeout(timeout, server.wait_idle())
-                    .await
-                    .is_err()
-                {
-                    server.close().await;
-                }
-            } else {
-                server.close().await;
-            }
+        if let Some(timeout) = timeout {
+            self.data.shutdown.graceful_shutdown(timeout).await;
+        } else {
+            self.data.shutdown.shutdown().await;
         }
 
         Ok(())
@@ -660,7 +665,12 @@ impl<B: Backend> CustomServer<B> {
         const GRACEFUL_SHUTDOWN: usize = 1;
         const TERMINATE: usize = 2;
 
-        let shutdown_state = Arc::new(Mutex::new(ShutdownState::Running));
+        enum SignalShutdownState {
+            Running,
+            ShuttingDown(flume::Receiver<()>),
+        }
+
+        let shutdown_state = Arc::new(Mutex::new(SignalShutdownState::Running));
         let flag = Arc::new(AtomicUsize::default());
         let register_hook = |flag: &Arc<AtomicUsize>| {
             signal_hook::flag::register_usize(SIGINT, flag.clone(), GRACEFUL_SHUTDOWN)?;
@@ -681,7 +691,7 @@ impl<B: Backend> CustomServer<B> {
                     GRACEFUL_SHUTDOWN => {
                         let mut state = shutdown_state.lock().await;
                         match *state {
-                            ShutdownState::Running => {
+                            SignalShutdownState::Running => {
                                 log::error!("Interrupt signal received. Shutting down gracefully.");
                                 let task_server = self.clone();
                                 let (shutdown_sender, shutdown_receiver) = flume::bounded(1);
@@ -690,9 +700,9 @@ impl<B: Backend> CustomServer<B> {
                                     let _ = shutdown_sender.send(());
                                     Result::<(), Error>::Ok(())
                                 });
-                                *state = ShutdownState::ShuttingDown(shutdown_receiver);
+                                *state = SignalShutdownState::ShuttingDown(shutdown_receiver);
                             }
-                            ShutdownState::ShuttingDown(_) => {
+                            SignalShutdownState::ShuttingDown(_) => {
                                 // Two interrupts, go ahead and force the shutdown
                                 break;
                             }
@@ -706,7 +716,7 @@ impl<B: Backend> CustomServer<B> {
                 }
 
                 let state = shutdown_state.lock().await;
-                if let ShutdownState::ShuttingDown(receiver) = &*state {
+                if let SignalShutdownState::ShuttingDown(receiver) = &*state {
                     if receiver.try_recv().is_ok() {
                         // Fully shut down.
                         return Ok(());
@@ -2047,9 +2057,4 @@ impl Deref for AlpnKeys {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
-}
-
-enum ShutdownState {
-    Running,
-    ShuttingDown(flume::Receiver<()>),
 }
