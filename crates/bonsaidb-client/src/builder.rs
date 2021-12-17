@@ -11,7 +11,7 @@ use crate::{client::CustomApiCallback, Client, Error};
 #[must_use]
 pub struct Builder<A: CustomApi = ()> {
     url: Url,
-    protocol_version: &'static [u8],
+    protocol_version: &'static str,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     #[cfg(not(target_arch = "wasm32"))]
     certificate: Option<fabruic::Certificate>,
@@ -72,7 +72,7 @@ impl<A: CustomApi> Builder<A> {
 
     /// Overrides the protocol version. Only for testing purposes.
     #[cfg(feature = "test-util")]
-    pub fn with_protocol_version(mut self, version: &'static [u8]) -> Self {
+    pub fn with_protocol_version(mut self, version: &'static str) -> Self {
         self.protocol_version = version;
         self
     }

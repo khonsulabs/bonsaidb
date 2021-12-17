@@ -16,12 +16,14 @@ use crate::{
 
 pub fn spawn_client<Api: CustomApi>(
     url: Arc<Url>,
+    protocol_version: &'static str,
     request_receiver: Receiver<PendingRequest<Api>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<Api>>>,
     subscribers: SubscriberMap,
 ) {
     wasm_bindgen_futures::spawn_local(create_websocket(
         url,
+        protocol_version,
         request_receiver,
         custom_api_callback,
         subscribers,
@@ -30,6 +32,7 @@ pub fn spawn_client<Api: CustomApi>(
 
 async fn create_websocket<Api: CustomApi>(
     url: Arc<Url>,
+    protocol_version: &'static str,
     request_receiver: Receiver<PendingRequest<Api>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<Api>>>,
     subscribers: SubscriberMap,
@@ -45,7 +48,7 @@ async fn create_websocket<Api: CustomApi>(
     // In wasm we're not going to have a real loop. We're going create a
     // websocket and store it in JS. This will allow us to get around Send/Sync
     // issues since each access of the websocket can pull it from js.
-    let ws = match WebSocket::new(&url.to_string()) {
+    let ws = match WebSocket::new_with_str(&url.to_string(), protocol_version) {
         Ok(ws) => ws,
         Err(err) => {
             drop(
@@ -55,6 +58,7 @@ async fn create_websocket<Api: CustomApi>(
             );
             spawn_client(
                 url,
+                protocol_version,
                 request_receiver,
                 custom_api_callback.clone(),
                 subscribers,
@@ -96,6 +100,7 @@ async fn create_websocket<Api: CustomApi>(
 
     let onclose_callback = on_close_callback(
         url.clone(),
+        protocol_version,
         request_receiver.clone(),
         shutdown_sender,
         ws.clone(),
@@ -264,6 +269,7 @@ fn take_initial_request<Api: CustomApi>(
 
 fn on_close_callback<Api: CustomApi>(
     url: Arc<Url>,
+    protocol_version: &'static str,
     request_receiver: Receiver<PendingRequest<Api>>,
     shutdown: flume::Sender<()>,
     ws: WebSocket,
@@ -291,6 +297,7 @@ fn on_close_callback<Api: CustomApi>(
 
         spawn_client(
             url,
+            protocol_version,
             request_receiver,
             custom_api_callback.clone(),
             subscribers,

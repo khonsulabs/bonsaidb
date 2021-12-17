@@ -342,7 +342,7 @@ impl<B: Backend> CustomServer<B> {
         let keypair =
             KeyPair::from_parts(certificate.certificate_chain, certificate.private_key.0)?;
         let mut builder = Endpoint::builder();
-        builder.set_protocols([CURRENT_PROTOCOL_VERSION.to_vec()]);
+        builder.set_protocols([CURRENT_PROTOCOL_VERSION.as_bytes().to_vec()]);
         builder.set_address(([0; 8], port).into());
         builder
             .set_max_idle_timeout(None)

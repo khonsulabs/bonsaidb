@@ -21,6 +21,7 @@ use crate::{
 
 pub async fn reconnecting_client_loop<A: CustomApi>(
     url: Url,
+    protocol_version: &str,
     request_receiver: Receiver<PendingRequest<A>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     subscribers: SubscriberMap,
@@ -29,10 +30,17 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
         subscribers.clear().await;
         request_receiver.recv_async().await
     } {
-        let (stream, _) = match tokio_tungstenite::connect_async(&url).await {
+        let (stream, _) = match tokio_tungstenite::connect_async(
+            tokio_tungstenite::tungstenite::handshake::client::Request::get(url.as_str())
+                .header("Sec-WebSocket-Protocol", protocol_version)
+                .body(())
+                .unwrap(),
+        )
+        .await
+        {
             Ok(result) => result,
             Err(err) => {
-                drop(request.responder.send(Err(Error::WebSocket(err))));
+                drop(request.responder.send(Err(Error::from(err))));
                 continue;
             }
         };
@@ -46,7 +54,7 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
                 .send(Message::Binary(bincode::serialize(&request.request)?))
                 .await
             {
-                drop(request.responder.send(Err(Error::WebSocket(err))));
+                drop(request.responder.send(Err(Error::from(err))));
                 continue;
             }
             outstanding_requests.insert(

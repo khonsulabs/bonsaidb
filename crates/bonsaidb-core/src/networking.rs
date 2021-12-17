@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// The current protocol version.
-pub const CURRENT_PROTOCOL_VERSION: &[u8] = b"bonsai/pre-0";
+pub const CURRENT_PROTOCOL_VERSION: &str = "bonsai/pre/0";
 
 /// A payload with an associated id.
 #[derive(Clone, Deserialize, Serialize, Debug)]

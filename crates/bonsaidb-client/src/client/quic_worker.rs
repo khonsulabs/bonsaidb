@@ -20,7 +20,7 @@ use crate::{
 /// error replayed to them.
 pub async fn reconnecting_client_loop<A: CustomApi>(
     mut url: Url,
-    protocol_version: &'static [u8],
+    protocol_version: &'static str,
     certificate: Option<Certificate>,
     request_receiver: Receiver<PendingRequest<A>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
@@ -55,7 +55,7 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
 
 async fn connect_and_process<A: CustomApi>(
     url: &Url,
-    protocol_version: &[u8],
+    protocol_version: &str,
     certificate: Option<&Certificate>,
     initial_request: PendingRequest<A>,
     request_receiver: &Receiver<PendingRequest<A>>,
@@ -151,7 +151,7 @@ pub async fn process<A: CustomApi>(
 async fn connect<A: CustomApi>(
     url: &Url,
     certificate: Option<&Certificate>,
-    protocol_version: &[u8],
+    protocol_version: &str,
 ) -> Result<
     (
         fabruic::Connection<()>,
@@ -164,7 +164,7 @@ async fn connect<A: CustomApi>(
     endpoint
         .set_max_idle_timeout(None)
         .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
-    endpoint.set_protocols([protocol_version.to_vec()]);
+    endpoint.set_protocols([protocol_version.as_bytes().to_vec()]);
     let endpoint = endpoint
         .build()
         .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;

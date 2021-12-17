@@ -15,7 +15,7 @@ pub enum Error {
     #[cfg(feature = "websockets")]
     /// An error occurred from the Websocket transport layer.
     #[error("a websocket error occurred: '{0}'")]
-    Websocket(#[from] tokio_tungstenite::tungstenite::Error),
+    WebSocket(#[from] tokio_tungstenite::tungstenite::Error),
 
     /// An error occurred from IO
     #[error("a networking error occurred: '{0}'")]
@@ -74,7 +74,7 @@ impl From<Error> for core::Error {
             Error::Io(io) => Self::Io(io.to_string()),
             Error::Transport(networking) => Self::Transport(networking),
             #[cfg(feature = "websockets")]
-            Error::Websocket(err) => Self::Websocket(err.to_string()),
+            Error::WebSocket(err) => Self::Websocket(err.to_string()),
             err => Self::Server(err.to_string()),
         }
     }

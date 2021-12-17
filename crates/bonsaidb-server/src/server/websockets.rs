@@ -1,3 +1,4 @@
+use bonsaidb_core::networking::CURRENT_PROTOCOL_VERSION;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{Backend, CustomServer, Error};
@@ -23,7 +24,7 @@ impl<B: Backend> CustomServer<B> {
         connection: S,
         peer_address: std::net::SocketAddr,
     ) -> Result<(), Error> {
-        let stream = tokio_tungstenite::accept_async(connection).await?;
+        let stream = tokio_tungstenite::accept_hdr_async(connection, VersionChecker).await?;
         self.handle_websocket(stream, peer_address).await;
         Ok(())
     }
@@ -204,4 +205,35 @@ fn compute_websocket_accept_header(key: &[u8]) -> hyper::header::HeaderValue {
     digest.update(&b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"[..]);
     let encoded = base64::encode(&digest.finalize());
     hyper::header::HeaderValue::from_str(&encoded).expect("base64 is a valid value")
+}
+
+struct VersionChecker;
+
+impl tokio_tungstenite::tungstenite::handshake::server::Callback for VersionChecker {
+    fn on_request(
+        self,
+        request: &tokio_tungstenite::tungstenite::handshake::server::Request,
+        mut response: tokio_tungstenite::tungstenite::handshake::server::Response,
+    ) -> Result<
+        tokio_tungstenite::tungstenite::handshake::server::Response,
+        tokio_tungstenite::tungstenite::handshake::server::ErrorResponse,
+    > {
+        if let Some(protocols) = request.headers().get("Sec-WebSocket-Protocol") {
+            if let Ok(protocols) = protocols.to_str() {
+                for protocol in protocols.split(',').map(str::trim) {
+                    if protocol == CURRENT_PROTOCOL_VERSION {
+                        response.headers_mut().insert(
+                            "Sec-WebSocket-Protocol",
+                            CURRENT_PROTOCOL_VERSION.try_into().unwrap(),
+                        );
+                        return Ok(response);
+                    }
+                }
+            }
+        }
+
+        let mut err = tokio_tungstenite::tungstenite::handshake::server::ErrorResponse::new(None);
+        *err.status_mut() = 406_u16.try_into().unwrap();
+        Err(err)
+    }
 }

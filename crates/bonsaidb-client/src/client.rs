@@ -140,7 +140,7 @@ impl<A: CustomApi> Client<A> {
     /// the database is to operation.
     pub(crate) async fn new_from_parts(
         url: Url,
-        protocol_version: &'static [u8],
+        protocol_version: &'static str,
         custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
         #[cfg(not(target_arch = "wasm32"))] certificate: Option<fabruic::Certificate>,
     ) -> Result<Self, Error<A::Error>> {
@@ -153,7 +153,9 @@ impl<A: CustomApi> Client<A> {
                 custom_api_callback,
             )),
             #[cfg(feature = "websockets")]
-            "wss" | "ws" => Self::new_websocket_client(url, custom_api_callback).await,
+            "wss" | "ws" => {
+                Self::new_websocket_client(url, protocol_version, custom_api_callback).await
+            }
             other => {
                 return Err(Error::InvalidUrl(format!("unsupported scheme {}", other)));
             }
@@ -163,7 +165,7 @@ impl<A: CustomApi> Client<A> {
     #[cfg(not(target_arch = "wasm32"))]
     fn new_bonsai_client(
         url: Url,
-        protocol_version: &'static [u8],
+        protocol_version: &'static str,
         certificate: Option<fabruic::Certificate>,
         custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     ) -> Self {
@@ -203,6 +205,7 @@ impl<A: CustomApi> Client<A> {
     #[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
     async fn new_websocket_client(
         url: Url,
+        protocol_version: &'static str,
         custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     ) -> Result<Self, Error<A::Error>> {
         let (request_sender, request_receiver) = flume::unbounded();
@@ -211,6 +214,7 @@ impl<A: CustomApi> Client<A> {
 
         let worker = tokio::task::spawn(tungstenite_worker::reconnecting_client_loop(
             url,
+            protocol_version,
             request_receiver,
             custom_api_callback,
             subscribers.clone(),
@@ -243,6 +247,7 @@ impl<A: CustomApi> Client<A> {
     #[cfg(all(feature = "websockets", target_arch = "wasm32"))]
     async fn new_websocket_client(
         url: Url,
+        protocol_version: &'static str,
         custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     ) -> Result<Self, Error<A::Error>> {
         let (request_sender, request_receiver) = flume::unbounded();
@@ -251,6 +256,7 @@ impl<A: CustomApi> Client<A> {
 
         wasm_websocket_worker::spawn_client(
             Arc::new(url),
+            protocol_version,
             request_receiver,
             custom_api_callback.clone(),
             subscribers.clone(),

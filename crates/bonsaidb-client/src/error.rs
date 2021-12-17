@@ -6,7 +6,7 @@ pub enum Error<ApiError: CustomApiError> {
     #[cfg(feature = "websockets")]
     /// An error occurred from the WebSocket transport layer.
     #[error("a transport error occurred: '{0}'")]
-    WebSocket(#[from] crate::client::WebSocketError),
+    WebSocket(crate::client::WebSocketError),
 
     /// An error occurred from networking.
     #[error("a networking error occurred: '{0}'")]
@@ -83,4 +83,23 @@ mod fabruic_impls {
     impl_from_fabruic!(fabruic::error::Stream);
     impl_from_fabruic!(fabruic::error::Connecting);
     impl_from_fabruic!(fabruic::error::Connect);
+}
+
+#[cfg(feature = "websockets")]
+impl<ApiError: CustomApiError> From<crate::client::WebSocketError> for Error<ApiError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn from(err: crate::client::WebSocketError) -> Self {
+        if let crate::client::WebSocketError::Http(response) = &err {
+            if response.status() == 406 {
+                return Self::ProtocolVersionMismatch;
+            }
+        }
+
+        Self::WebSocket(err)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn from(err: crate::client::WebSocketError) -> Self {
+        Self::WebSocket(err)
+    }
 }

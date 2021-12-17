@@ -20,10 +20,11 @@ use bonsaidb::{
         Configuration, DefaultPermissions, Server,
     },
 };
+use bonsaidb_core::keyvalue::KeyValue;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
-const INCOMPATIBLE_PROTOCOL_VERSION: &[u8] = b"otherprotocol";
+const INCOMPATIBLE_PROTOCOL_VERSION: &str = "otherprotocol";
 
 async fn initialize_shared_server() -> Certificate {
     static CERTIFICATE: Lazy<Mutex<Option<Certificate>>> = Lazy::new(|| Mutex::new(None));
@@ -125,6 +126,20 @@ mod websockets {
         }
     }
 
+    #[tokio::test]
+    async fn incompatible_client_version() -> anyhow::Result<()> {
+        let certificate = initialize_shared_server().await;
+
+        let url = Url::parse("ws://localhost:6001")?;
+        let client = Client::build(url.clone())
+            .with_certificate(certificate.clone())
+            .with_protocol_version(INCOMPATIBLE_PROTOCOL_VERSION)
+            .finish()
+            .await?;
+
+        check_incompatible_client(client).await
+    }
+
     bonsaidb_core::define_connection_test_suite!(WebsocketTestHarness);
 
     bonsaidb_core::define_pubsub_test_suite!(WebsocketTestHarness);
@@ -132,8 +147,6 @@ mod websockets {
 }
 
 mod bonsai {
-    use bonsaidb_core::keyvalue::KeyValue;
-
     use super::*;
     struct BonsaiTestHarness {
         client: Client,
@@ -209,34 +222,39 @@ mod bonsai {
         ))?;
         let client = Client::build(url.clone())
             .with_certificate(certificate.clone())
-            .with_protocol_version(&INCOMPATIBLE_PROTOCOL_VERSION[..])
+            .with_protocol_version(INCOMPATIBLE_PROTOCOL_VERSION)
             .finish()
             .await?;
-        match client
-            .database::<()>("a database")
-            .await?
-            .set_numeric_key("a", 1_u64)
-            .await
-        {
-            Err(bonsaidb_core::Error::Client(err)) => {
-                assert!(
-                    err.contains("protocol version"),
-                    "unexpected error: {:?}",
-                    err
-                );
-            }
-            other => unreachable!(
-                "Unexpected result with invalid protocol version: {:?}",
-                other
-            ),
-        }
 
-        Ok(())
+        check_incompatible_client(client).await
     }
 
     bonsaidb_core::define_connection_test_suite!(BonsaiTestHarness);
     bonsaidb_core::define_pubsub_test_suite!(BonsaiTestHarness);
     bonsaidb_core::define_kv_test_suite!(BonsaiTestHarness);
+}
+
+async fn check_incompatible_client(client: Client) -> anyhow::Result<()> {
+    match client
+        .database::<()>("a database")
+        .await?
+        .set_numeric_key("a", 1_u64)
+        .await
+    {
+        Err(bonsaidb_core::Error::Client(err)) => {
+            assert!(
+                err.contains("protocol version"),
+                "unexpected error: {:?}",
+                err
+            );
+        }
+        other => unreachable!(
+            "Unexpected result with invalid protocol version: {:?}",
+            other
+        ),
+    }
+
+    Ok(())
 }
 
 #[allow(dead_code)] // We will want this in the future but it's currently unused
