@@ -189,7 +189,7 @@ pub trait Connection: Send + Sync {
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<transaction::Executed<'static>>, Error>;
+    ) -> Result<Vec<transaction::Executed>, Error>;
 
     /// Fetches the last transaction id that has been committed, if any.
     async fn last_transaction_id(&self) -> Result<Option<u64>, Error>;

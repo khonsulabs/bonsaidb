@@ -349,7 +349,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<Executed<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Executed>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {

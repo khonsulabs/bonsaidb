@@ -334,7 +334,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<Executed<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Executed>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => {
                 server

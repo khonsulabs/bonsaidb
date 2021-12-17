@@ -375,7 +375,7 @@ pub enum DatabaseResponse {
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is true.
     ViewGroupedReduction(Vec<MappedValue<Vec<u8>, Vec<u8>>>),
     /// Results of [`DatabaseRequest::ListExecutedTransactions`].
-    ExecutedTransactions(Vec<Executed<'static>>),
+    ExecutedTransactions(Vec<Executed>),
     /// Result of [`DatabaseRequest::LastTransactionId`].
     LastTransactionId(Option<u64>),
     /// A new `PubSub` subscriber was created.
