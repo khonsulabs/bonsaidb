@@ -103,6 +103,7 @@ bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-fe
 futures = "0.3"
 rand = "0.8"
 once_cell = "1.3.0"
+env_logger = "0.9"
 
 [package.metadata.docs.rs]
 all-features = true

@@ -23,8 +23,11 @@ use bonsaidb::{
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
+const INCOMPATIBLE_PROTOCOL_VERSION: &[u8] = b"otherprotocol";
+
 async fn initialize_shared_server() -> Certificate {
     static CERTIFICATE: Lazy<Mutex<Option<Certificate>>> = Lazy::new(|| Mutex::new(None));
+    drop(env_logger::try_init());
     let mut certificate = CERTIFICATE.lock().await;
     if certificate.is_none() {
         let (sender, receiver) = flume::bounded(1);
@@ -129,6 +132,8 @@ mod websockets {
 }
 
 mod bonsai {
+    use bonsaidb_core::keyvalue::KeyValue;
+
     use super::*;
     struct BonsaiTestHarness {
         client: Client,
@@ -192,6 +197,41 @@ mod bonsai {
         pub async fn shutdown(&self) -> anyhow::Result<()> {
             Ok(())
         }
+    }
+
+    #[tokio::test]
+    async fn incompatible_client_version() -> anyhow::Result<()> {
+        let certificate = initialize_shared_server().await;
+
+        let url = Url::parse(&format!(
+            "bonsaidb://localhost:6000?server={}",
+            BASIC_SERVER_NAME
+        ))?;
+        let client = Client::build(url.clone())
+            .with_certificate(certificate.clone())
+            .with_protocol_version(&INCOMPATIBLE_PROTOCOL_VERSION[..])
+            .finish()
+            .await?;
+        match client
+            .database::<()>("a database")
+            .await?
+            .set_numeric_key("a", 1_u64)
+            .await
+        {
+            Err(bonsaidb_core::Error::Client(err)) => {
+                assert!(
+                    err.contains("protocol version"),
+                    "unexpected error: {:?}",
+                    err
+                );
+            }
+            other => unreachable!(
+                "Unexpected result with invalid protocol version: {:?}",
+                other
+            ),
+        }
+
+        Ok(())
     }
 
     bonsaidb_core::define_connection_test_suite!(BonsaiTestHarness);

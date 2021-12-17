@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, sync::Arc};
 
-use bonsaidb_core::custom_api::CustomApi;
+use bonsaidb_core::{custom_api::CustomApi, networking::CURRENT_PROTOCOL_VERSION};
 #[cfg(not(target_arch = "wasm32"))]
 use fabruic::Certificate;
 use url::Url;
@@ -11,6 +11,7 @@ use crate::{client::CustomApiCallback, Client, Error};
 #[must_use]
 pub struct Builder<A: CustomApi = ()> {
     url: Url,
+    protocol_version: &'static [u8],
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     #[cfg(not(target_arch = "wasm32"))]
     certificate: Option<fabruic::Certificate>,
@@ -22,6 +23,7 @@ impl Builder<()> {
     pub(crate) fn new(url: Url) -> Self {
         Self {
             url,
+            protocol_version: CURRENT_PROTOCOL_VERSION,
             custom_api_callback: None,
             #[cfg(not(target_arch = "wasm32"))]
             certificate: None,
@@ -35,6 +37,7 @@ impl Builder<()> {
     pub fn with_custom_api<A: CustomApi>(self) -> Builder<A> {
         Builder {
             url: self.url,
+            protocol_version: self.protocol_version,
             custom_api_callback: None,
             #[cfg(not(target_arch = "wasm32"))]
             certificate: self.certificate,
@@ -50,6 +53,7 @@ impl Builder<()> {
     ) -> Builder<A> {
         Builder {
             url: self.url,
+            protocol_version: self.protocol_version,
             custom_api_callback: Some(Arc::new(callback)),
             #[cfg(not(target_arch = "wasm32"))]
             certificate: self.certificate,
@@ -66,10 +70,18 @@ impl<A: CustomApi> Builder<A> {
         self
     }
 
+    /// Overrides the protocol version. Only for testing purposes.
+    #[cfg(feature = "test-util")]
+    pub fn with_protocol_version(mut self, version: &'static [u8]) -> Self {
+        self.protocol_version = version;
+        self
+    }
+
     /// Finishes building the client.
     pub async fn finish(self) -> Result<Client<A>, Error<A::Error>> {
         Client::<A>::new_from_parts(
             self.url,
+            self.protocol_version,
             self.custom_api_callback,
             #[cfg(not(target_arch = "wasm32"))]
             self.certificate,

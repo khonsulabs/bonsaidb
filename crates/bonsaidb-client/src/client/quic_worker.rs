@@ -20,6 +20,7 @@ use crate::{
 /// error replayed to them.
 pub async fn reconnecting_client_loop<A: CustomApi>(
     mut url: Url,
+    protocol_version: &'static [u8],
     certificate: Option<Certificate>,
     request_receiver: Receiver<PendingRequest<A>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
@@ -33,6 +34,7 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
     while let Ok(request) = request_receiver.recv_async().await {
         if let Err((failed_request, err)) = connect_and_process(
             &url,
+            protocol_version,
             certificate.as_ref(),
             request,
             &request_receiver,
@@ -53,17 +55,18 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
 
 async fn connect_and_process<A: CustomApi>(
     url: &Url,
+    protocol_version: &[u8],
     certificate: Option<&Certificate>,
     initial_request: PendingRequest<A>,
     request_receiver: &Receiver<PendingRequest<A>>,
     custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     subscribers: &SubscriberMap,
 ) -> Result<(), (Option<PendingRequest<A>>, Error<A::Error>)> {
-    let (_connection, payload_sender, payload_receiver) = match connect::<A>(url, certificate).await
-    {
-        Ok(result) => result,
-        Err(err) => return Err((Some(initial_request), err)),
-    };
+    let (_connection, payload_sender, payload_receiver) =
+        match connect::<A>(url, certificate, protocol_version).await {
+            Ok(result) => result,
+            Err(err) => return Err((Some(initial_request), err)),
+        };
 
     let outstanding_requests = OutstandingRequestMapHandle::default();
     let request_processor = tokio::spawn(process(
@@ -148,6 +151,7 @@ pub async fn process<A: CustomApi>(
 async fn connect<A: CustomApi>(
     url: &Url,
     certificate: Option<&Certificate>,
+    protocol_version: &[u8],
 ) -> Result<
     (
         fabruic::Connection<()>,
@@ -160,6 +164,7 @@ async fn connect<A: CustomApi>(
     endpoint
         .set_max_idle_timeout(None)
         .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
+    endpoint.set_protocols([protocol_version.to_vec()]);
     let endpoint = endpoint
         .build()
         .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
@@ -169,7 +174,13 @@ async fn connect<A: CustomApi>(
         endpoint.connect(url).await?
     };
 
-    let connection = connecting.accept::<()>().await?;
+    let connection = connecting.accept::<()>().await.map_err(|err| {
+        if matches!(err, fabruic::error::Connecting::ProtocolMismatch) {
+            Error::ProtocolVersionMismatch
+        } else {
+            Error::from(err)
+        }
+    })?;
     let (sender, receiver) = connection.open_stream(&()).await?;
 
     Ok((connection, sender, receiver))

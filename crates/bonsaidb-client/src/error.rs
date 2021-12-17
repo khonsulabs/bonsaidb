@@ -27,6 +27,10 @@ pub enum Error<ApiError: CustomApiError> {
     /// An error from the custom API.
     #[error("api error: {0}")]
     Api(ApiError),
+
+    /// The server is incompatible with this version of the client.
+    #[error("server incompatible with client protocol version")]
+    ProtocolVersionMismatch,
 }
 
 impl<T, ApiError: CustomApiError> From<flume::SendError<T>> for Error<ApiError> {

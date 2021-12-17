@@ -20,7 +20,9 @@ use bonsaidb_core::{
         ClientConfig, ClientFile, ClientLogin, LoginFinalization, LoginRequest, LoginResponse,
     },
     custom_api::{CustomApi, CustomApiResult},
-    networking::{self, Payload, Request, Response, ServerRequest, ServerResponse},
+    networking::{
+        self, Payload, Request, Response, ServerRequest, ServerResponse, CURRENT_PROTOCOL_VERSION,
+    },
     password_config,
     permissions::Permissions,
     schema::{NamedReference, Schema, SchemaName, Schematic},
@@ -113,6 +115,7 @@ impl<A: CustomApi> Client<A> {
     pub async fn new(url: Url) -> Result<Self, Error<A::Error>> {
         Self::new_from_parts(
             url,
+            CURRENT_PROTOCOL_VERSION,
             #[cfg(not(target_arch = "wasm32"))]
             None,
             None,
@@ -137,6 +140,7 @@ impl<A: CustomApi> Client<A> {
     /// the database is to operation.
     pub(crate) async fn new_from_parts(
         url: Url,
+        protocol_version: &'static [u8],
         custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
         #[cfg(not(target_arch = "wasm32"))] certificate: Option<fabruic::Certificate>,
     ) -> Result<Self, Error<A::Error>> {
@@ -144,6 +148,7 @@ impl<A: CustomApi> Client<A> {
             #[cfg(not(target_arch = "wasm32"))]
             "bonsaidb" => Ok(Self::new_bonsai_client(
                 url,
+                protocol_version,
                 certificate,
                 custom_api_callback,
             )),
@@ -158,6 +163,7 @@ impl<A: CustomApi> Client<A> {
     #[cfg(not(target_arch = "wasm32"))]
     fn new_bonsai_client(
         url: Url,
+        protocol_version: &'static [u8],
         certificate: Option<fabruic::Certificate>,
         custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
     ) -> Self {
@@ -166,6 +172,7 @@ impl<A: CustomApi> Client<A> {
         let subscribers = SubscriberMap::default();
         let worker = tokio::task::spawn(quic_worker::reconnecting_client_loop(
             url,
+            protocol_version,
             certificate,
             request_receiver,
             custom_api_callback,

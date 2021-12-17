@@ -25,7 +25,7 @@ use bonsaidb_core::{
     networking::{
         self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
         DeleteDatabaseHandler, Payload, Request, RequestDispatcher, Response, ServerRequest,
-        ServerRequestDispatcher, ServerResponse,
+        ServerRequestDispatcher, ServerResponse, CURRENT_PROTOCOL_VERSION,
     },
     permissions::{
         bonsai::{
@@ -342,6 +342,7 @@ impl<B: Backend> CustomServer<B> {
         let keypair =
             KeyPair::from_parts(certificate.certificate_chain, certificate.private_key.0)?;
         let mut builder = Endpoint::builder();
+        builder.set_protocols([CURRENT_PROTOCOL_VERSION.to_vec()]);
         builder.set_address(([0; 8], port).into());
         builder
             .set_max_idle_timeout(None)
@@ -456,33 +457,46 @@ impl<B: Backend> CustomServer<B> {
             };
 
             match incoming
-                .accept::<networking::Payload<Response<CustomApiResult<B::CustomApi>>>, networking::Payload<Request<<B::CustomApi as CustomApi>::Request>>>()
-                .await
-            {
+            .accept::<networking::Payload<Response<CustomApiResult<B::CustomApi>>>, networking::Payload<Request<<B::CustomApi as CustomApi>::Request>>>()
+            .await {
                 Ok((sender, receiver)) => {
                     let (api_response_sender, api_response_receiver) = flume::unbounded();
-                    if let Some(disconnector) = self.initialize_client(Transport::Bonsai, connection.remote_address(), api_response_sender).await {
+                    if let Some(disconnector) = self
+                        .initialize_client(
+                            Transport::Bonsai,
+                            connection.remote_address(),
+                            api_response_sender,
+                        )
+                        .await
+                    {
                         let task_sender = sender.clone();
                         tokio::spawn(async move {
                             while let Ok(response) = api_response_receiver.recv_async().await {
-                                if task_sender.send(&Payload {
-                                    id: None,
-                                    wrapped: Response::Api(response)
-                                }).is_err() {
+                                if task_sender
+                                    .send(&Payload {
+                                        id: None,
+                                        wrapped: Response::Api(response),
+                                    })
+                                    .is_err()
+                                {
                                     break;
                                 }
                             }
+                            let _ = connection.close().await;
                         });
 
                         let task_self = self.clone();
                         tokio::spawn(async move {
-                            if let Err(err) = task_self.handle_stream(disconnector, sender, receiver).await {
+                            if let Err(err) = task_self
+                                .handle_stream(disconnector, sender, receiver)
+                                .await
+                            {
                                 log::error!("[server] Error handling stream: {:?}", err);
                             }
                         });
                     } else {
                         log::error!("[server] Backend rejected connection.");
-                        return Ok(())
+                        return Ok(());
                     }
                 }
                 Err(err) => {
