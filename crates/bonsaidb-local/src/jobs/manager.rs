@@ -1,7 +1,8 @@
 use std::{fmt::Debug, sync::Arc};
 
+use async_lock::RwLock;
+use bonsaidb_utils::{fast_async_read, fast_async_write};
 use derive_where::DeriveWhere;
-use tokio::sync::RwLock;
 
 use crate::jobs::{
     task::{Handle, Id},
@@ -30,7 +31,7 @@ where
     /// Pushes a `job` into the queue. Pushing the same job definition twice
     /// will yield two tasks in the queue.
     pub async fn enqueue<J: Job + 'static>(&self, job: J) -> Handle<J::Output, J::Error, Key> {
-        let mut jobs = self.jobs.write().await;
+        let mut jobs = fast_async_write!(self.jobs);
         jobs.enqueue(job, None, self.clone())
     }
 
@@ -42,7 +43,7 @@ where
         &self,
         job: J,
     ) -> Handle<<J as Job>::Output, <J as Job>::Error, Key> {
-        let mut jobs = self.jobs.write().await;
+        let mut jobs = fast_async_write!(self.jobs);
         jobs.lookup_or_enqueue(job, self.clone())
     }
 
@@ -52,7 +53,7 @@ where
         key: Option<&Key>,
         result: Result<T, E>,
     ) {
-        let mut jobs = self.jobs.write().await;
+        let mut jobs = fast_async_write!(self.jobs);
         jobs.job_completed(id, key, result).await;
     }
 
@@ -67,7 +68,7 @@ where
 
     async fn execute_jobs(&self) {
         let receiver = {
-            let jobs = self.jobs.read().await;
+            let jobs = fast_async_read!(self.jobs);
             jobs.queue()
         };
         while let Ok(mut job) = receiver.recv_async().await {

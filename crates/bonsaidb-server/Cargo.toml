@@ -37,6 +37,7 @@ bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.0-dev.4", default-
     "internal-apis",
     "multiuser",
 ] }
+bonsaidb-utils = { path = "../bonsaidb-utils", version = "0.1.0-dev.4" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "1"
@@ -65,6 +66,7 @@ log = "0.4"
 signal-hook = "0.3"
 env_logger = { version = "0.9", optional = true }
 derive-where = "1.0.0-rc.1"
+async-lock = "2"
 
 
 [dev-dependencies]

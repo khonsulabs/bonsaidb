@@ -4,14 +4,15 @@ use std::{
     sync::Arc,
 };
 
+use async_lock::{Mutex, MutexGuard, RwLock};
 use bonsaidb_core::{
     custodian_password::{LoginRequest, LoginResponse, ServerLogin},
     custom_api::CustomApiResult,
     permissions::Permissions,
 };
+use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::DeriveWhere;
 use flume::Sender;
-use tokio::sync::{Mutex, MutexGuard, RwLock};
 
 use crate::{Backend, CustomServer};
 
@@ -65,14 +66,14 @@ impl<B: Backend> ConnectedClient<B> {
     /// Returns the current permissions for this client. Will reflect the
     /// current state of authentication.
     pub async fn permissions(&self) -> Permissions {
-        let auth_state = self.data.auth_state.read().await;
+        let auth_state = fast_async_read!(self.data.auth_state);
         auth_state.permissions.clone()
     }
 
     /// Returns the unique id of the user this client is connected as. Returns
     /// None if the connection isn't authenticated.
     pub async fn user_id(&self) -> Option<u64> {
-        let auth_state = self.data.auth_state.read().await;
+        let auth_state = fast_async_read!(self.data.auth_state);
         auth_state.user_id
     }
 
@@ -91,7 +92,7 @@ impl<B: Backend> ConnectedClient<B> {
     }
 
     pub(crate) async fn logged_in_as(&self, user_id: u64, new_permissions: Permissions) {
-        let mut auth_state = self.data.auth_state.write().await;
+        let mut auth_state = fast_async_write!(self.data.auth_state);
         auth_state.user_id = Some(user_id);
         auth_state.permissions = new_permissions;
     }
@@ -101,12 +102,12 @@ impl<B: Backend> ConnectedClient<B> {
         user_id: Option<u64>,
         new_state: ServerLogin,
     ) {
-        let mut pending_password_login = self.data.pending_password_login.lock().await;
+        let mut pending_password_login = fast_async_lock!(self.data.pending_password_login);
         *pending_password_login = Some((user_id, new_state));
     }
 
     pub(crate) async fn take_pending_password_login(&self) -> Option<(Option<u64>, ServerLogin)> {
-        let mut pending_password_login = self.data.pending_password_login.lock().await;
+        let mut pending_password_login = fast_async_lock!(self.data.pending_password_login);
         pending_password_login.take()
     }
 
@@ -120,12 +121,12 @@ impl<B: Backend> ConnectedClient<B> {
 
     /// Returns a locked reference to the stored client data.
     pub async fn client_data(&self) -> LockedClientDataGuard<'_, B::ClientData> {
-        LockedClientDataGuard(self.data.client_data.lock().await)
+        LockedClientDataGuard(fast_async_lock!(self.data.client_data))
     }
 
     /// Sets the associated data for this client.
     pub async fn set_client_data(&self, data: B::ClientData) {
-        let mut client_data = self.data.client_data.lock().await;
+        let mut client_data = fast_async_lock!(self.data.client_data);
         *client_data = Some(data);
     }
 }

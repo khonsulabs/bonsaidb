@@ -1,9 +1,8 @@
 use std::time::Duration;
 
-use tokio::{
-    sync::{watch, Mutex},
-    time::Instant,
-};
+use async_lock::Mutex;
+use bonsaidb_utils::fast_async_lock;
+use tokio::{sync::watch, time::Instant};
 
 #[derive(Debug)]
 pub struct Shutdown {
@@ -28,14 +27,14 @@ impl Shutdown {
     }
 
     pub async fn watcher(&self) -> Option<ShutdownStateWatcher> {
-        let receiver = self.receiver.lock().await;
+        let receiver = fast_async_lock!(self.receiver);
         receiver
             .clone()
             .map(|receiver| ShutdownStateWatcher { receiver })
     }
 
     async fn stop_watching(&self) {
-        let mut receiver = self.receiver.lock().await;
+        let mut receiver = fast_async_lock!(self.receiver);
         *receiver = None;
     }
 

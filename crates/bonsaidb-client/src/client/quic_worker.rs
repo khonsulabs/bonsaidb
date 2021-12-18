@@ -4,6 +4,7 @@ use bonsaidb_core::{
     custom_api::{CustomApi, CustomApiResult},
     networking::{Payload, Request, Response},
 };
+use bonsaidb_utils::fast_async_lock;
 use fabruic::{self, Certificate, Endpoint};
 use flume::Receiver;
 use futures::StreamExt;
@@ -81,7 +82,7 @@ async fn connect_and_process<A: CustomApi>(
     }
 
     {
-        let mut outstanding_requests = outstanding_requests.lock().await;
+        let mut outstanding_requests = fast_async_lock!(outstanding_requests);
         outstanding_requests.insert(
             initial_request
                 .request
@@ -100,7 +101,7 @@ async fn connect_and_process<A: CustomApi>(
         async { request_processor.await.map_err(|_| Error::Disconnected)? }
     ) {
         // Our socket was disconnected, clear the outstanding requests before returning.
-        let mut outstanding_requests = outstanding_requests.lock().await;
+        let mut outstanding_requests = fast_async_lock!(outstanding_requests);
         for (_, pending) in outstanding_requests.drain() {
             drop(pending.responder.send(Err(Error::Disconnected)));
         }
@@ -116,7 +117,7 @@ async fn process_requests<A: CustomApi>(
     payload_sender: fabruic::Sender<Payload<Request<A::Request>>>,
 ) -> Result<(), Error<A::Error>> {
     while let Ok(client_request) = request_receiver.recv_async().await {
-        let mut outstanding_requests = outstanding_requests.lock().await;
+        let mut outstanding_requests = fast_async_lock!(outstanding_requests);
         payload_sender.send(&client_request.request)?;
         outstanding_requests.insert(
             client_request.request.id.expect("all requests require ids"),

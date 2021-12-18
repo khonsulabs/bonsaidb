@@ -166,7 +166,7 @@ async fn send_request<Api: CustomApi>(
     pending: PendingRequest<Api>,
     requests: &OutstandingRequestMapHandle<Api>,
 ) -> bool {
-    let mut outstanding_requests = requests.lock().await;
+    let mut outstanding_requests = try_lock!(requests);
     let bytes = match bincode::serialize(&pending.request) {
         Ok(bytes) => bytes,
         Err(err) => {

@@ -4,6 +4,7 @@ use bonsaidb_core::{
     custom_api::{CustomApi, CustomApiResult},
     networking::{Payload, Response},
 };
+use bonsaidb_utils::fast_async_lock;
 use flume::Receiver;
 use futures::{
     stream::{SplitSink, SplitStream},
@@ -49,7 +50,7 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
 
         let outstanding_requests = OutstandingRequestMapHandle::default();
         {
-            let mut outstanding_requests = outstanding_requests.lock().await;
+            let mut outstanding_requests = fast_async_lock!(outstanding_requests);
             if let Err(err) = sender
                 .send(Message::Binary(bincode::serialize(&request.request)?))
                 .await
@@ -73,7 +74,7 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
             )
         ) {
             // Our socket was disconnected, clear the outstanding requests before returning.
-            let mut outstanding_requests = outstanding_requests.lock().await;
+            let mut outstanding_requests = fast_async_lock!(outstanding_requests);
             for (_, pending) in outstanding_requests.drain() {
                 drop(pending.responder.send(Err(Error::Disconnected)));
             }
@@ -90,7 +91,7 @@ async fn request_sender<Api: CustomApi>(
     outstanding_requests: OutstandingRequestMapHandle<Api>,
 ) -> Result<(), Error<Api::Error>> {
     while let Ok(pending) = request_receiver.recv_async().await {
-        let mut outstanding_requests = outstanding_requests.lock().await;
+        let mut outstanding_requests = fast_async_lock!(outstanding_requests);
         sender
             .send(Message::Binary(bincode::serialize(&pending.request)?))
             .await?;

@@ -4,11 +4,12 @@ use std::{
     sync::Arc,
 };
 
+use async_lock::RwLock;
 use bonsaidb_core::{
     connection::Connection,
     schema::{view, CollectionName, ViewName},
 };
-use tokio::sync::RwLock;
+use bonsaidb_utils::{fast_async_read, fast_async_write};
 
 use crate::{
     database::Database,
@@ -64,7 +65,7 @@ impl TaskManager {
                 // When views finish updating, they store the last transaction_id
                 // they mapped. If that value is current, we don't need to go
                 // through the jobs system at all.
-                let statuses = self.statuses.read().await;
+                let statuses = fast_async_read!(self.statuses);
                 if let Some(last_transaction_indexed) = statuses.view_update_last_status.get(&(
                     database.data.name.clone(),
                     view.collection()?,
@@ -107,7 +108,7 @@ impl TaskManager {
         collection: CollectionName,
         view_name: ViewName,
     ) -> bool {
-        let statuses = self.statuses.read().await;
+        let statuses = fast_async_read!(self.statuses);
         statuses
             .completed_integrity_checks
             .contains(&(database, collection.clone(), view_name))
@@ -151,7 +152,7 @@ impl TaskManager {
         collection: CollectionName,
         view_name: ViewName,
     ) {
-        let mut statuses = self.statuses.write().await;
+        let mut statuses = fast_async_write!(self.statuses);
         statuses
             .completed_integrity_checks
             .insert((database, collection, view_name));
@@ -164,7 +165,7 @@ impl TaskManager {
         view_name: ViewName,
         transaction_id: u64,
     ) {
-        let mut statuses = self.statuses.write().await;
+        let mut statuses = fast_async_write!(self.statuses);
         statuses
             .view_update_last_status
             .insert((database, collection, view_name), transaction_id);

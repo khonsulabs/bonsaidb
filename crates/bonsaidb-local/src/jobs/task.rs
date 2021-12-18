@@ -1,5 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
+use bonsaidb_utils::fast_async_write;
 use flume::Receiver;
 
 use crate::jobs::manager::Manager;
@@ -27,7 +28,7 @@ where
     /// Returns a copy of this handle. When the job is completed, both handles
     /// will be able to `receive()` the results.
     pub async fn clone(&self) -> Self {
-        let mut jobs = self.manager.jobs.write().await;
+        let mut jobs = fast_async_write!(self.manager.jobs);
         jobs.create_new_task_handle(self.id, self.manager.clone())
     }
 

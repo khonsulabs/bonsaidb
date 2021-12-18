@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 
+use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
 #[cfg(feature = "internal-apis")]
@@ -30,6 +31,7 @@ use bonsaidb_core::{
     custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
     schema::{CollectionDocument, NamedCollection, NamedReference},
 };
+use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use futures::TryFutureExt;
 use itertools::Itertools;
 use nebari::{
@@ -43,7 +45,6 @@ use rand::{thread_rng, Rng};
 use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncWriteExt},
-    sync::{Mutex, RwLock},
 };
 
 #[cfg(feature = "encryption")]
@@ -88,7 +89,7 @@ impl Drop for Data {
         let open_roots = std::mem::take(&mut self.open_roots);
 
         self.runtime.spawn(async move {
-            let mut open_roots = open_roots.lock().await;
+            let mut open_roots = fast_async_lock!(open_roots);
             for (_, context) in open_roots.drain() {
                 context.shutdown();
             }
@@ -229,7 +230,7 @@ impl Storage {
             .into_iter()
             .map(|map| (map.key, map.value))
             .collect();
-        let mut storage_databases = self.data.available_databases.write().await;
+        let mut storage_databases = fast_async_write!(self.data.available_databases);
         *storage_databases = available_databases;
         Ok(())
     }
@@ -281,7 +282,7 @@ impl Storage {
 
     /// Registers a schema for use within the server.
     pub async fn register_schema<DB: Schema>(&self) -> Result<(), Error> {
-        let mut schemas = self.data.schemas.write().await;
+        let mut schemas = fast_async_write!(self.data.schemas);
         if schemas
             .insert(
                 DB::schema_name()?,
@@ -299,7 +300,7 @@ impl Storage {
 
     #[cfg_attr(not(feature = "encryption"), allow(unused_mut))]
     pub(crate) async fn open_roots(&self, name: &str) -> Result<Context, Error> {
-        let mut open_roots = self.data.open_roots.lock().await;
+        let mut open_roots = fast_async_lock!(self.data.open_roots);
         if let Some(roots) = open_roots.get(name) {
             Ok(roots.clone())
         } else {
@@ -389,7 +390,7 @@ impl Storage {
             }
         };
 
-        let mut schemas = self.data.schemas.write().await;
+        let mut schemas = fast_async_write!(self.data.schemas);
         if let Some(schema) = schemas.get_mut(&schema) {
             schema.open(name.to_string(), self.clone()).await
         } else {
@@ -621,13 +622,13 @@ impl StorageConnection for Storage {
         Self::validate_name(name)?;
 
         {
-            let schemas = self.data.schemas.read().await;
+            let schemas = fast_async_read!(self.data.schemas);
             if !schemas.contains_key(&schema) {
                 return Err(bonsaidb_core::Error::SchemaNotRegistered(schema));
             }
         }
 
-        let mut available_databases = self.data.available_databases.write().await;
+        let mut available_databases = fast_async_write!(self.data.available_databases);
         let admin = self.admin().await;
         if !admin
             .view::<database::ByName>()
@@ -661,7 +662,7 @@ impl StorageConnection for Storage {
         &self,
         name: &str,
     ) -> Result<Self::Database, bonsaidb_core::Error> {
-        let available_databases = self.data.available_databases.read().await;
+        let available_databases = fast_async_read!(self.data.available_databases);
 
         if let Some(stored_schema) = available_databases.get(name) {
             if stored_schema == &DB::schema_name()? {
@@ -686,10 +687,10 @@ impl StorageConnection for Storage {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(name)))]
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
         let admin = self.admin().await;
-        let mut available_databases = self.data.available_databases.write().await;
+        let mut available_databases = fast_async_write!(self.data.available_databases);
         available_databases.remove(name);
 
-        let mut open_roots = self.data.open_roots.lock().await;
+        let mut open_roots = fast_async_lock!(self.data.open_roots);
         open_roots.remove(name);
 
         let database_folder = self.path().join(name);
@@ -718,7 +719,7 @@ impl StorageConnection for Storage {
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
-        let available_databases = self.data.available_databases.read().await;
+        let available_databases = fast_async_read!(self.data.available_databases);
         Ok(available_databases
             .iter()
             .map(|(name, schema)| connection::Database {
@@ -730,7 +731,7 @@ impl StorageConnection for Storage {
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
-        let available_databases = self.data.available_databases.read().await;
+        let available_databases = fast_async_read!(self.data.available_databases);
         Ok(available_databases.values().unique().cloned().collect())
     }
 

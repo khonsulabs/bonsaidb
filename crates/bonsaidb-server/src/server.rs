@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 
+use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
 use bonsaidb_core::{
     admin::User,
@@ -45,6 +46,7 @@ use bonsaidb_local::{
     jobs::{manager::Manager, Job},
     OpenDatabase, Storage,
 };
+use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::DeriveWhere;
 use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
@@ -54,7 +56,6 @@ use schema::SchemaName;
 #[cfg(not(windows))]
 use signal_hook::consts::SIGQUIT;
 use signal_hook::consts::{SIGINT, SIGTERM};
-use tokio::sync::{Mutex, RwLock};
 
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
@@ -352,7 +353,7 @@ impl<B: Backend> CustomServer<B> {
             .build()
             .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
         {
-            let mut endpoint = self.data.endpoint.write().await;
+            let mut endpoint = fast_async_write!(self.data.endpoint);
             *endpoint = Some(server.clone());
         }
 
@@ -389,13 +390,13 @@ impl<B: Backend> CustomServer<B> {
 
     /// Returns all of the currently connected clients.
     pub async fn connected_clients(&self) -> Vec<ConnectedClient<B>> {
-        let clients = self.data.clients.read().await;
+        let clients = fast_async_read!(self.data.clients);
         clients.values().cloned().collect()
     }
 
     /// Sends a custom API response to all connected clients.
     pub async fn broadcast(&self, response: CustomApiResult<B::CustomApi>) {
-        let clients = self.data.clients.read().await;
+        let clients = fast_async_read!(self.data.clients);
         for client in clients.values() {
             drop(client.send(response.clone()));
         }
@@ -416,7 +417,7 @@ impl<B: Backend> CustomServer<B> {
 
         let client = loop {
             let next_id = CONNECTED_CLIENT_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
-            let mut clients = self.data.clients.write().await;
+            let mut clients = fast_async_write!(self.data.clients);
             if let hash_map::Entry::Vacant(e) = clients.entry(next_id) {
                 let client = OwnedClient::new(next_id, address, transport, sender, self.clone());
                 e.insert(client.clone());
@@ -436,7 +437,7 @@ impl<B: Backend> CustomServer<B> {
 
     async fn disconnect_client(&self, id: u32) {
         if let Some(client) = {
-            let mut clients = self.data.clients.write().await;
+            let mut clients = fast_async_write!(self.data.clients);
             clients.remove(&id)
         } {
             B::client_disconnected(client, self).await;
@@ -703,7 +704,7 @@ impl<B: Backend> CustomServer<B> {
                         // No signal
                     }
                     GRACEFUL_SHUTDOWN => {
-                        let mut state = shutdown_state.lock().await;
+                        let mut state = fast_async_lock!(shutdown_state);
                         match *state {
                             SignalShutdownState::Running => {
                                 log::error!("Interrupt signal received. Shutting down gracefully.");
@@ -729,7 +730,7 @@ impl<B: Backend> CustomServer<B> {
                     _ => unreachable!(),
                 }
 
-                let state = shutdown_state.lock().await;
+                let state = fast_async_lock!(shutdown_state);
                 if let SignalShutdownState::ShuttingDown(receiver) = &*state {
                     if receiver.try_recv().is_ok() {
                         // Fully shut down.
@@ -797,7 +798,7 @@ impl<B: Backend> CustomServer<B> {
     async fn create_subscriber(&self, database: String) -> ServerSubscriber<B> {
         let subscriber = self.data.relay.create_subscriber().await;
 
-        let mut subscribers = self.data.subscribers.write().await;
+        let mut subscribers = fast_async_write!(self.data.subscribers);
         let subscriber_id = subscriber.id();
         let receiver = subscriber.receiver().clone();
         subscribers.insert(subscriber_id, subscriber);
@@ -816,7 +817,7 @@ impl<B: Backend> CustomServer<B> {
         database: &str,
         topic: S,
     ) -> Result<(), bonsaidb_core::Error> {
-        let subscribers = self.data.subscribers.read().await;
+        let subscribers = fast_async_read!(self.data.subscribers);
         if let Some(subscriber) = subscribers.get(&subscriber_id) {
             subscriber
                 .subscribe_to(database_topic(database, &topic.into()))
@@ -835,7 +836,7 @@ impl<B: Backend> CustomServer<B> {
         database: &str,
         topic: &str,
     ) -> Result<(), bonsaidb_core::Error> {
-        let subscribers = self.data.subscribers.read().await;
+        let subscribers = fast_async_read!(self.data.subscribers);
         if let Some(subscriber) = subscribers.get(&subscriber_id) {
             subscriber
                 .unsubscribe_from(&database_topic(database, topic))
@@ -1943,7 +1944,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::UnregisterSubscriberHandler
         _permissions: &Permissions,
         subscriber_id: u64,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let mut subscribers = self.server_dispatcher.subscribers.write().await;
+        let mut subscribers = fast_async_write!(self.server_dispatcher.subscribers);
         if subscribers.remove(&subscriber_id).is_none() {
             Ok(Response::Error(bonsaidb_core::Error::Server(String::from(
                 "invalid subscriber id",

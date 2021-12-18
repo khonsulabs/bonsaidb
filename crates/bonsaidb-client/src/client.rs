@@ -27,6 +27,7 @@ use bonsaidb_core::{
     permissions::Permissions,
     schema::{NamedReference, Schema, SchemaName, Schematic},
 };
+use bonsaidb_utils::fast_async_lock;
 use derive_where::DeriveWhere;
 use flume::Sender;
 #[cfg(not(target_arch = "wasm32"))]
@@ -49,7 +50,7 @@ pub struct SubscriberMap(Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>);
 
 impl SubscriberMap {
     pub async fn clear(&self) {
-        let mut data = self.lock().await;
+        let mut data = fast_async_lock!(self);
         data.clear();
     }
 }
@@ -320,7 +321,7 @@ impl<A: CustomApi> Client<A> {
             .await?
         {
             Response::Server(ServerResponse::LoggedIn { permissions }) => {
-                let mut effective_permissions = self.data.effective_permissions.lock().await;
+                let mut effective_permissions = fast_async_lock!(self.data.effective_permissions);
                 *effective_permissions = Some(permissions);
                 Ok(())
             }
@@ -387,7 +388,7 @@ impl<A: CustomApi> Client<A> {
     /// Returns the current effective permissions for the client. Returns None
     /// if unauthenticated.
     pub async fn effective_permissions(&self) -> Option<Permissions> {
-        let effective_permissions = self.data.effective_permissions.lock().await;
+        let effective_permissions = fast_async_lock!(self.data.effective_permissions);
         effective_permissions.clone()
     }
 
@@ -399,7 +400,7 @@ impl<A: CustomApi> Client<A> {
     }
 
     pub(crate) async fn register_subscriber(&self, id: u64, sender: flume::Sender<Arc<Message>>) {
-        let mut subscribers = self.data.subscribers.lock().await;
+        let mut subscribers = fast_async_lock!(self.data.subscribers);
         subscribers.insert(id, sender);
     }
 
@@ -411,7 +412,7 @@ impl<A: CustomApi> Client<A> {
             })
             .await,
         );
-        let mut subscribers = self.data.subscribers.lock().await;
+        let mut subscribers = fast_async_lock!(self.data.subscribers);
         subscribers.remove(&id);
     }
 }
@@ -448,7 +449,7 @@ impl<A: CustomApi> StorageConnection for Client<A> {
         &self,
         name: &str,
     ) -> Result<Self::Database, bonsaidb_core::Error> {
-        let mut schemas = self.data.schemas.lock().await;
+        let mut schemas = fast_async_lock!(self.data.schemas);
         let type_id = TypeId::of::<DB>();
         let schematic = if let Some(schematic) = schemas.get(&type_id) {
             schematic.clone()
@@ -716,7 +717,7 @@ async fn process_response_payload<A: CustomApi>(
         }
 
         let request = {
-            let mut outstanding_requests = outstanding_requests.lock().await;
+            let mut outstanding_requests = fast_async_lock!(outstanding_requests);
             outstanding_requests
                 .remove(&payload_id)
                 .expect("missing responder")
@@ -734,7 +735,7 @@ async fn process_response_payload<A: CustomApi>(
                 topic,
                 payload,
             }) => {
-                let mut subscribers = subscribers.lock().await;
+                let mut subscribers = fast_async_lock!(subscribers);
                 if let Some(sender) = subscribers.get(&subscriber_id) {
                     if sender
                         .send(std::sync::Arc::new(bonsaidb_core::circulate::Message {

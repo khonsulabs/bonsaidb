@@ -8,6 +8,7 @@ members = [
     "crates/bonsaidb-macros",
     "crates/bonsaidb-server",
     "crates/bonsaidb-keystorage-s3",
+    "crates/bonsaidb-utils",
     "examples/*",
     "xtask",
 ]

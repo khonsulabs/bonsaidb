@@ -22,6 +22,7 @@ tracing = ["pot/tracing"]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [
     "networking",
 ] }
+bonsaidb-utils = { path = "../bonsaidb-utils", version = "0.1.0-dev.4" }
 thiserror = "1"
 url = "2.2"
 flume = "0.10"
