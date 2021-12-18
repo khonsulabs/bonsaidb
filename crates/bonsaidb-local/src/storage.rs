@@ -80,21 +80,7 @@ struct Data {
     default_encryption_key: Option<KeyId>,
     chunk_cache: ChunkCache,
     pub(crate) check_view_integrity_on_database_open: bool,
-    runtime: tokio::runtime::Handle,
     relay: Relay,
-}
-
-impl Drop for Data {
-    fn drop(&mut self) {
-        let open_roots = std::mem::take(&mut self.open_roots);
-
-        self.runtime.spawn(async move {
-            let mut open_roots = fast_async_lock!(open_roots);
-            for (_, context) in open_roots.drain() {
-                context.shutdown();
-            }
-        });
-    }
 }
 
 impl Storage {
@@ -149,7 +135,6 @@ impl Storage {
                     available_databases: RwLock::default(),
                     open_roots: Mutex::default(),
                     check_view_integrity_on_database_open,
-                    runtime: tokio::runtime::Handle::current(),
                     relay: Relay::default(),
                 }),
             })

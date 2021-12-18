@@ -11,11 +11,11 @@ use bonsaidb_core::keyvalue::{
 use nebari::{
     io::fs::StdFile,
     tree::{KeyEvaluation, Root, Unversioned},
-    AbortError, Buffer, CompareAndSwapError, Tree,
+    AbortError, Buffer, CompareAndSwapError, Roots, Tree,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{database::Context, jobs::Job, Database, Error};
+use crate::{jobs::Job, Database, Error};
 
 #[derive(Serialize, Deserialize)]
 pub struct Entry {
@@ -435,9 +435,8 @@ impl Drop for ExpirationUpdate {
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
-pub(crate) fn expiration_thread(
-    context: Context,
+pub(crate) async fn expiration_task(
+    roots: Roots<StdFile>,
     updates: flume::Receiver<ExpirationUpdate>,
 ) -> Result<(), nebari::Error> {
     // expiring_keys will be maintained such that the soonest expiration is at the front and furthest in the future is at the back
@@ -445,22 +444,9 @@ pub(crate) fn expiration_thread(
     let mut expiration_order = VecDeque::<String>::new();
     loop {
         let update = if expiration_order.is_empty() {
-            if let Ok(update) = updates.try_recv() {
-                update
-            } else {
-                // No updates currently are queued, shut down the thread if none
-                // are still queued after locking the sender. This ensures that
-                // if an update came in between the last try and the lock being
-                // acquired that we still process the update. If there aren't
-                // any updates, we clear the sender which will cause the next
-                // update to respawn the thread.
-                let mut sender = context.kv_expirer.write().unwrap();
-                if let Ok(update) = updates.try_recv() {
-                    update
-                } else {
-                    *sender = None;
-                    break;
-                }
+            match updates.recv_async().await {
+                Ok(update) => update,
+                Err(_) => break,
             }
         } else {
             // Check to see if we have any remaining time before a key expires
@@ -469,30 +455,40 @@ pub(crate) fn expiration_thread(
             let remaining_time = *timeout - now;
             let received_update = if let Some(remaining_time) = remaining_time {
                 // Allow flume to receive updates for the remaining time.
-                match updates.recv_timeout(remaining_time) {
-                    Ok(update) => Ok(update),
-                    Err(flume::RecvTimeoutError::Timeout) => Err(()),
-                    Err(flume::RecvTimeoutError::Disconnected) => break,
+                match tokio::time::timeout(remaining_time, updates.recv_async()).await {
+                    Ok(Ok(update)) => Some(update),
+                    Ok(Err(flume::RecvError::Disconnected)) => break,
+                    Err(_elapsed) => None,
                 }
             } else {
-                updates.try_recv().map_err(|_| {})
+                updates.try_recv().ok()
             };
 
             // If we've received an update, we bubble it up to process
-            if let Ok(update) = received_update {
+            if let Some(update) = received_update {
                 update
             } else {
                 // Reaching this block means that we didn't receive an update to
                 // process, and we have at least one key that is ready to be
                 // removed.
+                let mut keys_to_remove = Vec::new();
                 while !expiration_order.is_empty()
                     && tracked_keys.get(&expiration_order[0]).unwrap() <= &now
                 {
-                    let key_to_remove = expiration_order.pop_front().unwrap();
-                    tracked_keys.remove(&key_to_remove);
-                    let tree = context.roots.tree(Unversioned::tree(KEY_TREE))?;
-                    tree.remove(key_to_remove.as_bytes())?;
+                    let key = expiration_order.pop_front().unwrap();
+                    tracked_keys.remove(&key);
+                    keys_to_remove.push(key);
                 }
+                let task_roots = roots.clone();
+                tokio::task::spawn_blocking(move || {
+                    let tree = task_roots.tree(Unversioned::tree(KEY_TREE))?;
+                    for key in keys_to_remove {
+                        tree.remove(key.as_bytes())?;
+                    }
+                    Result::<(), nebari::Error>::Ok(())
+                })
+                .await
+                .unwrap()?;
                 continue;
             }
         };
@@ -557,6 +553,8 @@ mod tests {
     use futures::Future;
     use nebari::io::fs::StdFile;
 
+    use crate::database::Context;
+
     use super::*;
 
     async fn run_test<
@@ -584,10 +582,12 @@ mod tests {
                 let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
                 tree.set(b"atree.akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender.update_key_expiration(
-                    full_key(Some(String::from("atree")), String::from("akey")),
-                    Some(Timestamp::now() + Duration::from_millis(100)),
-                );
+                sender
+                    .update_key_expiration_async(
+                        full_key(Some(String::from("atree")), String::from("akey")),
+                        Some(Timestamp::now() + Duration::from_millis(100)),
+                    )
+                    .await;
                 if !timing.wait_until(Duration::from_secs(1)).await {
                     println!("basic_expiration restarting due to timing discrepency");
                     continue;
@@ -609,14 +609,18 @@ mod tests {
                 let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
                 tree.set(b"atree.akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender.update_key_expiration(
-                    full_key(Some(String::from("atree")), String::from("akey")),
-                    Some(Timestamp::now() + Duration::from_millis(100)),
-                );
-                sender.update_key_expiration(
-                    full_key(Some(String::from("atree")), String::from("akey")),
-                    Some(Timestamp::now() + Duration::from_secs(1)),
-                );
+                sender
+                    .update_key_expiration_async(
+                        full_key(Some(String::from("atree")), String::from("akey")),
+                        Some(Timestamp::now() + Duration::from_millis(100)),
+                    )
+                    .await;
+                sender
+                    .update_key_expiration_async(
+                        full_key(Some(String::from("atree")), String::from("akey")),
+                        Some(Timestamp::now() + Duration::from_secs(1)),
+                    )
+                    .await;
                 if timing.elapsed() > Duration::from_millis(100)
                     || !timing.wait_until(Duration::from_millis(500)).await
                 {
@@ -644,14 +648,18 @@ mod tests {
                 tree.set(b"atree.bkey", b"somevalue")?;
 
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender.update_key_expiration(
-                    full_key(Some(String::from("atree")), String::from("akey")),
-                    Some(Timestamp::now() + Duration::from_millis(100)),
-                );
-                sender.update_key_expiration(
-                    full_key(Some(String::from("atree")), String::from("bkey")),
-                    Some(Timestamp::now() + Duration::from_secs(1)),
-                );
+                sender
+                    .update_key_expiration_async(
+                        full_key(Some(String::from("atree")), String::from("akey")),
+                        Some(Timestamp::now() + Duration::from_millis(100)),
+                    )
+                    .await;
+                sender
+                    .update_key_expiration_async(
+                        full_key(Some(String::from("atree")), String::from("bkey")),
+                        Some(Timestamp::now() + Duration::from_secs(1)),
+                    )
+                    .await;
 
                 if !timing.wait_until(Duration::from_millis(200)).await {
                     continue;
@@ -678,14 +686,18 @@ mod tests {
                 let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
                 tree.set(b"atree.akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender.update_key_expiration(
-                    full_key(Some(String::from("atree")), String::from("akey")),
-                    Some(Timestamp::now() + Duration::from_millis(100)),
-                );
-                sender.update_key_expiration(
-                    full_key(Some(String::from("atree")), String::from("akey")),
-                    None,
-                );
+                sender
+                    .update_key_expiration_async(
+                        full_key(Some(String::from("atree")), String::from("akey")),
+                        Some(Timestamp::now() + Duration::from_millis(100)),
+                    )
+                    .await;
+                sender
+                    .update_key_expiration_async(
+                        full_key(Some(String::from("atree")), String::from("akey")),
+                        None,
+                    )
+                    .await;
                 if timing.elapsed() > Duration::from_millis(100) {
                     // Restart, took too long.
                     continue;
@@ -707,18 +719,24 @@ mod tests {
             tree.set(b"atree.akey", b"somevalue")?;
             tree.set(b"atree.bkey", b"somevalue")?;
             tree.set(b"atree.ckey", b"somevalue")?;
-            sender.update_key_expiration(
-                full_key(Some(String::from("atree")), String::from("akey")),
-                Some(Timestamp::now() + Duration::from_secs(3)),
-            );
-            sender.update_key_expiration(
-                full_key(Some(String::from("atree")), String::from("ckey")),
-                Some(Timestamp::now() + Duration::from_secs(1)),
-            );
-            sender.update_key_expiration(
-                full_key(Some(String::from("atree")), String::from("bkey")),
-                Some(Timestamp::now() + Duration::from_secs(2)),
-            );
+            sender
+                .update_key_expiration_async(
+                    full_key(Some(String::from("atree")), String::from("akey")),
+                    Some(Timestamp::now() + Duration::from_secs(3)),
+                )
+                .await;
+            sender
+                .update_key_expiration_async(
+                    full_key(Some(String::from("atree")), String::from("ckey")),
+                    Some(Timestamp::now() + Duration::from_secs(1)),
+                )
+                .await;
+            sender
+                .update_key_expiration_async(
+                    full_key(Some(String::from("atree")), String::from("bkey")),
+                    Some(Timestamp::now() + Duration::from_secs(2)),
+                )
+                .await;
             tokio::time::sleep(Duration::from_millis(1200)).await;
             assert!(tree.get(b"atree.akey")?.is_some());
             assert!(tree.get(b"atree.bkey")?.is_some());
@@ -785,7 +803,8 @@ impl Job for ExpirationLoader {
 
         while let Ok((key, expiration)) = receiver.recv_async().await {
             self.database
-                .update_key_expiration(String::from_utf8(key.to_vec())?, expiration);
+                .update_key_expiration_async(String::from_utf8(key.to_vec())?, expiration)
+                .await;
         }
 
         Ok(())

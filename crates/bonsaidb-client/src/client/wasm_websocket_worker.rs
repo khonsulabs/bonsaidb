@@ -4,6 +4,7 @@ use bonsaidb_core::{
     custom_api::{CustomApi, CustomApiResult},
     networking::{Payload, Response},
 };
+use bonsaidb_utils::fast_async_lock;
 use flume::Receiver;
 use url::Url;
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
@@ -166,7 +167,7 @@ async fn send_request<Api: CustomApi>(
     pending: PendingRequest<Api>,
     requests: &OutstandingRequestMapHandle<Api>,
 ) -> bool {
-    let mut outstanding_requests = try_lock!(requests);
+    let mut outstanding_requests = fast_async_lock!(requests);
     let bytes = match bincode::serialize(&pending.request) {
         Ok(bytes) => bytes,
         Err(err) => {
@@ -267,6 +268,7 @@ fn take_initial_request<Api: CustomApi>(
     initial_request.take()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn on_close_callback<Api: CustomApi>(
     url: Arc<Url>,
     protocol_version: &'static str,
