@@ -23,8 +23,9 @@ struct TestHarness {
 impl TestHarness {
     async fn new(test: HarnessTest) -> anyhow::Result<Self> {
         let directory = TestDirectory::new(format!("local-{}", test));
-        let storage = Storage::open(StorageConfiguration::new(&directory)).await?;
-        storage.register_schema::<BasicSchema>().await?;
+        let storage =
+            Storage::open(StorageConfiguration::new(&directory).with_schema::<BasicSchema>()?)
+                .await?;
         storage
             .create_database::<BasicSchema>("tests", false)
             .await?;

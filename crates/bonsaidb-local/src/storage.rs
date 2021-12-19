@@ -131,7 +131,7 @@ impl Storage {
                     file_manager: StdFileManager::default(),
                     chunk_cache: ChunkCache::new(2000, 160_384),
                     threadpool: ThreadPool::default(),
-                    schemas: RwLock::default(),
+                    schemas: RwLock::new(configuration.initial_schemas),
                     available_databases: RwLock::default(),
                     open_roots: Mutex::default(),
                     check_view_integrity_on_database_open,
@@ -450,13 +450,13 @@ impl Storage {
 }
 
 #[async_trait]
-trait DatabaseOpener: Send + Sync + Debug {
+pub trait DatabaseOpener: Send + Sync + Debug {
     fn schematic(&self) -> &'_ Schematic;
     async fn open(&self, name: String, storage: Storage) -> Result<Box<dyn OpenDatabase>, Error>;
 }
 
 #[derive(Debug)]
-struct StorageSchemaOpener<DB: Schema> {
+pub struct StorageSchemaOpener<DB: Schema> {
     schematic: Schematic,
     _phantom: PhantomData<DB>,
 }
@@ -465,7 +465,7 @@ impl<DB> StorageSchemaOpener<DB>
 where
     DB: Schema,
 {
-    fn new() -> Result<Self, Error> {
+    pub fn new() -> Result<Self, Error> {
         let schematic = DB::schematic()?;
         Ok(Self {
             schematic,

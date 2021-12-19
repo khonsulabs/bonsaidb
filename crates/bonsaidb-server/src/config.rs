@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use bonsaidb_core::{document::KeyId, permissions::Permissions};
+use bonsaidb_core::{document::KeyId, permissions::Permissions, schema::Schema};
 use bonsaidb_local::{
     config::{Builder, StorageConfiguration},
     vault::AnyVaultKeyStorage,
@@ -151,6 +151,11 @@ impl From<Permissions> for DefaultPermissions {
 }
 
 impl Builder for ServerConfiguration {
+    fn with_schema<S: Schema>(mut self) -> Result<Self, bonsaidb_local::Error> {
+        self.storage.register_schema::<S>()?;
+        Ok(self)
+    }
+
     fn path<P: AsRef<Path>>(mut self, path: P) -> Self {
         self.storage.path = Some(path.as_ref().to_owned());
         self

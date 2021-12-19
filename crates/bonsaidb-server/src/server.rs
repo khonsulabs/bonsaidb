@@ -43,6 +43,7 @@ use bonsaidb_core::{
     transaction::{Command, Transaction},
 };
 use bonsaidb_local::{
+    config::Builder,
     jobs::{manager::Manager, Job},
     OpenDatabase, Storage,
 };
@@ -142,9 +143,8 @@ impl<B: Backend> CustomServer<B> {
             request_processor.spawn_worker();
         }
 
-        let storage = Storage::open(configuration.storage).await?;
+        let storage = Storage::open(configuration.storage.with_schema::<Hosted>()?).await?;
 
-        storage.register_schema::<Hosted>().await?;
         storage.create_database::<Hosted>("_hosted", true).await?;
 
         let default_permissions = Permissions::from(configuration.default_permissions);

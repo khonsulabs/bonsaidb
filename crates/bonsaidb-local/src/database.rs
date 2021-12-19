@@ -28,7 +28,7 @@ use nebari::{
 #[cfg(feature = "encryption")]
 use crate::vault::TreeVault;
 use crate::{
-    config::StorageConfiguration,
+    config::{Builder, StorageConfiguration},
     error::Error,
     open_trees::OpenTrees,
     storage::{AnyBackupLocation, OpenDatabase},
@@ -128,8 +128,7 @@ impl Database {
 
     /// Creates a `Storage` with a single-database named "default" with its data stored at `path`.
     pub async fn open<DB: Schema>(configuration: StorageConfiguration) -> Result<Self, Error> {
-        let storage = Storage::open(configuration).await?;
-        storage.register_schema::<DB>().await?;
+        let storage = Storage::open(configuration.with_schema::<DB>()?).await?;
 
         storage.create_database::<DB>("default", true).await?;
 

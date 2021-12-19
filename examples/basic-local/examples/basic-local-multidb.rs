@@ -31,10 +31,11 @@ impl Collection for Message {
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
-    let storage = Storage::open(StorageConfiguration::new("basic.bonsaidb")).await?;
+    let storage =
+        Storage::open(StorageConfiguration::new("basic.bonsaidb").with_schema::<Message>()?)
+            .await?;
     // Before you can create a database, you must register the schema you're
     // wanting to use.
-    storage.register_schema::<Message>().await?;
     storage.create_database::<Message>("messages", true).await?;
     let messages = storage.database::<Message>("messages").await?;
     storage

@@ -19,10 +19,10 @@ async fn main() -> anyhow::Result<()> {
             .server_name(DOMAIN)
             .default_permissions(DefaultPermissions::AllowAll)
             .acme_contact_email("mailto:netops@example.com")
-            .acme_directory(LETS_ENCRYPT_STAGING_DIRECTORY),
+            .acme_directory(LETS_ENCRYPT_STAGING_DIRECTORY)
+            .with_schema::<()>()?,
     )
     .await?;
-    server.register_schema::<()>().await?;
 
     // The ACME registration is done via the TLS-ALPN-01 challenge, which occurs
     // on port 443 for LetsEncrypt. With the feature enabled, listening for

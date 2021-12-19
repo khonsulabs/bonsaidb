@@ -226,10 +226,11 @@ async fn basic_test() {
         StorageConfiguration::new(&directory)
             .vault_key_storage(vault_key_storage)
             .default_encryption_key(KeyId::Master)
+            .with_schema::<BasicSchema>()
+            .unwrap()
     };
     let document = {
         let bonsai = Storage::open(configuration(None)).await.unwrap();
-        bonsai.register_schema::<BasicSchema>().await.unwrap();
         bonsai
             .create_database::<BasicSchema>("test", false)
             .await

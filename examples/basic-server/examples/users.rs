@@ -122,13 +122,13 @@ async fn setup_server() -> anyhow::Result<Server> {
                     BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
                 ]),
             }]))
-            .default_encryption_key(KeyId::Master),
+            .default_encryption_key(KeyId::Master)
+            .with_schema::<Shape>()?,
     )
     .await?;
     if server.certificate_chain().await.is_err() {
         server.install_self_signed_certificate(true).await?;
     }
-    server.register_schema::<Shape>().await?;
     server.create_database::<Shape>("my-database", true).await?;
 
     // Spawn our QUIC-based protocol listener.

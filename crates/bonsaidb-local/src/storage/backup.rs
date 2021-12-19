@@ -419,8 +419,10 @@ mod tests {
         // which is why we're creating a nested scope here.
         let test_doc = {
             let database_directory = TestDirectory::new("backup-restore.bonsaidb");
-            let storage = Storage::open(StorageConfiguration::new(&database_directory)).await?;
-            storage.register_schema::<Basic>().await?;
+            let storage = Storage::open(
+                StorageConfiguration::new(&database_directory).with_schema::<Basic>()?,
+            )
+            .await?;
             storage.create_database::<Basic>("basic", false).await?;
             let db = storage.database::<Basic>("basic").await?;
             let test_doc = db
@@ -437,8 +439,8 @@ mod tests {
         // `backup_destination` now contains an export of the database, time to try loading it:
         let database_directory = TestDirectory::new("backup-restore.bonsaidb");
         let restored_storage =
-            Storage::open(StorageConfiguration::new(&database_directory)).await?;
-        restored_storage.register_schema::<Basic>().await?;
+            Storage::open(StorageConfiguration::new(&database_directory).with_schema::<Basic>()?)
+                .await?;
         restored_storage
             .restore(&*backup_destination.0)
             .await

@@ -60,7 +60,9 @@ enum CustomResponse {
 async fn custom_api() -> anyhow::Result<()> {
     let dir = TestDirectory::new("custom_api.bonsaidb");
     let server = CustomServer::<CustomBackend>::open(
-        ServerConfiguration::new(&dir).default_permissions(DefaultPermissions::AllowAll),
+        ServerConfiguration::new(&dir)
+            .default_permissions(DefaultPermissions::AllowAll)
+            .with_schema::<Basic>()?,
     )
     .await?;
     server.install_self_signed_certificate(false).await?;
@@ -68,7 +70,6 @@ async fn custom_api() -> anyhow::Result<()> {
         .certificate_chain()
         .await?
         .into_end_entity_certificate();
-    server.register_schema::<Basic>().await?;
     tokio::spawn(async move { server.listen_on(12346).await });
 
     let client = Client::build(Url::parse("bonsaidb://localhost:12346")?)

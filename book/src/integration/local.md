@@ -5,20 +5,18 @@
 If you're only wanting a single database, the setup is straightforward: (from [`examples/basic-local/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/basic-local.rs))
 
 ```rust,noplayground,no_run
-let db = Database::<Message>::open_local(
-    "basic.bonsaidb", 
-    &Configuration::default()
+let db = Database::<Message>::open(
+    StorageConfiguration::new("basic.bonsaidb")
 ).await?;
 ```
 
 Under the hood, `BonsaiDb` is creating a multi-database [`Storage`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html) with a local [`Database`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Database.html) named `default` for you. If you need to switch to a multi-database model, you can open the storage and access the `default` database: (adapted from [`examples/basic-local/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/basic-local-multidb.rs))
 
 ```rust,noplayground,no_run
-let storage = Storage::open_local(
-    "basic.bonsaidb",
-    &Configuration::default()
+let storage = Storage::open(
+    Configuration::new("basic.bonsaidb")
+        .with_schema::<Message>()?
 ).await?;
-storage.register_schema::<Message>().await?;
 let db = storage.database::<Message>("default").await?;
 ```
 

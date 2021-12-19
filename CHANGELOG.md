@@ -120,7 +120,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   
   This new functionality exposes `BackupLocation`, an async_trait that enables
   arbitrary backup locations.
-  
 
 ### Fixed
 

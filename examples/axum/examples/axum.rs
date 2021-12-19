@@ -53,10 +53,10 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
     let server = Server::open(
         ServerConfiguration::new("http-server-data.bonsaidb")
-            .default_permissions(DefaultPermissions::AllowAll),
+            .default_permissions(DefaultPermissions::AllowAll)
+            .with_schema::<()>()?,
     )
     .await?;
-    server.register_schema::<()>().await?;
     server.create_database::<()>("storage", true).await?;
 
     #[cfg(all(feature = "client"))]

@@ -1,10 +1,18 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
+use bonsaidb_core::schema::{Schema, SchemaName};
 
 #[cfg(feature = "encryption")]
 use crate::vault::AnyVaultKeyStorage;
+use crate::{
+    storage::{DatabaseOpener, StorageSchemaOpener},
+    Error,
+};
 
 /// Configuration options for [`Storage`](crate::storage::Storage).
 #[derive(Debug, Default)]
@@ -37,6 +45,19 @@ pub struct StorageConfiguration {
 
     /// Configuration options related to views.
     pub views: Views,
+
+    pub(crate) initial_schemas: HashMap<SchemaName, Box<dyn DatabaseOpener>>,
+}
+
+impl StorageConfiguration {
+    /// Registers the schema provided.
+    pub fn register_schema<S: Schema>(&mut self) -> Result<(), Error> {
+        self.initial_schemas.insert(
+            S::schema_name()?,
+            Box::new(StorageSchemaOpener::<S>::new()?),
+        );
+        Ok(())
+    }
 }
 
 /// Configujration options for background tasks.
@@ -75,6 +96,9 @@ pub trait Builder: Default {
         Self::default().path(path)
     }
 
+    /// Registers the schema and returns self.
+    fn with_schema<S: Schema>(self) -> Result<Self, Error>;
+
     /// Sets [`StorageConfiguration::path`](StorageConfiguration#structfield.path) to `path` and returns self.
     fn path<P: AsRef<Path>>(self, path: P) -> Self;
     /// Sets [`StorageConfiguration::unique_id`](StorageConfiguration#structfield.unique_id) to `unique_id` and returns self.
@@ -93,6 +117,11 @@ pub trait Builder: Default {
 }
 
 impl Builder for StorageConfiguration {
+    fn with_schema<S: Schema>(mut self) -> Result<Self, Error> {
+        self.register_schema::<S>()?;
+        Ok(self)
+    }
+
     fn path<P: AsRef<Path>>(mut self, path: P) -> Self {
         self.path = Some(path.as_ref().to_owned());
         self

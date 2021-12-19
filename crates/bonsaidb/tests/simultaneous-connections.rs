@@ -14,7 +14,9 @@ use bonsaidb::{
 async fn simultaneous_connections() -> anyhow::Result<()> {
     let dir = TestDirectory::new("simultaneous-connections.bonsaidb");
     let server = Server::open(
-        ServerConfiguration::new(&dir).default_permissions(DefaultPermissions::AllowAll),
+        ServerConfiguration::new(&dir)
+            .default_permissions(DefaultPermissions::AllowAll)
+            .with_schema::<BasicSchema>()?,
     )
     .await?;
     server.install_self_signed_certificate(false).await?;
@@ -22,7 +24,6 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
         .certificate_chain()
         .await?
         .into_end_entity_certificate();
-    server.register_schema::<BasicSchema>().await?;
     tokio::spawn(async move { server.listen_on(12345).await });
 
     let client = Client::build(Url::parse("bonsaidb://localhost:12345")?)

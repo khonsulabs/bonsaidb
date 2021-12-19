@@ -74,9 +74,7 @@ impl CollectionView for ShapesByNumberOfSides {
 After you have your collection(s) defined, you can open up a database and insert documents:
 
 ```rust,ignore
-    let db =
-        Database::open_local::<Shape>("view-examples.bonsaidb".as_ref(), Configuration::default())
-            .await?;
+    let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
 
     // Insert a new document into the Shape collection.
     Shape::new(3).insert_into(&db).await?;

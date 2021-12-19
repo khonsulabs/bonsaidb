@@ -13,10 +13,10 @@ pub async fn initialize_basic_server(path: &Path) -> Result<Server, Error> {
     let server = Server::open(
         ServerConfiguration::new(path)
             .server_name(BASIC_SERVER_NAME)
-            .default_permissions(DefaultPermissions::AllowAll),
+            .default_permissions(DefaultPermissions::AllowAll)
+            .with_schema::<BasicSchema>()?,
     )
     .await?;
-    server.register_schema::<BasicSchema>().await?;
     server.install_self_signed_certificate(false).await?;
 
     server
