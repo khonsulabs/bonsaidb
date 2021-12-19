@@ -6,18 +6,15 @@ use bonsaidb::{
         connection::StorageConnection,
         test_util::{self, Basic, BasicSchema, TestDirectory},
     },
-    server::{Configuration, DefaultPermissions, Server},
+    local::config::Builder,
+    server::{DefaultPermissions, Server, ServerConfiguration},
 };
 
 #[tokio::test]
 async fn simultaneous_connections() -> anyhow::Result<()> {
     let dir = TestDirectory::new("simultaneous-connections.bonsaidb");
     let server = Server::open(
-        dir.as_ref(),
-        Configuration {
-            default_permissions: DefaultPermissions::AllowAll,
-            ..Configuration::default()
-        },
+        ServerConfiguration::new(&dir).default_permissions(DefaultPermissions::AllowAll),
     )
     .await?;
     server.install_self_signed_certificate(false).await?;

@@ -2,7 +2,7 @@
 //!
 //! This example has a section in the User Guide: https://dev.bonsaidb.io/guide/about/access-models/custom-api-server.html
 
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 
 use bonsaidb::{
     client::{url::Url, Client},
@@ -16,9 +16,10 @@ use bonsaidb::{
             Action, ActionNameList, ResourceName, Statement,
         },
     },
+    local::config::Builder,
     server::{
-        Backend, BackendError, Configuration, ConnectedClient, CustomApiDispatcher, CustomServer,
-        DefaultPermissions,
+        Backend, BackendError, ConnectedClient, CustomApiDispatcher, CustomServer,
+        ServerConfiguration,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -185,28 +186,21 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
     // ANCHOR: server-init
     let server = CustomServer::<ExampleBackend>::open(
-        Path::new("server-data.bonsaidb"),
-        Configuration {
-            default_permissions: DefaultPermissions::Permissions(Permissions::from(vec![
-                Statement {
-                    resources: vec![ResourceName::any()],
-                    actions: ActionNameList::List(vec![
-                        BonsaiAction::Server(ServerAction::Connect).name(),
-                        BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
-                    ]),
-                },
-            ])),
-            authenticated_permissions: DefaultPermissions::Permissions(Permissions::from(vec![
-                Statement {
-                    resources: vec![ResourceName::any()],
-                    actions: ActionNameList::List(vec![
-                        ExampleActions::DoSomethingSimple.name(),
-                        ExampleActions::DoSomethingCustom.name(),
-                    ]),
-                },
-            ])),
-            ..Default::default()
-        },
+        ServerConfiguration::new("server-data.bonsaidb")
+            .default_permissions(Permissions::from(vec![Statement {
+                resources: vec![ResourceName::any()],
+                actions: ActionNameList::List(vec![
+                    BonsaiAction::Server(ServerAction::Connect).name(),
+                    BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
+                ]),
+            }]))
+            .authenticated_permissions(Permissions::from(vec![Statement {
+                resources: vec![ResourceName::any()],
+                actions: ActionNameList::List(vec![
+                    ExampleActions::DoSomethingSimple.name(),
+                    ExampleActions::DoSomethingCustom.name(),
+                ]),
+            }])),
     )
     .await?;
     // ANCHOR_END: server-init

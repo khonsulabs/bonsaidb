@@ -6,7 +6,10 @@ use bonsaidb::{
         schema::{Collection, CollectionName, InvalidNameError, Schematic},
         Error,
     },
-    local::{config::Configuration, Storage},
+    local::{
+        config::{Builder, StorageConfiguration},
+        Storage,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +31,7 @@ impl Collection for Message {
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
-    let storage = Storage::open_local("basic.bonsaidb", Configuration::default()).await?;
+    let storage = Storage::open(StorageConfiguration::new("basic.bonsaidb")).await?;
     // Before you can create a database, you must register the schema you're
     // wanting to use.
     storage.register_schema::<Message>().await?;

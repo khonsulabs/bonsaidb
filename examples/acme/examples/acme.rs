@@ -1,14 +1,12 @@
 //! Shows how to use ACME to automatically acquire a TLS certificate for your `BonsaiDb` server.
 
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 
 use bonsaidb::{
     client::{url::Url, Client},
     core::connection::StorageConnection,
-    server::{
-        AcmeConfiguration, Configuration, DefaultPermissions, Server,
-        LETS_ENCRYPT_STAGING_DIRECTORY,
-    },
+    local::config::Builder,
+    server::{DefaultPermissions, Server, ServerConfiguration, LETS_ENCRYPT_STAGING_DIRECTORY},
 };
 
 const DOMAIN: &str = "example.com";
@@ -17,16 +15,11 @@ const DOMAIN: &str = "example.com";
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
     let server = Server::open(
-        Path::new("acme-server-data.bonsaidb"),
-        Configuration {
-            server_name: String::from(DOMAIN),
-            default_permissions: DefaultPermissions::AllowAll,
-            acme: AcmeConfiguration {
-                contact_email: Some(String::from("mailto:netops@example.com")),
-                directory: LETS_ENCRYPT_STAGING_DIRECTORY.to_string(),
-            },
-            ..Default::default()
-        },
+        ServerConfiguration::new("acme-server-data.bonsaidb")
+            .server_name(DOMAIN)
+            .default_permissions(DefaultPermissions::AllowAll)
+            .acme_contact_email("mailto:netops@example.com")
+            .acme_directory(LETS_ENCRYPT_STAGING_DIRECTORY),
     )
     .await?;
     server.register_schema::<()>().await?;

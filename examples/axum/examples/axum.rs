@@ -1,13 +1,14 @@
 //! Shows how to use the axum web framework with BonsaiDb. Any hyper-compatible
 //! framework should be usable.
 
-use std::path::Path;
-
 use async_trait::async_trait;
 use axum::{extract, routing::get, AddExtensionLayer, Router};
 use bonsaidb::{
     core::{connection::StorageConnection, keyvalue::KeyValue},
-    server::{Configuration, DefaultPermissions, HttpService, Peer, Server, StandardTcpProtocols},
+    local::config::Builder,
+    server::{
+        DefaultPermissions, HttpService, Peer, Server, ServerConfiguration, StandardTcpProtocols,
+    },
 };
 use hyper::{server::conn::Http, Body, Request, Response};
 #[cfg(feature = "client")]
@@ -51,11 +52,8 @@ impl HttpService for AxumService {
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
     let server = Server::open(
-        Path::new("http-server-data.bonsaidb"),
-        Configuration {
-            default_permissions: DefaultPermissions::AllowAll,
-            ..Default::default()
-        },
+        ServerConfiguration::new("http-server-data.bonsaidb")
+            .default_permissions(DefaultPermissions::AllowAll),
     )
     .await?;
     server.register_schema::<()>().await?;

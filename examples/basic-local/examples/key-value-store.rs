@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use bonsaidb::{
     core::keyvalue::{KeyStatus, KeyValue},
-    local::{config::Configuration, Database},
+    local::{
+        config::{Builder, StorageConfiguration},
+        Database,
+    },
 };
 
 // BonsaiDb supports a lightweight, atomic key-value store in addition to its
@@ -13,11 +16,7 @@ use bonsaidb::{
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
-    let db = Database::open_local::<()>(
-        "key-value-store.bonsaidb".as_ref(),
-        Configuration::default(),
-    )
-    .await?;
+    let db = Database::open::<()>(StorageConfiguration::new("key-value-store.bonsaidb")).await?;
 
     // The set_key method can be awaited to insert/replace a key. Values can be
     // anything supported by serde.

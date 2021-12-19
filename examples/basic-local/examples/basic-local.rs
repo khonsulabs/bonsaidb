@@ -5,7 +5,10 @@ use bonsaidb::{
         schema::{Collection, CollectionName, InvalidNameError, Schematic},
         Error,
     },
-    local::{config::Configuration, Database},
+    local::{
+        config::{Builder, StorageConfiguration},
+        Database,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -27,8 +30,7 @@ impl Collection for Message {
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
-    let db = Database::open_local::<Message>("basic.bonsaidb".as_ref(), Configuration::default())
-        .await?;
+    let db = Database::open::<Message>(StorageConfiguration::new("basic.bonsaidb")).await?;
 
     // Insert a new `Message` into the database. `Message` is a `Collection`
     // implementor, which makes them act in a similar fashion to tables in other

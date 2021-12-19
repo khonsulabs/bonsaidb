@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use bonsaidb::{
     core::pubsub::{PubSub, Subscriber},
-    local::{config::Configuration, Database},
+    local::{
+        config::{Builder, StorageConfiguration},
+        Database,
+    },
 };
 use tokio::time::sleep;
 
@@ -10,8 +13,7 @@ use tokio::time::sleep;
 async fn main() -> Result<(), bonsaidb::local::Error> {
     // This example is using a database with no collections, because PubSub is a
     // system independent of the data stored in the database.
-    let db =
-        Database::open_local::<()>("pubsub.bonsaidb".as_ref(), Configuration::default()).await?;
+    let db = Database::open::<()>(StorageConfiguration::new("pubsub.bonsaidb")).await?;
 
     let subscriber = db.create_subscriber().await?;
     // Subscribe for messages sent to the topic "pong"

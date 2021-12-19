@@ -4,7 +4,7 @@ use std::{
     marker::PhantomData,
     net::SocketAddr,
     ops::Deref,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
         atomic::{AtomicU32, AtomicUsize, Ordering},
         Arc,
@@ -64,7 +64,7 @@ use crate::{
     error::Error,
     hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
     server::shutdown::{Shutdown, ShutdownState},
-    Backend, Configuration,
+    Backend, ServerConfiguration,
 };
 
 #[cfg(feature = "acme")]
@@ -98,7 +98,6 @@ pub type Server = CustomServer<()>;
 
 #[derive(Debug)]
 struct Data<B: Backend = ()> {
-    directory: PathBuf,
     storage: Storage,
     clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     request_processor: Manager,
@@ -137,13 +136,13 @@ impl Deref for CachedCertifiedKey {
 
 impl<B: Backend> CustomServer<B> {
     /// Opens a server using `directory` for storage.
-    pub async fn open(directory: &Path, configuration: Configuration) -> Result<Self, Error> {
+    pub async fn open(configuration: ServerConfiguration) -> Result<Self, Error> {
         let request_processor = Manager::default();
         for _ in 0..configuration.request_workers {
             request_processor.spawn_worker();
         }
 
-        let storage = Storage::open_local(directory, configuration.storage).await?;
+        let storage = Storage::open(configuration.storage).await?;
 
         storage.register_schema::<Hosted>().await?;
         storage.create_database::<Hosted>("_hosted", true).await?;
@@ -155,7 +154,6 @@ impl<B: Backend> CustomServer<B> {
             data: Arc::new(Data {
                 clients: RwLock::default(),
                 storage,
-                directory: directory.to_owned(),
                 endpoint: RwLock::default(),
                 request_processor,
                 default_permissions,
@@ -179,8 +177,8 @@ impl<B: Backend> CustomServer<B> {
 
     /// Returns the path to the directory that stores this server's data.
     #[must_use]
-    pub fn directory(&self) -> &'_ PathBuf {
-        &self.data.directory
+    pub fn directory(&self) -> &Path {
+        self.data.storage.path()
     }
 
     /// Returns the primary domain configured for this server.

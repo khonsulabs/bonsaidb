@@ -17,10 +17,11 @@ use bonsaidb::{
     server::{
         fabruic::Certificate,
         test_util::{initialize_basic_server, BASIC_SERVER_NAME},
-        Configuration, DefaultPermissions, Server,
+        DefaultPermissions, Server, ServerConfiguration,
     },
 };
 use bonsaidb_core::keyvalue::KeyValue;
+use bonsaidb_local::config::Builder;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
@@ -316,20 +317,15 @@ async fn assume_permissions(
 async fn authenticated_permissions_test() -> anyhow::Result<()> {
     let database_path = TestDirectory::new("authenticated-permissions");
     let server = Server::open(
-        &database_path,
-        Configuration {
-            default_permissions: DefaultPermissions::Permissions(Permissions::from(vec![
-                Statement {
-                    resources: vec![ResourceName::any()],
-                    actions: ActionNameList::List(vec![
-                        BonsaiAction::Server(ServerAction::Connect).name(),
-                        BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
-                    ]),
-                },
-            ])),
-            authenticated_permissions: DefaultPermissions::AllowAll,
-            ..Configuration::default()
-        },
+        ServerConfiguration::new(&database_path)
+            .default_permissions(Permissions::from(vec![Statement {
+                resources: vec![ResourceName::any()],
+                actions: ActionNameList::List(vec![
+                    BonsaiAction::Server(ServerAction::Connect).name(),
+                    BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
+                ]),
+            }]))
+            .authenticated_permissions(DefaultPermissions::AllowAll),
     )
     .await?;
     server.install_self_signed_certificate(false).await?;

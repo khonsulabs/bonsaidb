@@ -10,10 +10,10 @@ use bonsaidb_core::{
         BasicCollectionWithOnlyBrokenParentId, BasicSchema, HarnessTest, TestDirectory,
     },
 };
-use config::Configuration;
+use config::StorageConfiguration;
 
 use super::*;
-use crate::Database;
+use crate::{config::Builder, Database};
 
 struct TestHarness {
     _directory: TestDirectory,
@@ -23,7 +23,7 @@ struct TestHarness {
 impl TestHarness {
     async fn new(test: HarnessTest) -> anyhow::Result<Self> {
         let directory = TestDirectory::new(format!("local-{}", test));
-        let storage = Storage::open_local(&directory, Configuration::default()).await?;
+        let storage = Storage::open(StorageConfiguration::new(&directory)).await?;
         storage.register_schema::<BasicSchema>().await?;
         storage
             .create_database::<BasicSchema>("tests", false)
@@ -82,11 +82,9 @@ fn integrity_checks() -> anyhow::Result<()> {
             .build()?;
         rt.block_on(async {
             {
-                let db = Database::open_local::<BasicCollectionWithNoViews>(
-                    &path,
-                    Configuration::default(),
-                )
-                .await?;
+                let db =
+                    Database::open::<BasicCollectionWithNoViews>(StorageConfiguration::new(&path))
+                        .await?;
                 let collection = db.collection::<BasicCollectionWithNoViews>();
                 collection.push(&Basic::default().with_parent_id(1)).await?;
             }
@@ -101,9 +99,8 @@ fn integrity_checks() -> anyhow::Result<()> {
             .enable_all()
             .build()?;
         rt.block_on(async {
-            let db = Database::open_local::<BasicCollectionWithOnlyBrokenParentId>(
-                &path,
-                Configuration::default(),
+            let db = Database::open::<BasicCollectionWithOnlyBrokenParentId>(
+                StorageConfiguration::new(&path),
             )
             .await?;
             // Give the integrity scanner time to run if it were to run (it shouldn't in this configuration).
@@ -132,14 +129,8 @@ fn integrity_checks() -> anyhow::Result<()> {
             .enable_all()
             .build()?;
         rt.block_on(async {
-            let db = Database::open_local::<Basic>(
-                &path,
-                Configuration {
-                    views: config::Views {
-                        check_integrity_on_open: true,
-                    },
-                    ..Configuration::default()
-                },
+            let db = Database::open::<Basic>(
+                StorageConfiguration::new(&path).check_view_integrity_on_open(true),
             )
             .await?;
             for _ in 0_u8..10 {
@@ -172,7 +163,7 @@ fn encryption() -> anyhow::Result<()> {
     let document_header = {
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async {
-            let db = Database::open_local::<BasicSchema>(&path, Configuration::default()).await?;
+            let db = Database::open::<BasicSchema>(StorageConfiguration::new(&path)).await?;
 
             let document_header = db
                 .collection::<EncryptedBasic>()
@@ -198,7 +189,7 @@ fn encryption() -> anyhow::Result<()> {
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
-        let db = Database::open_local::<BasicSchema>(&path, Configuration::default()).await?;
+        let db = Database::open::<BasicSchema>(StorageConfiguration::new(&path)).await?;
 
         // Try retrieving the document, but expect an error decrypting.
         if let Err(bonsaidb_core::Error::Database(err)) = db
@@ -229,7 +220,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
-                let db = Database::open_local::<()>(&path, Configuration::default()).await?;
+                let db = Database::open::<()>(StorageConfiguration::new(&path)).await?;
 
                 db.set_key("a", &0_u32)
                     .expire_in(Duration::from_secs(3))
@@ -242,7 +233,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             let retry = rt.block_on(async {
-                let db = Database::open_local::<()>(&path, Configuration::default()).await?;
+                let db = Database::open::<()>(StorageConfiguration::new(&path)).await?;
 
                 if timing.elapsed() > Duration::from_secs(1) {
                     return Ok(true);

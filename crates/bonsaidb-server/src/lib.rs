@@ -35,7 +35,7 @@ pub use config::{
 
 pub use self::{
     backend::{Backend, BackendError, ConnectionHandling, CustomApiDispatcher, NoDispatcher},
-    config::{Configuration, DefaultPermissions, StorageConfiguration},
+    config::{DefaultPermissions, ServerConfiguration},
     error::Error,
     server::{
         ApplicationProtocols, ConnectedClient, CustomServer, HttpService, LockedClientDataGuard,
@@ -50,5 +50,8 @@ mod tests;
 #[cfg(any(feature = "test-util", test))]
 pub mod test_util;
 
+#[cfg(not(feature = "included-from-omnibus"))]
+pub use bonsaidb_core as core;
+#[cfg(not(feature = "included-from-omnibus"))]
 pub use bonsaidb_local as local;
 pub use fabruic;

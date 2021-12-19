@@ -1,8 +1,15 @@
-use bonsaidb_core::permissions::Permissions;
-pub use bonsaidb_local::config::Configuration as StorageConfiguration;
+use std::path::Path;
+
+use bonsaidb_core::{document::KeyId, permissions::Permissions};
+use bonsaidb_local::{
+    config::{Builder, StorageConfiguration},
+    vault::AnyVaultKeyStorage,
+};
 
 /// Configuration options for [`Server`](crate::Server)
-pub struct Configuration {
+#[must_use]
+#[non_exhaustive]
+pub struct ServerConfiguration {
     /// The DNS name of the server.
     pub server_name: String,
     /// Number of sumultaneous requests a single client can have in flight at a
@@ -23,7 +30,59 @@ pub struct Configuration {
     pub acme: AcmeConfiguration,
 }
 
-impl Default for Configuration {
+impl ServerConfiguration {
+    /// Sets [`Self::server_name`](Self#structfield.server_name) to `server_name` and returns self.
+    pub fn server_name(mut self, server_name: impl Into<String>) -> Self {
+        self.server_name = server_name.into();
+        self
+    }
+
+    /// Sets [`Self::client_simultaneous_request_limit`](Self#structfield.client_simultaneous_request_limit) to `request_limit` and returns self.
+    pub const fn client_simultaneous_request_limit(mut self, request_limit: usize) -> Self {
+        self.client_simultaneous_request_limit = request_limit;
+        self
+    }
+
+    /// Sets [`Self::request_workers`](Self#structfield.request_workers) to `workers` and returns self.
+    pub const fn request_workers(mut self, workers: usize) -> Self {
+        self.request_workers = workers;
+        self
+    }
+
+    /// Sets [`Self::default_permissions`](Self#structfield.default_permissions) to `default_permissions` and returns self.
+    pub fn default_permissions<P: Into<DefaultPermissions>>(
+        mut self,
+        default_permissions: P,
+    ) -> Self {
+        self.default_permissions = default_permissions.into();
+        self
+    }
+
+    /// Sets [`Self::authenticated_permissions`](Self#structfield.authenticated_permissions) to `authenticated_permissions` and returns self.
+    pub fn authenticated_permissions<P: Into<DefaultPermissions>>(
+        mut self,
+        authenticated_permissions: P,
+    ) -> Self {
+        self.authenticated_permissions = authenticated_permissions.into();
+        self
+    }
+
+    /// Sets [`AcmeConfiguration::contact_email`] to `contact_email` and returns self.
+    #[cfg(feature = "acme")]
+    pub fn acme_contact_email(mut self, contact_email: impl Into<String>) -> Self {
+        self.acme.contact_email = Some(contact_email.into());
+        self
+    }
+
+    /// Sets [`AcmeConfiguration::directory`] to `directory` and returns self.
+    #[cfg(feature = "acme")]
+    pub fn acme_directory(mut self, directory: impl Into<String>) -> Self {
+        self.acme.directory = directory.into();
+        self
+    }
+}
+
+impl Default for ServerConfiguration {
     fn default() -> Self {
         Self {
             server_name: String::from("bonsaidb"),
@@ -31,7 +90,7 @@ impl Default for Configuration {
             // TODO this was arbitrarily picked, it probably should be higher,
             // but it also should probably be based on the cpu's capabilities
             request_workers: 16,
-            storage: bonsaidb_local::config::Configuration::default(),
+            storage: bonsaidb_local::config::StorageConfiguration::default(),
             default_permissions: DefaultPermissions::Permissions(Permissions::default()),
             authenticated_permissions: DefaultPermissions::Permissions(Permissions::default()),
             #[cfg(feature = "acme")]
@@ -82,5 +141,46 @@ impl From<DefaultPermissions> for Permissions {
             DefaultPermissions::Permissions(permissions) => permissions,
             DefaultPermissions::AllowAll => Self::allow_all(),
         }
+    }
+}
+
+impl From<Permissions> for DefaultPermissions {
+    fn from(permissions: Permissions) -> Self {
+        Self::Permissions(permissions)
+    }
+}
+
+impl Builder for ServerConfiguration {
+    fn path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.storage.path = Some(path.as_ref().to_owned());
+        self
+    }
+
+    fn unique_id(mut self, unique_id: u64) -> Self {
+        self.storage.unique_id = Some(unique_id);
+        self
+    }
+
+    fn vault_key_storage<VaultKeyStorage: AnyVaultKeyStorage>(
+        mut self,
+        key_storage: VaultKeyStorage,
+    ) -> Self {
+        self.storage.vault_key_storage = Some(Box::new(key_storage));
+        self
+    }
+
+    fn default_encryption_key(mut self, key: KeyId) -> Self {
+        self.storage.default_encryption_key = Some(key);
+        self
+    }
+
+    fn tasks_worker_count(mut self, worker_count: usize) -> Self {
+        self.storage.workers.worker_count = worker_count;
+        self
+    }
+
+    fn check_view_integrity_on_open(mut self, check: bool) -> Self {
+        self.storage.views.check_integrity_on_open = check;
+        self
     }
 }

@@ -32,7 +32,10 @@ use bonsaidb_core::{
     test_util::TestDirectory,
     Error,
 };
-use bonsaidb_local::{config::Configuration, Database};
+use bonsaidb_local::{
+    config::{Builder, StorageConfiguration},
+    Database,
+};
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use serde::{Deserialize, Serialize};
 
@@ -76,9 +79,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(*size as u64), size, |b, _| {
             let path = TestDirectory::new(format!("benches-basics-{}.bonsaidb", size));
             let db = runtime
-                .block_on(Database::open_local::<ResizableDocument<'static>>(
-                    &path,
-                    Configuration::default(),
+                .block_on(Database::open::<ResizableDocument<'static>>(
+                    StorageConfiguration::new(&path),
                 ))
                 .unwrap();
             b.to_async(&runtime).iter(|| save_document(doc, &db));

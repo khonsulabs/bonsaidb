@@ -33,12 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the `client` in your dispatcher and access it in your handlers.
 - `Backend` has a new associated type: `ClientData`. This associated type can be
   used to associate data on a per-`ConnectedClient` basis.
-- `bonsaidb::server::Configuration` has a new setting:
+- `ServerConfiguration` has a new setting:
   `client_simultaneous_request_limit`. It controls the amount of query
   pipelining a single connection can achieve. Submitting more queries on a
   single connection will block reading additional requests from the network
   connection until responses have been sent.
-- `bonsaidb::server::Configuration` now supports `authenticated_permissions`,
+- `ServerConfiguration` now supports `authenticated_permissions`,
   allowing a set of permissions to be defined that are applied to any user that
   has successfully authenticated.
 - `Collection::serializer` is a new function that allows a collection to define
@@ -83,6 +83,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Configuration has been refactored to use a builder-style pattern.
+  `bonsaidb::local::config::Configuration` has been renamed
+  `StorageConfiguration`, and `bonsaidb::server::ServerConfiguration` has been
+  renamed `ServerConfiguration`.
+- `Database::open_local` and `Storage::open_local` have been renamed to `open`.
+- `Database::open`, `Storage::open`, and `Server::openm` no longer take a path
+  argument. The path is provided from the configuration.
 - Listing all schemas and databases will now include the built-in admin database.
 - The underlying dependency on `sled` has been changed for an in-house storage
   implementation [`nebari`](https://github.com/khonsulabs/nebari).
@@ -90,7 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `View::map` now returns a `Mappings` instead of an `Option`, allowing for
   emitting of multiple keys.
 - View mapping now stores the source document header, not just the ID.
-- `bonsaidb::server::Configuration::default_permissions` has been changed into a
+- `ServerConfiguration::default_permissions` has been changed into a
   `DefaultPermissions` enum.
 - Changed the default serialization format from `CBOR` to an in-house format,
   [`Pot`](https://github.com/khonsulabs/pot).

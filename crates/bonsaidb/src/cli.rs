@@ -9,8 +9,11 @@ use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
     connection::StorageConnection,
 };
-use bonsaidb_local::Storage;
-use bonsaidb_server::Backend;
+use bonsaidb_local::{
+    config::{Builder, StorageConfiguration},
+    Storage,
+};
+use bonsaidb_server::{Backend, ServerConfiguration};
 use structopt::StructOpt;
 use url::Url;
 
@@ -70,14 +73,12 @@ impl<B: Backend> Args<B> {
     /// Executes the command.
     pub async fn execute(self) -> anyhow::Result<()> {
         match self.command {
-            Command::Server(server) => Ok(server.execute(&self.connection.path()?).await?),
+            Command::Server(server) => Ok(server
+                .execute(ServerConfiguration::new(self.connection.path()?))
+                .await?),
             Command::Admin(command) => match self.connection {
                 ConnectionTarget::Path(path) => {
-                    let storage = Storage::open_local(
-                        &path,
-                        bonsaidb_local::config::Configuration::default(),
-                    )
-                    .await?;
+                    let storage = Storage::open(StorageConfiguration::new(&path)).await?;
                     let admin = storage.admin().await;
 
                     command.execute(admin, storage).await?;

@@ -7,7 +7,10 @@ use bonsaidb::{
         },
         Error,
     },
-    local::{config::Configuration, Database},
+    local::{
+        config::{Builder, StorageConfiguration},
+        Database,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -68,9 +71,7 @@ impl Shape {
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
     // begin rustme snippet: snippet-b
-    let db =
-        Database::open_local::<Shape>("view-examples.bonsaidb".as_ref(), Configuration::default())
-            .await?;
+    let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
 
     // Insert a new document into the Shape collection.
     Shape::new(3).insert_into(&db).await?;

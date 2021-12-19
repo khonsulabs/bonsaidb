@@ -23,7 +23,10 @@ use bonsaidb::{
             InvalidNameError, MappedValue, Name, Schematic,
         },
     },
-    local::{config::Configuration, Database},
+    local::{
+        config::{Builder, StorageConfiguration},
+        Database,
+    },
 };
 use hdrhistogram::{
     serialization::{Serializer, V2Serializer},
@@ -34,11 +37,8 @@ use serde::{de::Visitor, Deserialize, Serialize};
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::local::Error> {
-    let db = Database::open_local::<Samples>(
-        "view-histogram.bonsaidb".as_ref(),
-        Configuration::default(),
-    )
-    .await?;
+    let db =
+        Database::open::<Samples>(StorageConfiguration::new("view-histogram.bonsaidb")).await?;
 
     println!("inserting 100 new sets of samples");
     let mut rng = StdRng::from_entropy();

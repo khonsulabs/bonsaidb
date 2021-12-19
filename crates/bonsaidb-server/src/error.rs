@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use bonsaidb_local::core::{
-    self, permissions::PermissionDenied, schema, schema::InsertError, AnyError,
-};
+use bonsaidb_core::{permissions::PermissionDenied, schema, schema::InsertError, AnyError};
 use schema::InvalidNameError;
 
 /// An error occurred while interacting with a [`Server`](crate::Server).
@@ -27,7 +25,7 @@ pub enum Error {
 
     /// An error occurred from within the schema.
     #[error("error from core {0}")]
-    Core(#[from] core::Error),
+    Core(#[from] bonsaidb_core::Error),
 
     /// An internal error occurred while waiting for a message.
     #[error("error while waiting for a message: {0}")]
@@ -48,7 +46,7 @@ pub enum Error {
 
     /// An error occurred with handling opaque-ke.
     #[error("an opaque-ke error: {0}")]
-    Password(#[from] core::custodian_password::Error),
+    Password(#[from] bonsaidb_core::custodian_password::Error),
 
     /// An error occurred requesting an ACME certificate.
     #[error("an error requesting an ACME certificate: {0}")]
@@ -65,7 +63,7 @@ pub enum Error {
     TlsSigningError,
 }
 
-impl From<Error> for core::Error {
+impl From<Error> for bonsaidb_core::Error {
     fn from(other: Error) -> Self {
         // without it, there's no way to get this to_string() easily.
         match other {
@@ -82,13 +80,13 @@ impl From<Error> for core::Error {
 
 impl From<PermissionDenied> for Error {
     fn from(err: PermissionDenied) -> Self {
-        Self::Core(core::Error::PermissionDenied(err))
+        Self::Core(bonsaidb_core::Error::PermissionDenied(err))
     }
 }
 
 impl From<InvalidNameError> for Error {
     fn from(err: InvalidNameError) -> Self {
-        Self::Core(core::Error::InvalidName(err))
+        Self::Core(bonsaidb_core::Error::InvalidName(err))
     }
 }
 
@@ -105,24 +103,24 @@ impl<T> From<InsertError<T>> for Error {
 }
 
 pub trait ResultExt<R> {
-    fn map_err_to_core(self) -> Result<R, core::Error>
+    fn map_err_to_core(self) -> Result<R, bonsaidb_core::Error>
     where
         Self: Sized;
 }
 
 impl<R> ResultExt<R> for Result<R, Error> {
-    fn map_err_to_core(self) -> Result<R, core::Error>
+    fn map_err_to_core(self) -> Result<R, bonsaidb_core::Error>
     where
         Self: Sized,
     {
-        self.map_err(core::Error::from)
+        self.map_err(bonsaidb_core::Error::from)
     }
 }
 
 #[cfg(feature = "websockets")]
 impl From<bincode::Error> for Error {
     fn from(other: bincode::Error) -> Self {
-        Self::Core(core::Error::Websocket(format!(
+        Self::Core(bonsaidb_core::Error::Websocket(format!(
             "error deserializing message: {:?}",
             other
         )))

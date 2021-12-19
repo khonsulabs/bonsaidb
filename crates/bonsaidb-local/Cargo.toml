@@ -29,6 +29,7 @@ encryption = [
     "blake3",
 ]
 multiuser = ["bonsaidb-core/multiuser"]
+included-from-omnibus = []
 
 [dependencies]
 async-trait = "0.1"

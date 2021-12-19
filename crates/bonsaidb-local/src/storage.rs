@@ -50,8 +50,8 @@ use tokio::{
 #[cfg(feature = "encryption")]
 use crate::vault::{self, LocalVaultKeyStorage, TreeVault, Vault};
 use crate::{
-    config::Configuration, database::Context, jobs::manager::Manager, tasks::TaskManager, Database,
-    Error,
+    config::StorageConfiguration, database::Context, jobs::manager::Manager, tasks::TaskManager,
+    Database, Error,
 };
 
 mod backup;
@@ -85,11 +85,11 @@ struct Data {
 
 impl Storage {
     /// Creates or opens a multi-database [`Storage`] with its data stored in `directory`.
-    pub async fn open_local<P: AsRef<Path> + Send>(
-        path: P,
-        configuration: Configuration,
-    ) -> Result<Self, Error> {
-        let owned_path = path.as_ref().to_owned();
+    pub async fn open(configuration: StorageConfiguration) -> Result<Self, Error> {
+        let owned_path = configuration
+            .path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("db.bonsaidb"));
 
         let manager = Manager::default();
         for _ in 0..configuration.workers.worker_count {
@@ -155,7 +155,7 @@ impl Storage {
     }
 
     async fn lookup_or_create_id(
-        configuration: &Configuration,
+        configuration: &StorageConfiguration,
         path: &Path,
     ) -> Result<StorageId, Error> {
         Ok(StorageId(if let Some(id) = configuration.unique_id {
@@ -235,12 +235,12 @@ impl Storage {
 
     /// Returns the unique id of the server.
     ///
-    /// This value is set from the [`Configuration`] or randomly generated when
-    /// creating a server. It shouldn't be changed after a server is in use, as
-    /// doing can cause issues. For example, the vault that manages encrypted
-    /// storage uses the server ID to store the vault key. If the server ID
-    /// changes, the vault key storage will need to be updated with the new
-    /// server ID.
+    /// This value is set from the [`StorageConfiguration`] or randomly
+    /// generated when creating a server. It shouldn't be changed after a server
+    /// is in use, as doing can cause issues. For example, the vault that
+    /// manages encrypted storage uses the server ID to store the vault key. If
+    /// the server ID changes, the vault key storage will need to be updated
+    /// with the new server ID.
     #[must_use]
     pub fn unique_id(&self) -> StorageId {
         self.data.id

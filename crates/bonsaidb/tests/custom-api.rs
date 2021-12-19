@@ -9,10 +9,12 @@ use bonsaidb::{
         test_util::{Basic, TestDirectory},
     },
     server::{
-        Backend, BackendError, Configuration, ConnectedClient, CustomServer, DefaultPermissions,
+        Backend, BackendError, ConnectedClient, CustomServer, DefaultPermissions,
+        ServerConfiguration,
     },
 };
 use bonsaidb_core::custom_api::Infallible;
+use bonsaidb_local::config::Builder;
 use bonsaidb_server::CustomApiDispatcher;
 use serde::{Deserialize, Serialize};
 
@@ -58,11 +60,7 @@ enum CustomResponse {
 async fn custom_api() -> anyhow::Result<()> {
     let dir = TestDirectory::new("custom_api.bonsaidb");
     let server = CustomServer::<CustomBackend>::open(
-        dir.as_ref(),
-        Configuration {
-            default_permissions: DefaultPermissions::AllowAll,
-            ..Configuration::default()
-        },
+        ServerConfiguration::new(&dir).default_permissions(DefaultPermissions::AllowAll),
     )
     .await?;
     server.install_self_signed_certificate(false).await?;

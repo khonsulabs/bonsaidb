@@ -516,7 +516,7 @@ impl Debug for EncryptionKey {
 /// type is used to allow the Vault to operate without any generic parameters.
 /// This trait is auto-implemented for all [`VaultKeyStorage`] implementors.
 #[async_trait]
-pub trait AnyVaultKeyStorage: Send + Sync + Debug {
+pub trait AnyVaultKeyStorage: Send + Sync + Debug + 'static {
     /// Retrieve all previously stored master keys for a given storage id.
     async fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<PrivateKey>, Error>;
 
@@ -529,7 +529,7 @@ pub trait AnyVaultKeyStorage: Send + Sync + Debug {
 #[async_trait]
 impl<T> AnyVaultKeyStorage for T
 where
-    T: VaultKeyStorage,
+    T: VaultKeyStorage + 'static,
 {
     async fn vault_key_for(&self, server_id: StorageId) -> Result<Option<PrivateKey>, Error> {
         VaultKeyStorage::vault_key_for(self, server_id)

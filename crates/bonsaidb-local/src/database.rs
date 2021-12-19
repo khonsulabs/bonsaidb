@@ -1,6 +1,4 @@
-use std::{
-    any::Any, borrow::Cow, collections::HashMap, convert::Infallible, path::Path, sync::Arc, u8,
-};
+use std::{any::Any, borrow::Cow, collections::HashMap, convert::Infallible, sync::Arc, u8};
 
 use async_trait::async_trait;
 use bonsaidb_core::{
@@ -30,7 +28,7 @@ use nebari::{
 #[cfg(feature = "encryption")]
 use crate::vault::TreeVault;
 use crate::{
-    config::Configuration,
+    config::StorageConfiguration,
     error::Error,
     open_trees::OpenTrees,
     storage::{AnyBackupLocation, OpenDatabase},
@@ -129,11 +127,8 @@ impl Database {
     }
 
     /// Creates a `Storage` with a single-database named "default" with its data stored at `path`.
-    pub async fn open_local<DB: Schema>(
-        path: &Path,
-        configuration: Configuration,
-    ) -> Result<Self, Error> {
-        let storage = Storage::open_local(path, configuration).await?;
+    pub async fn open<DB: Schema>(configuration: StorageConfiguration) -> Result<Self, Error> {
+        let storage = Storage::open(configuration).await?;
         storage.register_schema::<DB>().await?;
 
         storage.create_database::<DB>("default", true).await?;

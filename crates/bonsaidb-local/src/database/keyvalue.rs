@@ -553,9 +553,8 @@ mod tests {
     use futures::Future;
     use nebari::io::fs::StdFile;
 
-    use crate::database::Context;
-
     use super::*;
+    use crate::database::Context;
 
     async fn run_test<
         F: FnOnce(Context, nebari::Roots<StdFile>) -> R + Send,

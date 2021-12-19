@@ -1,6 +1,6 @@
 //! Shows basic usage of a ser resources: (), actions: () ver.
 
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 
 use bonsaidb::{
     client::{url::Url, Client},
@@ -14,7 +14,8 @@ use bonsaidb::{
         },
         schema::{Collection, InsertError},
     },
-    server::{Configuration, DefaultPermissions, Server, StorageConfiguration},
+    local::config::Builder,
+    server::{Server, ServerConfiguration},
 };
 
 mod support;
@@ -113,23 +114,15 @@ async fn main() -> anyhow::Result<()> {
 
 async fn setup_server() -> anyhow::Result<Server> {
     let server = Server::open(
-        Path::new("users-server-data.bonsaidb"),
-        Configuration {
-            default_permissions: DefaultPermissions::Permissions(Permissions::from(vec![
-                Statement {
-                    resources: vec![ResourceName::any()],
-                    actions: ActionNameList::List(vec![
-                        BonsaiAction::Server(ServerAction::Connect).name(),
-                        BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
-                    ]),
-                },
-            ])),
-            storage: StorageConfiguration {
-                default_encryption_key: Some(KeyId::Master),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
+        ServerConfiguration::new("users-server-data.bonsaidb")
+            .default_permissions(Permissions::from(vec![Statement {
+                resources: vec![ResourceName::any()],
+                actions: ActionNameList::List(vec![
+                    BonsaiAction::Server(ServerAction::Connect).name(),
+                    BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
+                ]),
+            }]))
+            .default_encryption_key(KeyId::Master),
     )
     .await?;
     if server.certificate_chain().await.is_err() {

@@ -408,7 +408,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::config::Configuration;
+    use crate::config::{Builder, StorageConfiguration};
 
     #[tokio::test]
     async fn backup_restore() -> anyhow::Result<()> {
@@ -419,8 +419,7 @@ mod tests {
         // which is why we're creating a nested scope here.
         let test_doc = {
             let database_directory = TestDirectory::new("backup-restore.bonsaidb");
-            let storage =
-                Storage::open_local(&database_directory, Configuration::default()).await?;
+            let storage = Storage::open(StorageConfiguration::new(&database_directory)).await?;
             storage.register_schema::<Basic>().await?;
             storage.create_database::<Basic>("basic", false).await?;
             let db = storage.database::<Basic>("basic").await?;
@@ -438,7 +437,7 @@ mod tests {
         // `backup_destination` now contains an export of the database, time to try loading it:
         let database_directory = TestDirectory::new("backup-restore.bonsaidb");
         let restored_storage =
-            Storage::open_local(&database_directory, Configuration::default()).await?;
+            Storage::open(StorageConfiguration::new(&database_directory)).await?;
         restored_storage.register_schema::<Basic>().await?;
         restored_storage
             .restore(&*backup_destination.0)

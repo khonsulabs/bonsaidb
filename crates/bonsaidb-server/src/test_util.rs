@@ -3,19 +3,17 @@
 use std::path::Path;
 
 use bonsaidb_core::{connection::StorageConnection, test_util::BasicSchema};
+use bonsaidb_local::config::Builder;
 
-use crate::{config::DefaultPermissions, Configuration, Error, Server};
+use crate::{config::DefaultPermissions, Error, Server, ServerConfiguration};
 
 pub const BASIC_SERVER_NAME: &str = "basic-server";
 
 pub async fn initialize_basic_server(path: &Path) -> Result<Server, Error> {
     let server = Server::open(
-        path,
-        Configuration {
-            server_name: BASIC_SERVER_NAME.to_string(),
-            default_permissions: DefaultPermissions::AllowAll,
-            ..Configuration::default()
-        },
+        ServerConfiguration::new(path)
+            .server_name(BASIC_SERVER_NAME)
+            .default_permissions(DefaultPermissions::AllowAll),
     )
     .await?;
     server.register_schema::<BasicSchema>().await?;

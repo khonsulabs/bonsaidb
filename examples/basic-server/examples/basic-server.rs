@@ -1,6 +1,6 @@
 //! Shows basic usage of a server.
 
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 
 use bonsaidb::{
     client::{url::Url, Client},
@@ -8,7 +8,8 @@ use bonsaidb::{
         connection::{Connection, StorageConnection},
         schema::Collection,
     },
-    server::{Configuration, DefaultPermissions, Server},
+    local::config::Builder,
+    server::{DefaultPermissions, Server, ServerConfiguration},
 };
 use rand::{thread_rng, Rng};
 
@@ -20,11 +21,8 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
     // ANCHOR: setup
     let server = Server::open(
-        Path::new("server-data.bonsaidb"),
-        Configuration {
-            default_permissions: DefaultPermissions::AllowAll,
-            ..Default::default()
-        },
+        ServerConfiguration::new("server-data.bonsaidb")
+            .default_permissions(DefaultPermissions::AllowAll),
     )
     .await?;
     if server.certificate_chain().await.is_err() {

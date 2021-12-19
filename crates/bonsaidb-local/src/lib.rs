@@ -28,7 +28,7 @@ mod tasks;
 pub mod vault;
 mod views;
 
-#[doc(inline)]
+#[cfg(not(feature = "included-from-omnibus"))]
 pub use bonsaidb_core as core;
 
 #[cfg(feature = "internal-apis")]

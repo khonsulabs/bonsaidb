@@ -3,11 +3,9 @@ pub mod certificate;
 /// Command-line interface for hosting a server.
 pub mod serve;
 
-use std::path::Path;
-
 use structopt::StructOpt;
 
-use crate::{config::DefaultPermissions, Backend, Configuration, CustomServer, Error};
+use crate::{Backend, CustomServer, Error, ServerConfiguration};
 
 /// Available commands for `bonsaidb server`.
 #[derive(StructOpt, Debug)]
@@ -21,15 +19,8 @@ pub enum Command<B: Backend = ()> {
 
 impl<B: Backend> Command<B> {
     /// Executes the command.
-    pub async fn execute(&self, database_path: &Path) -> Result<(), Error> {
-        let server = CustomServer::<B>::open(
-            database_path,
-            Configuration {
-                default_permissions: DefaultPermissions::AllowAll,
-                ..Configuration::default()
-            },
-        )
-        .await?;
+    pub async fn execute(&self, configuration: ServerConfiguration) -> Result<(), Error> {
+        let server = CustomServer::<B>::open(configuration).await?;
         match self {
             Self::Certificate(command) => command.execute(server).await,
             Self::Serve(command) => command.execute(server).await,

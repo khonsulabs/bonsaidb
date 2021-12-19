@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
 
@@ -6,7 +8,11 @@ use crate::vault::AnyVaultKeyStorage;
 
 /// Configuration options for [`Storage`](crate::storage::Storage).
 #[derive(Debug, Default)]
-pub struct Configuration {
+#[non_exhaustive]
+pub struct StorageConfiguration {
+    /// The path to the database. Defaults to `db.bonsaidb` if not specified.
+    pub path: Option<PathBuf>,
+
     /// The unique id of the server. If not specified, the server will randomly
     /// generate a unique id on startup. If the server generated an id and this
     /// value is subsequently set, the generated id will be overridden by the
@@ -60,4 +66,63 @@ pub struct Views {
     /// be checked. However, for faster startup time, you may wish to delay the
     /// integrity scan. Default value is `false`.
     pub check_integrity_on_open: bool,
+}
+
+/// Storage configuration builder methods.
+pub trait Builder: Default {
+    /// Creates a default configuration with `path` set.
+    fn new<P: AsRef<Path>>(path: P) -> Self {
+        Self::default().path(path)
+    }
+
+    /// Sets [`StorageConfiguration::path`](StorageConfiguration#structfield.path) to `path` and returns self.
+    fn path<P: AsRef<Path>>(self, path: P) -> Self;
+    /// Sets [`StorageConfiguration::unique_id`](StorageConfiguration#structfield.unique_id) to `unique_id` and returns self.
+    fn unique_id(self, unique_id: u64) -> Self;
+    /// Sets [`StorageConfiguration::vault_key_storage`](StorageConfiguration#structfield.vault_key_storage) to `key_storage` and returns self.
+    fn vault_key_storage<VaultKeyStorage: AnyVaultKeyStorage>(
+        self,
+        key_storage: VaultKeyStorage,
+    ) -> Self;
+    /// Sets [`StorageConfiguration::default_encryption_key`](StorageConfiguration#structfield.default_encryption_key) to `path` and returns self.
+    fn default_encryption_key(self, key: KeyId) -> Self;
+    /// Sets [`Tasks::worker_count`] to `worker_count` and returns self.
+    fn tasks_worker_count(self, worker_count: usize) -> Self;
+    /// Sets [`Views::check_integrity_on_open`] to `check` and returns self.
+    fn check_view_integrity_on_open(self, check: bool) -> Self;
+}
+
+impl Builder for StorageConfiguration {
+    fn path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.path = Some(path.as_ref().to_owned());
+        self
+    }
+
+    fn unique_id(mut self, unique_id: u64) -> Self {
+        self.unique_id = Some(unique_id);
+        self
+    }
+
+    fn vault_key_storage<VaultKeyStorage: AnyVaultKeyStorage>(
+        mut self,
+        key_storage: VaultKeyStorage,
+    ) -> Self {
+        self.vault_key_storage = Some(Box::new(key_storage));
+        self
+    }
+
+    fn default_encryption_key(mut self, key: KeyId) -> Self {
+        self.default_encryption_key = Some(key);
+        self
+    }
+
+    fn tasks_worker_count(mut self, worker_count: usize) -> Self {
+        self.workers.worker_count = worker_count;
+        self
+    }
+
+    fn check_view_integrity_on_open(mut self, check: bool) -> Self {
+        self.views.check_integrity_on_open = check;
+        self
+    }
 }

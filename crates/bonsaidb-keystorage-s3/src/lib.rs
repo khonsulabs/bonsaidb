@@ -14,19 +14,17 @@
 //! # use bonsaidb_keystorage_s3::S3VaultKeyStorage;
 //! # use aws_sdk_s3::Endpoint;
 //! # use bonsaidb_core::{document::KeyId, test_util::TestDirectory};
-//! # use bonsaidb_local::config::Configuration;
+//! # use bonsaidb_local::config::{StorageConfiguration, Builder};
 //! # use http::Uri;
 //! #
 //! let directory = TestDirectory::new("bonsaidb-keystorage-s3-basic");
-//! let configuration = Configuration {
-//!     vault_key_storage: Some(Box::new(S3VaultKeyStorage::new("bucket_name").endpoint(
+//! let configuration = StorageConfiguration::new(&directory)
+//!     .vault_key_storage(S3VaultKeyStorage::new("bucket_name").endpoint(
 //!         Endpoint::immutable(
 //!             Uri::try_from("https://s3.us-west-001.backblazeb2.com").unwrap(),
 //!         ),
-//!     ))),
-//!     default_encryption_key: Some(KeyId::Master),
-//!     ..Configuration::default()
-//! };
+//!     ))
+//!     .default_encryption_key(KeyId::Master);
 //! ```
 //!
 //! The API calls are performed by the [`aws-sdk-s3`](aws_sdk_s3) crate.
@@ -188,7 +186,10 @@ async fn basic_test() {
         schema::Collection,
         test_util::{Basic, BasicSchema, TestDirectory},
     };
-    use bonsaidb_local::{config::Configuration, Storage};
+    use bonsaidb_local::{
+        config::{Builder, StorageConfiguration},
+        Storage,
+    };
     use http::Uri;
     drop(dotenv::dotenv());
 
@@ -222,16 +223,12 @@ async fn basic_test() {
             vault_key_storage = vault_key_storage.path(prefix);
         }
 
-        Configuration {
-            vault_key_storage: Some(Box::new(vault_key_storage)),
-            default_encryption_key: Some(KeyId::Master),
-            ..Configuration::default()
-        }
+        StorageConfiguration::new(&directory)
+            .vault_key_storage(vault_key_storage)
+            .default_encryption_key(KeyId::Master)
     };
     let document = {
-        let bonsai = Storage::open_local(&directory, configuration(None))
-            .await
-            .unwrap();
+        let bonsai = Storage::open(configuration(None)).await.unwrap();
         bonsai.register_schema::<BasicSchema>().await.unwrap();
         bonsai
             .create_database::<BasicSchema>("test", false)
@@ -243,9 +240,7 @@ async fn basic_test() {
 
     {
         // Should be able to access the storage again
-        let bonsai = Storage::open_local(&directory, configuration(None))
-            .await
-            .unwrap();
+        let bonsai = Storage::open(configuration(None)).await.unwrap();
 
         let db = bonsai.database::<BasicSchema>("test").await.unwrap();
         let retrieved = Basic::get(document.header.id, &db)
@@ -257,7 +252,7 @@ async fn basic_test() {
 
     // Verify that we can't access the storage again without the vault
     assert!(
-        Storage::open_local(&directory, configuration(Some(String::from("path-prefix"))))
+        Storage::open(configuration(Some(String::from("path-prefix"))))
             .await
             .is_err()
     );
