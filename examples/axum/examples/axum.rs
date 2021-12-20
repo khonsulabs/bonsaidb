@@ -115,15 +115,15 @@ async fn test() {
 
     std::thread::spawn(|| main().unwrap());
 
-    // Give the server a moment to start up.
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
     let retrieve_uptime = || async {
         let client = hyper::Client::new();
-        let mut response = client
-            .get("http://localhost:8080/".parse().unwrap())
-            .await
-            .unwrap();
+        let mut response = match client.get("http://localhost:8080/".parse().unwrap()).await {
+            Ok(response) => response,
+            Err(err) if err.is_connect() => {
+                return None;
+            }
+            Err(other) => unreachable!(other),
+        };
 
         assert_eq!(response.status(), 200);
 
@@ -135,10 +135,22 @@ async fn test() {
             .unwrap();
         let body = String::from_utf8(body.to_vec()).unwrap();
         assert!(body.contains("Current uptime: "));
-        body
+        Some(body)
     };
 
-    let original_uptime = retrieve_uptime().await;
+    let mut retries_left = 5;
+    let original_uptime = loop {
+        if let Some(uptime) = retrieve_uptime().await {
+            break uptime;
+        } else if retries_left > 0 {
+            println!("Waiting for server to start");
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            retries_left -= 1;
+        } else {
+            unreachable!("Unable to connect to axum server.")
+        }
+    };
 
     #[cfg(feature = "client")]
     {
