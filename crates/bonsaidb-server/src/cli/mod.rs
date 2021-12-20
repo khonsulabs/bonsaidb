@@ -4,21 +4,22 @@ pub mod certificate;
 pub mod serve;
 
 use bonsaidb_local::cli::StorageCommand;
-use structopt::StructOpt;
+use clap::Subcommand;
 
 use crate::{Backend, CustomServer, Error, NoBackend, ServerConfiguration};
 
 /// Available commands for `bonsaidb server`.
-#[derive(StructOpt, Debug)]
+#[derive(Subcommand, Debug)]
 pub enum Command<B: Backend = NoBackend> {
     /// Manage the server's root certificate.
+    #[clap(subcommand)]
     Certificate(certificate::Command),
 
     /// Execute the server.
     Serve(serve::Serve<B>),
 
     /// Manage the server's storage.
-    #[structopt(flatten)]
+    #[clap(flatten)]
     Storage(StorageCommand),
 }
 

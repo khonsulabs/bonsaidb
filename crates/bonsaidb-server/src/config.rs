@@ -8,6 +8,7 @@ use bonsaidb_local::config::{Builder, StorageConfiguration};
 use bonsaidb_local::vault::AnyVaultKeyStorage;
 
 /// Configuration options for [`Server`](crate::Server)
+#[derive(Debug)]
 #[must_use]
 #[non_exhaustive]
 pub struct ServerConfiguration {

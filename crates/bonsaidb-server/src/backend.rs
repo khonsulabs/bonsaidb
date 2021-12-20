@@ -78,7 +78,7 @@ pub trait CustomApiDispatcher<B: Backend>:
 }
 
 /// A [`Backend`] with no custom functionality.
-#[cfg_attr(feature = "cli", derive(structopt::StructOpt))]
+#[cfg_attr(feature = "cli", derive(clap::Subcommand))]
 #[derive(Debug)]
 pub enum NoBackend {}
 

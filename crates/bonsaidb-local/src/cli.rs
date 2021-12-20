@@ -1,20 +1,22 @@
 use std::path::PathBuf;
 
-use structopt::StructOpt;
+use clap::Subcommand;
 
 use crate::{config::StorageConfiguration, Error, Storage};
 
 /// Commands operating on local database storage.
-#[derive(StructOpt, Debug)]
+#[derive(Subcommand, Debug)]
 pub enum StorageCommand {
     /// Back up the storage.
+    #[clap(subcommand)]
     Backup(Location),
     /// Restore the storage from backup.
+    #[clap(subcommand)]
     Restore(Location),
 }
 
 /// A backup location.
-#[derive(StructOpt, Debug)]
+#[derive(Subcommand, Debug)]
 pub enum Location {
     /// A filesystem-based backup location.
     Path {

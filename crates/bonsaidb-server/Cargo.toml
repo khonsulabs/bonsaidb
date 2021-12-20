@@ -14,7 +14,7 @@ homepage = "https://dev.bonsaidb.io/"
 [features]
 default = ["full"]
 full = ["cli", "websockets", "acme", "encryption"]
-cli = ["structopt", "pem", "env_logger"]
+cli = ["clap", "pem", "env_logger"]
 test-util = ["bonsaidb-core/test-util"]
 websockets = [
     "bonsaidb-core/websockets",
@@ -43,7 +43,7 @@ serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "1"
 async-trait = "0.1"
-structopt = { version = "0.3", optional = true }
+clap = { version = "3.0.0-rc.7", optional = true, features = ["derive"] }
 futures = "0.3"
 flume = "0.10"
 itertools = "0.10"

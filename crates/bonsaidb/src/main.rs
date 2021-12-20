@@ -22,10 +22,9 @@
 mod any_connection;
 mod cli;
 pub use any_connection::*;
-use bonsaidb_server::NoBackend;
-use structopt::StructOpt;
+use bonsaidb_server::{NoBackend, ServerConfiguration};
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let command = cli::Args::<NoBackend>::from_args();
-    command.execute().await
+    cli::run::<NoBackend>(ServerConfiguration::default()).await
 }

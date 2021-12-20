@@ -4,28 +4,28 @@ use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 #[cfg(feature = "acme")]
 use std::time::Duration;
 
-use structopt::StructOpt;
+use clap::Args;
 
 use crate::{Backend, CustomServer, Error, TcpService};
 
 /// Execute the server
-#[derive(StructOpt, Debug)]
+#[derive(Args, Debug)]
 pub struct Serve<B: Backend> {
     /// The port for the BonsaiDb protocol. Defaults to 5645
-    #[structopt(short = "l", long = "listen-on")]
+    #[clap(short = 'l', long = "listen-on")]
     pub listen_on: Option<u16>,
 
     #[cfg(any(feature = "websockets", feature = "acme"))]
     /// The bind port and address for HTTP traffic. Defaults to 80.
-    #[structopt(long = "http")]
+    #[clap(long = "http")]
     pub http_port: Option<SocketAddr>,
 
     #[cfg(any(feature = "websockets", feature = "acme"))]
     /// The bind port and address for HTTPS traffic. Defaults to 443.
-    #[structopt(long = "https")]
+    #[clap(long = "https")]
     pub https_port: Option<SocketAddr>,
 
-    #[structopt(skip)]
+    #[clap(skip)]
     _backend: PhantomData<B>,
 }
 

@@ -1,12 +1,13 @@
 use bonsaidb_core::connection::StorageConnection;
-use structopt::StructOpt;
+use clap::Subcommand;
 
-#[derive(StructOpt, Debug)]
+#[derive(Subcommand, Debug)]
 pub enum Command {
+    #[clap(subcommand)]
     User(UserCommand),
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(Subcommand, Debug)]
 pub enum UserCommand {
     List,
     Create { username: String },

@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 
-use structopt::StructOpt;
+use clap::Subcommand;
 use tokio::io::AsyncReadExt;
 
 use crate::{Backend, CustomServer, Error};
 
 /// Command to manage the server's certificates.
-#[derive(StructOpt, Debug)]
+#[derive(Subcommand, Debug)]
 pub enum Command {
     /// Installs a self-signed certificate into the server. The server can only
     /// have one global self-signed certificate. If `overwrite` is true, any
@@ -17,7 +17,7 @@ pub enum Command {
     InstallSelfSigned {
         /// If an existing certificate exists, an error will be returned unless
         /// `overwrite` is true.
-        #[structopt(short, long)]
+        #[clap(short, long)]
         overwrite: bool,
     },
     /// Installs a X.509 certificate and associated private key in PEM format.
