@@ -116,7 +116,7 @@ async fn test() {
     std::thread::spawn(|| main().unwrap());
 
     // Give the server a moment to start up.
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let retrieve_uptime = || async {
         let client = hyper::Client::new();
