@@ -90,7 +90,7 @@ impl Storage {
                 .map_err(|err| Error::Backup(Box::new(err)))?
             {
                 // The admin database is already going to be created by the process of creating a database.
-                self.create_database_with_schema(&database, schema.clone(), database == "_admin")
+                self.create_database_with_schema(&database, schema.clone(), true)
                     .await?;
 
                 let database = self.database_without_schema(&database).await?;

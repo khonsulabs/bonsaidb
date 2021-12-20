@@ -82,6 +82,9 @@ async fn test() -> anyhow::Result<()> {
     if std::path::Path::new("cli.bonsaidb").exists() {
         tokio::fs::remove_dir_all("cli.bonsaidb").await?;
     }
+    if std::path::Path::new("cli-backup").exists() {
+        tokio::fs::remove_dir_all("cli-backup").await?;
+    }
 
     Args::<CliBackend>::from_iter(["executable", "server", "certificate", "install-self-signed"])
         .execute()
@@ -128,10 +131,26 @@ async fn test() -> anyhow::Result<()> {
     server_task.abort();
     drop(server_task.await);
 
+    // Back up the database
+    Args::<CliBackend>::from_iter(["executable", "server", "backup", "path", "cli-backup"])
+        .execute()
+        .await?;
+
+    // Remove the database and restore from backup.
+    tokio::fs::remove_dir_all("cli.bonsaidb").await?;
+
+    // Restore the database
+    Args::<CliBackend>::from_iter(["executable", "server", "restore", "path", "cli-backup"])
+        .execute()
+        .await?;
+
     // Re-open the database and verify the operations were made.
-    let server = CliBackend::open_server().await?;
-    let database = server.database::<Shape>("shapes").await?;
-    assert_eq!(database.view::<ShapesByNumberOfSides>().reduce().await?, 2);
+    {
+        let server = CliBackend::open_server().await?;
+        let database = server.database::<Shape>("shapes").await?;
+        assert_eq!(database.view::<ShapesByNumberOfSides>().reduce().await?, 2);
+    }
+    tokio::fs::remove_dir_all("cli-backup").await?;
 
     Ok(())
 }
