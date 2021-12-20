@@ -4,7 +4,7 @@
 
 ## Enabling at-rest encryption by default
 
-When opening your `BonsaiDb` instance, there is a configuration option [`default_encryption_key`](https://dev.bonsaidb.io/main/bonsaidb/local/config/struct.Configuration.html#structfield.default_encryption_key). Once this is set, all new data written that supports being encrypted will be encrypted at-rest.
+When opening your `BonsaiDb` instance, there is a configuration option [`default_encryption_key`](https://dev.bonsaidb.io/main/bonsaidb/local/config/struct.StorageConfiguration.html#structfield.default_encryption_key). Once this is set, all new data written that supports being encrypted will be encrypted at-rest.
 
 ```rust,noplayground,no_run
 let storage = Storage::open_local(

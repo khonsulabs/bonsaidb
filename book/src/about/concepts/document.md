@@ -6,9 +6,9 @@ When a Document is updated, BonsaiDb will check that the revision information pa
 
 ## `serde`-powered Documents
 
-BonsaiDb provides APIs for storing [serde](https://serde.rs/)-compatible data structures using several formats. When using [`Document::contents()`](https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html#method.contents) function, the document is serialized and deserialized by the format returned from [`Collection::serializer()`](https://dev.bonsaidb.io/main/bonsaidb/server/local/core/schema/trait.Collection.html#method.serializer). The default format is [Pot](https://github.com/khonsulabs/pot/).
+BonsaiDb provides APIs for storing [serde](https://serde.rs/)-compatible data structures using several formats. When using [`Document::contents()`](https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html#method.contents) function, the document is serialized and deserialized by the format returned from [`Collection::serializer()`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.Collection.html#method.serializer). The default format is [Pot](https://github.com/khonsulabs/pot/).
 
-The [`CollectionDocument`](https://dev.bonsaidb.io/main/bonsaidb/server/local/core/schema/struct.CollectionDocument.html) type provides convenience methods of interacting with `serde`-serializable documents.
+The [`CollectionDocument`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/struct.CollectionDocument.html) type provides convenience methods of interacting with `serde`-serializable documents.
 
 ## Raw Collections
 
