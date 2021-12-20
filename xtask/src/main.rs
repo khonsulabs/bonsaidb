@@ -129,7 +129,7 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
     for test in all_tests() {
         println!("Running clippy for {}", test.cargo_args);
         let mut clippy = Cmd::new("cargo");
-        let mut clippy = clippy.arg("clippy").arg("--tests");
+        let mut clippy = clippy.arg("clippy").arg("--all-targets");
 
         for arg in test.cargo_args.split(' ') {
             clippy = clippy.arg(arg);
@@ -143,7 +143,7 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
 
         println!("Running tests for {}", test.cargo_args);
         let mut cargo = Cmd::new("cargo");
-        let mut cargo = cargo.arg("test");
+        let mut cargo = cargo.arg("test").arg("--all-targets");
 
         for arg in test.cargo_args.split(' ') {
             cargo = cargo.arg(arg);

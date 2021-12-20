@@ -23,7 +23,7 @@ use support::schema::Shape;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::init();
+    drop(env_logger::try_init());
     let server = setup_server().await?;
 
     // Create a database user, or get its ID if it already existed.

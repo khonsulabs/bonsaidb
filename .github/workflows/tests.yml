@@ -36,11 +36,11 @@ jobs:
 
       - name: Run clippy
         run: |
-          cargo clippy ${{ matrix.options.cargo_args }} -- -D warnings 
+          cargo clippy --all-targets ${{ matrix.options.cargo_args }} -- -D warnings 
 
       - name: Run unit tests
         run: |
-          cargo test ${{ matrix.options.cargo_args }} -- --nocapture
+          cargo test --all-targets ${{ matrix.options.cargo_args }} -- --nocapture
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY_SECRET }}
