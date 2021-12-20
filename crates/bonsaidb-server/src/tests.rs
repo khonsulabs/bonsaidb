@@ -4,7 +4,7 @@ use bonsaidb_core::{
     test_util::{self, BasicSchema, HarnessTest, TestDirectory},
 };
 
-use crate::{server::ServerDatabase, test_util::initialize_basic_server, Server};
+use crate::{server::ServerDatabase, test_util::initialize_basic_server, NoBackend, Server};
 
 #[tokio::test]
 async fn simple_test() -> anyhow::Result<()> {
@@ -37,7 +37,7 @@ impl TestHarness {
         &self.server
     }
 
-    pub async fn connect(&self) -> anyhow::Result<ServerDatabase<()>> {
+    pub async fn connect(&self) -> anyhow::Result<ServerDatabase<NoBackend>> {
         let db = self.server.database::<BasicSchema>("tests").await?;
         Ok(db)
     }
@@ -47,7 +47,7 @@ impl TestHarness {
         &self,
         permissions: Vec<Statement>,
         _label: &str,
-    ) -> anyhow::Result<ServerDatabase<()>> {
+    ) -> anyhow::Result<ServerDatabase<NoBackend>> {
         let mut db = self.connect().await?;
         db.db = db
             .db

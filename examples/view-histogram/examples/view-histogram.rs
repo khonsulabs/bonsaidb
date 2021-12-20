@@ -212,3 +212,8 @@ impl<'de> Visitor<'de> for StoredHistogramVisitor {
         Ok(StoredHistogram(SyncHistogram::from(histogram)))
     }
 }
+
+#[test]
+fn runs() {
+    main().unwrap()
+}

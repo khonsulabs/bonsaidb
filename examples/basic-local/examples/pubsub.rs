@@ -79,3 +79,8 @@ async fn ponger<P: PubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error> {
 
     Ok(())
 }
+
+#[test]
+fn runs() {
+    main().unwrap()
+}

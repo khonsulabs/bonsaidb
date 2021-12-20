@@ -124,3 +124,8 @@ async fn do_some_database_work<'a, C: Connection>(
 
     Ok(())
 }
+
+#[test]
+fn runs() {
+    main().unwrap()
+}

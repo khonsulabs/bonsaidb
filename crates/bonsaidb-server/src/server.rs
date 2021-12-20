@@ -4,7 +4,7 @@ use std::{
     marker::PhantomData,
     net::SocketAddr,
     ops::Deref,
-    path::Path,
+    path::PathBuf,
     sync::{
         atomic::{AtomicU32, AtomicUsize, Ordering},
         Arc,
@@ -39,7 +39,7 @@ use bonsaidb_core::{
         Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
     },
     pubsub::database_topic,
-    schema::{self, Collection, CollectionName, NamedCollection, NamedReference, Schema, ViewName},
+    schema::{self, CollectionName, NamedCollection, NamedReference, Schema, ViewName},
     transaction::{Command, Transaction},
 };
 use bonsaidb_local::{
@@ -49,7 +49,7 @@ use bonsaidb_local::{
 };
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::DeriveWhere;
-use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
+use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 use futures::{Future, StreamExt};
 use rustls::sign::CertifiedKey;
@@ -65,7 +65,7 @@ use crate::{
     error::Error,
     hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
     server::shutdown::{Shutdown, ShutdownState},
-    Backend, ServerConfiguration,
+    Backend, NoBackend, ServerConfiguration,
 };
 
 #[cfg(feature = "acme")]
@@ -90,15 +90,15 @@ static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 /// A `BonsaiDb` server.
 #[derive(Debug, DeriveWhere)]
 #[derive_where(Clone)]
-pub struct CustomServer<B: Backend> {
+pub struct CustomServer<B: Backend = NoBackend> {
     data: Arc<Data<B>>,
 }
 
 /// A `BonsaiDb` server without a custom backend.
-pub type Server = CustomServer<()>;
+pub type Server = CustomServer<NoBackend>;
 
 #[derive(Debug)]
-struct Data<B: Backend = ()> {
+struct Data<B: Backend = NoBackend> {
     storage: Storage,
     clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     request_processor: Manager,
@@ -175,10 +175,12 @@ impl<B: Backend> CustomServer<B> {
         Ok(server)
     }
 
-    /// Returns the path to the directory that stores this server's data.
+    /// Returns the path to the public pinned certificate, if this server has
+    /// one. Note: this function will always succeed, but the file may not
+    /// exist.
     #[must_use]
-    pub fn directory(&self) -> &Path {
-        self.data.storage.path()
+    pub fn pinned_certificate_path(&self) -> PathBuf {
+        self.path().join("pinned-certificate.der")
     }
 
     /// Returns the primary domain configured for this server.
@@ -220,6 +222,12 @@ impl<B: Backend> CustomServer<B> {
         self.install_certificate(keypair.certificate_chain(), keypair.private_key())
             .await?;
 
+        tokio::fs::write(
+            self.pinned_certificate_path(),
+            keypair.end_entity_certificate().as_ref(),
+        )
+        .await?;
+
         Ok(())
     }
 
@@ -230,8 +238,6 @@ impl<B: Backend> CustomServer<B> {
         certificate_chain: &[u8],
         private_key: &[u8],
     ) -> Result<(), Error> {
-        use fabruic::Certificate;
-
         let private_key = match pem::parse(private_key) {
             Ok(pem) => PrivateKey::unchecked_from_der(pem.contents),
             Err(_) => PrivateKey::from_der(private_key)?,
@@ -255,23 +261,25 @@ impl<B: Backend> CustomServer<B> {
         private_key: &PrivateKey,
     ) -> Result<(), Error> {
         let db = self.hosted().await;
-        if let Some(mut existing_record) =
-            TlsCertificate::load(&self.data.primary_domain, &db).await?
-        {
-            existing_record.contents.certificate_chain = certificate_chain.clone();
-            existing_record.contents.private_key = SerializablePrivateKey(private_key.clone());
-            existing_record.update(&db).await?;
-        } else {
-            TlsCertificate {
+
+        TlsCertificate::entry(&self.data.primary_domain, &db)
+            .update_with(|cert: &mut TlsCertificate| {
+                cert.certificate_chain = certificate_chain.clone();
+                cert.private_key = SerializablePrivateKey(private_key.clone());
+            })
+            .or_insert_with(|| TlsCertificate {
                 domains: vec![self.data.primary_domain.clone()],
                 private_key: SerializablePrivateKey(private_key.clone()),
                 certificate_chain: certificate_chain.clone(),
-            }
-            .insert_into(&db)
+            })
             .await?;
-        }
 
         self.refresh_certified_key().await?;
+
+        let pinned_certificate_path = self.pinned_certificate_path();
+        if pinned_certificate_path.exists() {
+            tokio::fs::remove_file(&pinned_certificate_path).await?;
+        }
 
         Ok(())
     }

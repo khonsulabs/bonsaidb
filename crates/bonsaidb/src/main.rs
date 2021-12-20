@@ -19,11 +19,13 @@
     clippy::multiple_crate_versions, // TODO custodian-password deps + x25119 deps
 )]
 
+mod any_connection;
 mod cli;
-
+pub use any_connection::*;
+use bonsaidb_server::NoBackend;
 use structopt::StructOpt;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let command = cli::Args::<()>::from_args();
+    let command = cli::Args::<NoBackend>::from_args();
     command.execute().await
 }

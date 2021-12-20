@@ -132,6 +132,7 @@ impl Builder for StorageConfiguration {
         self
     }
 
+    #[cfg(feature = "encryption")]
     fn vault_key_storage<VaultKeyStorage: AnyVaultKeyStorage>(
         mut self,
         key_storage: VaultKeyStorage,
@@ -140,6 +141,7 @@ impl Builder for StorageConfiguration {
         self
     }
 
+    #[cfg(feature = "encryption")]
     fn default_encryption_key(mut self, key: KeyId) -> Self {
         self.default_encryption_key = Some(key);
         self

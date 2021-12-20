@@ -31,7 +31,7 @@ pub struct Serve<B: Backend> {
 
 impl<B: Backend> Serve<B> {
     /// Starts the server.
-    pub async fn execute(&self, server: CustomServer<B>) -> Result<(), Error> {
+    pub async fn execute(&self, server: &CustomServer<B>) -> Result<(), Error> {
         self.execute_with(server, ()).await
     }
 
@@ -42,7 +42,7 @@ impl<B: Backend> Serve<B> {
     )]
     pub async fn execute_with<S: TcpService>(
         &self,
-        server: CustomServer<B>,
+        server: &CustomServer<B>,
         service: S,
     ) -> Result<(), Error> {
         // Try to initialize a logger, but ignore it if it fails. This API is

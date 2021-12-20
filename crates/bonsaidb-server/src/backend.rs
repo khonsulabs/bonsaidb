@@ -77,7 +77,12 @@ pub trait CustomApiDispatcher<B: Backend>:
     fn new(server: &CustomServer<B>, client: &ConnectedClient<B>) -> Self;
 }
 
-impl Backend for () {
+/// A [`Backend`] with no custom functionality.
+#[cfg_attr(feature = "cli", derive(structopt::StructOpt))]
+#[derive(Debug)]
+pub enum NoBackend {}
+
+impl Backend for NoBackend {
     type CustomApi = ();
     type CustomApiDispatcher = NoDispatcher<Self>;
     type ClientData = ();

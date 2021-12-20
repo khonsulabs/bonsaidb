@@ -16,6 +16,9 @@
     clippy::module_name_repetitions,
 )]
 
+/// Command-line interface helpers.
+#[cfg(feature = "cli")]
+pub mod cli;
 /// Configuration options.
 pub mod config;
 mod database;

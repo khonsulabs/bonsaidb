@@ -153,3 +153,8 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
 
     Ok(())
 }
+
+#[test]
+fn runs() {
+    main().unwrap()
+}

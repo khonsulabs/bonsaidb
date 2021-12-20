@@ -1567,13 +1567,13 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 pub async fn named_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     Unique::new("0").insert_into(db).await?;
     let original_entry = Unique::entry("1", db)
-        .update_with(|_existing| unreachable!())
+        .update_with(|_existing: &mut Unique| unreachable!())
         .or_insert_with(|| Unique::new("1"))
         .await?
         .expect("Document not inserted");
 
     let updated = Unique::entry("1", db)
-        .update_with(|existing| {
+        .update_with(|existing: &mut Unique| {
             existing.value = String::from("2");
         })
         .or_insert_with(|| unreachable!())
@@ -1586,7 +1586,7 @@ pub async fn named_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()>
     assert_eq!(retrieved.contents.value, updated.contents.value);
 
     let conflict = Unique::entry("2", db)
-        .update_with(|existing| {
+        .update_with(|existing: &mut Unique| {
             existing.value = String::from("0");
         })
         .await;

@@ -344,3 +344,8 @@ async fn ping_the_server(
     Ok(())
 }
 // ANCHOR_END: api-call
+
+#[test]
+fn runs() {
+    main().unwrap()
+}

@@ -58,7 +58,7 @@ pub trait BackupLocation: Send + Sync {
 
 impl Storage {
     /// Stores a copy of all data in this instance to `location`.
-    pub async fn backup<L: BackupLocation>(&self, location: L) -> Result<(), Error> {
+    pub async fn backup<L: AnyBackupLocation>(&self, location: L) -> Result<(), Error> {
         let databases = {
             self.data
                 .available_databases
@@ -78,7 +78,7 @@ impl Storage {
     }
 
     /// Stores a copy of all data in this instance to `location`.
-    pub async fn restore<L: BackupLocation>(&self, location: L) -> Result<(), Error> {
+    pub async fn restore<L: AnyBackupLocation>(&self, location: L) -> Result<(), Error> {
         for schema in location
             .list_schemas()
             .await
@@ -333,6 +333,49 @@ impl<'a> BackupLocation for &'a Path {
         name: &str,
     ) -> Result<Vec<u8>, Self::Error> {
         tokio::fs::read(container_folder(self, schema, database_name, container).join(name)).await
+    }
+}
+
+#[async_trait]
+impl BackupLocation for PathBuf {
+    type Error = std::io::Error;
+
+    async fn store(
+        &self,
+        schema: &SchemaName,
+        database_name: &str,
+        container: &str,
+        name: &str,
+        object: &[u8],
+    ) -> Result<(), Self::Error> {
+        BackupLocation::store(&*self, schema, database_name, container, name, object).await
+    }
+
+    async fn list_schemas(&self) -> Result<Vec<SchemaName>, Self::Error> {
+        BackupLocation::list_schemas(&*self).await
+    }
+
+    async fn list_databases(&self, schema: &SchemaName) -> Result<Vec<String>, Self::Error> {
+        BackupLocation::list_databases(&*self, schema).await
+    }
+
+    async fn list_stored(
+        &self,
+        schema: &SchemaName,
+        database_name: &str,
+        container: &str,
+    ) -> Result<Vec<String>, Self::Error> {
+        BackupLocation::list_stored(&*self, schema, database_name, container).await
+    }
+
+    async fn load(
+        &self,
+        schema: &SchemaName,
+        database_name: &str,
+        container: &str,
+        name: &str,
+    ) -> Result<Vec<u8>, Self::Error> {
+        BackupLocation::load(&*self, schema, database_name, container, name).await
     }
 }
 

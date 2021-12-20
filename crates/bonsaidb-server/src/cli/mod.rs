@@ -3,18 +3,23 @@ pub mod certificate;
 /// Command-line interface for hosting a server.
 pub mod serve;
 
+use bonsaidb_local::cli::StorageCommand;
 use structopt::StructOpt;
 
-use crate::{Backend, CustomServer, Error, ServerConfiguration};
+use crate::{Backend, CustomServer, Error, NoBackend, ServerConfiguration};
 
 /// Available commands for `bonsaidb server`.
 #[derive(StructOpt, Debug)]
-pub enum Command<B: Backend = ()> {
+pub enum Command<B: Backend = NoBackend> {
     /// Manage the server's root certificate.
     Certificate(certificate::Command),
 
     /// Execute the server.
     Serve(serve::Serve<B>),
+
+    /// Manage the server's storage.
+    #[structopt(flatten)]
+    Storage(StorageCommand),
 }
 
 impl<B: Backend> Command<B> {
@@ -22,8 +27,9 @@ impl<B: Backend> Command<B> {
     pub async fn execute(&self, configuration: ServerConfiguration) -> Result<(), Error> {
         let server = CustomServer::<B>::open(configuration).await?;
         match self {
-            Self::Certificate(command) => command.execute(server).await,
-            Self::Serve(command) => command.execute(server).await,
+            Self::Certificate(command) => command.execute(&server).await,
+            Self::Serve(command) => command.execute(&server).await,
+            Self::Storage(command) => command.execute_on(&server).await.map_err(Error::from),
         }
     }
 }

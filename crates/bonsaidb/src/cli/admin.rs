@@ -1,4 +1,4 @@
-use bonsaidb_core::connection::{Connection, StorageConnection};
+use bonsaidb_core::connection::StorageConnection;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
@@ -14,11 +14,7 @@ pub enum UserCommand {
 }
 
 impl Command {
-    pub async fn execute<C: Connection, SC: StorageConnection>(
-        self,
-        _admin: C,
-        server: SC,
-    ) -> anyhow::Result<()> {
+    pub async fn execute<SC: StorageConnection>(self, server: SC) -> anyhow::Result<()> {
         match self {
             Command::User(user) => match user {
                 UserCommand::Create { username } => {

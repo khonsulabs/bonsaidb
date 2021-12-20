@@ -137,3 +137,9 @@ async fn setup_server() -> anyhow::Result<Server> {
 
     Ok(server)
 }
+
+#[test]
+fn runs() {
+    main().unwrap();
+    main().unwrap();
+}

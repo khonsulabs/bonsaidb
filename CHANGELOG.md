@@ -88,12 +88,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `StorageConfiguration`, and `bonsaidb::server::ServerConfiguration` has been
   renamed `ServerConfiguration`.
 - `Database::open_local` and `Storage::open_local` have been renamed to `open`.
-- `Database::open`, `Storage::open`, and `Server::openm` no longer take a path
+- `Database::open`, `Storage::open`, and `Server::open` no longer take a path
   argument. The path is provided from the configuration.
 - Listing all schemas and databases will now include the built-in admin database.
 - The underlying dependency on `sled` has been changed for an in-house storage
   implementation [`nebari`](https://github.com/khonsulabs/nebari).
 - The command-line interface has received an overhaul.
+  - A new trait, `CommandLine` can be implemented on a type that implements `Backend` to utilize the built-in, extensible command line interface. An example of this is located at [`./examples/basic-server/examples/cli.rs`](./examples/basic-server/examples/cli.rs).
+  - The parameter types to `execute()` functions have changed.
+  - This interface will receive further refinement as part of switching to clap
+    3.0 once it is fully released.
 - `View::map` now returns a `Mappings` instead of an `Option`, allowing for
   emitting of multiple keys.
 - View mapping now stores the source document header, not just the ID.

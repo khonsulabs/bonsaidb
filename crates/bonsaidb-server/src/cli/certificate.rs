@@ -35,7 +35,7 @@ pub enum Command {
 
 impl Command {
     /// Executes the command.
-    pub async fn execute<B: Backend>(&self, server: CustomServer<B>) -> Result<(), Error> {
+    pub async fn execute<B: Backend>(&self, server: &CustomServer<B>) -> Result<(), Error> {
         match self {
             Self::InstallSelfSigned { overwrite } => {
                 server.install_self_signed_certificate(*overwrite).await?;

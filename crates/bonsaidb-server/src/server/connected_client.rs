@@ -14,7 +14,7 @@ use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::DeriveWhere;
 use flume::Sender;
 
-use crate::{Backend, CustomServer};
+use crate::{Backend, CustomServer, NoBackend};
 
 /// The ways a client can be connected to the server.
 #[derive(Debug, PartialEq, Eq)]
@@ -29,12 +29,12 @@ pub enum Transport {
 /// A connected database client.
 #[derive(Debug, DeriveWhere)]
 #[derive_where(Clone)]
-pub struct ConnectedClient<B: Backend = ()> {
+pub struct ConnectedClient<B: Backend = NoBackend> {
     data: Arc<Data<B>>,
 }
 
 #[derive(Debug)]
-struct Data<B: Backend = ()> {
+struct Data<B: Backend = NoBackend> {
     id: u32,
     address: SocketAddr,
     transport: Transport,

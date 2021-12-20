@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     convert::{TryFrom, TryInto},
     fmt::Debug,
+    marker::PhantomData,
     ops::Deref,
 };
 
@@ -128,7 +129,7 @@ pub struct InsertError<T> {
 
 /// A collection with a unique name column.
 #[async_trait]
-pub trait NamedCollection: Collection {
+pub trait NamedCollection: Collection + Unpin {
     /// The name view defined for the collection.
     type ByNameView: crate::schema::View<Key = String>;
 
@@ -148,7 +149,7 @@ pub trait NamedCollection: Collection {
     fn entry<'connection, 'name, N: Into<NamedReference<'name>> + Send + Sync, C: Connection>(
         id: N,
         connection: &'connection C,
-    ) -> Entry<'connection, 'name, C, Self>
+    ) -> Entry<'connection, 'name, C, Self, (), ()>
     where
         Self: Serialize + for<'de> Deserialize<'de>,
     {
@@ -160,6 +161,7 @@ pub trait NamedCollection: Collection {
                 insert: None,
                 update: None,
                 retry_limit: 0,
+                _collection: PhantomData,
             })),
         }
     }
@@ -401,26 +403,79 @@ impl<'a> NamedReference<'a> {
 
 /// A future that resolves to an entry in a [`NamedCollection`].
 #[must_use]
-pub struct Entry<'a, 'name, Connection, Col>
+pub struct Entry<'a, 'name, Connection, Col, EI, EU>
 where
     Col: NamedCollection + Serialize + for<'de> Deserialize<'de>,
+    EI: EntryInsert<Col>,
+    EU: EntryUpdate<Col>,
 {
-    state: EntryState<'a, 'name, Connection, Col>,
+    state: EntryState<'a, 'name, Connection, Col, EI, EU>,
 }
 
-struct EntryBuilder<'a, 'name, Connection, Col> {
+struct EntryBuilder<
+    'a,
+    'name,
+    Connection,
+    Col,
+    EI: EntryInsert<Col> + 'a,
+    EU: EntryUpdate<Col> + 'a,
+> {
     name: NamedReference<'name>,
     connection: &'a Connection,
-    insert: Option<Box<dyn EntryInsert<Col>>>,
-    update: Option<Box<dyn EntryUpdate<Col>>>,
+    insert: Option<EI>,
+    update: Option<EU>,
     retry_limit: usize,
+    _collection: PhantomData<Col>,
 }
 
-impl<'a, 'name, Connection, Col> Entry<'a, 'name, Connection, Col>
+impl<'a, 'name, Connection, Col, EI, EU> Entry<'a, 'name, Connection, Col, EI, EU>
 where
-    Col: NamedCollection + Serialize + for<'de> Deserialize<'de> + 'a,
+    Col: NamedCollection + Serialize + for<'de> Deserialize<'de> + 'static + Unpin,
+    Connection: crate::connection::Connection,
+    EI: EntryInsert<Col> + 'a + Unpin,
+    EU: EntryUpdate<Col> + 'a + Unpin,
+    'name: 'a,
 {
-    fn pending(&mut self) -> &mut EntryBuilder<'a, 'name, Connection, Col> {
+    async fn execute(
+        name: NamedReference<'name>,
+        connection: &'a Connection,
+        insert: Option<EI>,
+        update: Option<EU>,
+        mut retry_limit: usize,
+    ) -> Result<Option<CollectionDocument<Col>>, Error> {
+        if let Some(mut existing) = Col::load(name, connection).await? {
+            if let Some(update) = update {
+                loop {
+                    update.call(&mut existing.contents);
+                    match existing.update(connection).await {
+                        Ok(()) => return Ok(Some(existing)),
+                        Err(Error::DocumentConflict(collection, id)) => {
+                            // Another client has updated the document underneath us.
+                            if retry_limit > 0 {
+                                retry_limit -= 1;
+                                existing = match Col::load(id, connection).await? {
+                                    Some(doc) => doc,
+                                    // Another client deleted the document before we could reload it.
+                                    None => break Ok(None),
+                                }
+                            } else {
+                                break Err(Error::DocumentConflict(collection, id));
+                            }
+                        }
+                        Err(other) => break Err(other),
+                    }
+                }
+            } else {
+                Ok(Some(existing))
+            }
+        } else if let Some(insert) = insert {
+            let new_document = insert.call();
+            Ok(Some(new_document.insert_into(connection).await?))
+        } else {
+            Ok(None)
+        }
+    }
+    fn pending(&mut self) -> &mut EntryBuilder<'a, 'name, Connection, Col, EI, EU> {
         match &mut self.state {
             EntryState::Pending(pending) => pending.as_mut().unwrap(),
             EntryState::Executing(_) => unreachable!(),
@@ -429,9 +484,31 @@ where
 
     /// If an entry with the key doesn't exist, `cb` will be executed to provide
     /// an initial document. This document will be saved before being returned.
-    pub fn or_insert_with<F: FnOnce() -> Col + Send + 'static>(mut self, cb: F) -> Self {
-        self.pending().insert = Some(Box::new(Some(cb)));
-        self
+    pub fn or_insert_with<F: EntryInsert<Col> + 'a + Unpin>(
+        self,
+        cb: F,
+    ) -> Entry<'a, 'name, Connection, Col, F, EU> {
+        Entry {
+            state: match self.state {
+                EntryState::Pending(Some(EntryBuilder {
+                    name,
+                    connection,
+                    update,
+                    retry_limit,
+                    ..
+                })) => EntryState::Pending(Some(EntryBuilder {
+                    name,
+                    connection,
+                    insert: Some(cb),
+                    update,
+                    retry_limit,
+                    _collection: PhantomData,
+                })),
+                _ => {
+                    unreachable!("attempting to modify an already executing future")
+                }
+            },
+        }
     }
 
     /// If an entry with the keys exists, `cb` will be executed with the stored
@@ -439,9 +516,31 @@ where
     /// be saved to the database before returning. If an error occurs during
     /// update, `cb` may be invoked multiple times, up to the
     /// [`retry_limit`](Self::retry_limit()).
-    pub fn update_with<F: Fn(&mut Col) + Send + 'static>(mut self, cb: F) -> Self {
-        self.pending().update = Some(Box::new(cb));
-        self
+    pub fn update_with<F: EntryUpdate<Col> + 'a + Unpin>(
+        self,
+        cb: F,
+    ) -> Entry<'a, 'name, Connection, Col, EI, F> {
+        Entry {
+            state: match self.state {
+                EntryState::Pending(Some(EntryBuilder {
+                    name,
+                    connection,
+                    insert,
+                    retry_limit,
+                    ..
+                })) => EntryState::Pending(Some(EntryBuilder {
+                    name,
+                    connection,
+                    insert,
+                    update: Some(cb),
+                    retry_limit,
+                    _collection: PhantomData,
+                })),
+                _ => {
+                    unreachable!("attempting to modify an already executing future")
+                }
+            },
+        }
     }
 
     /// The number of attempts to attempt updating the document using
@@ -452,26 +551,32 @@ where
     }
 }
 
-pub trait EntryInsert<Col>: Send {
-    fn call(&mut self) -> Col;
+pub trait EntryInsert<Col>: Send + Unpin {
+    fn call(self) -> Col;
 }
 
-impl<F, Col> EntryInsert<Col> for Option<F>
+impl<F, Col> EntryInsert<Col> for F
 where
-    F: FnOnce() -> Col + Send,
+    F: FnOnce() -> Col + Send + Unpin,
 {
-    fn call(&mut self) -> Col {
-        self.take().unwrap()()
+    fn call(self) -> Col {
+        self()
     }
 }
 
-pub trait EntryUpdate<Col>: Send {
+impl<Col> EntryInsert<Col> for () {
+    fn call(self) -> Col {
+        unreachable!()
+    }
+}
+
+pub trait EntryUpdate<Col>: Send + Unpin {
     fn call(&self, doc: &mut Col);
 }
 
 impl<'a, F, Col> EntryUpdate<Col> for F
 where
-    F: Fn(&mut Col) + Send,
+    F: Fn(&mut Col) + Send + Unpin,
     Col: NamedCollection + Serialize + for<'de> Deserialize<'de> + 'a,
 {
     fn call(&self, doc: &mut Col) {
@@ -479,10 +584,18 @@ where
     }
 }
 
-impl<'a, 'name, Conn, Col> Future for Entry<'a, 'name, Conn, Col>
+impl<Col> EntryUpdate<Col> for () {
+    fn call(&self, _doc: &mut Col) {
+        unreachable!();
+    }
+}
+
+impl<'a, 'name, Conn, Col, EI, EU> Future for Entry<'a, 'name, Conn, Col, EI, EU>
 where
     Col: NamedCollection + Serialize + for<'de> Deserialize<'de> + 'static,
     Conn: Connection,
+    EI: EntryInsert<Col> + 'a,
+    EU: EntryUpdate<Col> + 'a,
     'name: 'a,
 {
     type Output = Result<Option<CollectionDocument<Col>>, Error>;
@@ -491,62 +604,35 @@ where
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Self::Output> {
-        match &mut self.state {
-            EntryState::Executing(future) => future.as_mut().poll(cx),
-            EntryState::Pending(builder) => {
-                let EntryBuilder {
-                    name,
-                    connection,
-                    insert,
-                    update,
-                    mut retry_limit,
-                } = builder.take().expect("expected builder to have options");
-                let future = async move {
-                    if let Some(mut existing) = Col::load(name, connection).await? {
-                        if let Some(update) = update {
-                            loop {
-                                update.call(&mut existing.contents);
-                                match existing.update(connection).await {
-                                    Ok(()) => return Ok(Some(existing)),
-                                    Err(Error::DocumentConflict(collection, id)) => {
-                                        // Another client has updated the document underneath us.
-                                        if retry_limit > 0 {
-                                            retry_limit -= 1;
-                                            existing = match Col::load(id, connection).await? {
-                                                Some(doc) => doc,
-                                                // Another client deleted the document before we could reload it.
-                                                None => break Ok(None),
-                                            }
-                                        } else {
-                                            break Err(Error::DocumentConflict(collection, id));
-                                        }
-                                    }
-                                    Err(other) => break Err(other),
-                                }
-                            }
-                        } else {
-                            Ok(Some(existing))
-                        }
-                    } else if let Some(mut insert) = insert {
-                        let new_document = insert.call();
-                        Ok(Some(new_document.insert_into(connection).await?))
-                    } else {
-                        Ok(None)
-                    }
-                }
-                .boxed();
+        if let Some(EntryBuilder {
+            name,
+            connection,
+            insert,
+            update,
+            retry_limit,
+            ..
+        }) = match &mut self.state {
+            EntryState::Executing(_) => None,
+            EntryState::Pending(builder) => builder.take(),
+        } {
+            let future = Self::execute(name, connection, insert, update, retry_limit).boxed();
+            self.state = EntryState::Executing(future);
+        }
 
-                self.state = EntryState::Executing(future);
-                self.poll(cx)
-            }
+        if let EntryState::Executing(future) = &mut self.state {
+            future.as_mut().poll(cx)
+        } else {
+            unreachable!()
         }
     }
 }
 
-enum EntryState<'a, 'name, Connection, Col>
+enum EntryState<'a, 'name, Connection, Col, EI, EU>
 where
     Col: NamedCollection + Serialize + for<'de> Deserialize<'de> + 'a,
+    EI: EntryInsert<Col>,
+    EU: EntryUpdate<Col>,
 {
-    Pending(Option<EntryBuilder<'a, 'name, Connection, Col>>),
+    Pending(Option<EntryBuilder<'a, 'name, Connection, Col, EI, EU>>),
     Executing(BoxFuture<'a, Result<Option<CollectionDocument<Col>>, Error>>),
 }

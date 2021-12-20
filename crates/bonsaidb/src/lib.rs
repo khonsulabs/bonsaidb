@@ -27,8 +27,10 @@ pub use bonsaidb_local as local;
 #[cfg(feature = "server")]
 #[doc(inline)]
 pub use bonsaidb_server as server;
+mod any_connection;
 #[cfg(feature = "cli")]
 pub mod cli;
+pub use any_connection::*;
 
 /// `VaultKeyStorage` implementors.
 #[cfg(feature = "keystorage-s3")]

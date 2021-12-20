@@ -71,6 +71,14 @@ Source code: [`basic-server/examples/users.rs`](./basic-server/examples/users.rs
 cargo run --example users
 ```
 
+## Building a command-line interface
+
+Source code: [`basic-server/examples/cli.rs`](./basic-server/examples/cli.rs)
+
+```sh
+cargo run --example cli
+```
+
 ## Automatically requesting an ACME certificate
 
 Source code: [`acme/examples/acme.rs`](./acme/examples/acme.rs)

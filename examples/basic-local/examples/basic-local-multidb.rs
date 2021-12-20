@@ -63,3 +63,8 @@ async fn insert_a_message<C: Connection>(
     Ok(())
 }
 // ANCHOR_END: reusable-code
+
+#[test]
+fn runs() {
+    main().unwrap()
+}

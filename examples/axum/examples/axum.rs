@@ -2,7 +2,7 @@
 //! framework should be usable.
 
 use async_trait::async_trait;
-use axum::{extract, routing::get, AddExtensionLayer, Router};
+use axum::{body::HttpBody, extract, routing::get, AddExtensionLayer, Router};
 use bonsaidb::{
     core::{connection::StorageConnection, keyvalue::KeyValue},
     local::config::Builder,
@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
     .await?;
     server.create_database::<()>("storage", true).await?;
 
-    #[cfg(all(feature = "client"))]
+    #[cfg(feature = "client")]
     {
         // This is silly to do over a websocket connection, because it can
         // easily be done by just using `server` instead. However, this is to
@@ -106,4 +106,43 @@ async fn upgrade_websocket(
     req: Request<Body>,
 ) -> Response<Body> {
     server.upgrade_websocket(*peer_address, req).await
+}
+
+#[tokio::test]
+#[cfg_attr(not(feature = "client"), allow(unused_variables))]
+async fn test() {
+    std::thread::spawn(|| main().unwrap());
+
+    // Give the server a moment to start up.
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+    let retrieve_uptime = || async {
+        let client = hyper::Client::new();
+        let mut response = client
+            .get("http://localhost:8080/".parse().unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), 200);
+
+        let body = response
+            .body_mut()
+            .data()
+            .await
+            .expect("no response")
+            .unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body.contains("Current uptime: "));
+        body
+    };
+
+    let original_uptime = retrieve_uptime().await;
+
+    #[cfg(feature = "client")]
+    {
+        // If we have the client, we're expecting the uptime to increase every second
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        let new_uptime = retrieve_uptime().await;
+        assert_ne!(original_uptime, new_uptime);
+    }
 }
