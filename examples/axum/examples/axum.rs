@@ -156,7 +156,7 @@ async fn test() {
     {
         // If we have the client, we're expecting the uptime to increase every second
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        let new_uptime = retrieve_uptime().await;
+        let new_uptime = retrieve_uptime().await.unwrap();
         assert_ne!(original_uptime, new_uptime);
     }
 }
