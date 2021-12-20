@@ -7,6 +7,7 @@ use bonsaidb::{
         admin::{Admin, PermissionGroup, ADMIN_DATABASE_NAME},
         circulate::flume,
         connection::StorageConnection,
+        keyvalue::KeyValue,
         permissions::{
             bonsai::{BonsaiAction, ServerAction},
             Statement,
@@ -14,14 +15,13 @@ use bonsaidb::{
         schema::{Collection, InsertError},
         test_util::{BasicSchema, HarnessTest, TestDirectory},
     },
+    local::config::Builder,
     server::{
         fabruic::Certificate,
         test_util::{initialize_basic_server, BASIC_SERVER_NAME},
         DefaultPermissions, Server, ServerConfiguration,
     },
 };
-use bonsaidb_core::keyvalue::KeyValue;
-use bonsaidb_local::config::Builder;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 

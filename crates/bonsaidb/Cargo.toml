@@ -49,7 +49,7 @@ server-full = [
     "server-hyper",
     "server-pem",
 ]
-server = ["bonsaidb-server", "bonsaidb-server/included-from-omnibus"]
+server = ["bonsaidb-server", "local", "bonsaidb-server/included-from-omnibus"]
 client-full = ["client", "client-websockets", "client-trusted-dns"]
 client = ["bonsaidb-client"]
 test-util = ["bonsaidb-client/test-util", "bonsaidb-server/test-util"]
@@ -61,7 +61,7 @@ keystorage-s3 = ["bonsaidb-keystorage-s3"]
 
 cli = ["anyhow", "tokio", "structopt", "url", "local-cli", "server-cli"]
 local-cli = ["bonsaidb-local/cli"]
-server-cli = ["bonsaidb-server/cli"]
+server-cli = ["bonsaidb-server/cli", "local-cli"]
 
 websockets = ["server-websockets", "client-websockets"]
 server-websockets = ["bonsaidb-server/websockets"]

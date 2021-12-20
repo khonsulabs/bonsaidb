@@ -4,18 +4,16 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         async_trait::async_trait,
-        custom_api::CustomApi,
+        custom_api::{CustomApi, Infallible},
         permissions::{Actionable, Dispatcher, Permissions},
         test_util::{Basic, TestDirectory},
     },
+    local::config::Builder,
     server::{
-        Backend, BackendError, ConnectedClient, CustomServer, DefaultPermissions,
-        ServerConfiguration,
+        Backend, BackendError, ConnectedClient, CustomApiDispatcher, CustomServer,
+        DefaultPermissions, ServerConfiguration,
     },
 };
-use bonsaidb_core::custom_api::Infallible;
-use bonsaidb_local::config::Builder;
-use bonsaidb_server::CustomApiDispatcher;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Dispatcher)]
