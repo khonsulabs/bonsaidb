@@ -104,11 +104,13 @@ pub trait Builder: Default {
     /// Sets [`StorageConfiguration::unique_id`](StorageConfiguration#structfield.unique_id) to `unique_id` and returns self.
     fn unique_id(self, unique_id: u64) -> Self;
     /// Sets [`StorageConfiguration::vault_key_storage`](StorageConfiguration#structfield.vault_key_storage) to `key_storage` and returns self.
+    #[cfg(feature = "encryption")]
     fn vault_key_storage<VaultKeyStorage: AnyVaultKeyStorage>(
         self,
         key_storage: VaultKeyStorage,
     ) -> Self;
     /// Sets [`StorageConfiguration::default_encryption_key`](StorageConfiguration#structfield.default_encryption_key) to `path` and returns self.
+    #[cfg(feature = "encryption")]
     fn default_encryption_key(self, key: KeyId) -> Self;
     /// Sets [`Tasks::worker_count`] to `worker_count` and returns self.
     fn tasks_worker_count(self, worker_count: usize) -> Self;

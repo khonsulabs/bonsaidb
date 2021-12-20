@@ -1,10 +1,11 @@
 use std::path::Path;
 
-use bonsaidb_core::{document::KeyId, permissions::Permissions, schema::Schema};
-use bonsaidb_local::{
-    config::{Builder, StorageConfiguration},
-    vault::AnyVaultKeyStorage,
-};
+#[cfg(feature = "encryption")]
+use bonsaidb_core::document::KeyId;
+use bonsaidb_core::{permissions::Permissions, schema::Schema};
+use bonsaidb_local::config::{Builder, StorageConfiguration};
+#[cfg(feature = "encryption")]
+use bonsaidb_local::vault::AnyVaultKeyStorage;
 
 /// Configuration options for [`Server`](crate::Server)
 #[must_use]
@@ -166,6 +167,7 @@ impl Builder for ServerConfiguration {
         self
     }
 
+    #[cfg(feature = "encryption")]
     fn vault_key_storage<VaultKeyStorage: AnyVaultKeyStorage>(
         mut self,
         key_storage: VaultKeyStorage,
@@ -174,6 +176,7 @@ impl Builder for ServerConfiguration {
         self
     }
 
+    #[cfg(feature = "encryption")]
     fn default_encryption_key(mut self, key: KeyId) -> Self {
         self.storage.default_encryption_key = Some(key);
         self

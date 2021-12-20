@@ -2,7 +2,7 @@
 //! framework should be usable.
 
 use async_trait::async_trait;
-use axum::{body::HttpBody, extract, routing::get, AddExtensionLayer, Router};
+use axum::{extract, routing::get, AddExtensionLayer, Router};
 use bonsaidb::{
     core::{connection::StorageConnection, keyvalue::KeyValue},
     local::config::Builder,
@@ -111,6 +111,8 @@ async fn upgrade_websocket(
 #[tokio::test]
 #[cfg_attr(not(feature = "client"), allow(unused_variables))]
 async fn test() {
+    use axum::body::HttpBody;
+
     std::thread::spawn(|| main().unwrap());
 
     // Give the server a moment to start up.

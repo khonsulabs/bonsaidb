@@ -49,7 +49,7 @@ use bonsaidb_local::{
 };
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::DeriveWhere;
-use fabruic::{self, Certificate, CertificateChain, Endpoint, KeyPair, PrivateKey};
+use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 use futures::{Future, StreamExt};
 use rustls::sign::CertifiedKey;
@@ -244,7 +244,7 @@ impl<B: Backend> CustomServer<B> {
         };
         let certificates = pem::parse_many(&certificate_chain)?
             .into_iter()
-            .map(|entry| Certificate::unchecked_from_der(entry.contents))
+            .map(|entry| fabruic::Certificate::unchecked_from_der(entry.contents))
             .collect::<Vec<_>>();
 
         self.install_certificate(
