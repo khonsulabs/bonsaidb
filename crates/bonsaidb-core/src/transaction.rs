@@ -167,26 +167,48 @@ pub enum OperationResult {
 
 /// Details about an executed transaction.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Executed<'a> {
+pub struct Executed {
     /// The id of the transaction.
     pub id: u64,
 
     /// A list of containing ids of `Documents` changed.
-    pub changed_documents: Cow<'a, [ChangedDocument]>,
+    pub changes: Changes,
 }
 
-impl<'a> Executed<'a> {
-    /// Convert this structure to be free of borrows.
+/// A list of changes.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Changes {
+    /// A list of changed documents.
+    Documents(Vec<ChangedDocument>),
+    /// A list of changed keys.
+    Keys(Vec<ChangedKey>),
+}
+
+impl Changes {
+    /// Returns the list of documents changed in this transaction, or None if
+    /// the transaction was not a document transaction.
     #[must_use]
-    pub fn to_owned(&self) -> Executed<'static> {
-        Executed {
-            id: self.id,
-            changed_documents: self.changed_documents.iter().cloned().collect(),
+    pub fn documents(&self) -> Option<&[ChangedDocument]> {
+        if let Self::Documents(docs) = self {
+            Some(docs)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the list of keys changed in this transaction, or None if the
+    /// transaction was not a `KeyValue` transaction.
+    #[must_use]
+    pub fn keys(&self) -> Option<&[ChangedKey]> {
+        if let Self::Keys(keys) = self {
+            Some(keys)
+        } else {
+            None
         }
     }
 }
 
-/// A record of a changed.
+/// A record of a changed document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChangedDocument {
     /// The id of the `Collection` of the changed `Document`.
@@ -196,5 +218,18 @@ pub struct ChangedDocument {
     pub id: u64,
 
     /// If the `Document` has been deleted, this will be `true`.
+    pub deleted: bool,
+}
+
+/// A record of a changed `KeyValue` entry.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChangedKey {
+    /// The namespace of the key.
+    pub namespace: Option<String>,
+
+    /// The key that was changed.
+    pub key: String,
+
+    /// True if the key was deleted.
     pub deleted: bool,
 }

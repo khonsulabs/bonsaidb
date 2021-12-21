@@ -569,7 +569,7 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<Executed<'static>>, bonsaidb_core::Error>;
+    ) -> Result<Vec<Executed>, bonsaidb_core::Error>;
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error>;
 

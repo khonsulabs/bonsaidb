@@ -609,6 +609,7 @@ pub enum HarnessTest {
     KvIncrementDecrement,
     KvExpiration,
     KvDeleteExpire,
+    KvTransactions,
 }
 
 impl HarnessTest {
@@ -861,13 +862,14 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     assert_eq!(transactions.len(), 2);
     assert!(transactions[0].id < transactions[1].id);
     for transaction in &transactions {
-        assert_eq!(transaction.changed_documents.len(), 1);
-        assert_eq!(
-            transaction.changed_documents[0].collection,
-            Basic::collection_name()?
-        );
-        assert_eq!(transaction.changed_documents[0].id, header.id);
-        assert!(!transaction.changed_documents[0].deleted);
+        let changed_documents = transaction
+            .changes
+            .documents()
+            .expect("incorrect transaction type");
+        assert_eq!(changed_documents.len(), 1);
+        assert_eq!(changed_documents[0].collection, Basic::collection_name()?);
+        assert_eq!(changed_documents[0].id, header.id);
+        assert!(!changed_documents[0].deleted);
     }
 
     db.delete::<Basic>(&doc).await?;
@@ -877,13 +879,14 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .await?;
     assert_eq!(transactions.len(), 1);
     let transaction = transactions.first().unwrap();
-    assert_eq!(transaction.changed_documents.len(), 1);
-    assert_eq!(
-        transaction.changed_documents[0].collection,
-        Basic::collection_name()?
-    );
-    assert_eq!(transaction.changed_documents[0].id, header.id);
-    assert!(transaction.changed_documents[0].deleted);
+    let changed_documents = transaction
+        .changes
+        .documents()
+        .expect("incorrect transaction type");
+    assert_eq!(changed_documents.len(), 1);
+    assert_eq!(changed_documents[0].collection, Basic::collection_name()?);
+    assert_eq!(changed_documents[0].id, header.id);
+    assert!(changed_documents[0].deleted);
 
     // Use the Collection interface
     let mut doc = original_value.clone().insert_into(db).await?;
@@ -2056,6 +2059,58 @@ macro_rules! define_kv_test_suite {
 
                 break;
             }
+            harness.shutdown().await?;
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn kv_transaction_tests() -> anyhow::Result<()> {
+            use std::time::Duration;
+
+            use $crate::{
+                connection::Connection,
+                keyvalue::{KeyStatus, KeyValue},
+            };
+            let harness = $harness::new($crate::test_util::HarnessTest::KvTransactions).await?;
+            let db = harness.connect().await?;
+            // Generate several transactions that we can validate
+            db.set_key("expires", &0_u32)
+                .expire_in(Duration::from_secs(1))
+                .await?;
+            db.set_key("akey", &String::from("avalue")).await?;
+            db.get_key("akey").and_delete().await?;
+            db.set_numeric_key("nkey", 0_u64).await?;
+            db.increment_key_by("nkey", 1_u64).await?;
+            db.delete_key("nkey").await?;
+            // Ensure this doesn't generate a transaction.
+            db.delete_key("nkey").await?;
+
+            tokio::time::sleep(Duration::from_secs(2)).await;
+
+            let transactions = Connection::list_executed_transactions(&db, None, None).await?;
+            let deleted_keys = transactions
+                .iter()
+                .filter_map(|tx| tx.changes.keys())
+                .flatten()
+                .filter(|changed_key| changed_key.deleted)
+                .count();
+            assert_eq!(deleted_keys, 3);
+            let akey_changes = transactions
+                .iter()
+                .filter_map(|tx| tx.changes.keys())
+                .flatten()
+                .filter(|changed_key| changed_key.key == "akey")
+                .count();
+            assert_eq!(akey_changes, 2);
+            let nkey_changes = transactions
+                .iter()
+                .filter_map(|tx| tx.changes.keys())
+                .flatten()
+                .filter(|changed_key| changed_key.key == "nkey")
+                .count();
+            assert_eq!(nkey_changes, 3);
+
             harness.shutdown().await?;
 
             Ok(())

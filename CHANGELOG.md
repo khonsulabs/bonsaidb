@@ -124,6 +124,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   
   This new functionality exposes `BackupLocation`, an async_trait that enables
   arbitrary backup locations.
+- `KeyValue` storage has internally changed its format. Because this was
+  pre-alpha, this data loss was premitted. If this is an issue for anyone, the
+  data is still there, the format of the key has been changed. By editing any
+  database files directly using Nebari, you can change the format from
+  "namespace.key" to "namespace\0key", where `\0` is a single null byte.
+- `ExecutedTransactions::changes` is now a `Changes` enum, which can be a list
+  of `ChangedDocument`s or `ChangedKey`s. Currently each KeyValue operation
+  emits its own transaction, butt his will change with #120.
 
 ### Fixed
 

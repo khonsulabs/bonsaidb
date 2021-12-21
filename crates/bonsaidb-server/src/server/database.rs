@@ -192,7 +192,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<bonsaidb_core::transaction::Executed<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<bonsaidb_core::transaction::Executed>, bonsaidb_core::Error> {
         self.db
             .list_executed_transactions(starting_id, result_limit)
             .await

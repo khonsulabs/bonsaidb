@@ -123,9 +123,16 @@ impl Storage {
                     )
                     .await?;
             }
-            for (key, entry) in database.all_key_value_entries().await? {
+            for ((namespace, key), entry) in database.all_key_value_entries().await? {
+                let full_name = format!("{}._key._{}", namespace.as_deref().unwrap_or(""), key);
                 location
-                    .store(&schema, database.name(), "_kv", &key, &pot::to_vec(&entry)?)
+                    .store(
+                        &schema,
+                        database.name(),
+                        "_kv",
+                        &full_name,
+                        &pot::to_vec(&entry)?,
+                    )
                     .await?;
             }
         }
@@ -164,13 +171,22 @@ impl Storage {
         }
         database.apply_transaction(transaction).await?;
 
-        for key in location
+        for full_key in location
             .list_stored(&schema, database.name(), "_kv")
             .await?
         {
-            let entry = location.load(&schema, database.name(), "_kv", &key).await?;
-            let entry = pot::from_slice::<Entry>(&entry)?;
-            entry.restore(key, database).await?;
+            if let Some((namespace, key)) = full_key.split_once("._key._") {
+                let entry = location
+                    .load(&schema, database.name(), "_kv", &full_key)
+                    .await?;
+                let entry = pot::from_slice::<Entry>(&entry)?;
+                let namespace = if namespace.is_empty() {
+                    None
+                } else {
+                    Some(namespace.to_string())
+                };
+                entry.restore(namespace, key.to_string(), database).await?;
+            }
         }
 
         Ok(())

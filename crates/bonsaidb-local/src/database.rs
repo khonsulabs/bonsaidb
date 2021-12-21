@@ -1,4 +1,11 @@
-use std::{any::Any, borrow::Cow, collections::HashMap, convert::Infallible, sync::Arc, u8};
+use std::{
+    any::Any,
+    borrow::{Borrow, Cow},
+    collections::HashMap,
+    convert::Infallible,
+    sync::Arc,
+    u8,
+};
 
 use async_trait::async_trait;
 use bonsaidb_core::{
@@ -14,7 +21,7 @@ use bonsaidb_core::{
         ViewName,
     },
     transaction::{
-        self, ChangedDocument, Command, Executed, Operation, OperationResult, Transaction,
+        self, ChangedDocument, Changes, Command, Executed, Operation, OperationResult, Transaction,
     },
 };
 use byteorder::{BigEndian, ByteOrder};
@@ -775,12 +782,6 @@ impl Database {
         Ok(tree)
     }
 
-    pub(crate) fn update_key_expiration(&self, tree_key: String, expiration: Option<Timestamp>) {
-        self.data
-            .context
-            .update_key_expiration(tree_key, expiration);
-    }
-
     pub(crate) async fn update_key_expiration_async(
         &self,
         tree_key: String,
@@ -898,7 +899,7 @@ impl Connection for Database {
 
             roots_transaction
                 .entry_mut()
-                .set_data(bincode::serialize(&changed_documents)?)?;
+                .set_data(pot::to_vec(&Changes::Documents(changed_documents))?)?;
 
             roots_transaction.commit()?;
 
@@ -946,38 +947,47 @@ impl Connection for Database {
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<transaction::Executed<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<transaction::Executed>, bonsaidb_core::Error> {
         let result_limit = result_limit
             .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
             .min(LIST_TRANSACTIONS_MAX_RESULTS);
         if result_limit > 0 {
             let task_self = self.clone();
-            tokio::task::spawn_blocking::<_, Result<Vec<transaction::Executed<'static>>, Error>>(
-                move || {
-                    let range = if let Some(starting_id) = starting_id {
-                        Range::from(starting_id..)
-                    } else {
-                        Range::from(..)
-                    };
+            tokio::task::spawn_blocking::<_, Result<Vec<transaction::Executed>, Error>>(move || {
+                let range = if let Some(starting_id) = starting_id {
+                    Range::from(starting_id..)
+                } else {
+                    Range::from(..)
+                };
 
-                    let mut entries = Vec::new();
-                    task_self.roots().transactions().scan(range, |entry| {
-                        entries.push(entry);
-                        entries.len() < result_limit
-                    })?;
+                let mut entries = Vec::new();
+                task_self.roots().transactions().scan(range, |entry| {
+                    entries.push(entry);
+                    entries.len() < result_limit
+                })?;
 
-                    entries
-                        .into_iter()
-                        .map(|entry| {
-                            let changed_documents = bincode::deserialize(entry.data().unwrap())?;
-                            Ok(transaction::Executed {
+                entries
+                    .into_iter()
+                    .map(|entry| {
+                        if let Some(data) = entry.data() {
+                            let changes = match pot::from_slice(data) {
+                                Ok(changes) => changes,
+                                Err(pot::Error::NotAPot) => {
+                                    Changes::Documents(bincode::deserialize(entry.data().unwrap())?)
+                                }
+                                other => other?,
+                            };
+                            Ok(Some(transaction::Executed {
                                 id: entry.id,
-                                changed_documents,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, Error>>()
-                },
-            )
+                                changes,
+                            }))
+                        } else {
+                            Ok(None)
+                        }
+                    })
+                    .filter_map(Result::transpose)
+                    .collect::<Result<Vec<_>, Error>>()
+            })
             .await
             .unwrap()
             .map_err(bonsaidb_core::Error::from)
@@ -1212,14 +1222,21 @@ pub(crate) struct Context {
     kv_expirer: flume::Sender<keyvalue::ExpirationUpdate>,
 }
 
+impl Borrow<Roots<StdFile>> for Context {
+    fn borrow(&self) -> &Roots<StdFile> {
+        &self.roots
+    }
+}
+
 impl Context {
     pub(crate) fn new(roots: Roots<StdFile>) -> Self {
         let (kv_expirer, kv_expirer_receiver) = flume::unbounded();
+        let context = Self { roots, kv_expirer };
         tokio::task::spawn(keyvalue::expiration_task(
-            roots.clone(),
+            context.roots.clone(),
             kv_expirer_receiver,
         ));
-        Self { roots, kv_expirer }
+        context
     }
 
     pub(crate) fn update_key_expiration(&self, tree_key: String, expiration: Option<Timestamp>) {
@@ -1399,7 +1416,7 @@ impl OpenDatabase for Database {
         &self,
         starting_id: Option<u64>,
         result_limit: Option<usize>,
-    ) -> Result<Vec<Executed<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Executed>, bonsaidb_core::Error> {
         Connection::list_executed_transactions(self, starting_id, result_limit).await
     }
 
