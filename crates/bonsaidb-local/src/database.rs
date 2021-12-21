@@ -775,12 +775,6 @@ impl Database {
         Ok(tree)
     }
 
-    pub(crate) fn update_key_expiration(&self, tree_key: String, expiration: Option<Timestamp>) {
-        self.data
-            .context
-            .update_key_expiration(tree_key, expiration);
-    }
-
     pub(crate) async fn update_key_expiration_async(
         &self,
         tree_key: String,
@@ -968,18 +962,23 @@ impl Connection for Database {
                 entries
                     .into_iter()
                     .map(|entry| {
-                        let changes = match pot::from_slice(entry.data().unwrap()) {
-                            Ok(changes) => changes,
-                            Err(pot::Error::NotAPot) => {
-                                Changes::Documents(bincode::deserialize(entry.data().unwrap())?)
-                            }
-                            other => other?,
-                        };
-                        Ok(transaction::Executed {
-                            id: entry.id,
-                            changes,
-                        })
+                        if let Some(data) = entry.data() {
+                            let changes = match pot::from_slice(data) {
+                                Ok(changes) => changes,
+                                Err(pot::Error::NotAPot) => {
+                                    Changes::Documents(bincode::deserialize(entry.data().unwrap())?)
+                                }
+                                other => other?,
+                            };
+                            Ok(Some(transaction::Executed {
+                                id: entry.id,
+                                changes,
+                            }))
+                        } else {
+                            Ok(None)
+                        }
                     })
+                    .filter_map(Result::transpose)
                     .collect::<Result<Vec<_>, Error>>()
             })
             .await
@@ -1219,11 +1218,12 @@ pub(crate) struct Context {
 impl Context {
     pub(crate) fn new(roots: Roots<StdFile>) -> Self {
         let (kv_expirer, kv_expirer_receiver) = flume::unbounded();
+        let context = Self { roots, kv_expirer };
         tokio::task::spawn(keyvalue::expiration_task(
-            roots.clone(),
+            context.clone(),
             kv_expirer_receiver,
         ));
-        Self { roots, kv_expirer }
+        context
     }
 
     pub(crate) fn update_key_expiration(&self, tree_key: String, expiration: Option<Timestamp>) {

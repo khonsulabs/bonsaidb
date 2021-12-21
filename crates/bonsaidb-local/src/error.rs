@@ -1,4 +1,4 @@
-use std::{convert::Infallible, string::FromUtf8Error, sync::Arc};
+use std::{convert::Infallible, str::Utf8Error, string::FromUtf8Error, sync::Arc};
 
 use bonsaidb_core::{
     permissions::PermissionDenied,
@@ -81,6 +81,12 @@ impl From<Arc<Error>> for Error {
 
 impl From<FromUtf8Error> for Error {
     fn from(err: FromUtf8Error) -> Self {
+        Self::Core(bonsaidb_core::Error::InvalidUnicode(err.to_string()))
+    }
+}
+
+impl From<Utf8Error> for Error {
+    fn from(err: Utf8Error) -> Self {
         Self::Core(bonsaidb_core::Error::InvalidUnicode(err.to_string()))
     }
 }
