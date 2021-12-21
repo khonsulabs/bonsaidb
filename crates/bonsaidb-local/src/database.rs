@@ -1,4 +1,11 @@
-use std::{any::Any, borrow::Cow, collections::HashMap, convert::Infallible, sync::Arc, u8};
+use std::{
+    any::Any,
+    borrow::{Borrow, Cow},
+    collections::HashMap,
+    convert::Infallible,
+    sync::Arc,
+    u8,
+};
 
 use async_trait::async_trait;
 use bonsaidb_core::{
@@ -1215,12 +1222,18 @@ pub(crate) struct Context {
     kv_expirer: flume::Sender<keyvalue::ExpirationUpdate>,
 }
 
+impl Borrow<Roots<StdFile>> for Context {
+    fn borrow(&self) -> &Roots<StdFile> {
+        &self.roots
+    }
+}
+
 impl Context {
     pub(crate) fn new(roots: Roots<StdFile>) -> Self {
         let (kv_expirer, kv_expirer_receiver) = flume::unbounded();
         let context = Self { roots, kv_expirer };
         tokio::task::spawn(keyvalue::expiration_task(
-            context.clone(),
+            context.roots.clone(),
             kv_expirer_receiver,
         ));
         context

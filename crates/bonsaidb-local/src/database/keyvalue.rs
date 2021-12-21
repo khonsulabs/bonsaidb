@@ -1,4 +1,5 @@
 use std::{
+    borrow::Borrow,
     collections::{HashMap, VecDeque},
     convert::Infallible,
     sync::atomic::{AtomicBool, Ordering},
@@ -14,7 +15,7 @@ use bonsaidb_core::{
 use nebari::{
     io::fs::StdFile,
     tree::{KeyEvaluation, Root, Unversioned},
-    AbortError, Buffer, CompareAndSwapError, ExecutingTransaction, TransactionTree,
+    AbortError, Buffer, CompareAndSwapError, ExecutingTransaction, Roots, TransactionTree,
 };
 use serde::{Deserialize, Serialize};
 
@@ -171,7 +172,7 @@ fn execute_set_operation(
     keep_existing_expiration: bool,
     check: Option<KeyCheck>,
     return_previous_value: bool,
-    tx: &mut KvTransaction<'_>,
+    tx: &mut KvTransaction<'_, Context>,
 ) -> Result<Output, bonsaidb_core::Error> {
     let mut entry = Entry { value, expiration };
     let mut inserted = false;
@@ -264,7 +265,7 @@ fn execute_get_operation(
 fn execute_delete_operation(
     namespace: Option<String>,
     key: String,
-    tx: &mut KvTransaction<'_>,
+    tx: &mut KvTransaction<'_, Context>,
 ) -> Result<Output, bonsaidb_core::Error> {
     let full_key = full_key(namespace.as_deref(), &key);
     let value = tx.tree().remove(full_key.as_bytes()).map_err(Error::from)?;
@@ -285,7 +286,7 @@ fn execute_delete_operation(
 fn execute_increment_operation(
     namespace: Option<String>,
     key: String,
-    tx: &mut KvTransaction<'_>,
+    tx: &mut KvTransaction<'_, Context>,
     amount: &Numeric,
     saturating: bool,
 ) -> Result<Output, bonsaidb_core::Error> {
@@ -295,7 +296,7 @@ fn execute_increment_operation(
 fn execute_decrement_operation(
     namespace: Option<String>,
     key: String,
-    tx: &mut KvTransaction<'_>,
+    tx: &mut KvTransaction<'_, Context>,
     amount: &Numeric,
     saturating: bool,
 ) -> Result<Output, bonsaidb_core::Error> {
@@ -305,7 +306,7 @@ fn execute_decrement_operation(
 fn execute_numeric_operation<F: Fn(&Numeric, &Numeric, bool) -> Numeric>(
     namespace: Option<String>,
     key: String,
-    tx: &mut KvTransaction<'_>,
+    tx: &mut KvTransaction<'_, Context>,
     amount: &Numeric,
     saturating: bool,
     op: F,
@@ -417,7 +418,7 @@ fn decrement(existing: &Numeric, amount: &Numeric, saturating: bool) -> Numeric 
 }
 
 fn fetch_and_update_no_copy<F>(
-    tx: &mut KvTransaction<'_>,
+    tx: &mut KvTransaction<'_, Context>,
     namespace: Option<String>,
     key: String,
     mut f: F,
@@ -478,7 +479,7 @@ impl Drop for ExpirationUpdate {
 }
 
 async fn remove_expired_keys(
-    context: &Context,
+    roots: &Roots<StdFile>,
     now: Timestamp,
     tracked_keys: &mut HashMap<String, Timestamp>,
     expiration_order: &mut VecDeque<String>,
@@ -489,9 +490,9 @@ async fn remove_expired_keys(
         tracked_keys.remove(&key);
         keys_to_remove.push(key);
     }
-    let task_context = context.clone();
+    let task_roots = roots.clone();
     tokio::task::spawn_blocking(move || {
-        KvTransaction::execute(&task_context, |tx| {
+        KvTransaction::execute(&task_roots, |tx| {
             for full_key in keys_to_remove {
                 if let Some((namespace, key)) = split_key(&full_key) {
                     tx.tree().remove(full_key.as_bytes()).map_err(Error::from)?;
@@ -514,7 +515,7 @@ async fn remove_expired_keys(
 }
 
 pub(crate) async fn expiration_task(
-    context: Context,
+    roots: Roots<StdFile>,
     updates: flume::Receiver<ExpirationUpdate>,
 ) -> Result<(), Error> {
     // expiring_keys will be maintained such that the soonest expiration is at the front and furthest in the future is at the back
@@ -549,8 +550,7 @@ pub(crate) async fn expiration_task(
                 // Reaching this block means that we didn't receive an update to
                 // process, and we have at least one key that is ready to be
                 // removed.
-                remove_expired_keys(&context, now, &mut tracked_keys, &mut expiration_order)
-                    .await?;
+                remove_expired_keys(&roots, now, &mut tracked_keys, &mut expiration_order).await?;
                 continue;
             }
         };
@@ -607,19 +607,22 @@ pub(crate) async fn expiration_task(
     Ok(())
 }
 
-struct KvTransaction<'context> {
-    context: &'context Context,
+struct KvTransaction<'context, C> {
+    context: &'context C,
     transaction: ExecutingTransaction<StdFile>,
     changed_keys: Vec<ChangedKey>,
 }
 
-impl<'context> KvTransaction<'context> {
+impl<'context, C> KvTransaction<'context, C>
+where
+    C: Borrow<Roots<StdFile>>,
+{
     pub fn execute<T, F: FnOnce(&mut Self) -> Result<T, bonsaidb_core::Error>>(
-        context: &'context Context,
+        context: &'context C,
         tx_body: F,
     ) -> Result<T, bonsaidb_core::Error> {
         let transaction = context
-            .roots
+            .borrow()
             .transaction(&[Unversioned::tree(KEY_TREE)])
             .map_err(Error::from)?;
         let mut tx = Self {
