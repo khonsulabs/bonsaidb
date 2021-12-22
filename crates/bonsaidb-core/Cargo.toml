@@ -19,7 +19,7 @@ websockets = []
 actionable-traits = []
 instrument = ["pot/tracing"]
 json = ["serde_json"]
-cbor = ["serde_cbor"]
+cbor = ["ciborium"]
 multiuser = ["custodian-password"]
 encryption = []
 
@@ -42,7 +42,7 @@ custodian-password = { git = "https://github.com/khonsulabs/custodian.git", bran
 anyhow = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 bincode = { version = "1", optional = true }
-serde_cbor = { version = "0.11", optional = true }
+ciborium = { version = "0.2", optional = true }
 itertools = "0.10"
 ordered-varint = "0.1.0-dev.1"
 derive-where = "1.0.0-rc.1"

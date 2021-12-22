@@ -59,8 +59,15 @@ impl From<serde_json::Error> for Error {
 }
 
 #[cfg(feature = "cbor")]
-impl From<serde_cbor::Error> for Error {
-    fn from(err: serde_cbor::Error) -> Self {
+impl<T: std::fmt::Display + std::fmt::Debug> From<ciborium::de::Error<T>> for Error {
+    fn from(err: ciborium::de::Error<T>) -> Self {
+        Self::Core(crate::Error::from(err))
+    }
+}
+
+#[cfg(feature = "cbor")]
+impl<T: std::fmt::Display + std::fmt::Debug> From<ciborium::ser::Error<T>> for Error {
+    fn from(err: ciborium::ser::Error<T>) -> Self {
         Self::Core(crate::Error::from(err))
     }
 }

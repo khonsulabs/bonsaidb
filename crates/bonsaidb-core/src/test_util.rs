@@ -945,7 +945,7 @@ pub async fn collection_serialization_tests<C: Connection>(db: &C) -> anyhow::Re
             .get::<CborBasic>(header.id)
             .await?
             .expect("failed to get cbor doc");
-        assert!(serde_cbor::from_slice::<CborBasic>(&doc.contents).is_ok());
+        assert!(ciborium::de::from_reader::<CborBasic, _>(&doc.contents[..]).is_ok());
         let deserialized = doc.contents::<CborBasic>().unwrap();
         assert_eq!(deserialized.value, 1);
 

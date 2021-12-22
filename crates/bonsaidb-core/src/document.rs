@@ -101,7 +101,7 @@ impl<'a> Document<'a> {
             }
             #[cfg(feature = "cbor")]
             CollectionSerializer::Cbor => {
-                serde_cbor::from_slice(&self.contents).map_err(crate::Error::from)
+                ciborium::de::from_reader(&self.contents[..]).map_err(crate::Error::from)
             }
             #[cfg(feature = "bincode")]
             CollectionSerializer::Bincode => {

@@ -108,7 +108,11 @@ impl CollectionSerializer {
             #[cfg(feature = "json")]
             CollectionSerializer::Json => serde_json::to_vec(contents).map_err(crate::Error::from),
             #[cfg(feature = "cbor")]
-            CollectionSerializer::Cbor => serde_cbor::to_vec(contents).map_err(crate::Error::from),
+            CollectionSerializer::Cbor => {
+                let mut bytes = Vec::new();
+                ciborium::ser::into_writer(contents, &mut bytes).map_err(crate::Error::from)?;
+                Ok(bytes)
+            }
             #[cfg(feature = "bincode")]
             CollectionSerializer::Bincode => {
                 bincode::serialize(contents).map_err(crate::Error::from)
