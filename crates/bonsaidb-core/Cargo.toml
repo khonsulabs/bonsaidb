@@ -25,9 +25,9 @@ encryption = []
 
 [dependencies]
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }
-circulate = { version = "0.2.0" }
+circulate = { version = "0.2.1" }
 serde = { version = "1", features = ["derive"] }
-pot = "0.1.0-alpha.2"
+pot = "1.0.0-rc.1"
 async-trait = "0.1"
 uuid = { version = "0.8", features = ["v4", "serde"], optional = true }
 thiserror = "1"
