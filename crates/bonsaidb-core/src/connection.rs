@@ -82,8 +82,9 @@ pub trait Connection: Send + Sync {
         ids: &[u64],
     ) -> Result<Vec<Document<'static>>, Error>;
 
-    /// Retrieves all documents matching `ids`. Documents that are not found
-    /// are not returned, but no error will be generated.
+    /// Retrieves all documents within the range of `ids`. Documents that are
+    /// not found are not returned, but no error will be generated. To retrieve
+    /// all documents, pass in `..` for `ids`.
     async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
         &self,
         ids: R,
