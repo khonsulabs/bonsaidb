@@ -39,7 +39,7 @@ nebari = { version = "0.1.0-rc.6" }
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
-pot = "1.0.0-rc.1"
+pot = "1.0.0-rc.3"
 bincode = "1.3"
 flume = "0.10"
 itertools = "0.10"

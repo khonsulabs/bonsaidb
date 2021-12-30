@@ -183,7 +183,7 @@ async fn basic_test() {
     use bonsaidb_core::{
         connection::StorageConnection,
         document::KeyId,
-        schema::Collection,
+        schema::SerializedCollection,
         test_util::{Basic, BasicSchema, TestDirectory},
     };
     use bonsaidb_local::{
@@ -236,7 +236,7 @@ async fn basic_test() {
             .await
             .unwrap();
         let db = bonsai.database::<BasicSchema>("test").await.unwrap();
-        Basic::new("test").insert_into(&db).await.unwrap()
+        Basic::new("test").push_into(&db).await.unwrap()
     };
 
     {

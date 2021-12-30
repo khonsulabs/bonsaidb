@@ -2,7 +2,10 @@ use std::time::SystemTime;
 
 use bonsaidb::{
     core::{
-        schema::{Collection, CollectionName, InvalidNameError, Schematic},
+        schema::{
+            Collection, CollectionName, DefaultSerialization, InvalidNameError, Schematic,
+            SerializedCollection,
+        },
         Error,
     },
     local::{
@@ -28,6 +31,8 @@ impl Collection for Message {
     }
 }
 
+impl DefaultSerialization for Message {}
+
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
     let db = Database::open::<Message>(StorageConfiguration::new("basic.bonsaidb")).await?;
@@ -43,7 +48,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
         contents: String::from("Hello, World!"),
         timestamp: SystemTime::now(),
     }
-    .insert_into(&db)
+    .push_into(&db)
     .await?;
 
     // Retrieve the message using the id returned from the previous call. both

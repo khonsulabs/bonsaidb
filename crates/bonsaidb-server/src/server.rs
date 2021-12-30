@@ -319,7 +319,7 @@ impl<B: Backend> CustomServer<B> {
                     self.data.primary_domain
                 )))
             })?;
-        Ok(certificate.document.contents()?)
+        Ok(certificate.document.contents::<TlsCertificate>()?)
     }
 
     /// Returns the current certificate chain.

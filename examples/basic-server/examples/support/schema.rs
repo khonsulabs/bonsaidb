@@ -1,8 +1,8 @@
 use bonsaidb::core::{
     schema::{
         view::{self, CollectionView},
-        Collection, CollectionDocument, CollectionName, InvalidNameError, MapResult, MappedValue,
-        Name, Schematic,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
+        MapResult, MappedValue, Name, Schematic,
     },
     Error,
 };
@@ -28,6 +28,8 @@ impl Collection for Shape {
         schema.define_view(ShapesByNumberOfSides)
     }
 }
+
+impl DefaultSerialization for Shape {}
 
 #[derive(Debug)]
 pub struct ShapesByNumberOfSides;

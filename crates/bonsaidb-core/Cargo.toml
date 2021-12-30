@@ -18,8 +18,6 @@ networking = ["multiuser"]
 websockets = []
 actionable-traits = []
 instrument = ["pot/tracing"]
-json = ["serde_json"]
-cbor = ["ciborium"]
 multiuser = ["custodian-password"]
 encryption = []
 
@@ -27,7 +25,7 @@ encryption = []
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }
 circulate = { version = "0.2.1" }
 serde = { version = "1", features = ["derive"] }
-pot = "1.0.0-rc.1"
+pot = "1.0.0-rc.3"
 async-trait = "0.1"
 uuid = { version = "0.8", features = ["v4", "serde"], optional = true }
 thiserror = "1"
@@ -40,12 +38,11 @@ custodian-password = { git = "https://github.com/khonsulabs/custodian.git", bran
     "blake3",
 ], optional = true }
 anyhow = { version = "1", optional = true }
-serde_json = { version = "1", optional = true }
-bincode = { version = "1", optional = true }
-ciborium = { version = "0.2", optional = true }
 itertools = "0.10"
 ordered-varint = "0.1.0-dev.1"
 derive-where = "1.0.0-rc.1"
+transmog = "0.1.0-dev.2"
+transmog-pot = "0.1.0-dev.2"
 
 [dev-dependencies]
 hex-literal = "0.3"

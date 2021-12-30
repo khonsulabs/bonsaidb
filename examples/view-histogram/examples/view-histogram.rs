@@ -20,7 +20,7 @@ use bonsaidb::{
         connection::{AccessPolicy, Connection},
         schema::{
             view, view::CollectionView, Collection, CollectionDocument, CollectionName,
-            InvalidNameError, MappedValue, Name, Schematic,
+            DefaultSerialization, InvalidNameError, MappedValue, Name, Schematic,
         },
     },
     local::{
@@ -109,6 +109,8 @@ impl Collection for Samples {
         schema.define_view(AsHistogram)
     }
 }
+
+impl DefaultSerialization for Samples {}
 
 /// A view for [`Samples`] which produces a histogram.
 #[derive(Debug)]

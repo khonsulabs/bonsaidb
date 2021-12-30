@@ -7,8 +7,8 @@ use std::fmt::Debug;
 
 pub use self::{
     collection::{
-        Collection, CollectionDocument, CollectionSerializer, Entry, InsertError, NamedCollection,
-        NamedReference,
+        Collection, CollectionDocument, DefaultSerialization, Entry, InsertError, NamedCollection,
+        NamedReference, SerializedCollection,
     },
     names::{Authority, CollectionName, InvalidNameError, Name, SchemaName, ViewName},
     schematic::Schematic,

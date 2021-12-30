@@ -6,7 +6,10 @@ use bonsaidb_core::{
     connection::Connection,
     define_basic_unique_mapped_view,
     document::KeyId,
-    schema::{Collection, CollectionDocument, CollectionName, InvalidNameError, Schematic},
+    schema::{
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
+        Schematic, SerializedCollection,
+    },
     ENCRYPTION_ENABLED,
 };
 use serde::{Deserialize, Serialize};
@@ -37,6 +40,8 @@ impl Collection for AcmeAccount {
         Ok(())
     }
 }
+
+impl DefaultSerialization for AcmeAccount {}
 
 define_basic_unique_mapped_view!(
     AcmeAccountByContacts,
@@ -91,7 +96,7 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
                 contacts: contacts.iter().map(|&c| c.to_string()).collect(),
                 data: contents.to_vec(),
             }
-            .insert_into(&db)
+            .push_into(&db)
             .await?;
         }
 

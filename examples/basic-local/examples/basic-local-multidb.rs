@@ -3,7 +3,10 @@ use std::time::SystemTime;
 use bonsaidb::{
     core::{
         connection::{Connection, StorageConnection},
-        schema::{Collection, CollectionName, InvalidNameError, Schematic},
+        schema::{
+            Collection, CollectionName, DefaultSerialization, InvalidNameError, Schematic,
+            SerializedCollection,
+        },
         Error,
     },
     local::{
@@ -28,6 +31,8 @@ impl Collection for Message {
         Ok(())
     }
 }
+
+impl DefaultSerialization for Message {}
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
@@ -58,7 +63,7 @@ async fn insert_a_message<C: Connection>(
         contents: String::from(value),
         timestamp: SystemTime::now(),
     }
-    .insert_into(connection)
+    .push_into(connection)
     .await?;
     Ok(())
 }

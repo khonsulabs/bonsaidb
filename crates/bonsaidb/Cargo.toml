@@ -53,9 +53,6 @@ server = ["bonsaidb-server", "local", "bonsaidb-server/included-from-omnibus"]
 client-full = ["client", "client-websockets", "client-trusted-dns"]
 client = ["bonsaidb-client"]
 test-util = ["bonsaidb-client/test-util", "bonsaidb-server/test-util"]
-json = ["bonsaidb-core/json"]
-cbor = ["bonsaidb-core/cbor"]
-bincode = ["bonsaidb-core/bincode"]
 
 keystorage-s3 = ["bonsaidb-keystorage-s3"]
 

@@ -205,34 +205,6 @@ impl<T> From<InsertError<T>> for Error {
     }
 }
 
-#[cfg(feature = "json")]
-impl From<serde_json::Error> for Error {
-    fn from(err: serde_json::Error) -> Self {
-        Self::Serialization(err.to_string())
-    }
-}
-
-#[cfg(feature = "cbor")]
-impl<T: std::fmt::Display + std::fmt::Debug> From<ciborium::de::Error<T>> for Error {
-    fn from(err: ciborium::de::Error<T>) -> Self {
-        Self::Serialization(err.to_string())
-    }
-}
-
-#[cfg(feature = "cbor")]
-impl<T: std::fmt::Display + std::fmt::Debug> From<ciborium::ser::Error<T>> for Error {
-    fn from(err: ciborium::ser::Error<T>) -> Self {
-        Self::Serialization(err.to_string())
-    }
-}
-
-#[cfg(feature = "bincode")]
-impl From<bincode::Error> for Error {
-    fn from(err: bincode::Error) -> Self {
-        Self::Serialization(err.to_string())
-    }
-}
-
 impl From<view::Error> for Error {
     fn from(err: view::Error) -> Self {
         Self::Database(err.to_string())

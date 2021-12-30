@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     define_basic_unique_mapped_view,
     schema::{
-        Collection, CollectionDocument, CollectionName, InvalidNameError, NamedCollection,
-        Schematic,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
+        NamedCollection, Schematic,
     },
     Error,
 };
@@ -43,6 +43,8 @@ impl Collection for Role {
         schema.define_view(ByName)
     }
 }
+
+impl DefaultSerialization for Role {}
 
 impl NamedCollection for Role {
     type ByNameView = ByName;

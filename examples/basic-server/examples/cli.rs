@@ -5,7 +5,7 @@ use bonsaidb::{
     core::{
         actionable::async_trait,
         connection::{Connection, StorageConnection},
-        schema::Collection,
+        schema::SerializedCollection,
     },
     local::config::Builder,
     server::{Backend, CustomServer, DefaultPermissions, NoDispatcher, ServerConfiguration},
@@ -64,7 +64,7 @@ impl CommandLine for CliBackend {
         let database = connection.database::<Shape>("shapes").await?;
         match command {
             Cli::Add { sides } => {
-                let new_shape = Shape::new(sides).insert_into(&database).await?;
+                let new_shape = Shape::new(sides).push_into(&database).await?;
                 println!("Shape #{} inserted with {} sides", new_shape.id, sides);
             }
             Cli::Count { sides } => {

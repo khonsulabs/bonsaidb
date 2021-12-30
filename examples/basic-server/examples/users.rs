@@ -12,7 +12,7 @@ use bonsaidb::{
             bonsai::{BonsaiAction, ServerAction},
             Action, ActionNameList, Permissions, ResourceName, Statement,
         },
-        schema::{Collection, InsertError},
+        schema::{InsertError, SerializedCollection},
     },
     local::config::Builder,
     server::{Server, ServerConfiguration},
@@ -47,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
         name: String::from("administrators"),
         statements: vec![Statement::allow_all()],
     }
-    .insert_into(&admin)
+    .push_into(&admin)
     .await)
     {
         Ok(doc) => doc.header.id,
@@ -83,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
     let db = client.database::<Shape>("my-database").await?;
 
     // Before authenticating, inserting a shape shouldn't work.
-    match Shape::new(3).insert_into(&db).await {
+    match Shape::new(3).push_into(&db).await {
         Err(InsertError {
             error: bonsaidb::core::Error::PermissionDenied(denied),
             ..
@@ -100,7 +100,7 @@ async fn main() -> anyhow::Result<()> {
     client
         .login_with_password_str("ecton", "hunter2", None)
         .await?;
-    let shape_doc = Shape::new(3).insert_into(&db).await?;
+    let shape_doc = Shape::new(3).push_into(&db).await?;
     log::info!("Successully inserted document {:?}", shape_doc);
 
     drop(db);

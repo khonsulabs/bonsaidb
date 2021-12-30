@@ -2,8 +2,8 @@ use bonsaidb_core::{
     define_basic_mapped_view, define_basic_unique_mapped_view,
     document::KeyId,
     schema::{
-        Collection, CollectionDocument, CollectionName, InvalidNameError, NamedCollection, Schema,
-        SchemaName, Schematic,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
+        NamedCollection, Schema, SchemaName, Schematic,
     },
     ENCRYPTION_ENABLED,
 };
@@ -56,6 +56,8 @@ impl Collection for TlsCertificate {
         Ok(())
     }
 }
+
+impl DefaultSerialization for TlsCertificate {}
 
 define_basic_unique_mapped_view!(
     TlsCertificateByAllDomains,

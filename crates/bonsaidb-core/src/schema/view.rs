@@ -6,7 +6,8 @@ use crate::{
     document::Document,
     schema::{
         view::map::{MappedValue, Mappings},
-        Collection, CollectionDocument, CollectionName, InvalidNameError, Name, ViewName,
+        Collection, CollectionDocument, CollectionName, InvalidNameError, Name,
+        SerializedCollection, ViewName,
     },
     AnyError,
 };
@@ -47,34 +48,6 @@ impl Error {
 
 impl From<pot::Error> for Error {
     fn from(err: pot::Error) -> Self {
-        Self::Core(crate::Error::from(err))
-    }
-}
-
-#[cfg(feature = "json")]
-impl From<serde_json::Error> for Error {
-    fn from(err: serde_json::Error) -> Self {
-        Self::Core(crate::Error::from(err))
-    }
-}
-
-#[cfg(feature = "cbor")]
-impl<T: std::fmt::Display + std::fmt::Debug> From<ciborium::de::Error<T>> for Error {
-    fn from(err: ciborium::de::Error<T>) -> Self {
-        Self::Core(crate::Error::from(err))
-    }
-}
-
-#[cfg(feature = "cbor")]
-impl<T: std::fmt::Display + std::fmt::Debug> From<ciborium::ser::Error<T>> for Error {
-    fn from(err: ciborium::ser::Error<T>) -> Self {
-        Self::Core(crate::Error::from(err))
-    }
-}
-
-#[cfg(feature = "bincode")]
-impl From<bincode::Error> for Error {
-    fn from(err: bincode::Error) -> Self {
         Self::Core(crate::Error::from(err))
     }
 }
@@ -151,7 +124,7 @@ pub trait View: Send + Sync + Debug + 'static {
 /// function receives a [`CollectionDocument`] instead of a [`Document`].
 pub trait CollectionView: Send + Sync + Debug + 'static {
     /// The collection this view belongs to
-    type Collection: Collection + Serialize + for<'de> Deserialize<'de>;
+    type Collection: SerializedCollection;
 
     /// The key for this view.
     type Key: Key + 'static;
