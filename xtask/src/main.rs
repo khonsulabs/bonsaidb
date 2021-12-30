@@ -3,52 +3,51 @@ use std::{
     io::{stdout, Write},
 };
 
-use khonsu_tools::{
-    anyhow,
-    audit::{self, Audit},
-    code_coverage::{self, CodeCoverage},
+use khonsu_tools::universal::{
+    anyhow, audit, code_coverage,
     devx_cmd::{run, Cmd},
+    DefaultConfig,
 };
 use serde::Serialize;
 use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 pub enum Commands {
-    GenerateCodeCoverageReport {
-        #[structopt(long = "install-dependencies")]
-        install_dependencies: bool,
-    },
     TestMatrix,
     Test {
         #[structopt(long)]
         fail_on_warnings: bool,
     },
-    Audit {
-        command: Option<String>,
-    },
-    InstallPreCommitHook,
+    #[structopt(flatten)]
+    Tools(khonsu_tools::Commands),
 }
 
 fn main() -> anyhow::Result<()> {
     if std::env::args().len() > 1 {
         let command = Commands::from_args();
         match command {
-            Commands::GenerateCodeCoverageReport {
-                install_dependencies,
-            } => CodeCoverage::<CoverageConfig>::execute(install_dependencies),
             Commands::TestMatrix => generate_test_matrix_output(),
             Commands::Test { fail_on_warnings } => run_all_tests(fail_on_warnings),
-            Commands::Audit { command } => Audit::<AuditConfig>::execute(command),
-            Commands::InstallPreCommitHook => khonsu_tools::pre_commit::install(),
+            Commands::Tools(command) => command.execute::<Config>(),
         }
     } else {
         run_all_tests(true)
     }
 }
 
-struct CoverageConfig;
+enum Config {}
 
-impl code_coverage::Config for CoverageConfig {
+impl khonsu_tools::Config for Config {
+    type Publish = DefaultConfig;
+    type Universal = Self;
+}
+
+impl khonsu_tools::universal::Config for Config {
+    type Audit = Self;
+    type CodeCoverage = Self;
+}
+
+impl code_coverage::Config for Config {
     fn cargo_args() -> Vec<String> {
         vec![
             String::from("+nightly"),
@@ -56,6 +55,20 @@ impl code_coverage::Config for CoverageConfig {
             String::from("--workspace"),
             String::from("--all-features"),
             String::from("--all-targets"),
+        ]
+    }
+}
+impl audit::Config for Config {
+    fn args() -> Vec<String> {
+        vec![
+            String::from("--all-features"),
+            String::from("--exclude=xtask"),
+            // examples
+            String::from("--exclude=axum"),
+            String::from("--exclude=acme"),
+            String::from("--exclude=basic-local"),
+            String::from("--exclude=basic-server"),
+            String::from("--exclude=view-histogram"),
         ]
     }
 }
@@ -172,21 +185,4 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
     println!("Generating docs");
     run!("cargo", "doc", "--all-features", "--no-deps")?;
     Ok(())
-}
-
-struct AuditConfig;
-
-impl audit::Config for AuditConfig {
-    fn args() -> Vec<String> {
-        vec![
-            String::from("--all-features"),
-            String::from("--exclude=xtask"),
-            // examples
-            String::from("--exclude=axum"),
-            String::from("--exclude=acme"),
-            String::from("--exclude=basic-local"),
-            String::from("--exclude=basic-server"),
-            String::from("--exclude=view-histogram"),
-        ]
-    }
 }
