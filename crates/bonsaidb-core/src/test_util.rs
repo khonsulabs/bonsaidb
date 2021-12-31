@@ -10,6 +10,7 @@ use std::{
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use transmog_pot::Pot;
 
 #[cfg(feature = "multiuser")]
 use crate::admin::{PermissionGroup, Role, User};
@@ -20,8 +21,9 @@ use crate::{
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
         view::{self, map::Mappings},
-        Collection, CollectionDocument, CollectionName, InvalidNameError, MapResult, MappedValue,
-        Name, NamedCollection, Schema, SchemaName, Schematic, View,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
+        MapResult, MappedValue, Name, NamedCollection, Schema, SchemaName, Schematic,
+        SerializedCollection, View,
     },
     Error, ENCRYPTION_ENABLED,
 };
@@ -74,68 +76,7 @@ impl Collection for Basic {
     }
 }
 
-#[cfg(feature = "json")]
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
-struct JsonBasic {
-    pub value: u64,
-}
-
-#[cfg(feature = "json")]
-impl Collection for JsonBasic {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
-        CollectionName::new("khonsulabs", "json-basic")
-    }
-
-    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn serializer() -> crate::schema::CollectionSerializer {
-        crate::schema::CollectionSerializer::Json
-    }
-}
-
-#[cfg(feature = "cbor")]
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
-struct CborBasic {
-    pub value: u64,
-}
-
-#[cfg(feature = "cbor")]
-impl Collection for CborBasic {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
-        CollectionName::new("khonsulabs", "cbor-basic")
-    }
-
-    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn serializer() -> crate::schema::CollectionSerializer {
-        crate::schema::CollectionSerializer::Cbor
-    }
-}
-
-#[cfg(feature = "bincode")]
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
-struct BincodeBasic {
-    pub value: u64,
-}
-
-#[cfg(feature = "bincode")]
-impl Collection for BincodeBasic {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
-        CollectionName::new("khonsulabs", "bincode-basic")
-    }
-
-    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn serializer() -> crate::schema::CollectionSerializer {
-        crate::schema::CollectionSerializer::Bincode
-    }
-}
+impl DefaultSerialization for Basic {}
 
 #[derive(Debug)]
 pub struct BasicCount;
@@ -334,6 +275,8 @@ impl Collection for EncryptedBasic {
     }
 }
 
+impl DefaultSerialization for EncryptedBasic {}
+
 #[derive(Debug)]
 pub struct EncryptedBasicCount;
 
@@ -437,12 +380,6 @@ impl Schema for BasicSchema {
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
         schema.define_collection::<Basic>()?;
-        #[cfg(feature = "json")]
-        schema.define_collection::<JsonBasic>()?;
-        #[cfg(feature = "cbor")]
-        schema.define_collection::<CborBasic>()?;
-        #[cfg(feature = "bincode")]
-        schema.define_collection::<BincodeBasic>()?;
         schema.define_collection::<EncryptedBasic>()?;
         schema.define_collection::<Unique>()
     }
@@ -470,6 +407,8 @@ impl Collection for Unique {
         schema.define_view(UniqueValue)
     }
 }
+
+impl DefaultSerialization for Unique {}
 
 #[derive(Debug)]
 pub struct UniqueValue;
@@ -550,6 +489,15 @@ impl Collection for BasicCollectionWithNoViews {
     }
 }
 
+impl SerializedCollection for BasicCollectionWithNoViews {
+    type Contents = Basic;
+    type Format = Pot;
+
+    fn format() -> Self::Format {
+        Pot::default()
+    }
+}
+
 #[derive(Debug)]
 pub struct BasicCollectionWithOnlyBrokenParentId;
 
@@ -580,7 +528,6 @@ impl Collection for UnassociatedCollection {
 pub enum HarnessTest {
     ServerConnectionTests = 1,
     StoreRetrieveUpdate,
-    CollectionSerialization,
     NotFound,
     Conflict,
     BadUpdate,
@@ -660,15 +607,6 @@ macro_rules! define_connection_test_suite {
                 $harness::new($crate::test_util::HarnessTest::StoreRetrieveUpdate).await?;
             let db = harness.connect().await?;
             $crate::test_util::store_retrieve_update_delete_tests(&db).await?;
-            harness.shutdown().await
-        }
-
-        #[tokio::test]
-        async fn collection_serialization() -> anyhow::Result<()> {
-            let harness =
-                $harness::new($crate::test_util::HarnessTest::CollectionSerialization).await?;
-            let db = harness.connect().await?;
-            $crate::test_util::collection_serialization_tests(&db).await?;
             harness.shutdown().await
         }
 
@@ -889,7 +827,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     assert!(changed_documents[0].deleted);
 
     // Use the Collection interface
-    let mut doc = original_value.clone().insert_into(db).await?;
+    let mut doc = original_value.clone().push_into(db).await?;
     doc.contents.category = Some(String::from("updated"));
     doc.update(db).await?;
     let reloaded = Basic::get(doc.header.id, db).await?.unwrap();
@@ -907,72 +845,6 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .insert::<Basic>(Some(doc.id), doc.contents.to_vec())
         .await;
     assert!(matches!(conflict_err, Err(Error::DocumentConflict(..))));
-
-    Ok(())
-}
-
-#[cfg_attr(
-    not(any(feature = "json", feature = "cbor", feature = "bincode")),
-    allow(clippy::unused_async, unused_variables)
-)]
-pub async fn collection_serialization_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    #[cfg(feature = "json")]
-    {
-        let header = db
-            .collection::<JsonBasic>()
-            .push(&JsonBasic { value: 1 })
-            .await?;
-        let doc = db
-            .get::<JsonBasic>(header.id)
-            .await?
-            .expect("failed to get json doc");
-        assert!(serde_json::from_slice::<JsonBasic>(&doc.contents).is_ok());
-        let deserialized = doc.contents::<JsonBasic>().unwrap();
-        assert_eq!(deserialized.value, 1);
-
-        // Use the CollectionDocument interface
-        let inserted = JsonBasic { value: 2 }.insert_into(db).await?;
-        let retrieved = JsonBasic::get(inserted.id, db).await?;
-        assert_eq!(Some(inserted), retrieved);
-    }
-    #[cfg(feature = "cbor")]
-    {
-        let header = db
-            .collection::<CborBasic>()
-            .push(&CborBasic { value: 1 })
-            .await?;
-        let doc = db
-            .get::<CborBasic>(header.id)
-            .await?
-            .expect("failed to get cbor doc");
-        assert!(ciborium::de::from_reader::<CborBasic, _>(&doc.contents[..]).is_ok());
-        let deserialized = doc.contents::<CborBasic>().unwrap();
-        assert_eq!(deserialized.value, 1);
-
-        // Use the CollectionDocument interface
-        let inserted = CborBasic { value: 2 }.insert_into(db).await?;
-        let retrieved = CborBasic::get(inserted.id, db).await?;
-        assert_eq!(Some(inserted), retrieved);
-    }
-    #[cfg(feature = "bincode")]
-    {
-        let header = db
-            .collection::<BincodeBasic>()
-            .push(&BincodeBasic { value: 1 })
-            .await?;
-        let doc = db
-            .get::<BincodeBasic>(header.id)
-            .await?
-            .expect("failed to get json doc");
-        assert!(bincode::deserialize::<BincodeBasic>(&doc.contents).is_ok());
-        let deserialized = doc.contents::<BincodeBasic>().unwrap();
-        assert_eq!(deserialized.value, 1);
-
-        // Use the CollectionDocument interface
-        let inserted = BincodeBasic { value: 2 }.insert_into(db).await?;
-        let retrieved = BincodeBasic::get(inserted.id, db).await?;
-        assert_eq!(Some(inserted), retrieved);
-    }
 
     Ok(())
 }
@@ -1264,10 +1136,7 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 }
 
 pub async fn unassociated_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    let result = db
-        .collection::<UnassociatedCollection>()
-        .push(&Basic::default())
-        .await;
+    let result = db.insert::<UnassociatedCollection>(None, Vec::new()).await;
     match result {
         Err(Error::CollectionNotFound) => {}
         other => unreachable!("unexpected result: {:?}", other),
@@ -1377,12 +1246,12 @@ pub async fn view_multi_emit_tests<C: Connection>(db: &C) -> anyhow::Result<()> 
     let mut a = Basic::new("A")
         .with_tag("red")
         .with_tag("green")
-        .insert_into(db)
+        .push_into(db)
         .await?;
     let mut b = Basic::new("B")
         .with_tag("blue")
         .with_tag("green")
-        .insert_into(db)
+        .push_into(db)
         .await?;
 
     assert_eq!(
@@ -1568,7 +1437,7 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 }
 
 pub async fn named_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    Unique::new("0").insert_into(db).await?;
+    Unique::new("0").push_into(db).await?;
     let original_entry = Unique::entry("1", db)
         .update_with(|_existing: &mut Unique| unreachable!())
         .or_insert_with(|| Unique::new("1"))
@@ -1636,10 +1505,10 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
     }
 
     let role = Role::named(format!("role-{}", server_name))
-        .insert_into(admin)
+        .push_into(admin)
         .await?;
     let group = PermissionGroup::named(format!("group-{}", server_name))
-        .insert_into(admin)
+        .push_into(admin)
         .await?;
 
     // Add the role and group.

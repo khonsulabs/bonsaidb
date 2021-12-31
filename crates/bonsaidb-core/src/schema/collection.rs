@@ -1,14 +1,10 @@
-use std::{
-    borrow::Cow,
-    convert::{TryFrom, TryInto},
-    fmt::Debug,
-    marker::PhantomData,
-    ops::Deref,
-};
+use std::{borrow::Cow, fmt::Debug, marker::PhantomData, ops::Deref};
 
 use async_trait::async_trait;
 use futures::{future::BoxFuture, Future, FutureExt};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use transmog::{Format, OwnedDeserializer};
+use transmog_pot::Pot;
 
 use super::names::InvalidNameError;
 use crate::{
@@ -33,13 +29,32 @@ pub trait Collection: Debug + Send + Sync {
     fn encryption_key() -> Option<KeyId> {
         None
     }
+}
 
-    /// Returns the serializer to use when accessing and storing the document's
-    /// contents. If you only interact with a document's bytes directly, this
-    /// has no effect.
-    #[must_use]
-    fn serializer() -> CollectionSerializer {
-        CollectionSerializer::default()
+/// A collection that knows how to serialize and deserialize documents to an associated type.
+#[async_trait]
+pub trait SerializedCollection: Collection {
+    /// The type of the contents stored in documents in this collection.
+    type Contents: Send + Sync;
+    /// The serialization format for this collection.
+    type Format: Format<'static, Self::Contents> + OwnedDeserializer<Self::Contents>;
+
+    /// Returns the configured instance of [`Self::Format`].
+    // TODO allow configuration to be passed here, such as max allocation bytes.
+    fn format() -> Self::Format;
+
+    /// Deserialize `data` as `Self::Contents` using this collection's format.
+    fn deserialize(data: &[u8]) -> Result<Self::Contents, Error> {
+        Self::format()
+            .deserialize_owned(data)
+            .map_err(|err| crate::Error::Serialization(err.to_string()))
+    }
+
+    /// Serialize `item` using this collection's format.
+    fn serialize(item: &Self::Contents) -> Result<Vec<u8>, Error> {
+        Self::format()
+            .serialize(item)
+            .map_err(|err| crate::Error::Serialization(err.to_string()))
     }
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
@@ -48,76 +63,53 @@ pub trait Collection: Debug + Send + Sync {
         connection: &C,
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
-        Self: Serialize + for<'de> Deserialize<'de>,
+        Self: Sized,
     {
         let possible_doc = connection.get::<Self>(id).await?;
         Ok(possible_doc.map(Document::try_into).transpose()?)
     }
 
-    /// Inserts this value into the collection, returning the created document.
-    async fn insert_into<Cn: Connection>(
+    /// Pushes this value into the collection, returning the created document.
+    async fn push<Cn: Connection>(
+        contents: Self::Contents,
+        connection: &Cn,
+    ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
+    where
+        Self: Sized + 'static,
+        Self::Contents: 'async_trait,
+    {
+        let header = match connection.collection::<Self>().push(&contents).await {
+            Ok(header) => header,
+            Err(error) => return Err(InsertError { contents, error }),
+        };
+        Ok(CollectionDocument { header, contents })
+    }
+
+    /// Pushes this value into the collection, returning the created document.
+    async fn push_into<Cn: Connection>(
         self,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
-        Self: Serialize + for<'de> Deserialize<'de> + 'static,
+        Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
-        let header = match connection.collection::<Self>().push(&self).await {
-            Ok(header) => header,
-            Err(error) => {
-                return Err(InsertError {
-                    contents: self,
-                    error,
-                })
-            }
-        };
-        Ok(CollectionDocument {
-            header,
-            contents: self,
-        })
+        Self::push(self, connection).await
     }
 }
 
-/// Serialization format for storing a collection.
-#[derive(Debug)]
-pub enum CollectionSerializer {
-    /// Serialize using the [`Pot`](https://github.com/khonsulabs/pot) format. The default serializer.
-    Pot,
-    /// Serialize using Json. Requires feature `json`.
-    #[cfg(feature = "json")]
-    Json,
-    /// Serialize using [Cbor](https://github.com/pyfisch/cbor). Requires feature `cbor`.
-    #[cfg(feature = "cbor")]
-    Cbor,
-    /// Serialize using [Bincode](https://github.com/bincode-org/bincode). Requires feature `bincode`.
-    #[cfg(feature = "bincode")]
-    Bincode,
-}
+/// A convenience trait for easily storing Serde-compatible types in documents.
+#[async_trait]
+pub trait DefaultSerialization: Collection {}
 
-impl Default for CollectionSerializer {
-    fn default() -> Self {
-        Self::Pot
-    }
-}
+impl<T> SerializedCollection for T
+where
+    T: DefaultSerialization + Serialize + DeserializeOwned,
+{
+    type Contents = Self;
+    type Format = Pot;
 
-impl CollectionSerializer {
-    /// Serializes `contents`.
-    pub fn serialize<T: Serialize>(&self, contents: &T) -> Result<Vec<u8>, Error> {
-        match self {
-            CollectionSerializer::Pot => pot::to_vec(contents).map_err(crate::Error::from),
-            #[cfg(feature = "json")]
-            CollectionSerializer::Json => serde_json::to_vec(contents).map_err(crate::Error::from),
-            #[cfg(feature = "cbor")]
-            CollectionSerializer::Cbor => {
-                let mut bytes = Vec::new();
-                ciborium::ser::into_writer(contents, &mut bytes).map_err(crate::Error::from)?;
-                Ok(bytes)
-            }
-            #[cfg(feature = "bincode")]
-            CollectionSerializer::Bincode => {
-                bincode::serialize(contents).map_err(crate::Error::from)
-            }
-        }
+    fn format() -> Self::Format {
+        Pot::default()
     }
 }
 
@@ -143,10 +135,13 @@ pub trait NamedCollection: Collection + Unpin {
         connection: &C,
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
-        Self: Serialize + for<'de> Deserialize<'de>,
+        Self: SerializedCollection + Sized + 'static,
     {
         let possible_doc = Self::load_document(id, connection).await?;
-        Ok(possible_doc.map(Document::try_into).transpose()?)
+        Ok(possible_doc
+            .as_ref()
+            .map(CollectionDocument::try_from)
+            .transpose()?)
     }
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
@@ -155,7 +150,7 @@ pub trait NamedCollection: Collection + Unpin {
         connection: &'connection C,
     ) -> Entry<'connection, 'name, C, Self, (), ()>
     where
-        Self: Serialize + for<'de> Deserialize<'de>,
+        Self: SerializedCollection + Sized,
     {
         let name = id.into();
         Entry {
@@ -178,7 +173,7 @@ pub trait NamedCollection: Collection + Unpin {
         connection: &C,
     ) -> Result<Option<Document<'static>>, Error>
     where
-        Self: Serialize + for<'de> Deserialize<'de>,
+        Self: SerializedCollection + Sized,
     {
         match name.into() {
             NamedReference::Id(id) => connection.get::<Self>(id).await,
@@ -196,15 +191,21 @@ pub trait NamedCollection: Collection + Unpin {
 
 /// A document with serializable contents.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CollectionDocument<C: Collection + Serialize + for<'de> Deserialize<'de>> {
+pub struct CollectionDocument<C>
+where
+    C: SerializedCollection,
+{
     /// The header of the document, which contains the id and `Revision`.
     pub header: Header,
 
     /// The document's contents.
-    pub contents: C,
+    pub contents: C::Contents,
 }
 
-impl<'a, C: Collection + Serialize + for<'de> Deserialize<'de>> Deref for CollectionDocument<C> {
+impl<C> Deref for CollectionDocument<C>
+where
+    C: SerializedCollection,
+{
     type Target = Header;
 
     fn deref(&self) -> &Self::Target {
@@ -212,51 +213,51 @@ impl<'a, C: Collection + Serialize + for<'de> Deserialize<'de>> Deref for Collec
     }
 }
 
-impl<'b, 'a, C> TryFrom<&'b Document<'a>> for CollectionDocument<C>
+impl<'a, C> TryFrom<&'a Document<'a>> for CollectionDocument<C>
 where
-    C: Collection + Serialize + for<'de> Deserialize<'de>,
+    C: SerializedCollection,
 {
     type Error = Error;
 
-    fn try_from(value: &'b Document<'a>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a Document<'a>) -> Result<Self, Self::Error> {
         Ok(Self {
-            contents: value.contents::<C>()?,
+            contents: C::deserialize(&value.contents)?,
             header: value.header.clone(),
         })
     }
 }
 
-impl<C> TryFrom<Document<'static>> for CollectionDocument<C>
+impl<'a, C> TryFrom<Document<'a>> for CollectionDocument<C>
 where
-    C: Collection + Serialize + for<'de> Deserialize<'de>,
+    C: SerializedCollection,
 {
     type Error = Error;
 
-    fn try_from(value: Document<'static>) -> Result<Self, Self::Error> {
+    fn try_from(value: Document<'a>) -> Result<Self, Self::Error> {
         Ok(Self {
-            contents: value.contents::<C>()?,
+            contents: C::deserialize(&value.contents)?,
             header: value.header,
         })
     }
 }
 
-impl<'a, C> TryFrom<CollectionDocument<C>> for Document<'a>
+impl<'a, 'b, C> TryFrom<&'b CollectionDocument<C>> for Document<'static>
 where
-    C: Collection + Serialize + for<'de> Deserialize<'de>,
+    C: SerializedCollection,
 {
     type Error = crate::Error;
 
-    fn try_from(value: CollectionDocument<C>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'b CollectionDocument<C>) -> Result<Self, Self::Error> {
         Ok(Self {
-            contents: Cow::Owned(C::serializer().serialize(&value.contents)?),
-            header: value.header,
+            contents: Cow::Owned(C::serialize(&value.contents)?),
+            header: value.header.clone(),
         })
     }
 }
 
 impl<C> CollectionDocument<C>
 where
-    C: Collection + Serialize + for<'de> Deserialize<'de>,
+    C: SerializedCollection,
 {
     /// Stores the new value of `contents` in the document.
     pub async fn update<Cn: Connection>(&mut self, connection: &Cn) -> Result<(), Error> {
@@ -319,7 +320,7 @@ where
     /// Converts this value to a serialized `Document`.
     pub fn to_document(&self) -> Result<Document<'static>, Error> {
         Ok(Document {
-            contents: Cow::Owned(C::serializer().serialize(&self.contents)?),
+            contents: Cow::Owned(C::serialize(&self.contents)?),
             header: self.header.clone(),
         })
     }
@@ -353,10 +354,11 @@ impl<'a, 'b, 'c> From<&'b Document<'c>> for NamedReference<'a> {
     }
 }
 
-impl<'a, 'b, C: Collection + Serialize + for<'de> Deserialize<'de>> From<&'b CollectionDocument<C>>
-    for NamedReference<'a>
+impl<'a, 'c, C> From<&'c CollectionDocument<C>> for NamedReference<'a>
+where
+    C: SerializedCollection,
 {
-    fn from(doc: &'b CollectionDocument<C>) -> Self {
+    fn from(doc: &'c CollectionDocument<C>) -> Self {
         Self::Id(doc.header.id)
     }
 }
@@ -409,7 +411,7 @@ impl<'a> NamedReference<'a> {
 #[must_use]
 pub struct Entry<'a, 'name, Connection, Col, EI, EU>
 where
-    Col: NamedCollection + Serialize + for<'de> Deserialize<'de>,
+    Col: NamedCollection + SerializedCollection,
     EI: EntryInsert<Col>,
     EU: EntryUpdate<Col>,
 {
@@ -423,7 +425,9 @@ struct EntryBuilder<
     Col,
     EI: EntryInsert<Col> + 'a,
     EU: EntryUpdate<Col> + 'a,
-> {
+> where
+    Col: SerializedCollection,
+{
     name: NamedReference<'name>,
     connection: &'a Connection,
     insert: Option<EI>,
@@ -434,7 +438,7 @@ struct EntryBuilder<
 
 impl<'a, 'name, Connection, Col, EI, EU> Entry<'a, 'name, Connection, Col, EI, EU>
 where
-    Col: NamedCollection + Serialize + for<'de> Deserialize<'de> + 'static + Unpin,
+    Col: NamedCollection + SerializedCollection + 'static + Unpin,
     Connection: crate::connection::Connection,
     EI: EntryInsert<Col> + 'a + Unpin,
     EU: EntryUpdate<Col> + 'a + Unpin,
@@ -474,7 +478,7 @@ where
             }
         } else if let Some(insert) = insert {
             let new_document = insert.call();
-            Ok(Some(new_document.insert_into(connection).await?))
+            Ok(Some(Col::push(new_document, connection).await?))
         } else {
             Ok(None)
         }
@@ -555,48 +559,58 @@ where
     }
 }
 
-pub trait EntryInsert<Col>: Send + Unpin {
-    fn call(self) -> Col;
+pub trait EntryInsert<Col: SerializedCollection>: Send + Unpin {
+    fn call(self) -> Col::Contents;
 }
 
 impl<F, Col> EntryInsert<Col> for F
 where
-    F: FnOnce() -> Col + Send + Unpin,
+    F: FnOnce() -> Col::Contents + Send + Unpin,
+    Col: SerializedCollection,
 {
-    fn call(self) -> Col {
+    fn call(self) -> Col::Contents {
         self()
     }
 }
 
-impl<Col> EntryInsert<Col> for () {
-    fn call(self) -> Col {
+impl<Col> EntryInsert<Col> for ()
+where
+    Col: SerializedCollection,
+{
+    fn call(self) -> Col::Contents {
         unreachable!()
     }
 }
 
-pub trait EntryUpdate<Col>: Send + Unpin {
-    fn call(&self, doc: &mut Col);
+pub trait EntryUpdate<Col>: Send + Unpin
+where
+    Col: SerializedCollection,
+{
+    fn call(&self, doc: &mut Col::Contents);
 }
 
-impl<'a, F, Col> EntryUpdate<Col> for F
+impl<F, Col> EntryUpdate<Col> for F
 where
-    F: Fn(&mut Col) + Send + Unpin,
-    Col: NamedCollection + Serialize + for<'de> Deserialize<'de> + 'a,
+    F: Fn(&mut Col::Contents) + Send + Unpin,
+    Col: NamedCollection + SerializedCollection,
 {
-    fn call(&self, doc: &mut Col) {
+    fn call(&self, doc: &mut Col::Contents) {
         self(doc);
     }
 }
 
-impl<Col> EntryUpdate<Col> for () {
-    fn call(&self, _doc: &mut Col) {
+impl<Col> EntryUpdate<Col> for ()
+where
+    Col: SerializedCollection,
+{
+    fn call(&self, _doc: &mut Col::Contents) {
         unreachable!();
     }
 }
 
 impl<'a, 'name, Conn, Col, EI, EU> Future for Entry<'a, 'name, Conn, Col, EI, EU>
 where
-    Col: NamedCollection + Serialize + for<'de> Deserialize<'de> + 'static,
+    Col: NamedCollection + SerializedCollection + 'static,
     Conn: Connection,
     EI: EntryInsert<Col> + 'a,
     EU: EntryUpdate<Col> + 'a,
@@ -633,7 +647,7 @@ where
 
 enum EntryState<'a, 'name, Connection, Col, EI, EU>
 where
-    Col: NamedCollection + Serialize + for<'de> Deserialize<'de> + 'a,
+    Col: NamedCollection + SerializedCollection,
     EI: EntryInsert<Col>,
     EU: EntryUpdate<Col>,
 {

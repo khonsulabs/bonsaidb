@@ -7,7 +7,9 @@ use crate::{
     custodian_password::ServerConfig,
     document::Document,
     password_config,
-    schema::{Collection, CollectionName, InvalidNameError, MapResult, Name, View},
+    schema::{
+        Collection, CollectionName, DefaultSerialization, InvalidNameError, MapResult, Name, View,
+    },
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -71,6 +73,8 @@ impl Collection for PasswordConfig {
         Ok(())
     }
 }
+
+impl DefaultSerialization for PasswordConfig {}
 
 #[derive(Debug)]
 struct Singleton;

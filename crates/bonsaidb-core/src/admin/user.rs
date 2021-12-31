@@ -9,8 +9,8 @@ use crate::{
     document::KeyId,
     permissions::Permissions,
     schema::{
-        Collection, CollectionDocument, CollectionName, InvalidNameError, NamedCollection,
-        Schematic,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
+        NamedCollection, Schematic,
     },
     Error, ENCRYPTION_ENABLED,
 };
@@ -111,6 +111,8 @@ impl Collection for User {
         schema.define_view(ByName)
     }
 }
+
+impl DefaultSerialization for User {}
 
 impl NamedCollection for User {
     type ByNameView = ByName;

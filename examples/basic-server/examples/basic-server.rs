@@ -6,7 +6,7 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         connection::{Connection, StorageConnection},
-        schema::Collection,
+        schema::SerializedCollection,
     },
     local::config::Builder,
     server::{DefaultPermissions, Server, ServerConfiguration},
@@ -104,7 +104,7 @@ async fn do_some_database_work<'a, C: Connection>(
             let mut rng = thread_rng();
             rng.gen_range(3..=10)
         };
-        Shape::new(sides).insert_into(&database).await?;
+        Shape::new(sides).push_into(&database).await?;
     }
 
     log::info!("Client {} finished", client_name);

@@ -12,7 +12,7 @@ use bonsaidb::{
             bonsai::{BonsaiAction, ServerAction},
             Statement,
         },
-        schema::{Collection, InsertError},
+        schema::{ InsertError, SerializedCollection},
         test_util::{BasicSchema, HarnessTest, TestDirectory},
     },
     local::config::Builder,
@@ -281,7 +281,7 @@ async fn assume_permissions(
                 name: String::from(label),
                 statements,
             }
-            .insert_into(&admin)
+            .push_into(&admin)
             .await)
             {
                 Ok(doc) => doc.header.id,

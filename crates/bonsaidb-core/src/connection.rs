@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::schema::NamedReference;
 use crate::{
     document::{Document, Header},
-    schema::{self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName},
+    schema::{
+        self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName, SerializedCollection,
+    },
     transaction::{self, OperationResult, Transaction},
     Error,
 };
@@ -253,8 +255,14 @@ where
     }
 
     /// Adds a new `Document<Cl>` with the contents `item`.
-    pub async fn push<S: Serialize + Sync>(&self, item: &S) -> Result<Header, crate::Error> {
-        let contents = Cl::serializer().serialize(item)?;
+    pub async fn push(
+        &self,
+        item: &<Cl as SerializedCollection>::Contents,
+    ) -> Result<Header, crate::Error>
+    where
+        Cl: schema::SerializedCollection,
+    {
+        let contents = Cl::serialize(item)?;
         Ok(self.connection.insert::<Cl>(None, contents).await?)
     }
 

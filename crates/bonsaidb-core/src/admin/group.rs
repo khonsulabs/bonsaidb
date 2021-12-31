@@ -5,8 +5,8 @@ use crate::{
     define_basic_unique_mapped_view,
     permissions::Statement,
     schema::{
-        Collection, CollectionDocument, CollectionName, InvalidNameError, NamedCollection,
-        Schematic,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
+        NamedCollection, Schematic,
     },
     Error,
 };
@@ -46,6 +46,8 @@ impl Collection for PermissionGroup {
         schema.define_view(ByName)
     }
 }
+
+impl DefaultSerialization for PermissionGroup {}
 
 impl NamedCollection for PermissionGroup {
     type ByNameView = ByName;

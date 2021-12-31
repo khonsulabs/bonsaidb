@@ -49,6 +49,8 @@ impl Collection for Shape {
     }
 }
 
+impl DefaultSerializedCollection for Shape {}
+
 #[derive(Debug)]
 struct ShapesByNumberOfSides;
 
@@ -87,7 +89,7 @@ After you have your collection(s) defined, you can open up a database and insert
     let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
 
     // Insert a new document into the Shape collection.
-    Shape::new(3).insert_into(&db).await?;
+    Shape::new(3).push_into(&db).await?;
 ```
 
 And query data using the Map-Reduce-powered view:

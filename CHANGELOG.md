@@ -41,8 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ServerConfiguration` now supports `authenticated_permissions`,
   allowing a set of permissions to be defined that are applied to any user that
   has successfully authenticated.
-- `Collection::serializer` is a new function that allows a collection to define
-  what serialization format it should use.
 - `CollectionView` is a new trait that can be implemented instead of `View`. The
   `map()` function takes a `CollectionDocument` parameter that is already
   deserialized for you.
@@ -94,7 +92,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The underlying dependency on `sled` has been changed for an in-house storage
   implementation [`nebari`](https://github.com/khonsulabs/nebari).
 - The command-line interface has received an overhaul.
-  - A new trait, `CommandLine` can be implemented on a type that implements `Backend` to utilize the built-in, extensible command line interface. An example of this is located at [`./examples/basic-server/examples/cli.rs`](./examples/basic-server/examples/cli.rs).
+  - A new trait, `CommandLine` can be implemented on a type that implements
+    `Backend` to utilize the built-in, extensible command line interface. An
+    example of this is located at
+    [`./examples/basic-server/examples/cli.rs`](./examples/basic-server/examples/cli.rs).
   - The parameter types to `execute()` functions have changed.
   - This interface will receive further refinement as part of switching to clap
     3.0 once it is fully released.
@@ -132,6 +133,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ExecutedTransactions::changes` is now a `Changes` enum, which can be a list
   of `ChangedDocument`s or `ChangedKey`s. Currently each KeyValue operation
   emits its own transaction, butt his will change with #120.
+- A new trait, `SerializedCollection`, now controls serialization within
+  `CollectionDocument`, `CollectionView`, and other helper methods that
+  serialized document contents. This allows any serialization format that
+  implements `transmog::Format` can be used within BonsaiDb by setting the
+  `Format` associated type within your `SerializedCollection` implementation.
+
+  For users who just want the default serialization, a convenience trait
+  `DefaultSerialization` has been added. All types that implement this trait
+  will automatically implement `SerializedCollection` using BonsaiDb's preferred
+  settings.
 
 ### Fixed
 

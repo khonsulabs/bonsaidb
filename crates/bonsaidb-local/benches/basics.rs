@@ -24,11 +24,11 @@
 //
 // TODO Some of this explanation eventually should be moved somewhere more useful
 
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
 
 use bonsaidb_core::{
     connection::Connection,
-    schema::{Collection, CollectionName, InvalidNameError, Schematic},
+    schema::{Collection, CollectionName, DefaultSerialization, InvalidNameError, Schematic},
     test_util::TestDirectory,
     Error,
 };
@@ -40,12 +40,11 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
-struct ResizableDocument<'a> {
-    #[serde(borrow)]
-    data: Cow<'a, [u8]>,
+struct ResizableDocument {
+    data: Vec<u8>,
 }
 
-impl<'a> Collection for ResizableDocument<'a> {
+impl Collection for ResizableDocument {
     fn collection_name() -> Result<CollectionName, InvalidNameError> {
         CollectionName::new("khonsulabs", "resizable-docs")
     }
@@ -55,8 +54,10 @@ impl<'a> Collection for ResizableDocument<'a> {
     }
 }
 
-async fn save_document(doc: &ResizableDocument<'_>, db: &Database) {
-    db.collection::<ResizableDocument<'static>>()
+impl DefaultSerialization for ResizableDocument {}
+
+async fn save_document(doc: &ResizableDocument, db: &Database) {
+    db.collection::<ResizableDocument>()
         .push(doc)
         .await
         .unwrap();
@@ -71,15 +72,13 @@ fn criterion_benchmark(c: &mut Criterion) {
     for size in [KB, 2 * KB, 8 * KB, 32 * KB, KB * KB].iter() {
         let mut data = Vec::with_capacity(*size);
         data.resize_with(*size, || 7u8);
-        let doc = Arc::new(ResizableDocument {
-            data: Cow::Owned(data),
-        });
+        let doc = Arc::new(ResizableDocument { data });
         let doc = &doc;
         group.throughput(Throughput::Bytes(*size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(*size as u64), size, |b, _| {
             let path = TestDirectory::new(format!("benches-basics-{}.bonsaidb", size));
             let db = runtime
-                .block_on(Database::open::<ResizableDocument<'static>>(
+                .block_on(Database::open::<ResizableDocument>(
                     StorageConfiguration::new(&path),
                 ))
                 .unwrap();
