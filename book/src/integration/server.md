@@ -25,7 +25,7 @@ tokio::spawn(async move {
 });
 ```
 
-If you're not running any of your own code on the server, and you're only using one listening method, you can just await the listen method of your choice in your server's main.
+If you're not running any of your own code on the server, and you're only using one listening method, you can just await the listen method of your choice in your server's main. This code example configures BonsaiDb on UDP port 5645, but this is not [an officially registered port](https://github.com/khonsulabs/bonsaidb/issues/48).
 
 <!-- TODO: Certificates -->
 

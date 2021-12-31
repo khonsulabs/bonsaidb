@@ -11,17 +11,19 @@ use crate::{Backend, CustomServer, Error, TcpService};
 /// Execute the server
 #[derive(Args, Debug)]
 pub struct Serve<B: Backend> {
-    /// The port for the BonsaiDb protocol. Defaults to 5645
+    /// The UDP port for the BonsaiDb protocol. Defaults to UDP port 5645 (not
+    /// an [officially registered
+    /// port](https://github.com/khonsulabs/bonsaidb/issues/48)).
     #[clap(short = 'l', long = "listen-on")]
     pub listen_on: Option<u16>,
 
     #[cfg(any(feature = "websockets", feature = "acme"))]
-    /// The bind port and address for HTTP traffic. Defaults to 80.
+    /// The bind port and address for HTTP traffic. Defaults to TCP port 80.
     #[clap(long = "http")]
     pub http_port: Option<SocketAddr>,
 
     #[cfg(any(feature = "websockets", feature = "acme"))]
-    /// The bind port and address for HTTPS traffic. Defaults to 443.
+    /// The bind port and address for HTTPS traffic. Defaults to TCP port 443.
     #[clap(long = "https")]
     pub https_port: Option<SocketAddr>,
 
