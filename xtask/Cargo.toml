@@ -7,6 +7,5 @@ publish = false
 
 [dependencies]
 khonsu-tools = { git = "https://github.com/khonsulabs/khonsu-tools.git", branch = "main" }
-structopt = "0.3"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }

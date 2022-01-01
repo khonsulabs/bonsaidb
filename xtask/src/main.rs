@@ -4,27 +4,28 @@ use std::{
 };
 
 use khonsu_tools::universal::{
-    anyhow, audit, code_coverage,
+    anyhow, audit,
+    clap::{self, Parser},
+    code_coverage,
     devx_cmd::{run, Cmd},
     DefaultConfig,
 };
 use serde::Serialize;
-use structopt::StructOpt;
 
-#[derive(StructOpt, Debug)]
+#[derive(Parser, Debug)]
 pub enum Commands {
     TestMatrix,
     Test {
-        #[structopt(long)]
+        #[clap(long)]
         fail_on_warnings: bool,
     },
-    #[structopt(flatten)]
+    #[clap(flatten)]
     Tools(khonsu_tools::Commands),
 }
 
 fn main() -> anyhow::Result<()> {
     if std::env::args().len() > 1 {
-        let command = Commands::from_args();
+        let command = Commands::parse();
         match command {
             Commands::TestMatrix => generate_test_matrix_output(),
             Commands::Test { fail_on_warnings } => run_all_tests(fail_on_warnings),
