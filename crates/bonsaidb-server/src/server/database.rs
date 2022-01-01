@@ -7,7 +7,7 @@ use bonsaidb_core::{
     document::Document,
     keyvalue::KeyValue,
     pubsub::{PubSub, Subscriber},
-    schema::{self, Collection, Map, MappedValue, View},
+    schema::{self, Collection, Map, MappedValue, SerializedView},
     transaction::Transaction,
 };
 use bonsaidb_local::Database;
@@ -120,7 +120,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         self.db.list::<C, R>(ids, order, limit).await
     }
 
-    async fn query<V: View>(
+    async fn query<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
@@ -133,7 +133,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         self.db.query::<V>(key, order, limit, access_policy).await
     }
 
-    async fn query_with_docs<V: View>(
+    async fn query_with_docs<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
@@ -148,7 +148,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
             .await
     }
 
-    async fn reduce<V: View>(
+    async fn reduce<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -159,7 +159,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         self.db.reduce::<V>(key, access_policy).await
     }
 
-    async fn reduce_grouped<V: View>(
+    async fn reduce_grouped<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -170,7 +170,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         self.db.reduce_grouped::<V>(key, access_policy).await
     }
 
-    async fn delete_docs<V: View>(
+    async fn delete_docs<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,

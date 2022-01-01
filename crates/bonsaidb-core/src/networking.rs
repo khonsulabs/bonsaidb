@@ -11,7 +11,11 @@ use crate::{
     connection::{AccessPolicy, Database, QueryKey, Range, Sort},
     document::Document,
     keyvalue::{KeyOperation, Output},
-    schema::{self, view::map, CollectionName, MappedValue, NamedReference, ViewName},
+    schema::{
+        self,
+        view::map::{self, MappedSerializedValue},
+        CollectionName, NamedReference, ViewName,
+    },
     transaction::{Executed, OperationResult, Transaction},
 };
 
@@ -373,7 +377,7 @@ pub enum DatabaseResponse {
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is false.
     ViewReduction(Vec<u8>),
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is true.
-    ViewGroupedReduction(Vec<MappedValue<Vec<u8>, Vec<u8>>>),
+    ViewGroupedReduction(Vec<MappedSerializedValue>),
     /// Results of [`DatabaseRequest::ListExecutedTransactions`].
     ExecutedTransactions(Vec<Executed>),
     /// Result of [`DatabaseRequest::LastTransactionId`].

@@ -1,6 +1,8 @@
 use std::fmt::Debug;
 
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
+use transmog::{Format, OwnedDeserializer};
+use transmog_pot::Pot;
 
 use crate::{
     document::Document,
@@ -72,7 +74,7 @@ pub trait View: Send + Sync + Debug + 'static {
     type Key: Key + 'static;
 
     /// An associated type that can be stored with each entry in the view.
-    type Value: Serialize + for<'de> Deserialize<'de> + Send + Sync;
+    type Value: Send + Sync;
 
     /// If true, no two documents may emit the same key. Unique views are
     /// updated when the document is saved, allowing for this check to be done
@@ -119,6 +121,46 @@ pub trait View: Send + Sync + Debug + 'static {
     }
 }
 
+/// A [`View`] with additional tyes and logic to handle serializing view values.
+pub trait SerializedView: View {
+    /// The serialization format for this view.
+    type Format: Format<'static, Self::Value> + OwnedDeserializer<Self::Value>;
+
+    /// Returns the configured instance of [`Self::Format`].
+    // TODO allow configuration to be passed here, such as max allocation bytes.
+    fn format() -> Self::Format;
+
+    /// Deserialize `data` as `Self::Value` using this views's format.
+    fn deserialize(data: &[u8]) -> Result<Self::Value, crate::Error> {
+        Self::format()
+            .deserialize_owned(data)
+            .map_err(|err| crate::Error::Serialization(err.to_string()))
+    }
+
+    /// Serialize `item` using this views's format.
+    fn serialize(item: &Self::Value) -> Result<Vec<u8>, crate::Error> {
+        Self::format()
+            .serialize(item)
+            .map_err(|err| crate::Error::Serialization(err.to_string()))
+    }
+}
+
+/// A default serialization strategy for views. Uses equivalent settings as
+/// [`DefaultSerialization`](crate::schema::DefaultSerialization).
+pub trait DefaultViewSerialization: View {}
+
+impl<T> SerializedView for T
+where
+    T: DefaultViewSerialization,
+    T::Value: Serialize + DeserializeOwned,
+{
+    type Format = Pot;
+
+    fn format() -> Self::Format {
+        Pot::default()
+    }
+}
+
 /// A [`View`] for a [`Collection`] that stores serde-compatible documents. The
 /// only difference between implmementing this and [`View`] is that the `map`
 /// function receives a [`CollectionDocument`] instead of a [`Document`].
@@ -130,7 +172,7 @@ pub trait CollectionView: Send + Sync + Debug + 'static {
     type Key: Key + 'static;
 
     /// An associated type that can be stored with each entry in the view.
-    type Value: Serialize + for<'de> Deserialize<'de> + Send + Sync;
+    type Value: Send + Sync;
 
     /// If true, no two documents may emit the same key. Unique views are
     /// updated when the document is saved, allowing for this check to be done
@@ -217,37 +259,6 @@ where
     }
 }
 
-/// Represents either an owned value or a borrowed value. Functionally
-/// equivalent to `std::borrow::Cow` except this type doesn't require the
-/// wrapped type to implement `Clone`.
-pub enum SerializableValue<'a, T: Serialize> {
-    /// an owned value
-    Owned(T),
-    /// a borrowed value
-    Borrowed(&'a T),
-}
-
-impl<'a, T> From<&'a T> for SerializableValue<'a, T>
-where
-    T: Serialize,
-{
-    fn from(other: &'a T) -> SerializableValue<'a, T> {
-        SerializableValue::Borrowed(other)
-    }
-}
-
-impl<'a, T> AsRef<T> for SerializableValue<'a, T>
-where
-    T: Serialize,
-{
-    fn as_ref(&self) -> &T {
-        match self {
-            Self::Owned(value) => value,
-            Self::Borrowed(value) => value,
-        }
-    }
-}
-
 /// Wraps a [`View`] with serialization to erase the associated types
 pub trait Serialized: Send + Sync + Debug {
     /// Wraps returing [`<View::Collection as Collection>::collection_name()`](crate::schema::Collection::collection_name)
@@ -267,7 +278,7 @@ pub trait Serialized: Send + Sync + Debug {
 #[allow(clippy::use_self)] // Using Self here instead of T inside of reduce() breaks compilation. The alternative is much more verbose and harder to read.
 impl<T> Serialized for T
 where
-    T: View,
+    T: SerializedView,
     <T as View>::Key: 'static,
 {
     fn collection(&self) -> Result<CollectionName, InvalidNameError> {
@@ -290,7 +301,7 @@ where
         let map = self.map(document)?;
 
         map.into_iter()
-            .map(|map| map.serialized())
+            .map(|map| map.serialized::<T>())
             .collect::<Result<Vec<_>, Error>>()
     }
 
@@ -299,10 +310,10 @@ where
             .iter()
             .map(
                 |(key, value)| match <T::Key as Key>::from_big_endian_bytes(key) {
-                    Ok(key) => match pot::from_slice::<T::Value>(value) {
-                        Ok(value) => Ok(MappedValue { key, value }),
-                        Err(err) => Err(Error::from(err)),
-                    },
+                    Ok(key) => {
+                        let value = T::deserialize(value)?;
+                        Ok(MappedValue { key, value })
+                    }
                     Err(err) => Err(Error::key_serialization(err)),
                 },
             )
@@ -314,7 +325,7 @@ where
             Err(other) => return Err(other),
         };
 
-        pot::to_vec(&reduced_value).map_err(Error::from)
+        T::serialize(&reduced_value).map_err(Error::from)
     }
 }
 
@@ -409,5 +420,7 @@ macro_rules! define_mapped_view {
                 Ok($mapping(document))
             }
         }
+
+        impl $crate::schema::view::DefaultViewSerialization for $view_name {}
     };
 }

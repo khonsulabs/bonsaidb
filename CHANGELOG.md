@@ -143,6 +143,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DefaultSerialization` has been added. All types that implement this trait
   will automatically implement `SerializedCollection` using BonsaiDb's preferred
   settings.
+- A new trait, `SerializedView`, now controls serialization of view values. This
+  uses a similar approach to `SerializedCollection`. For users who just want the
+  default serialization, a convenience trait `DefaultViewSerialization` has been
+  added. All types that implement this trait will automatically implement
+  `SerializedView` using BonsaiDb's preferred settings.
+
+  The `view-histogram` example has been updated to define a custom
+  `transmog::Format` implementation rather creating a serde-based wrapper.
 
 ### Fixed
 

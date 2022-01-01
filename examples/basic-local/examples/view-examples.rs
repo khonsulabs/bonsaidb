@@ -3,8 +3,8 @@ use bonsaidb::{
         connection::Connection,
         schema::{
             view, view::CollectionView, Collection, CollectionDocument, CollectionName,
-            DefaultSerialization, InvalidNameError, MapResult, MappedValue, Name, Schematic,
-            SerializedCollection,
+            DefaultSerialization, DefaultViewSerialization, InvalidNameError, MapResult,
+            MappedValue, Name, Schematic, SerializedCollection,
         },
         Error,
     },
@@ -63,6 +63,8 @@ impl CollectionView for ShapesByNumberOfSides {
         Ok(mappings.iter().map(|m| m.value).sum())
     }
 }
+
+impl DefaultViewSerialization for ShapesByNumberOfSides {}
 // end rustme snippet
 
 impl Shape {

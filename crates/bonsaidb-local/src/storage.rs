@@ -22,7 +22,10 @@ use bonsaidb_core::{
     document::{Document, KeyId},
     keyvalue::{KeyOperation, Output},
     permissions::Permissions,
-    schema::{view::map, CollectionName, MappedValue, Schema, SchemaName, Schematic, ViewName},
+    schema::{
+        view::map::{self, MappedSerializedValue},
+        CollectionName, Schema, SchemaName, Schematic, ViewName,
+    },
     transaction::{Executed, OperationResult, Transaction},
 };
 #[cfg(feature = "multiuser")]
@@ -556,7 +559,7 @@ pub trait OpenDatabase: Send + Sync + Debug + 'static {
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, bonsaidb_core::Error>;
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error>;
 
     async fn delete_docs(
         &self,

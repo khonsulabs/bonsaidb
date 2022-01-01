@@ -36,17 +36,13 @@ impl Header {
 
     /// Creates a `Map` result with `value` and an empty key.
     #[must_use]
-    pub fn emit_value<Value: Serialize>(&self, value: Value) -> Mappings<(), Value> {
+    pub fn emit_value<Value>(&self, value: Value) -> Mappings<(), Value> {
         self.emit_key_and_value((), value)
     }
 
     /// Creates a `Map` result with a `key` and `value`.
     #[must_use]
-    pub fn emit_key_and_value<K: Key, Value: Serialize>(
-        &self,
-        key: K,
-        value: Value,
-    ) -> Mappings<K, Value> {
+    pub fn emit_key_and_value<K: Key, Value>(&self, key: K, value: Value) -> Mappings<K, Value> {
         Mappings::Simple(Some(Map::new(self.clone(), key, value)))
     }
 }

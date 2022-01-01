@@ -16,7 +16,10 @@ use bonsaidb_core::{
     permissions::Permissions,
     schema::{
         self,
-        view::{self, map},
+        view::{
+            self,
+            map::{self, MappedSerializedValue},
+        },
         Collection, CollectionName, Key, Map, MappedDocument, MappedValue, Schema, Schematic,
         ViewName,
     },
@@ -401,7 +404,7 @@ impl Database {
         view_name: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         let view = self
             .data
             .schema
@@ -410,7 +413,7 @@ impl Database {
         let mut mappings = Vec::new();
         self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
             let entry = ViewEntry::from(entry);
-            mappings.push(MappedValue {
+            mappings.push(MappedSerializedValue {
                 key: entry.key,
                 value: entry.reduced_value,
             });
@@ -1003,7 +1006,7 @@ impl Connection for Database {
         tracing::instrument(skip(key, order, limit, access_policy))
     )]
     #[must_use]
-    async fn query<V: schema::View>(
+    async fn query<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
@@ -1023,7 +1026,7 @@ impl Connection for Database {
                 results.push(Map {
                     source: entry.source,
                     key: key.clone(),
-                    value: pot::from_slice(&entry.value).map_err(Error::Serialization)?,
+                    value: V::deserialize(&entry.value)?,
                 });
             }
             Ok(())
@@ -1037,7 +1040,7 @@ impl Connection for Database {
         feature = "tracing",
         tracing::instrument(skip(key, order, limit, access_policy))
     )]
-    async fn query_with_docs<V: schema::View>(
+    async fn query_with_docs<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
@@ -1073,7 +1076,7 @@ impl Connection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
-    async fn reduce<V: schema::View>(
+    async fn reduce<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -1094,13 +1097,13 @@ impl Connection for Database {
                 access_policy,
             )
             .await?;
-        let value = pot::from_slice(&result).map_err(Error::Serialization)?;
+        let value = V::deserialize(&result)?;
 
         Ok(value)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
-    async fn reduce_grouped<V: schema::View>(
+    async fn reduce_grouped<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -1127,13 +1130,13 @@ impl Connection for Database {
                 Ok(MappedValue {
                     key: V::Key::from_big_endian_bytes(&map.key)
                         .map_err(view::Error::key_serialization)?,
-                    value: pot::from_slice(&map.value)?,
+                    value: V::deserialize(&map.value)?,
                 })
             })
             .collect::<Result<Vec<_>, bonsaidb_core::Error>>()
     }
 
-    async fn delete_docs<V: schema::View>(
+    async fn delete_docs<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -1374,8 +1377,10 @@ impl OpenDatabase for Database {
             .filter_map(|map| {
                 if let Some(source) = documents.remove(&map.source.id) {
                     Some(map::MappedSerialized {
-                        key: map.key,
-                        value: map.value,
+                        mapping: map::MappedSerializedValue {
+                            key: map.key,
+                            value: map.value,
+                        },
                         source,
                     })
                 } else {
@@ -1399,7 +1404,7 @@ impl OpenDatabase for Database {
         view: &ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<Vec<u8>, Vec<u8>>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         self.grouped_reduce_in_view(view, key, access_policy).await
     }
 

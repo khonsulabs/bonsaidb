@@ -8,7 +8,8 @@ use crate::{
     document::Document,
     password_config,
     schema::{
-        Collection, CollectionName, DefaultSerialization, InvalidNameError, MapResult, Name, View,
+        view::DefaultViewSerialization, Collection, CollectionName, DefaultSerialization,
+        InvalidNameError, MapResult, Name, View,
     },
 };
 
@@ -81,9 +82,7 @@ struct Singleton;
 
 impl View for Singleton {
     type Collection = PasswordConfig;
-
     type Key = ();
-
     type Value = ();
 
     fn unique(&self) -> bool {
@@ -102,3 +101,5 @@ impl View for Singleton {
         Ok(document.emit())
     }
 }
+
+impl DefaultViewSerialization for Singleton {}

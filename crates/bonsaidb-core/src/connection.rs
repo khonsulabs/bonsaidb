@@ -113,7 +113,7 @@ pub trait Connection: Send + Sync {
 
     /// Initializes [`View`] for [`schema::View`] `V`.
     #[must_use]
-    fn view<V: schema::View>(&'_ self) -> View<'_, Self, V>
+    fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V>
     where
         Self: Sized,
     {
@@ -122,7 +122,7 @@ pub trait Connection: Send + Sync {
 
     /// Queries for view entries matching [`View`].
     #[must_use]
-    async fn query<V: schema::View>(
+    async fn query<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
@@ -134,7 +134,7 @@ pub trait Connection: Send + Sync {
 
     /// Queries for view entries matching [`View`].
     #[must_use]
-    async fn query_with_docs<V: schema::View>(
+    async fn query_with_docs<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
@@ -146,7 +146,7 @@ pub trait Connection: Send + Sync {
 
     /// Reduces the view entries matching [`View`].
     #[must_use]
-    async fn reduce<V: schema::View>(
+    async fn reduce<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -157,7 +157,7 @@ pub trait Connection: Send + Sync {
     /// Reduces the view entries matching [`View`], reducing the values by each
     /// unique key.
     #[must_use]
-    async fn reduce_grouped<V: schema::View>(
+    async fn reduce_grouped<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -167,7 +167,7 @@ pub trait Connection: Send + Sync {
 
     /// Deletes all of the documents associated with this view.
     #[must_use]
-    async fn delete_docs<V: schema::View>(
+    async fn delete_docs<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -372,7 +372,7 @@ where
 }
 
 /// Parameters to query a `schema::View`.
-pub struct View<'a, Cn, V: schema::View> {
+pub struct View<'a, Cn, V: schema::SerializedView> {
     connection: &'a Cn,
 
     /// Key filtering criteria.
@@ -390,7 +390,7 @@ pub struct View<'a, Cn, V: schema::View> {
 
 impl<'a, Cn, V> View<'a, Cn, V>
 where
-    V: schema::View,
+    V: schema::SerializedView,
     Cn: Connection,
 {
     fn new(connection: &'a Cn) -> Self {

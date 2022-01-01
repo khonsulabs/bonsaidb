@@ -20,7 +20,7 @@ use crate::{
     keyvalue::KeyValue,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
-        view::{self, map::Mappings},
+        view::{self, map::Mappings, DefaultViewSerialization},
         Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
         MapResult, MappedValue, Name, NamedCollection, Schema, SchemaName, Schematic,
         SerializedCollection, View,
@@ -107,6 +107,8 @@ impl View for BasicCount {
     }
 }
 
+impl DefaultViewSerialization for BasicCount {}
+
 #[derive(Debug)]
 pub struct BasicByParentId;
 
@@ -136,6 +138,7 @@ impl View for BasicByParentId {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
+impl DefaultViewSerialization for BasicByParentId {}
 
 #[derive(Debug)]
 pub struct BasicByCategory;
@@ -170,6 +173,8 @@ impl View for BasicByCategory {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
+
+impl DefaultViewSerialization for BasicByCategory {}
 
 #[derive(Debug)]
 pub struct BasicByTag;
@@ -206,6 +211,8 @@ impl View for BasicByTag {
     }
 }
 
+impl DefaultViewSerialization for BasicByTag {}
+
 #[derive(Debug)]
 pub struct BasicByBrokenParentId;
 
@@ -226,6 +233,8 @@ impl View for BasicByBrokenParentId {
         Ok(document.emit())
     }
 }
+
+impl DefaultViewSerialization for BasicByBrokenParentId {}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
 pub struct EncryptedBasic {
@@ -306,6 +315,8 @@ impl View for EncryptedBasicCount {
     }
 }
 
+impl DefaultViewSerialization for EncryptedBasicCount {}
+
 #[derive(Debug)]
 pub struct EncryptedBasicByParentId;
 
@@ -335,6 +346,8 @@ impl View for EncryptedBasicByParentId {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
+
+impl DefaultViewSerialization for EncryptedBasicByParentId {}
 
 #[derive(Debug)]
 pub struct EncryptedBasicByCategory;
@@ -369,6 +382,8 @@ impl View for EncryptedBasicByCategory {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
+
+impl DefaultViewSerialization for EncryptedBasicByCategory {}
 
 #[derive(Debug)]
 pub struct BasicSchema;
@@ -435,6 +450,8 @@ impl View for UniqueValue {
         Ok(document.emit_key(entry.value))
     }
 }
+
+impl DefaultViewSerialization for UniqueValue {}
 
 impl NamedCollection for Unique {
     type ByNameView = UniqueValue;

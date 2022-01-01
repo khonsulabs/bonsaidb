@@ -5,7 +5,8 @@ use bonsaidb_core::{
     custodian_password::{RegistrationFinalization, RegistrationRequest, RegistrationResponse},
     document::Document,
     schema::{
-        Collection, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName, View,
+        Collection, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
+        SerializedView,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -238,7 +239,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         }
     }
 
-    async fn query<V: View>(
+    async fn query<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
@@ -254,7 +255,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         }
     }
 
-    async fn query_with_docs<V: View>(
+    async fn query_with_docs<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
@@ -278,7 +279,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         }
     }
 
-    async fn reduce<V: View>(
+    async fn reduce<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -292,7 +293,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         }
     }
 
-    async fn reduce_grouped<V: View>(
+    async fn reduce_grouped<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -306,7 +307,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         }
     }
 
-    async fn delete_docs<V: View>(
+    async fn delete_docs<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,

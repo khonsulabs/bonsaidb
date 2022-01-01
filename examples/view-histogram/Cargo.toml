@@ -11,5 +11,5 @@ bonsaidb = { path = "../../crates/bonsaidb", version = "0.1.0-dev.4", features =
     "local",
 ] }
 hdrhistogram = "7"
-anyhow = "1"
+thiserror = "1"
 rand = "0.8"
