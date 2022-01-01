@@ -20,4 +20,4 @@ env_logger = "0.9"
 log = "0.4"
 rand = "0.8"
 anyhow = "1"
-clap = { version = "3.0.0-rc.7", features = ["derive"] }
+clap = { version = "3", features = ["derive"] }
