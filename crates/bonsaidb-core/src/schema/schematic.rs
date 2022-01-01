@@ -8,7 +8,7 @@ use crate::{
     document::KeyId,
     schema::{
         collection::Collection,
-        view::{self, Serialized},
+        view::{self, Serialized, SerializedView},
         CollectionName, Schema, SchemaName, View, ViewName,
     },
     Error,
@@ -62,7 +62,7 @@ impl Schematic {
     }
 
     /// Adds the view `V`.
-    pub fn define_view<V: View + 'static>(&mut self, view: V) -> Result<(), Error> {
+    pub fn define_view<V: SerializedView + 'static>(&mut self, view: V) -> Result<(), Error> {
         let name = view.view_name()?;
         let collection = view.collection()?;
         let unique = view.unique();

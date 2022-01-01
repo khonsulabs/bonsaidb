@@ -1,8 +1,8 @@
 use bonsaidb::core::{
     schema::{
         view::{self, CollectionView},
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
-        MapResult, MappedValue, Name, Schematic,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization,
+        DefaultViewSerialization, InvalidNameError, MapResult, MappedValue, Name, Schematic,
     },
     Error,
 };
@@ -64,3 +64,5 @@ impl CollectionView for ShapesByNumberOfSides {
         Ok(mappings.iter().map(|m| m.value).sum())
     }
 }
+
+impl DefaultViewSerialization for ShapesByNumberOfSides {}

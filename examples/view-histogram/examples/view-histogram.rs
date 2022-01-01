@@ -5,13 +5,13 @@
 //! "samples" stored in the [`Samples`] type. The raw sample data is stored in a
 //! collection with a timestamp (u64) and a `Vec<u64>` of samples.
 //!
-//! The [`AsHistogram`] view maps the sample data into a [`StoredHistogram`],
-//! which knows how to serialize and deserialize a [`SyncHistogram`]. The view
-//! also reduces multiple instaces of `StoredHistogram` into a single
-//! `StoredHistogram`.
+//! The [`AsHistogram`] view maps the sample data into a [`SyncHistogram`], and
+//! this code provides an example on how to ipmlement a custom serializer using
+//! the [`transmog::Format`] trait. This allows using `SyncHistogram`'s native
+//! serialization to store the histogram into the view.
 //!
-//! This enables the ability to use the `reduce()` API to retrieve
-//! server-reduced values in an efficient manner.
+//! All of this combined enables the ability to use the `reduce()` API to
+//! retrieve server-reduced values in an efficient manner.
 
 use std::ops::Deref;
 
@@ -20,8 +20,9 @@ use bonsaidb::{
         connection::{AccessPolicy, Connection},
         schema::{
             view, view::CollectionView, Collection, CollectionDocument, CollectionName,
-            DefaultSerialization, InvalidNameError, MappedValue, Name, Schematic,
+            DefaultSerialization, InvalidNameError, MappedValue, Name, Schematic, SerializedView,
         },
+        transmog::{Format, OwnedDeserializer},
     },
     local::{
         config::{Builder, StorageConfiguration},
@@ -33,7 +34,7 @@ use hdrhistogram::{
     Histogram, SyncHistogram,
 };
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use serde::{de::Visitor, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::local::Error> {
@@ -121,7 +122,7 @@ impl CollectionView for AsHistogram {
 
     type Key = u64;
 
-    type Value = StoredHistogram;
+    type Value = SyncHistogram<u64>;
 
     fn version(&self) -> u64 {
         0
@@ -140,10 +141,7 @@ impl CollectionView for AsHistogram {
             histogram.record(*sample).unwrap();
         }
 
-        Ok(document.emit_key_and_value(
-            document.contents.timestamp,
-            StoredHistogram(histogram.into_sync()),
-        ))
+        Ok(document.emit_key_and_value(document.contents.timestamp, histogram.into_sync()))
     }
 
     fn reduce(
@@ -155,63 +153,62 @@ impl CollectionView for AsHistogram {
         let mut combined = SyncHistogram::from(
             mappings
                 .next()
-                .map(|h| h.value.0.deref().clone())
+                .map(|h| h.value.deref().clone())
                 .unwrap_or_else(|| Histogram::new(4).unwrap()),
         );
         for map in mappings {
-            combined.add(map.value.0.deref()).unwrap();
+            combined.add(map.value.deref()).unwrap();
         }
-        Ok(StoredHistogram(combined))
+        Ok(combined)
     }
 }
 
-/// A serializable wrapper for [`SyncHistogram`].
-pub struct StoredHistogram(SyncHistogram<u64>);
+impl SerializedView for AsHistogram {
+    type Format = Self;
 
-impl Deref for StoredHistogram {
-    type Target = SyncHistogram<u64>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    fn format() -> Self::Format {
+        Self
     }
 }
 
-impl serde::Serialize for StoredHistogram {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut vec = Vec::new();
+impl Format<'static, SyncHistogram<u64>> for AsHistogram {
+    type Error = HistogramError;
+
+    fn serialize_into<W: std::io::Write>(
+        &self,
+        value: &SyncHistogram<u64>,
+        mut writer: W,
+    ) -> Result<(), Self::Error> {
         V2Serializer::new()
-            .serialize(&self.0, &mut vec)
-            .map_err(serde::ser::Error::custom)?;
-        serializer.serialize_bytes(&vec)
+            .serialize(value, &mut writer)
+            .map_err(HistogramError::Serialization)?;
+        Ok(())
     }
 }
 
-impl<'de> serde::Deserialize<'de> for StoredHistogram {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_bytes(StoredHistogramVisitor)
+impl OwnedDeserializer<SyncHistogram<u64>> for AsHistogram {
+    fn deserialize_from<R: std::io::Read>(
+        &self,
+        mut reader: R,
+    ) -> Result<SyncHistogram<u64>, Self::Error> {
+        hdrhistogram::serialization::Deserializer::new()
+            .deserialize(&mut reader)
+            .map(SyncHistogram::from)
+            .map_err(HistogramError::Deserialization)
     }
 }
 
-struct StoredHistogramVisitor;
+#[derive(thiserror::Error, Debug)]
+pub enum HistogramError {
+    #[error("serialization error: {0}")]
+    Serialization(#[from] hdrhistogram::serialization::V2SerializeError),
+    #[error("deserialization error: {0}")]
+    Deserialization(#[from] hdrhistogram::serialization::DeserializeError),
+}
 
-impl<'de> Visitor<'de> for StoredHistogramVisitor {
-    type Value = StoredHistogram;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("expected borrowed bytes")
-    }
-
-    fn visit_borrowed_bytes<E>(self, mut v: &'de [u8]) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        let histogram = hdrhistogram::serialization::Deserializer::new()
-            .deserialize(&mut v)
-            .map_err(serde::de::Error::custom)?;
-        Ok(StoredHistogram(SyncHistogram::from(histogram)))
+impl From<std::io::Error> for HistogramError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Deserialization(hdrhistogram::serialization::DeserializeError::from(err))
     }
 }
 

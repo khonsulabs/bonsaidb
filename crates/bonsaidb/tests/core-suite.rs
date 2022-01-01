@@ -12,7 +12,7 @@ use bonsaidb::{
             bonsai::{BonsaiAction, ServerAction},
             Statement,
         },
-        schema::{ InsertError, SerializedCollection},
+        schema::{InsertError, SerializedCollection},
         test_util::{BasicSchema, HarnessTest, TestDirectory},
     },
     local::config::Builder,

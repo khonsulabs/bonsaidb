@@ -49,7 +49,7 @@ impl Collection for Shape {
     }
 }
 
-impl DefaultSerializedCollection for Shape {}
+impl DefaultSerialization for Shape {}
 
 #[derive(Debug)]
 struct ShapesByNumberOfSides;
@@ -81,6 +81,8 @@ impl CollectionView for ShapesByNumberOfSides {
         Ok(mappings.iter().map(|m| m.value).sum())
     }
 }
+
+impl DefaultViewSerialization for ShapesByNumberOfSides {}
 ```
 
 After you have your collection(s) defined, you can open up a database and insert documents:

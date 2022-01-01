@@ -127,7 +127,7 @@ pub struct InsertError<T> {
 #[async_trait]
 pub trait NamedCollection: Collection + Unpin {
     /// The name view defined for the collection.
-    type ByNameView: crate::schema::View<Key = String>;
+    type ByNameView: crate::schema::SerializedView<Key = String>;
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
     async fn load<'name, N: Into<NamedReference<'name>> + Send + Sync, C: Connection>(

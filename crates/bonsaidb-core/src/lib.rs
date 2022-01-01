@@ -57,6 +57,8 @@ pub use num_traits;
 pub use ordered_varint;
 use schema::{view, CollectionName, SchemaName, ViewName};
 use serde::{Deserialize, Serialize};
+pub use transmog;
+pub use transmog_pot;
 
 use crate::{document::Header, schema::InsertError};
 

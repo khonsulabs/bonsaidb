@@ -6,7 +6,10 @@ use bonsaidb_core::{
     custom_api::CustomApi,
     document::Document,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
-    schema::{view, view::map, Collection, Key, Map, MappedDocument, MappedValue, Schematic, View},
+    schema::{
+        view::{self, map, SerializedView},
+        Collection, Key, Map, MappedDocument, MappedValue, Schematic,
+    },
     transaction::{Executed, OperationResult, Transaction},
 };
 use derive_where::DeriveWhere;
@@ -130,7 +133,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn query<V: View>(
+    async fn query<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
@@ -161,7 +164,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         {
             Response::Database(DatabaseResponse::ViewMappings(mappings)) => Ok(mappings
                 .iter()
-                .map(map::Serialized::deserialized::<V::Key, V::Value>)
+                .map(map::Serialized::deserialized::<V>)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?),
             Response::Error(err) => Err(err),
@@ -171,7 +174,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn query_with_docs<V: View>(
+    async fn query_with_docs<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
@@ -202,7 +205,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         {
             Response::Database(DatabaseResponse::ViewMappingsWithDocs(mappings)) => Ok(mappings
                 .into_iter()
-                .map(map::MappedSerialized::deserialized::<V::Key, V::Value>)
+                .map(map::MappedSerialized::deserialized::<V>)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?),
             Response::Error(err) => Err(err),
@@ -212,7 +215,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn reduce<V: View>(
+    async fn reduce<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -238,7 +241,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
             .await?
         {
             Response::Database(DatabaseResponse::ViewReduction(value)) => {
-                let value = pot::from_slice::<V::Value>(&value)?;
+                let value = V::deserialize(&value)?;
                 Ok(value)
             }
             Response::Error(err) => Err(err),
@@ -248,7 +251,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn reduce_grouped<V: View>(
+    async fn reduce_grouped<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
@@ -282,7 +285,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
                                 view::Error::key_serialization(err).to_string(),
                             )
                         })?,
-                        value: pot::from_slice(&map.value)?,
+                        value: V::deserialize(&map.value)?,
                     })
                 })
                 .collect::<Result<Vec<_>, bonsaidb_core::Error>>(),
@@ -293,7 +296,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn delete_docs<V: View>(
+    async fn delete_docs<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
