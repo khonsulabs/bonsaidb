@@ -16,6 +16,10 @@ While `category` should be an enum, let's first explore using `String` and upgra
 {{#include ../../view-example-string.rs:view}}
 ```
 
+## Value Serialization
+
+For views to function, the Value type must able to be serialized and deserialized from storage. To accomplish this, all views must implement the [`SerializedView`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.SerializedView.html) trait. For [Serde](https://serde.rs/)-compatible data structures, [`DefaultSerializedView`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.DefaultViewSerialization.html) is an empty trait that can be implemented instead to provide the default serialization that BonsaiDb recommends.
+
 ## Map
 
 The first line of the `map` function calls [`Document::contents()`](https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html#method.contents) to deserialize the stored `BlogPost`. The second line returns an emitted Key and Value -- in our case a clone of the post's category and the value `1_u32`. With the map function, we're able to use [`query()`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/struct.View.html#method.query) and [`query_with_docs()`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/struct.View.html#method.query_with_docs):

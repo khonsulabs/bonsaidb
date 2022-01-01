@@ -161,7 +161,7 @@ where
     }
 }
 
-/// A [`View`] for a [`Collection`] that stores serde-compatible documents. The
+/// A [`View`] for a [`Collection`] that stores Serde-compatible documents. The
 /// only difference between implmementing this and [`View`] is that the `map`
 /// function receives a [`CollectionDocument`] instead of a [`Document`].
 pub trait CollectionView: Send + Sync + Debug + 'static {

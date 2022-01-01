@@ -150,7 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SerializedView` using BonsaiDb's preferred settings.
 
   The `view-histogram` example has been updated to define a custom
-  `transmog::Format` implementation rather creating a serde-based wrapper.
+  `transmog::Format` implementation rather creating a Serde-based wrapper.
 
 ### Fixed
 
@@ -180,7 +180,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trait. Right now, its only purpose is to allow defining a
   [`CustomApi`](https://dev.bonsaidb.io/main/bonsaidb/core/custom_api/trait.CustomApi.html).
   This allows applications built with `BonsaiDb` to extend the network protocol
-  with `Request` and `Response` types that just need to support `serde`. For a
+  with `Request` and `Response` types that just need to support Serde. For a
   full example, [check out this in-development `Gooey`
   example](https://github.com/khonsulabs/gooey/tree/6d4c682552bad5aa558c86a8333ee123372a7537/integrated-examples/bonsaidb/counter).
 

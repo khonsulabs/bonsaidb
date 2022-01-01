@@ -19,7 +19,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     let db = Database::open::<()>(StorageConfiguration::new("key-value-store.bonsaidb")).await?;
 
     // The set_key method can be awaited to insert/replace a key. Values can be
-    // anything supported by serde.
+    // anything supported by Serde.
     db.set_key("mykey", &1_u32).await?;
 
     // Or, you can customize it's behavior:
