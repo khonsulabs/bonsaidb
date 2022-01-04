@@ -95,6 +95,37 @@ pub trait SerializedCollection: Collection {
     {
         Self::push(self, connection).await
     }
+
+    /// Inserts this value into the collection with the specified id, returning
+    /// the created document.
+    async fn insert<Cn: Connection>(
+        id: u64,
+        contents: Self::Contents,
+        connection: &Cn,
+    ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
+    where
+        Self: Sized + 'static,
+        Self::Contents: 'async_trait,
+    {
+        let header = match connection.collection::<Self>().insert(id, &contents).await {
+            Ok(header) => header,
+            Err(error) => return Err(InsertError { contents, error }),
+        };
+        Ok(CollectionDocument { header, contents })
+    }
+
+    /// Inserts this value into the collection with the given `id`, returning
+    /// the created document.
+    async fn insert_into<Cn: Connection>(
+        self,
+        id: u64,
+        connection: &Cn,
+    ) -> Result<CollectionDocument<Self>, InsertError<Self>>
+    where
+        Self: SerializedCollection<Contents = Self> + Sized + 'static,
+    {
+        Self::insert(id, self, connection).await
+    }
 }
 
 /// A convenience trait for easily storing Serde-compatible types in documents.

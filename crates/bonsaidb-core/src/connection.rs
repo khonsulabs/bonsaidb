@@ -266,6 +266,19 @@ where
         Ok(self.connection.insert::<Cl>(None, contents).await?)
     }
 
+    /// Adds a new `Document<Cl>` with the given `id` and contents `item`.
+    pub async fn insert(
+        &self,
+        id: u64,
+        item: &<Cl as SerializedCollection>::Contents,
+    ) -> Result<Header, crate::Error>
+    where
+        Cl: schema::SerializedCollection,
+    {
+        let contents = Cl::serialize(item)?;
+        Ok(self.connection.insert::<Cl>(Some(id), contents).await?)
+    }
+
     /// Retrieves a `Document<Cl>` with `id` from the connection.
     pub async fn get(&self, id: u64) -> Result<Option<Document<'static>>, Error> {
         self.connection.get::<Cl>(id).await
