@@ -1,17 +1,4 @@
-BonsaiDb aims to be a [Rust](https://rust-lang.org)-written, ACID-compliant, document-database inspired by [CouchDB](https://couchdb.apache.org/). While it is inspired by CouchDB, this project will not aim to be compatible with existing CouchDB servers, and it will be implementing its own replication, clustering, and sharding strategies.
-
-## Project Goals
-
-The high-level goals for this project are:
-
-- ☑️ Be able to build a document-based database's schema using Rust types.
-- ☑️ Run within your Rust binary, simplifying basic deployments.
-- ☑️ Run as a local-only file-based database with no networking involved.
-- ☑️ Run as a networked server using QUIC with TLS enabled by default.
-- ☑️ Expose a Publish/Subscribe eventing system.
-- ☐ Expose a Job queue and scheduling system -- a la [Sidekiq](https://sidekiq.org/) or [SQS](https://aws.amazon.com/sqs/) (tracking issue [#78](https://github.com/khonsulabs/bonsaidb/issues/78))
-- ☐ Easily set up read-replicas between multiple servers (tracking issue [#90](https://github.com/khonsulabs/bonsaidb/issues/90))
-- ☐ Easily run a highly-available quorum-based cluster across at least 3 servers (tracking issue [#104](https://github.com/khonsulabs/bonsaidb/issues/104))
+BonsaiDb is a developer-friendly document database for [Rust](https://rust-lang.org) that grows with you. Visit [BonsaiDb.io](https://bonsaidb.io/about) to learn more about the features of BonsaiDb.
 
 ## ⚠️ Status of this project
 
@@ -21,7 +8,7 @@ If you're interested in chatting about this project or potentially wanting to co
 
 ## Example
 
-Check out [./examples](https://github.com/khonsulabs/bonsaidb/tree/main/examples) for examples. To get an idea of how it works, this is a simple schema:
+To get an idea of how it works, this is a simple schema:
 
 ```rust,ignore
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,9 +33,7 @@ struct ShapesByNumberOfSides;
 
 impl CollectionView for ShapesByNumberOfSides {
     type Collection = Shape;
-
     type Key = u32;
-
     type Value = usize;
 
     fn version(&self) -> u64 {
@@ -78,10 +63,10 @@ impl DefaultViewSerialization for ShapesByNumberOfSides {}
 After you have your collection(s) defined, you can open up a database and insert documents:
 
 ```rust,ignore
-    let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
+let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
 
-    // Insert a new document into the Shape collection.
-    Shape::new(3).push_into(&db).await?;
+// Insert a new document into the Shape collection.
+Shape::new(3).push_into(&db).await?;
 ```
 
 And query data using the Map-Reduce-powered view:
@@ -96,12 +81,6 @@ println!("Number of triangles: {}", triangles.len());
 ```
 
 See the [examples README](https://github.com/khonsulabs/bonsaidb/blob/main/examples/README.md) for a list of all available examples.
-
-## Why write another database?
-
-- Deploying highly-available databases is hard (and often expensive). It doesn't need to be.
-- We are passionate Rustaceans and are striving for an ideal of supporting a 100% Rust-based deployment ecosystem for newly written software.
-- Specifically for the founding author [@ecton](https://github.com/ecton), the idea for this design dates back to thoughts of fun side-projects while running my last business which was built atop CouchDB. Working on this project is fulfilling a long-time desire of his.
 
 ## Feature Flags
 

@@ -38,9 +38,7 @@ struct ShapesByNumberOfSides;
 
 impl CollectionView for ShapesByNumberOfSides {
     type Collection = Shape;
-
     type Key = u32;
-
     type Value = usize;
 
     fn version(&self) -> u64 {
