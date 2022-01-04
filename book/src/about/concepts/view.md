@@ -7,13 +7,13 @@ Views define two important associated types: a Key type and a Value type. You ca
 Views are a powerful, yet abstract concept. Let's look at a concrete example: blog posts with categories.
 
 ```rust,no_run,noplayground
-{{#include ../../view-example-string.rs:struct}}
+{{#include ../../../book-examples/tests/view-example-string.rs:struct}}
 ```
 
 While `category` should be an enum, let's first explore using `String` and upgrade to an enum at the end (it requires one additional step). Let's implement a View that will allow users to find blog posts by their category as well as count the number of posts in each category.
 
 ```rust,noplayground,no_run
-{{#include ../../view-example-string.rs:view}}
+{{#include ../../../book-examples/tests/view-example-string.rs:view}}
 ```
 
 ## Value Serialization
@@ -25,7 +25,7 @@ For views to function, the Value type must able to be serialized and deserialize
 The first line of the `map` function calls [`Document::contents()`](https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html#method.contents) to deserialize the stored `BlogPost`. The second line returns an emitted Key and Value -- in our case a clone of the post's category and the value `1_u32`. With the map function, we're able to use [`query()`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/struct.View.html#method.query) and [`query_with_docs()`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/struct.View.html#method.query_with_docs):
 
 ```rust,noplayground,no_run
-{{#include ../../view-example-string.rs:query_with_docs}}
+{{#include ../../../book-examples/tests/view-example-string.rs:query_with_docs}}
 ```
 
 The above queries the [Database](./database.md) for all documents in the `BlogPost` Collection that emitted a Key of `Some("Rust")`.
@@ -37,7 +37,7 @@ The second function to learn about is the `reduce()` function. It is responsible
 In this example, we're using the built-in [`Iterator::sum()`](https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.sum) function to turn our Value of `1_u32` into a single `u32` representing the total number of documents.
 
 ```rust,noplayground,no_run
-{{#include ../../view-example-string.rs:reduce_one_key}}
+{{#include ../../../book-examples/tests/view-example-string.rs:reduce_one_key}}
 ```
 
 ### Understanding Re-reduce
@@ -62,7 +62,7 @@ When updating views, each view entry is reduced and the value is cached. These a
 When a reduce query is issued for a single key, the value can be returned without further processing. But, if the reduce query matches multiple keys, the View's `reduce()` function will be called with the already reduced values with `rereduce` set to `true`. For example, retrieving the total count of blog posts:
 
 ```rust,noplayground,no_run
-{{#include ../../view-example-string.rs:reduce_multiple_keys}}
+{{#include ../../../book-examples/tests/view-example-string.rs:reduce_multiple_keys}}
 ```
 
 Once BonsaiDb has gathered each of the key's reduced values, it needs to further reduce that list into a single value. To accomplish this, the View's `reduce()` function to be invoked with `rereduce` set to `true`, and with mappings containing:
@@ -94,13 +94,13 @@ In our previous example, we used `String` for the Key type. The reason is import
 The easiest way to expose an enum is to derive [`num_traits::FromPrimitive`](https://docs.rs/num-traits/0.2.14/num_traits/cast/trait.FromPrimitive.html) and [`num_traits::ToPrimitive`](https://docs.rs/num-traits/0.2.14/num_traits/cast/trait.ToPrimitive.html) using [num-derive](https://lib.rs/num-derive), and add an `impl EnumKey` line:
 
 ```rust,noplayground,no_run
-{{#include ../../view-example-enum.rs:enum}}
+{{#include ../../../book-examples/tests/view-example-enum.rs:enum}}
 ```
 
 The View code remains unchanged, although the associated Key type can now be set to `Option<Category>`. The queries can now use the enum instead of a `String`:
 
 ```rust,noplayground,no_run
-{{#include ../../view-example-enum.rs:reduce_one_key}}
+{{#include ../../../book-examples/tests/view-example-enum.rs:reduce_one_key}}
 ```
 
 BonsaiDb will convert the enum to a u64 and use that value as the Key. A u64 was chosen to ensure fairly wide compatibility even with some extreme usages of bitmasks. If you wish to customize this behavior, you can implement `Key` directly.
@@ -112,7 +112,7 @@ The [`Key`][key] trait declares two functions: [`as_big_endian_bytes()`](https:/
 Here is how BonsaiDb implements Key for `EnumKey`:
 
 ```rust,noplayground,no_run
-{{#include ../../../../crates/bonsaidb-core/src/schema/view/map.rs:impl_key_for_enumkey}}
+{{#include ../../../../crates/bonsaidb-core/src/schema/view/key.rs:impl_key_for_enumkey}}
 ```
 
 By implementing `Key` you can take full control of converting your view keys.
