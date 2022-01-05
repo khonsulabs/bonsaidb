@@ -204,20 +204,7 @@ pub struct KeyOperation {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Command {
     /// Set a key/value pair.
-    Set {
-        /// The value.
-        value: Value,
-        /// If set, the key will be set to expire automatically.
-        expiration: Option<Timestamp>,
-        /// If true and the key already exists, the expiration will not be
-        /// updated. If false and an expiration is provided, the expiration will
-        /// be set.
-        keep_existing_expiration: bool,
-        /// Conditional checks for whether the key is already present or not.
-        check: Option<KeyCheck>,
-        /// If true and the key already exists, the existing key will be returned if overwritten.
-        return_previous_value: bool,
-    },
+    Set(SetCommand),
     /// Get the value from a key.
     Get {
         /// Remove the key after retrieving the value.
@@ -247,6 +234,23 @@ pub enum Command {
     },
     /// Delete a key.
     Delete,
+}
+
+/// Set a key/value pair.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct SetCommand {
+    /// The value.
+    pub value: Value,
+    /// If set, the key will be set to expire automatically.
+    pub expiration: Option<Timestamp>,
+    /// If true and the key already exists, the expiration will not be
+    /// updated. If false and an expiration is provided, the expiration will
+    /// be set.
+    pub keep_existing_expiration: bool,
+    /// Conditional checks for whether the key is already present or not.
+    pub check: Option<KeyCheck>,
+    /// If true and the key already exists, the existing key will be returned if overwritten.
+    pub return_previous_value: bool,
 }
 
 /// A value stored in a key.

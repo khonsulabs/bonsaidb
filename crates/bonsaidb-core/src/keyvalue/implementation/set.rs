@@ -10,7 +10,10 @@ use super::{
     BuilderState, Command, KeyCheck, KeyOperation, KeyStatus, KeyValue, Output, PendingValue,
     Timestamp,
 };
-use crate::{keyvalue::Value, Error};
+use crate::{
+    keyvalue::{SetCommand, Value},
+    Error,
+};
 
 /// Executes [`Command::Set`] when awaited. Also offers methods to customize the
 /// options for the operation.
@@ -112,13 +115,13 @@ where
                 .execute_key_operation(KeyOperation {
                     namespace,
                     key,
-                    command: Command::Set {
+                    command: Command::Set(SetCommand {
                         value: value.prepare()?,
                         expiration,
                         keep_existing_expiration,
                         check,
                         return_previous_value: true,
-                    },
+                    }),
                 })
                 .await?;
             match result {
@@ -172,13 +175,13 @@ where
                         .execute_key_operation(KeyOperation {
                             namespace,
                             key,
-                            command: Command::Set {
+                            command: Command::Set(SetCommand {
                                 value: value.prepare()?,
                                 expiration,
                                 keep_existing_expiration,
                                 check,
                                 return_previous_value: false,
-                            },
+                            }),
                         })
                         .await?;
                     if let Output::Status(status) = result {
