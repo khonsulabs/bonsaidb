@@ -1249,6 +1249,18 @@ impl Context {
         context
     }
 
+    pub(crate) async fn perform_kv_operation(
+        &self,
+        op: KeyOperation,
+    ) -> Result<Output, bonsaidb_core::Error> {
+        let (result_sender, result_receiver) = flume::bounded(1);
+        self.kv_operation_sender
+            .send((keyvalue::ManagerOp::Op(op), result_sender))
+            .map_err(Error::from_send)?;
+
+        result_receiver.recv_async().await.map_err(Error::from)?
+    }
+
     pub(crate) async fn update_key_expiration_async(
         &self,
         tree_key: String,

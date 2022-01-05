@@ -57,17 +57,7 @@ impl KeyValue for Database {
         &self,
         op: KeyOperation,
     ) -> Result<Output, bonsaidb_core::Error> {
-        let (result_sender, result_receiver) = flume::bounded(1);
-        self.data
-            .context
-            .kv_operation_sender
-            .send((ManagerOp::Op(op), result_sender))
-            .unwrap();
-        result_receiver
-            .recv_async()
-            .await
-            .unwrap()
-            .map_err(bonsaidb_core::Error::from)
+        self.data.context.perform_kv_operation(op).await
     }
 }
 
@@ -246,7 +236,7 @@ impl KeyValueManager {
 
     pub async fn run(&mut self) -> Result<(), Error> {
         while let Some((op, result_sender)) = self.wait_for_next_operation().await? {
-            let result = match dbg!(op) {
+            let result = match op {
                 ManagerOp::Op(op) => match op.command {
                     Command::Set(command) => {
                         self.execute_set_operation(op.namespace.as_deref(), &op.key, command)
@@ -554,7 +544,7 @@ impl KeyValueManager {
         Error,
     > {
         loop {
-            if self.expiration_order.is_empty() {
+            if self.expiration_order.is_empty() && self.dirty_keys.is_empty() {
                 match self.operation_receiver.recv_async().await {
                     Ok(update) => return Ok(Some(update)),
                     Err(_) => break,
@@ -562,9 +552,11 @@ impl KeyValueManager {
             }
 
             // Check to see if we have any remaining time before a key expires
-            let expiration_timeout = self.expiring_keys.get(&self.expiration_order[0]).unwrap();
             let now = Timestamp::now();
-            let duration_until_key_expires = *expiration_timeout - now;
+            let duration_until_key_expires = self.expiration_order.get(0).and_then(|key| {
+                let expiration_timeout = self.expiring_keys.get(key).unwrap();
+                *expiration_timeout - now
+            });
             let duration_until_commit = self.persistence.duration_until_next_commit(
                 self.dirty_keys.len(),
                 (now - self.last_commit).unwrap_or_default(),
@@ -596,7 +588,10 @@ impl KeyValueManager {
             // Reaching this block means that we didn't receive an update
             // externally. This means we either need to expire some keys or
             // commit some keys to disk.
-            if duration_until_key_expires <= duration_until_commit {
+            if duration_until_key_expires.is_some()
+                && (duration_until_commit.is_none()
+                    || duration_until_key_expires <= duration_until_commit)
+            {
                 if self.remove_expired_keys(now) {
                     self.commit_dirty_keys_if_needed().await?;
                 }
@@ -787,23 +782,34 @@ mod tests {
     use nebari::io::fs::StdFile;
 
     use super::*;
-    use crate::database::Context;
+    use crate::{config::PersistenceThreshold, database::Context};
+
+    async fn run_test_with_persistence<
+        F: Fn(Context, nebari::Roots<StdFile>) -> R + Send,
+        R: Future<Output = anyhow::Result<()>> + Send,
+    >(
+        name: &str,
+        persistence: KeyValuePersistence,
+        test_contents: &F,
+    ) -> anyhow::Result<()> {
+        let dir = TestDirectory::new(name);
+        let sled = nebari::Config::new(&dir).open()?;
+
+        let context = Context::new(sled.clone(), persistence);
+
+        test_contents(context, sled).await?;
+
+        Ok(())
+    }
 
     async fn run_test<
-        F: FnOnce(Context, nebari::Roots<StdFile>) -> R + Send,
+        F: Fn(Context, nebari::Roots<StdFile>) -> R + Send,
         R: Future<Output = anyhow::Result<()>> + Send,
     >(
         name: &str,
         test_contents: F,
     ) -> anyhow::Result<()> {
-        let dir = TestDirectory::new(name);
-        let sled = nebari::Config::new(&dir).open()?;
-
-        let context = Context::new(sled.clone(), KeyValuePersistence::default());
-
-        test_contents(context, sled).await?;
-
-        Ok(())
+        run_test_with_persistence(name, KeyValuePersistence::default(), &test_contents).await
     }
 
     #[tokio::test]
@@ -978,6 +984,84 @@ mod tests {
 
             Ok(())
         })
+        .await
+    }
+
+    #[tokio::test]
+    async fn basic_persistence() -> anyhow::Result<()> {
+        run_test_with_persistence(
+            "kv-basic-persistence]",
+            KeyValuePersistence::lazy([
+                PersistenceThreshold::after_changes(2),
+                PersistenceThreshold::after_changes(1).and_duration(Duration::from_secs(2)),
+            ]),
+            &|sender, sled| async move {
+                loop {
+                    let timing = TimingTest::new(Duration::from_millis(100));
+                    let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
+                    // Set three keys in quick succession. The first two should
+                    // persist immediately, and the third should show up after 2
+                    // seconds.
+                    sender
+                        .perform_kv_operation(KeyOperation {
+                            namespace: None,
+                            key: String::from("key1"),
+                            command: Command::Set(SetCommand {
+                                value: Value::Bytes(Vec::new()),
+                                expiration: None,
+                                keep_existing_expiration: false,
+                                check: None,
+                                return_previous_value: false,
+                            }),
+                        })
+                        .await
+                        .unwrap();
+                    sender
+                        .perform_kv_operation(KeyOperation {
+                            namespace: None,
+                            key: String::from("key2"),
+                            command: Command::Set(SetCommand {
+                                value: Value::Bytes(Vec::new()),
+                                expiration: None,
+                                keep_existing_expiration: false,
+                                check: None,
+                                return_previous_value: false,
+                            }),
+                        })
+                        .await
+                        .unwrap();
+                    sender
+                        .perform_kv_operation(KeyOperation {
+                            namespace: None,
+                            key: String::from("key3"),
+                            command: Command::Set(SetCommand {
+                                value: Value::Bytes(Vec::new()),
+                                expiration: None,
+                                keep_existing_expiration: false,
+                                check: None,
+                                return_previous_value: false,
+                            }),
+                        })
+                        .await
+                        .unwrap();
+                    if timing.elapsed() > Duration::from_secs(1) {
+                        println!("basic_persistence restarting due to timing discrepency");
+                        continue;
+                    }
+                    assert!(tree.get(b"\0key1").unwrap().is_some());
+                    assert!(tree.get(b"\0key2").unwrap().is_some());
+                    assert!(tree.get(b"\0key3").unwrap().is_none());
+                    if !timing.wait_until(Duration::from_secs(3)).await {
+                        println!("basic_persistence restarting due to timing discrepency");
+                        continue;
+                    }
+                    assert!(tree.get(b"\0key3").unwrap().is_some());
+                    break;
+                }
+
+                Ok(())
+            },
+        )
         .await
     }
 }
