@@ -37,7 +37,7 @@ pub trait SerializedCollection: Collection {
     /// The type of the contents stored in documents in this collection.
     type Contents: Send + Sync;
     /// The serialization format for this collection.
-    type Format: Format<'static, Self::Contents> + OwnedDeserializer<Self::Contents>;
+    type Format: OwnedDeserializer<Self::Contents>;
 
     /// Returns the configured instance of [`Self::Format`].
     // TODO allow configuration to be passed here, such as max allocation bytes.

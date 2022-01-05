@@ -124,7 +124,7 @@ pub trait View: Send + Sync + Debug + 'static {
 /// A [`View`] with additional tyes and logic to handle serializing view values.
 pub trait SerializedView: View {
     /// The serialization format for this view.
-    type Format: Format<'static, Self::Value> + OwnedDeserializer<Self::Value>;
+    type Format: OwnedDeserializer<Self::Value>;
 
     /// Returns the configured instance of [`Self::Format`].
     // TODO allow configuration to be passed here, such as max allocation bytes.
