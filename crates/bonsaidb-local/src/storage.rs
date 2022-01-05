@@ -53,7 +53,10 @@ use tokio::{
 #[cfg(feature = "encryption")]
 use crate::vault::{self, LocalVaultKeyStorage, TreeVault, Vault};
 use crate::{
-    config::StorageConfiguration, database::Context, jobs::manager::Manager, tasks::TaskManager,
+    config::{KeyValuePersistence, StorageConfiguration},
+    database::Context,
+    jobs::manager::Manager,
+    tasks::TaskManager,
     Database, Error,
 };
 
@@ -81,6 +84,7 @@ struct Data {
     pub(crate) vault: Arc<Vault>,
     #[cfg(feature = "encryption")]
     default_encryption_key: Option<KeyId>,
+    pub(crate) key_value_persistence: KeyValuePersistence,
     chunk_cache: ChunkCache,
     pub(crate) check_view_integrity_on_database_open: bool,
     relay: Relay,
@@ -119,6 +123,7 @@ impl Storage {
         };
 
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
+        let key_value_persistence = configuration.key_value_persistence;
         #[cfg(feature = "encryption")]
         let default_encryption_key = configuration.default_encryption_key;
         let storage = tokio::task::spawn_blocking::<_, Result<Self, Error>>(move || {
@@ -137,6 +142,7 @@ impl Storage {
                     schemas: RwLock::new(configuration.initial_schemas),
                     available_databases: RwLock::default(),
                     open_roots: Mutex::default(),
+                    key_value_persistence,
                     check_view_integrity_on_database_open,
                     relay: Relay::default(),
                 }),
@@ -310,7 +316,7 @@ impl Storage {
             })
             .await
             .unwrap()?;
-            let context = Context::new(roots);
+            let context = Context::new(roots, self.data.key_value_persistence.clone());
 
             open_roots.insert(name.to_owned(), context.clone());
 

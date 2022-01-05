@@ -38,7 +38,7 @@ use nebari::{
 #[cfg(feature = "encryption")]
 use crate::vault::TreeVault;
 use crate::{
-    config::{Builder, StorageConfiguration},
+    config::{Builder, KeyValuePersistence, StorageConfiguration},
     error::Error,
     open_trees::OpenTrees,
     storage::{AnyBackupLocation, OpenDatabase},
@@ -1235,14 +1235,14 @@ impl Borrow<Roots<StdFile>> for Context {
 }
 
 impl Context {
-    pub(crate) fn new(roots: Roots<StdFile>) -> Self {
+    pub(crate) fn new(roots: Roots<StdFile>, key_value_persistence: KeyValuePersistence) -> Self {
         let (kv_operation_sender, kv_operation_receiver) = flume::unbounded();
         let context = Self {
             roots: roots.clone(),
             kv_operation_sender,
         };
         tokio::task::spawn(async move {
-            keyvalue::KeyValueManager::new(kv_operation_receiver, roots)
+            keyvalue::KeyValueManager::new(kv_operation_receiver, roots, key_value_persistence)
                 .run()
                 .await
         });

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 #[cfg(feature = "encryption")]
@@ -46,6 +47,9 @@ pub struct StorageConfiguration {
     /// Configuration options related to views.
     pub views: Views,
 
+    /// Controls how the key-value store persists keys, on a per-database basis.
+    pub key_value_persistence: KeyValuePersistence,
+
     pub(crate) initial_schemas: HashMap<SchemaName, Box<dyn DatabaseOpener>>,
 }
 
@@ -89,6 +93,160 @@ pub struct Views {
     pub check_integrity_on_open: bool,
 }
 
+/// Rules for persisting key-value changes. Default persistence is to
+/// immediately persist all changes. While this ensures data integrity, the
+/// overhead of the key-value store can be significantly reduced by utilizing
+/// lazy persistence strategies that delay writing changes until certain
+/// thresholds have been met.
+///
+/// ## Immediate persistence
+///
+/// The default persistence mode will trigger commits always:
+///
+/// ```rust
+/// # use bonsaidb_local::config::KeyValuePersistence;
+/// # use std::time::Duration;
+/// assert!(KeyValuePersistence::default().should_commit(0, Duration::ZERO));
+/// ```
+///
+/// ## Lazy persistence
+///
+/// Lazy persistence allows setting multiple thresholds, allowing for customized
+/// behavior that can help tune performance, especially under write-heavy loads.
+///
+/// It is good practice to include one [`PersistenceThreshold`] that has no
+/// duration, as it will ensure that the in-memory cache cannot exceed a certain
+/// size. This number is counted for each database indepenently.
+///
+/// ```rust
+/// # use bonsaidb_local::config::{KeyValuePersistence, PersistenceThreshold};
+/// # use std::time::Duration;
+/// #
+/// let persistence = KeyValuePersistence::lazy([
+///   PersistenceThreshold::after_changes(1).and_duration(Duration::from_secs(120)),
+///   PersistenceThreshold::after_changes(10).and_duration(Duration::from_secs(10)),
+///     PersistenceThreshold::after_changes(100),
+/// ]);
+///
+/// // After 1 change and 60 seconds, no changes would be committed:
+/// assert!(!persistence.should_commit(1, Duration::from_secs(60)));
+/// // But on or after 120 seconds, that change will be committed:
+/// assert!(persistence.should_commit(1, Duration::from_secs(120)));
+///
+/// // After 10 changes and 10 seconds, changes will be committed:
+/// assert!(persistence.should_commit(10, Duration::from_secs(10)));
+///
+/// // Once 100 changes have been accumulated, this ruleset will always commit
+/// // regardless of duration.
+/// assert!(persistence.should_commit(100, Duration::ZERO));
+/// ```
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct KeyValuePersistence(KeyValuePersistenceInner);
+
+#[derive(Debug, Clone)]
+enum KeyValuePersistenceInner {
+    Immediate,
+    Lazy(Vec<PersistenceThreshold>),
+}
+
+impl Default for KeyValuePersistence {
+    /// Returns [`KeyValuePersistence::immediate()`].
+    fn default() -> Self {
+        Self::immediate()
+    }
+}
+
+impl KeyValuePersistence {
+    /// Returns a ruleset that commits all changes immediately.
+    pub const fn immediate() -> Self {
+        Self(KeyValuePersistenceInner::Immediate)
+    }
+
+    /// Returns a ruleset that lazily commits data based on a list of thresholds.
+    pub fn lazy<II>(rules: II) -> Self
+    where
+        II: IntoIterator<Item = PersistenceThreshold>,
+    {
+        let mut rules = rules.into_iter().collect::<Vec<_>>();
+        rules.sort_by(|a, b| a.number_of_changes.cmp(&b.number_of_changes));
+        Self(KeyValuePersistenceInner::Lazy(rules))
+    }
+
+    /// Returns true if these rules determine that the outstanding changes should be persisted.
+    #[must_use]
+    pub fn should_commit(
+        &self,
+        number_of_changes: usize,
+        elapsed_since_last_commit: Duration,
+    ) -> bool {
+        self.duration_until_next_commit(number_of_changes, elapsed_since_last_commit)
+            == Some(Duration::ZERO)
+    }
+
+    pub(crate) fn duration_until_next_commit(
+        &self,
+        number_of_changes: usize,
+        elapsed_since_last_commit: Duration,
+    ) -> Option<Duration> {
+        match &self.0 {
+            KeyValuePersistenceInner::Immediate => Some(Duration::ZERO),
+            KeyValuePersistenceInner::Lazy(rules) => {
+                let mut shortest_duration: Option<Duration> = None;
+                for rule in rules
+                    .iter()
+                    .take_while(|rule| rule.number_of_changes <= number_of_changes)
+                {
+                    let remaining_time = rule.duration.saturating_sub(elapsed_since_last_commit);
+                    let new_shortest = if let Some(previously_shortest_duration) = shortest_duration
+                    {
+                        previously_shortest_duration.min(remaining_time)
+                    } else {
+                        remaining_time
+                    };
+                    shortest_duration = Some(new_shortest);
+
+                    if new_shortest == Duration::ZERO {
+                        break;
+                    }
+                }
+                shortest_duration
+            }
+        }
+    }
+}
+
+/// A threshold controlling lazy commits. For a threshold to apply, both
+/// `number_of_changes` must be met or surpassed and `duration` must have
+/// elpased since the last commit.
+///
+/// A threshold with a duration of zero will not wait any time to persist
+/// changes once the specified `number_of_changes` has been met or surpassed.
+#[derive(Debug, Copy, Clone)]
+#[must_use]
+pub struct PersistenceThreshold {
+    /// The minimum number of changes that must have occurred for this threshold to apply.
+    pub number_of_changes: usize,
+    /// The amount of time that must elapse since the last write for this threshold to apply.
+    pub duration: Duration,
+}
+
+impl PersistenceThreshold {
+    /// Returns a threshold that applies after a number of changes have elapsed.
+    pub const fn after_changes(number_of_changes: usize) -> Self {
+        Self {
+            number_of_changes,
+            duration: Duration::ZERO,
+        }
+    }
+
+    /// Sets the duration of this threshold to `duration` and returns self.
+    pub const fn and_duration(mut self, duration: Duration) -> Self {
+        self.duration = duration;
+        self
+    }
+}
+
 /// Storage configuration builder methods.
 pub trait Builder: Default {
     /// Creates a default configuration with `path` set.
@@ -116,6 +274,9 @@ pub trait Builder: Default {
     fn tasks_worker_count(self, worker_count: usize) -> Self;
     /// Sets [`Views::check_integrity_on_open`] to `check` and returns self.
     fn check_view_integrity_on_open(self, check: bool) -> Self;
+
+    /// Sets [`StorageConfiguration::key_value_persistence`](StorageConfiguration#structfield.key_value_persistence) to `persistence` and returns self.
+    fn key_value_persistence(self, persistence: KeyValuePersistence) -> Self;
 }
 
 impl Builder for StorageConfiguration {
@@ -156,6 +317,11 @@ impl Builder for StorageConfiguration {
 
     fn check_view_integrity_on_open(mut self, check: bool) -> Self {
         self.views.check_integrity_on_open = check;
+        self
+    }
+
+    fn key_value_persistence(mut self, persistence: KeyValuePersistence) -> Self {
+        self.key_value_persistence = persistence;
         self
     }
 }

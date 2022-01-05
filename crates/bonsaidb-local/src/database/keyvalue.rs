@@ -19,7 +19,7 @@ use nebari::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{jobs::Job, Database, Error};
+use crate::{config::KeyValuePersistence, jobs::Job, Database, Error};
 
 #[derive(Serialize, Deserialize)]
 pub struct Entry {
@@ -208,6 +208,8 @@ pub(super) struct KeyValueManager {
         ManagerOp,
         flume::Sender<Result<Output, bonsaidb_core::Error>>,
     )>,
+    persistence: KeyValuePersistence,
+    last_commit: Timestamp,
     roots: Roots<StdFile>,
     pending_expiration_updates: Vec<ExpirationUpdate>,
     expiring_keys: HashMap<String, Timestamp>,
@@ -228,10 +230,13 @@ impl KeyValueManager {
             flume::Sender<Result<Output, bonsaidb_core::Error>>,
         )>,
         roots: Roots<StdFile>,
+        persistence: KeyValuePersistence,
     ) -> Self {
         Self {
             operation_receiver,
             roots,
+            persistence,
+            last_commit: Timestamp::now(),
             pending_expiration_updates: Vec::new(),
             expiring_keys: HashMap::new(),
             expiration_order: VecDeque::new(),
@@ -271,16 +276,17 @@ impl KeyValueManager {
                 }
             };
 
-            println!("After op: {:?}", self.pending_expiration_updates);
             self.process_pending_expiration_updates();
-            println!("After processing pending: {:?}", self.expiring_keys);
             self.remove_expired_keys(Timestamp::now());
-            println!("After removing expired: {:?}", self.dirty_keys);
-            self.commit_dirty_keys().await?;
-            println!("After committing: {:?}", self.expiring_keys);
+            self.commit_dirty_keys_if_needed().await?;
 
             drop(result_sender.send(result));
         }
+
+        // We are shutting down. If we have any dirty keys, we need to commit
+        // them regardless of the current rules.
+        self.commit_dirty_keys().await?;
+
         Ok(())
     }
 
@@ -556,10 +562,20 @@ impl KeyValueManager {
             }
 
             // Check to see if we have any remaining time before a key expires
-            let timeout = self.expiring_keys.get(&self.expiration_order[0]).unwrap();
+            let expiration_timeout = self.expiring_keys.get(&self.expiration_order[0]).unwrap();
             let now = Timestamp::now();
-            let remaining_time = *timeout - now;
-            let received_update = if let Some(remaining_time) = remaining_time {
+            let duration_until_key_expires = *expiration_timeout - now;
+            let duration_until_commit = self.persistence.duration_until_next_commit(
+                self.dirty_keys.len(),
+                (now - self.last_commit).unwrap_or_default(),
+            );
+            let timeout_duration = match (duration_until_key_expires, duration_until_commit) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (Some(a), None) | (None, Some(a)) => Some(a),
+                (None, None) => None,
+            };
+
+            let received_update = if let Some(remaining_time) = timeout_duration {
                 // Allow flume to receive updates for the remaining time.
                 match tokio::time::timeout(remaining_time, self.operation_receiver.recv_async())
                     .await
@@ -577,10 +593,14 @@ impl KeyValueManager {
                 return Ok(Some(update));
             }
 
-            // Reaching this block means that we didn't receive an update to
-            // process, and we have at least one key that is ready to be
-            // removed.
-            if self.remove_expired_keys(now) {
+            // Reaching this block means that we didn't receive an update
+            // externally. This means we either need to expire some keys or
+            // commit some keys to disk.
+            if duration_until_key_expires <= duration_until_commit {
+                if self.remove_expired_keys(now) {
+                    self.commit_dirty_keys_if_needed().await?;
+                }
+            } else {
                 self.commit_dirty_keys().await?;
             }
         }
@@ -605,15 +625,29 @@ impl KeyValueManager {
         removed_at_least_one
     }
 
+    async fn commit_dirty_keys_if_needed(&mut self) -> Result<(), bonsaidb_core::Error> {
+        let since_last_commit = (Timestamp::now() - self.last_commit).unwrap_or_default();
+        if self
+            .persistence
+            .should_commit(self.dirty_keys.len(), since_last_commit)
+        {
+            self.commit_dirty_keys().await
+        } else {
+            Ok(())
+        }
+    }
+
     async fn commit_dirty_keys(&mut self) -> Result<(), bonsaidb_core::Error> {
         if self.dirty_keys.is_empty() {
             Ok(())
         } else {
             let roots = self.roots.clone();
             let keys = self.dirty_keys.drain().collect();
-            tokio::task::spawn_blocking(move || Self::persist_keys(&roots, keys))
+            let result = tokio::task::spawn_blocking(move || Self::persist_keys(&roots, keys))
                 .await
-                .unwrap()
+                .unwrap();
+            self.last_commit = Timestamp::now();
+            result
         }
     }
 
@@ -765,7 +799,7 @@ mod tests {
         let dir = TestDirectory::new(name);
         let sled = nebari::Config::new(&dir).open()?;
 
-        let context = Context::new(sled.clone());
+        let context = Context::new(sled.clone(), KeyValuePersistence::default());
 
         test_contents(context, sled).await?;
 
