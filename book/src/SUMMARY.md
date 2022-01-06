@@ -31,6 +31,7 @@
 
 # Administration
 
+- [Configuration](./administration/configuration.md)
 - [Permissions](./administration/permissions.md)
   - [Permission Statements](./administration/permission-statements.md)
   - [Users, Groups, and Roles](./administration/rbac.md)

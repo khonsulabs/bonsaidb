@@ -28,9 +28,15 @@ pub struct StorageConfiguration {
     /// one specified here.
     pub unique_id: Option<u64>,
 
-    /// The vault key storage to use. If not specified and running in debug
-    /// mode, [`LocalVaultKeyStorage`](crate::vault::LocalVaultKeyStorage) will
-    /// be used with the server's data folder as the path.
+    /// The vault key storage to use. If not specified,
+    /// [`LocalVaultKeyStorage`](crate::vault::LocalVaultKeyStorage) will be
+    /// used with the server's data folder as the path. This is **incredibly
+    /// insecure and should not be used outside of testing**.
+    ///
+    /// For secure encryption, it is important to store the vault keys in a
+    /// location that is separate from the database. If the keys are on the same
+    /// hardware as the encrypted content, anyone with access to the disk will
+    /// be able to decrypt the stored data.
     #[cfg(feature = "encryption")]
     pub vault_key_storage: Option<Box<dyn AnyVaultKeyStorage>>,
 
@@ -64,7 +70,7 @@ impl StorageConfiguration {
     }
 }
 
-/// Configujration options for background tasks.
+/// Configuration options for background tasks.
 #[derive(Debug)]
 pub struct Tasks {
     /// Defines how many workers should be spawned to process tasks. Default
