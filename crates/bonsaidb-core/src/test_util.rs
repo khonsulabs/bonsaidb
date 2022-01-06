@@ -1916,7 +1916,7 @@ macro_rules! define_kv_test_suite {
 
                 kv.delete_key("a").await?;
 
-                let timing = $crate::test_util::TimingTest::new(Duration::from_millis(500));
+                let timing = $crate::test_util::TimingTest::new(Duration::from_millis(100));
 
                 // Create a key with an expiration. Delete the key. Set a new
                 // value at that key with no expiration. Ensure it doesn't
@@ -2022,16 +2022,15 @@ impl TimingTest {
 
     pub async fn wait_until(&self, absolute_duration: Duration) -> bool {
         let target = self.start + absolute_duration;
-        let now = Instant::now();
-        if now > target {
-            let amount_past = now - target;
-
-            // Return false if we're beyond the tolerance given
-            amount_past < self.tolerance
-        } else {
+        let mut now = Instant::now();
+        if now < target {
             tokio::time::sleep_until(target.into()).await;
-            true
+            now = Instant::now();
         }
+        let amount_past = now.checked_duration_since(target);
+
+        // Return false if we're beyond the tolerance given
+        amount_past.unwrap_or_default() < self.tolerance
     }
 
     #[must_use]
