@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     convert::Infallible,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -14,8 +14,8 @@ use bonsaidb_core::{
 };
 use nebari::{
     io::fs::StdFile,
-    tree::{KeyEvaluation, Root, Unversioned},
-    AbortError, Buffer, ExecutingTransaction, Roots, TransactionTree,
+    tree::{CompareSwap, KeyEvaluation, Operation, Root, Unversioned},
+    AbortError, Buffer, Roots,
 };
 use serde::{Deserialize, Serialize};
 
@@ -544,19 +544,15 @@ impl KeyValueManager {
         Error,
     > {
         loop {
-            if self.expiration_order.is_empty() && self.dirty_keys.is_empty() {
-                match self.operation_receiver.recv_async().await {
-                    Ok(update) => return Ok(Some(update)),
-                    Err(_) => break,
-                }
-            }
-
             // Check to see if we have any remaining time before a key expires
             let now = Timestamp::now();
-            let duration_until_key_expires = self.expiration_order.get(0).and_then(|key| {
-                let expiration_timeout = self.expiring_keys.get(key).unwrap();
-                *expiration_timeout - now
-            });
+            let (has_expiring_keys, duration_until_key_expires) =
+                if let Some(key) = self.expiration_order.get(0) {
+                    let expiration_timeout = self.expiring_keys.get(key).unwrap();
+                    (true, *expiration_timeout - now)
+                } else {
+                    (false, None)
+                };
             let duration_until_commit = self.persistence.duration_until_next_commit(
                 self.dirty_keys.len(),
                 (now - self.last_commit).unwrap_or_default(),
@@ -576,7 +572,14 @@ impl KeyValueManager {
                     Ok(Err(flume::RecvError::Disconnected)) => break,
                     Err(_elapsed) => None,
                 }
+            } else if self.expiration_order.is_empty() && self.dirty_keys.is_empty() {
+                // No timeout and no pending operations, we'll wait until we receive a message.
+                match self.operation_receiver.recv_async().await {
+                    Ok(update) => return Ok(Some(update)),
+                    Err(_) => break,
+                }
             } else {
+                // No timeout and we have pending operations. Return any pending operations if we have them.
                 self.operation_receiver.try_recv().ok()
             };
 
@@ -588,7 +591,7 @@ impl KeyValueManager {
             // Reaching this block means that we didn't receive an update
             // externally. This means we either need to expire some keys or
             // commit some keys to disk.
-            if duration_until_key_expires.is_some()
+            if has_expiring_keys
                 && (duration_until_commit.is_none()
                     || duration_until_key_expires <= duration_until_commit)
             {
@@ -613,7 +616,6 @@ impl KeyValueManager {
 
             let key = self.expiration_order.pop_front().unwrap();
             self.expiring_keys.remove(&key);
-            println!("Removing expired key: {}", key);
             self.dirty_keys.insert(key, None);
         }
 
@@ -648,46 +650,46 @@ impl KeyValueManager {
 
     fn persist_keys(
         roots: &Roots<StdFile>,
-        keys: Vec<(String, Option<Buffer<'static>>)>,
+        mut keys: BTreeMap<String, Option<Buffer<'static>>>,
     ) -> Result<(), bonsaidb_core::Error> {
-        let transaction = roots
+        let mut transaction = roots
             .transaction(&[Unversioned::tree(KEY_TREE)])
             .map_err(Error::from)?;
-        let mut tx = KvTransaction {
-            transaction,
-            changed_keys: Vec::new(),
-        };
+        let all_keys = keys
+            .keys()
+            .map(|key| Buffer::from(key.as_bytes().to_vec()))
+            .collect();
+        let mut changed_keys = Vec::new();
+        transaction
+            .tree::<Unversioned>(0)
+            .unwrap()
+            .modify(
+                all_keys,
+                Operation::CompareSwap(CompareSwap::new(&mut |key, existing_value| {
+                    let full_key = std::str::from_utf8(key).unwrap();
+                    let (namespace, key) = split_key(full_key).unwrap();
 
-        for (full_key, value) in keys {
-            let (namespace, key) = split_key(&full_key).unwrap();
-            let (changed, deleted) = if let Some(value) = value {
-                tx.tree()
-                    .set(full_key.into_bytes(), value)
-                    .map_err(Error::from)?;
-                (true, false)
-            } else {
-                let removed = tx
-                    .tree()
-                    .remove(full_key.as_bytes())
-                    .map_err(Error::from)?
-                    .is_some();
-                (removed, true)
-            };
+                    if let Some(new_value) = keys.remove(full_key).unwrap() {
+                        changed_keys.push(ChangedKey {
+                            namespace,
+                            key,
+                            deleted: false,
+                        });
+                        nebari::tree::KeyOperation::Set(new_value)
+                    } else if existing_value.is_some() {
+                        changed_keys.push(ChangedKey {
+                            namespace,
+                            key,
+                            deleted: existing_value.is_some(),
+                        });
+                        nebari::tree::KeyOperation::Remove
+                    } else {
+                        nebari::tree::KeyOperation::Skip
+                    }
+                })),
+            )
+            .map_err(Error::from)?;
 
-            if changed {
-                tx.push(ChangedKey {
-                    namespace,
-                    key,
-                    deleted,
-                });
-            }
-        }
-
-        let KvTransaction {
-            mut transaction,
-            changed_keys,
-            ..
-        } = tx;
         if !changed_keys.is_empty() {
             transaction
                 .entry_mut()
@@ -697,21 +699,6 @@ impl KeyValueManager {
         }
 
         Ok(())
-    }
-}
-
-struct KvTransaction {
-    transaction: ExecutingTransaction<StdFile>,
-    changed_keys: Vec<ChangedKey>,
-}
-
-impl KvTransaction {
-    pub fn push(&mut self, key: ChangedKey) {
-        self.changed_keys.push(key);
-    }
-
-    pub fn tree(&mut self) -> &mut TransactionTree<Unversioned, StdFile> {
-        self.transaction.tree(0).unwrap()
     }
 }
 

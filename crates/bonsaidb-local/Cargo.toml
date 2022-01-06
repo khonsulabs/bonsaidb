@@ -35,7 +35,7 @@ included-from-omnibus = []
 async-trait = "0.1"
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4" }
 bonsaidb-utils = { path = "../bonsaidb-utils", version = "0.1.0-dev.4" }
-nebari = { version = "0.1.0-rc.6" }
+nebari = { version = "0.1" }
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

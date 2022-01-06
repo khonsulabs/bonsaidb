@@ -106,7 +106,8 @@ pub struct Views {
 /// ```rust
 /// # use bonsaidb_local::config::KeyValuePersistence;
 /// # use std::time::Duration;
-/// assert!(KeyValuePersistence::default().should_commit(0, Duration::ZERO));
+/// assert!(!KeyValuePersistence::default().should_commit(0, Duration::ZERO));
+/// assert!(KeyValuePersistence::default().should_commit(1, Duration::ZERO));
 /// ```
 ///
 /// ## Lazy persistence
@@ -189,28 +190,33 @@ impl KeyValuePersistence {
         number_of_changes: usize,
         elapsed_since_last_commit: Duration,
     ) -> Option<Duration> {
-        match &self.0 {
-            KeyValuePersistenceInner::Immediate => Some(Duration::ZERO),
-            KeyValuePersistenceInner::Lazy(rules) => {
-                let mut shortest_duration: Option<Duration> = None;
-                for rule in rules
-                    .iter()
-                    .take_while(|rule| rule.number_of_changes <= number_of_changes)
-                {
-                    let remaining_time = rule.duration.saturating_sub(elapsed_since_last_commit);
-                    let new_shortest = if let Some(previously_shortest_duration) = shortest_duration
+        if number_of_changes == 0 {
+            None
+        } else {
+            match &self.0 {
+                KeyValuePersistenceInner::Immediate => Some(Duration::ZERO),
+                KeyValuePersistenceInner::Lazy(rules) => {
+                    let mut shortest_duration: Option<Duration> = None;
+                    for rule in rules
+                        .iter()
+                        .take_while(|rule| rule.number_of_changes <= number_of_changes)
                     {
-                        previously_shortest_duration.min(remaining_time)
-                    } else {
-                        remaining_time
-                    };
-                    shortest_duration = Some(new_shortest);
+                        let remaining_time =
+                            rule.duration.saturating_sub(elapsed_since_last_commit);
+                        let new_shortest =
+                            if let Some(previously_shortest_duration) = shortest_duration {
+                                previously_shortest_duration.min(remaining_time)
+                            } else {
+                                remaining_time
+                            };
+                        shortest_duration = Some(new_shortest);
 
-                    if new_shortest == Duration::ZERO {
-                        break;
+                        if new_shortest == Duration::ZERO {
+                            break;
+                        }
                     }
+                    shortest_duration
                 }
-                shortest_duration
             }
         }
     }
