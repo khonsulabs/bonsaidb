@@ -38,7 +38,7 @@ use nebari::{
 #[cfg(feature = "encryption")]
 use crate::vault::TreeVault;
 use crate::{
-    config::{Builder, StorageConfiguration},
+    config::{Builder, KeyValuePersistence, StorageConfiguration},
     error::Error,
     open_trees::OpenTrees,
     storage::{AnyBackupLocation, OpenDatabase},
@@ -1222,7 +1222,10 @@ impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
 #[derive(Debug, Clone)]
 pub(crate) struct Context {
     pub(crate) roots: Roots<StdFile>,
-    kv_expirer: flume::Sender<keyvalue::ExpirationUpdate>,
+    kv_operation_sender: flume::Sender<(
+        keyvalue::ManagerOp,
+        flume::Sender<Result<Output, bonsaidb_core::Error>>,
+    )>,
 }
 
 impl Borrow<Roots<StdFile>> for Context {
@@ -1232,22 +1235,30 @@ impl Borrow<Roots<StdFile>> for Context {
 }
 
 impl Context {
-    pub(crate) fn new(roots: Roots<StdFile>) -> Self {
-        let (kv_expirer, kv_expirer_receiver) = flume::unbounded();
-        let context = Self { roots, kv_expirer };
-        tokio::task::spawn(keyvalue::expiration_task(
-            context.roots.clone(),
-            kv_expirer_receiver,
-        ));
+    pub(crate) fn new(roots: Roots<StdFile>, key_value_persistence: KeyValuePersistence) -> Self {
+        let (kv_operation_sender, kv_operation_receiver) = flume::unbounded();
+        let context = Self {
+            roots: roots.clone(),
+            kv_operation_sender,
+        };
+        tokio::task::spawn(async move {
+            keyvalue::KeyValueManager::new(kv_operation_receiver, roots, key_value_persistence)
+                .run()
+                .await
+        });
         context
     }
 
-    pub(crate) fn update_key_expiration(&self, tree_key: String, expiration: Option<Timestamp>) {
-        let (update, completion_receiver) = keyvalue::ExpirationUpdate::new(tree_key, expiration);
+    pub(crate) async fn perform_kv_operation(
+        &self,
+        op: KeyOperation,
+    ) -> Result<Output, bonsaidb_core::Error> {
+        let (result_sender, result_receiver) = flume::bounded(1);
+        self.kv_operation_sender
+            .send((keyvalue::ManagerOp::Op(op), result_sender))
+            .map_err(Error::from_send)?;
 
-        if self.kv_expirer.send(update).is_ok() {
-            let _ = completion_receiver.recv();
-        }
+        result_receiver.recv_async().await.map_err(Error::from)?
     }
 
     pub(crate) async fn update_key_expiration_async(
@@ -1255,10 +1266,14 @@ impl Context {
         tree_key: String,
         expiration: Option<Timestamp>,
     ) {
-        let (update, completion_receiver) = keyvalue::ExpirationUpdate::new(tree_key, expiration);
-
-        if self.kv_expirer.send(update).is_ok() {
-            let _ = completion_receiver.recv_async().await;
+        let update = keyvalue::ExpirationUpdate::new(tree_key, expiration);
+        let (result_sender, result_receiver) = flume::bounded(1);
+        if self
+            .kv_operation_sender
+            .send((keyvalue::ManagerOp::SetExpiration(update), result_sender))
+            .is_ok()
+        {
+            drop(result_receiver.recv_async().await);
         }
     }
 }

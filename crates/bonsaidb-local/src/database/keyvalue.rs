@@ -1,6 +1,5 @@
 use std::{
-    borrow::Borrow,
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     convert::Infallible,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -8,18 +7,19 @@ use std::{
 use async_trait::async_trait;
 use bonsaidb_core::{
     keyvalue::{
-        Command, KeyCheck, KeyOperation, KeyStatus, KeyValue, Numeric, Output, Timestamp, Value,
+        Command, KeyCheck, KeyOperation, KeyStatus, KeyValue, Numeric, Output, SetCommand,
+        Timestamp, Value,
     },
     transaction::{ChangedKey, Changes},
 };
 use nebari::{
     io::fs::StdFile,
-    tree::{KeyEvaluation, Root, Unversioned},
-    AbortError, Buffer, CompareAndSwapError, ExecutingTransaction, Roots, TransactionTree,
+    tree::{CompareSwap, KeyEvaluation, Operation, Root, Unversioned},
+    AbortError, Buffer, Roots,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{database::Context, jobs::Job, Database, Error};
+use crate::{config::KeyValuePersistence, jobs::Job, Database, Error};
 
 #[derive(Serialize, Deserialize)]
 pub struct Entry {
@@ -34,24 +34,20 @@ impl Entry {
         key: String,
         database: &Database,
     ) -> Result<(), bonsaidb_core::Error> {
-        let task_context = database.data.context.clone();
-        tokio::task::spawn_blocking(move || {
-            KvTransaction::execute(&task_context, |tx| {
-                execute_set_operation(
-                    namespace,
-                    key,
-                    self.value,
-                    self.expiration,
-                    false,
-                    None,
-                    false,
-                    tx,
-                )
+        database
+            .execute_key_operation(KeyOperation {
+                namespace,
+                key,
+                command: Command::Set(SetCommand {
+                    value: self.value,
+                    expiration: self.expiration,
+                    keep_existing_expiration: false,
+                    check: None,
+                    return_previous_value: false,
+                }),
             })
-        })
-        .await
-        .unwrap()
-        .map(|_| {})
+            .await?;
+        Ok(())
     }
 }
 
@@ -61,45 +57,7 @@ impl KeyValue for Database {
         &self,
         op: KeyOperation,
     ) -> Result<Output, bonsaidb_core::Error> {
-        let task_context = self.data.context.clone();
-        tokio::task::spawn_blocking(move || match op.command {
-            Command::Set {
-                value,
-                expiration,
-                keep_existing_expiration,
-                check,
-                return_previous_value,
-            } => KvTransaction::execute(&task_context, |tx| {
-                execute_set_operation(
-                    op.namespace,
-                    op.key,
-                    value,
-                    expiration,
-                    keep_existing_expiration,
-                    check,
-                    return_previous_value,
-                    tx,
-                )
-            }),
-            Command::Get { delete } => {
-                execute_get_operation(op.namespace, op.key, delete, &task_context)
-            }
-            Command::Delete => KvTransaction::execute(&task_context, |tx| {
-                execute_delete_operation(op.namespace, op.key, tx)
-            }),
-            Command::Increment { amount, saturating } => {
-                KvTransaction::execute(&task_context, |tx| {
-                    execute_increment_operation(op.namespace, op.key, tx, &amount, saturating)
-                })
-            }
-            Command::Decrement { amount, saturating } => {
-                KvTransaction::execute(&task_context, |tx| {
-                    execute_decrement_operation(op.namespace, op.key, tx, &amount, saturating)
-                })
-            }
-        })
-        .await
-        .unwrap()
+        self.data.context.perform_kv_operation(op).await
     }
 }
 
@@ -163,204 +121,6 @@ fn split_key(full_key: &str) -> Option<(Option<String>, String)> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn execute_set_operation(
-    namespace: Option<String>,
-    key: String,
-    value: Value,
-    expiration: Option<Timestamp>,
-    keep_existing_expiration: bool,
-    check: Option<KeyCheck>,
-    return_previous_value: bool,
-    tx: &mut KvTransaction<'_, Context>,
-) -> Result<Output, bonsaidb_core::Error> {
-    let mut entry = Entry { value, expiration };
-    let mut inserted = false;
-    let mut updated = false;
-    let full_key = full_key(namespace.as_deref(), &key);
-    let previous_value = fetch_and_update_no_copy(tx, namespace, key, |existing_value| {
-        let should_update = match check {
-            Some(KeyCheck::OnlyIfPresent) => existing_value.is_some(),
-            Some(KeyCheck::OnlyIfVacant) => existing_value.is_none(),
-            None => true,
-        };
-        if should_update {
-            updated = true;
-            inserted = existing_value.is_none();
-            if keep_existing_expiration && !inserted {
-                if let Ok(previous_entry) = bincode::deserialize::<Entry>(&existing_value.unwrap())
-                {
-                    entry.expiration = previous_entry.expiration;
-                }
-            }
-            let entry_vec = bincode::serialize(&entry).unwrap();
-            Some(Buffer::from(entry_vec))
-        } else {
-            existing_value
-        }
-    })
-    .map_err(Error::from)?;
-
-    if updated {
-        tx.context.update_key_expiration(full_key, entry.expiration);
-        if return_previous_value {
-            if let Some(Ok(entry)) = previous_value.map(|v| bincode::deserialize::<Entry>(&v)) {
-                Ok(Output::Value(Some(entry.value)))
-            } else {
-                Ok(Output::Value(None))
-            }
-        } else if inserted {
-            Ok(Output::Status(KeyStatus::Inserted))
-        } else {
-            Ok(Output::Status(KeyStatus::Updated))
-        }
-    } else {
-        Ok(Output::Status(KeyStatus::NotChanged))
-    }
-}
-
-fn execute_get_operation(
-    namespace: Option<String>,
-    key: String,
-    delete: bool,
-    db: &Context,
-) -> Result<Output, bonsaidb_core::Error> {
-    let tree = db
-        .roots
-        .tree(Unversioned::tree(KEY_TREE))
-        .map_err(Error::from)?;
-    let full_key = full_key(namespace.as_deref(), &key);
-    let entry = if delete {
-        let entry = KvTransaction::execute(db, |tx| {
-            if let Some(removed_entry) =
-                tx.tree().remove(full_key.as_bytes()).map_err(Error::from)?
-            {
-                tx.push(ChangedKey {
-                    namespace,
-                    key,
-                    deleted: true,
-                });
-                Ok(Some(removed_entry))
-            } else {
-                Ok(None)
-            }
-        })?;
-        if entry.is_some() {
-            db.update_key_expiration(full_key, None);
-        }
-        entry
-    } else {
-        tree.get(full_key.as_bytes()).map_err(Error::from)?
-    };
-
-    let entry = entry
-        .map(|e| bincode::deserialize::<Entry>(&e))
-        .transpose()
-        .map_err(Error::from)
-        .unwrap()
-        .map(|e| e.value);
-    Ok(Output::Value(entry))
-}
-
-fn execute_delete_operation(
-    namespace: Option<String>,
-    key: String,
-    tx: &mut KvTransaction<'_, Context>,
-) -> Result<Output, bonsaidb_core::Error> {
-    let full_key = full_key(namespace.as_deref(), &key);
-    let value = tx.tree().remove(full_key.as_bytes()).map_err(Error::from)?;
-    if value.is_some() {
-        tx.push(ChangedKey {
-            namespace,
-            key,
-            deleted: true,
-        });
-        tx.context.update_key_expiration(full_key, None);
-
-        Ok(Output::Status(KeyStatus::Deleted))
-    } else {
-        Ok(Output::Status(KeyStatus::NotChanged))
-    }
-}
-
-fn execute_increment_operation(
-    namespace: Option<String>,
-    key: String,
-    tx: &mut KvTransaction<'_, Context>,
-    amount: &Numeric,
-    saturating: bool,
-) -> Result<Output, bonsaidb_core::Error> {
-    execute_numeric_operation(namespace, key, tx, amount, saturating, increment)
-}
-
-fn execute_decrement_operation(
-    namespace: Option<String>,
-    key: String,
-    tx: &mut KvTransaction<'_, Context>,
-    amount: &Numeric,
-    saturating: bool,
-) -> Result<Output, bonsaidb_core::Error> {
-    execute_numeric_operation(namespace, key, tx, amount, saturating, decrement)
-}
-
-fn execute_numeric_operation<F: Fn(&Numeric, &Numeric, bool) -> Numeric>(
-    namespace: Option<String>,
-    key: String,
-    tx: &mut KvTransaction<'_, Context>,
-    amount: &Numeric,
-    saturating: bool,
-    op: F,
-) -> Result<Output, bonsaidb_core::Error> {
-    let full_key = full_key(namespace.as_deref(), &key);
-    let mut current = tx.tree().get(full_key.as_bytes()).map_err(Error::from)?;
-    loop {
-        let mut entry = current
-            .as_ref()
-            .map(|current| bincode::deserialize::<Entry>(current))
-            .transpose()
-            .map_err(Error::from)?
-            .unwrap_or(Entry {
-                value: Value::Numeric(Numeric::UnsignedInteger(0)),
-                expiration: None,
-            });
-
-        match entry.value {
-            Value::Numeric(existing) => {
-                let value = Value::Numeric(op(&existing, amount, saturating));
-                entry.value = value.clone();
-
-                let result_bytes = Buffer::from(bincode::serialize(&entry).unwrap());
-                match tx.tree().compare_and_swap(
-                    full_key.as_bytes(),
-                    current.as_ref(),
-                    Some(result_bytes),
-                ) {
-                    Ok(_) => {
-                        tx.push(ChangedKey {
-                            namespace,
-                            key,
-                            deleted: false,
-                        });
-                        return Ok(Output::Value(Some(value)));
-                    }
-                    Err(CompareAndSwapError::Conflict(cur)) => {
-                        current = cur;
-                    }
-                    Err(CompareAndSwapError::Error(other)) => {
-                        // TODO should roots errors be able to be put in core?
-                        return Err(bonsaidb_core::Error::Database(other.to_string()));
-                    }
-                }
-            }
-            Value::Bytes(_) => {
-                return Err(bonsaidb_core::Error::Database(String::from(
-                    "type of stored `Value` is not `Numeric`",
-                )))
-            }
-        }
-    }
-}
-
 fn increment(existing: &Numeric, amount: &Numeric, saturating: bool) -> Numeric {
     match amount {
         Numeric::Integer(amount) => {
@@ -417,148 +177,348 @@ fn decrement(existing: &Numeric, amount: &Numeric, saturating: bool) -> Numeric 
     }
 }
 
-fn fetch_and_update_no_copy<F>(
-    tx: &mut KvTransaction<'_, Context>,
-    namespace: Option<String>,
-    key: String,
-    mut f: F,
-) -> Result<Option<Buffer<'static>>, nebari::Error>
-where
-    F: FnMut(Option<Buffer<'static>>) -> Option<Buffer<'static>>,
-{
-    let full_key = full_key(namespace.as_deref(), &key);
-    let mut current = tx.tree().get(full_key.as_bytes())?;
+#[derive(Debug)]
+pub struct ExpirationUpdate {
+    pub tree_key: String,
+    pub expiration: Option<Timestamp>,
+}
 
-    loop {
-        let next = f(current.clone());
-        match tx
-            .tree()
-            .compare_and_swap(full_key.as_bytes(), current.as_ref(), next)
-        {
-            Ok(()) => {
-                tx.push(ChangedKey {
-                    namespace,
-                    key,
-                    deleted: false,
-                });
-                return Ok(current);
-            }
-            Err(CompareAndSwapError::Conflict(cur)) => {
-                current = cur;
-            }
-            Err(CompareAndSwapError::Error(other)) => return Err(other),
+impl ExpirationUpdate {
+    pub fn new(tree_key: String, expiration: Option<Timestamp>) -> Self {
+        Self {
+            tree_key,
+            expiration,
         }
     }
 }
 
 #[derive(Debug)]
-pub struct ExpirationUpdate {
-    pub tree_key: String,
-    pub expiration: Option<Timestamp>,
-    completion_sender: flume::Sender<()>,
-}
-
-impl ExpirationUpdate {
-    pub fn new(tree_key: String, expiration: Option<Timestamp>) -> (Self, flume::Receiver<()>) {
-        let (completion_sender, completion_receiver) = flume::bounded(1);
-        (
-            Self {
-                tree_key,
-                expiration,
-                completion_sender,
-            },
-            completion_receiver,
-        )
-    }
-}
-
-impl Drop for ExpirationUpdate {
-    fn drop(&mut self) {
-        let _ = self.completion_sender.send(());
-    }
-}
-
-async fn remove_expired_keys(
-    roots: &Roots<StdFile>,
-    now: Timestamp,
-    tracked_keys: &mut HashMap<String, Timestamp>,
-    expiration_order: &mut VecDeque<String>,
-) -> Result<(), Error> {
-    let mut keys_to_remove = Vec::new();
-    while !expiration_order.is_empty() && tracked_keys.get(&expiration_order[0]).unwrap() <= &now {
-        let key = expiration_order.pop_front().unwrap();
-        tracked_keys.remove(&key);
-        keys_to_remove.push(key);
-    }
-    let task_roots = roots.clone();
-    tokio::task::spawn_blocking(move || {
-        KvTransaction::execute(&task_roots, |tx| {
-            for full_key in keys_to_remove {
-                if let Some((namespace, key)) = split_key(&full_key) {
-                    tx.tree().remove(full_key.as_bytes()).map_err(Error::from)?;
-
-                    tx.push(ChangedKey {
-                        namespace,
-                        key,
-                        deleted: true,
-                    });
-                }
-            }
-            Ok(())
-        })?;
-
-        Result::<(), Error>::Ok(())
-    })
-    .await
-    .unwrap()?;
-    Ok(())
-}
-
-pub(crate) async fn expiration_task(
+pub(super) struct KeyValueManager {
+    operation_receiver: flume::Receiver<(
+        ManagerOp,
+        flume::Sender<Result<Output, bonsaidb_core::Error>>,
+    )>,
+    persistence: KeyValuePersistence,
+    last_commit: Timestamp,
     roots: Roots<StdFile>,
-    updates: flume::Receiver<ExpirationUpdate>,
-) -> Result<(), Error> {
-    // expiring_keys will be maintained such that the soonest expiration is at the front and furthest in the future is at the back
-    let mut tracked_keys = HashMap::new();
-    let mut expiration_order = VecDeque::new();
-    loop {
-        let update = if expiration_order.is_empty() {
-            match updates.recv_async().await {
-                Ok(update) => update,
-                Err(_) => break,
-            }
-        } else {
-            // Check to see if we have any remaining time before a key expires
-            let timeout = tracked_keys.get(&expiration_order[0]).unwrap();
-            let now = Timestamp::now();
-            let remaining_time = *timeout - now;
-            let received_update = if let Some(remaining_time) = remaining_time {
-                // Allow flume to receive updates for the remaining time.
-                match tokio::time::timeout(remaining_time, updates.recv_async()).await {
-                    Ok(Ok(update)) => Some(update),
-                    Ok(Err(flume::RecvError::Disconnected)) => break,
-                    Err(_elapsed) => None,
+    pending_expiration_updates: Vec<ExpirationUpdate>,
+    expiring_keys: HashMap<String, Timestamp>,
+    expiration_order: VecDeque<String>,
+    dirty_keys: HashMap<String, Option<Buffer<'static>>>,
+}
+
+#[derive(Debug)]
+pub(super) enum ManagerOp {
+    Op(KeyOperation),
+    SetExpiration(ExpirationUpdate),
+}
+
+impl KeyValueManager {
+    pub fn new(
+        operation_receiver: flume::Receiver<(
+            ManagerOp,
+            flume::Sender<Result<Output, bonsaidb_core::Error>>,
+        )>,
+        roots: Roots<StdFile>,
+        persistence: KeyValuePersistence,
+    ) -> Self {
+        Self {
+            operation_receiver,
+            roots,
+            persistence,
+            last_commit: Timestamp::now(),
+            pending_expiration_updates: Vec::new(),
+            expiring_keys: HashMap::new(),
+            expiration_order: VecDeque::new(),
+            dirty_keys: HashMap::new(),
+        }
+    }
+
+    pub async fn run(&mut self) -> Result<(), Error> {
+        while let Some((op, result_sender)) = self.wait_for_next_operation().await? {
+            let result = match op {
+                ManagerOp::Op(op) => match op.command {
+                    Command::Set(command) => {
+                        self.execute_set_operation(op.namespace.as_deref(), &op.key, command)
+                    }
+                    Command::Get { delete } => {
+                        self.execute_get_operation(op.namespace.as_deref(), &op.key, delete)
+                    }
+                    Command::Delete => {
+                        self.execute_delete_operation(op.namespace.as_deref(), &op.key)
+                    }
+                    Command::Increment { amount, saturating } => self.execute_increment_operation(
+                        op.namespace.as_deref(),
+                        &op.key,
+                        &amount,
+                        saturating,
+                    ),
+                    Command::Decrement { amount, saturating } => self.execute_decrement_operation(
+                        op.namespace.as_deref(),
+                        &op.key,
+                        &amount,
+                        saturating,
+                    ),
+                },
+                ManagerOp::SetExpiration(expiration) => {
+                    self.pending_expiration_updates.push(expiration);
+                    Ok(Output::Status(KeyStatus::Updated))
                 }
-            } else {
-                updates.try_recv().ok()
             };
 
-            // If we've received an update, we bubble it up to process
-            if let Some(update) = received_update {
-                update
+            self.process_pending_expiration_updates();
+            self.remove_expired_keys(Timestamp::now());
+            self.commit_dirty_keys_if_needed().await?;
+
+            drop(result_sender.send(result));
+        }
+
+        // We are shutting down. If we have any dirty keys, we need to commit
+        // them regardless of the current rules.
+        self.commit_dirty_keys().await?;
+
+        Ok(())
+    }
+
+    fn execute_set_operation(
+        &mut self,
+        namespace: Option<&str>,
+        key: &str,
+        set: SetCommand,
+    ) -> Result<Output, bonsaidb_core::Error> {
+        let mut entry = Entry {
+            value: set.value,
+            expiration: set.expiration,
+        };
+        let mut inserted = false;
+        let mut updated = false;
+        let full_key = full_key(namespace, key);
+        let previous_value = self
+            .fetch_and_update_no_copy(&full_key, |existing_value| {
+                let should_update = match set.check {
+                    Some(KeyCheck::OnlyIfPresent) => existing_value.is_some(),
+                    Some(KeyCheck::OnlyIfVacant) => existing_value.is_none(),
+                    None => true,
+                };
+                if should_update {
+                    updated = true;
+                    inserted = existing_value.is_none();
+                    if set.keep_existing_expiration && !inserted {
+                        if let Ok(previous_entry) =
+                            bincode::deserialize::<Entry>(&existing_value.unwrap())
+                        {
+                            entry.expiration = previous_entry.expiration;
+                        }
+                    }
+                    let entry_vec = bincode::serialize(&entry).unwrap();
+                    Some(Buffer::from(entry_vec))
+                } else {
+                    existing_value
+                }
+            })
+            .map_err(Error::from)?;
+
+        if updated {
+            self.update_key_expiration(full_key, entry.expiration);
+            if set.return_previous_value {
+                if let Some(Ok(entry)) = previous_value.map(|v| bincode::deserialize::<Entry>(&v)) {
+                    Ok(Output::Value(Some(entry.value)))
+                } else {
+                    Ok(Output::Value(None))
+                }
+            } else if inserted {
+                Ok(Output::Status(KeyStatus::Inserted))
             } else {
-                // Reaching this block means that we didn't receive an update to
-                // process, and we have at least one key that is ready to be
-                // removed.
-                remove_expired_keys(&roots, now, &mut tracked_keys, &mut expiration_order).await?;
-                continue;
+                Ok(Output::Status(KeyStatus::Updated))
             }
+        } else {
+            Ok(Output::Status(KeyStatus::NotChanged))
+        }
+    }
+
+    fn update_key_expiration(&mut self, key: String, expiration: Option<Timestamp>) {
+        let update = ExpirationUpdate::new(key, expiration);
+        self.pending_expiration_updates.push(update);
+    }
+
+    fn execute_get_operation(
+        &mut self,
+        namespace: Option<&str>,
+        key: &str,
+        delete: bool,
+    ) -> Result<Output, bonsaidb_core::Error> {
+        let full_key = full_key(namespace, key);
+        let entry = if delete {
+            self.remove(full_key).map_err(Error::from)?
+        } else {
+            self.get(&full_key).map_err(Error::from)?
         };
 
-        if let Some(expiration) = update.expiration {
-            let key = if tracked_keys.contains_key(&update.tree_key) {
-                // Update the existing entry.
-                let existing_entry_index = expiration_order
+        let entry = entry
+            .map(|e| bincode::deserialize::<Entry>(&e))
+            .transpose()
+            .map_err(Error::from)
+            .unwrap()
+            .map(|e| e.value);
+        Ok(Output::Value(entry))
+    }
+
+    fn execute_delete_operation(
+        &mut self,
+        namespace: Option<&str>,
+        key: &str,
+    ) -> Result<Output, bonsaidb_core::Error> {
+        let full_key = full_key(namespace, key);
+        let value = self.remove(full_key).map_err(Error::from)?;
+        if value.is_some() {
+            Ok(Output::Status(KeyStatus::Deleted))
+        } else {
+            Ok(Output::Status(KeyStatus::NotChanged))
+        }
+    }
+
+    fn execute_increment_operation(
+        &mut self,
+        namespace: Option<&str>,
+        key: &str,
+        amount: &Numeric,
+        saturating: bool,
+    ) -> Result<Output, bonsaidb_core::Error> {
+        self.execute_numeric_operation(namespace, key, amount, saturating, increment)
+    }
+
+    fn execute_decrement_operation(
+        &mut self,
+        namespace: Option<&str>,
+        key: &str,
+        amount: &Numeric,
+        saturating: bool,
+    ) -> Result<Output, bonsaidb_core::Error> {
+        self.execute_numeric_operation(namespace, key, amount, saturating, decrement)
+    }
+
+    fn execute_numeric_operation<F: Fn(&Numeric, &Numeric, bool) -> Numeric>(
+        &mut self,
+        namespace: Option<&str>,
+        key: &str,
+        amount: &Numeric,
+        saturating: bool,
+        op: F,
+    ) -> Result<Output, bonsaidb_core::Error> {
+        let full_key = full_key(namespace, key);
+        let current = self.get(&full_key).map_err(Error::from)?;
+        let mut entry = current
+            .as_ref()
+            .map(|current| bincode::deserialize::<Entry>(current))
+            .transpose()
+            .map_err(Error::from)?
+            .unwrap_or(Entry {
+                value: Value::Numeric(Numeric::UnsignedInteger(0)),
+                expiration: None,
+            });
+
+        match entry.value {
+            Value::Numeric(existing) => {
+                let value = Value::Numeric(op(&existing, amount, saturating));
+                entry.value = value.clone();
+
+                let result_bytes = Buffer::from(bincode::serialize(&entry).unwrap());
+                self.set(full_key, result_bytes);
+                Ok(Output::Value(Some(value)))
+            }
+            Value::Bytes(_) => Err(bonsaidb_core::Error::Database(String::from(
+                "type of stored `Value` is not `Numeric`",
+            ))),
+        }
+    }
+
+    fn fetch_and_update_no_copy<F>(
+        &mut self,
+        full_key: &str,
+        mut f: F,
+    ) -> Result<Option<Buffer<'static>>, nebari::Error>
+    where
+        F: FnMut(Option<Buffer<'static>>) -> Option<Buffer<'static>>,
+    {
+        let current = self.get(full_key)?;
+        let next = f(current.clone());
+        if let Some(entry) = self.dirty_keys.get_mut(full_key) {
+            *entry = next;
+        } else {
+            self.dirty_keys.insert(full_key.to_string(), next);
+        }
+        Ok(current)
+    }
+
+    fn remove(&mut self, key: String) -> Result<Option<Buffer<'static>>, nebari::Error> {
+        self.update_key_expiration(key.clone(), None);
+
+        if let Some(dirty_entry) = self.dirty_keys.get_mut(&key) {
+            Ok(dirty_entry.take())
+        } else {
+            // There might be a value on-disk we need to remove.
+            let previous_value = self
+                .roots
+                .tree(Unversioned::tree(KEY_TREE))?
+                .get(key.as_bytes())?;
+            self.dirty_keys.insert(key, None);
+            Ok(previous_value)
+        }
+    }
+
+    fn get(&self, key: &str) -> Result<Option<Buffer<'static>>, nebari::Error> {
+        if let Some(entry) = self.dirty_keys.get(key) {
+            Ok(entry.clone())
+        } else {
+            self.roots
+                .tree(Unversioned::tree(KEY_TREE))?
+                .get(key.as_bytes())
+        }
+    }
+
+    fn set(&mut self, key: String, value: Buffer<'static>) {
+        self.dirty_keys.insert(key, Some(value));
+    }
+
+    fn process_pending_expiration_updates(&mut self) {
+        for update in self.pending_expiration_updates.drain(..) {
+            if let Some(expiration) = update.expiration {
+                let key = if self.expiring_keys.contains_key(&update.tree_key) {
+                    // Update the existing entry.
+                    let existing_entry_index = self
+                        .expiration_order
+                        .iter()
+                        .enumerate()
+                        .find_map(|(index, key)| {
+                            if &update.tree_key == key {
+                                Some(index)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap();
+                    self.expiration_order.remove(existing_entry_index).unwrap()
+                } else {
+                    update.tree_key.clone()
+                };
+
+                // Insert the key into the expiration_order queue
+                let mut insert_at = None;
+                for (index, expiring_key) in self.expiration_order.iter().enumerate() {
+                    if self.expiring_keys.get(expiring_key).unwrap() > &expiration {
+                        insert_at = Some(index);
+                        break;
+                    }
+                }
+                if let Some(insert_at) = insert_at {
+                    self.expiration_order.insert(insert_at, key.clone());
+                } else {
+                    self.expiration_order.push_back(key.clone());
+                }
+                self.expiring_keys.insert(key, expiration);
+            } else if self.expiring_keys.remove(&update.tree_key).is_some() {
+                let index = self
+                    .expiration_order
                     .iter()
                     .enumerate()
                     .find_map(|(index, key)| {
@@ -569,94 +529,234 @@ pub(crate) async fn expiration_task(
                         }
                     })
                     .unwrap();
-                expiration_order.remove(existing_entry_index).unwrap()
-            } else {
-                update.tree_key.clone()
+                self.expiration_order.remove(index);
+            }
+        }
+    }
+
+    async fn wait_for_next_operation(
+        &mut self,
+    ) -> Result<
+        Option<(
+            ManagerOp,
+            flume::Sender<Result<Output, bonsaidb_core::Error>>,
+        )>,
+        Error,
+    > {
+        loop {
+            // Check to see if we have any remaining time before a key expires
+            let now = Timestamp::now();
+            let (has_expiring_keys, duration_until_key_expires) =
+                if let Some(key) = self.expiration_order.get(0) {
+                    let expiration_timeout = self.expiring_keys.get(key).unwrap();
+                    (true, *expiration_timeout - now)
+                } else {
+                    (false, None)
+                };
+            let duration_until_commit = self.persistence.duration_until_next_commit(
+                self.dirty_keys.len(),
+                (now - self.last_commit).unwrap_or_default(),
+            );
+            let timeout_duration = match (duration_until_key_expires, duration_until_commit) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (Some(a), None) | (None, Some(a)) => Some(a),
+                (None, None) => None,
             };
 
-            // Insert the key into the expiration_order queue
-            let mut insert_at = None;
-            for (index, expiring_key) in expiration_order.iter().enumerate() {
-                if tracked_keys.get(expiring_key).unwrap() > &expiration {
-                    insert_at = Some(index);
-                    break;
+            let received_update = if let Some(remaining_time) = timeout_duration {
+                // Allow flume to receive updates for the remaining time.
+                match tokio::time::timeout(remaining_time, self.operation_receiver.recv_async())
+                    .await
+                {
+                    Ok(Ok(update)) => Some(update),
+                    Ok(Err(flume::RecvError::Disconnected)) => break,
+                    Err(_elapsed) => None,
                 }
-            }
-            if let Some(insert_at) = insert_at {
-                expiration_order.insert(insert_at, key.clone());
+            } else if self.expiration_order.is_empty() && self.dirty_keys.is_empty() {
+                // No timeout and no pending operations, we'll wait until we receive a message.
+                match self.operation_receiver.recv_async().await {
+                    Ok(update) => return Ok(Some(update)),
+                    Err(_) => break,
+                }
             } else {
-                expiration_order.push_back(key.clone());
+                // No timeout and we have pending operations. Return any pending operations if we have them.
+                self.operation_receiver.try_recv().ok()
+            };
+
+            // If we've received an update, we bubble it up to process
+            if let Some(update) = received_update {
+                return Ok(Some(update));
             }
-            tracked_keys.insert(key, expiration);
-        } else if tracked_keys.remove(&update.tree_key).is_some() {
-            let index = expiration_order
-                .iter()
-                .enumerate()
-                .find_map(|(index, key)| {
-                    if &update.tree_key == key {
-                        Some(index)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap();
-            expiration_order.remove(index);
+
+            // Reaching this block means that we didn't receive an update
+            // externally. This means we either need to expire some keys or
+            // commit some keys to disk.
+            if has_expiring_keys
+                && (duration_until_commit.is_none()
+                    || duration_until_key_expires <= duration_until_commit)
+            {
+                if self.remove_expired_keys(now) {
+                    self.commit_dirty_keys_if_needed().await?;
+                }
+            } else {
+                self.commit_dirty_keys().await?;
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn remove_expired_keys(&mut self, now: Timestamp) -> bool {
+        let mut removed_at_least_one = false;
+
+        while !self.expiration_order.is_empty()
+            && self.expiring_keys.get(&self.expiration_order[0]).unwrap() <= &now
+        {
+            removed_at_least_one = true;
+
+            let key = self.expiration_order.pop_front().unwrap();
+            self.expiring_keys.remove(&key);
+            self.dirty_keys.insert(key, None);
+        }
+
+        removed_at_least_one
+    }
+
+    async fn commit_dirty_keys_if_needed(&mut self) -> Result<(), bonsaidb_core::Error> {
+        let since_last_commit = (Timestamp::now() - self.last_commit).unwrap_or_default();
+        if self
+            .persistence
+            .should_commit(self.dirty_keys.len(), since_last_commit)
+        {
+            self.commit_dirty_keys().await
+        } else {
+            Ok(())
         }
     }
 
-    Ok(())
-}
+    async fn commit_dirty_keys(&mut self) -> Result<(), bonsaidb_core::Error> {
+        if self.dirty_keys.is_empty() {
+            Ok(())
+        } else {
+            let roots = self.roots.clone();
+            let keys = self.dirty_keys.drain().collect();
+            let result = tokio::task::spawn_blocking(move || Self::persist_keys(&roots, keys))
+                .await
+                .unwrap();
+            self.last_commit = Timestamp::now();
+            result
+        }
+    }
 
-struct KvTransaction<'context, C> {
-    context: &'context C,
-    transaction: ExecutingTransaction<StdFile>,
-    changed_keys: Vec<ChangedKey>,
-}
-
-impl<'context, C> KvTransaction<'context, C>
-where
-    C: Borrow<Roots<StdFile>>,
-{
-    pub fn execute<T, F: FnOnce(&mut Self) -> Result<T, bonsaidb_core::Error>>(
-        context: &'context C,
-        tx_body: F,
-    ) -> Result<T, bonsaidb_core::Error> {
-        let transaction = context
-            .borrow()
+    fn persist_keys(
+        roots: &Roots<StdFile>,
+        mut keys: BTreeMap<String, Option<Buffer<'static>>>,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let mut transaction = roots
             .transaction(&[Unversioned::tree(KEY_TREE)])
             .map_err(Error::from)?;
-        let mut tx = Self {
-            context,
-            transaction,
-            changed_keys: Vec::new(),
-        };
+        let all_keys = keys
+            .keys()
+            .map(|key| Buffer::from(key.as_bytes().to_vec()))
+            .collect();
+        let mut changed_keys = Vec::new();
+        transaction
+            .tree::<Unversioned>(0)
+            .unwrap()
+            .modify(
+                all_keys,
+                Operation::CompareSwap(CompareSwap::new(&mut |key, existing_value| {
+                    let full_key = std::str::from_utf8(key).unwrap();
+                    let (namespace, key) = split_key(full_key).unwrap();
 
-        match tx_body(&mut tx) {
-            Ok(result) => {
-                let Self {
-                    mut transaction,
-                    changed_keys,
-                    ..
-                } = tx;
-                if !changed_keys.is_empty() {
-                    transaction
-                        .entry_mut()
-                        .set_data(pot::to_vec(&Changes::Keys(changed_keys))?)
-                        .map_err(Error::from)?;
-                    transaction.commit().map_err(Error::from)?;
-                }
-                Ok(result)
-            }
-            Err(err) => Err(bonsaidb_core::Error::from(Error::from(err))),
+                    if let Some(new_value) = keys.remove(full_key).unwrap() {
+                        changed_keys.push(ChangedKey {
+                            namespace,
+                            key,
+                            deleted: false,
+                        });
+                        nebari::tree::KeyOperation::Set(new_value)
+                    } else if existing_value.is_some() {
+                        changed_keys.push(ChangedKey {
+                            namespace,
+                            key,
+                            deleted: existing_value.is_some(),
+                        });
+                        nebari::tree::KeyOperation::Remove
+                    } else {
+                        nebari::tree::KeyOperation::Skip
+                    }
+                })),
+            )
+            .map_err(Error::from)?;
+
+        if !changed_keys.is_empty() {
+            transaction
+                .entry_mut()
+                .set_data(pot::to_vec(&Changes::Keys(changed_keys))?)
+                .map_err(Error::from)?;
+            transaction.commit().map_err(Error::from)?;
         }
-    }
 
-    pub fn push(&mut self, key: ChangedKey) {
-        self.changed_keys.push(key);
+        Ok(())
     }
+}
 
-    pub fn tree(&mut self) -> &mut TransactionTree<Unversioned, StdFile> {
-        self.transaction.tree(0).unwrap()
+#[derive(Debug)]
+pub struct ExpirationLoader {
+    pub database: Database,
+}
+
+#[async_trait]
+impl Job for ExpirationLoader {
+    type Output = ();
+    type Error = Error;
+
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
+        let database = self.database.clone();
+        let (sender, receiver) = flume::unbounded();
+
+        tokio::task::spawn_blocking(move || {
+            // Find all trees that start with <database>.kv.
+            let keep_scanning = AtomicBool::new(true);
+            database
+                .roots()
+                .tree(Unversioned::tree(KEY_TREE))?
+                .scan::<Infallible, _, _, _, _>(
+                    ..,
+                    true,
+                    |_, _, _| true,
+                    |_, _| {
+                        if keep_scanning.load(Ordering::SeqCst) {
+                            KeyEvaluation::ReadData
+                        } else {
+                            KeyEvaluation::Stop
+                        }
+                    },
+                    |key, _, entry: Buffer<'static>| {
+                        if let Ok(entry) = bincode::deserialize::<Entry>(&entry) {
+                            if entry.expiration.is_some()
+                                && sender.send((key, entry.expiration)).is_err()
+                            {
+                                keep_scanning.store(false, Ordering::SeqCst);
+                            }
+                        }
+
+                        Ok(())
+                    },
+                )?;
+
+            Result::<(), Error>::Ok(())
+        });
+
+        while let Ok((key, expiration)) = receiver.recv_async().await {
+            self.database
+                .update_key_expiration_async(String::from_utf8(key.to_vec())?, expiration)
+                .await;
+        }
+
+        Ok(())
     }
 }
 
@@ -669,23 +769,34 @@ mod tests {
     use nebari::io::fs::StdFile;
 
     use super::*;
-    use crate::database::Context;
+    use crate::{config::PersistenceThreshold, database::Context};
+
+    async fn run_test_with_persistence<
+        F: Fn(Context, nebari::Roots<StdFile>) -> R + Send,
+        R: Future<Output = anyhow::Result<()>> + Send,
+    >(
+        name: &str,
+        persistence: KeyValuePersistence,
+        test_contents: &F,
+    ) -> anyhow::Result<()> {
+        let dir = TestDirectory::new(name);
+        let sled = nebari::Config::new(&dir).open()?;
+
+        let context = Context::new(sled.clone(), persistence);
+
+        test_contents(context, sled).await?;
+
+        Ok(())
+    }
 
     async fn run_test<
-        F: FnOnce(Context, nebari::Roots<StdFile>) -> R + Send,
+        F: Fn(Context, nebari::Roots<StdFile>) -> R + Send,
         R: Future<Output = anyhow::Result<()>> + Send,
     >(
         name: &str,
         test_contents: F,
     ) -> anyhow::Result<()> {
-        let dir = TestDirectory::new(name);
-        let sled = nebari::Config::new(&dir).open()?;
-
-        let context = Context::new(sled.clone());
-
-        test_contents(context, sled).await?;
-
-        Ok(())
+        run_test_with_persistence(name, KeyValuePersistence::default(), &test_contents).await
     }
 
     #[tokio::test]
@@ -862,62 +973,82 @@ mod tests {
         })
         .await
     }
-}
 
-#[derive(Debug)]
-pub struct ExpirationLoader {
-    pub database: Database,
-}
+    #[tokio::test]
+    async fn basic_persistence() -> anyhow::Result<()> {
+        run_test_with_persistence(
+            "kv-basic-persistence]",
+            KeyValuePersistence::lazy([
+                PersistenceThreshold::after_changes(2),
+                PersistenceThreshold::after_changes(1).and_duration(Duration::from_secs(2)),
+            ]),
+            &|sender, sled| async move {
+                loop {
+                    let timing = TimingTest::new(Duration::from_millis(100));
+                    let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
+                    // Set three keys in quick succession. The first two should
+                    // persist immediately, and the third should show up after 2
+                    // seconds.
+                    sender
+                        .perform_kv_operation(KeyOperation {
+                            namespace: None,
+                            key: String::from("key1"),
+                            command: Command::Set(SetCommand {
+                                value: Value::Bytes(Vec::new()),
+                                expiration: None,
+                                keep_existing_expiration: false,
+                                check: None,
+                                return_previous_value: false,
+                            }),
+                        })
+                        .await
+                        .unwrap();
+                    sender
+                        .perform_kv_operation(KeyOperation {
+                            namespace: None,
+                            key: String::from("key2"),
+                            command: Command::Set(SetCommand {
+                                value: Value::Bytes(Vec::new()),
+                                expiration: None,
+                                keep_existing_expiration: false,
+                                check: None,
+                                return_previous_value: false,
+                            }),
+                        })
+                        .await
+                        .unwrap();
+                    sender
+                        .perform_kv_operation(KeyOperation {
+                            namespace: None,
+                            key: String::from("key3"),
+                            command: Command::Set(SetCommand {
+                                value: Value::Bytes(Vec::new()),
+                                expiration: None,
+                                keep_existing_expiration: false,
+                                check: None,
+                                return_previous_value: false,
+                            }),
+                        })
+                        .await
+                        .unwrap();
+                    if timing.elapsed() > Duration::from_secs(1) {
+                        println!("basic_persistence restarting due to timing discrepency");
+                        continue;
+                    }
+                    assert!(tree.get(b"\0key1").unwrap().is_some());
+                    assert!(tree.get(b"\0key2").unwrap().is_some());
+                    assert!(tree.get(b"\0key3").unwrap().is_none());
+                    if !timing.wait_until(Duration::from_secs(3)).await {
+                        println!("basic_persistence restarting due to timing discrepency");
+                        continue;
+                    }
+                    assert!(tree.get(b"\0key3").unwrap().is_some());
+                    break;
+                }
 
-#[async_trait]
-impl Job for ExpirationLoader {
-    type Output = ();
-    type Error = Error;
-
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
-        let database = self.database.clone();
-        let (sender, receiver) = flume::unbounded();
-
-        tokio::task::spawn_blocking(move || {
-            // Find all trees that start with <database>.kv.
-            let keep_scanning = AtomicBool::new(true);
-            database
-                .roots()
-                .tree(Unversioned::tree(KEY_TREE))?
-                .scan::<Infallible, _, _, _, _>(
-                    ..,
-                    true,
-                    |_, _, _| true,
-                    |_, _| {
-                        if keep_scanning.load(Ordering::SeqCst) {
-                            KeyEvaluation::ReadData
-                        } else {
-                            KeyEvaluation::Stop
-                        }
-                    },
-                    |key, _, entry: Buffer<'static>| {
-                        if let Ok(entry) = bincode::deserialize::<Entry>(&entry) {
-                            if entry.expiration.is_some()
-                                && sender.send((key, entry.expiration)).is_err()
-                            {
-                                keep_scanning.store(false, Ordering::SeqCst);
-                            }
-                        }
-
-                        Ok(())
-                    },
-                )?;
-
-            Result::<(), Error>::Ok(())
-        });
-
-        while let Ok((key, expiration)) = receiver.recv_async().await {
-            self.database
-                .update_key_expiration_async(String::from_utf8(key.to_vec())?, expiration)
-                .await;
-        }
-
-        Ok(())
+                Ok(())
+            },
+        )
+        .await
     }
 }

@@ -3,7 +3,7 @@ use std::path::Path;
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{permissions::Permissions, schema::Schema};
-use bonsaidb_local::config::{Builder, StorageConfiguration};
+use bonsaidb_local::config::{Builder, KeyValuePersistence, StorageConfiguration};
 #[cfg(feature = "encryption")]
 use bonsaidb_local::vault::AnyVaultKeyStorage;
 
@@ -190,6 +190,11 @@ impl Builder for ServerConfiguration {
 
     fn check_view_integrity_on_open(mut self, check: bool) -> Self {
         self.storage.views.check_integrity_on_open = check;
+        self
+    }
+
+    fn key_value_persistence(mut self, persistence: KeyValuePersistence) -> Self {
+        self.storage.key_value_persistence = persistence;
         self
     }
 }

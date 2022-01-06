@@ -22,9 +22,9 @@ pub enum Error {
     #[error("error while serializing: {0}")]
     Serialization(#[from] pot::Error),
 
-    /// An internal error occurred while waiting for a message.
-    #[error("error while waiting for a message: {0}")]
-    InternalCommunication(#[from] flume::RecvError),
+    /// An internal error occurred while waiting for or sending a message.
+    #[error("error while communicating internally")]
+    InternalCommunication,
 
     /// An error occurred while executing a view
     #[error("error from view: {0}")]
@@ -59,6 +59,18 @@ pub enum Error {
     /// An error occurred from backing up or restoring.
     #[error("a backup error: {0}")]
     Backup(Box<dyn AnyError>),
+}
+
+impl From<flume::RecvError> for Error {
+    fn from(_: flume::RecvError) -> Self {
+        Self::InternalCommunication
+    }
+}
+
+impl Error {
+    pub(crate) fn from_send<T>(_: flume::SendError<T>) -> Self {
+        Self::InternalCommunication
+    }
 }
 
 impl From<Error> for bonsaidb_core::Error {
