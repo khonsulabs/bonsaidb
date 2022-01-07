@@ -70,12 +70,7 @@ bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", features =
     "test-util",
 ] }
 futures = "0.3"
-criterion = { version = "0.3", features = ["async_tokio"] }
 anyhow = "1"
-
-[[bench]]
-name = "basics"
-harness = false
 
 [package.metadata.docs.rs]
 all-features = true

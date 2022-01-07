@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     convert::Infallible,
     sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -21,7 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{config::KeyValuePersistence, jobs::Job, Database, Error};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Entry {
     pub value: Value,
     pub expiration: Option<Timestamp>,
@@ -201,10 +202,9 @@ pub(super) struct KeyValueManager {
     persistence: KeyValuePersistence,
     last_commit: Timestamp,
     roots: Roots<StdFile>,
-    pending_expiration_updates: Vec<ExpirationUpdate>,
-    expiring_keys: HashMap<String, Timestamp>,
+    expiring_keys: BTreeMap<String, Timestamp>,
     expiration_order: VecDeque<String>,
-    dirty_keys: HashMap<String, Option<Buffer<'static>>>,
+    dirty_keys: BTreeMap<String, Option<Entry>>,
 }
 
 #[derive(Debug)]
@@ -227,10 +227,9 @@ impl KeyValueManager {
             roots,
             persistence,
             last_commit: Timestamp::now(),
-            pending_expiration_updates: Vec::new(),
-            expiring_keys: HashMap::new(),
+            expiring_keys: BTreeMap::new(),
             expiration_order: VecDeque::new(),
-            dirty_keys: HashMap::new(),
+            dirty_keys: BTreeMap::new(),
         }
     }
 
@@ -261,14 +260,16 @@ impl KeyValueManager {
                     ),
                 },
                 ManagerOp::SetExpiration(expiration) => {
-                    self.pending_expiration_updates.push(expiration);
+                    self.update_expiration(&expiration);
                     Ok(Output::Status(KeyStatus::Updated))
                 }
             };
 
-            self.process_pending_expiration_updates();
-            self.remove_expired_keys(Timestamp::now());
-            self.commit_dirty_keys_if_needed().await?;
+            let now = Timestamp::now();
+            self.remove_expired_keys(now);
+            if self.needs_commit(now) {
+                self.commit_dirty_keys().await?;
+            }
 
             drop(result_sender.send(result));
         }
@@ -294,7 +295,7 @@ impl KeyValueManager {
         let mut updated = false;
         let full_key = full_key(namespace, key);
         let previous_value = self
-            .fetch_and_update_no_copy(&full_key, |existing_value| {
+            .fetch_and_update(&full_key, |existing_value| {
                 let should_update = match set.check {
                     Some(KeyCheck::OnlyIfPresent) => existing_value.is_some(),
                     Some(KeyCheck::OnlyIfVacant) => existing_value.is_none(),
@@ -304,14 +305,11 @@ impl KeyValueManager {
                     updated = true;
                     inserted = existing_value.is_none();
                     if set.keep_existing_expiration && !inserted {
-                        if let Ok(previous_entry) =
-                            bincode::deserialize::<Entry>(&existing_value.unwrap())
-                        {
-                            entry.expiration = previous_entry.expiration;
+                        if let Some(existing_value) = &existing_value {
+                            entry.expiration = existing_value.expiration;
                         }
                     }
-                    let entry_vec = bincode::serialize(&entry).unwrap();
-                    Some(Buffer::from(entry_vec))
+                    Some(entry.clone())
                 } else {
                     existing_value
                 }
@@ -321,11 +319,7 @@ impl KeyValueManager {
         if updated {
             self.update_key_expiration(full_key, entry.expiration);
             if set.return_previous_value {
-                if let Some(Ok(entry)) = previous_value.map(|v| bincode::deserialize::<Entry>(&v)) {
-                    Ok(Output::Value(Some(entry.value)))
-                } else {
-                    Ok(Output::Value(None))
-                }
+                Ok(Output::Value(previous_value.map(|entry| entry.value)))
             } else if inserted {
                 Ok(Output::Status(KeyStatus::Inserted))
             } else {
@@ -337,8 +331,7 @@ impl KeyValueManager {
     }
 
     fn update_key_expiration(&mut self, key: String, expiration: Option<Timestamp>) {
-        let update = ExpirationUpdate::new(key, expiration);
-        self.pending_expiration_updates.push(update);
+        self.update_expiration(&ExpirationUpdate::new(key, expiration));
     }
 
     fn execute_get_operation(
@@ -354,13 +347,7 @@ impl KeyValueManager {
             self.get(&full_key).map_err(Error::from)?
         };
 
-        let entry = entry
-            .map(|e| bincode::deserialize::<Entry>(&e))
-            .transpose()
-            .map_err(Error::from)
-            .unwrap()
-            .map(|e| e.value);
-        Ok(Output::Value(entry))
+        Ok(Output::Value(entry.map(|e| e.value)))
     }
 
     fn execute_delete_operation(
@@ -407,23 +394,17 @@ impl KeyValueManager {
     ) -> Result<Output, bonsaidb_core::Error> {
         let full_key = full_key(namespace, key);
         let current = self.get(&full_key).map_err(Error::from)?;
-        let mut entry = current
-            .as_ref()
-            .map(|current| bincode::deserialize::<Entry>(current))
-            .transpose()
-            .map_err(Error::from)?
-            .unwrap_or(Entry {
-                value: Value::Numeric(Numeric::UnsignedInteger(0)),
-                expiration: None,
-            });
+        let mut entry = current.unwrap_or(Entry {
+            value: Value::Numeric(Numeric::UnsignedInteger(0)),
+            expiration: None,
+        });
 
         match entry.value {
             Value::Numeric(existing) => {
                 let value = Value::Numeric(op(&existing, amount, saturating));
                 entry.value = value.clone();
 
-                let result_bytes = Buffer::from(bincode::serialize(&entry).unwrap());
-                self.set(full_key, result_bytes);
+                self.set(full_key, entry);
                 Ok(Output::Value(Some(value)))
             }
             Value::Bytes(_) => Err(bonsaidb_core::Error::Database(String::from(
@@ -432,13 +413,9 @@ impl KeyValueManager {
         }
     }
 
-    fn fetch_and_update_no_copy<F>(
-        &mut self,
-        full_key: &str,
-        mut f: F,
-    ) -> Result<Option<Buffer<'static>>, nebari::Error>
+    fn fetch_and_update<F>(&mut self, full_key: &str, f: F) -> Result<Option<Entry>, nebari::Error>
     where
-        F: FnMut(Option<Buffer<'static>>) -> Option<Buffer<'static>>,
+        F: FnOnce(Option<Entry>) -> Option<Entry>,
     {
         let current = self.get(full_key)?;
         let next = f(current.clone());
@@ -450,7 +427,7 @@ impl KeyValueManager {
         Ok(current)
     }
 
-    fn remove(&mut self, key: String) -> Result<Option<Buffer<'static>>, nebari::Error> {
+    fn remove(&mut self, key: String) -> Result<Option<Entry>, nebari::Error> {
         self.update_key_expiration(key.clone(), None);
 
         if let Some(dirty_entry) = self.dirty_keys.get_mut(&key) {
@@ -461,63 +438,35 @@ impl KeyValueManager {
                 .roots
                 .tree(Unversioned::tree(KEY_TREE))?
                 .get(key.as_bytes())?;
+            let previous_value =
+                previous_value.and_then(|current| bincode::deserialize::<Entry>(&current).ok());
             self.dirty_keys.insert(key, None);
             Ok(previous_value)
         }
     }
 
-    fn get(&self, key: &str) -> Result<Option<Buffer<'static>>, nebari::Error> {
+    fn get(&self, key: &str) -> Result<Option<Entry>, nebari::Error> {
         if let Some(entry) = self.dirty_keys.get(key) {
             Ok(entry.clone())
         } else {
             self.roots
                 .tree(Unversioned::tree(KEY_TREE))?
                 .get(key.as_bytes())
+                .map(|current| {
+                    current.and_then(|current| bincode::deserialize::<Entry>(&current).ok())
+                })
         }
     }
 
-    fn set(&mut self, key: String, value: Buffer<'static>) {
+    fn set(&mut self, key: String, value: Entry) {
         self.dirty_keys.insert(key, Some(value));
     }
 
-    fn process_pending_expiration_updates(&mut self) {
-        for update in self.pending_expiration_updates.drain(..) {
-            if let Some(expiration) = update.expiration {
-                let key = if self.expiring_keys.contains_key(&update.tree_key) {
-                    // Update the existing entry.
-                    let existing_entry_index = self
-                        .expiration_order
-                        .iter()
-                        .enumerate()
-                        .find_map(|(index, key)| {
-                            if &update.tree_key == key {
-                                Some(index)
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap();
-                    self.expiration_order.remove(existing_entry_index).unwrap()
-                } else {
-                    update.tree_key.clone()
-                };
-
-                // Insert the key into the expiration_order queue
-                let mut insert_at = None;
-                for (index, expiring_key) in self.expiration_order.iter().enumerate() {
-                    if self.expiring_keys.get(expiring_key).unwrap() > &expiration {
-                        insert_at = Some(index);
-                        break;
-                    }
-                }
-                if let Some(insert_at) = insert_at {
-                    self.expiration_order.insert(insert_at, key.clone());
-                } else {
-                    self.expiration_order.push_back(key.clone());
-                }
-                self.expiring_keys.insert(key, expiration);
-            } else if self.expiring_keys.remove(&update.tree_key).is_some() {
-                let index = self
+    fn update_expiration(&mut self, update: &ExpirationUpdate) {
+        if let Some(expiration) = update.expiration {
+            let key = if self.expiring_keys.contains_key(&update.tree_key) {
+                // Update the existing entry.
+                let existing_entry_index = self
                     .expiration_order
                     .iter()
                     .enumerate()
@@ -529,8 +478,39 @@ impl KeyValueManager {
                         }
                     })
                     .unwrap();
-                self.expiration_order.remove(index);
+                self.expiration_order.remove(existing_entry_index).unwrap()
+            } else {
+                update.tree_key.clone()
+            };
+
+            // Insert the key into the expiration_order queue
+            let mut insert_at = None;
+            for (index, expiring_key) in self.expiration_order.iter().enumerate() {
+                if self.expiring_keys.get(expiring_key).unwrap() > &expiration {
+                    insert_at = Some(index);
+                    break;
+                }
             }
+            if let Some(insert_at) = insert_at {
+                self.expiration_order.insert(insert_at, key.clone());
+            } else {
+                self.expiration_order.push_back(key.clone());
+            }
+            self.expiring_keys.insert(key, expiration);
+        } else if self.expiring_keys.remove(&update.tree_key).is_some() {
+            let index = self
+                .expiration_order
+                .iter()
+                .enumerate()
+                .find_map(|(index, key)| {
+                    if &update.tree_key == key {
+                        Some(index)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            self.expiration_order.remove(index);
         }
     }
 
@@ -545,42 +525,46 @@ impl KeyValueManager {
     > {
         loop {
             // Check to see if we have any remaining time before a key expires
-            let now = Timestamp::now();
-            let (has_expiring_keys, duration_until_key_expires) =
-                if let Some(key) = self.expiration_order.get(0) {
+            let mut now = Timestamp::now();
+            let duration_until_key_expires = self
+                .expiration_order
+                .get(0)
+                .and_then(|key| {
                     let expiration_timeout = self.expiring_keys.get(key).unwrap();
-                    (true, *expiration_timeout - now)
-                } else {
-                    (false, None)
-                };
+                    *expiration_timeout - now
+                })
+                .unwrap_or(Duration::MAX);
             let duration_until_commit = self.persistence.duration_until_next_commit(
                 self.dirty_keys.len(),
                 (now - self.last_commit).unwrap_or_default(),
             );
-            let timeout_duration = match (duration_until_key_expires, duration_until_commit) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (Some(a), None) | (None, Some(a)) => Some(a),
-                (None, None) => None,
-            };
+            let timeout_duration = duration_until_key_expires.min(duration_until_commit);
 
-            let received_update = if let Some(remaining_time) = timeout_duration {
+            let received_update = if timeout_duration == Duration::MAX {
+                match self.operation_receiver.recv_async().await {
+                    Ok(update) => Some(update),
+                    Err(_) => break,
+                }
+            } else if timeout_duration > Duration::ZERO {
                 // Allow flume to receive updates for the remaining time.
-                match tokio::time::timeout(remaining_time, self.operation_receiver.recv_async())
+                match tokio::time::timeout(timeout_duration, self.operation_receiver.recv_async())
                     .await
                 {
                     Ok(Ok(update)) => Some(update),
                     Ok(Err(flume::RecvError::Disconnected)) => break,
-                    Err(_elapsed) => None,
-                }
-            } else if self.expiration_order.is_empty() && self.dirty_keys.is_empty() {
-                // No timeout and no pending operations, we'll wait until we receive a message.
-                match self.operation_receiver.recv_async().await {
-                    Ok(update) => return Ok(Some(update)),
-                    Err(_) => break,
+                    Err(_elapsed) => {
+                        // We've delayed for some duration and need a new timestamp.
+                        now = Timestamp::now();
+                        None
+                    }
                 }
             } else {
                 // No timeout and we have pending operations. Return any pending operations if we have them.
-                self.operation_receiver.try_recv().ok()
+                match self.operation_receiver.try_recv() {
+                    Ok(update) => Some(update),
+                    Err(flume::TryRecvError::Empty) => None,
+                    Err(flume::TryRecvError::Disconnected) => break,
+                }
             };
 
             // If we've received an update, we bubble it up to process
@@ -591,14 +575,14 @@ impl KeyValueManager {
             // Reaching this block means that we didn't receive an update
             // externally. This means we either need to expire some keys or
             // commit some keys to disk.
-            if has_expiring_keys
-                && (duration_until_commit.is_none()
-                    || duration_until_key_expires <= duration_until_commit)
-            {
-                if self.remove_expired_keys(now) {
-                    self.commit_dirty_keys_if_needed().await?;
-                }
-            } else {
+            // println!(
+            //     "No updates. Commit: {:?} ({}), Expire: {:?}",
+            //     duration_until_commit,
+            //     self.dirty_keys.len(),
+            //     duration_until_key_expires
+            // );
+            self.remove_expired_keys(now);
+            if self.needs_commit(now) {
                 self.commit_dirty_keys().await?;
             }
         }
@@ -606,32 +590,20 @@ impl KeyValueManager {
         Ok(None)
     }
 
-    fn remove_expired_keys(&mut self, now: Timestamp) -> bool {
-        let mut removed_at_least_one = false;
-
+    fn remove_expired_keys(&mut self, now: Timestamp) {
         while !self.expiration_order.is_empty()
             && self.expiring_keys.get(&self.expiration_order[0]).unwrap() <= &now
         {
-            removed_at_least_one = true;
-
             let key = self.expiration_order.pop_front().unwrap();
             self.expiring_keys.remove(&key);
             self.dirty_keys.insert(key, None);
         }
-
-        removed_at_least_one
     }
 
-    async fn commit_dirty_keys_if_needed(&mut self) -> Result<(), bonsaidb_core::Error> {
-        let since_last_commit = (Timestamp::now() - self.last_commit).unwrap_or_default();
-        if self
-            .persistence
+    fn needs_commit(&mut self, now: Timestamp) -> bool {
+        let since_last_commit = (now - self.last_commit).unwrap_or_default();
+        self.persistence
             .should_commit(self.dirty_keys.len(), since_last_commit)
-        {
-            self.commit_dirty_keys().await
-        } else {
-            Ok(())
-        }
     }
 
     async fn commit_dirty_keys(&mut self) -> Result<(), bonsaidb_core::Error> {
@@ -639,7 +611,7 @@ impl KeyValueManager {
             Ok(())
         } else {
             let roots = self.roots.clone();
-            let keys = self.dirty_keys.drain().collect();
+            let keys = std::mem::take(&mut self.dirty_keys);
             let result = tokio::task::spawn_blocking(move || Self::persist_keys(&roots, keys))
                 .await
                 .unwrap();
@@ -650,7 +622,7 @@ impl KeyValueManager {
 
     fn persist_keys(
         roots: &Roots<StdFile>,
-        mut keys: BTreeMap<String, Option<Buffer<'static>>>,
+        mut keys: BTreeMap<String, Option<Entry>>,
     ) -> Result<(), bonsaidb_core::Error> {
         let mut transaction = roots
             .transaction(&[Unversioned::tree(KEY_TREE)])
@@ -675,7 +647,8 @@ impl KeyValueManager {
                             key,
                             deleted: false,
                         });
-                        nebari::tree::KeyOperation::Set(new_value)
+                        let bytes = bincode::serialize(&new_value).unwrap();
+                        nebari::tree::KeyOperation::Set(Buffer::from(bytes))
                     } else if existing_value.is_some() {
                         changed_keys.push(ChangedKey {
                             namespace,
@@ -755,6 +728,12 @@ impl Job for ExpirationLoader {
                 .update_key_expiration_async(String::from_utf8(key.to_vec())?, expiration)
                 .await;
         }
+
+        self.database
+            .storage()
+            .tasks()
+            .mark_key_value_expiration_loaded(self.database.data.name.clone())
+            .await;
 
         Ok(())
     }

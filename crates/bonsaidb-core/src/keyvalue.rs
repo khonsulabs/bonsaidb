@@ -58,6 +58,22 @@ mod implementation {
             )
         }
 
+        /// Sets `key` to `bytes`. This function returns a builder that is also
+        /// a Future. Awaiting the builder will execute [`Command::Set`] with
+        /// the options given.
+        fn set_binary_key<'a, S: Into<String>>(
+            &'a self,
+            key: S,
+            bytes: &'a [u8],
+        ) -> set::Builder<'a, Self, ()> {
+            set::Builder::new(
+                self,
+                self.key_namespace().map(Into::into),
+                key.into(),
+                PendingValue::Bytes(bytes),
+            )
+        }
+
         /// Sets `key` to `value`. This stores the value as a `Numeric`,
         /// enabling atomic math operations to be performed on this key. This
         /// function returns a builder that is also a Future. Awaiting the
@@ -161,6 +177,7 @@ mod implementation {
 
     #[allow(clippy::redundant_pub_crate)]
     pub(crate) enum PendingValue<'a, V> {
+        Bytes(&'a [u8]),
         Serializeable(&'a V),
         Numeric(Numeric),
     }
@@ -171,6 +188,7 @@ mod implementation {
     {
         fn prepare(self) -> Result<Value, Error> {
             match self {
+                Self::Bytes(bytes) => Ok(Value::Bytes(bytes.to_vec())),
                 Self::Serializeable(value) => Ok(Value::Bytes(pot::to_vec(value)?)),
                 Self::Numeric(numeric) => Ok(Value::Numeric(numeric)),
             }

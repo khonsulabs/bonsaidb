@@ -91,7 +91,7 @@ where
         }
     }
 
-    pub async fn job_completed<T: Clone + Send + Sync + 'static, E: Send + Sync + 'static>(
+    pub fn job_completed<T: Clone + Send + Sync + 'static, E: Send + Sync + 'static>(
         &mut self,
         id: Id,
         key: Option<&Key>,
@@ -102,20 +102,14 @@ where
         }
 
         if let Some(senders) = self.result_senders.remove(&id) {
-            tokio::spawn(async move {
-                let result = result.map_err(Arc::new);
-                futures::future::join_all(senders.into_iter().map(|handle| {
-                    let result = result.clone();
-                    async move {
-                        let handle = handle
-                            .as_any()
-                            .downcast_ref::<Sender<Result<T, Arc<E>>>>()
-                            .unwrap();
-                        handle.send_async(result).await
-                    }
-                }))
-                .await;
-            });
+            let result = result.map_err(Arc::new);
+            for sender_handle in senders {
+                let sender = sender_handle
+                    .as_any()
+                    .downcast_ref::<Sender<Result<T, Arc<E>>>>()
+                    .unwrap();
+                drop(sender.send(result.clone()));
+            }
         }
     }
 }

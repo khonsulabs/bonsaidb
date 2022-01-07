@@ -1,5 +1,4 @@
 use std::{
-    any::Any,
     borrow::{Borrow, Cow},
     collections::HashMap,
     convert::Infallible,
@@ -11,20 +10,17 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     document::{Document, Header, KeyId},
-    keyvalue::{KeyOperation, KeyValue, Output, Timestamp},
+    keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
     schema::{
         self,
-        view::{
-            self,
-            map::{self, MappedSerializedValue},
-        },
+        view::{self, map::MappedSerializedValue},
         Collection, CollectionName, Key, Map, MappedDocument, MappedValue, Schema, Schematic,
         ViewName,
     },
     transaction::{
-        self, ChangedDocument, Changes, Command, Executed, Operation, OperationResult, Transaction,
+        self, ChangedDocument, Changes, Command, Operation, OperationResult, Transaction,
     },
 };
 use byteorder::{BigEndian, ByteOrder};
@@ -41,7 +37,6 @@ use crate::{
     config::{Builder, KeyValuePersistence, StorageConfiguration},
     error::Error,
     open_trees::OpenTrees,
-    storage::{AnyBackupLocation, OpenDatabase},
     views::{
         mapper::{self, ViewEntryCollection},
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
@@ -240,6 +235,158 @@ impl Database {
             callback,
         )
         .await
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    pub async fn internal_get_from_collection_id(
+        &self,
+        id: u64,
+        collection: &CollectionName,
+    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
+        self.get_from_collection_id(id, collection).await
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    pub async fn list_from_collection(
+        &self,
+        ids: Range<u64>,
+        order: Sort,
+        limit: Option<usize>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+        self.list(ids, order, limit, collection).await
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    pub async fn internal_get_multiple_from_collection_id(
+        &self,
+        ids: &[u64],
+        collection: &CollectionName,
+    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+        self.get_multiple_from_collection_id(ids, collection).await
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    pub async fn compact_collection_by_name(
+        &self,
+        collection: CollectionName,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.storage()
+            .tasks()
+            .compact_collection(self.clone(), collection)
+            .await?;
+        Ok(())
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    pub async fn query_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Vec<u8>>>,
+        order: Sort,
+        limit: Option<usize>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<bonsaidb_core::schema::view::map::Serialized>, bonsaidb_core::Error> {
+        if let Some(view) = self.schematic().view_by_name(view) {
+            let mut results = Vec::new();
+            self.for_each_in_view(view, key, order, limit, access_policy, |collection| {
+                let entry = ViewEntry::from(collection);
+                for mapping in entry.mappings {
+                    results.push(bonsaidb_core::schema::view::map::Serialized {
+                        source: mapping.source,
+                        key: entry.key.clone(),
+                        value: mapping.value,
+                    });
+                }
+                Ok(())
+            })
+            .await?;
+
+            Ok(results)
+        } else {
+            Err(bonsaidb_core::Error::CollectionNotFound)
+        }
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    pub async fn query_by_name_with_docs(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Vec<u8>>>,
+        order: Sort,
+        limit: Option<usize>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<bonsaidb_core::schema::view::map::MappedSerialized>, bonsaidb_core::Error> {
+        let results = self
+            .query_by_name(view, key, order, limit, access_policy)
+            .await?;
+        let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
+
+        let mut documents = self
+            .get_multiple_from_collection_id(
+                &results.iter().map(|m| m.source.id).collect::<Vec<_>>(),
+                &view.collection()?,
+            )
+            .await?
+            .into_iter()
+            .map(|doc| (doc.header.id, doc))
+            .collect::<HashMap<_, _>>();
+
+        Ok(results
+            .into_iter()
+            .filter_map(|map| {
+                if let Some(source) = documents.remove(&map.source.id) {
+                    Some(bonsaidb_core::schema::view::map::MappedSerialized {
+                        mapping: bonsaidb_core::schema::view::map::MappedSerializedValue {
+                            key: map.key,
+                            value: map.value,
+                        },
+                        source,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect())
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    pub async fn reduce_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
+        self.reduce_in_view(view, key, access_policy).await
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    pub async fn reduce_grouped_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
+        self.grouped_reduce_in_view(view, key, access_policy).await
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    pub async fn delete_docs_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Vec<u8>>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        self.delete_from_view(view, key, access_policy).await
     }
 
     async fn get_from_collection_id(
@@ -1257,7 +1404,6 @@ impl Context {
         self.kv_operation_sender
             .send((keyvalue::ManagerOp::Op(op), result_sender))
             .map_err(Error::from_send)?;
-
         result_receiver.recv_async().await.map_err(Error::from)?
     }
 
@@ -1280,209 +1426,4 @@ impl Context {
 
 pub fn document_tree_name(collection: &CollectionName) -> String {
     format!("collection.{}", collection)
-}
-
-#[async_trait]
-impl OpenDatabase for Database {
-    fn as_any(&self) -> &'_ dyn Any {
-        self
-    }
-
-    async fn get_from_collection_id(
-        &self,
-        id: u64,
-        collection: &CollectionName,
-        permissions: &Permissions,
-    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
-        self.with_effective_permissions(permissions.clone())
-            .get_from_collection_id(id, collection)
-            .await
-    }
-
-    async fn get_multiple_from_collection_id(
-        &self,
-        ids: &[u64],
-        collection: &CollectionName,
-        permissions: &Permissions,
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
-        self.with_effective_permissions(permissions.clone())
-            .get_multiple_from_collection_id(ids, collection)
-            .await
-    }
-
-    async fn list_from_collection(
-        &self,
-        ids: Range<u64>,
-        order: Sort,
-        limit: Option<usize>,
-        collection: &CollectionName,
-        permissions: &Permissions,
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
-        self.with_effective_permissions(permissions.clone())
-            .list(ids, order, limit, collection)
-            .await
-    }
-
-    async fn apply_transaction(
-        &self,
-        transaction: Transaction<'static>,
-        permissions: &Permissions,
-    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
-        <Self as Connection>::apply_transaction(
-            &self.with_effective_permissions(permissions.clone()),
-            transaction,
-        )
-        .await
-    }
-
-    async fn query(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        order: Sort,
-        limit: Option<usize>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<map::Serialized>, bonsaidb_core::Error> {
-        if let Some(view) = self.schematic().view_by_name(view) {
-            let mut results = Vec::new();
-            self.for_each_in_view(view, key, order, limit, access_policy, |collection| {
-                let entry = ViewEntry::from(collection);
-                for mapping in entry.mappings {
-                    results.push(map::Serialized {
-                        source: mapping.source,
-                        key: entry.key.clone(),
-                        value: mapping.value,
-                    });
-                }
-                Ok(())
-            })
-            .await?;
-
-            Ok(results)
-        } else {
-            Err(bonsaidb_core::Error::CollectionNotFound)
-        }
-    }
-
-    async fn query_with_docs(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        order: Sort,
-        limit: Option<usize>,
-        access_policy: AccessPolicy,
-        permissions: &Permissions,
-    ) -> Result<Vec<map::MappedSerialized>, bonsaidb_core::Error> {
-        let results = OpenDatabase::query(self, view, key, order, limit, access_policy).await?;
-        let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
-
-        let mut documents = self
-            .with_effective_permissions(permissions.clone())
-            .get_multiple_from_collection_id(
-                &results.iter().map(|m| m.source.id).collect::<Vec<_>>(),
-                &view.collection()?,
-            )
-            .await?
-            .into_iter()
-            .map(|doc| (doc.header.id, doc))
-            .collect::<HashMap<_, _>>();
-
-        Ok(results
-            .into_iter()
-            .filter_map(|map| {
-                if let Some(source) = documents.remove(&map.source.id) {
-                    Some(map::MappedSerialized {
-                        mapping: map::MappedSerializedValue {
-                            key: map.key,
-                            value: map.value,
-                        },
-                        source,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect())
-    }
-
-    async fn reduce(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
-        self.reduce_in_view(view, key, access_policy).await
-    }
-
-    async fn reduce_grouped(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
-        self.grouped_reduce_in_view(view, key, access_policy).await
-    }
-
-    async fn delete_docs(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error> {
-        self.delete_from_view(view, key, access_policy).await
-    }
-
-    async fn list_executed_transactions(
-        &self,
-        starting_id: Option<u64>,
-        result_limit: Option<usize>,
-    ) -> Result<Vec<Executed>, bonsaidb_core::Error> {
-        Connection::list_executed_transactions(self, starting_id, result_limit).await
-    }
-
-    async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
-        Connection::last_transaction_id(self).await
-    }
-
-    async fn execute_key_operation(
-        &self,
-        op: KeyOperation,
-    ) -> Result<Output, bonsaidb_core::Error> {
-        KeyValue::execute_key_operation(self, op).await
-    }
-
-    async fn compact_collection(
-        &self,
-        collection: CollectionName,
-    ) -> Result<(), bonsaidb_core::Error> {
-        self.storage()
-            .tasks()
-            .compact_collection(self.clone(), collection)
-            .await?;
-        Ok(())
-    }
-
-    async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
-        self.storage()
-            .tasks()
-            .compact_key_value_store(self.clone())
-            .await?;
-        Ok(())
-    }
-
-    async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
-        self.storage()
-            .tasks()
-            .compact_database(self.clone())
-            .await?;
-        Ok(())
-    }
-
-    async fn backup(&self, location: &dyn AnyBackupLocation) -> Result<(), Error> {
-        self.storage().backup_database(self, location).await
-    }
-
-    async fn restore(&self, location: &dyn AnyBackupLocation) -> Result<(), Error> {
-        self.storage().restore_database(self, location).await
-    }
 }

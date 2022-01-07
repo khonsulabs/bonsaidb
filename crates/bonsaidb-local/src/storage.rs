@@ -1,5 +1,4 @@
 use std::{
-    any::Any,
     collections::HashMap,
     fmt::{Debug, Display},
     marker::PhantomData,
@@ -18,15 +17,9 @@ use bonsaidb_core::{
         database::{self, ByName, Database as DatabaseRecord},
         Admin, ADMIN_DATABASE_NAME,
     },
-    connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{Document, KeyId},
-    keyvalue::{KeyOperation, Output},
-    permissions::Permissions,
-    schema::{
-        view::map::{self, MappedSerializedValue},
-        CollectionName, Schema, SchemaName, Schematic, ViewName,
-    },
-    transaction::{Executed, OperationResult, Transaction},
+    connection::{self, Connection, StorageConnection},
+    document::KeyId,
+    schema::{Schema, SchemaName, Schematic},
 };
 #[cfg(feature = "multiuser")]
 use bonsaidb_core::{
@@ -61,7 +54,6 @@ use crate::{
 };
 
 mod backup;
-pub(crate) use backup::AnyBackupLocation;
 pub use backup::BackupLocation;
 
 /// A file-based, multi-database, multi-user database engine.
@@ -78,7 +70,7 @@ struct Data {
     file_manager: StdFileManager,
     pub(crate) tasks: TaskManager,
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
-    available_databases: RwLock<HashMap<String, SchemaName>>,
+    available_databases: RwLock<HashMap<String, AvailableDatabase>>,
     open_roots: Mutex<HashMap<String, Context>>,
     #[cfg(feature = "encryption")]
     pub(crate) vault: Arc<Vault>,
@@ -222,7 +214,15 @@ impl Storage {
             .query()
             .await?
             .into_iter()
-            .map(|map| (map.key, map.value))
+            .map(|map| {
+                (
+                    map.key,
+                    AvailableDatabase {
+                        schema_name: map.value,
+                        open_database: None,
+                    },
+                )
+            })
             .collect();
         let mut storage_databases = fast_async_write!(self.data.available_databases);
         *storage_databases = available_databases;
@@ -363,30 +363,33 @@ impl Storage {
     }
 
     /// Opens a database through a generic-free trait.
-    pub(crate) async fn database_without_schema(
-        &self,
-        name: &str,
-    ) -> Result<Box<dyn OpenDatabase>, Error> {
-        let schema = match self
-            .admin()
-            .await
-            .view::<database::ByName>()
-            .with_key(name.to_ascii_lowercase())
-            .query()
-            .await?
-            .first()
-        {
-            Some(entry) => entry.value.clone(),
-            None => {
-                return Err(Error::Core(bonsaidb_core::Error::DatabaseNotFound(
-                    name.to_string(),
-                )))
+    pub(crate) async fn database_without_schema(&self, name: &str) -> Result<Database, Error> {
+        // First, try to optimistically access the database if it's already been opened.
+        let schema = {
+            let available_databases = fast_async_read!(self.data.available_databases);
+            let available_database = available_databases.get(name).ok_or_else(|| {
+                Error::Core(bonsaidb_core::Error::DatabaseNotFound(name.to_string()))
+            })?;
+            if let Some(database) = &available_database.open_database {
+                return Ok(database.clone());
             }
+            available_database.schema_name.clone()
         };
+
+        let mut available_databases = fast_async_write!(self.data.available_databases);
+        let available_database = available_databases
+            .get_mut(name)
+            .ok_or_else(|| Error::Core(bonsaidb_core::Error::DatabaseNotFound(name.to_string())))?;
+
+        if let Some(database) = &available_database.open_database {
+            return Ok(database.clone());
+        }
 
         let mut schemas = fast_async_write!(self.data.schemas);
         if let Some(schema) = schemas.get_mut(&schema) {
-            schema.open(name.to_string(), self.clone()).await
+            let db = schema.open(name.to_string(), self.clone()).await?;
+            available_database.open_database = Some(db.clone());
+            Ok(db)
         } else {
             Err(Error::Core(bonsaidb_core::Error::SchemaNotRegistered(
                 schema,
@@ -397,10 +400,7 @@ impl Storage {
     #[cfg(feature = "internal-apis")]
     #[doc(hidden)]
     /// Opens a database through a generic-free trait.
-    pub async fn database_without_schema_internal(
-        &self,
-        name: &str,
-    ) -> Result<Box<dyn OpenDatabase>, Error> {
+    pub async fn database_without_schema_internal(&self, name: &str) -> Result<Database, Error> {
         self.database_without_schema(name).await
     }
 
@@ -461,7 +461,7 @@ impl Storage {
 #[async_trait]
 pub trait DatabaseOpener: Send + Sync + Debug {
     fn schematic(&self) -> &'_ Schematic;
-    async fn open(&self, name: String, storage: Storage) -> Result<Box<dyn OpenDatabase>, Error>;
+    async fn open(&self, name: String, storage: Storage) -> Result<Database, Error>;
 }
 
 #[derive(Debug)]
@@ -492,111 +492,11 @@ where
         &self.schematic
     }
 
-    async fn open(&self, name: String, storage: Storage) -> Result<Box<dyn OpenDatabase>, Error> {
+    async fn open(&self, name: String, storage: Storage) -> Result<Database, Error> {
         let roots = storage.open_roots(&name).await?;
         let db = Database::new::<DB, _>(name, roots, storage).await?;
-        Ok(Box::new(db))
+        Ok(db)
     }
-}
-
-/// Methods for accessing a database without the `Schema` type present.
-#[doc(hidden)]
-#[async_trait]
-pub trait OpenDatabase: Send + Sync + Debug + 'static {
-    fn as_any(&self) -> &'_ dyn Any;
-
-    async fn get_from_collection_id(
-        &self,
-        id: u64,
-        collection: &CollectionName,
-        permissions: &Permissions,
-    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error>;
-
-    async fn get_multiple_from_collection_id(
-        &self,
-        ids: &[u64],
-        collection: &CollectionName,
-        permissions: &Permissions,
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error>;
-
-    async fn list_from_collection(
-        &self,
-        ids: Range<u64>,
-        order: Sort,
-        limit: Option<usize>,
-        collection: &CollectionName,
-        permissions: &Permissions,
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error>;
-
-    async fn apply_transaction(
-        &self,
-        transaction: Transaction<'static>,
-        permissions: &Permissions,
-    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error>;
-
-    async fn query(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        order: Sort,
-        limit: Option<usize>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<map::Serialized>, bonsaidb_core::Error>;
-
-    async fn query_with_docs(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        order: Sort,
-        limit: Option<usize>,
-        access_policy: AccessPolicy,
-        permissions: &Permissions,
-    ) -> Result<Vec<map::MappedSerialized>, bonsaidb_core::Error>;
-
-    async fn reduce(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<u8>, bonsaidb_core::Error>;
-
-    async fn reduce_grouped(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error>;
-
-    async fn delete_docs(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error>;
-
-    async fn list_executed_transactions(
-        &self,
-        starting_id: Option<u64>,
-        result_limit: Option<usize>,
-    ) -> Result<Vec<Executed>, bonsaidb_core::Error>;
-
-    async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error>;
-
-    async fn execute_key_operation(&self, op: KeyOperation)
-        -> Result<Output, bonsaidb_core::Error>;
-
-    async fn compact_collection(
-        &self,
-        collection: CollectionName,
-    ) -> Result<(), bonsaidb_core::Error>;
-
-    async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error>;
-
-    async fn compact(&self) -> Result<(), bonsaidb_core::Error>;
-
-    async fn backup(&self, location: &dyn AnyBackupLocation) -> Result<(), Error>;
-
-    async fn restore(&self, location: &dyn AnyBackupLocation) -> Result<(), Error>;
 }
 
 #[async_trait]
@@ -647,7 +547,13 @@ impl StorageConnection for Storage {
                 schema: schema.clone(),
             })
             .await?;
-        available_databases.insert(name.to_string(), schema);
+        available_databases.insert(
+            name.to_string(),
+            AvailableDatabase {
+                schema_name: schema,
+                open_database: None,
+            },
+        );
 
         Ok(())
     }
@@ -656,25 +562,15 @@ impl StorageConnection for Storage {
         &self,
         name: &str,
     ) -> Result<Self::Database, bonsaidb_core::Error> {
-        let available_databases = fast_async_read!(self.data.available_databases);
-
-        if let Some(stored_schema) = available_databases.get(name) {
-            if stored_schema == &DB::schema_name()? {
-                Ok(Database::new::<DB, _>(
-                    name.to_owned(),
-                    self.open_roots(name).await?,
-                    self.clone(),
-                )
-                .await?)
-            } else {
-                Err(bonsaidb_core::Error::SchemaMismatch {
-                    database_name: name.to_owned(),
-                    schema: DB::schema_name()?,
-                    stored_schema: stored_schema.clone(),
-                })
-            }
+        let db = self.database_without_schema(name).await?;
+        if db.data.schema.name == DB::schema_name()? {
+            Ok(db)
         } else {
-            Err(bonsaidb_core::Error::DatabaseNotFound(name.to_owned()))
+            Err(bonsaidb_core::Error::SchemaMismatch {
+                database_name: name.to_owned(),
+                schema: DB::schema_name()?,
+                stored_schema: db.data.schema.name.clone(),
+            })
         }
     }
 
@@ -716,9 +612,9 @@ impl StorageConnection for Storage {
         let available_databases = fast_async_read!(self.data.available_databases);
         Ok(available_databases
             .iter()
-            .map(|(name, schema)| connection::Database {
+            .map(|(name, available_database)| connection::Database {
                 name: name.to_string(),
-                schema: schema.clone(),
+                schema: available_database.schema_name.clone(),
             })
             .collect())
     }
@@ -726,7 +622,12 @@ impl StorageConnection for Storage {
     #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
         let available_databases = fast_async_read!(self.data.available_databases);
-        Ok(available_databases.values().unique().cloned().collect())
+        Ok(available_databases
+            .values()
+            .map(|db| &db.schema_name)
+            .unique()
+            .cloned()
+            .collect())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
@@ -929,4 +830,10 @@ impl Display for StorageId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(self, f)
     }
+}
+
+#[derive(Debug)]
+struct AvailableDatabase {
+    schema_name: SchemaName,
+    open_database: Option<Database>,
 }

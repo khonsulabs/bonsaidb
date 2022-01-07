@@ -22,7 +22,7 @@ use bonsaidb_core::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
     },
     custom_api::{CustomApi, CustomApiResult},
-    keyvalue::KeyOperation,
+    keyvalue::{KeyOperation, KeyValue},
     networking::{
         self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
         DeleteDatabaseHandler, Payload, Request, RequestDispatcher, Response, ServerRequest,
@@ -45,7 +45,7 @@ use bonsaidb_core::{
 use bonsaidb_local::{
     config::Builder,
     jobs::{manager::Manager, Job},
-    OpenDatabase, Storage,
+    Database, Storage,
 };
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::DeriveWhere;
@@ -1091,7 +1091,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::DatabaseHandler for ServerDispat
             .await?;
         DatabaseDispatcher {
             name: database_name,
-            database: database.as_ref(),
+            database,
             server_dispatcher: self,
         }
         .dispatch(permissions, request)
@@ -1442,7 +1442,7 @@ where
     B: Backend,
 {
     name: String,
-    database: &'s dyn OpenDatabase,
+    database: Database,
     server_dispatcher: &'s ServerDispatcher<'s, B>,
 }
 
@@ -1469,13 +1469,13 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatche
 
     async fn handle_protected(
         &self,
-        permissions: &Permissions,
+        _permissions: &Permissions,
         collection: CollectionName,
         id: u64,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let document = self
             .database
-            .get_from_collection_id(id, &collection, permissions)
+            .internal_get_from_collection_id(id, &collection)
             .await?
             .ok_or(Error::Core(bonsaidb_core::Error::DocumentNotFound(
                 collection, id,
@@ -1505,13 +1505,13 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseD
 
     async fn handle_protected(
         &self,
-        permissions: &Permissions,
+        _permissions: &Permissions,
         collection: CollectionName,
         ids: Vec<u64>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let documents = self
             .database
-            .get_multiple_from_collection_id(&ids, &collection, permissions)
+            .internal_get_multiple_from_collection_id(&ids, &collection)
             .await?;
         Ok(Response::Database(DatabaseResponse::Documents(documents)))
     }
@@ -1537,7 +1537,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
 
     async fn handle_protected(
         &self,
-        permissions: &Permissions,
+        _permissions: &Permissions,
         collection: CollectionName,
         ids: Range<u64>,
         order: Sort,
@@ -1545,7 +1545,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let documents = self
             .database
-            .list_from_collection(ids, order, limit, &collection, permissions)
+            .list_from_collection(ids, order, limit, &collection)
             .await?;
         Ok(Response::Database(DatabaseResponse::Documents(documents)))
     }
@@ -1573,7 +1573,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
 
     async fn handle_protected(
         &self,
-        permissions: &Permissions,
+        _permissions: &Permissions,
         view: ViewName,
         key: Option<QueryKey<Vec<u8>>>,
         order: Sort,
@@ -1584,7 +1584,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
         if with_docs {
             let mappings = self
                 .database
-                .query_with_docs(&view, key, order, limit, access_policy, permissions)
+                .query_by_name_with_docs(&view, key, order, limit, access_policy)
                 .await?;
             Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
                 mappings,
@@ -1592,7 +1592,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
         } else {
             let mappings = self
                 .database
-                .query(&view, key, order, limit, access_policy)
+                .query_by_name(&view, key, order, limit, access_policy)
                 .await?;
             Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
         }
@@ -1628,13 +1628,16 @@ impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispat
         if grouped {
             let values = self
                 .database
-                .reduce_grouped(&view, key, access_policy)
+                .reduce_grouped_by_name(&view, key, access_policy)
                 .await?;
             Ok(Response::Database(DatabaseResponse::ViewGroupedReduction(
                 values,
             )))
         } else {
-            let value = self.database.reduce(&view, key, access_policy).await?;
+            let value = self
+                .database
+                .reduce_by_name(&view, key, access_policy)
+                .await?;
             Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
         }
     }
@@ -1672,13 +1675,10 @@ impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
 
     async fn handle_protected(
         &self,
-        permissions: &Permissions,
+        _permissions: &Permissions,
         transaction: Transaction<'static>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let results = self
-            .database
-            .apply_transaction(transaction, permissions)
-            .await?;
+        let results = self.database.apply_transaction(transaction).await?;
         Ok(Response::Database(DatabaseResponse::TransactionResults(
             results,
         )))
@@ -1709,7 +1709,10 @@ impl<'s, B: Backend> bonsaidb_core::networking::DeleteDocsHandler for DatabaseDi
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let count = self.database.delete_docs(&view, key, access_policy).await?;
+        let count = self
+            .database
+            .delete_docs_by_name(&view, key, access_policy)
+            .await?;
         Ok(Response::Database(DatabaseResponse::DocumentsDeleted(
             count,
         )))
@@ -2011,7 +2014,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::CompactCollectionHandler
         _permissions: &Permissions,
         collection: CollectionName,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.database.compact_collection(collection).await?;
+        self.database.compact_collection_by_name(collection).await?;
 
         Ok(Response::Ok)
     }

@@ -54,7 +54,7 @@ where
         result: Result<T, E>,
     ) {
         let mut jobs = fast_async_write!(self.jobs);
-        jobs.job_completed(id, key, result).await;
+        jobs.job_completed(id, key, result);
     }
 
     /// Spawns a worker. In general, you shouldn't need to call this function

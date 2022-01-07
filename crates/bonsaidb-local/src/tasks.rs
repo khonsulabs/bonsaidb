@@ -38,6 +38,7 @@ type ViewKey = (Arc<Cow<'static, str>>, CollectionName, ViewName);
 #[derive(Default, Debug)]
 pub struct Statuses {
     completed_integrity_checks: HashSet<ViewKey>,
+    key_value_expiration_loads: HashSet<Arc<Cow<'static, str>>>,
     view_update_last_status: HashMap<ViewKey, u64>,
 }
 
@@ -102,6 +103,11 @@ impl TaskManager {
         Ok(())
     }
 
+    pub async fn key_value_expiration_loaded(&self, database: &Arc<Cow<'static, str>>) -> bool {
+        let statuses = fast_async_read!(self.statuses);
+        statuses.key_value_expiration_loads.contains(database)
+    }
+
     pub async fn view_integrity_checked(
         &self,
         database: Arc<Cow<'static, str>>,
@@ -158,6 +164,11 @@ impl TaskManager {
             .insert((database, collection, view_name));
     }
 
+    pub async fn mark_key_value_expiration_loaded(&self, database: Arc<Cow<'static, str>>) {
+        let mut statuses = fast_async_write!(self.statuses);
+        statuses.key_value_expiration_loads.insert(database);
+    }
+
     pub async fn mark_view_updated(
         &self,
         database: Arc<Cow<'static, str>>,
@@ -174,12 +185,18 @@ impl TaskManager {
     pub async fn spawn_key_value_expiration_loader(
         &self,
         database: &crate::Database,
-    ) -> Handle<(), Error, Task> {
-        self.jobs
-            .enqueue(crate::database::keyvalue::ExpirationLoader {
-                database: database.clone(),
-            })
-            .await
+    ) -> Option<Handle<(), Error, Task>> {
+        if self.key_value_expiration_loaded(&database.data.name).await {
+            None
+        } else {
+            Some(
+                self.jobs
+                    .enqueue(crate::database::keyvalue::ExpirationLoader {
+                        database: database.clone(),
+                    })
+                    .await,
+            )
+        }
     }
 
     pub async fn compact_collection(

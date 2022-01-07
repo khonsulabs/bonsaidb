@@ -71,7 +71,7 @@ impl Storage {
 
         for name in databases {
             let database = self.database_without_schema(&name).await?;
-            database.backup(&location).await?;
+            self.backup_database(&database, &location).await?;
         }
 
         Ok(())
@@ -94,7 +94,7 @@ impl Storage {
                     .await?;
 
                 let database = self.database_without_schema(&database).await?;
-                database.restore(&location).await?;
+                self.restore_database(&database, &location).await?;
             }
         }
 

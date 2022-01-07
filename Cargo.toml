@@ -12,6 +12,7 @@ members = [
     "examples/*",
     "book/book-examples",
     "xtask",
+    "benchmarks",
 ]
 
 [patch.crates-io]
@@ -29,9 +30,10 @@ members = [
 # [patch."https://github.com/khonsulabs/custodian.git"]
 # custodian-password = { path = "../custodian/password" }
 [profile.bench]
-# debug = true # for flamegraph
 lto = true
 codegen-units = 1
+# debug = true  # for flamegraph
+# opt-level = 0 # for quicker development
 
 [profile.release]
 lto = true

@@ -1,0 +1,30 @@
+[package]
+name = "benchmarks"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bench]]
+name = "collections"
+harness = false
+
+[[bench]]
+name = "key-value"
+harness = false
+
+[dependencies]
+redis = { version = "0.21", optional = true, features = ["tokio-comp"] }
+bonsaidb = { path = "../crates/bonsaidb", version = "0.1.0-dev.4", features = [
+    "client",
+    "client-websockets",
+    "server",
+    "server-websockets",
+    "local",
+] }
+futures = "0.3"
+criterion = { version = "0.3", features = ["async_tokio", "html_reports"] }
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+ubyte = "0.10"
+env_logger = "0.9"
