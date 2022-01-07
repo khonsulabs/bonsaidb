@@ -386,7 +386,27 @@ impl Database {
         key: Option<QueryKey<Vec<u8>>>,
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
-        self.delete_from_view(view, key, access_policy).await
+        let view = self
+            .data
+            .schema
+            .view_by_name(view)
+            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
+        let collection = view.collection()?;
+        let mut transaction = Transaction::default();
+        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
+            let entry = ViewEntry::from(entry);
+
+            for mapping in entry.mappings {
+                transaction.push(Operation::delete(collection.clone(), mapping.source));
+            }
+
+            Ok(())
+        })
+        .await?;
+
+        let results = Connection::apply_transaction(self, transaction).await?;
+
+        Ok(results.len() as u64)
     }
 
     async fn get_from_collection_id(
@@ -569,35 +589,6 @@ impl Database {
         .await?;
 
         Ok(mappings)
-    }
-
-    async fn delete_from_view(
-        &self,
-        view_name: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error> {
-        let view = self
-            .data
-            .schema
-            .view_by_name(view_name)
-            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
-        let collection = view.collection()?;
-        let mut transaction = Transaction::default();
-        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
-            let entry = ViewEntry::from(entry);
-
-            for mapping in entry.mappings {
-                transaction.push(Operation::delete(collection.clone(), mapping.source));
-            }
-
-            Ok(())
-        })
-        .await?;
-
-        let results = Connection::apply_transaction(self, transaction).await?;
-
-        Ok(results.len() as u64)
     }
 
     fn execute_operation(
