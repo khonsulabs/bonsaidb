@@ -30,6 +30,7 @@ use nebari::{
     tree::{AnyTreeRoot, KeyEvaluation, Root, TreeRoot, Unversioned, Versioned},
     AbortError, Buffer, ExecutingTransaction, Roots, Tree,
 };
+use tokio::sync::oneshot;
 
 #[cfg(feature = "encryption")]
 use crate::vault::TreeVault;
@@ -1362,7 +1363,7 @@ pub(crate) struct Context {
     pub(crate) roots: Roots<StdFile>,
     kv_operation_sender: flume::Sender<(
         keyvalue::ManagerOp,
-        flume::Sender<Result<Output, bonsaidb_core::Error>>,
+        oneshot::Sender<Result<Output, bonsaidb_core::Error>>,
     )>,
 }
 
@@ -1391,11 +1392,11 @@ impl Context {
         &self,
         op: KeyOperation,
     ) -> Result<Output, bonsaidb_core::Error> {
-        let (result_sender, result_receiver) = flume::bounded(1);
+        let (result_sender, result_receiver) = oneshot::channel();
         self.kv_operation_sender
             .send((keyvalue::ManagerOp::Op(op), result_sender))
             .map_err(Error::from_send)?;
-        result_receiver.recv_async().await.map_err(Error::from)?
+        result_receiver.await.map_err(Error::from)?
     }
 
     pub(crate) async fn update_key_expiration_async(
@@ -1404,13 +1405,13 @@ impl Context {
         expiration: Option<Timestamp>,
     ) {
         let update = keyvalue::ExpirationUpdate::new(tree_key, expiration);
-        let (result_sender, result_receiver) = flume::bounded(1);
+        let (result_sender, result_receiver) = oneshot::channel();
         if self
             .kv_operation_sender
             .send((keyvalue::ManagerOp::SetExpiration(update), result_sender))
             .is_ok()
         {
-            drop(result_receiver.recv_async().await);
+            drop(result_receiver.await);
         }
     }
 }

@@ -31,7 +31,7 @@ where
 }
 
 #[tokio::test]
-async fn simple() -> Result<(), flume::RecvError> {
+async fn simple() -> Result<(), tokio::sync::oneshot::error::RecvError> {
     let manager = Manager::<usize>::default();
     manager.spawn_worker();
     let handle = manager.enqueue(Echo(1)).await;
@@ -45,13 +45,13 @@ async fn simple() -> Result<(), flume::RecvError> {
 }
 
 #[tokio::test]
-async fn keyed_simple() -> Result<(), flume::RecvError> {
+async fn keyed_simple() -> Result<(), tokio::sync::oneshot::error::RecvError> {
     let manager = Manager::<usize>::default();
     let handle = manager.lookup_or_enqueue(Echo(1)).await;
     let handle2 = manager.lookup_or_enqueue(Echo(1)).await;
     // Tests that they received the same job id
     assert_eq!(handle.id, handle2.id);
-    let handle3 = handle.clone().await;
+    let mut handle3 = handle.clone().await;
     assert_eq!(handle3.id, handle.id);
 
     manager.spawn_worker();

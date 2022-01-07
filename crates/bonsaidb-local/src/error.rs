@@ -67,6 +67,18 @@ impl From<flume::RecvError> for Error {
     }
 }
 
+impl From<tokio::sync::oneshot::error::RecvError> for Error {
+    fn from(_: tokio::sync::oneshot::error::RecvError) -> Self {
+        Self::InternalCommunication
+    }
+}
+
+impl From<tokio::sync::oneshot::error::TryRecvError> for Error {
+    fn from(_: tokio::sync::oneshot::error::TryRecvError) -> Self {
+        Self::InternalCommunication
+    }
+}
+
 impl Error {
     pub(crate) fn from_send<T>(_: flume::SendError<T>) -> Self {
         Self::InternalCommunication

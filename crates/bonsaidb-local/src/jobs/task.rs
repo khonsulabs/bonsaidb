@@ -1,7 +1,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use bonsaidb_utils::fast_async_write;
-use flume::Receiver;
+use tokio::sync::oneshot;
 
 use crate::jobs::manager::Manager;
 
@@ -16,7 +16,7 @@ pub struct Handle<T, E, Key> {
     pub id: Id,
 
     pub(crate) manager: Manager<Key>,
-    pub(crate) receiver: Receiver<Result<T, Arc<E>>>,
+    pub(crate) receiver: oneshot::Receiver<Result<T, Arc<E>>>,
 }
 
 impl<T, E, Key> Handle<T, E, Key>
@@ -37,8 +37,10 @@ where
     /// # Errors
     ///
     /// Returns an error if the job is cancelled.
-    pub async fn receive(&self) -> Result<Result<T, Arc<E>>, flume::RecvError> {
-        self.receiver.recv_async().await
+    pub async fn receive(
+        self,
+    ) -> Result<Result<T, Arc<E>>, tokio::sync::oneshot::error::RecvError> {
+        self.receiver.await
     }
 
     /// Tries to receive the status of the job. If available, it is returned.
@@ -50,7 +52,9 @@ where
     ///
     /// * [`TryRecvError::Disconnected`](flume::TryRecvError::Disconnected): The job has been cancelled.
     /// * [`TryRecvError::Empty`](flume::TryRecvError::Empty): The job has not completed yet.
-    pub fn try_receive(&self) -> Result<Result<T, Arc<E>>, flume::TryRecvError> {
+    pub fn try_receive(
+        &mut self,
+    ) -> Result<Result<T, Arc<E>>, tokio::sync::oneshot::error::TryRecvError> {
         self.receiver.try_recv()
     }
 }

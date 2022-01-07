@@ -1,6 +1,7 @@
 use std::{any::Any, collections::HashMap, fmt::Debug, sync::Arc};
 
 use flume::{Receiver, Sender};
+use tokio::sync::oneshot;
 
 use crate::jobs::{
     manager::{ManagedJob, Manager},
@@ -9,13 +10,27 @@ use crate::jobs::{
     Job, Keyed,
 };
 
-#[derive(Debug)]
 pub struct Jobs<Key> {
     last_task_id: u64,
     result_senders: HashMap<Id, Vec<Box<dyn AnySender>>>,
     keyed_jobs: HashMap<Key, Id>,
     queuer: Sender<Box<dyn Executable>>,
     queue: Receiver<Box<dyn Executable>>,
+}
+
+impl<Key> Debug for Jobs<Key>
+where
+    Key: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Jobs")
+            .field("last_task_id", &self.last_task_id)
+            .field("result_senders", &self.result_senders.len())
+            .field("keyed_jobs", &self.keyed_jobs)
+            .field("queuer", &self.queuer)
+            .field("queue", &self.queue)
+            .finish()
+    }
 }
 
 impl<Key> Default for Jobs<Key> {
@@ -65,9 +80,9 @@ where
         id: Id,
         manager: Manager<Key>,
     ) -> Handle<T, E, Key> {
-        let (sender, receiver) = flume::bounded(1);
+        let (sender, receiver) = oneshot::channel();
         let senders = self.result_senders.entry(id).or_insert_with(Vec::default);
-        senders.push(Box::new(sender));
+        senders.push(Box::new(Some(sender)));
 
         Handle {
             id,
@@ -103,26 +118,28 @@ where
 
         if let Some(senders) = self.result_senders.remove(&id) {
             let result = result.map_err(Arc::new);
-            for sender_handle in senders {
+            for mut sender_handle in senders {
                 let sender = sender_handle
-                    .as_any()
-                    .downcast_ref::<Sender<Result<T, Arc<E>>>>()
+                    .as_any_mut()
+                    .downcast_mut::<Option<oneshot::Sender<Result<T, Arc<E>>>>>()
                     .unwrap();
-                drop(sender.send(result.clone()));
+                if let Some(sender) = sender.take() {
+                    drop(sender.send(result.clone()));
+                }
             }
         }
     }
 }
 
-pub trait AnySender: Any + Send + Sync + Debug {
-    fn as_any(&self) -> &'_ dyn Any;
+pub trait AnySender: Any + Send + Sync {
+    fn as_any_mut(&mut self) -> &'_ mut dyn Any;
 }
 
-impl<T> AnySender for Sender<T>
+impl<T> AnySender for Option<oneshot::Sender<T>>
 where
     T: Send + Sync + 'static,
 {
-    fn as_any(&self) -> &'_ dyn Any {
+    fn as_any_mut(&mut self) -> &'_ mut dyn Any {
         self
     }
 }

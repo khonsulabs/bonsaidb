@@ -19,6 +19,7 @@ use nebari::{
     AbortError, Buffer, Roots,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
 
 use crate::{config::KeyValuePersistence, jobs::Job, Database, Error};
 
@@ -197,7 +198,7 @@ impl ExpirationUpdate {
 pub(super) struct KeyValueManager {
     operation_receiver: flume::Receiver<(
         ManagerOp,
-        flume::Sender<Result<Output, bonsaidb_core::Error>>,
+        oneshot::Sender<Result<Output, bonsaidb_core::Error>>,
     )>,
     persistence: KeyValuePersistence,
     last_commit: Timestamp,
@@ -217,7 +218,7 @@ impl KeyValueManager {
     pub fn new(
         operation_receiver: flume::Receiver<(
             ManagerOp,
-            flume::Sender<Result<Output, bonsaidb_core::Error>>,
+            oneshot::Sender<Result<Output, bonsaidb_core::Error>>,
         )>,
         roots: Roots<StdFile>,
         persistence: KeyValuePersistence,
@@ -519,7 +520,7 @@ impl KeyValueManager {
     ) -> Result<
         Option<(
             ManagerOp,
-            flume::Sender<Result<Output, bonsaidb_core::Error>>,
+            oneshot::Sender<Result<Output, bonsaidb_core::Error>>,
         )>,
         Error,
     > {

@@ -28,8 +28,8 @@ pub enum Error {
     Core(#[from] bonsaidb_core::Error),
 
     /// An internal error occurred while waiting for a message.
-    #[error("error while waiting for a message: {0}")]
-    InternalCommunication(#[from] flume::RecvError),
+    #[error("error while waiting for a message")]
+    InternalCommunication,
 
     /// An error occurred while interacting with a local database.
     #[error("an error occurred interacting with a database: {0}")]
@@ -75,6 +75,24 @@ impl From<Error> for bonsaidb_core::Error {
             Error::WebSocket(err) => Self::Websocket(err.to_string()),
             err => Self::Server(err.to_string()),
         }
+    }
+}
+
+impl From<flume::RecvError> for Error {
+    fn from(_: flume::RecvError) -> Self {
+        Self::InternalCommunication
+    }
+}
+
+impl From<tokio::sync::oneshot::error::RecvError> for Error {
+    fn from(_: tokio::sync::oneshot::error::RecvError) -> Self {
+        Self::InternalCommunication
+    }
+}
+
+impl From<tokio::sync::oneshot::error::TryRecvError> for Error {
+    fn from(_: tokio::sync::oneshot::error::TryRecvError) -> Self {
+        Self::InternalCommunication
     }
 }
 
