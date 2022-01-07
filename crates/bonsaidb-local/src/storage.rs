@@ -70,7 +70,7 @@ struct Data {
     file_manager: StdFileManager,
     pub(crate) tasks: TaskManager,
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
-    available_databases: RwLock<HashMap<String, AvailableDatabase>>,
+    available_databases: RwLock<HashMap<String, SchemaName>>,
     open_roots: Mutex<HashMap<String, Context>>,
     #[cfg(feature = "encryption")]
     pub(crate) vault: Arc<Vault>,
@@ -214,15 +214,7 @@ impl Storage {
             .query()
             .await?
             .into_iter()
-            .map(|map| {
-                (
-                    map.key,
-                    AvailableDatabase {
-                        schema_name: map.value,
-                        open_database: None,
-                    },
-                )
-            })
+            .map(|map| (map.key, map.value))
             .collect();
         let mut storage_databases = fast_async_write!(self.data.available_databases);
         *storage_databases = available_databases;
@@ -364,31 +356,19 @@ impl Storage {
 
     /// Opens a database through a generic-free trait.
     pub(crate) async fn database_without_schema(&self, name: &str) -> Result<Database, Error> {
-        // First, try to optimistically access the database if it's already been opened.
         let schema = {
             let available_databases = fast_async_read!(self.data.available_databases);
-            let available_database = available_databases.get(name).ok_or_else(|| {
-                Error::Core(bonsaidb_core::Error::DatabaseNotFound(name.to_string()))
-            })?;
-            if let Some(database) = &available_database.open_database {
-                return Ok(database.clone());
-            }
-            available_database.schema_name.clone()
+            available_databases
+                .get(name)
+                .ok_or_else(|| {
+                    Error::Core(bonsaidb_core::Error::DatabaseNotFound(name.to_string()))
+                })?
+                .clone()
         };
-
-        let mut available_databases = fast_async_write!(self.data.available_databases);
-        let available_database = available_databases
-            .get_mut(name)
-            .ok_or_else(|| Error::Core(bonsaidb_core::Error::DatabaseNotFound(name.to_string())))?;
-
-        if let Some(database) = &available_database.open_database {
-            return Ok(database.clone());
-        }
 
         let mut schemas = fast_async_write!(self.data.schemas);
         if let Some(schema) = schemas.get_mut(&schema) {
             let db = schema.open(name.to_string(), self.clone()).await?;
-            available_database.open_database = Some(db.clone());
             Ok(db)
         } else {
             Err(Error::Core(bonsaidb_core::Error::SchemaNotRegistered(
@@ -547,13 +527,7 @@ impl StorageConnection for Storage {
                 schema: schema.clone(),
             })
             .await?;
-        available_databases.insert(
-            name.to_string(),
-            AvailableDatabase {
-                schema_name: schema,
-                open_database: None,
-            },
-        );
+        available_databases.insert(name.to_string(), schema);
 
         Ok(())
     }
@@ -612,9 +586,9 @@ impl StorageConnection for Storage {
         let available_databases = fast_async_read!(self.data.available_databases);
         Ok(available_databases
             .iter()
-            .map(|(name, available_database)| connection::Database {
+            .map(|(name, schema)| connection::Database {
                 name: name.to_string(),
-                schema: available_database.schema_name.clone(),
+                schema: schema.clone(),
             })
             .collect())
     }
@@ -622,12 +596,7 @@ impl StorageConnection for Storage {
     #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
         let available_databases = fast_async_read!(self.data.available_databases);
-        Ok(available_databases
-            .values()
-            .map(|db| &db.schema_name)
-            .unique()
-            .cloned()
-            .collect())
+        Ok(available_databases.values().unique().cloned().collect())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
@@ -830,10 +799,4 @@ impl Display for StorageId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(self, f)
     }
-}
-
-#[derive(Debug)]
-struct AvailableDatabase {
-    schema_name: SchemaName,
-    open_database: Option<Database>,
 }

@@ -43,7 +43,6 @@ async fn save_document(doc: &ResizableDocument, db: &Database) {
 
 fn criterion_benchmark(c: &mut Criterion) {
     static KB: usize = 1024;
-    let runtime = tokio::runtime::Runtime::new().unwrap();
 
     // First set of benchmarks tests inserting documents
     let mut group = c.benchmark_group("save_documents");
@@ -52,6 +51,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         data.resize_with(*size, || 7u8);
         let doc = Arc::new(ResizableDocument { data });
         let doc = &doc;
+        let runtime = tokio::runtime::Runtime::new().unwrap();
         group.throughput(Throughput::Bytes(*size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(*size as u64), size, |b, _| {
             let path = TestDirectory::new(format!("benches-basics-{}.bonsaidb", size));
