@@ -1,5 +1,6 @@
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    borrow::Cow,
+    collections::{btree_map, BTreeMap, HashMap, VecDeque},
     convert::Infallible,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -184,21 +185,6 @@ fn decrement(existing: &Numeric, amount: &Numeric, saturating: bool) -> Numeric 
 }
 
 #[derive(Debug)]
-pub struct ExpirationUpdate {
-    pub tree_key: String,
-    pub expiration: Option<Timestamp>,
-}
-
-impl ExpirationUpdate {
-    pub fn new(tree_key: String, expiration: Option<Timestamp>) -> Self {
-        Self {
-            tree_key,
-            expiration,
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct KeyValueState {
     roots: Roots<StdFile>,
     persistence: KeyValuePersistence,
@@ -276,36 +262,38 @@ impl KeyValueState {
             value: set.value,
             expiration: set.expiration,
         };
-        let mut inserted = false;
-        let mut updated = false;
         let full_key = full_key(namespace, key);
-        let previous_value = self
-            .fetch_and_update(&full_key, |existing_value| {
-                let should_update = match set.check {
-                    Some(KeyCheck::OnlyIfPresent) => existing_value.is_some(),
-                    Some(KeyCheck::OnlyIfVacant) => existing_value.is_none(),
-                    None => true,
-                };
-                if should_update {
-                    updated = true;
-                    inserted = existing_value.is_none();
-                    if set.keep_existing_expiration && !inserted {
-                        if let Some(existing_value) = &existing_value {
-                            entry.expiration = existing_value.expiration;
-                        }
-                    }
-                    Some(entry.clone())
-                } else {
-                    existing_value
-                }
-            })
-            .map_err(Error::from)?;
+        let possible_existing_value =
+            if set.check.is_some() || set.return_previous_value || set.keep_existing_expiration {
+                Some(self.get(&full_key).map_err(Error::from)?)
+            } else {
+                None
+            };
+        let existing_value_ref = possible_existing_value.as_ref().and_then(Option::as_ref);
 
-        if updated {
-            self.update_key_expiration(full_key, entry.expiration);
+        let updating = match set.check {
+            Some(KeyCheck::OnlyIfPresent) => existing_value_ref.is_some(),
+            Some(KeyCheck::OnlyIfVacant) => existing_value_ref.is_none(),
+            None => true,
+        };
+        if updating {
+            if set.keep_existing_expiration {
+                if let Some(existing_value) = existing_value_ref {
+                    entry.expiration = existing_value.expiration;
+                }
+            }
+            self.update_key_expiration(&full_key, entry.expiration);
+
+            let previous_value = if let Some(existing_value) = possible_existing_value {
+                // we already fetched, no need to ask for the existing value back
+                self.set(full_key, entry);
+                existing_value
+            } else {
+                self.replace(full_key, entry).map_err(Error::from)?
+            };
             if set.return_previous_value {
                 Ok(Output::Value(previous_value.map(|entry| entry.value)))
-            } else if inserted {
+            } else if previous_value.is_none() {
                 Ok(Output::Status(KeyStatus::Inserted))
             } else {
                 Ok(Output::Status(KeyStatus::Updated))
@@ -315,8 +303,74 @@ impl KeyValueState {
         }
     }
 
-    pub fn update_key_expiration(&mut self, key: String, expiration: Option<Timestamp>) {
-        self.update_expiration(&ExpirationUpdate::new(key, expiration));
+    pub fn update_key_expiration<'key>(
+        &mut self,
+        tree_key: impl Into<Cow<'key, str>>,
+        expiration: Option<Timestamp>,
+    ) {
+        let tree_key = tree_key.into();
+        let mut changed_first_expiration = false;
+        if let Some(expiration) = expiration {
+            let key = if self.expiring_keys.contains_key(tree_key.as_ref()) {
+                // Update the existing entry.
+                let existing_entry_index = self
+                    .expiration_order
+                    .iter()
+                    .enumerate()
+                    .find_map(
+                        |(index, key)| {
+                            if &tree_key == key {
+                                Some(index)
+                            } else {
+                                None
+                            }
+                        },
+                    )
+                    .unwrap();
+                changed_first_expiration = existing_entry_index == 0;
+                self.expiration_order.remove(existing_entry_index).unwrap()
+            } else {
+                tree_key.into_owned()
+            };
+
+            // Insert the key into the expiration_order queue
+            let mut insert_at = None;
+            for (index, expiring_key) in self.expiration_order.iter().enumerate() {
+                if self.expiring_keys.get(expiring_key).unwrap() > &expiration {
+                    insert_at = Some(index);
+                    break;
+                }
+            }
+            if let Some(insert_at) = insert_at {
+                changed_first_expiration |= insert_at == 0;
+
+                self.expiration_order.insert(insert_at, key.clone());
+            } else {
+                changed_first_expiration |= self.expiration_order.is_empty();
+                self.expiration_order.push_back(key.clone());
+            }
+            self.expiring_keys.insert(key, expiration);
+        } else if self.expiring_keys.remove(tree_key.as_ref()).is_some() {
+            let index = self
+                .expiration_order
+                .iter()
+                .enumerate()
+                .find_map(|(index, key)| {
+                    if tree_key.as_ref() == key {
+                        Some(index)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+
+            changed_first_expiration |= index == 0;
+            self.expiration_order.remove(index);
+        }
+
+        if changed_first_expiration {
+            self.update_background_worker_target();
+        }
     }
 
     fn execute_get_operation(
@@ -398,20 +452,6 @@ impl KeyValueState {
         }
     }
 
-    fn fetch_and_update<F>(&mut self, full_key: &str, f: F) -> Result<Option<Entry>, nebari::Error>
-    where
-        F: FnOnce(Option<Entry>) -> Option<Entry>,
-    {
-        let current = self.get(full_key)?;
-        let next = f(current.clone());
-        if let Some(entry) = self.dirty_keys.get_mut(full_key) {
-            *entry = next;
-        } else {
-            self.dirty_keys.insert(full_key.to_string(), next);
-        }
-        Ok(current)
-    }
-
     fn remove(&mut self, key: String) -> Result<Option<Entry>, nebari::Error> {
         self.update_key_expiration(key.clone(), None);
 
@@ -419,12 +459,7 @@ impl KeyValueState {
             Ok(dirty_entry.take())
         } else {
             // There might be a value on-disk we need to remove.
-            let previous_value = self
-                .roots
-                .tree(Unversioned::tree(KEY_TREE))?
-                .get(key.as_bytes())?;
-            let previous_value =
-                previous_value.and_then(|current| bincode::deserialize::<Entry>(&current).ok());
+            let previous_value = Self::retrieve_key_from_disk(&self.roots, &key)?;
             self.dirty_keys.insert(key, None);
             Ok(previous_value)
         }
@@ -434,12 +469,7 @@ impl KeyValueState {
         if let Some(entry) = self.dirty_keys.get(key) {
             Ok(entry.clone())
         } else {
-            self.roots
-                .tree(Unversioned::tree(KEY_TREE))?
-                .get(key.as_bytes())
-                .map(|current| {
-                    current.and_then(|current| bincode::deserialize::<Entry>(&current).ok())
-                })
+            Self::retrieve_key_from_disk(&self.roots, key)
         }
     }
 
@@ -447,67 +477,33 @@ impl KeyValueState {
         self.dirty_keys.insert(key, Some(value));
     }
 
-    fn update_expiration(&mut self, update: &ExpirationUpdate) {
-        let mut changed_first_expiration = false;
-        if let Some(expiration) = update.expiration {
-            let key = if self.expiring_keys.contains_key(&update.tree_key) {
-                // Update the existing entry.
-                let existing_entry_index = self
-                    .expiration_order
-                    .iter()
-                    .enumerate()
-                    .find_map(|(index, key)| {
-                        if &update.tree_key == key {
-                            Some(index)
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap();
-                changed_first_expiration = existing_entry_index == 0;
-                self.expiration_order.remove(existing_entry_index).unwrap()
-            } else {
-                update.tree_key.clone()
-            };
-
-            // Insert the key into the expiration_order queue
-            let mut insert_at = None;
-            for (index, expiring_key) in self.expiration_order.iter().enumerate() {
-                if self.expiring_keys.get(expiring_key).unwrap() > &expiration {
-                    insert_at = Some(index);
-                    break;
-                }
-            }
-            if let Some(insert_at) = insert_at {
-                changed_first_expiration |= insert_at == 0;
-
-                self.expiration_order.insert(insert_at, key.clone());
-            } else {
-                changed_first_expiration |= self.expiration_order.is_empty();
-                self.expiration_order.push_back(key.clone());
-            }
-            self.expiring_keys.insert(key, expiration);
-        } else if self.expiring_keys.remove(&update.tree_key).is_some() {
-            let index = self
-                .expiration_order
-                .iter()
-                .enumerate()
-                .find_map(|(index, key)| {
-                    if &update.tree_key == key {
-                        Some(index)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap();
-
-            changed_first_expiration |= index == 0;
-            self.expiration_order.remove(index);
+    fn replace(&mut self, key: String, value: Entry) -> Result<Option<Entry>, nebari::Error> {
+        let mut value = Some(value);
+        let map_entry = self.dirty_keys.entry(key);
+        if matches!(map_entry, btree_map::Entry::Vacant(_)) {
+            // This key is clean, and the caller is expecting the previous
+            // value.
+            let stored_value = Self::retrieve_key_from_disk(&self.roots, map_entry.key())?;
+            map_entry.or_insert(value);
+            Ok(stored_value)
+        } else {
+            // This key is already dirty, we can just replace the value and
+            // return the old value.
+            map_entry.and_modify(|map_entry| {
+                std::mem::swap(&mut value, map_entry);
+            });
+            Ok(value)
         }
+    }
 
-        if changed_first_expiration {
-            self.update_background_worker_target();
-        }
+    fn retrieve_key_from_disk(
+        roots: &Roots<StdFile>,
+        key: &str,
+    ) -> Result<Option<Entry>, nebari::Error> {
+        roots
+            .tree(Unversioned::tree(KEY_TREE))?
+            .get(key.as_bytes())
+            .map(|current| current.and_then(|current| bincode::deserialize::<Entry>(&current).ok()))
     }
 
     fn update_background_worker_target(&mut self) {
