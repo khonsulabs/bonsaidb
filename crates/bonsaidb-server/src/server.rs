@@ -54,6 +54,7 @@ use flume::Sender;
 use futures::{Future, StreamExt};
 use rustls::sign::CertifiedKey;
 use schema::SchemaName;
+use serde_bytes::ByteBuf;
 #[cfg(not(windows))]
 use signal_hook::consts::SIGQUIT;
 use signal_hook::consts::{SIGINT, SIGTERM};
@@ -1558,7 +1559,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
     async fn resource_name<'a>(
         &'a self,
         view: &'a ViewName,
-        _key: &'a Option<QueryKey<Vec<u8>>>,
+        _key: &'a Option<QueryKey<ByteBuf>>,
         _order: &'a Sort,
         _limit: &'a Option<usize>,
         _access_policy: &'a AccessPolicy,
@@ -1575,7 +1576,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
         &self,
         _permissions: &Permissions,
         view: ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
@@ -1606,7 +1607,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispat
     async fn resource_name<'a>(
         &'a self,
         view: &'a ViewName,
-        _key: &'a Option<QueryKey<Vec<u8>>>,
+        _key: &'a Option<QueryKey<ByteBuf>>,
         _access_policy: &'a AccessPolicy,
         _grouped: &'a bool,
     ) -> Result<ResourceName<'a>, Error> {
@@ -1621,7 +1622,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispat
         &self,
         _permissions: &Permissions,
         view: ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         access_policy: AccessPolicy,
         grouped: bool,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
@@ -1692,7 +1693,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::DeleteDocsHandler for DatabaseDi
     async fn resource_name<'a>(
         &'a self,
         view: &'a ViewName,
-        _key: &'a Option<QueryKey<Vec<u8>>>,
+        _key: &'a Option<QueryKey<ByteBuf>>,
         _access_policy: &'a AccessPolicy,
     ) -> Result<ResourceName<'a>, Error> {
         Ok(view_resource_name(&self.name, view))
@@ -1706,7 +1707,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::DeleteDocsHandler for DatabaseDi
         &self,
         _permissions: &Permissions,
         view: ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         access_policy: AccessPolicy,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let count = self

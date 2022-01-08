@@ -275,7 +275,7 @@ pub struct SetCommand {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum Value {
     /// A value stored as a byte array.
-    Bytes(Vec<u8>),
+    Bytes(#[serde(with = "serde_bytes")] Vec<u8>),
     /// A numeric value.
     Numeric(Numeric),
 }

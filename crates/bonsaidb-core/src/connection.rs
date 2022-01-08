@@ -8,6 +8,7 @@ use custodian_password::{
 };
 use futures::{future::BoxFuture, Future, FutureExt};
 use serde::{Deserialize, Serialize};
+use serde_bytes::ByteBuf;
 
 #[cfg(feature = "multiuser")]
 use crate::schema::NamedReference;
@@ -521,12 +522,12 @@ pub enum QueryKey<K> {
 #[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
 impl<K: Key> QueryKey<K> {
     /// Converts this key to a serialized format using the [`Key`] trait.
-    pub fn serialized(&self) -> Result<QueryKey<Vec<u8>>, Error> {
+    pub fn serialized(&self) -> Result<QueryKey<ByteBuf>, Error> {
         match self {
             Self::Matches(key) => key
                 .as_big_endian_bytes()
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
-                .map(|v| QueryKey::Matches(v.to_vec())),
+                .map(|v| QueryKey::Matches(ByteBuf::from(v.to_vec()))),
             Self::Range(range) => Ok(QueryKey::Range(range.as_big_endian_bytes().map_err(
                 |err| Error::Database(view::Error::key_serialization(err).to_string()),
             )?)),
@@ -535,7 +536,7 @@ impl<K: Key> QueryKey<K> {
                     .iter()
                     .map(|key| {
                         key.as_big_endian_bytes()
-                            .map(|key| key.to_vec())
+                            .map(|key| ByteBuf::from(key.to_vec()))
                             .map_err(|err| {
                                 Error::Database(view::Error::key_serialization(err).to_string())
                             })
@@ -549,7 +550,7 @@ impl<K: Key> QueryKey<K> {
 }
 
 #[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
-impl QueryKey<Vec<u8>> {
+impl QueryKey<ByteBuf> {
     /// Deserializes the bytes into `K` via the [`Key`] trait.
     pub fn deserialized<K: Key>(&self) -> Result<QueryKey<K>, Error> {
         match self {
@@ -607,7 +608,7 @@ impl<T> Range<T> {
 
 impl<T: Key> Range<T> {
     /// Serializes the range's contained values to big-endian bytes.
-    pub fn as_big_endian_bytes(&self) -> Result<Range<Vec<u8>>, T::Error> {
+    pub fn as_big_endian_bytes(&self) -> Result<Range<ByteBuf>, T::Error> {
         Ok(Range {
             start: self.start.as_big_endian_bytes()?,
             end: self.end.as_big_endian_bytes()?,
@@ -615,7 +616,7 @@ impl<T: Key> Range<T> {
     }
 }
 
-impl Range<Vec<u8>> {
+impl Range<ByteBuf> {
     /// Deserializes the range's contained values from big-endian bytes.
     pub fn deserialize<T: Key>(&self) -> Result<Range<T>, T::Error> {
         Ok(Range {
@@ -638,16 +639,20 @@ impl<T> Bound<T> {
 
 impl<T: Key> Bound<T> {
     /// Serializes the contained value to big-endian bytes.
-    pub fn as_big_endian_bytes(&self) -> Result<Bound<Vec<u8>>, T::Error> {
+    pub fn as_big_endian_bytes(&self) -> Result<Bound<ByteBuf>, T::Error> {
         match self {
             Bound::Unbounded => Ok(Bound::Unbounded),
-            Bound::Included(value) => Ok(Bound::Included(value.as_big_endian_bytes()?.to_vec())),
-            Bound::Excluded(value) => Ok(Bound::Excluded(value.as_big_endian_bytes()?.to_vec())),
+            Bound::Included(value) => Ok(Bound::Included(ByteBuf::from(
+                value.as_big_endian_bytes()?.to_vec(),
+            ))),
+            Bound::Excluded(value) => Ok(Bound::Excluded(ByteBuf::from(
+                value.as_big_endian_bytes()?.to_vec(),
+            ))),
         }
     }
 }
 
-impl Bound<Vec<u8>> {
+impl Bound<ByteBuf> {
     /// Deserializes the bound's contained value from big-endian bytes.
     pub fn deserialize<T: Key>(&self) -> Result<Bound<T>, T::Error> {
         match self {

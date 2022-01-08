@@ -4,6 +4,7 @@ use std::{
 
 use num_traits::{FromPrimitive, ToPrimitive};
 use ordered_varint::{Signed, Unsigned, Variable};
+use serde_bytes::ByteBuf;
 
 use crate::AnyError;
 
@@ -48,6 +49,20 @@ impl Key for Vec<u8> {
 
     fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         Ok(bytes.to_vec())
+    }
+}
+
+impl Key for ByteBuf {
+    type Error = Infallible;
+
+    const LENGTH: Option<usize> = None;
+
+    fn as_big_endian_bytes(&self) -> Result<Cow<'_, [u8]>, Self::Error> {
+        Ok(Cow::Borrowed(self))
+    }
+
+    fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self::from(bytes))
     }
 }
 

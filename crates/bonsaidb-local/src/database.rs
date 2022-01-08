@@ -32,6 +32,7 @@ use nebari::{
     tree::{AnyTreeRoot, KeyEvaluation, Root, TreeRoot, Unversioned, Versioned},
     AbortError, Buffer, ExecutingTransaction, Roots, Tree,
 };
+use serde_bytes::ByteBuf;
 use tokio::sync::watch;
 
 #[cfg(feature = "encryption")]
@@ -164,7 +165,7 @@ impl Database {
     >(
         &self,
         view: &dyn view::Serialized,
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
@@ -290,7 +291,7 @@ impl Database {
     pub async fn query_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
@@ -321,7 +322,7 @@ impl Database {
     pub async fn query_by_name_with_docs(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
@@ -364,7 +365,7 @@ impl Database {
     pub async fn reduce_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         self.reduce_in_view(view, key, access_policy).await
@@ -375,7 +376,7 @@ impl Database {
     pub async fn reduce_grouped_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         self.grouped_reduce_in_view(view, key, access_policy).await
@@ -386,7 +387,7 @@ impl Database {
     pub async fn delete_docs_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
         let view = self
@@ -500,7 +501,7 @@ impl Database {
             let ids = ids
                 .as_big_endian_bytes()
                 .map_err(view::Error::key_serialization)?
-                .map(Buffer::from);
+                .map(|bytes| Buffer::from(bytes.into_vec()));
             tree.scan(
                 ids,
                 match sort {
@@ -537,7 +538,7 @@ impl Database {
     async fn reduce_in_view(
         &self,
         view_name: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         let view = self
@@ -568,7 +569,7 @@ impl Database {
     async fn grouped_reduce_in_view(
         &self,
         view_name: &ViewName,
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         let view = self
@@ -811,7 +812,7 @@ impl Database {
                     let range = range
                         .as_big_endian_bytes()
                         .map_err(view::Error::key_serialization)?
-                        .map(Buffer::from);
+                        .map(|bytes| Buffer::from(bytes.into_vec()));
                     view_entries.scan::<Infallible, _, _, _, _>(
                         range,
                         forwards,

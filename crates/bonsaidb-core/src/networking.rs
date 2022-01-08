@@ -6,6 +6,7 @@ use custodian_password::{
 use derive_where::DeriveWhere;
 use schema::SchemaName;
 use serde::{Deserialize, Serialize};
+use serde_bytes::ByteBuf;
 
 use crate::{
     connection::{AccessPolicy, Database, QueryKey, Range, Sort},
@@ -191,7 +192,7 @@ pub enum DatabaseRequest {
         /// The name of the view.
         view: ViewName,
         /// The filter for the view.
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         /// The order for the query into the view.
         order: Sort,
         /// The maximum number of results to return.
@@ -209,7 +210,7 @@ pub enum DatabaseRequest {
         /// The name of the view.
         view: ViewName,
         /// The filter for the view.
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         /// The access policy for the query.
         access_policy: AccessPolicy,
         /// Whether to return a single value or values grouped by unique key. If
@@ -223,7 +224,7 @@ pub enum DatabaseRequest {
         /// The name of the view.
         view: ViewName,
         /// The filter for the view.
-        key: Option<QueryKey<Vec<u8>>>,
+        key: Option<QueryKey<ByteBuf>>,
         /// The access policy for the query.
         access_policy: AccessPolicy,
     },
@@ -377,7 +378,7 @@ pub enum DatabaseResponse {
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is true.
     ViewMappingsWithDocs(Vec<map::MappedSerialized>),
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is false.
-    ViewReduction(Vec<u8>),
+    ViewReduction(#[serde(with = "serde_bytes")] Vec<u8>),
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is true.
     ViewGroupedReduction(Vec<MappedSerializedValue>),
     /// Results of [`DatabaseRequest::ListExecutedTransactions`].
