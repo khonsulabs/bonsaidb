@@ -2,6 +2,7 @@ use std::{
     borrow::{Borrow, Cow},
     collections::HashMap,
     convert::Infallible,
+    ops::Deref,
     sync::Arc,
     u8,
 };
@@ -1357,6 +1358,19 @@ impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Context {
+    data: Arc<ContextData>,
+}
+
+impl Deref for Context {
+    type Target = ContextData;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ContextData {
     pub(crate) roots: Roots<StdFile>,
     key_value_state: Arc<Mutex<keyvalue::KeyValueState>>,
     runtime: tokio::runtime::Handle,
@@ -1364,7 +1378,7 @@ pub(crate) struct Context {
 
 impl Borrow<Roots<StdFile>> for Context {
     fn borrow(&self) -> &Roots<StdFile> {
-        &self.roots
+        &self.data.roots
     }
 }
 
@@ -1377,9 +1391,11 @@ impl Context {
             background_sender,
         )));
         let context = Self {
-            roots,
-            key_value_state: key_value_state.clone(),
-            runtime: tokio::runtime::Handle::current(),
+            data: Arc::new(ContextData {
+                roots,
+                key_value_state: key_value_state.clone(),
+                runtime: tokio::runtime::Handle::current(),
+            }),
         };
         tokio::task::spawn(keyvalue::background_worker(
             key_value_state,
@@ -1392,7 +1408,7 @@ impl Context {
         &self,
         op: KeyOperation,
     ) -> Result<Output, bonsaidb_core::Error> {
-        let mut state = fast_async_lock!(self.key_value_state);
+        let mut state = fast_async_lock!(self.data.key_value_state);
         state.perform_kv_operation(op).await
     }
 
@@ -1401,12 +1417,12 @@ impl Context {
         tree_key: String,
         expiration: Option<Timestamp>,
     ) {
-        let mut state = fast_async_lock!(self.key_value_state);
+        let mut state = fast_async_lock!(self.data.key_value_state);
         state.update_key_expiration(tree_key, expiration);
     }
 }
 
-impl Drop for Context {
+impl Drop for ContextData {
     fn drop(&mut self) {
         let key_value_state = self.key_value_state.clone();
         self.runtime.spawn(async move {
