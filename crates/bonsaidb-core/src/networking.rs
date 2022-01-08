@@ -231,7 +231,7 @@ pub enum DatabaseRequest {
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
     ApplyTransaction {
         /// The trasnaction to apply.
-        transaction: Transaction<'static>,
+        transaction: Transaction,
     },
     /// Lists executed transactions.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
@@ -253,6 +253,7 @@ pub enum DatabaseRequest {
         /// The topics to publish to.
         topic: String,
         /// The payload to publish.
+        #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
     },
     /// Publishes `payload` to all subscribers of all `topics`.
@@ -261,6 +262,7 @@ pub enum DatabaseRequest {
         /// The topics to publish to.
         topics: Vec<String>,
         /// The payload to publish.
+        #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
     },
     /// Subscribes `subscriber_id` to messages for `topic`.
@@ -365,7 +367,7 @@ pub enum ServerResponse {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum DatabaseResponse {
     /// One or more documents.
-    Documents(Vec<Document<'static>>),
+    Documents(Vec<Document>),
     /// A number of documents were deleted.
     DocumentsDeleted(u64),
     /// Results of [`DatabaseRequest::ApplyTransaction`].
@@ -394,6 +396,7 @@ pub enum DatabaseResponse {
         /// The topic the payload was received on.
         topic: String,
         /// The message payload.
+        #[serde(with = "serde_bytes")]
         payload: Vec<u8>,
     },
     /// Output from a [`KeyOperation`] being executed.

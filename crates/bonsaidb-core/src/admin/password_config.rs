@@ -97,7 +97,7 @@ impl View for Singleton {
         Name::new("singleton")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         Ok(document.emit())
     }
 }

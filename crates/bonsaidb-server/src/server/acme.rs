@@ -19,6 +19,7 @@ use crate::{Backend, CustomServer, Error};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AcmeAccount {
     pub contacts: Vec<String>,
+    #[serde(with = "serde_bytes")]
     pub data: Vec<u8>,
 }
 

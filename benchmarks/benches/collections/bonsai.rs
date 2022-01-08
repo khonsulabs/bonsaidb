@@ -1,6 +1,3 @@
-use criterion::{measurement::WallTime, BenchmarkGroup, BenchmarkId};
-use ubyte::ToByteUnit;
-
 use bonsaidb::{
     core::{
         connection::Connection,
@@ -13,6 +10,8 @@ use bonsaidb::{
         Database,
     },
 };
+use criterion::{measurement::WallTime, BenchmarkGroup, BenchmarkId};
+use ubyte::ToByteUnit;
 
 use crate::collections::ResizableDocument;
 

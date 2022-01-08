@@ -138,7 +138,7 @@ impl<K: Key, V> Iterator for MappingsIter<K, V> {
 #[derive(Debug)]
 pub struct MappedDocument<K: Key = (), V = ()> {
     /// The id of the document that emitted this entry.
-    pub document: Document<'static>,
+    pub document: Document,
 
     /// The key used to index the View.
     pub key: K,
@@ -160,10 +160,12 @@ pub struct Serialized {
     /// The header of the document that emitted this entry.
     pub source: Header,
 
-    /// The key used to index the View.
+    /// The key used to index the View.Operation
+    #[serde(with = "serde_bytes")]
     pub key: Vec<u8>,
 
-    /// An associated value stored in the view.
+    /// An associated value stored in the view.Operation
+    #[serde(with = "serde_bytes")]
     pub value: Vec<u8>,
 }
 
@@ -187,7 +189,7 @@ pub struct MappedSerialized {
     /// The serialized mapped value.
     pub mapping: MappedSerializedValue,
     /// The source document.
-    pub source: Document<'static>,
+    pub source: Document,
 }
 
 impl MappedSerialized {
@@ -223,8 +225,10 @@ pub struct MappedValue<K: Key, V> {
 /// A serialized [`MappedValue`].
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct MappedSerializedValue {
-    /// The serialized key.
+    /// The serialized key.Operation
+    #[serde(with = "serde_bytes")]
     pub key: Vec<u8>,
-    /// The serialized value.
+    /// The serialized value.Operation
+    #[serde(with = "serde_bytes")]
     pub value: Vec<u8>,
 }

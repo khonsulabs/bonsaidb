@@ -655,6 +655,7 @@ impl<'a> VaultPayload<'a> {
 #[derive(Serialize, Deserialize)]
 struct HpkePayload {
     encryption: PublicKeyEncryption,
+    #[serde(with = "serde_bytes")]
     payload: Vec<u8>,
     tag: [u8; 16],
     encapsulated_key: EncappedKey<X25519>,

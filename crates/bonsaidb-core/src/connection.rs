@@ -55,12 +55,12 @@ pub trait Connection: Send + Sync {
     /// Updates an existing document in the connected [`schema::Schema`] for the
     /// [`Collection`] `C`. Upon success, `doc.revision` will be updated with
     /// the new revision.
-    async fn update<C: schema::Collection>(&self, doc: &mut Document<'_>) -> Result<(), Error> {
+    async fn update<C: schema::Collection>(&self, doc: &mut Document) -> Result<(), Error> {
         let results = self
             .apply_transaction(Transaction::update(
                 C::collection_name()?,
                 doc.header.clone(),
-                doc.contents.to_vec(),
+                doc.contents.clone(),
             ))
             .await?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
@@ -74,15 +74,14 @@ pub trait Connection: Send + Sync {
     }
 
     /// Retrieves a stored document from [`Collection`] `C` identified by `id`.
-    async fn get<C: schema::Collection>(&self, id: u64)
-        -> Result<Option<Document<'static>>, Error>;
+    async fn get<C: schema::Collection>(&self, id: u64) -> Result<Option<Document>, Error>;
 
     /// Retrieves all documents matching `ids`. Documents that are not found
     /// are not returned, but no error will be generated.
     async fn get_multiple<C: schema::Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<Document<'static>>, Error>;
+    ) -> Result<Vec<Document>, Error>;
 
     /// Retrieves all documents within the range of `ids`. Documents that are
     /// not found are not returned, but no error will be generated. To retrieve
@@ -92,10 +91,10 @@ pub trait Connection: Send + Sync {
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<Document<'static>>, Error>;
+    ) -> Result<Vec<Document>, Error>;
 
     /// Removes a `Document` from the database.
-    async fn delete<C: schema::Collection>(&self, doc: &Document<'_>) -> Result<(), Error> {
+    async fn delete<C: schema::Collection>(&self, doc: &Document) -> Result<(), Error> {
         let results = self
             .apply_transaction(Transaction::delete(
                 C::collection_name()?,
@@ -180,7 +179,7 @@ pub trait Connection: Send + Sync {
     /// [`schema::Schema`].
     async fn apply_transaction(
         &self,
-        transaction: Transaction<'static>,
+        transaction: Transaction,
     ) -> Result<Vec<OperationResult>, Error>;
 
     /// Lists executed [`Transaction`]s from this [`schema::Schema`]. By default, a maximum of
@@ -280,7 +279,7 @@ where
     }
 
     /// Retrieves a `Document<Cl>` with `id` from the connection.
-    pub async fn get(&self, id: u64) -> Result<Option<Document<'static>>, Error> {
+    pub async fn get(&self, id: u64) -> Result<Option<Document>, Error> {
         self.connection.get::<Cl>(id).await
     }
 
@@ -307,7 +306,7 @@ struct ListBuilder<'a, Cn, Cl, R> {
 
 enum ListState<'a, Cn, Cl, R> {
     Pending(Option<ListBuilder<'a, Cn, Cl, R>>),
-    Executing(BoxFuture<'a, Result<Vec<Document<'static>>, Error>>),
+    Executing(BoxFuture<'a, Result<Vec<Document>, Error>>),
 }
 
 /// Executes [`Connection::list()`] when awaited. Also offers methods to
@@ -353,7 +352,7 @@ where
     Cl: schema::Collection,
     R: Into<Range<u64>> + Send + 'a + Unpin,
 {
-    type Output = Result<Vec<Document<'static>>, Error>;
+    type Output = Result<Vec<Document>, Error>;
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,

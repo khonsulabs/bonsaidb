@@ -1650,7 +1650,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
     async fn verify_permissions(
         &self,
         permissions: &Permissions,
-        transaction: &Transaction<'static>,
+        transaction: &Transaction,
     ) -> Result<(), Error> {
         for op in &transaction.operations {
             let (resource, action) = match &op.command {
@@ -1676,7 +1676,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-        transaction: Transaction<'static>,
+        transaction: Transaction,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let results = self.database.apply_transaction(transaction).await?;
         Ok(Response::Database(DatabaseResponse::TransactionResults(

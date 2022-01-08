@@ -207,10 +207,7 @@ pub enum AnyDatabase<B: Backend> {
 
 #[async_trait]
 impl<B: Backend> Connection for AnyDatabase<B> {
-    async fn get<C: Collection>(
-        &self,
-        id: u64,
-    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
+    async fn get<C: Collection>(&self, id: u64) -> Result<Option<Document>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.get::<C>(id).await,
             Self::Networked(client) => client.get::<C>(id).await,
@@ -220,7 +217,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
     async fn get_multiple<C: Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.get_multiple::<C>(ids).await,
             Self::Networked(client) => client.get_multiple::<C>(ids).await,
@@ -232,7 +229,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.list::<C, R>(ids, order, limit).await,
             Self::Networked(client) => client.list::<C, R>(ids, order, limit).await,
@@ -323,7 +320,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
 
     async fn apply_transaction(
         &self,
-        transaction: Transaction<'static>,
+        transaction: Transaction,
     ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.apply_transaction(transaction).await,

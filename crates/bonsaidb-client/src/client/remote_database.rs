@@ -57,10 +57,7 @@ impl<A: CustomApi> RemoteDatabase<A> {
 
 #[async_trait]
 impl<A: CustomApi> Connection for RemoteDatabase<A> {
-    async fn get<C: Collection>(
-        &self,
-        id: u64,
-    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
+    async fn get<C: Collection>(&self, id: u64) -> Result<Option<Document>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -86,7 +83,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
     async fn get_multiple<C: Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -111,7 +108,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -330,7 +327,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
 
     async fn apply_transaction(
         &self,
-        transaction: Transaction<'static>,
+        transaction: Transaction,
     ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
         match self
             .client

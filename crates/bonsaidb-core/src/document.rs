@@ -56,19 +56,20 @@ impl Display for Header {
 }
 
 /// Contains a serialized document in the database.
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct Document<'a> {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Document {
     /// The header of the document, which contains the id and `Revision`.
     pub header: Header,
 
     /// The serialized bytes of the stored item.
-    pub contents: Cow<'a, [u8]>,
+    #[serde(with = "serde_bytes")]
+    pub contents: Vec<u8>,
 }
 
-impl<'a> Document<'a> {
+impl Document {
     /// Creates a new document with `contents`.
     #[must_use]
-    pub fn new(id: u64, contents: Cow<'a, [u8]>) -> Self {
+    pub fn new(id: u64, contents: Vec<u8>) -> Self {
         let revision = Revision::new(&contents);
         Self {
             header: Header { id, revision },
@@ -81,7 +82,7 @@ impl<'a> Document<'a> {
         id: u64,
         contents: &S,
     ) -> Result<Self, crate::Error> {
-        let contents = Cow::from(<S as SerializedCollection>::serialize(contents)?);
+        let contents = <S as SerializedCollection>::serialize(contents)?;
         Ok(Self::new(id, contents))
     }
 
@@ -98,7 +99,7 @@ impl<'a> Document<'a> {
         &mut self,
         contents: &S,
     ) -> Result<(), crate::Error> {
-        self.contents = Cow::from(<S as SerializedCollection>::serialize(contents)?);
+        self.contents = <S as SerializedCollection>::serialize(contents)?;
         Ok(())
     }
 
@@ -108,7 +109,7 @@ impl<'a> Document<'a> {
     /// backend for `BonsaiDb`. To update a document, use `set_contents()` and
     /// send the document with the existing `Revision` information.
     #[must_use]
-    pub fn create_new_revision(&self, contents: Cow<'a, [u8]>) -> Option<Self> {
+    pub fn create_new_revision(&self, contents: Vec<u8>) -> Option<Self> {
         self.header
             .revision
             .next_revision(&contents)
@@ -120,18 +121,9 @@ impl<'a> Document<'a> {
                 contents,
             })
     }
-
-    /// Clone the document's data so that it's no longer borrowed in the original lifetime `'a`.
-    #[must_use]
-    pub fn to_owned(&self) -> Document<'static> {
-        Document::<'static> {
-            header: self.header.clone(),
-            contents: Cow::Owned(self.contents.as_ref().to_vec()),
-        }
-    }
 }
 
-impl<'a> Deref for Document<'a> {
+impl<'a> Deref for Document {
     type Target = Header;
 
     fn deref(&self) -> &Self::Target {

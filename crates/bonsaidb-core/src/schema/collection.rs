@@ -202,7 +202,7 @@ pub trait NamedCollection: Collection + Unpin {
     async fn load_document<'name, N: Into<NamedReference<'name>> + Send + Sync, C: Connection>(
         name: N,
         connection: &C,
-    ) -> Result<Option<Document<'static>>, Error>
+    ) -> Result<Option<Document>, Error>
     where
         Self: SerializedCollection + Sized,
     {
@@ -244,13 +244,13 @@ where
     }
 }
 
-impl<'a, C> TryFrom<&'a Document<'a>> for CollectionDocument<C>
+impl<'a, C> TryFrom<&'a Document> for CollectionDocument<C>
 where
     C: SerializedCollection,
 {
     type Error = Error;
 
-    fn try_from(value: &'a Document<'a>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a Document) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: C::deserialize(&value.contents)?,
             header: value.header.clone(),
@@ -258,13 +258,13 @@ where
     }
 }
 
-impl<'a, C> TryFrom<Document<'a>> for CollectionDocument<C>
+impl<'a, C> TryFrom<Document> for CollectionDocument<C>
 where
     C: SerializedCollection,
 {
     type Error = Error;
 
-    fn try_from(value: Document<'a>) -> Result<Self, Self::Error> {
+    fn try_from(value: Document) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: C::deserialize(&value.contents)?,
             header: value.header,
@@ -272,7 +272,7 @@ where
     }
 }
 
-impl<'a, 'b, C> TryFrom<&'b CollectionDocument<C>> for Document<'static>
+impl<'a, 'b, C> TryFrom<&'b CollectionDocument<C>> for Document
 where
     C: SerializedCollection,
 {
@@ -280,7 +280,7 @@ where
 
     fn try_from(value: &'b CollectionDocument<C>) -> Result<Self, Self::Error> {
         Ok(Self {
-            contents: Cow::Owned(C::serialize(&value.contents)?),
+            contents: C::serialize(&value.contents)?,
             header: value.header.clone(),
         })
     }
@@ -349,9 +349,9 @@ where
     }
 
     /// Converts this value to a serialized `Document`.
-    pub fn to_document(&self) -> Result<Document<'static>, Error> {
+    pub fn to_document(&self) -> Result<Document, Error> {
         Ok(Document {
-            contents: Cow::Owned(C::serialize(&self.contents)?),
+            contents: C::serialize(&self.contents)?,
             header: self.header.clone(),
         })
     }
@@ -379,8 +379,8 @@ impl<'a> From<&'a String> for NamedReference<'a> {
     }
 }
 
-impl<'a, 'b, 'c> From<&'b Document<'c>> for NamedReference<'a> {
-    fn from(doc: &'b Document<'c>) -> Self {
+impl<'a, 'b, 'c> From<&'b Document> for NamedReference<'a> {
+    fn from(doc: &'b Document) -> Self {
         Self::Id(doc.header.id)
     }
 }

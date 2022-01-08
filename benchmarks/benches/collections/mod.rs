@@ -7,6 +7,7 @@ mod rusqlite;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ResizableDocument {
+    #[serde(with = "serde_bytes")]
     data: Vec<u8>,
 }
 

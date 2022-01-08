@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use serde::{Deserialize, Serialize};
 
 use crate::{document::Header, schema::CollectionName};
@@ -9,38 +7,38 @@ use crate::{document::Header, schema::CollectionName};
 /// progress will return old data and not block.
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
 #[must_use]
-pub struct Transaction<'a> {
+pub struct Transaction {
     /// The operations in this transaction.
-    pub operations: Vec<Operation<'a>>,
+    pub operations: Vec<Operation>,
 }
 
-impl<'a> Transaction<'a> {
+impl Transaction {
     /// Returns a new, empty transaction.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Adds an operation to the transaction.
-    pub fn push(&mut self, operation: Operation<'a>) {
+    pub fn push(&mut self, operation: Operation) {
         self.operations.push(operation);
     }
 
     /// Appends an operation to the transaction and returns self.
-    pub fn with(mut self, operation: Operation<'a>) -> Self {
+    pub fn with(mut self, operation: Operation) -> Self {
         self.push(operation);
         self
     }
 }
 
-impl<'a> From<Operation<'a>> for Transaction<'a> {
-    fn from(operation: Operation<'a>) -> Self {
+impl From<Operation> for Transaction {
+    fn from(operation: Operation) -> Self {
         Self {
             operations: vec![operation],
         }
     }
 }
 
-impl Transaction<'static> {
+impl Transaction {
     /// Inserts a new document with `contents` into `collection`.  If `id` is
     /// `None` a unique id will be generated. If an id is provided and a
     /// document already exists with that id, a conflict error will be returned.
@@ -62,25 +60,22 @@ impl Transaction<'static> {
 /// A single operation performed on a `Collection`.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[must_use]
-pub struct Operation<'a> {
+pub struct Operation {
     /// The id of the `Collection`.
     pub collection: CollectionName,
 
     /// The command being performed.
-    pub command: Command<'a>,
+    pub command: Command,
 }
 
-impl Operation<'static> {
+impl Operation {
     /// Inserts a new document with `contents` into `collection`.  If `id` is
     /// `None` a unique id will be generated. If an id is provided and a
     /// document already exists with that id, a conflict error will be returned.
     pub const fn insert(collection: CollectionName, id: Option<u64>, contents: Vec<u8>) -> Self {
         Self {
             collection,
-            command: Command::Insert {
-                id,
-                contents: Cow::Owned(contents),
-            },
+            command: Command::Insert { id, contents },
         }
     }
 
@@ -88,10 +83,7 @@ impl Operation<'static> {
     pub const fn update(collection: CollectionName, header: Header, contents: Vec<u8>) -> Self {
         Self {
             collection,
-            command: Command::Update {
-                header: Cow::Owned(header),
-                contents: Cow::Owned(contents),
-            },
+            command: Command::Update { header, contents },
         }
     }
 
@@ -99,16 +91,14 @@ impl Operation<'static> {
     pub const fn delete(collection: CollectionName, header: Header) -> Self {
         Self {
             collection,
-            command: Command::Delete {
-                header: Cow::Owned(header),
-            },
+            command: Command::Delete { header },
         }
     }
 }
 
 /// A command to execute within a `Collection`.
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub enum Command<'a> {
+pub enum Command {
     /// Inserts a new document containing `contents`.
     Insert {
         /// An optional id for the document. If this is `None`, a unique id will
@@ -116,7 +106,8 @@ pub enum Command<'a> {
         /// that id, a conflict error will be returned.
         id: Option<u64>,
         /// The initial contents of the document.
-        contents: Cow<'a, [u8]>,
+        #[serde(with = "serde_bytes")]
+        contents: Vec<u8>,
     },
 
     /// Update an existing `Document` identified by `id`. `revision` must match
@@ -125,10 +116,11 @@ pub enum Command<'a> {
     Update {
         /// The header of the `Document`. The revision must match the current
         /// document.
-        header: Cow<'a, Header>,
+        header: Header,
 
         /// The new contents to store within the `Document`.
-        contents: Cow<'a, [u8]>,
+        #[serde(with = "serde_bytes")]
+        contents: Vec<u8>,
     },
 
     /// Delete an existing `Document` identified by `id`. `revision` must match
@@ -136,7 +128,7 @@ pub enum Command<'a> {
     /// command fill fail with a `DocumentConflict` error.
     Delete {
         /// The current header of the `Document`.
-        header: Cow<'a, Header>,
+        header: Header,
     },
 }
 

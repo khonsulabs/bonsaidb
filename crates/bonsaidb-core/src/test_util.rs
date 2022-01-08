@@ -94,7 +94,7 @@ impl View for BasicCount {
         Name::new("count")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         Ok(document.emit_key_and_value((), 1))
     }
 
@@ -125,7 +125,7 @@ impl View for BasicByParentId {
         Name::new("by-parent-id")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<Basic>()?;
         Ok(document.emit_key_and_value(contents.parent_id, 1))
     }
@@ -156,7 +156,7 @@ impl View for BasicByCategory {
         Name::new("by-category")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<Basic>()?;
         if let Some(category) = &contents.category {
             Ok(document.emit_key_and_value(category.to_lowercase(), 1))
@@ -192,7 +192,7 @@ impl View for BasicByTag {
         Name::new("by-tag")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<Basic>()?;
 
         Ok(contents
@@ -229,7 +229,7 @@ impl View for BasicByBrokenParentId {
         Name::new("by-parent-id")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         Ok(document.emit())
     }
 }
@@ -302,7 +302,7 @@ impl View for EncryptedBasicCount {
         Name::new("count")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         Ok(document.emit_key_and_value((), 1))
     }
 
@@ -333,7 +333,7 @@ impl View for EncryptedBasicByParentId {
         Name::new("by-parent-id")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<EncryptedBasic>()?;
         Ok(document.emit_key_and_value(contents.parent_id, 1))
     }
@@ -365,7 +365,7 @@ impl View for EncryptedBasicByCategory {
         Name::new("by-category")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         let contents = document.contents::<EncryptedBasic>()?;
         if let Some(category) = &contents.category {
             Ok(document.emit_key_and_value(category.to_lowercase(), 1))
@@ -445,7 +445,7 @@ impl View for UniqueValue {
         Name::new("unique-value")
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         let entry = document.contents::<Unique>()?;
         Ok(document.emit_key(entry.value))
     }
@@ -853,16 +853,14 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     // Test Connection::insert with a specified id
     let doc = Document::with_contents(42, &Basic::new("42"))?;
     let document_42 = db
-        .insert::<Basic>(Some(doc.id), doc.contents.to_vec())
+        .insert::<Basic>(Some(doc.id), doc.contents.clone())
         .await?;
     assert_eq!(document_42.id, 42);
     let document_43 = Basic::new("43").insert_into(43, db).await?;
     assert_eq!(document_43.id, 43);
 
     // Test that inserting a document with the same ID restuls in a conflict:
-    let conflict_err = db
-        .insert::<Basic>(Some(doc.id), doc.contents.to_vec())
-        .await;
+    let conflict_err = db.insert::<Basic>(Some(doc.id), doc.contents).await;
     assert!(matches!(conflict_err, Err(Error::DocumentConflict(..))));
 
     Ok(())

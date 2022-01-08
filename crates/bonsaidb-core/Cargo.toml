@@ -25,6 +25,7 @@ encryption = []
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }
 circulate = { version = "0.2.1" }
 serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
 pot = "1.0.0-rc.3"
 async-trait = "0.1"
 uuid = { version = "0.8", features = ["v4", "serde"], optional = true }

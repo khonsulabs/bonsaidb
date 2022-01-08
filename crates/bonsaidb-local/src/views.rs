@@ -6,14 +6,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ViewEntry {
     pub view_version: u64,
+    #[serde(with = "serde_bytes")]
     pub key: Vec<u8>,
     pub mappings: Vec<EntryMapping>,
+    #[serde(with = "serde_bytes")]
     pub reduced_value: Vec<u8>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EntryMapping {
     pub source: Header,
+    #[serde(with = "serde_bytes")]
     pub value: Vec<u8>,
 }
 

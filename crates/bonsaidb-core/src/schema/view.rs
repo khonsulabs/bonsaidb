@@ -104,7 +104,7 @@ pub trait View: Send + Sync + Debug + 'static {
     /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document.
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value>;
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value>;
 
     /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -238,7 +238,7 @@ where
         T::name(self)
     }
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         T::map(self, CollectionDocument::try_from(document)?)
     }
 
@@ -270,7 +270,7 @@ pub trait Serialized: Send + Sync + Debug {
     /// Wraps [`View::view_name`]
     fn view_name(&self) -> Result<ViewName, InvalidNameError>;
     /// Wraps [`View::map`]
-    fn map(&self, document: &Document<'_>) -> Result<Vec<map::Serialized>, Error>;
+    fn map(&self, document: &Document) -> Result<Vec<map::Serialized>, Error>;
     /// Wraps [`View::reduce`]
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error>;
 }
@@ -297,7 +297,7 @@ where
         self.view_name()
     }
 
-    fn map(&self, document: &Document<'_>) -> Result<Vec<map::Serialized>, Error> {
+    fn map(&self, document: &Document) -> Result<Vec<map::Serialized>, Error> {
         let map = self.map(document)?;
 
         map.into_iter()

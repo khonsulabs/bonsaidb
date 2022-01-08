@@ -246,7 +246,7 @@ impl Database {
         &self,
         id: u64,
         collection: &CollectionName,
-    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Option<Document>, bonsaidb_core::Error> {
         self.get_from_collection_id(id, collection).await
     }
 
@@ -258,7 +258,7 @@ impl Database {
         order: Sort,
         limit: Option<usize>,
         collection: &CollectionName,
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
         self.list(ids, order, limit, collection).await
     }
 
@@ -268,7 +268,7 @@ impl Database {
         &self,
         ids: &[u64],
         collection: &CollectionName,
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
         self.get_multiple_from_collection_id(ids, collection).await
     }
 
@@ -416,7 +416,7 @@ impl Database {
         &self,
         id: u64,
         collection: &CollectionName,
-    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Option<Document>, bonsaidb_core::Error> {
         let task_self = self.clone();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
@@ -436,7 +436,7 @@ impl Database {
                 )
                 .map_err(Error::from)?
             {
-                Ok(Some(deserialize_document(&vec)?.to_owned()))
+                Ok(Some(deserialize_document(&vec)?))
             } else {
                 Ok(None)
             }
@@ -449,7 +449,7 @@ impl Database {
         &self,
         ids: &[u64],
         collection: &CollectionName,
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
         let task_self = self.clone();
         let ids = ids.iter().map(|id| id.to_be_bytes()).collect::<Vec<_>>();
         let collection = collection.clone();
@@ -469,7 +469,7 @@ impl Database {
 
             keys_and_values
                 .into_iter()
-                .map(|(_, value)| deserialize_document(&value).map(|doc| doc.to_owned()))
+                .map(|(_, value)| deserialize_document(&value))
                 .collect()
         })
         .await
@@ -482,7 +482,7 @@ impl Database {
         sort: Sort,
         limit: Option<usize>,
         collection: &CollectionName,
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
         let task_self = self.clone();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
@@ -519,11 +519,7 @@ impl Database {
                     KeyEvaluation::ReadData
                 },
                 |_, _, doc| {
-                    found_docs.push(
-                        deserialize_document(&doc)
-                            .map_err(AbortError::Other)?
-                            .to_owned(),
-                    );
+                    found_docs.push(deserialize_document(&doc).map_err(AbortError::Other)?);
                     Ok(())
                 },
             )
@@ -596,7 +592,7 @@ impl Database {
 
     fn execute_operation(
         &self,
-        operation: &Operation<'_>,
+        operation: &Operation,
         transaction: &mut ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<OperationResult, Error> {
@@ -623,11 +619,11 @@ impl Database {
 
     fn execute_update(
         &self,
-        operation: &Operation<'_>,
+        operation: &Operation,
         transaction: &mut ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
-        contents: Cow<'_, [u8]>,
+        contents: Vec<u8>,
     ) -> Result<OperationResult, crate::Error> {
         let documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
@@ -682,11 +678,11 @@ impl Database {
 
     fn execute_insert(
         &self,
-        operation: &Operation<'_>,
+        operation: &Operation,
         transaction: &mut ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
         id: Option<u64>,
-        contents: Cow<'_, [u8]>,
+        contents: Vec<u8>,
     ) -> Result<OperationResult, Error> {
         let documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
@@ -724,7 +720,7 @@ impl Database {
 
     fn execute_delete(
         &self,
-        operation: &Operation<'_>,
+        operation: &Operation,
         transaction: &mut ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
@@ -764,7 +760,7 @@ impl Database {
     fn update_unique_views(
         &self,
         document_id: &[u8],
-        operation: &Operation<'_>,
+        operation: &Operation,
         transaction: &mut ExecutingTransaction<StdFile>,
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<(), Error> {
@@ -938,14 +934,12 @@ impl Database {
     }
 }
 
-pub(crate) fn deserialize_document<'a>(
-    bytes: &'a [u8],
-) -> Result<Document<'a>, bonsaidb_core::Error> {
-    let document = bincode::deserialize::<Document<'_>>(bytes).map_err(Error::from)?;
+pub(crate) fn deserialize_document(bytes: &[u8]) -> Result<Document, bonsaidb_core::Error> {
+    let document = bincode::deserialize::<Document>(bytes).map_err(Error::from)?;
     Ok(document)
 }
 
-fn serialize_document(document: &Document<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
+fn serialize_document(document: &Document) -> Result<Vec<u8>, bonsaidb_core::Error> {
     bincode::serialize(document)
         .map_err(Error::from)
         .map_err(bonsaidb_core::Error::from)
@@ -956,7 +950,7 @@ impl Connection for Database {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(transaction)))]
     async fn apply_transaction(
         &self,
-        transaction: Transaction<'static>,
+        transaction: Transaction,
     ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
         let task_self = self.clone();
         tokio::task::spawn_blocking::<_, Result<Vec<OperationResult>, Error>>(move || {
@@ -1058,7 +1052,7 @@ impl Connection for Database {
     async fn get<C: schema::Collection>(
         &self,
         id: u64,
-    ) -> Result<Option<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Option<Document>, bonsaidb_core::Error> {
         self.get_from_collection_id(id, &C::collection_name()?)
             .await
     }
@@ -1067,7 +1061,7 @@ impl Connection for Database {
     async fn get_multiple<C: schema::Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
         self.get_multiple_from_collection_id(ids, &C::collection_name()?)
             .await
     }
@@ -1078,7 +1072,7 @@ impl Connection for Database {
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<Document<'static>>, bonsaidb_core::Error> {
+    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
         self.list(ids.into(), order, limit, &C::collection_name()?)
             .await
     }
