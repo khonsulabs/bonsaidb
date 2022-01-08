@@ -46,7 +46,7 @@ impl View for BlogPostsByCategory {
     type Key = Option<String>;
     type Value = u32;
 
-    fn map(&self, document: &Document<'_>) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
         let post = document.contents::<BlogPost>()?;
         Ok(document.emit_key_and_value(post.category, 1))
     }

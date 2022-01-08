@@ -31,9 +31,7 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          cargo bench --features redis
-        env:
-          DBS: roots,sqlite
+          cargo bench --features redis,sqlite
 
       - name: Deploy Docs
         # TODO remove roots after merge

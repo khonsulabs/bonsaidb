@@ -11,3 +11,4 @@ perf.data
 perf.data.old
 flamegraph.svg
 .env
+*.sqlite3*
