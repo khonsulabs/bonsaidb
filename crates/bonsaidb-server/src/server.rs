@@ -58,6 +58,7 @@ use serde_bytes::ByteBuf;
 #[cfg(not(windows))]
 use signal_hook::consts::SIGQUIT;
 use signal_hook::consts::{SIGINT, SIGTERM};
+use tokio::sync::Notify;
 
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
@@ -522,15 +523,13 @@ impl<B: Backend> CustomServer<B> {
         request_receiver: flume::Receiver<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
         response_sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
     ) {
-        let (request_completion_sender, request_completion_receiver) = flume::unbounded::<()>();
+        let notify = Arc::new(Notify::new());
         let requests_in_queue = Arc::new(AtomicUsize::new(0));
         loop {
             let current_requests = requests_in_queue.load(Ordering::SeqCst);
             if current_requests == self.data.client_simultaneous_request_limit {
                 // Wait for requests to finish.
-                let _ = request_completion_receiver.recv_async().await;
-                // Clear the queue
-                while request_completion_receiver.try_recv().is_ok() {}
+                notify.notified().await;
             } else if requests_in_queue
                 .compare_exchange(
                     current_requests,
@@ -547,7 +546,7 @@ impl<B: Backend> CustomServer<B> {
                 let id = payload.id;
                 let task_sender = response_sender.clone();
 
-                let request_completion_sender = request_completion_sender.clone();
+                let notify = notify.clone();
                 let requests_in_queue = requests_in_queue.clone();
                 self.handle_request_through_worker(
                     payload.wrapped,
@@ -559,7 +558,7 @@ impl<B: Backend> CustomServer<B> {
 
                         requests_in_queue.fetch_sub(1, Ordering::SeqCst);
 
-                        let _ = request_completion_sender.send(());
+                        notify.notify_one();
 
                         Ok(())
                     },
