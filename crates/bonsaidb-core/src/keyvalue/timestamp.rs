@@ -22,6 +22,15 @@ impl Timestamp {
     pub fn now() -> Self {
         Self::from(SystemTime::now())
     }
+
+    /// Returns the maximum value for this type.
+    #[must_use]
+    pub const fn max() -> Self {
+        Self {
+            seconds: u64::MAX,
+            nanos: 999_999_999,
+        }
+    }
 }
 
 impl From<SystemTime> for Timestamp {
@@ -55,10 +64,10 @@ impl std::ops::Add<Duration> for Timestamp {
 
     fn add(self, rhs: Duration) -> Self::Output {
         let mut nanos = self.nanos + rhs.subsec_nanos();
-        let mut seconds = self.seconds + rhs.as_secs();
+        let mut seconds = self.seconds.saturating_add(rhs.as_secs());
         while nanos > 1_000_000_000 {
             nanos -= 1_000_000_000;
-            seconds += 1;
+            seconds = seconds.saturating_add(1);
         }
         Self { seconds, nanos }
     }

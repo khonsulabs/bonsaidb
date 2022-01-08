@@ -79,12 +79,6 @@ impl From<tokio::sync::oneshot::error::TryRecvError> for Error {
     }
 }
 
-impl Error {
-    pub(crate) fn from_send<T>(_: flume::SendError<T>) -> Self {
-        Self::InternalCommunication
-    }
-}
-
 impl From<Error> for bonsaidb_core::Error {
     fn from(err: Error) -> Self {
         match err {

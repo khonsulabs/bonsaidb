@@ -6,6 +6,7 @@ use std::{
     u8,
 };
 
+use async_lock::Mutex;
 use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
@@ -23,6 +24,7 @@ use bonsaidb_core::{
         self, ChangedDocument, Changes, Command, Operation, OperationResult, Transaction,
     },
 };
+use bonsaidb_utils::fast_async_lock;
 use byteorder::{BigEndian, ByteOrder};
 use itertools::Itertools;
 use nebari::{
@@ -30,7 +32,7 @@ use nebari::{
     tree::{AnyTreeRoot, KeyEvaluation, Root, TreeRoot, Unversioned, Versioned},
     AbortError, Buffer, ExecutingTransaction, Roots, Tree,
 };
-use tokio::sync::oneshot;
+use tokio::sync::watch;
 
 #[cfg(feature = "encryption")]
 use crate::vault::TreeVault;
@@ -1361,10 +1363,8 @@ impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
 #[derive(Debug, Clone)]
 pub(crate) struct Context {
     pub(crate) roots: Roots<StdFile>,
-    kv_operation_sender: flume::Sender<(
-        keyvalue::ManagerOp,
-        oneshot::Sender<Result<Output, bonsaidb_core::Error>>,
-    )>,
+    key_value_state: Arc<Mutex<keyvalue::KeyValueState>>,
+    runtime: tokio::runtime::Handle,
 }
 
 impl Borrow<Roots<StdFile>> for Context {
@@ -1375,16 +1375,21 @@ impl Borrow<Roots<StdFile>> for Context {
 
 impl Context {
     pub(crate) fn new(roots: Roots<StdFile>, key_value_persistence: KeyValuePersistence) -> Self {
-        let (kv_operation_sender, kv_operation_receiver) = flume::unbounded();
+        let (background_sender, background_receiver) = watch::channel(None);
+        let key_value_state = Arc::new(Mutex::new(keyvalue::KeyValueState::new(
+            key_value_persistence,
+            roots.clone(),
+            background_sender,
+        )));
         let context = Self {
-            roots: roots.clone(),
-            kv_operation_sender,
+            roots,
+            key_value_state: key_value_state.clone(),
+            runtime: tokio::runtime::Handle::current(),
         };
-        tokio::task::spawn(async move {
-            keyvalue::KeyValueManager::new(kv_operation_receiver, roots, key_value_persistence)
-                .run()
-                .await
-        });
+        tokio::task::spawn(keyvalue::background_worker(
+            key_value_state,
+            background_receiver,
+        ));
         context
     }
 
@@ -1392,11 +1397,8 @@ impl Context {
         &self,
         op: KeyOperation,
     ) -> Result<Output, bonsaidb_core::Error> {
-        let (result_sender, result_receiver) = oneshot::channel();
-        self.kv_operation_sender
-            .send((keyvalue::ManagerOp::Op(op), result_sender))
-            .map_err(Error::from_send)?;
-        result_receiver.await.map_err(Error::from)?
+        let mut state = fast_async_lock!(self.key_value_state);
+        state.perform_kv_operation(op).await
     }
 
     pub(crate) async fn update_key_expiration_async(
@@ -1404,15 +1406,18 @@ impl Context {
         tree_key: String,
         expiration: Option<Timestamp>,
     ) {
-        let update = keyvalue::ExpirationUpdate::new(tree_key, expiration);
-        let (result_sender, result_receiver) = oneshot::channel();
-        if self
-            .kv_operation_sender
-            .send((keyvalue::ManagerOp::SetExpiration(update), result_sender))
-            .is_ok()
-        {
-            drop(result_receiver.await);
-        }
+        let mut state = fast_async_lock!(self.key_value_state);
+        state.update_key_expiration(tree_key, expiration);
+    }
+}
+
+impl Drop for Context {
+    fn drop(&mut self) {
+        let key_value_state = self.key_value_state.clone();
+        self.runtime.spawn(async move {
+            let mut key_value_state = fast_async_lock!(key_value_state);
+            key_value_state.shutdown().await
+        });
     }
 }
 

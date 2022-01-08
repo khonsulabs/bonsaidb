@@ -1,10 +1,13 @@
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     convert::Infallible,
-    sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
+use async_lock::Mutex;
 use async_trait::async_trait;
 use bonsaidb_core::{
     keyvalue::{
@@ -13,13 +16,14 @@ use bonsaidb_core::{
     },
     transaction::{ChangedKey, Changes},
 };
+use bonsaidb_utils::fast_async_lock;
 use nebari::{
     io::fs::StdFile,
     tree::{CompareSwap, KeyEvaluation, Operation, Root, Unversioned},
     AbortError, Buffer, Roots,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot;
+use tokio::sync::watch;
 
 use crate::{config::KeyValuePersistence, jobs::Job, Database, Error};
 
@@ -195,91 +199,71 @@ impl ExpirationUpdate {
 }
 
 #[derive(Debug)]
-pub(super) struct KeyValueManager {
-    operation_receiver: flume::Receiver<(
-        ManagerOp,
-        oneshot::Sender<Result<Output, bonsaidb_core::Error>>,
-    )>,
+pub struct KeyValueState {
+    roots: Roots<StdFile>,
     persistence: KeyValuePersistence,
     last_commit: Timestamp,
-    roots: Roots<StdFile>,
+    background_worker_target: watch::Sender<Option<Timestamp>>,
     expiring_keys: BTreeMap<String, Timestamp>,
     expiration_order: VecDeque<String>,
     dirty_keys: BTreeMap<String, Option<Entry>>,
 }
 
-#[derive(Debug)]
-pub(super) enum ManagerOp {
-    Op(KeyOperation),
-    SetExpiration(ExpirationUpdate),
-}
-
-impl KeyValueManager {
+impl KeyValueState {
     pub fn new(
-        operation_receiver: flume::Receiver<(
-            ManagerOp,
-            oneshot::Sender<Result<Output, bonsaidb_core::Error>>,
-        )>,
-        roots: Roots<StdFile>,
         persistence: KeyValuePersistence,
+        roots: Roots<StdFile>,
+        background_worker_target: watch::Sender<Option<Timestamp>>,
     ) -> Self {
         Self {
-            operation_receiver,
             roots,
             persistence,
             last_commit: Timestamp::now(),
             expiring_keys: BTreeMap::new(),
+            background_worker_target,
             expiration_order: VecDeque::new(),
             dirty_keys: BTreeMap::new(),
         }
     }
 
-    pub async fn run(&mut self) -> Result<(), Error> {
-        while let Some((op, result_sender)) = self.wait_for_next_operation().await? {
-            let result = match op {
-                ManagerOp::Op(op) => match op.command {
-                    Command::Set(command) => {
-                        self.execute_set_operation(op.namespace.as_deref(), &op.key, command)
-                    }
-                    Command::Get { delete } => {
-                        self.execute_get_operation(op.namespace.as_deref(), &op.key, delete)
-                    }
-                    Command::Delete => {
-                        self.execute_delete_operation(op.namespace.as_deref(), &op.key)
-                    }
-                    Command::Increment { amount, saturating } => self.execute_increment_operation(
-                        op.namespace.as_deref(),
-                        &op.key,
-                        &amount,
-                        saturating,
-                    ),
-                    Command::Decrement { amount, saturating } => self.execute_decrement_operation(
-                        op.namespace.as_deref(),
-                        &op.key,
-                        &amount,
-                        saturating,
-                    ),
-                },
-                ManagerOp::SetExpiration(expiration) => {
-                    self.update_expiration(&expiration);
-                    Ok(Output::Status(KeyStatus::Updated))
-                }
-            };
+    pub async fn shutdown(&mut self) -> Result<(), bonsaidb_core::Error> {
+        self.commit_dirty_keys().await
+    }
 
+    pub async fn perform_kv_operation(
+        &mut self,
+        op: KeyOperation,
+    ) -> Result<Output, bonsaidb_core::Error> {
+        let result = match op.command {
+            Command::Set(command) => {
+                self.execute_set_operation(op.namespace.as_deref(), &op.key, command)
+            }
+            Command::Get { delete } => {
+                self.execute_get_operation(op.namespace.as_deref(), &op.key, delete)
+            }
+            Command::Delete => self.execute_delete_operation(op.namespace.as_deref(), &op.key),
+            Command::Increment { amount, saturating } => self.execute_increment_operation(
+                op.namespace.as_deref(),
+                &op.key,
+                &amount,
+                saturating,
+            ),
+            Command::Decrement { amount, saturating } => self.execute_decrement_operation(
+                op.namespace.as_deref(),
+                &op.key,
+                &amount,
+                saturating,
+            ),
+        };
+        if result.is_ok() {
             let now = Timestamp::now();
             self.remove_expired_keys(now);
             if self.needs_commit(now) {
                 self.commit_dirty_keys().await?;
             }
-
-            drop(result_sender.send(result));
+            self.update_background_worker_target();
         }
-
-        // We are shutting down. If we have any dirty keys, we need to commit
-        // them regardless of the current rules.
-        self.commit_dirty_keys().await?;
-
-        Ok(())
+        result
     }
 
     fn execute_set_operation(
@@ -331,7 +315,7 @@ impl KeyValueManager {
         }
     }
 
-    fn update_key_expiration(&mut self, key: String, expiration: Option<Timestamp>) {
+    pub fn update_key_expiration(&mut self, key: String, expiration: Option<Timestamp>) {
         self.update_expiration(&ExpirationUpdate::new(key, expiration));
     }
 
@@ -464,6 +448,7 @@ impl KeyValueManager {
     }
 
     fn update_expiration(&mut self, update: &ExpirationUpdate) {
+        let mut changed_first_expiration = false;
         if let Some(expiration) = update.expiration {
             let key = if self.expiring_keys.contains_key(&update.tree_key) {
                 // Update the existing entry.
@@ -479,6 +464,7 @@ impl KeyValueManager {
                         }
                     })
                     .unwrap();
+                changed_first_expiration = existing_entry_index == 0;
                 self.expiration_order.remove(existing_entry_index).unwrap()
             } else {
                 update.tree_key.clone()
@@ -493,8 +479,11 @@ impl KeyValueManager {
                 }
             }
             if let Some(insert_at) = insert_at {
+                changed_first_expiration |= insert_at == 0;
+
                 self.expiration_order.insert(insert_at, key.clone());
             } else {
+                changed_first_expiration |= self.expiration_order.is_empty();
                 self.expiration_order.push_back(key.clone());
             }
             self.expiring_keys.insert(key, expiration);
@@ -511,84 +500,34 @@ impl KeyValueManager {
                     }
                 })
                 .unwrap();
+
+            changed_first_expiration |= index == 0;
             self.expiration_order.remove(index);
+        }
+
+        if changed_first_expiration {
+            self.update_background_worker_target();
         }
     }
 
-    async fn wait_for_next_operation(
-        &mut self,
-    ) -> Result<
-        Option<(
-            ManagerOp,
-            oneshot::Sender<Result<Output, bonsaidb_core::Error>>,
-        )>,
-        Error,
-    > {
-        loop {
-            // Check to see if we have any remaining time before a key expires
-            let mut now = Timestamp::now();
-            let duration_until_key_expires = self
-                .expiration_order
+    fn update_background_worker_target(&mut self) {
+        let key_expiration_target =
+            self.expiration_order
                 .get(0)
-                .and_then(|key| {
+                .map_or_else(Timestamp::max, |key| {
                     let expiration_timeout = self.expiring_keys.get(key).unwrap();
-                    *expiration_timeout - now
-                })
-                .unwrap_or(Duration::MAX);
-            let duration_until_commit = self.persistence.duration_until_next_commit(
-                self.dirty_keys.len(),
-                (now - self.last_commit).unwrap_or_default(),
-            );
-            let timeout_duration = duration_until_key_expires.min(duration_until_commit);
-
-            let received_update = if timeout_duration == Duration::MAX {
-                match self.operation_receiver.recv_async().await {
-                    Ok(update) => Some(update),
-                    Err(_) => break,
-                }
-            } else if timeout_duration > Duration::ZERO {
-                // Allow flume to receive updates for the remaining time.
-                match tokio::time::timeout(timeout_duration, self.operation_receiver.recv_async())
-                    .await
-                {
-                    Ok(Ok(update)) => Some(update),
-                    Ok(Err(flume::RecvError::Disconnected)) => break,
-                    Err(_elapsed) => {
-                        // We've delayed for some duration and need a new timestamp.
-                        now = Timestamp::now();
-                        None
-                    }
-                }
-            } else {
-                // No timeout and we have pending operations. Return any pending operations if we have them.
-                match self.operation_receiver.try_recv() {
-                    Ok(update) => Some(update),
-                    Err(flume::TryRecvError::Empty) => None,
-                    Err(flume::TryRecvError::Disconnected) => break,
-                }
-            };
-
-            // If we've received an update, we bubble it up to process
-            if let Some(update) = received_update {
-                return Ok(Some(update));
-            }
-
-            // Reaching this block means that we didn't receive an update
-            // externally. This means we either need to expire some keys or
-            // commit some keys to disk.
-            // println!(
-            //     "No updates. Commit: {:?} ({}), Expire: {:?}",
-            //     duration_until_commit,
-            //     self.dirty_keys.len(),
-            //     duration_until_key_expires
-            // );
-            self.remove_expired_keys(now);
-            if self.needs_commit(now) {
-                self.commit_dirty_keys().await?;
-            }
+                    *expiration_timeout
+                });
+        let now = Timestamp::now();
+        let duration_until_commit = self.persistence.duration_until_next_commit(
+            self.dirty_keys.len(),
+            (now - self.last_commit).unwrap_or_default(),
+        );
+        let commit_target = now + duration_until_commit;
+        let closest_target = key_expiration_target.min(commit_target);
+        if *self.background_worker_target.borrow() != Some(closest_target) {
+            drop(self.background_worker_target.send(Some(closest_target)));
         }
-
-        Ok(None)
     }
 
     fn remove_expired_keys(&mut self, now: Timestamp) {
@@ -674,6 +613,50 @@ impl KeyValueManager {
 
         Ok(())
     }
+}
+
+pub async fn background_worker(
+    state: Arc<Mutex<KeyValueState>>,
+    mut timestamp_receiver: watch::Receiver<Option<Timestamp>>,
+) -> Result<(), Error> {
+    loop {
+        let mut perform_operations = false;
+        let current_timestamp = *timestamp_receiver.borrow();
+        let changed_result = match current_timestamp {
+            Some(target) => {
+                let remaining = target - Timestamp::now();
+                if let Some(remaining) = remaining {
+                    tokio::select! {
+                        changed = timestamp_receiver.changed() => changed,
+                        _ = tokio::time::sleep(remaining) => {
+                            perform_operations = true;
+                            Ok(())
+                        },
+                    }
+                } else {
+                    perform_operations = true;
+                    Ok(())
+                }
+            }
+            None => timestamp_receiver.changed().await,
+        };
+
+        if changed_result.is_err() {
+            break;
+        }
+
+        if perform_operations {
+            let mut state = fast_async_lock!(state);
+            let now = Timestamp::now();
+            state.remove_expired_keys(now);
+            if state.needs_commit(now) {
+                state.commit_dirty_keys().await?;
+            }
+            state.update_background_worker_target();
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -1030,5 +1013,39 @@ mod tests {
             },
         )
         .await
+    }
+
+    #[tokio::test]
+    async fn saves_on_drop() -> anyhow::Result<()> {
+        let dir = TestDirectory::new("saves-on-drop.bonsaidb");
+        let sled = nebari::Config::new(&dir).open()?;
+        let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
+
+        let context = Context::new(
+            sled.clone(),
+            KeyValuePersistence::lazy([PersistenceThreshold::after_changes(2)]),
+        );
+        context
+            .perform_kv_operation(KeyOperation {
+                namespace: None,
+                key: String::from("key1"),
+                command: Command::Set(SetCommand {
+                    value: Value::Bytes(Vec::new()),
+                    expiration: None,
+                    keep_existing_expiration: false,
+                    check: None,
+                    return_previous_value: false,
+                }),
+            })
+            .await
+            .unwrap();
+        assert!(tree.get(b"\0key1").unwrap().is_none());
+        drop(context);
+        // Dropping spawns a task that should persist the keys. Give a moment
+        // for the runtime to execute the task.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(tree.get(b"\0key1").unwrap().is_some());
+
+        Ok(())
     }
 }
