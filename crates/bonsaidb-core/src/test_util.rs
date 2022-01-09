@@ -569,6 +569,7 @@ pub enum HarnessTest {
     PubSubDropCleanup,
     PubSubPublishAll,
     KvBasic,
+    KvConcurrency,
     KvSet,
     KvIncrementDecrement,
     KvExpiration,
@@ -1620,6 +1621,34 @@ macro_rules! define_kv_test_suite {
             );
             assert_eq!(db.delete_key("akey").await?, KeyStatus::Deleted);
             assert_eq!(db.delete_key("akey").await?, KeyStatus::NotChanged);
+
+            harness.shutdown().await?;
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn kv_concurrency() -> anyhow::Result<()> {
+            use $crate::keyvalue::{KeyStatus, KeyValue};
+            const WRITERS: usize = 100;
+            const INCREMENTS: usize = 100;
+            let harness = $harness::new($crate::test_util::HarnessTest::KvConcurrency).await?;
+            let db = harness.connect().await?;
+
+            let handles = (0..WRITERS).map(|_| {
+                let db = db.clone();
+                tokio::task::spawn(async move {
+                    for _ in 0..INCREMENTS {
+                        db.increment_key_by("concurrency", 1_u64).await.unwrap();
+                    }
+                })
+            });
+            futures::future::join_all(handles).await;
+
+            assert_eq!(
+                db.get_key("concurrency").into_u64().await.unwrap().unwrap(),
+                (WRITERS * INCREMENTS) as u64
+            );
 
             harness.shutdown().await?;
 

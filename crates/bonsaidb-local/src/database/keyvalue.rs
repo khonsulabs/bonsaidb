@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     collections::{btree_map, BTreeMap, VecDeque},
     sync::Arc,
+    time::Duration,
 };
 
 use async_lock::Mutex;
@@ -584,10 +585,14 @@ impl KeyValueState {
                     *expiration_timeout
                 });
         let now = Timestamp::now();
-        let duration_until_commit = self.persistence.duration_until_next_commit(
-            self.dirty_keys.len(),
-            (now - self.last_commit).unwrap_or_default(),
-        );
+        let duration_until_commit = if self.keys_being_persisted.is_some() {
+            Duration::MAX
+        } else {
+            self.persistence.duration_until_next_commit(
+                self.dirty_keys.len(),
+                (now - self.last_commit).unwrap_or_default(),
+            )
+        };
         let commit_target = now + duration_until_commit;
         let closest_target = key_expiration_target.min(commit_target);
         if *self.background_worker_target.borrow() != Some(closest_target) {
@@ -606,9 +611,13 @@ impl KeyValueState {
     }
 
     fn needs_commit(&mut self, now: Timestamp) -> bool {
-        let since_last_commit = (now - self.last_commit).unwrap_or_default();
-        self.persistence
-            .should_commit(self.dirty_keys.len(), since_last_commit)
+        if self.keys_being_persisted.is_some() {
+            false
+        } else {
+            let since_last_commit = (now - self.last_commit).unwrap_or_default();
+            self.persistence
+                .should_commit(self.dirty_keys.len(), since_last_commit)
+        }
     }
 
     fn commit_dirty_keys(&mut self, state: &Arc<Mutex<KeyValueState>>) {
@@ -681,6 +690,8 @@ impl KeyValueState {
             state.keys_being_persisted = None;
             if state.shutdown && !state.dirty_keys.is_empty() {
                 state.commit_dirty_keys(key_value_state);
+            } else {
+                state.update_background_worker_target();
             }
         });
         Ok(())
@@ -693,7 +704,7 @@ pub async fn background_worker(
 ) -> Result<(), Error> {
     loop {
         let mut perform_operations = false;
-        let current_timestamp = *timestamp_receiver.borrow();
+        let current_timestamp = *timestamp_receiver.borrow_and_update();
         let changed_result = match current_timestamp {
             Some(target) => {
                 let remaining = target - Timestamp::now();
@@ -991,7 +1002,7 @@ mod tests {
     #[tokio::test]
     async fn basic_persistence() -> anyhow::Result<()> {
         run_test_with_persistence(
-            "kv-basic-persistence]",
+            "kv-basic-persistence",
             KeyValuePersistence::lazy([
                 PersistenceThreshold::after_changes(2),
                 PersistenceThreshold::after_changes(1).and_duration(Duration::from_secs(2)),
