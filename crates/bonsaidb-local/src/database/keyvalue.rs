@@ -1,11 +1,7 @@
 use std::{
     borrow::Cow,
-    collections::{btree_map, BTreeMap, HashMap, VecDeque},
-    convert::Infallible,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    collections::{btree_map, BTreeMap, VecDeque},
+    sync::Arc,
 };
 
 use async_lock::Mutex;
@@ -24,14 +20,21 @@ use nebari::{
     AbortError, Buffer, Roots,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use tokio::{runtime::Handle, sync::watch};
 
-use crate::{config::KeyValuePersistence, jobs::Job, Database, Error};
+use crate::{
+    config::KeyValuePersistence,
+    jobs::{Job, Keyed},
+    tasks::Task,
+    Database, Error,
+};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Entry {
     pub value: Value,
     pub expiration: Option<Timestamp>,
+    #[serde(default)]
+    pub last_updated: Timestamp,
 }
 
 impl Entry {
@@ -71,11 +74,13 @@ impl KeyValue for Database {
 impl Database {
     pub(crate) async fn all_key_value_entries(
         &self,
-    ) -> Result<HashMap<(Option<String>, String), Entry>, Error> {
+    ) -> Result<BTreeMap<(Option<String>, String), Entry>, Error> {
+        // Lock the state so that new new modifications can be made while we gather this snapshot.
+        let state = fast_async_lock!(self.data.context.key_value_state);
         let database = self.clone();
-        tokio::task::spawn_blocking(move || {
-            // Find all trees that start with <database>.kv.
-            let mut all_entries = HashMap::new();
+        // Initialize our entries with any dirty keys and any keys that are about to be persisted.
+        let mut all_entries = BTreeMap::new();
+        let mut all_entries = tokio::task::spawn_blocking(move || {
             database
                 .roots()
                 .tree(Unversioned::tree(KEY_TREE))?
@@ -89,16 +94,41 @@ impl Database {
                             .map_err(|err| AbortError::Other(Error::from(err)))?;
                         let full_key = std::str::from_utf8(&key)
                             .map_err(|err| AbortError::Other(Error::from(err)))?;
+
                         if let Some(split_key) = split_key(full_key) {
-                            all_entries.insert(split_key, entry);
+                            // Do not overwrite the existing key
+                            all_entries.entry(split_key).or_insert(entry);
                         }
 
                         Ok(())
                     },
                 )?;
-            Ok(all_entries)
+            Result::<_, Error>::Ok(all_entries)
         })
-        .await?
+        .await??;
+
+        // Apply the pending writes first
+        if let Some(pending_keys) = &state.keys_being_persisted {
+            for (key, possible_entry) in pending_keys.iter() {
+                let (namespace, key) = split_key(key).unwrap();
+                if let Some(updated_entry) = possible_entry {
+                    all_entries.insert((namespace, key), updated_entry.clone());
+                } else {
+                    all_entries.remove(&(namespace, key));
+                }
+            }
+        }
+
+        for (key, possible_entry) in &state.dirty_keys {
+            let (namespace, key) = split_key(key).unwrap();
+            if let Some(updated_entry) = possible_entry {
+                all_entries.insert((namespace, key), updated_entry.clone());
+            } else {
+                all_entries.remove(&(namespace, key));
+            }
+        }
+
+        Ok(all_entries)
     }
 }
 
@@ -193,6 +223,8 @@ pub struct KeyValueState {
     expiring_keys: BTreeMap<String, Timestamp>,
     expiration_order: VecDeque<String>,
     dirty_keys: BTreeMap<String, Option<Entry>>,
+    keys_being_persisted: Option<Arc<BTreeMap<String, Option<Entry>>>>,
+    shutdown: bool,
 }
 
 impl KeyValueState {
@@ -209,20 +241,30 @@ impl KeyValueState {
             background_worker_target,
             expiration_order: VecDeque::new(),
             dirty_keys: BTreeMap::new(),
+            keys_being_persisted: None,
+            shutdown: false,
         }
     }
 
-    pub async fn shutdown(&mut self) -> Result<(), bonsaidb_core::Error> {
-        self.commit_dirty_keys().await
+    pub fn shutdown(&mut self, state: &Arc<Mutex<KeyValueState>>) {
+        if self.keys_being_persisted.is_some() {
+            self.shutdown = true;
+        } else {
+            self.commit_dirty_keys(state);
+        }
     }
 
     pub async fn perform_kv_operation(
         &mut self,
         op: KeyOperation,
+        state: &Arc<Mutex<KeyValueState>>,
     ) -> Result<Output, bonsaidb_core::Error> {
+        let now = Timestamp::now();
+        // If there are any keys that have expired, clear them before executing any operations.
+        self.remove_expired_keys(now);
         let result = match op.command {
             Command::Set(command) => {
-                self.execute_set_operation(op.namespace.as_deref(), &op.key, command)
+                self.execute_set_operation(op.namespace.as_deref(), &op.key, command, now)
             }
             Command::Get { delete } => {
                 self.execute_get_operation(op.namespace.as_deref(), &op.key, delete)
@@ -233,19 +275,19 @@ impl KeyValueState {
                 &op.key,
                 &amount,
                 saturating,
+                now,
             ),
             Command::Decrement { amount, saturating } => self.execute_decrement_operation(
                 op.namespace.as_deref(),
                 &op.key,
                 &amount,
                 saturating,
+                now,
             ),
         };
         if result.is_ok() {
-            let now = Timestamp::now();
-            self.remove_expired_keys(now);
             if self.needs_commit(now) {
-                self.commit_dirty_keys().await?;
+                self.commit_dirty_keys(state);
             }
             self.update_background_worker_target();
         }
@@ -257,10 +299,12 @@ impl KeyValueState {
         namespace: Option<&str>,
         key: &str,
         set: SetCommand,
+        now: Timestamp,
     ) -> Result<Output, bonsaidb_core::Error> {
         let mut entry = Entry {
             value: set.value,
             expiration: set.expiration,
+            last_updated: now,
         };
         let full_key = full_key(namespace, key);
         let possible_existing_value =
@@ -409,8 +453,9 @@ impl KeyValueState {
         key: &str,
         amount: &Numeric,
         saturating: bool,
+        now: Timestamp,
     ) -> Result<Output, bonsaidb_core::Error> {
-        self.execute_numeric_operation(namespace, key, amount, saturating, increment)
+        self.execute_numeric_operation(namespace, key, amount, saturating, now, increment)
     }
 
     fn execute_decrement_operation(
@@ -419,8 +464,9 @@ impl KeyValueState {
         key: &str,
         amount: &Numeric,
         saturating: bool,
+        now: Timestamp,
     ) -> Result<Output, bonsaidb_core::Error> {
-        self.execute_numeric_operation(namespace, key, amount, saturating, decrement)
+        self.execute_numeric_operation(namespace, key, amount, saturating, now, decrement)
     }
 
     fn execute_numeric_operation<F: Fn(&Numeric, &Numeric, bool) -> Numeric>(
@@ -429,6 +475,7 @@ impl KeyValueState {
         key: &str,
         amount: &Numeric,
         saturating: bool,
+        now: Timestamp,
         op: F,
     ) -> Result<Output, bonsaidb_core::Error> {
         let full_key = full_key(namespace, key);
@@ -436,6 +483,7 @@ impl KeyValueState {
         let mut entry = current.unwrap_or(Entry {
             value: Value::Numeric(Numeric::UnsignedInteger(0)),
             expiration: None,
+            last_updated: now,
         });
 
         match entry.value {
@@ -453,10 +501,17 @@ impl KeyValueState {
     }
 
     fn remove(&mut self, key: String) -> Result<Option<Entry>, nebari::Error> {
-        self.update_key_expiration(key.clone(), None);
+        self.update_key_expiration(&key, None);
 
         if let Some(dirty_entry) = self.dirty_keys.get_mut(&key) {
             Ok(dirty_entry.take())
+        } else if let Some(persisting_entry) = self
+            .keys_being_persisted
+            .as_ref()
+            .and_then(|keys| keys.get(&key))
+        {
+            self.dirty_keys.insert(key, None);
+            Ok(persisting_entry.clone())
         } else {
             // There might be a value on-disk we need to remove.
             let previous_value = Self::retrieve_key_from_disk(&self.roots, &key)?;
@@ -468,6 +523,12 @@ impl KeyValueState {
     fn get(&self, key: &str) -> Result<Option<Entry>, nebari::Error> {
         if let Some(entry) = self.dirty_keys.get(key) {
             Ok(entry.clone())
+        } else if let Some(persisting_entry) = self
+            .keys_being_persisted
+            .as_ref()
+            .and_then(|keys| keys.get(key))
+        {
+            Ok(persisting_entry.clone())
         } else {
             Self::retrieve_key_from_disk(&self.roots, key)
         }
@@ -483,7 +544,15 @@ impl KeyValueState {
         if matches!(map_entry, btree_map::Entry::Vacant(_)) {
             // This key is clean, and the caller is expecting the previous
             // value.
-            let stored_value = Self::retrieve_key_from_disk(&self.roots, map_entry.key())?;
+            let stored_value = if let Some(persisting_entry) = self
+                .keys_being_persisted
+                .as_ref()
+                .and_then(|keys| keys.get(map_entry.key()))
+            {
+                persisting_entry.clone()
+            } else {
+                Self::retrieve_key_from_disk(&self.roots, map_entry.key())?
+            };
             map_entry.or_insert(value);
             Ok(stored_value)
         } else {
@@ -542,23 +611,23 @@ impl KeyValueState {
             .should_commit(self.dirty_keys.len(), since_last_commit)
     }
 
-    async fn commit_dirty_keys(&mut self) -> Result<(), bonsaidb_core::Error> {
-        if self.dirty_keys.is_empty() {
-            Ok(())
-        } else {
+    fn commit_dirty_keys(&mut self, state: &Arc<Mutex<KeyValueState>>) {
+        if !self.dirty_keys.is_empty() && self.keys_being_persisted.is_none() {
             let roots = self.roots.clone();
-            let keys = std::mem::take(&mut self.dirty_keys);
-            let result = tokio::task::spawn_blocking(move || Self::persist_keys(&roots, keys))
-                .await
-                .unwrap();
+            let keys = Arc::new(std::mem::take(&mut self.dirty_keys));
+            self.keys_being_persisted = Some(keys.clone());
+            let state = state.clone();
+            let tokio = Handle::current();
+            tokio::task::spawn_blocking(move || Self::persist_keys(&state, &roots, &keys, &tokio));
             self.last_commit = Timestamp::now();
-            result
         }
     }
 
     fn persist_keys(
+        key_value_state: &Arc<Mutex<KeyValueState>>,
         roots: &Roots<StdFile>,
-        mut keys: BTreeMap<String, Option<Entry>>,
+        keys: &BTreeMap<String, Option<Entry>>,
+        runtime: &Handle,
     ) -> Result<(), bonsaidb_core::Error> {
         let mut transaction = roots
             .transaction(&[Unversioned::tree(KEY_TREE)])
@@ -577,13 +646,13 @@ impl KeyValueState {
                     let full_key = std::str::from_utf8(key).unwrap();
                     let (namespace, key) = split_key(full_key).unwrap();
 
-                    if let Some(new_value) = keys.remove(full_key).unwrap() {
+                    if let Some(new_value) = keys.get(full_key).unwrap() {
                         changed_keys.push(ChangedKey {
                             namespace,
                             key,
                             deleted: false,
                         });
-                        let bytes = bincode::serialize(&new_value).unwrap();
+                        let bytes = bincode::serialize(new_value).unwrap();
                         nebari::tree::KeyOperation::Set(Buffer::from(bytes))
                     } else if existing_value.is_some() {
                         changed_keys.push(ChangedKey {
@@ -607,12 +676,19 @@ impl KeyValueState {
             transaction.commit().map_err(Error::from)?;
         }
 
+        runtime.block_on(async {
+            let mut state = fast_async_lock!(key_value_state);
+            state.keys_being_persisted = None;
+            if state.shutdown && !state.dirty_keys.is_empty() {
+                state.commit_dirty_keys(key_value_state);
+            }
+        });
         Ok(())
     }
 }
 
 pub async fn background_worker(
-    state: Arc<Mutex<KeyValueState>>,
+    key_value_state: Arc<Mutex<KeyValueState>>,
     mut timestamp_receiver: watch::Receiver<Option<Timestamp>>,
 ) -> Result<(), Error> {
     loop {
@@ -642,11 +718,11 @@ pub async fn background_worker(
         }
 
         if perform_operations {
-            let mut state = fast_async_lock!(state);
+            let mut state = fast_async_lock!(key_value_state);
             let now = Timestamp::now();
             state.remove_expired_keys(now);
             if state.needs_commit(now) {
-                state.commit_dirty_keys().await?;
+                state.commit_dirty_keys(&key_value_state);
             }
             state.update_background_worker_target();
         }
@@ -658,6 +734,13 @@ pub async fn background_worker(
 #[derive(Debug)]
 pub struct ExpirationLoader {
     pub database: Database,
+    pub launched_at: Timestamp,
+}
+
+impl Keyed<Task> for ExpirationLoader {
+    fn key(&self) -> Task {
+        Task::ExpirationLoader(self.database.data.name.clone())
+    }
 }
 
 #[async_trait]
@@ -668,45 +751,17 @@ impl Job for ExpirationLoader {
     #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         let database = self.database.clone();
-        let (sender, receiver) = flume::unbounded();
+        let launched_at = self.launched_at;
 
-        tokio::task::spawn_blocking(move || {
-            // Find all trees that start with <database>.kv.
-            let keep_scanning = AtomicBool::new(true);
-            database
-                .roots()
-                .tree(Unversioned::tree(KEY_TREE))?
-                .scan::<Infallible, _, _, _, _>(
-                    ..,
-                    true,
-                    |_, _, _| true,
-                    |_, _| {
-                        if keep_scanning.load(Ordering::SeqCst) {
-                            KeyEvaluation::ReadData
-                        } else {
-                            KeyEvaluation::Stop
-                        }
-                    },
-                    |key, _, entry: Buffer<'static>| {
-                        if let Ok(entry) = bincode::deserialize::<Entry>(&entry) {
-                            if entry.expiration.is_some()
-                                && sender.send((key, entry.expiration)).is_err()
-                            {
-                                keep_scanning.store(false, Ordering::SeqCst);
-                            }
-                        }
-
-                        Ok(())
-                    },
-                )?;
-
-            Result::<(), Error>::Ok(())
-        });
-
-        while let Ok((key, expiration)) = receiver.recv_async().await {
-            self.database
-                .update_key_expiration_async(String::from_utf8(key.to_vec())?, expiration)
-                .await;
+        for ((namespace, key), entry) in database.all_key_value_entries().await? {
+            if entry.last_updated < launched_at && entry.expiration.is_some() {
+                self.database
+                    .update_key_expiration_async(
+                        full_key(namespace.as_deref(), &key),
+                        entry.expiration,
+                    )
+                    .await;
+            }
         }
 
         self.database
@@ -990,7 +1045,12 @@ mod tests {
                         })
                         .await
                         .unwrap();
-                    if timing.elapsed() > Duration::from_secs(1) {
+                    // Persisting is handled in the background. Sleep for a bit
+                    // to give it a chance to happen, but not long enough to
+                    // trigger the longer time-based rule.
+                    if timing.elapsed() > Duration::from_millis(500)
+                        || !timing.wait_until(Duration::from_secs(1)).await
+                    {
                         println!("basic_persistence restarting due to timing discrepency");
                         continue;
                     }

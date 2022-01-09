@@ -7,12 +7,13 @@ use std::{
 use async_lock::RwLock;
 use bonsaidb_core::{
     connection::Connection,
+    keyvalue::Timestamp,
     schema::{view, CollectionName, ViewName},
 };
 use bonsaidb_utils::{fast_async_read, fast_async_write};
 
 use crate::{
-    database::Database,
+    database::{keyvalue::ExpirationLoader, Database},
     jobs::{manager::Manager, task::Handle},
     tasks::compactor::Compactor,
     views::{
@@ -191,8 +192,9 @@ impl TaskManager {
         } else {
             Some(
                 self.jobs
-                    .enqueue(crate::database::keyvalue::ExpirationLoader {
+                    .lookup_or_enqueue(ExpirationLoader {
                         database: database.clone(),
+                        launched_at: Timestamp::now(),
                     })
                     .await,
             )

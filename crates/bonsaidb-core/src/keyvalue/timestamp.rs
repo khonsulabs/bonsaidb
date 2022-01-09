@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::schema::{view::IncorrectByteLength, Key};
 
 /// A timestamp relative to [`UNIX_EPOCH`].
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default)]
 pub struct Timestamp {
     /// The number of whole seconds since [`UNIX_EPOCH`].
     pub seconds: u64,

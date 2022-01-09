@@ -924,9 +924,9 @@ impl Database {
         Ok(tree)
     }
 
-    pub(crate) async fn update_key_expiration_async(
+    pub(crate) async fn update_key_expiration_async<'key>(
         &self,
-        tree_key: String,
+        tree_key: impl Into<Cow<'key, str>>,
         expiration: Option<Timestamp>,
     ) {
         self.data
@@ -1409,12 +1409,14 @@ impl Context {
         op: KeyOperation,
     ) -> Result<Output, bonsaidb_core::Error> {
         let mut state = fast_async_lock!(self.data.key_value_state);
-        state.perform_kv_operation(op).await
+        state
+            .perform_kv_operation(op, &self.data.key_value_state)
+            .await
     }
 
-    pub(crate) async fn update_key_expiration_async(
+    pub(crate) async fn update_key_expiration_async<'key>(
         &self,
-        tree_key: String,
+        tree_key: impl Into<Cow<'key, str>>,
         expiration: Option<Timestamp>,
     ) {
         let mut state = fast_async_lock!(self.data.key_value_state);
@@ -1426,8 +1428,8 @@ impl Drop for ContextData {
     fn drop(&mut self) {
         let key_value_state = self.key_value_state.clone();
         self.runtime.spawn(async move {
-            let mut key_value_state = fast_async_lock!(key_value_state);
-            key_value_state.shutdown().await
+            let mut state = fast_async_lock!(key_value_state);
+            state.shutdown(&key_value_state);
         });
     }
 }

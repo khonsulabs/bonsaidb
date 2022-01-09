@@ -1960,19 +1960,27 @@ macro_rules! define_kv_test_suite {
             };
             let harness = $harness::new($crate::test_util::HarnessTest::KvTransactions).await?;
             let db = harness.connect().await?;
-            // Generate several transactions that we can validate
+            // Generate several transactions that we can validate. Persisting
+            // happens in the background, so we delay between each step to give
+            // it a moment.
             db.set_key("expires", &0_u32)
                 .expire_in(Duration::from_secs(1))
                 .await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
             db.set_key("akey", &String::from("avalue")).await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
             db.get_key("akey").and_delete().await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
             db.set_numeric_key("nkey", 0_u64).await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
             db.increment_key_by("nkey", 1_u64).await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
             db.delete_key("nkey").await?;
+            tokio::time::sleep(Duration::from_millis(100)).await;
             // Ensure this doesn't generate a transaction.
             db.delete_key("nkey").await?;
 
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
 
             let transactions = Connection::list_executed_transactions(&db, None, None).await?;
             let deleted_keys = transactions

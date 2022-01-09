@@ -467,7 +467,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::config::{Builder, StorageConfiguration};
+    use crate::config::{Builder, KeyValuePersistence, PersistenceThreshold, StorageConfiguration};
 
     #[tokio::test]
     async fn backup_restore() -> anyhow::Result<()> {
@@ -479,7 +479,11 @@ mod tests {
         let test_doc = {
             let database_directory = TestDirectory::new("backup-restore.bonsaidb");
             let storage = Storage::open(
-                StorageConfiguration::new(&database_directory).with_schema::<Basic>()?,
+                StorageConfiguration::new(&database_directory)
+                    .key_value_persistence(KeyValuePersistence::lazy([
+                        PersistenceThreshold::after_changes(2),
+                    ]))
+                    .with_schema::<Basic>()?,
             )
             .await?;
             storage.create_database::<Basic>("basic", false).await?;
@@ -488,7 +492,10 @@ mod tests {
                 .collection::<Basic>()
                 .push(&Basic::new("somevalue"))
                 .await?;
-            db.set_numeric_key("somekey", 1_u64).await?;
+            db.set_numeric_key("key1", 1_u64).await?;
+            db.set_numeric_key("key2", 2_u64).await?;
+            // This key will not be persisted right away.
+            db.set_numeric_key("key3", 3_u64).await?;
 
             storage.backup(&*backup_destination.0).await.unwrap();
 
@@ -512,7 +519,9 @@ mod tests {
             .expect("Backed up document.not found");
         let contents = doc.contents::<Basic>()?;
         assert_eq!(contents.value, "somevalue");
-        assert_eq!(db.get_key("somekey").into_u64().await?, Some(1));
+        assert_eq!(db.get_key("key1").into_u64().await?, Some(1));
+        assert_eq!(db.get_key("key2").into_u64().await?, Some(2));
+        assert_eq!(db.get_key("key3").into_u64().await?, Some(3));
 
         // Calling restore again should generate an error.
         assert!(restored_storage
