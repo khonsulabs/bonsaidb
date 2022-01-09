@@ -131,8 +131,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   database files directly using Nebari, you can change the format from
   "namespace.key" to "namespace\0key", where `\0` is a single null byte.
 - `ExecutedTransactions::changes` is now a `Changes` enum, which can be a list
-  of `ChangedDocument`s or `ChangedKey`s. Currently each KeyValue operation
-  emits its own transaction, butt his will change with #120.
+  of `ChangedDocument`s or `ChangedKey`s.
+- The Key-Value store is now semi-transactional and more optimized. The behavior
+  of persistence can be customized using the [`key_value_persistence`
+  option](https://dev.bonsaidb.io/guide/administration/configuration.html#key-value-persistence)
+  when opening a BonsaiDb instance. This can enable higher performace at the
+  risk of data loss in the event of an unexpected hardware or power failure.
 - A new trait, `SerializedCollection`, now controls serialization within
   `CollectionDocument`, `CollectionView`, and other helper methods that
   serialized document contents. This allows any serialization format that
