@@ -12,10 +12,10 @@ use bonsaidb_core::{
 };
 use bonsaidb_local::Database;
 
-use crate::{Backend, CustomServer};
+use crate::{Backend, CustomServer, NoBackend};
 
 /// A database belonging to a [`CustomServer`].
-pub struct ServerDatabase<B: Backend> {
+pub struct ServerDatabase<B: Backend = NoBackend> {
     pub(crate) server: CustomServer<B>,
     pub(crate) db: Database,
 }
