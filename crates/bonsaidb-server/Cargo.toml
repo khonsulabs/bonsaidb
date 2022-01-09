@@ -14,7 +14,7 @@ homepage = "https://dev.bonsaidb.io/"
 [features]
 default = ["full"]
 full = ["cli", "websockets", "acme", "encryption"]
-cli = ["clap", "pem", "env_logger"]
+cli = ["clap", "pem", "env_logger", "bonsaidb-local/cli"]
 test-util = ["bonsaidb-core/test-util"]
 websockets = [
     "bonsaidb-core/websockets",
