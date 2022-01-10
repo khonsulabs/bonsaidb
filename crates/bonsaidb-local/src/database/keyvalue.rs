@@ -620,11 +620,19 @@ impl KeyValueState {
         }
     }
 
-    fn commit_dirty_keys(&mut self, state: &Arc<Mutex<KeyValueState>>) {
+    fn stage_dirty_keys(&mut self) -> Option<Arc<BTreeMap<String, Option<Entry>>>> {
         if !self.dirty_keys.is_empty() && self.keys_being_persisted.is_none() {
-            let roots = self.roots.clone();
             let keys = Arc::new(std::mem::take(&mut self.dirty_keys));
             self.keys_being_persisted = Some(keys.clone());
+            Some(keys)
+        } else {
+            None
+        }
+    }
+
+    fn commit_dirty_keys(&mut self, state: &Arc<Mutex<KeyValueState>>) {
+        if let Some(keys) = self.stage_dirty_keys() {
+            let roots = self.roots.clone();
             let state = state.clone();
             let tokio = Handle::current();
             tokio::task::spawn_blocking(move || Self::persist_keys(&state, &roots, &keys, &tokio));
@@ -685,15 +693,18 @@ impl KeyValueState {
             transaction.commit().map_err(Error::from)?;
         }
 
-        runtime.block_on(async {
+        if let Some(final_keys) = runtime.block_on(async {
             let mut state = fast_async_lock!(key_value_state);
             state.keys_being_persisted = None;
-            if state.shutdown && !state.dirty_keys.is_empty() {
-                state.commit_dirty_keys(key_value_state);
+            state.update_background_worker_target();
+            if state.shutdown {
+                state.stage_dirty_keys()
             } else {
-                state.update_background_worker_target();
+                None
             }
-        });
+        }) {
+            Self::persist_keys(key_value_state, roots, &final_keys, runtime)?;
+        }
         Ok(())
     }
 }
