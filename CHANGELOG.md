@@ -113,10 +113,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `Key` implementation for `EnumKey` has been updated to use
   `ordered-varint` to minimize the size of the indexes. Previously, each entry
   in the view was always 8 bytes.
-- `Connection::insert`, `Operation::insert`, and `Command::Insert` now takes an
-  optional u64 parameter which can be used to insert a document with a specific
-  ID rather than having one chosen. If an document exists already, a conflict
-  error will be returned.
+- `Connection` and `SerializedCollection` have had their `insert`/`insert_into`
+  functions modified to include an id parameter. New functions named `push` and
+  `push_into` have been added that do not accept an id parameter. This is in an
+  effort to keep naming consistent with common collection names in Rust.
+- `Operation::insert` and `Command::Insert` now take an optional u64 parameter
+  which can be used to insert a document with a specific ID rather than having
+  one chosen. If an document exists already, a conflict error will be returned.
 - `bonsaidb::local::backup` has been replaced with `Storage::backup` and
   `Storage::restore`. This backup format is incompatible with the old format,
   but is built with proper support for restoring at-rest encrypted collections.
