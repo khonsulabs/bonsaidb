@@ -10,7 +10,7 @@ use bonsaidb_core::{
     },
     transaction::{Executed, OperationResult, Transaction},
 };
-use bonsaidb_server::{Backend, CustomServer, ServerDatabase};
+use bonsaidb_server::{Backend, CustomServer, NoBackend, ServerDatabase};
 
 /// A local server or a server over a network connection.
 pub enum AnyServerConnection<B: Backend> {
@@ -198,7 +198,7 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
 
 /// A database connection that can be either from a local server or a server
 /// over a network connection.
-pub enum AnyDatabase<B: Backend> {
+pub enum AnyDatabase<B: Backend = NoBackend> {
     /// A local database.
     Local(ServerDatabase<B>),
     /// A networked database accessed with a [`Client`].

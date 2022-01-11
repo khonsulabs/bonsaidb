@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{document::Header, schema::CollectionName};
+use crate::{
+    document::Header,
+    schema::{CollectionName, SerializedCollection},
+    Error,
+};
 
 /// A list of operations to execute as a single unit. If any operation fails,
 /// all changes are aborted. Reads that happen while the transaction is in
@@ -79,12 +83,34 @@ impl Operation {
         }
     }
 
+    /// Inserts a new document with the serialized representation of `contents`
+    /// into `collection`.  If `id` is `None` a unique id will be generated. If
+    /// an id is provided and a document already exists with that id, a conflict
+    /// error will be returned.
+    pub fn insert_serialized<C: SerializedCollection>(
+        id: Option<u64>,
+        contents: &C::Contents,
+    ) -> Result<Self, Error> {
+        let contents = C::serialize(contents)?;
+        Ok(Self::insert(C::collection_name()?, id, contents))
+    }
+
     /// Updates a document in `collection`.
     pub const fn update(collection: CollectionName, header: Header, contents: Vec<u8>) -> Self {
         Self {
             collection,
             command: Command::Update { header, contents },
         }
+    }
+
+    /// Updates a document with the serialized representation of `contents` in
+    /// `collection`.
+    pub fn update_serialized<C: SerializedCollection>(
+        header: Header,
+        contents: &C::Contents,
+    ) -> Result<Self, Error> {
+        let contents = C::serialize(contents)?;
+        Ok(Self::update(C::collection_name()?, header, contents))
     }
 
     /// Deletes a document from a `collection`.
