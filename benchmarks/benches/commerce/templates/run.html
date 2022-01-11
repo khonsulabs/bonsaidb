@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<hgroup>
+    <h1>BonsaiDb Commerce Benchmark</h1>
+    <h3>{{ label }}</h3>
+</hgroup>
+
+<h3>Configuration</h3>
+<h5>Initial Data Set</h5>
+<table>
+    <thead>
+        <tr>
+            <th scope="col">Type</th>
+            <th scope="col">Count</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>Products</td>
+            <td>{{ product_count }}</td>
+        </tr>
+        <tr>
+            <td>Categories</td>
+            <td>{{ category_count }}</td>
+        </tr>
+        <tr>
+            <td>Customers</td>
+            <td>{{ customer_count }}</td>
+        </tr>
+        <tr>
+            <td>Orders</td>
+            <td>{{ order_count }}</td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>Summary</h3>
+
+<table>
+    <thead>
+        <tr>
+            <th scope="col">Backend</th>
+            <th scope="col">Total Time</th>
+            <th scope="col">Wall Time</th>
+            <th scope="col">Transport</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for summary in summaries %}
+        <tr>
+            <td>{{ summary.backend }}</td>
+            <td>{{ summary.total_time }}</td>
+            <td>{{ summary.wall_time }}</td>
+            <td>{{ summary.transport }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<details>
+    <summary>Table of Contents:</summary>
+    <ul>
+        {% for operation in operations %}
+        <li>
+            <a href="#{{ operation.metric }}">{{ operation.metric }}</a>
+            <ul>
+                {% for summary in operation.summaries %}
+                <li><a href="#{{ summary.backend }}-{{ operation.metric }}">{{ summary.backend }}</a></li>
+                {% endfor %}
+            </ul>
+        </li>
+        {% endfor %}
+    </ul>
+</details>
+
+<h3>Operation Results</h3>
+
+{% for operation in operations %}
+<h5><a name="{{ operation.metric }}" href="#{{ operation.metric }}">{{ operation.metric }}</a></h5>
+
+<p>{{ operation.description }}</p>
+
+{% if operation.metric != "Load" %}
+<img src="{{ operation.metric }}.png" class="diagram" />
+{% endif %}
+
+<table>
+    <thead>
+        <tr>
+            <th scope="col">Backend</th>
+            <th scope="col">Avg</th>
+            <th scope="col">Min</th>
+            <th scope="col">Max</th>
+            <th scope="col">StdDev</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for summary in operation.summaries %}
+        <tr>
+            <td>{{ summary.backend }}</a></td>
+            <td>{{ summary.avg }}</td>
+            <td>{{ summary.min }}</td>
+            <td>{{ summary.max }}</td>
+            <td>{{ summary.stddev }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% for summary in summaries %}
+<a href="#{{ summary.backend }}-{{ operation.metric }}" name="{{ summary.backend }}-{{ operation.metric }}"></a>
+<img src="{{ summary.backend }}-{{ operation.metric }}.png" class="diagram" />
+{% endfor %}
+
+{% endfor %}
+
+
+{% endblock content %}

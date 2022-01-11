@@ -749,7 +749,7 @@ pub enum AccessPolicy {
     /// updating in the background.
     UpdateAfter,
 
-    /// Returns the restuls, which may be out-of-date, and do not start any
+    /// Returns the results, which may be out-of-date, and do not start any
     /// background jobs. This mode is useful if you're using a view as a cache
     /// and have a background process that is responsible for controlling when
     /// data is refreshed and updated. While the default `UpdateBefore`

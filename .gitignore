@@ -12,3 +12,4 @@ perf.data.old
 flamegraph.svg
 .env
 *.sqlite3*
+benchmarks/commerce-bench/

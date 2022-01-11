@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use bonsaidb_core::schema::{view, CollectionName, Key, ViewName};
 use nebari::{
     io::fs::StdFile,
-    tree::{KeyEvaluation, Unversioned, Versioned},
-    Tree,
+    tree::{KeyEvaluation, Operation, Unversioned, Versioned},
+    Buffer, Tree,
 };
 
 use super::{
@@ -104,14 +104,16 @@ impl Job for IntegrityScanner {
                     roots.transaction(&[invalidated_entries_tree, view_versions_tree])?;
                 let view_versions = transaction.tree::<Unversioned>(1).unwrap();
                 view_versions.set(
-                    // TODO This is wasteful
                     view_name.to_string().as_bytes().to_vec(),
                     view_version.as_big_endian_bytes().unwrap().to_vec(),
                 )?;
                 let invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
-                for id in &missing_entries {
-                    invalidated_entries.set(id.as_big_endian_bytes().unwrap().to_vec(), b"")?;
-                }
+                let mut missing_entries = missing_entries
+                    .into_iter()
+                    .map(|id| Buffer::from(id.to_be_bytes()))
+                    .collect::<Vec<_>>();
+                missing_entries.sort();
+                invalidated_entries.modify(missing_entries, Operation::Set(Buffer::default()))?;
                 transaction.commit()?;
 
                 return Ok(true);
