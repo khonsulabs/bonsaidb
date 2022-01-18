@@ -26,6 +26,7 @@ use crate::{
         AddProductToCart, Checkout, CreateCart, FindProduct, Load, LookupProduct, Operation,
         OperationResult, Plan, ReviewProduct, ShopperPlanConfig,
     },
+    plot::{BACKGROUND_COLOR, TEXT_COLOR},
 };
 
 pub fn execute_plans_for_all_backends(
@@ -598,9 +599,12 @@ fn stats_thread(
             println!("Plotting {}: {:?}", label, metric);
             let chart_path = plot_dir.join(format!("{}-{:?}.png", label, metric));
             let chart_root = BitMapBackend::new(&chart_path, (800, 240)).into_drawing_area();
-            chart_root.fill(&WHITE).unwrap();
+            chart_root.fill(&BACKGROUND_COLOR).unwrap();
             let mut chart = ChartBuilder::on(&chart_root)
-                .caption(format!("{}: {:?}", label, metric), ("sans-serif", 30.))
+                .caption(
+                    format!("{}: {:?}", label, metric),
+                    ("sans-serif", 30., &TEXT_COLOR),
+                )
                 .margin_left(10)
                 .margin_right(50)
                 .margin_bottom(10)
@@ -616,10 +620,13 @@ fn stats_thread(
             chart
                 .configure_mesh()
                 .disable_x_mesh()
-                .bold_line_style(&WHITE.mix(0.3))
                 .y_desc("Count")
                 .x_desc("Execution Time")
-                .axis_desc_style(("sans-serif", 15))
+                .axis_desc_style(("sans-serif", 15, &TEXT_COLOR))
+                .x_label_style(&TEXT_COLOR)
+                .y_label_style(&TEXT_COLOR)
+                .light_line_style(&TEXT_COLOR.mix(0.1))
+                .bold_line_style(&TEXT_COLOR.mix(0.3))
                 .draw()
                 .unwrap();
 
@@ -647,9 +654,9 @@ fn stats_thread(
         let metric_chart_path = plot_dir.join(format!("{:?}.png", metric));
         let metric_chart_root =
             BitMapBackend::new(&metric_chart_path, (800, 480)).into_drawing_area();
-        metric_chart_root.fill(&WHITE).unwrap();
+        metric_chart_root.fill(&BACKGROUND_COLOR).unwrap();
         let mut metric_chart = ChartBuilder::on(&metric_chart_root)
-            .caption(format!("{:?}", metric), ("sans-serif", 30.))
+            .caption(format!("{:?}", metric), ("sans-serif", 30., &TEXT_COLOR))
             .margin_left(10)
             .margin_right(50)
             .margin_bottom(10)
@@ -675,10 +682,13 @@ fn stats_thread(
         metric_chart
             .configure_mesh()
             .disable_x_mesh()
-            .bold_line_style(&WHITE.mix(0.3))
             .x_desc("Invocations")
             .y_desc("Accumulated Execution Time")
-            .axis_desc_style(("sans-serif", 15))
+            .axis_desc_style(("sans-serif", 15, &TEXT_COLOR))
+            .x_label_style(&TEXT_COLOR)
+            .y_label_style(&TEXT_COLOR)
+            .light_line_style(&TEXT_COLOR.mix(0.1))
+            .bold_line_style(&TEXT_COLOR.mix(0.3))
             .draw()
             .unwrap();
 
@@ -693,8 +703,9 @@ fn stats_thread(
         }
         metric_chart
             .configure_series_labels()
-            .border_style(&BLACK)
-            .background_style(&WHITE)
+            .border_style(&TEXT_COLOR)
+            .background_style(&BACKGROUND_COLOR)
+            .label_font(&TEXT_COLOR)
             .position(SeriesLabelPosition::UpperLeft)
             .draw()
             .unwrap();

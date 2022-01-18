@@ -42,7 +42,7 @@ query data with few updates and deletes.
 
 ### Foreign Keys
 
-BonsaiDb [doesn't curently
+BonsaiDb [doesn't currently
 support](https://github.com/khonsulabs/bonsaidb/issues/136) validating foreign
 keys, and PostgreSQL does. When running the PostgreSQL benchmark with and without foreign
 keys, most benchmarks showed a reduction in speed by leaving the foreign keys

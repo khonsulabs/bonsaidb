@@ -12,7 +12,7 @@ pub fn overview_graph(
 ) {
     let chart_path = plot_dir.as_ref().join("Overview.png");
     let chart_root = BitMapBackend::new(&chart_path, (800, 480)).into_drawing_area();
-    chart_root.fill(&WHITE).unwrap();
+    chart_root.fill(&BACKGROUND_COLOR).unwrap();
 
     let mut results_by_backend = BTreeMap::new();
     let highest_concurrency = *summaries.keys().max().unwrap();
@@ -36,7 +36,10 @@ pub fn overview_graph(
     )
     .unwrap();
     let mut chart = ChartBuilder::on(&chart_root)
-        .caption("Commerce Benchmark Suite Overview", ("sans-serif", 30.))
+        .caption(
+            "Commerce Benchmark Suite Overview",
+            ("sans-serif", 30., &TEXT_COLOR),
+        )
         .margin_left(10)
         .margin_right(50)
         .margin_bottom(10)
@@ -51,10 +54,13 @@ pub fn overview_graph(
     chart
         .configure_mesh()
         .disable_x_mesh()
-        .bold_line_style(&WHITE.mix(0.3))
         .x_desc("Number of Agents")
         .y_desc("Total Wall Time")
-        .axis_desc_style(("sans-serif", 15))
+        .axis_desc_style(("sans-serif", 15, &TEXT_COLOR))
+        .x_label_style(&TEXT_COLOR)
+        .y_label_style(&TEXT_COLOR)
+        .light_line_style(&TEXT_COLOR.mix(0.1))
+        .bold_line_style(&TEXT_COLOR.mix(0.3))
         .draw()
         .unwrap();
 
@@ -70,8 +76,9 @@ pub fn overview_graph(
     }
     chart
         .configure_series_labels()
-        .border_style(&BLACK)
-        .background_style(&WHITE)
+        .border_style(&TEXT_COLOR)
+        .background_style(&BACKGROUND_COLOR)
+        .label_font(&TEXT_COLOR)
         .position(SeriesLabelPosition::UpperLeft)
         .draw()
         .unwrap();
@@ -168,3 +175,6 @@ pub const COLORS: [RGBColor; 9] = [
     RGBColor(11, 180, 255),
     RGBColor(230, 216, 0),
 ];
+
+pub const BACKGROUND_COLOR: RGBColor = RGBColor(0, 0, 0);
+pub const TEXT_COLOR: RGBColor = RGBColor(200, 200, 200);
