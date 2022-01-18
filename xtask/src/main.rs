@@ -64,11 +64,11 @@ impl audit::Config for Config {
         vec![
             String::from("--all-features"),
             String::from("--exclude=xtask"),
-            // examples
+            String::from("--exclude=benchmarks"),
+            // examples that include other dependencies, which aren't actually
+            // indicative of the security of BonsaiDb.
             String::from("--exclude=axum"),
             String::from("--exclude=acme"),
-            String::from("--exclude=basic-local"),
-            String::from("--exclude=basic-server"),
             String::from("--exclude=view-histogram"),
         ]
     }

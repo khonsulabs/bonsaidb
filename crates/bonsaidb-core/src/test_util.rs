@@ -596,9 +596,7 @@ macro_rules! assert_f64_eq {
     ($a:expr, $b:expr) => {{
         let a: f64 = $a;
         let b: f64 = $b;
-        if (a - b).abs() > f64::EPSILON {
-            panic!("{:?} <> {:?}", a, b);
-        }
+        assert!((a - b).abs() <= f64::EPSILON, "{:?} <> {:?}", a, b);
     }};
 }
 
@@ -860,7 +858,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     let document_43 = Basic::new("43").insert_into(43, db).await?;
     assert_eq!(document_43.id, 43);
 
-    // Test that inserting a document with the same ID restuls in a conflict:
+    // Test that inserting a document with the same ID results in a conflict:
     let conflict_err = db.insert::<Basic>(Some(doc.id), doc.contents).await;
     assert!(matches!(conflict_err, Err(Error::DocumentConflict(..))));
 

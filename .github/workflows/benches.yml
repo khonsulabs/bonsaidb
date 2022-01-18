@@ -3,24 +3,30 @@ name: Benchmarks
 on: [push]
 
 jobs:
-  benchmark:
+  microbenchmarks:
     runs-on: ubuntu-latest
 
-    # Service containers to run with `runner-job`
     services:
-      # Label used to access the service container
       redis:
-        # Docker Hub image
         image: redis
-        # Set health checks to wait until redis has started
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
         ports:
-          # Maps port 6379 on service container to the host
           - 6379:6379
+      # postgres: # Not needed yet, this suite doesn't support postgres.
+      #   image: postgres
+      #   env:
+      #     POSTGRES_PASSWORD: postgres
+      #   options: >-
+      #     --health-cmd pg_isready
+      #     --health-interval 10s
+      #     --health-timeout 5s
+      #     --health-retries 5
+      #   ports:
+      #     - 5432:5432
 
     timeout-minutes: 60
     steps:
@@ -31,15 +37,79 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          cargo bench --features redis,sqlite
+          cargo bench --bench suite --features sqlite,redis
+        env:
+          COMMERCE_POSTGRESQL_URL: postgres://postgres:postgres@localhost/postgres
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: microbenchmarks
+          path: target/criterion
+
+  commerce:
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v1
+
+      - name: Run benchmarks
+        run: |
+          cargo bench --bench commerce --features postgresql -- --suite -n1000
+        env:
+          COMMERCE_POSTGRESQL_URL: postgres://postgres:postgres@localhost/postgres
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: commerce
+          path: benchmarks/commerce-bench
+
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: [commerce, microbenchmarks]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/download-artifact@v2
+      
+      - name: Gather artifacts 
+        run: |
+          mkdir reports
+          mv commerce reports/
+          mv microbenchmarks reports/suite
 
       - name: Deploy Docs
-        # TODO remove roots after merge
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/roots' }}
+        # TODO remove commerce-bench after merge
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/commerce-bench' }}
         uses: JamesIves/github-pages-deploy-action@releases/v4
         with:
           branch: gh-pages
-          folder: target/criterion/
+          folder: reports
           git-config-name: kl-botsu
           git-config-email: botsu@khonsulabs.com
           target-folder: /benchmarks/

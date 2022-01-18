@@ -8,8 +8,13 @@ publish = false
 name = "suite"
 harness = false
 
+[[bench]]
+name = "commerce"
+harness = false
+
 [features]
-sqlite = ["rusqlite"]
+sqlite = ["rusqlite", "sqlx", "sqlx/sqlite"]
+postgresql = ["sqlx", "sqlx/postgres"]
 
 [dependencies]
 redis = { version = "0.21", optional = true, features = ["tokio-comp"] }
@@ -29,3 +34,17 @@ serde_bytes = "0.11"
 ubyte = "0.10"
 env_logger = "0.9"
 rusqlite = { version = "0.26", optional = true }
+sqlx = { version = "0.5", optional = true, default-features = false, features = [
+    "runtime-tokio-rustls",
+] }
+fake = "2"
+rand = { version = "0.8", features = ["small_rng"] }
+clap = { version = "3", features = ["derive"] }
+flume = "0.10"
+num_cpus = "1"
+hdrhistogram = "7"
+cli-table = "0.4"
+dotenv = "0.15"
+poloto = "3"
+plotters = "0.3"
+tera = "1"

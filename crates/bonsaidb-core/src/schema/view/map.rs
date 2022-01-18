@@ -44,6 +44,12 @@ pub enum Mappings<K: Key = (), V = ()> {
     List(Vec<Map<K, V>>),
 }
 
+impl<K: Key, V> Default for Mappings<K, V> {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
 impl<K: Key, V> Mappings<K, V> {
     /// Returns an empty collection of mappings.
     pub fn none() -> Self {

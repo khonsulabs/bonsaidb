@@ -32,8 +32,8 @@ members = [
 [profile.bench]
 lto = true
 codegen-units = 1
-# debug = true  # for flamegraph
-# opt-level = 0 # for quicker development
+# debug = true      # for flamegraph
+
 
 [profile.release]
 lto = true

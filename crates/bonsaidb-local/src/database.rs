@@ -1,6 +1,6 @@
 use std::{
     borrow::{Borrow, Cow},
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     convert::Infallible,
     ops::Deref,
     sync::Arc,
@@ -592,6 +592,96 @@ impl Database {
         Ok(mappings)
     }
 
+    fn apply_transaction_to_roots(
+        &self,
+        transaction: &Transaction,
+    ) -> Result<Vec<OperationResult>, Error> {
+        let mut open_trees = OpenTrees::default();
+        for op in &transaction.operations {
+            if !self.data.schema.contains_collection_id(&op.collection) {
+                return Err(Error::Core(bonsaidb_core::Error::CollectionNotFound));
+            }
+
+            open_trees.open_trees_for_document_change(
+                &op.collection,
+                &self.data.schema,
+                self.collection_encryption_key(&op.collection),
+                #[cfg(feature = "encryption")]
+                self.storage().vault(),
+            )?;
+        }
+
+        let mut roots_transaction = self
+            .data
+            .context
+            .roots
+            .transaction::<_, dyn AnyTreeRoot<StdFile>>(&open_trees.trees)?;
+
+        let mut results = Vec::new();
+        let mut changed_documents = Vec::new();
+        for op in &transaction.operations {
+            let result = self.execute_operation(
+                op,
+                &mut roots_transaction,
+                &open_trees.trees_index_by_name,
+            )?;
+
+            match &result {
+                OperationResult::DocumentUpdated { header, collection } => {
+                    changed_documents.push(ChangedDocument {
+                        collection: collection.clone(),
+                        id: header.id,
+                        deleted: false,
+                    });
+                }
+                OperationResult::DocumentDeleted { id, collection } => {
+                    changed_documents.push(ChangedDocument {
+                        collection: collection.clone(),
+                        id: *id,
+                        deleted: true,
+                    });
+                }
+                OperationResult::Success => {}
+            }
+            results.push(result);
+        }
+
+        // Insert invalidations for each record changed
+        for (collection, changed_documents) in &changed_documents
+            .iter()
+            .group_by(|doc| doc.collection.clone())
+        {
+            if let Some(views) = self.data.schema.views_in_collection(&collection) {
+                let changed_documents = changed_documents.collect::<Vec<_>>();
+                for view in views {
+                    if !view.unique() {
+                        let view_name = view.view_name().map_err(bonsaidb_core::Error::from)?;
+                        for changed_document in &changed_documents {
+                            let invalidated_docs = roots_transaction
+                                .tree::<Unversioned>(
+                                    open_trees.trees_index_by_name
+                                        [&view_invalidated_docs_tree_name(&view_name)],
+                                )
+                                .unwrap();
+                            invalidated_docs.set(
+                                changed_document.id.as_big_endian_bytes().unwrap().to_vec(),
+                                b"",
+                            )?;
+                        }
+                    }
+                }
+            }
+        }
+
+        roots_transaction
+            .entry_mut()
+            .set_data(pot::to_vec(&Changes::Documents(changed_documents))?)?;
+
+        roots_transaction.commit()?;
+
+        Ok(results)
+    }
+
     fn execute_operation(
         &self,
         operation: &Operation,
@@ -955,99 +1045,40 @@ impl Connection for Database {
         transaction: Transaction,
     ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
         let task_self = self.clone();
-        tokio::task::spawn_blocking::<_, Result<Vec<OperationResult>, Error>>(move || {
-            let mut open_trees = OpenTrees::default();
-            for op in &transaction.operations {
-                if !task_self.data.schema.contains_collection_id(&op.collection) {
-                    return Err(Error::Core(bonsaidb_core::Error::CollectionNotFound));
-                }
-
-                match &op.command {
-                    Command::Update { .. } | Command::Insert { .. } | Command::Delete { .. } => {
-                        open_trees.open_trees_for_document_change(
-                            &op.collection,
-                            &task_self.data.schema,
-                            task_self.collection_encryption_key(&op.collection),
-                            #[cfg(feature = "encryption")]
-                            task_self.storage().vault(),
-                        )?;
-                    }
-                }
-            }
-
-            let mut roots_transaction = task_self
-                .data
-                .context
-                .roots
-                .transaction::<_, dyn AnyTreeRoot<StdFile>>(&open_trees.trees)?;
-
-            let mut results = Vec::new();
-            let mut changed_documents = Vec::new();
-            for op in &transaction.operations {
-                let result = task_self.execute_operation(
-                    op,
-                    &mut roots_transaction,
-                    &open_trees.trees_index_by_name,
-                )?;
-
-                match &result {
-                    OperationResult::DocumentUpdated { header, collection } => {
-                        changed_documents.push(ChangedDocument {
-                            collection: collection.clone(),
-                            id: header.id,
-                            deleted: false,
-                        });
-                    }
-                    OperationResult::DocumentDeleted { id, collection } => {
-                        changed_documents.push(ChangedDocument {
-                            collection: collection.clone(),
-                            id: *id,
-                            deleted: true,
-                        });
-                    }
-                    OperationResult::Success => {}
-                }
-                results.push(result);
-            }
-
-            // Insert invalidations for each record changed
-            for (collection, changed_documents) in &changed_documents
-                .iter()
-                .group_by(|doc| doc.collection.clone())
-            {
-                if let Some(views) = task_self.data.schema.views_in_collection(&collection) {
-                    let changed_documents = changed_documents.collect::<Vec<_>>();
-                    for view in views {
-                        if !view.unique() {
-                            let view_name = view.view_name().map_err(bonsaidb_core::Error::from)?;
-                            for changed_document in &changed_documents {
-                                let invalidated_docs = roots_transaction
-                                    .tree::<Unversioned>(
-                                        open_trees.trees_index_by_name
-                                            [&view_invalidated_docs_tree_name(&view_name)],
-                                    )
-                                    .unwrap();
-                                invalidated_docs.set(
-                                    changed_document.id.as_big_endian_bytes().unwrap().to_vec(),
-                                    b"",
-                                )?;
-                            }
+        let mut unique_view_tasks = Vec::new();
+        for collection_name in transaction
+            .operations
+            .iter()
+            .map(|op| &op.collection)
+            .collect::<HashSet<_>>()
+        {
+            if let Some(views) = self.data.schema.views_in_collection(collection_name) {
+                for view in views {
+                    if view.unique() {
+                        if let Some(task) = self
+                            .data
+                            .storage
+                            .tasks()
+                            .spawn_integrity_check(view, self)
+                            .await?
+                        {
+                            unique_view_tasks.push(task);
                         }
                     }
                 }
             }
+        }
+        for task in unique_view_tasks {
+            task.receive()
+                .await
+                .map_err(Error::from)?
+                .map_err(Error::from)?;
+        }
 
-            roots_transaction
-                .entry_mut()
-                .set_data(pot::to_vec(&Changes::Documents(changed_documents))?)?;
-
-            roots_transaction.commit()?;
-
-            Ok(results)
-        })
-        .await
-        .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?
-        .map_err(bonsaidb_core::Error::from)
+        tokio::task::spawn_blocking(move || task_self.apply_transaction_to_roots(&transaction))
+            .await
+            .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?
+            .map_err(bonsaidb_core::Error::from)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(id)))]

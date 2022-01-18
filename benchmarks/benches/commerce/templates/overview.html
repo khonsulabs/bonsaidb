@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h1>BonsaiDb Commerce Benchmark</h1>
+
+<p><a href-"https://github.com/khonsulabs/bonsaidb/tree/main/benchmarks/benches/commerce">This
+        benchmark suite</a> is designed to simulate the types of loads that an ecommerce
+    application might see under different levels of concurrency and traffic
+    patterns. As with all benchmark suites, the results should not be taken as proof
+    that any datbase may or may not perform for any particular application. Each
+    application's needs differ greatly, and this benchmark is designed at helping
+    BonsaiDb's developers notice areas for improvement.</p>
+
+<img src="Overview.png" alt="asdf" class="diagram" />
+
+<br />
+
+<table>
+    <thead>
+        <tr>
+            <th scope="col">Dataset Size</th>
+            <th scope="col">Traffic Pattern</th>
+            <th scope="col">Concurrency</th>
+            {% for backend, _time in datasets[0].results %}
+            <th scope="col">{{ backend }}</th>
+            {% endfor %}
+            <th scope="col">Report</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for dataset in datasets %}
+        <tr>
+            <td>{{ dataset.size }}</a></td>
+            <td>{{ dataset.pattern }}</a></td>
+            <td>{{ dataset.concurrency }}</td>
+            {% for _backend, time in dataset.results %}
+            <td>{{ time }}</td>
+            {% endfor %}
+            <td><a href="{{ dataset.path }}">Full Report</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h3>Dataset Sizes</h3>
+<p>The three dataset sizes are named "small", "medium", and "large". All
+    databases being benchmarked can handle much larger dataset sizes than "large",
+    but it is impractical at this time to run larger benchmarks on a regular basis.
+    Each run's individual page will show the initial data set breakdown by type.</p>
+
+<h3>Traffic Patterns</h3>
+<p>This suite uses a probability-based system to generate plans for agents to
+    process concurrently. These plans operate in a "funnel" pattern of searching,
+    adding to cart, checking out, and reviewing the purchased items. Each stage in
+    this funnel is assigned a probabilty, and these probabilities are tweaked to
+    simulate read-heavy traffic patterns that perform more searches than purchasing,
+    write-heavy traffic patterns where most plans result in purchasing and reviewing
+    the products, and a balanced traffic pattern that is meant to simulate moderate
+    amount of write traffic.</p>
+
+<h3>Concurrency</h3>
+<p>The suite is configured to run the plans up to three times, depending on the
+    number of CPU cores present: 1 agent, 1 agent per core, and 2 agents per
+    core.</p>
+
+{% endblock content %}
