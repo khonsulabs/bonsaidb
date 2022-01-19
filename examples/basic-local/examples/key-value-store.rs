@@ -59,5 +59,9 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
 
 #[test]
 fn runs() {
+    let path = std::path::Path::new("key-value-store.bonsaidb");
+    if path.exists() {
+        std::fs::remove_dir_all(path).unwrap();
+    }
     main().unwrap()
 }

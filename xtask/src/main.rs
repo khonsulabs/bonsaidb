@@ -6,7 +6,6 @@ use std::{
 use khonsu_tools::universal::{
     anyhow, audit,
     clap::{self, Parser},
-    code_coverage,
     devx_cmd::{run, Cmd},
     DefaultConfig,
 };
@@ -45,20 +44,9 @@ impl khonsu_tools::Config for Config {
 
 impl khonsu_tools::universal::Config for Config {
     type Audit = Self;
-    type CodeCoverage = Self;
+    type CodeCoverage = DefaultConfig;
 }
 
-impl code_coverage::Config for Config {
-    fn cargo_args() -> Vec<String> {
-        vec![
-            String::from("+nightly"),
-            String::from("test"),
-            String::from("--workspace"),
-            String::from("--all-features"),
-            String::from("--all-targets"),
-        ]
-    }
-}
 impl audit::Config for Config {
     fn args() -> Vec<String> {
         vec![
