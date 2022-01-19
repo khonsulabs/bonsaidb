@@ -576,6 +576,7 @@ fn stats_thread(
         .unwrap();
 
         let longest_measurement = longest_by_metric.get(&metric).unwrap();
+        let mut label_chart_data = BTreeMap::new();
         for (label, metrics) in label_histograms.iter() {
             let report = operations.entry(metric).or_insert_with(|| MetricSummary {
                 metric,
@@ -596,6 +597,15 @@ fn stats_thread(
                     (Nanos(entry.value_iterated_to()), count)
                 })
                 .collect::<Vec<_>>();
+            label_chart_data.insert(label, chart_data);
+        }
+        let highest_count = Iterator::max(
+            label_chart_data
+                .values()
+                .flat_map(|chart_data| chart_data.iter().map(|(_, count)| *count)),
+        )
+        .unwrap();
+        for (label, chart_data) in label_chart_data {
             if chart_data.len() <= 1 {
                 continue;
             }
@@ -616,7 +626,7 @@ fn stats_thread(
                 .build_cartesian_2d(
                     NanosRange(Nanos(0)..=Nanos(longest_measurement.as_nanos() as u64))
                         .into_segmented(),
-                    0..chart_data.iter().map(|(_, count)| *count).max().unwrap(),
+                    0..highest_count + 1,
                 )
                 .unwrap();
 
