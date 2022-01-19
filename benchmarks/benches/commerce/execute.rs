@@ -591,7 +591,7 @@ fn stats_thread(
                 stddev: format_nanoseconds(metrics.stdev()),
             });
             let chart_data = metrics
-                .iter_linear((metrics.max() - metrics.min()) / 32)
+                .iter_linear(longest_measurement.as_nanos() as u64 / 32)
                 .map(|entry| {
                     let count = entry.count_since_last_iteration() + entry.count_at_value();
                     (Nanos(entry.value_iterated_to()), count)
@@ -606,7 +606,10 @@ fn stats_thread(
         )
         .unwrap();
         for (label, chart_data) in label_chart_data {
-            if chart_data.len() <= 1 {
+            // Don't chart if this chart only has 1 data point with 1 operation.
+            // This only applies to the load operation currently, but this is
+            // the underlying reason why we'd skip the load operation.
+            if chart_data.len() <= 1 && chart_data[0].1 == 1 {
                 continue;
             }
             println!("Plotting {}: {:?}", label, metric);
@@ -624,8 +627,7 @@ fn stats_thread(
                 .x_label_area_size(50)
                 .y_label_area_size(80)
                 .build_cartesian_2d(
-                    NanosRange(Nanos(0)..=Nanos(longest_measurement.as_nanos() as u64))
-                        .into_segmented(),
+                    NanosRange(Nanos(0)..=Nanos(longest_measurement.as_nanos() as u64)),
                     0..highest_count + 1,
                 )
                 .unwrap();

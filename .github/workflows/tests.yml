@@ -22,7 +22,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     needs: xtask-test-matrix
     strategy:
       fail-fast: false
