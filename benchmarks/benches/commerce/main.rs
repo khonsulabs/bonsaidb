@@ -23,7 +23,7 @@ mod plot;
 #[derive(Debug, Parser)]
 struct Options {
     #[clap(long = "bench")]
-    _run_from_cargo: bool,
+    run_from_cargo_bench: bool,
     #[clap(long = "nocapture")]
     _cargo_bench_compat_nocapture: bool,
 
@@ -92,9 +92,18 @@ fn main() {
     let options = Options::parse();
     let benchmark_name = options.benchmark_name.unwrap_or_default();
 
-    if options.suite {
-        run_standard_benchmarks(tera, &benchmark_name, options.shoppers);
-    } else {
+    let is_testing = !options.run_from_cargo_bench;
+
+    if options.suite || is_testing {
+        run_standard_benchmarks(
+            tera.clone(),
+            &benchmark_name,
+            options.shoppers,
+            options.run_from_cargo_bench,
+        );
+    }
+
+    if !options.suite || is_testing {
         execute::Benchmark {
             label: options.label,
             seed: options.seed,
@@ -118,49 +127,76 @@ fn main() {
     }
 }
 
-fn run_standard_benchmarks(tera: Arc<Tera>, name_filter: &str, shoppers: Option<usize>) {
+fn run_standard_benchmarks(
+    tera: Arc<Tera>,
+    name_filter: &str,
+    shoppers: Option<usize>,
+    run_full: bool,
+) {
     let shoppers = shoppers.unwrap_or(100);
 
-    let small_dataset = InitialDataSetConfig {
-        number_of_customers: 100..=100,
-        number_of_products: 100..=100,
-        number_of_categories: 10..=10,
-        number_of_orders: 125..=125,
-        number_of_reviews: 50..=50,
-    };
-    let medium_dataset = InitialDataSetConfig {
-        number_of_customers: 1_000..=1_000,
-        number_of_products: 1_000..=1_000,
-        number_of_categories: 50..=50,
-        number_of_orders: 1500..=1500,
-        number_of_reviews: 500..=500,
-    };
-    let large_dataset = InitialDataSetConfig {
-        number_of_customers: 5_000..=5_000,
-        number_of_products: 5_000..=5_000,
-        number_of_categories: 100..=100,
-        number_of_orders: 5_000..=5_000,
-        number_of_reviews: 1_000..=1_000,
-    };
+    let mut initial_datasets = vec![(
+        "small",
+        InitialDataSetConfig {
+            number_of_customers: 100..=100,
+            number_of_products: 100..=100,
+            number_of_categories: 10..=10,
+            number_of_orders: 125..=125,
+            number_of_reviews: 50..=50,
+        },
+    )];
+    if run_full {
+        initial_datasets.push((
+            "medium",
+            InitialDataSetConfig {
+                number_of_customers: 1_000..=1_000,
+                number_of_products: 1_000..=1_000,
+                number_of_categories: 50..=50,
+                number_of_orders: 1500..=1500,
+                number_of_reviews: 500..=500,
+            },
+        ));
+        initial_datasets.push((
+            "large",
+            InitialDataSetConfig {
+                number_of_customers: 5_000..=5_000,
+                number_of_products: 5_000..=5_000,
+                number_of_categories: 100..=100,
+                number_of_orders: 5_000..=5_000,
+                number_of_reviews: 1_000..=1_000,
+            },
+        ));
+    }
 
-    let read_heavy = ShopperPlanConfig {
-        chance_of_adding_product_to_cart: 0.1,
-        chance_of_purchasing: 0.1,
-        chance_of_rating: 0.1,
-        product_search_attempts: 1..=10,
-    };
-    let balanced = ShopperPlanConfig {
-        chance_of_adding_product_to_cart: 0.25,
-        chance_of_purchasing: 0.25,
-        chance_of_rating: 0.25,
-        product_search_attempts: 1..=10,
-    };
-    let write_heavy = ShopperPlanConfig {
-        chance_of_adding_product_to_cart: 0.9,
-        chance_of_purchasing: 0.9,
-        chance_of_rating: 0.9,
-        product_search_attempts: 1..=10,
-    };
+    let mut shopper_plans = vec![(
+        "balanced",
+        ShopperPlanConfig {
+            chance_of_adding_product_to_cart: 0.25,
+            chance_of_purchasing: 0.25,
+            chance_of_rating: 0.25,
+            product_search_attempts: 1..=10,
+        },
+    )];
+    if run_full {
+        shopper_plans.push((
+            "readheavy",
+            ShopperPlanConfig {
+                chance_of_adding_product_to_cart: 0.1,
+                chance_of_purchasing: 0.1,
+                chance_of_rating: 0.1,
+                product_search_attempts: 1..=10,
+            },
+        ));
+        shopper_plans.push((
+            "writeheavy",
+            ShopperPlanConfig {
+                chance_of_adding_product_to_cart: 0.9,
+                chance_of_purchasing: 0.9,
+                chance_of_rating: 0.9,
+                product_search_attempts: 1..=10,
+            },
+        ));
+    }
 
     let mut number_of_agents = vec![1];
     let num_cpus = num_cpus::get();
@@ -171,16 +207,8 @@ fn run_standard_benchmarks(tera: Arc<Tera>, name_filter: &str, shoppers: Option<
 
     let mut datasets = Vec::new();
     let mut summaries = BTreeMap::<usize, Vec<BTreeMap<&'static str, Duration>>>::new();
-    for (dataset_label, data_config) in [
-        ("small", &small_dataset),
-        ("medium", &medium_dataset),
-        ("large", &large_dataset),
-    ] {
-        for (plan_label, shopper_config) in [
-            ("readheavy", &read_heavy),
-            ("balanced", &balanced),
-            ("writeheavy", &write_heavy),
-        ] {
+    for (dataset_label, data_config) in &initial_datasets {
+        for (plan_label, shopper_config) in &shopper_plans {
             println!(
                 "Running standard benchmark {}-{}",
                 dataset_label, plan_label
