@@ -8,7 +8,10 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use tera::{Context, Tera};
 
-use crate::{model::InitialDataSetConfig, utils::format_nanoseconds};
+use crate::{
+    model::InitialDataSetConfig,
+    utils::{current_timestamp_string, format_nanoseconds, local_git_rev},
+};
 
 mod bonsai;
 mod plan;
@@ -258,7 +261,12 @@ fn run_standard_benchmarks(
         "./commerce-bench/index.html",
         tera.render(
             "overview.html",
-            &Context::from_serialize(&Overview { datasets }).unwrap(),
+            &Context::from_serialize(&Overview {
+                datasets,
+                timestamp: current_timestamp_string(),
+                revision: local_git_rev(),
+            })
+            .unwrap(),
         )
         .unwrap()
         .as_bytes(),
@@ -269,6 +277,8 @@ fn run_standard_benchmarks(
 #[derive(Debug, Serialize, Deserialize)]
 struct Overview {
     datasets: Vec<DataSet>,
+    timestamp: String,
+    revision: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

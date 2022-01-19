@@ -1,6 +1,7 @@
-use std::ops::RangeInclusive;
+use std::{ops::RangeInclusive, process::Command};
 
 use rand::{distributions::uniform::SampleUniform, Rng};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 pub fn gen_range<S: Rng, T>(rng: &mut S, range: RangeInclusive<T>) -> T
 where
@@ -38,4 +39,19 @@ fn format_float(value: f64, suffix: &str) -> String {
     } else {
         format!("{:.1}{}", value, suffix)
     }
+}
+
+pub fn current_timestamp_string() -> String {
+    OffsetDateTime::now_utc().format(&Rfc3339).unwrap()
+}
+
+pub fn local_git_rev() -> String {
+    let command_output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    String::from_utf8(command_output.stdout)
+        .unwrap()
+        .trim()
+        .to_string()
 }

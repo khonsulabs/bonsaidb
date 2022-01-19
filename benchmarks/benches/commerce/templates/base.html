@@ -22,6 +22,16 @@
         {% block content %}
         {% endblock content %}
     </main>
+
+    <footer class="container">
+        <hr />
+        <small>
+            This report was generated at {{ timestamp }} and git revision
+            <a href="https://github.com/khonsulabs/bonsaidb/tree/{{ revision }}">
+                {{ revision | truncate(length = 7, end = "") }}
+            </a>.
+        </small>
+    </footer>
 </body>
 
 </html>

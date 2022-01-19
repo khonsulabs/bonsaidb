@@ -27,6 +27,7 @@ use crate::{
         OperationResult, Plan, ReviewProduct, ShopperPlanConfig,
     },
     plot::{BACKGROUND_COLOR, TEXT_COLOR},
+    utils::{current_timestamp_string, local_git_rev},
 };
 
 pub fn execute_plans_for_all_backends(
@@ -214,6 +215,8 @@ where
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BenchmarkSummary {
     label: String,
+    timestamp: String,
+    revision: String,
     product_count: usize,
     category_count: usize,
     customer_count: usize,
@@ -729,6 +732,8 @@ fn stats_thread(
     .unwrap();
     BenchmarkSummary {
         label,
+        timestamp: current_timestamp_string(),
+        revision: local_git_rev(),
         product_count: initial_data.products.len(),
         category_count: initial_data.categories.len(),
         customer_count: initial_data.customers.len(),
