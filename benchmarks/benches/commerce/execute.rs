@@ -12,8 +12,10 @@ use futures::{stream::FuturesUnordered, StreamExt};
 use hdrhistogram::Histogram;
 use plotters::{
     coord::ranged1d::{NoDefaultFormatting, ValueFormatter},
+    element::{BackendCoordOnly, CoordMapper, Drawable, PointCollection},
     prelude::*,
 };
+use plotters_backend::DrawingErrorKind;
 use rand::{rngs::SmallRng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use tera::Tera;
@@ -576,6 +578,7 @@ fn stats_thread(
         .unwrap();
 
         let longest_measurement = longest_by_metric.get(&metric).unwrap();
+        let group_width = longest_measurement.as_nanos() as u64 / 64;
         let mut label_chart_data = BTreeMap::new();
         for (label, metrics) in label_histograms.iter() {
             let report = operations.entry(metric).or_insert_with(|| MetricSummary {
@@ -590,28 +593,29 @@ fn stats_thread(
                 max: format_nanoseconds(metrics.max() as f64),
                 stddev: format_nanoseconds(metrics.stdev()),
             });
-            let chart_data = metrics
-                .iter_linear(longest_measurement.as_nanos() as u64 / 32)
-                .map(|entry| {
-                    let count = entry.count_since_last_iteration() + entry.count_at_value();
-                    (Nanos(entry.value_iterated_to()), count)
-                })
-                .collect::<Vec<_>>();
+            let chart_data = HistogramBars {
+                bars: metrics
+                    .iter_linear(group_width)
+                    .map(|entry| {
+                        let count = entry.count_since_last_iteration();
+
+                        HistogramBar::new(
+                            (Nanos(entry.value_iterated_to()), count),
+                            group_width,
+                            label_to_color(label),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            };
             label_chart_data.insert(label, chart_data);
         }
         let highest_count = Iterator::max(
             label_chart_data
                 .values()
-                .flat_map(|chart_data| chart_data.iter().map(|(_, count)| *count)),
+                .flat_map(|chart_data| chart_data.bars.iter().map(|bar| bar.upper_left.1)),
         )
         .unwrap();
         for (label, chart_data) in label_chart_data {
-            // Don't chart if this chart only has 1 data point with 1 operation.
-            // This only applies to the load operation currently, but this is
-            // the underlying reason why we'd skip the load operation.
-            if chart_data.len() <= 1 && chart_data[0].1 == 1 {
-                continue;
-            }
             println!("Plotting {}: {:?}", label, metric);
             let chart_path = plot_dir.join(format!("{}-{:?}.png", label, metric));
             let chart_root = BitMapBackend::new(&chart_path, (800, 240)).into_drawing_area();
@@ -645,13 +649,7 @@ fn stats_thread(
                 .draw()
                 .unwrap();
 
-            chart
-                .draw_series(
-                    plotters::prelude::Histogram::vertical(&chart)
-                        .style(label_to_color(label).filled())
-                        .data(chart_data),
-                )
-                .unwrap();
+            chart.draw_series(chart_data).unwrap();
             chart_root.present().unwrap();
         }
         let label_lines = label_metrics
@@ -767,4 +765,82 @@ fn stats_thread(
     }
     .render_to(&plot_dir.join("index.html"), tera);
     accumulated_label_stats
+}
+
+struct HistogramBars {
+    bars: Vec<HistogramBar>,
+}
+
+struct HistogramBar {
+    upper_left: (Nanos, u64),
+    lower_right: (Nanos, u64),
+
+    color: RGBColor,
+}
+
+impl HistogramBar {
+    pub fn new(coord: (Nanos, u64), width: u64, color: RGBColor) -> Self {
+        Self {
+            upper_left: (Nanos(coord.0 .0 - width / 2), coord.1),
+            lower_right: (Nanos(coord.0 .0 + width / 2), 0),
+            color,
+        }
+    }
+}
+
+impl<'a> Drawable<BitMapBackend<'a>> for HistogramBar {
+    fn draw<I: Iterator<Item = <BackendCoordOnly as CoordMapper>::Output>>(
+        &self,
+        mut pos: I,
+        backend: &mut BitMapBackend,
+        _parent_dim: (u32, u32),
+    ) -> Result<(), DrawingErrorKind<<BitMapBackend as DrawingBackend>::ErrorType>> {
+        let upper_left = pos.next().unwrap();
+        let lower_right = pos.next().unwrap();
+        backend.draw_rect(upper_left, lower_right, &self.color, true)?;
+
+        Ok(())
+    }
+}
+
+impl<'a> PointCollection<'a, (Nanos, u64)> for &'a HistogramBar {
+    type Point = &'a (Nanos, u64);
+
+    type IntoIter = HistogramBarIter<'a>;
+
+    fn point_iter(self) -> Self::IntoIter {
+        HistogramBarIter::UpperLeft(self)
+    }
+}
+
+enum HistogramBarIter<'a> {
+    UpperLeft(&'a HistogramBar),
+    LowerRight(&'a HistogramBar),
+    Done,
+}
+
+impl<'a> Iterator for HistogramBarIter<'a> {
+    type Item = &'a (Nanos, u64);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (next, result) = match self {
+            HistogramBarIter::UpperLeft(bar) => {
+                (HistogramBarIter::LowerRight(bar), Some(&bar.upper_left))
+            }
+            HistogramBarIter::LowerRight(bar) => (HistogramBarIter::Done, Some(&bar.lower_right)),
+            HistogramBarIter::Done => (HistogramBarIter::Done, None),
+        };
+        *self = next;
+        result
+    }
+}
+
+impl IntoIterator for HistogramBars {
+    type Item = HistogramBar;
+
+    type IntoIter = std::vec::IntoIter<HistogramBar>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.bars.into_iter()
+    }
 }

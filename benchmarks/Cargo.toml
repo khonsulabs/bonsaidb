@@ -46,5 +46,6 @@ hdrhistogram = "7"
 cli-table = "0.4"
 dotenv = "0.15"
 plotters = "0.3"
+plotters-backend = "0.3"
 tera = "1"
 time = { version = "0.3", features = ["formatting"] }
