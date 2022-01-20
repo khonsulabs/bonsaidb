@@ -13,3 +13,8 @@ additional-js = ["mermaid.min.js", "mermaid-init.js"]
 
 [output.linkcheck]
 follow-web-links = true
+
+[output.linkcheck.http-headers]
+# Any hyperlink that contains this regexp will be sent
+# the "Accept: text/html" header
+'crates\.io' = ["Accept: text/html"]
