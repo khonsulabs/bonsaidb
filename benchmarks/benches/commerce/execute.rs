@@ -539,7 +539,7 @@ fn stats_thread(
     let mut operations = BTreeMap::new();
     for (metric, label_metrics) in all_results {
         let longest_measurement = longest_by_metric.get(&metric).unwrap();
-        let bucket_width = (longest_measurement.as_nanos() + 62) as u64 / 63;
+        let bucket_width = longest_measurement.as_nanos() as u64 / 62;
         println!(
             "Longest measurement {}, width: {}",
             longest_measurement.as_nanos(),
@@ -554,7 +554,7 @@ fn stats_thread(
                 let mut min = u64::MAX;
                 let mut max = 0;
                 for &nanos in stats {
-                    sum += dbg!(nanos);
+                    sum += nanos;
                     min = min.min(nanos);
                     max = max.max(nanos);
                     let bucket = (nanos / bucket_width) as usize;
