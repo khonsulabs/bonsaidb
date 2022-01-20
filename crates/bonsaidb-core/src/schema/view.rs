@@ -111,10 +111,10 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
 
     /// Returns a value that is produced by reducing a list of `mappings` into a
     /// single value. If `rereduce` is true, the values contained in the
-    /// mappings have already been reduced at least one time. If
-    /// `Err(Error::ReduceUnimplemented)` is returned, queries that ask for a
-    /// reduce operation will return an error. See [the user guide's chapter on
-    /// views for more information on how reduce
+    /// mappings have already been reduced at least one time. If an error of
+    /// [`ReduceUnimplemented`](crate::Error::ReduceUnimplemented) is returned,
+    /// queries that ask for a reduce operation will return an error. See [the
+    /// user guide's chapter on views for more information on how reduce
     /// works](https://dev.bonsaidb.io/guide/about/concepts/view.html#reduce).
     #[allow(unused_variables)]
     fn reduce(
