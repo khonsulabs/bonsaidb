@@ -9,7 +9,6 @@ use std::{
 use bonsaidb::core::async_trait::async_trait;
 use cli_table::{Cell, Table};
 use futures::{stream::FuturesUnordered, StreamExt};
-use hdrhistogram::Histogram;
 use plotters::{
     coord::ranged1d::{NoDefaultFormatting, ValueFormatter},
     element::{BackendCoordOnly, CoordMapper, Drawable, PointCollection},
@@ -539,14 +538,39 @@ fn stats_thread(
 
     let mut operations = BTreeMap::new();
     for (metric, label_metrics) in all_results {
+        let longest_measurement = longest_by_metric.get(&metric).unwrap();
+        let bucket_width = (longest_measurement.as_nanos() + 62) as u64 / 63;
+        println!(
+            "Longest measurement {}, width: {}",
+            longest_measurement.as_nanos(),
+            bucket_width
+        );
+
         let label_histograms = label_metrics
             .iter()
             .map(|(label, stats)| {
-                let mut histogram = Histogram::<u64>::new(3).unwrap();
+                let mut histogram = vec![0; 63];
+                let mut sum = 0;
+                let mut min = u64::MAX;
+                let mut max = 0;
                 for &nanos in stats {
-                    histogram.record(nanos).unwrap();
+                    sum += dbg!(nanos);
+                    min = min.min(nanos);
+                    max = max.max(nanos);
+                    let bucket = (nanos / bucket_width) as usize;
+                    histogram[bucket] += 1;
                 }
-                (label, histogram)
+                let average = sum as f64 / stats.len() as f64;
+                (
+                    label,
+                    MetricStats {
+                        average,
+                        min,
+                        max,
+                        stddev: stddev(stats, average),
+                        histogram,
+                    },
+                )
             })
             .collect::<BTreeMap<_, _>>();
         println!(
@@ -555,15 +579,27 @@ fn stats_thread(
             label_metrics.values().next().unwrap().len()
         );
         cli_table::print_stdout(
-            label_histograms
+            label_metrics
                 .iter()
                 .map(|(label, stats)| {
+                    let average = stats.iter().sum::<u64>() as f64 / stats.len() as f64;
+                    let min = *stats.iter().min().unwrap() as f64;
+                    let max = *stats.iter().max().unwrap() as f64;
+                    let stddev = stats
+                        .iter()
+                        .map(|value| {
+                            let diff = average - (*value as f64);
+                            diff * diff
+                        })
+                        .sum::<f64>()
+                        .sqrt();
+
                     vec![
                         label.cell(),
-                        format_nanoseconds(stats.mean()).cell(),
-                        format_nanoseconds(stats.min() as f64).cell(),
-                        format_nanoseconds(stats.max() as f64).cell(),
-                        format_nanoseconds(stats.stdev()).cell(),
+                        format_nanoseconds(average).cell(),
+                        format_nanoseconds(min).cell(),
+                        format_nanoseconds(max).cell(),
+                        format_nanoseconds(stddev).cell(),
                     ]
                 })
                 .table()
@@ -577,8 +613,6 @@ fn stats_thread(
         )
         .unwrap();
 
-        let longest_measurement = longest_by_metric.get(&metric).unwrap();
-        let group_width = longest_measurement.as_nanos() as u64 / 64;
         let mut label_chart_data = BTreeMap::new();
         for (label, metrics) in label_histograms.iter() {
             let report = operations.entry(metric).or_insert_with(|| MetricSummary {
@@ -588,20 +622,22 @@ fn stats_thread(
             });
             report.summaries.push(OperationSummary {
                 backend: label.to_string(),
-                avg: format_nanoseconds(metrics.mean()),
-                min: format_nanoseconds(metrics.min() as f64),
-                max: format_nanoseconds(metrics.max() as f64),
-                stddev: format_nanoseconds(metrics.stdev()),
+                avg: format_nanoseconds(metrics.average),
+                min: format_nanoseconds(metrics.min as f64),
+                max: format_nanoseconds(metrics.max as f64),
+                stddev: format_nanoseconds(metrics.stddev),
             });
             let chart_data = HistogramBars {
                 bars: metrics
-                    .iter_linear(group_width)
-                    .map(|entry| {
-                        let count = entry.count_since_last_iteration();
+                    .histogram
+                    .iter()
+                    .enumerate()
+                    .map(|(bucket, &count)| {
+                        let bucket_value = bucket as u64 * bucket_width + bucket_width / 2;
 
                         HistogramBar::new(
-                            (Nanos(entry.value_iterated_to()), count),
-                            group_width,
+                            (Nanos(bucket_value), count),
+                            bucket_width,
                             label_to_color(label),
                         )
                     })
@@ -767,6 +803,14 @@ fn stats_thread(
     accumulated_label_stats
 }
 
+struct MetricStats {
+    average: f64,
+    min: u64,
+    max: u64,
+    stddev: f64,
+    histogram: Vec<u64>,
+}
+
 struct HistogramBars {
     bars: Vec<HistogramBar>,
 }
@@ -842,5 +886,23 @@ impl IntoIterator for HistogramBars {
 
     fn into_iter(self) -> Self::IntoIter {
         self.bars.into_iter()
+    }
+}
+
+fn stddev(data: &[u64], average: f64) -> f64 {
+    if data.is_empty() {
+        0.
+    } else {
+        let variance = data
+            .iter()
+            .map(|value| {
+                let diff = average - (*value as f64);
+
+                diff * diff
+            })
+            .sum::<f64>()
+            / data.len() as f64;
+
+        variance.sqrt()
     }
 }

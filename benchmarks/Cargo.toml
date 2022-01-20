@@ -42,7 +42,6 @@ rand = { version = "0.8", features = ["small_rng"] }
 clap = { version = "3", features = ["derive"] }
 flume = "0.10"
 num_cpus = "1"
-hdrhistogram = "7"
 cli-table = "0.4"
 dotenv = "0.15"
 plotters = "0.3"
