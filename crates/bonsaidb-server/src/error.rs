@@ -67,8 +67,8 @@ impl From<Error> for bonsaidb_core::Error {
     fn from(other: Error) -> Self {
         // without it, there's no way to get this to_string() easily.
         match other {
+            Error::Core(core) | Error::Database(bonsaidb_local::Error::Core(core)) => core,
             Error::Database(storage) => Self::Database(storage.to_string()),
-            Error::Core(core) => core,
             Error::Io(io) => Self::Io(io.to_string()),
             Error::Transport(networking) => Self::Transport(networking),
             #[cfg(feature = "websockets")]

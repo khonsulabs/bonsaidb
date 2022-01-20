@@ -10,7 +10,7 @@ use bonsaidb_core::{
     connection::Connection,
     document::Header,
     schema::{
-        view::{map, Serialized},
+        view::{self, map, Serialized},
         CollectionName, Key, ViewName,
     },
 };
@@ -237,8 +237,9 @@ impl<'a> DocumentRequest<'a> {
         if map_result.is_empty() {
             self.omit_document(doc_still_exists)?;
         } else {
+            let mut has_reduce = true;
             for map::Serialized { source, key, value } in map_result {
-                self.save_mapping(source, &key, value)?;
+                has_reduce = self.save_mapping(source, &key, value, has_reduce)?;
             }
         }
 
@@ -276,7 +277,13 @@ impl<'a> DocumentRequest<'a> {
         Ok(())
     }
 
-    fn save_mapping(&mut self, source: Header, key: &[u8], value: Vec<u8>) -> Result<(), Error> {
+    fn save_mapping(
+        &mut self,
+        source: Header,
+        key: &[u8],
+        value: Vec<u8>,
+        mut has_reduce: bool,
+    ) -> Result<bool, Error> {
         // Before altering any data, verify that the key is unique if this is a unique view.
         if self.view.unique() {
             if let Some(existing_entry) = self.load_entry_for_key(key)? {
@@ -329,22 +336,38 @@ impl<'a> DocumentRequest<'a> {
             // precision in some contexts over time. Thus, the decision was
             // made to always call reduce() with all the mappings within a
             // single ViewEntry.
-            let mappings = entry
-                .mappings
-                .iter()
-                .map(|m| (key, m.value.as_slice()))
-                .collect::<Vec<_>>();
-            entry.reduced_value = self
-                .view
-                .reduce(&mappings, false)
-                .map_err(bonsaidb_core::Error::from)?;
+            if has_reduce {
+                let mappings = entry
+                    .mappings
+                    .iter()
+                    .map(|m| (key, m.value.as_slice()))
+                    .collect::<Vec<_>>();
+
+                match self.view.reduce(&mappings, false) {
+                    Ok(reduced) => {
+                        entry.reduced_value = reduced;
+                    }
+                    Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
+                        has_reduce = false;
+                    }
+                    Err(other) => return Err(Error::from(other)),
+                }
+            }
 
             entry
         } else {
-            let reduced_value = self
-                .view
-                .reduce(&[(key, &entry_mapping.value)], false)
-                .map_err(bonsaidb_core::Error::from)?;
+            let reduced_value = if has_reduce {
+                match self.view.reduce(&[(key, &entry_mapping.value)], false) {
+                    Ok(reduced_value) => reduced_value,
+                    Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
+                        has_reduce = false;
+                        Vec::default()
+                    }
+                    Err(other) => return Err(Error::from(other)),
+                }
+            } else {
+                Vec::default()
+            };
             ViewEntryCollection::from(ViewEntry {
                 key: key.to_vec(),
                 view_version: self.view.version(),
@@ -353,7 +376,7 @@ impl<'a> DocumentRequest<'a> {
             })
         };
         self.save_entry_for_key(key, &view_entry)?;
-        Ok(())
+        Ok(has_reduce)
     }
 
     fn remove_existing_view_entries_for_keys(
@@ -362,6 +385,7 @@ impl<'a> DocumentRequest<'a> {
         existing_map: &[u8],
     ) -> Result<(), Error> {
         let existing_keys = bincode::deserialize::<HashSet<Cow<'_, [u8]>>>(existing_map)?;
+        let mut has_reduce = true;
         for key_to_remove_from in existing_keys.difference(keys) {
             if let Some(mut entry_collection) = self.load_entry_for_key(key_to_remove_from)? {
                 let document_id = u64::from_big_endian_bytes(self.document_id).unwrap();
@@ -380,16 +404,22 @@ impl<'a> DocumentRequest<'a> {
                         view_entries.remove(key_to_remove_from)?;
                         continue;
                     }
-                } else {
+                } else if has_reduce {
                     let mappings = entry_collection
                         .mappings
                         .iter()
                         .map(|m| (&key_to_remove_from[..], m.value.as_slice()))
                         .collect::<Vec<_>>();
-                    entry_collection.reduced_value = self
-                        .view
-                        .reduce(&mappings, false)
-                        .map_err(bonsaidb_core::Error::from)?;
+
+                    match self.view.reduce(&mappings, false) {
+                        Ok(reduced) => {
+                            entry_collection.reduced_value = reduced;
+                        }
+                        Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
+                            has_reduce = false;
+                        }
+                        Err(other) => return Err(Error::from(other)),
+                    }
                 }
 
                 let value = bincode::serialize(&entry_collection)?;

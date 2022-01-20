@@ -82,7 +82,7 @@ impl From<tokio::sync::oneshot::error::TryRecvError> for Error {
 impl From<Error> for bonsaidb_core::Error {
     fn from(err: Error) -> Self {
         match err {
-            Error::Core(core) => core,
+            Error::View(view::Error::Core(core)) | Error::Core(core) => core,
             other => Self::Database(other.to_string()),
         }
     }

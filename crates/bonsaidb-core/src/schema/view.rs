@@ -28,14 +28,6 @@ pub enum Error {
     #[error("error serializing view keys {0}")]
     KeySerialization(Box<dyn AnyError>),
 
-    /// Returned when the reduce() function is unimplemented.
-    #[error("reduce is unimplemented")]
-    ReduceUnimplemented,
-
-    /// Range queries are not supported on collections with encryptable keys.
-    #[error("range queries are not supported on collections with encryptable keys")]
-    RangeQueryNotSupported,
-
     /// An error unrelated to views.
     #[error("core error: {0}")]
     Core(#[from] crate::Error),
@@ -56,11 +48,11 @@ impl From<pot::Error> for Error {
 
 /// A type alias for the result of `ViewSchema::map()`.
 #[allow(type_alias_bounds)] // False positive, required for associated types
-pub type ViewMapResult<V: View> = Result<Mappings<V::Key, V::Value>, Error>;
+pub type ViewMapResult<V: View> = Result<Mappings<V::Key, V::Value>, crate::Error>;
 
 /// A type alias for the result of `ViewSchema::reduce()`.
 #[allow(type_alias_bounds)] // False positive, required for associated types
-pub type ReduceResult<V: View> = Result<V::Value, Error>;
+pub type ReduceResult<V: View> = Result<V::Value, crate::Error>;
 
 /// A mechanism for accessing mapped and/or reduced data from a [`Collection`].
 ///
@@ -129,8 +121,8 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
         &self,
         mappings: &[ViewMappedValue<Self::View>],
         rereduce: bool,
-    ) -> Result<<Self::View as View>::Value, Error> {
-        Err(Error::ReduceUnimplemented)
+    ) -> Result<<Self::View as View>::Value, crate::Error> {
+        Err(crate::Error::ReduceUnimplemented)
     }
 }
 
@@ -218,8 +210,8 @@ where
         &self,
         mappings: &[ViewMappedValue<Self::View>],
         rereduce: bool,
-    ) -> Result<<Self::View as View>::Value, Error> {
-        Err(Error::ReduceUnimplemented)
+    ) -> ReduceResult<Self::View> {
+        Err(crate::Error::ReduceUnimplemented)
     }
 }
 
@@ -243,7 +235,7 @@ where
         &self,
         mappings: &[ViewMappedValue<Self::View>],
         rereduce: bool,
-    ) -> Result<<Self::View as View>::Value, Error> {
+    ) -> Result<<Self::View as View>::Value, crate::Error> {
         T::reduce(self, mappings, rereduce)
     }
 

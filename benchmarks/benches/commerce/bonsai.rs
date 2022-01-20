@@ -7,11 +7,10 @@ use bonsaidb::{
         connection::{AccessPolicy, Connection, StorageConnection},
         define_basic_unique_mapped_view,
         schema::{
-            view::{self, map::Mappings},
-            Collection, CollectionDocument, CollectionName, CollectionViewSchema,
-            DefaultSerialization, DefaultViewSerialization, InsertError, InvalidNameError,
-            MappedValue, Name, NamedCollection, Schema, SchemaName, Schematic,
-            SerializedCollection, View, ViewMapResult,
+            view::map::Mappings, Collection, CollectionDocument, CollectionName,
+            CollectionViewSchema, DefaultSerialization, DefaultViewSerialization, InsertError,
+            InvalidNameError, Name, NamedCollection, ReduceResult, Schema, SchemaName, Schematic,
+            SerializedCollection, View, ViewMapResult, ViewMappedValue,
         },
         transaction::{self, Transaction},
         Error,
@@ -509,9 +508,9 @@ impl CollectionViewSchema for ProductReviewsByProduct {
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<<Self as View>::Key, <Self as View>::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
-    ) -> Result<<Self as View>::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         Ok(mappings
             .iter()
             .map(|mapping| mapping.value.clone())

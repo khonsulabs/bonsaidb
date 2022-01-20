@@ -564,6 +564,7 @@ pub enum HarnessTest {
     Compact,
     ViewUpdate,
     ViewMultiEmit,
+    ViewUnimplementedReduce,
     ViewAccessPolicies,
     Encryption,
     UniqueViews,
@@ -712,6 +713,16 @@ macro_rules! define_connection_test_suite {
             let db = harness.connect().await?;
 
             $crate::test_util::unassociated_collection_tests(&db).await?;
+            harness.shutdown().await
+        }
+
+        #[tokio::test]
+        async fn unimplemented_reduce() -> anyhow::Result<()> {
+            let harness =
+                $harness::new($crate::test_util::HarnessTest::ViewUnimplementedReduce).await?;
+            let db = harness.connect().await?;
+
+            $crate::test_util::unimplemented_reduce(&db).await?;
             harness.shutdown().await
         }
 
@@ -1165,6 +1176,14 @@ pub async fn unassociated_collection_tests<C: Connection>(db: &C) -> anyhow::Res
         other => unreachable!("unexpected result: {:?}", other),
     }
 
+    Ok(())
+}
+
+pub async fn unimplemented_reduce<C: Connection>(db: &C) -> anyhow::Result<()> {
+    assert!(matches!(
+        db.view::<UniqueValue>().reduce().await,
+        Err(Error::ReduceUnimplemented)
+    ));
     Ok(())
 }
 

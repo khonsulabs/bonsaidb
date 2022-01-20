@@ -561,7 +561,7 @@ impl Database {
                     .collect::<Vec<_>>(),
                 true,
             )
-            .map_err(Error::View)?
+            .map_err(Error::from)?
         };
 
         Ok(result)

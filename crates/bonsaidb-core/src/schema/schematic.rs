@@ -230,11 +230,7 @@ where
             )
             .collect::<Result<Vec<_>, view::Error>>()?;
 
-        let reduced_value = match self.schema.reduce(&mappings, rereduce) {
-            Ok(value) => value,
-            Err(view::Error::ReduceUnimplemented) => return Ok(Vec::new()),
-            Err(other) => return Err(other),
-        };
+        let reduced_value = self.schema.reduce(&mappings, rereduce)?;
 
         V::serialize(&reduced_value).map_err(view::Error::from)
     }

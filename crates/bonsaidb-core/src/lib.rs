@@ -193,6 +193,10 @@ pub enum Error {
     /// The credentials specified are not valid.
     #[error("invalid credentials")]
     InvalidCredentials,
+
+    /// Returned when the a view's reduce() function is unimplemented.
+    #[error("reduce is unimplemented")]
+    ReduceUnimplemented,
 }
 
 impl From<pot::Error> for Error {
