@@ -19,8 +19,9 @@ use bonsaidb::{
     core::{
         connection::{AccessPolicy, Connection},
         schema::{
-            view, view::CollectionView, Collection, CollectionDocument, CollectionName,
-            DefaultSerialization, InvalidNameError, MappedValue, Name, Schematic, SerializedView,
+            view::CollectionViewSchema, Collection, CollectionDocument, CollectionName,
+            DefaultSerialization, InvalidNameError, Name, ReduceResult, Schematic, SerializedView,
+            View, ViewMappedValue,
         },
         transmog::{Format, OwnedDeserializer},
     },
@@ -114,28 +115,26 @@ impl Collection for Samples {
 impl DefaultSerialization for Samples {}
 
 /// A view for [`Samples`] which produces a histogram.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AsHistogram;
 
-impl CollectionView for AsHistogram {
+impl View for AsHistogram {
     type Collection = Samples;
-
     type Key = u64;
-
     type Value = SyncHistogram<u64>;
-
-    fn version(&self) -> u64 {
-        0
-    }
 
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("as-histogram")
     }
+}
+
+impl CollectionViewSchema for AsHistogram {
+    type View = Self;
 
     fn map(
         &self,
-        document: CollectionDocument<Self::Collection>,
-    ) -> bonsaidb::core::schema::MapResult<Self::Key, Self::Value> {
+        document: CollectionDocument<<Self::View as View>::Collection>,
+    ) -> bonsaidb::core::schema::ViewMapResult<Self::View> {
         let mut histogram = Histogram::new(4).unwrap();
         for sample in &document.contents.entries {
             histogram.record(*sample).unwrap();
@@ -146,9 +145,9 @@ impl CollectionView for AsHistogram {
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         let mut mappings = mappings.iter();
         let mut combined = SyncHistogram::from(
             mappings

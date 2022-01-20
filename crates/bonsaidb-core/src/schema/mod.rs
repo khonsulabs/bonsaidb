@@ -13,8 +13,9 @@ pub use self::{
     names::{Authority, CollectionName, InvalidNameError, Name, SchemaName, ViewName},
     schematic::Schematic,
     view::{
-        map::{Map, MappedDocument, MappedValue},
-        CollectionView, DefaultViewSerialization, Key, MapResult, SerializedView, View,
+        map::{Map, MappedDocument, MappedValue, ViewMappedValue},
+        CollectionViewSchema, DefaultViewSerialization, Key, ReduceResult, SerializedView, View,
+        ViewMapResult, ViewSchema,
     },
 };
 use crate::Error;

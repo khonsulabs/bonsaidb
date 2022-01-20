@@ -1,8 +1,8 @@
 use bonsaidb::core::{
     schema::{
-        view::{self, CollectionView},
-        Collection, CollectionDocument, CollectionName, DefaultSerialization,
-        DefaultViewSerialization, InvalidNameError, MapResult, MappedValue, Name, Schematic,
+        view::CollectionViewSchema, Collection, CollectionDocument, CollectionName,
+        DefaultSerialization, DefaultViewSerialization, InvalidNameError, Name, ReduceResult,
+        Schematic, View, ViewMapResult, ViewMappedValue,
     },
     Error,
 };
@@ -31,36 +31,34 @@ impl Collection for Shape {
 
 impl DefaultSerialization for Shape {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ShapesByNumberOfSides;
 
-impl CollectionView for ShapesByNumberOfSides {
+impl View for ShapesByNumberOfSides {
     type Collection = Shape;
-
     type Key = u32;
-
     type Value = usize;
-
-    fn version(&self) -> u64 {
-        1
-    }
 
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("by-number-of-sides")
     }
+}
+
+impl CollectionViewSchema for ShapesByNumberOfSides {
+    type View = Self;
 
     fn map(
         &self,
-        document: CollectionDocument<Self::Collection>,
-    ) -> MapResult<Self::Key, Self::Value> {
+        document: CollectionDocument<<Self::View as View>::Collection>,
+    ) -> ViewMapResult<Self::View> {
         Ok(document.emit_key_and_value(document.contents.sides, 1))
     }
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|m| m.value).sum())
     }
 }

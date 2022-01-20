@@ -20,10 +20,13 @@ use crate::{
     keyvalue::KeyValue,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
-        view::{self, map::Mappings, DefaultViewSerialization},
+        view::{
+            map::{Mappings, ViewMappedValue},
+            DefaultViewSerialization, ReduceResult, ViewSchema,
+        },
         Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
-        MapResult, MappedValue, Name, NamedCollection, Schema, SchemaName, Schematic,
-        SerializedCollection, View,
+        MappedValue, Name, NamedCollection, Schema, SchemaName, Schematic, SerializedCollection,
+        View, ViewMapResult,
     },
     Error, ENCRYPTION_ENABLED,
 };
@@ -78,7 +81,7 @@ impl Collection for Basic {
 
 impl DefaultSerialization for Basic {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BasicCount;
 
 impl View for BasicCount {
@@ -86,30 +89,30 @@ impl View for BasicCount {
     type Key = ();
     type Value = usize;
 
-    fn version(&self) -> u64 {
-        0
-    }
-
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("count")
     }
+}
 
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+impl ViewSchema for BasicCount {
+    type View = Self;
+
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         Ok(document.emit_key_and_value((), 1))
     }
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
 
 impl DefaultViewSerialization for BasicCount {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BasicByParentId;
 
 impl View for BasicByParentId {
@@ -117,30 +120,34 @@ impl View for BasicByParentId {
     type Key = Option<u64>;
     type Value = usize;
 
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-parent-id")
+    }
+}
+
+impl ViewSchema for BasicByParentId {
+    type View = Self;
+
     fn version(&self) -> u64 {
         1
     }
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
-        Name::new("by-parent-id")
-    }
-
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         let contents = document.contents::<Basic>()?;
         Ok(document.emit_key_and_value(contents.parent_id, 1))
     }
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
 impl DefaultViewSerialization for BasicByParentId {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BasicByCategory;
 
 impl View for BasicByCategory {
@@ -148,15 +155,15 @@ impl View for BasicByCategory {
     type Key = String;
     type Value = usize;
 
-    fn version(&self) -> u64 {
-        0
-    }
-
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("by-category")
     }
+}
 
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+impl ViewSchema for BasicByCategory {
+    type View = Self;
+
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         let contents = document.contents::<Basic>()?;
         if let Some(category) = &contents.category {
             Ok(document.emit_key_and_value(category.to_lowercase(), 1))
@@ -167,16 +174,16 @@ impl View for BasicByCategory {
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
 
 impl DefaultViewSerialization for BasicByCategory {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BasicByTag;
 
 impl View for BasicByTag {
@@ -184,15 +191,15 @@ impl View for BasicByTag {
     type Key = String;
     type Value = usize;
 
-    fn version(&self) -> u64 {
-        0
-    }
-
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("by-tag")
     }
+}
 
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+impl ViewSchema for BasicByTag {
+    type View = Self;
+
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         let contents = document.contents::<Basic>()?;
 
         Ok(contents
@@ -204,16 +211,16 @@ impl View for BasicByTag {
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
 
 impl DefaultViewSerialization for BasicByTag {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BasicByBrokenParentId;
 
 impl View for BasicByBrokenParentId {
@@ -221,15 +228,15 @@ impl View for BasicByBrokenParentId {
     type Key = ();
     type Value = ();
 
-    fn version(&self) -> u64 {
-        0
-    }
-
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("by-parent-id")
     }
+}
 
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+impl ViewSchema for BasicByBrokenParentId {
+    type View = Self;
+
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         Ok(document.emit())
     }
 }
@@ -286,7 +293,7 @@ impl Collection for EncryptedBasic {
 
 impl DefaultSerialization for EncryptedBasic {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EncryptedBasicCount;
 
 impl View for EncryptedBasicCount {
@@ -294,30 +301,30 @@ impl View for EncryptedBasicCount {
     type Key = ();
     type Value = usize;
 
-    fn version(&self) -> u64 {
-        0
-    }
-
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("count")
     }
+}
 
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+impl ViewSchema for EncryptedBasicCount {
+    type View = Self;
+
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         Ok(document.emit_key_and_value((), 1))
     }
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
 
 impl DefaultViewSerialization for EncryptedBasicCount {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EncryptedBasicByParentId;
 
 impl View for EncryptedBasicByParentId {
@@ -325,31 +332,31 @@ impl View for EncryptedBasicByParentId {
     type Key = Option<u64>;
     type Value = usize;
 
-    fn version(&self) -> u64 {
-        1
-    }
-
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("by-parent-id")
     }
+}
 
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+impl ViewSchema for EncryptedBasicByParentId {
+    type View = Self;
+
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         let contents = document.contents::<EncryptedBasic>()?;
         Ok(document.emit_key_and_value(contents.parent_id, 1))
     }
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
 
 impl DefaultViewSerialization for EncryptedBasicByParentId {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EncryptedBasicByCategory;
 
 impl View for EncryptedBasicByCategory {
@@ -357,15 +364,15 @@ impl View for EncryptedBasicByCategory {
     type Key = String;
     type Value = usize;
 
-    fn version(&self) -> u64 {
-        0
-    }
-
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("by-category")
     }
+}
 
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+impl ViewSchema for EncryptedBasicByCategory {
+    type View = Self;
+
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         let contents = document.contents::<EncryptedBasic>()?;
         if let Some(category) = &contents.category {
             Ok(document.emit_key_and_value(category.to_lowercase(), 1))
@@ -376,9 +383,9 @@ impl View for EncryptedBasicByCategory {
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
@@ -425,7 +432,7 @@ impl Collection for Unique {
 
 impl DefaultSerialization for Unique {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UniqueValue;
 
 impl View for UniqueValue {
@@ -433,19 +440,19 @@ impl View for UniqueValue {
     type Key = String;
     type Value = ();
 
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("unique-value")
+    }
+}
+
+impl ViewSchema for UniqueValue {
+    type View = Self;
+
     fn unique(&self) -> bool {
         true
     }
 
-    fn version(&self) -> u64 {
-        1
-    }
-
-    fn name(&self) -> Result<Name, InvalidNameError> {
-        Name::new("unique-value")
-    }
-
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         let entry = document.contents::<Unique>()?;
         Ok(document.emit_key(entry.value))
     }

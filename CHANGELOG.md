@@ -158,6 +158,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The `view-histogram` example has been updated to define a custom
   `transmog::Format` implementation rather creating a Serde-based wrapper.
+- `View` has been split into two traits to allow separating client and server
+  logic entirely if desired. The `ViewSchema` trait is where `map()`,
+  `reduce()`, `version()`, and `unique()` have moved. If you're using a
+  `CollectionView`, the implementation should now be a combination of `View` and
+  `CollectionViewSchema`.
 
 ### Fixed
 

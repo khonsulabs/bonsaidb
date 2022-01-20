@@ -38,31 +38,31 @@ impl Collection for Shape {
 
 impl DefaultSerialization for Shape {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ShapesByNumberOfSides;
 
-impl CollectionView for ShapesByNumberOfSides {
+impl View for ShapesByNumberOfSides {
     type Collection = Shape;
     type Key = u32;
     type Value = usize;
 
-    fn version(&self) -> u64 {
-        1
-    }
-
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("by-number-of-sides")
     }
+}
 
-    fn map(&self, document: CollectionDocument<Shape>) -> MapResult<Self::Key, Self::Value> {
+impl CollectionViewSchema for ShapesByNumberOfSides {
+    type View = Self;
+
+    fn map(&self, document: CollectionDocument<Shape>) -> ViewMapResult<Self::View> {
         Ok(document.emit_key_and_value(document.contents.sides, 1))
     }
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|m| m.value).sum())
     }
 }
