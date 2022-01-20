@@ -1,6 +1,6 @@
 # View
 
-A [View](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.View.html) is a [map/reduce](https://en.wikipedia.org/wiki/MapReduce)-powered method of quickly accessing information inside of a [Collection](./collection.md). A View can only belong to one Collection.
+A [View][view-trait] is a [map/reduce](https://en.wikipedia.org/wiki/MapReduce)-powered method of quickly accessing information inside of a [Collection](./collection.md). A View can only belong to one Collection.
 
 Views define two important associated types: a Key type and a Value type. You can think of these as the equivalent entries in a map/dictionary-like collection that supports more than one entry for each Key. The Key is used to filter the View's results, and the Value is used by your application or the `reduce()` function.
 
@@ -15,6 +15,16 @@ While `category` should be an enum, let's first explore using `String` and upgra
 ```rust,noplayground,no_run
 {{#include ../../../book-examples/tests/view-example-string.rs:view}}
 ```
+
+The two traits being implemented are [View][view-trait] and
+[ViewSchema][viewschema-trait]. These traits are designed to allow keeping the
+`View` implementation in a shared code library that is used by both client-side
+and server-side code, while keeping the `ViewSchema` implementation in the
+server executable only.
+
+## Views for [`SerializedCollection`][serialized-collection]
+
+For users who are using [`SerializedCollection`][serialized-collection], [`CollectionViewSchema`][collection-view-schema] can be implemented instead of [`ViewSchema`][viewschema-trait]. The only difference between the two is that the [`map()`][collection-view-schema-map] function takes a [`CollectionDocument`][collection-document] instead of a [`Document`][document].
 
 ## Value Serialization
 
@@ -91,7 +101,7 @@ In our previous example, we used `String` for the Key type. The reason is import
 
 ### Using an enum as a View Key
 
-The easiest way to expose an enum is to derive [`num_traits::FromPrimitive`](https://docs.rs/num-traits/0.2.14/num_traits/cast/trait.FromPrimitive.html) and [`num_traits::ToPrimitive`](https://docs.rs/num-traits/0.2.14/num_traits/cast/trait.ToPrimitive.html) using [num-derive](https://lib.rs/num-derive), and add an `impl EnumKey` line:
+The easiest way to expose an enum is to derive [`num_traits::FromPrimitive`](https://docs.rs/num-traits/0.2.14/num_traits/cast/trait.FromPrimitive.html) and [`num_traits::ToPrimitive`](https://docs.rs/num-traits/0.2.14/num_traits/cast/trait.ToPrimitive.html) using [num-derive](https://crates.io/crates/num-derive), and add an `impl EnumKey` line:
 
 ```rust,noplayground,no_run
 {{#include ../../../book-examples/tests/view-example-enum.rs:enum}}
@@ -118,3 +128,10 @@ Here is how BonsaiDb implements Key for `EnumKey`:
 By implementing `Key` you can take full control of converting your view keys.
 
 [key]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.Key.html
+[view-trait]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.View.html
+[viewschema-trait]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.ViewSchema.html
+[serialized-collection]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.SerializedCollection.html
+[document]: https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html
+[collection-document]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/struct.CollectionDocument.html
+[collection-view-schema]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.CollectionViewSchema.html
+[collection-view-schema-map]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.CollectionViewSchema.html#tymethod.map
