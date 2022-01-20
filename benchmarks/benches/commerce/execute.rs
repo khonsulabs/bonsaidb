@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    ops::RangeInclusive,
+    ops::{Range, RangeInclusive},
     path::Path,
     sync::Arc,
     time::{Duration, Instant},
@@ -218,6 +218,8 @@ pub struct BenchmarkSummary {
     label: String,
     timestamp: String,
     revision: String,
+    plan_count: usize,
+    agent_count: usize,
     product_count: usize,
     category_count: usize,
     customer_count: usize,
@@ -250,6 +252,7 @@ pub struct BackendSummary {
 pub struct MetricSummary {
     metric: Metric,
     description: String,
+    invocations: usize,
     summaries: Vec<OperationSummary>,
 }
 
@@ -260,6 +263,7 @@ pub struct OperationSummary {
     min: String,
     max: String,
     stddev: String,
+    outliers: String,
 }
 
 pub struct Benchmark<'a> {
@@ -311,6 +315,7 @@ impl<'a> Benchmark<'a> {
             stats_thread(
                 self.label,
                 metric_receiver,
+                shoppers,
                 number_of_agents,
                 &thread_initial_data,
                 &plot_dir,
@@ -513,6 +518,7 @@ const COLORS: [RGBColor; 9] = [
 fn stats_thread(
     label: String,
     metric_receiver: flume::Receiver<(&'static str, Metric, Duration)>,
+    number_of_plans: usize,
     number_of_agents: usize,
     initial_data: &InitialDataSet,
     plot_dir: &Path,
@@ -537,19 +543,11 @@ fn stats_thread(
     }
 
     let mut operations = BTreeMap::new();
+    let mut metric_ranges = HashMap::new();
     for (metric, label_metrics) in all_results {
-        let longest_measurement = longest_by_metric.get(&metric).unwrap();
-        let bucket_width = longest_measurement.as_nanos() as u64 / 62;
-        println!(
-            "Longest measurement {}, width: {}",
-            longest_measurement.as_nanos(),
-            bucket_width
-        );
-
-        let label_histograms = label_metrics
+        let label_stats = label_metrics
             .iter()
             .map(|(label, stats)| {
-                let mut histogram = vec![0; 63];
                 let mut sum = 0;
                 let mut min = u64::MAX;
                 let mut max = 0;
@@ -557,18 +555,48 @@ fn stats_thread(
                     sum += nanos;
                     min = min.min(nanos);
                     max = max.max(nanos);
-                    let bucket = (nanos / bucket_width) as usize;
-                    histogram[bucket] += 1;
                 }
                 let average = sum as f64 / stats.len() as f64;
+                let stddev = stddev(stats, average);
+
+                let mut outliers = Vec::new();
+                let mut plottable_stats = Vec::new();
+                let mut min_plottable = u64::MAX;
+                let mut max_plottable = 0;
+                for &nanos in stats {
+                    let diff = (nanos as f64 - average).abs();
+                    let diff_magnitude = diff / stddev;
+                    if stats.len() == 1 || diff_magnitude < 3. {
+                        plottable_stats.push(nanos);
+                        min_plottable = min_plottable.min(nanos);
+                        max_plottable = max_plottable.max(nanos);
+                    } else {
+                        // Outlier
+                        outliers.push(diff_magnitude);
+                    }
+                }
+
+                if !outliers.is_empty() {
+                    eprintln!("Not plotting {} outliers for {}", outliers.len(), label);
+                }
+
+                metric_ranges
+                    .entry(metric)
+                    .and_modify(|range: &mut Range<u64>| {
+                        range.start = range.start.min(min_plottable);
+                        range.end = range.end.max(max_plottable + 1);
+                    })
+                    .or_insert(min_plottable..max_plottable + 1);
+
                 (
                     label,
                     MetricStats {
                         average,
                         min,
                         max,
-                        stddev: stddev(stats, average),
-                        histogram,
+                        stddev,
+                        outliers,
+                        plottable_stats,
                     },
                 )
             })
@@ -585,14 +613,7 @@ fn stats_thread(
                     let average = stats.iter().sum::<u64>() as f64 / stats.len() as f64;
                     let min = *stats.iter().min().unwrap() as f64;
                     let max = *stats.iter().max().unwrap() as f64;
-                    let stddev = stats
-                        .iter()
-                        .map(|value| {
-                            let diff = average - (*value as f64);
-                            diff * diff
-                        })
-                        .sum::<f64>()
-                        .sqrt();
+                    let stddev = stddev(stats, average);
 
                     vec![
                         label.cell(),
@@ -614,9 +635,10 @@ fn stats_thread(
         .unwrap();
 
         let mut label_chart_data = BTreeMap::new();
-        for (label, metrics) in label_histograms.iter() {
+        for (label, metrics) in label_stats.iter() {
             let report = operations.entry(metric).or_insert_with(|| MetricSummary {
                 metric,
+                invocations: label_metrics.values().next().unwrap().len(),
                 description: metric.description().to_string(),
                 summaries: Vec::new(),
             });
@@ -626,20 +648,31 @@ fn stats_thread(
                 min: format_nanoseconds(metrics.min as f64),
                 max: format_nanoseconds(metrics.max as f64),
                 stddev: format_nanoseconds(metrics.stddev),
+                outliers: metrics.outliers.len().to_string(),
             });
+            let mut histogram = vec![0; 63];
+            let range = &metric_ranges[&metric];
+            let bucket_width = range.end / (histogram.len() as u64 - 1);
+            for &nanos in &metrics.plottable_stats {
+                let bucket = (nanos / bucket_width) as usize;
+                histogram[bucket] += 1;
+            }
             let chart_data = HistogramBars {
-                bars: metrics
-                    .histogram
+                bars: histogram
                     .iter()
                     .enumerate()
-                    .map(|(bucket, &count)| {
-                        let bucket_value = bucket as u64 * bucket_width + bucket_width / 2;
+                    .filter_map(|(bucket, &count)| {
+                        if count > 0 {
+                            let bucket_value = bucket as u64 * bucket_width;
 
-                        HistogramBar::new(
-                            (Nanos(bucket_value), count),
-                            bucket_width,
-                            label_to_color(label),
-                        )
+                            Some(HistogramBar::new(
+                                (Nanos(bucket_value), count),
+                                bucket_width,
+                                label_to_color(label),
+                            ))
+                        } else {
+                            None
+                        }
                     })
                     .collect::<Vec<_>>(),
             };
@@ -649,6 +682,18 @@ fn stats_thread(
             label_chart_data
                 .values()
                 .flat_map(|chart_data| chart_data.bars.iter().map(|bar| bar.upper_left.1)),
+        )
+        .unwrap();
+        let highest_nanos = Iterator::max(
+            label_chart_data
+                .values()
+                .flat_map(|chart_data| chart_data.bars.iter().map(|bar| bar.lower_right.0)),
+        )
+        .unwrap();
+        let lowest_nanos = Iterator::min(
+            label_chart_data
+                .values()
+                .flat_map(|chart_data| chart_data.bars.iter().map(|bar| bar.upper_left.0)),
         )
         .unwrap();
         for (label, chart_data) in label_chart_data {
@@ -667,7 +712,7 @@ fn stats_thread(
                 .x_label_area_size(50)
                 .y_label_area_size(80)
                 .build_cartesian_2d(
-                    NanosRange(Nanos(0)..=Nanos(longest_measurement.as_nanos() as u64)),
+                    NanosRange(lowest_nanos..=highest_nanos),
                     0..highest_count + 1,
                 )
                 .unwrap();
@@ -780,6 +825,8 @@ fn stats_thread(
         label,
         timestamp: current_timestamp_string(),
         revision: local_git_rev(),
+        plan_count: number_of_plans,
+        agent_count: number_of_agents,
         product_count: initial_data.products.len(),
         category_count: initial_data.categories.len(),
         customer_count: initial_data.customers.len(),
@@ -808,7 +855,8 @@ struct MetricStats {
     min: u64,
     max: u64,
     stddev: f64,
-    histogram: Vec<u64>,
+    plottable_stats: Vec<u64>,
+    outliers: Vec<f64>,
 }
 
 struct HistogramBars {
@@ -825,8 +873,8 @@ struct HistogramBar {
 impl HistogramBar {
     pub fn new(coord: (Nanos, u64), width: u64, color: RGBColor) -> Self {
         Self {
-            upper_left: (Nanos(coord.0 .0 - width / 2), coord.1),
-            lower_right: (Nanos(coord.0 .0 + width / 2), 0),
+            upper_left: (Nanos(coord.0 .0), coord.1),
+            lower_right: (Nanos(coord.0 .0 + width), 0),
             color,
         }
     }
