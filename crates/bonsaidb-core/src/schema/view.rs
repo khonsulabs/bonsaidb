@@ -59,13 +59,9 @@ pub type MapResult<K = (), V = ()> = Result<Mappings<K, V>, Error>;
 
 /// A map/reduce powered indexing and aggregation schema.
 ///
-/// Inspired by [`CouchDB`'s view
-/// system](https://docs.couchdb.org/en/stable/ddocs/views/index.html)
-///
-/// This implementation is under active development, our own docs explaining our
-/// implementation will be written as things are solidified. The guide [has an
-/// overview](https://dev.bonsaidb.io/guide/about/concepts/view.html).
-// TODO write our own view docs
+/// See the [user guide for a walkthrough of how views
+/// work](https://dev.bonsaidb.io/guide/about/concepts/view.html).
+// TODO include some extra documentation inline?
 pub trait View: Send + Sync + Debug + 'static {
     /// The collection this view belongs to
     type Collection: Collection;
@@ -88,7 +84,9 @@ pub trait View: Send + Sync + Debug + 'static {
     }
 
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
-    fn version(&self) -> u64;
+    fn version(&self) -> u64 {
+        0
+    }
 
     /// The name of the view. Must be unique per collection.
     fn name(&self) -> Result<Name, InvalidNameError>;
@@ -103,14 +101,18 @@ pub trait View: Send + Sync + Debug + 'static {
 
     /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
-    /// View. If None is returned, the View will not include the document.
+    /// View. If None is returned, the View will not include the document. See [the user guide's chapter on
+    /// views for more information on how map
+    /// works](https://dev.bonsaidb.io/guide/about/concepts/view.html#map).
     fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value>;
 
-    /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
-    /// is returned, queries that ask for a reduce operation will return an
-    /// error. See [`CouchDB`'s Reduce/Rereduce
-    /// documentation](https://docs.couchdb.org/en/stable/ddocs/views/intro.html#reduce-rereduce)
-    /// for the design this implementation will be inspired by
+    /// Returns a value that is produced by reducing a list of `mappings` into a
+    /// single value. If `rereduce` is true, the values contained in the
+    /// mappings have already been reduced at least one time. If
+    /// `Err(Error::ReduceUnimplemented)` is returned, queries that ask for a
+    /// reduce operation will return an error. See [the user guide's chapter on
+    /// views for more information on how reduce
+    /// works](https://dev.bonsaidb.io/guide/about/concepts/view.html#reduce).
     #[allow(unused_variables)]
     fn reduce(
         &self,
