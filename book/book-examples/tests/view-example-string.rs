@@ -3,9 +3,9 @@ use bonsaidb::{
         connection::Connection,
         document::Document,
         schema::{
-            view::{self},
-            Collection, CollectionName, DefaultSerialization, DefaultViewSerialization,
-            InvalidNameError, MapResult, MappedValue, Name, View,
+            view::map::ViewMappedValue, Collection, CollectionName, DefaultSerialization,
+            DefaultViewSerialization, InvalidNameError, Name, ReduceResult, View, ViewMapResult,
+            ViewSchema,
         },
         Error,
     },
@@ -37,7 +37,7 @@ impl Collection for BlogPost {
 
 impl DefaultSerialization for BlogPost {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BlogPostsByCategory;
 
 // ANCHOR: view
@@ -46,25 +46,25 @@ impl View for BlogPostsByCategory {
     type Key = Option<String>;
     type Value = u32;
 
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("by-category")
+    }
+}
+
+impl ViewSchema for BlogPostsByCategory {
+    type View = Self;
+
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         let post = document.contents::<BlogPost>()?;
         Ok(document.emit_key_and_value(post.category, 1))
     }
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|mapping| mapping.value).sum())
-    }
-
-    fn version(&self) -> u64 {
-        1
-    }
-
-    fn name(&self) -> Result<Name, InvalidNameError> {
-        Name::new("by-category")
     }
 }
 // ANCHOR_END: view

@@ -8,9 +8,10 @@ use bonsaidb::{
         define_basic_unique_mapped_view,
         schema::{
             view::{self, map::Mappings},
-            Collection, CollectionDocument, CollectionName, CollectionView, DefaultSerialization,
-            DefaultViewSerialization, InsertError, InvalidNameError, MapResult, MappedValue, Name,
-            NamedCollection, Schema, SchemaName, Schematic, SerializedCollection,
+            Collection, CollectionDocument, CollectionName, CollectionViewSchema,
+            DefaultSerialization, DefaultViewSerialization, InsertError, InvalidNameError,
+            MappedValue, Name, NamedCollection, Schema, SchemaName, Schematic,
+            SerializedCollection, View, ViewMapResult,
         },
         transaction::{self, Transaction},
         Error,
@@ -430,26 +431,26 @@ define_basic_unique_mapped_view!(
     },
 );
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProductsByCategoryId;
 
-impl CollectionView for ProductsByCategoryId {
+impl View for ProductsByCategoryId {
     type Collection = Product;
     type Key = u32;
     type Value = u32;
 
-    fn version(&self) -> u64 {
-        1
-    }
-
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("by-category")
     }
+}
+
+impl CollectionViewSchema for ProductsByCategoryId {
+    type View = Self;
 
     fn map(
         &self,
-        document: CollectionDocument<Self::Collection>,
-    ) -> MapResult<Self::Key, Self::Value> {
+        document: CollectionDocument<<Self as View>::Collection>,
+    ) -> ViewMapResult<Self::View> {
         let mut mappings = Mappings::default();
         for &id in &document.contents.category_ids {
             mappings = mappings.and(document.emit_key_and_value(id, 1));
@@ -477,26 +478,26 @@ impl Collection for ProductReview {
 
 impl DefaultSerialization for ProductReview {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProductReviewsByProduct;
 
-impl CollectionView for ProductReviewsByProduct {
+impl View for ProductReviewsByProduct {
     type Collection = ProductReview;
     type Key = u32;
     type Value = ProductRatings;
 
-    fn version(&self) -> u64 {
-        0
-    }
-
     fn name(&self) -> Result<Name, InvalidNameError> {
         Name::new("by-product")
     }
+}
+
+impl CollectionViewSchema for ProductReviewsByProduct {
+    type View = Self;
 
     fn map(
         &self,
-        document: CollectionDocument<Self::Collection>,
-    ) -> MapResult<Self::Key, Self::Value> {
+        document: CollectionDocument<<Self as View>::Collection>,
+    ) -> ViewMapResult<Self::View> {
         Ok(document.emit_key_and_value(
             document.contents.product_id,
             ProductRatings {
@@ -508,9 +509,9 @@ impl CollectionView for ProductReviewsByProduct {
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[MappedValue<<Self as View>::Key, <Self as View>::Value>],
         _rereduce: bool,
-    ) -> Result<Self::Value, view::Error> {
+    ) -> Result<<Self as View>::Value, view::Error> {
         Ok(mappings
             .iter()
             .map(|mapping| mapping.value.clone())

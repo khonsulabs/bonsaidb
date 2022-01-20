@@ -7,7 +7,7 @@ use transmog_pot::Pot;
 use crate::{
     document::Document,
     schema::{
-        view::map::{MappedValue, Mappings},
+        view::map::{Mappings, ViewMappedValue},
         Collection, CollectionDocument, CollectionName, InvalidNameError, Name,
         SerializedCollection, ViewName,
     },
@@ -54,23 +54,45 @@ impl From<pot::Error> for Error {
     }
 }
 
-/// A type alias for the result of `View::map()`.
-pub type MapResult<K = (), V = ()> = Result<Mappings<K, V>, Error>;
+/// A type alias for the result of `ViewSchema::map()`.
+#[allow(type_alias_bounds)] // False positive, required for associated types
+pub type ViewMapResult<V: View> = Result<Mappings<V::Key, V::Value>, Error>;
 
-/// A map/reduce powered indexing and aggregation schema.
+/// A type alias for the result of `ViewSchema::reduce()`.
+#[allow(type_alias_bounds)] // False positive, required for associated types
+pub type ReduceResult<V: View> = Result<V::Value, Error>;
+
+/// A mechanism for accessing mapped and/or reduced data from a [`Collection`].
 ///
 /// See the [user guide for a walkthrough of how views
 /// work](https://dev.bonsaidb.io/guide/about/concepts/view.html).
-// TODO include some extra documentation inline?
 pub trait View: Send + Sync + Debug + 'static {
     /// The collection this view belongs to
     type Collection: Collection;
-
     /// The key for this view.
     type Key: Key + 'static;
-
     /// An associated type that can be stored with each entry in the view.
     type Value: Send + Sync;
+
+    /// The name of the view. Must be unique per collection.
+    fn name(&self) -> Result<Name, InvalidNameError>;
+
+    /// The namespaced name of the view.
+    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
+        Ok(ViewName {
+            collection: Self::Collection::collection_name()?,
+            name: self.name()?,
+        })
+    }
+}
+
+/// The implementation of Map/Reduce for a [`View`].
+///
+/// See the [user guide for a walkthrough of how views
+/// work](https://dev.bonsaidb.io/guide/about/concepts/view.html).
+pub trait ViewSchema: Send + Sync + Debug + 'static {
+    /// The view this schema is defined for.
+    type View: SerializedView;
 
     /// If true, no two documents may emit the same key. Unique views are
     /// updated when the document is saved, allowing for this check to be done
@@ -88,23 +110,12 @@ pub trait View: Send + Sync + Debug + 'static {
         0
     }
 
-    /// The name of the view. Must be unique per collection.
-    fn name(&self) -> Result<Name, InvalidNameError>;
-
-    /// The namespaced name of the view.
-    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
-        Ok(ViewName {
-            collection: Self::Collection::collection_name()?,
-            name: self.name()?,
-        })
-    }
-
     /// The map function for this view. This function is responsible for
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document. See [the user guide's chapter on
     /// views for more information on how map
     /// works](https://dev.bonsaidb.io/guide/about/concepts/view.html#map).
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value>;
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View>;
 
     /// Returns a value that is produced by reducing a list of `mappings` into a
     /// single value. If `rereduce` is true, the values contained in the
@@ -116,9 +127,9 @@ pub trait View: Send + Sync + Debug + 'static {
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         rereduce: bool,
-    ) -> Result<Self::Value, Error> {
+    ) -> Result<<Self::View as View>::Value, Error> {
         Err(Error::ReduceUnimplemented)
     }
 }
@@ -166,15 +177,12 @@ where
 /// A [`View`] for a [`Collection`] that stores Serde-compatible documents. The
 /// only difference between implmementing this and [`View`] is that the `map`
 /// function receives a [`CollectionDocument`] instead of a [`Document`].
-pub trait CollectionView: Send + Sync + Debug + 'static {
-    /// The collection this view belongs to
-    type Collection: SerializedCollection;
-
-    /// The key for this view.
-    type Key: Key + 'static;
-
-    /// An associated type that can be stored with each entry in the view.
-    type Value: Send + Sync;
+pub trait CollectionViewSchema: Send + Sync + Debug + 'static
+where
+    <Self::View as View>::Collection: SerializedCollection,
+{
+    /// The view this schema is an implementation of.
+    type View: SerializedView;
 
     /// If true, no two documents may emit the same key. Unique views are
     /// updated when the document is saved, allowing for this check to be done
@@ -188,17 +196,8 @@ pub trait CollectionView: Send + Sync + Debug + 'static {
     }
 
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
-    fn version(&self) -> u64;
-
-    /// The name of the view. Must be unique per collection.
-    fn name(&self) -> Result<Name, InvalidNameError>;
-
-    /// The namespaced name of the view.
-    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
-        Ok(ViewName {
-            collection: Self::Collection::collection_name()?,
-            name: self.name()?,
-        })
+    fn version(&self) -> u64 {
+        0
     }
 
     /// The map function for this view. This function is responsible for
@@ -206,8 +205,8 @@ pub trait CollectionView: Send + Sync + Debug + 'static {
     /// View. If None is returned, the View will not include the document.
     fn map(
         &self,
-        document: CollectionDocument<Self::Collection>,
-    ) -> MapResult<Self::Key, Self::Value>;
+        document: CollectionDocument<<Self::View as View>::Collection>,
+    ) -> ViewMapResult<Self::View>;
 
     /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -217,47 +216,39 @@ pub trait CollectionView: Send + Sync + Debug + 'static {
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         rereduce: bool,
-    ) -> Result<Self::Value, Error> {
+    ) -> Result<<Self::View as View>::Value, Error> {
         Err(Error::ReduceUnimplemented)
     }
 }
 
-impl<T> View for T
+impl<T> ViewSchema for T
 where
-    T: CollectionView,
+    T: CollectionViewSchema,
+    T::View: SerializedView,
+    <T::View as View>::Collection: SerializedCollection,
 {
-    type Collection = T::Collection;
-    type Key = T::Key;
-    type Value = T::Value;
+    type View = T::View;
 
     fn version(&self) -> u64 {
         T::version(self)
     }
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
-        T::name(self)
-    }
-
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         T::map(self, CollectionDocument::try_from(document)?)
     }
 
     fn reduce(
         &self,
-        mappings: &[MappedValue<Self::Key, Self::Value>],
+        mappings: &[ViewMappedValue<Self::View>],
         rereduce: bool,
-    ) -> Result<Self::Value, Error> {
+    ) -> Result<<Self::View as View>::Value, Error> {
         T::reduce(self, mappings, rereduce)
     }
 
     fn unique(&self) -> bool {
         T::unique(self)
-    }
-
-    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
-        T::view_name(self)
     }
 }
 
@@ -265,70 +256,16 @@ where
 pub trait Serialized: Send + Sync + Debug {
     /// Wraps returing [`<View::Collection as Collection>::collection_name()`](crate::schema::Collection::collection_name)
     fn collection(&self) -> Result<CollectionName, InvalidNameError>;
-    /// Wraps [`View::unique`]
+    /// Wraps [`ViewSchema::unique`]
     fn unique(&self) -> bool;
-    /// Wraps [`View::version`]
+    /// Wraps [`ViewSchema::version`]
     fn version(&self) -> u64;
     /// Wraps [`View::view_name`]
     fn view_name(&self) -> Result<ViewName, InvalidNameError>;
-    /// Wraps [`View::map`]
+    /// Wraps [`ViewSchema::map`]
     fn map(&self, document: &Document) -> Result<Vec<map::Serialized>, Error>;
-    /// Wraps [`View::reduce`]
+    /// Wraps [`ViewSchema::reduce`]
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error>;
-}
-
-#[allow(clippy::use_self)] // Using Self here instead of T inside of reduce() breaks compilation. The alternative is much more verbose and harder to read.
-impl<T> Serialized for T
-where
-    T: SerializedView,
-    <T as View>::Key: 'static,
-{
-    fn collection(&self) -> Result<CollectionName, InvalidNameError> {
-        <<Self as View>::Collection as Collection>::collection_name()
-    }
-
-    fn unique(&self) -> bool {
-        self.unique()
-    }
-
-    fn version(&self) -> u64 {
-        self.version()
-    }
-
-    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
-        self.view_name()
-    }
-
-    fn map(&self, document: &Document) -> Result<Vec<map::Serialized>, Error> {
-        let map = self.map(document)?;
-
-        map.into_iter()
-            .map(|map| map.serialized::<T>())
-            .collect::<Result<Vec<_>, Error>>()
-    }
-
-    fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error> {
-        let mappings = mappings
-            .iter()
-            .map(
-                |(key, value)| match <T::Key as Key>::from_big_endian_bytes(key) {
-                    Ok(key) => {
-                        let value = T::deserialize(value)?;
-                        Ok(MappedValue { key, value })
-                    }
-                    Err(err) => Err(Error::key_serialization(err)),
-                },
-            )
-            .collect::<Result<Vec<_>, Error>>()?;
-
-        let reduced_value = match self.reduce(&mappings, rereduce) {
-            Ok(value) => value,
-            Err(Error::ReduceUnimplemented) => return Ok(Vec::new()),
-            Err(other) => return Err(other),
-        };
-
-        T::serialize(&reduced_value).map_err(Error::from)
-    }
 }
 
 /// Defines an unique view named `$view_name` for `$collection` with the
@@ -395,13 +332,21 @@ macro_rules! define_basic_mapped_view {
 #[macro_export]
 macro_rules! define_mapped_view {
     ($view_name:ident, $collection:ty, $version:literal, $name:literal, $key:ty, $value:ty, $unique:literal, $mapping:expr) => {
-        #[derive(Debug)]
+        #[derive(Debug, Clone)]
         pub struct $view_name;
 
-        impl $crate::schema::CollectionView for $view_name {
+        impl $crate::schema::View for $view_name {
             type Collection = $collection;
             type Key = $key;
             type Value = $value;
+
+            fn name(&self) -> Result<$crate::schema::Name, $crate::schema::InvalidNameError> {
+                $crate::schema::Name::new($name)
+            }
+        }
+
+        impl $crate::schema::CollectionViewSchema for $view_name {
+            type View = Self;
 
             fn unique(&self) -> bool {
                 $unique
@@ -411,14 +356,10 @@ macro_rules! define_mapped_view {
                 $version
             }
 
-            fn name(&self) -> Result<$crate::schema::Name, $crate::schema::InvalidNameError> {
-                $crate::schema::Name::new($name)
-            }
-
             fn map(
                 &self,
-                document: $crate::schema::CollectionDocument<Self::Collection>,
-            ) -> $crate::schema::MapResult<Self::Key, Self::Value> {
+                document: $crate::schema::CollectionDocument<$collection>,
+            ) -> $crate::schema::ViewMapResult<Self::View> {
                 Ok($mapping(document))
             }
         }

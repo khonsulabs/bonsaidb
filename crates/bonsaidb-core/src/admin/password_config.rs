@@ -8,8 +8,9 @@ use crate::{
     document::Document,
     password_config,
     schema::{
-        view::DefaultViewSerialization, Collection, CollectionName, DefaultSerialization,
-        InvalidNameError, MapResult, Name, View,
+        view::{DefaultViewSerialization, ViewSchema},
+        Collection, CollectionName, DefaultSerialization, InvalidNameError, Name, View,
+        ViewMapResult,
     },
 };
 
@@ -77,13 +78,21 @@ impl Collection for PasswordConfig {
 
 impl DefaultSerialization for PasswordConfig {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Singleton;
 
 impl View for Singleton {
     type Collection = PasswordConfig;
     type Key = ();
     type Value = ();
+
+    fn name(&self) -> Result<Name, InvalidNameError> {
+        Name::new("singleton")
+    }
+}
+
+impl ViewSchema for Singleton {
+    type View = Self;
 
     fn unique(&self) -> bool {
         true
@@ -93,11 +102,7 @@ impl View for Singleton {
         1
     }
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
-        Name::new("singleton")
-    }
-
-    fn map(&self, document: &Document) -> MapResult<Self::Key, Self::Value> {
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         Ok(document.emit())
     }
 }

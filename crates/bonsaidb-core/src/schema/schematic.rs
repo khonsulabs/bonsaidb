@@ -5,11 +5,15 @@ use std::{
 };
 
 use crate::{
-    document::KeyId,
+    document::{Document, KeyId},
     schema::{
         collection::Collection,
-        view::{self, Serialized, SerializedView},
-        CollectionName, Schema, SchemaName, View, ViewName,
+        view::{
+            self,
+            map::{self, MappedValue},
+            Key, Serialized, SerializedView, ViewSchema,
+        },
+        CollectionName, InvalidNameError, Schema, SchemaName, View, ViewName,
     },
     Error,
 };
@@ -62,11 +66,27 @@ impl Schematic {
     }
 
     /// Adds the view `V`.
-    pub fn define_view<V: SerializedView + 'static>(&mut self, view: V) -> Result<(), Error> {
-        let name = view.view_name()?;
-        let collection = view.collection()?;
-        let unique = view.unique();
-        self.views.insert(TypeId::of::<V>(), Box::new(view));
+    pub fn define_view<V: ViewSchema<View = V> + SerializedView + Clone + 'static>(
+        &mut self,
+        view: V,
+    ) -> Result<(), Error> {
+        self.define_view_with_schema(view.clone(), view)
+    }
+
+    /// Adds the view `V`.
+    pub fn define_view_with_schema<
+        V: SerializedView + 'static,
+        S: ViewSchema<View = V> + 'static,
+    >(
+        &mut self,
+        view: V,
+        schema: S,
+    ) -> Result<(), Error> {
+        let instance = ViewInstance { view, schema };
+        let name = instance.view_name()?;
+        let collection = instance.collection()?;
+        let unique = instance.unique();
+        self.views.insert(TypeId::of::<V>(), Box::new(instance));
         // TODO check for name collision
         self.views_by_name.insert(name, TypeId::of::<V>());
         if unique {
@@ -157,6 +177,66 @@ impl Schematic {
     #[must_use]
     pub fn collections(&self) -> Vec<CollectionName> {
         self.contained_collections.iter().cloned().collect()
+    }
+}
+
+#[derive(Debug)]
+struct ViewInstance<V, S> {
+    view: V,
+    schema: S,
+}
+
+impl<V, S> Serialized for ViewInstance<V, S>
+where
+    V: SerializedView,
+    S: ViewSchema<View = V>,
+    <V as View>::Key: 'static,
+{
+    fn collection(&self) -> Result<CollectionName, InvalidNameError> {
+        <<V as View>::Collection as Collection>::collection_name()
+    }
+
+    fn unique(&self) -> bool {
+        self.schema.unique()
+    }
+
+    fn version(&self) -> u64 {
+        self.schema.version()
+    }
+
+    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
+        self.view.view_name()
+    }
+
+    fn map(&self, document: &Document) -> Result<Vec<map::Serialized>, view::Error> {
+        let map = self.schema.map(document)?;
+
+        map.into_iter()
+            .map(|map| map.serialized::<V>())
+            .collect::<Result<Vec<_>, view::Error>>()
+    }
+
+    fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, view::Error> {
+        let mappings = mappings
+            .iter()
+            .map(
+                |(key, value)| match <V::Key as Key>::from_big_endian_bytes(key) {
+                    Ok(key) => {
+                        let value = V::deserialize(value)?;
+                        Ok(MappedValue { key, value })
+                    }
+                    Err(err) => Err(view::Error::key_serialization(err)),
+                },
+            )
+            .collect::<Result<Vec<_>, view::Error>>()?;
+
+        let reduced_value = match self.schema.reduce(&mappings, rereduce) {
+            Ok(value) => value,
+            Err(view::Error::ReduceUnimplemented) => return Ok(Vec::new()),
+            Err(other) => return Err(other),
+        };
+
+        V::serialize(&reduced_value).map_err(view::Error::from)
     }
 }
 
