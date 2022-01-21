@@ -243,8 +243,8 @@ impl From<custodian_password::Error> for Error {
 #[cfg(feature = "multiuser")]
 pub fn password_config() -> Config {
     Config::new(
-        Ake::Ristretto255,
-        Group::Ristretto255,
+        Ake::P256,
+        Group::P256,
         Hash::Blake3,
         Mhf::Argon2(Argon2Params::default()),
     )
