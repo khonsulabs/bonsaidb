@@ -26,7 +26,7 @@
 
 - [Connection](./traits/connection.md)
 - [StorageConnection](./traits/storage_connection.md)
-- [PubSub/Subscriber](./traits/pubsub.md)
+- [PubSub](./traits/pubsub.md)
 - [KeyValue](./traits/key-value.md)
 
 # Administration

@@ -50,6 +50,15 @@ In this example, we're using the built-in [`Iterator::sum()`](https://doc.rust-l
 {{#include ../../../book-examples/tests/view-example-string.rs:reduce_one_key}}
 ```
 
+## Changing an exising view
+
+If you have data stored in a view, but want to update the view to store data
+differently, implement [`ViewSchema::version()`][viewschema-version] and return
+a unique number. When BonsaiDb checks the view's integrity, it will notice that
+there is a version mis-match and automatically re-index the view.
+
+There is no mechanism to access the data until this operation is complete.
+
 ### Understanding Re-reduce
 
 Let's examine this data set:
@@ -61,7 +70,8 @@ Let's examine this data set:
 | 3           | Some("Cooking")   |
 | 4           | None              |
 
-When updating views, each view entry is reduced and the value is cached. These are the view entries:
+When updating views, each view entry is reduced and the value is cached. These
+are the view entries:
 
 | View Entry ID   | Reduced Value |
 | --------------- | ------------- |
@@ -130,6 +140,7 @@ By implementing `Key` you can take full control of converting your view keys.
 [key]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.Key.html
 [view-trait]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.View.html
 [viewschema-trait]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.ViewSchema.html
+[viewschema-version]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.ViewSchema.html#method.version
 [serialized-collection]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.SerializedCollection.html
 [document]: https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html
 [collection-document]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/struct.CollectionDocument.html
