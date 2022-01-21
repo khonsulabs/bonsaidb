@@ -877,8 +877,8 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     assert_eq!(document_43.id, 43);
 
     // Test that inserting a document with the same ID results in a conflict:
-    let conflict_err = db.insert::<Basic>(Some(doc.id), doc.contents).await;
-    assert!(matches!(conflict_err, Err(Error::DocumentConflict(..))));
+    let conflict_err = Basic::new("43").insert_into(doc.id, db).await.unwrap_err();
+    assert!(matches!(conflict_err.error, Error::DocumentConflict(..)));
 
     Ok(())
 }

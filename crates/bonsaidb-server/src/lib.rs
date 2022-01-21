@@ -18,7 +18,6 @@
     clippy::module_name_repetitions,
 )]
 
-mod async_io_util;
 mod backend;
 /// Command-line interface for the server.
 #[cfg(feature = "cli")]

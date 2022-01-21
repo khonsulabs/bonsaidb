@@ -17,6 +17,8 @@ pub async fn initialize_basic_server(path: &Path) -> Result<Server, Error> {
             .with_schema::<BasicSchema>()?,
     )
     .await?;
+    assert_eq!(server.primary_domain(), BASIC_SERVER_NAME);
+
     server.install_self_signed_certificate(false).await?;
 
     server

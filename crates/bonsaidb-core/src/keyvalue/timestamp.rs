@@ -94,3 +94,12 @@ impl Key for Timestamp {
         })
     }
 }
+
+#[test]
+fn key_test() {
+    let original = Timestamp::now();
+    assert_eq!(
+        Timestamp::from_big_endian_bytes(&original.as_big_endian_bytes().unwrap()).unwrap(),
+        original
+    );
+}

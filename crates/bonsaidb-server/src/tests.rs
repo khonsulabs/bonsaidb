@@ -14,6 +14,27 @@ async fn simple_test() -> anyhow::Result<()> {
     test_util::store_retrieve_update_delete_tests(&db).await
 }
 
+#[tokio::test]
+async fn install_self_signed_certificate_tests() -> anyhow::Result<()> {
+    let test_dir = TestDirectory::new("cert-install-test");
+    let server = initialize_basic_server(test_dir.as_ref()).await?;
+    // initialize_basic_server already installs a cert, so this should fail.
+    assert!(server.install_self_signed_certificate(false).await.is_err());
+    let old_certificate = server
+        .certificate_chain()
+        .await
+        .unwrap()
+        .into_end_entity_certificate();
+    server.install_self_signed_certificate(true).await.unwrap();
+    let new_certificate = server
+        .certificate_chain()
+        .await
+        .unwrap()
+        .into_end_entity_certificate();
+    assert_ne!(new_certificate, old_certificate);
+    Ok(())
+}
+
 struct TestHarness {
     _directory: TestDirectory,
     server: Server,
