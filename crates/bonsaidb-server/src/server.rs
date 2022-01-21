@@ -1796,6 +1796,10 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateSubscriberHandler
         let server = self.server_dispatcher.server;
         let subscriber = server.create_subscriber(self.name.clone()).await;
         let subscriber_id = subscriber.id;
+        self.server_dispatcher
+            .client
+            .register_subscriber(subscriber_id)
+            .await;
 
         let task_self = server.clone();
         let response_sender = self.server_dispatcher.response_sender.clone();
@@ -1902,12 +1906,21 @@ impl<'s, B: Backend> bonsaidb_core::networking::SubscribeToHandler for DatabaseD
         subscriber_id: u64,
         topic: String,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.server_dispatcher
-            .server
-            .subscribe_to(subscriber_id, &self.name, topic)
+        if self
+            .server_dispatcher
+            .client
+            .owns_subscriber(subscriber_id)
             .await
-            .map(|_| Response::Ok)
-            .map_err(Error::from)
+        {
+            self.server_dispatcher
+                .server
+                .subscribe_to(subscriber_id, &self.name, topic)
+                .await
+                .map(|_| Response::Ok)
+                .map_err(Error::from)
+        } else {
+            Err(Error::Transport(String::from("invalid subscriber_id")))
+        }
     }
 }
 
@@ -1935,12 +1948,21 @@ impl<'s, B: Backend> bonsaidb_core::networking::UnsubscribeFromHandler
         subscriber_id: u64,
         topic: String,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.server_dispatcher
-            .server
-            .unsubscribe_from(subscriber_id, &self.name, &topic)
+        if self
+            .server_dispatcher
+            .client
+            .owns_subscriber(subscriber_id)
             .await
-            .map(|_| Response::Ok)
-            .map_err(Error::from)
+        {
+            self.server_dispatcher
+                .server
+                .unsubscribe_from(subscriber_id, &self.name, &topic)
+                .await
+                .map(|_| Response::Ok)
+                .map_err(Error::from)
+        } else {
+            Err(Error::Transport(String::from("invalid subscriber_id")))
+        }
     }
 }
 
@@ -1953,13 +1975,22 @@ impl<'s, B: Backend> bonsaidb_core::networking::UnregisterSubscriberHandler
         _permissions: &Permissions,
         subscriber_id: u64,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let mut subscribers = fast_async_write!(self.server_dispatcher.subscribers);
-        if subscribers.remove(&subscriber_id).is_none() {
-            Ok(Response::Error(bonsaidb_core::Error::Server(String::from(
-                "invalid subscriber id",
-            ))))
+        if self
+            .server_dispatcher
+            .client
+            .remove_subscriber(subscriber_id)
+            .await
+        {
+            let mut subscribers = fast_async_write!(self.server_dispatcher.subscribers);
+            if subscribers.remove(&subscriber_id).is_none() {
+                Ok(Response::Error(bonsaidb_core::Error::Server(String::from(
+                    "invalid subscriber id",
+                ))))
+            } else {
+                Ok(Response::Ok)
+            }
         } else {
-            Ok(Response::Ok)
+            Err(Error::Transport(String::from("invalid subscriber_id")))
         }
     }
 }

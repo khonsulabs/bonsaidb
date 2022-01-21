@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::SocketAddr,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -42,6 +43,7 @@ struct Data<B: Backend = NoBackend> {
     auth_state: RwLock<AuthenticationState>,
     pending_password_login: Mutex<Option<(Option<u64>, ServerLogin)>>,
     client_data: Mutex<Option<B::ClientData>>,
+    subscriber_ids: Mutex<HashSet<u64>>,
 }
 
 #[derive(Debug, Default)]
@@ -111,6 +113,21 @@ impl<B: Backend> ConnectedClient<B> {
         pending_password_login.take()
     }
 
+    pub(crate) async fn owns_subscriber(&self, subscriber_id: u64) -> bool {
+        let subscriber_ids = fast_async_lock!(self.data.subscriber_ids);
+        subscriber_ids.contains(&subscriber_id)
+    }
+
+    pub(crate) async fn register_subscriber(&self, subscriber_id: u64) {
+        let mut subscriber_ids = fast_async_lock!(self.data.subscriber_ids);
+        subscriber_ids.insert(subscriber_id);
+    }
+
+    pub(crate) async fn remove_subscriber(&self, subscriber_id: u64) -> bool {
+        let mut subscriber_ids = fast_async_lock!(self.data.subscriber_ids);
+        subscriber_ids.remove(&subscriber_id)
+    }
+
     /// Sends a custom API response to the client.
     pub fn send(
         &self,
@@ -176,6 +193,7 @@ impl<B: Backend> OwnedClient<B> {
                     }),
                     pending_password_login: Mutex::default(),
                     client_data: Mutex::default(),
+                    subscriber_ids: Mutex::default(),
                 }),
             },
             runtime: tokio::runtime::Handle::current(),
