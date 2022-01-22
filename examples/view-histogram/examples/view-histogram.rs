@@ -20,8 +20,8 @@ use bonsaidb::{
         connection::{AccessPolicy, Connection},
         schema::{
             view::CollectionViewSchema, Collection, CollectionDocument, CollectionName,
-            DefaultSerialization, InvalidNameError, Name, ReduceResult, Schematic, SerializedView,
-            View, ViewMappedValue,
+            DefaultSerialization, Name, ReduceResult, Schematic, SerializedView, View,
+            ViewMappedValue,
         },
         transmog::{Format, OwnedDeserializer},
     },
@@ -103,7 +103,7 @@ pub struct Samples {
 }
 
 impl Collection for Samples {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("histogram-example", "samples")
     }
 
@@ -123,7 +123,7 @@ impl View for AsHistogram {
     type Key = u64;
     type Value = SyncHistogram<u64>;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("as-histogram")
     }
 }

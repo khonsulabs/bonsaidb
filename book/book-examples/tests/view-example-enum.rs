@@ -4,8 +4,8 @@ use bonsaidb::{
         document::Document,
         schema::{
             view::{map::ViewMappedValue, EnumKey},
-            Collection, CollectionName, DefaultSerialization, DefaultViewSerialization,
-            InvalidNameError, Name, ReduceResult, View, ViewMapResult, ViewSchema,
+            Collection, CollectionName, DefaultSerialization, DefaultViewSerialization, Name,
+            ReduceResult, View, ViewMapResult, ViewSchema,
         },
         Error,
     },
@@ -38,7 +38,7 @@ pub struct BlogPost {
 // ANCHOR_END: struct
 
 impl Collection for BlogPost {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("view-example", "blog-post")
     }
 
@@ -58,7 +58,7 @@ impl View for BlogPostsByCategory {
     type Key = Option<Category>;
     type Value = u32;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("by-category")
     }
 }

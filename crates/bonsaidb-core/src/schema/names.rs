@@ -1,80 +1,148 @@
 use std::{
     borrow::Cow,
-    convert::{TryFrom, TryInto},
     fmt::{Debug, Display, Write},
     sync::Arc,
 };
 
 use serde::{Deserialize, Serialize};
 
-/// A valid schema name. Must be alphanumeric (`a-zA-Z9-0`) or a hyphen (`-`).
-/// Cloning this structure shares the underlying string data, regardless of
-/// whether it's a static string literal or an owned String.
+/// A schema name. Cloning is inexpensive.
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
 #[serde(try_from = "String")]
 #[serde(into = "String")]
-pub struct Name(Arc<Cow<'static, str>>);
+pub struct Name {
+    name: Arc<Cow<'static, str>>,
+    needs_escaping: bool,
+}
 
-/// An invalid name was used in a schema definition.
+/// A name was unable to e parsed.
 #[derive(thiserror::Error, Debug, Serialize, Deserialize, Clone)]
 #[error("invalid name: {0}")]
 pub struct InvalidNameError(pub String);
 
 impl Name {
-    /// Creates a new name after validating it.
-    ///
-    /// # Errors
-    /// Returns [`InvalidNameError`] if the value passed contains any characters
-    /// other than `a-zA-Z9-0` or a hyphen (`-`).
-    pub fn new<T: TryInto<Self, Error = InvalidNameError>>(
-        contents: T,
-    ) -> Result<Self, InvalidNameError> {
-        contents.try_into()
+    /// Creates a new name.
+    pub fn new<T: Into<Self>>(contents: T) -> Self {
+        contents.into()
     }
 
-    fn validate_name(name: &str) -> Result<(), InvalidNameError> {
-        if name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-            Ok(())
-        } else {
-            Err(InvalidNameError(name.to_string()))
+    /// Parses a name that was previously encoded via [`Self::encoded()`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidNameError`] if the name contains invalid escape
+    /// sequences.
+    pub fn parse_encoded(encoded: &str) -> Result<Self, InvalidNameError> {
+        let mut bytes = encoded.bytes();
+        let mut decoded = Vec::with_capacity(encoded.len());
+        while let Some(byte) = bytes.next() {
+            if byte == b'_' {
+                if let (Some(high), Some(low)) = (bytes.next(), bytes.next()) {
+                    if let Some(byte) = hex_chars_to_byte(high, low) {
+                        decoded.push(byte);
+                        continue;
+                    }
+                }
+                return Err(InvalidNameError(encoded.to_string()));
+            }
+
+            decoded.push(byte);
+        }
+
+        String::from_utf8(decoded)
+            .map(Self::from)
+            .map_err(|_| InvalidNameError(encoded.to_string()))
+    }
+
+    /// Returns an encoded version of this name that contains only alphanumeric
+    /// ASCII, underscore, and hyphen.
+    #[must_use]
+    pub fn encoded(&self) -> String {
+        format!("{:#}", self)
+    }
+}
+
+impl From<Cow<'static, str>> for Name {
+    fn from(value: Cow<'static, str>) -> Self {
+        let needs_escaping = !value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-');
+        Self {
+            name: Arc::new(value),
+            needs_escaping,
         }
     }
 }
 
-impl TryFrom<&'static str> for Name {
-    type Error = InvalidNameError;
-
-    fn try_from(value: &'static str) -> Result<Self, InvalidNameError> {
-        Self::validate_name(value)?;
-        Ok(Self(Arc::new(Cow::Borrowed(value))))
+impl From<&'static str> for Name {
+    fn from(value: &'static str) -> Self {
+        Self::from(Cow::Borrowed(value))
     }
 }
 
-impl TryFrom<String> for Name {
-    type Error = InvalidNameError;
-
-    fn try_from(value: String) -> Result<Self, InvalidNameError> {
-        Self::validate_name(&value)?;
-        Ok(Self(Arc::new(Cow::Owned(value))))
+impl From<String> for Name {
+    fn from(value: String) -> Self {
+        Self::from(Cow::Owned(value))
     }
 }
 
 #[allow(clippy::from_over_into)] // the auto into impl doesn't work with serde(into)
 impl Into<String> for Name {
     fn into(self) -> String {
-        self.0.to_string()
+        self.name.to_string()
     }
 }
 
 impl Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, f)
+        if f.alternate() && self.needs_escaping {
+            for byte in self.name.bytes() {
+                if byte.is_ascii_alphanumeric() || byte == b'-' {
+                    f.write_char(byte as char)?;
+                } else {
+                    // Encode the byte as _FF
+                    f.write_char('_')?;
+                    f.write_char(nibble_to_hex_char(byte >> 4))?;
+                    f.write_char(nibble_to_hex_char(byte & 0xF))?;
+                }
+            }
+            Ok(())
+        } else {
+            Display::fmt(&self.name, f)
+        }
     }
+}
+
+const fn nibble_to_hex_char(nibble: u8) -> char {
+    let ch = match nibble {
+        0..=9 => b'0' + nibble,
+        _ => b'a' + nibble - 10,
+    };
+    ch as char
+}
+
+const fn hex_chars_to_byte(high_nibble: u8, low_nibble: u8) -> Option<u8> {
+    match (
+        hex_char_to_nibble(high_nibble),
+        hex_char_to_nibble(low_nibble),
+    ) {
+        (Some(high_nibble), Some(low_nibble)) => Some(high_nibble << 4 | low_nibble),
+        _ => None,
+    }
+}
+
+const fn hex_char_to_nibble(nibble: u8) -> Option<u8> {
+    let ch = match nibble {
+        b'0'..=b'9' => nibble - b'0',
+        b'a'..=b'f' => nibble - b'a' + 10,
+        _ => return None,
+    };
+    Some(ch)
 }
 
 impl AsRef<str> for Name {
     fn as_ref(&self) -> &str {
-        self.0.as_ref()
+        self.name.as_ref()
     }
 }
 
@@ -86,19 +154,27 @@ impl AsRef<str> for Name {
 #[serde(transparent)]
 pub struct Authority(Name);
 
-impl TryFrom<&'static str> for Authority {
-    type Error = InvalidNameError;
-
-    fn try_from(value: &'static str) -> Result<Self, InvalidNameError> {
-        Ok(Self(Name::new(value)?))
+impl From<Cow<'static, str>> for Authority {
+    fn from(value: Cow<'static, str>) -> Self {
+        Self::from(Name::from(value))
     }
 }
 
-impl TryFrom<String> for Authority {
-    type Error = InvalidNameError;
+impl From<&'static str> for Authority {
+    fn from(value: &'static str) -> Self {
+        Self::from(Cow::Borrowed(value))
+    }
+}
 
-    fn try_from(value: String) -> Result<Self, InvalidNameError> {
-        Ok(Self(Name::new(value)?))
+impl From<String> for Authority {
+    fn from(value: String) -> Self {
+        Self::from(Cow::Owned(value))
+    }
+}
+
+impl From<Name> for Authority {
+    fn from(value: Name) -> Self {
+        Self(value)
     }
 }
 
@@ -120,16 +196,36 @@ pub struct SchemaName {
 
 impl SchemaName {
     /// Creates a new schema name.
-    pub fn new<
-        A: TryInto<Authority, Error = InvalidNameError>,
-        N: TryInto<Name, Error = InvalidNameError>,
-    >(
-        authority: A,
-        name: N,
-    ) -> Result<Self, InvalidNameError> {
-        let authority = authority.try_into()?;
-        let name = name.try_into()?;
-        Ok(Self { authority, name })
+    pub fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
+        let authority = authority.into();
+        let name = name.into();
+        Self { authority, name }
+    }
+
+    /// Parses a schema name that was previously encoded via
+    /// [`Self::encoded()`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidNameError`] if the name contains invalid escape
+    /// sequences or contains more than two periods.
+    pub fn parse_encoded(schema_name: &str) -> Result<Self, InvalidNameError> {
+        let mut parts = schema_name.split('.');
+        if let (Some(authority), Some(name), None) = (parts.next(), parts.next(), parts.next()) {
+            let authority = Name::parse_encoded(authority)?;
+            let name = Name::parse_encoded(name)?;
+
+            Ok(Self::new(authority, name))
+        } else {
+            Err(InvalidNameError(schema_name.to_string()))
+        }
+    }
+
+    /// Encodes this schema name such that the authority and name can be
+    /// safely parsed using [`Self::parse_encoded`].
+    #[must_use]
+    pub fn encoded(&self) -> String {
+        format!("{:#}", self)
     }
 }
 
@@ -138,23 +234,6 @@ impl Display for SchemaName {
         Display::fmt(&self.authority, f)?;
         f.write_char('.')?;
         Display::fmt(&self.name, f)
-    }
-}
-
-impl TryFrom<&str> for SchemaName {
-    type Error = InvalidNameError;
-
-    fn try_from(schema_name: &str) -> Result<Self, InvalidNameError> {
-        let parts = schema_name.split('.').collect::<Vec<&str>>();
-        if parts.len() == 2 {
-            let mut parts = parts.into_iter();
-            let authority = parts.next().unwrap();
-            let name = parts.next().unwrap();
-
-            Self::new(authority.to_string(), name.to_string())
-        } else {
-            Err(InvalidNameError(schema_name.to_string()))
-        }
     }
 }
 
@@ -170,16 +249,36 @@ pub struct CollectionName {
 
 impl CollectionName {
     /// Creates a new collection name.
-    pub fn new<
-        A: TryInto<Authority, Error = InvalidNameError>,
-        N: TryInto<Name, Error = InvalidNameError>,
-    >(
-        authority: A,
-        name: N,
-    ) -> Result<Self, InvalidNameError> {
-        let authority = authority.try_into()?;
-        let name = name.try_into()?;
-        Ok(Self { authority, name })
+    pub fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
+        let authority = authority.into();
+        let name = name.into();
+        Self { authority, name }
+    }
+
+    /// Parses a colleciton name that was previously encoded via
+    /// [`Self::encoded()`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidNameError`] if the name contains invalid escape
+    /// sequences or contains more than two periods.
+    pub fn parse_encoded(collection_name: &str) -> Result<Self, InvalidNameError> {
+        let mut parts = collection_name.split('.');
+        if let (Some(authority), Some(name), None) = (parts.next(), parts.next(), parts.next()) {
+            let authority = Name::parse_encoded(authority)?;
+            let name = Name::parse_encoded(name)?;
+
+            Ok(Self::new(authority, name))
+        } else {
+            Err(InvalidNameError(collection_name.to_string()))
+        }
+    }
+
+    /// Encodes this collection name such that the authority and name can be
+    /// safely parsed using [`Self::parse_encoded`].
+    #[must_use]
+    pub fn encoded(&self) -> String {
+        format!("{:#}", self)
     }
 }
 
@@ -188,23 +287,6 @@ impl Display for CollectionName {
         Display::fmt(&self.authority, f)?;
         f.write_char('.')?;
         Display::fmt(&self.name, f)
-    }
-}
-
-impl TryFrom<&str> for CollectionName {
-    type Error = InvalidNameError;
-
-    fn try_from(collection_name: &str) -> Result<Self, InvalidNameError> {
-        let parts = collection_name.split('.').collect::<Vec<&str>>();
-        if parts.len() == 2 {
-            let mut parts = parts.into_iter();
-            let authority = parts.next().unwrap();
-            let name = parts.next().unwrap();
-
-            Self::new(authority.to_string(), name.to_string())
-        } else {
-            Err(InvalidNameError(collection_name.to_string()))
-        }
     }
 }
 
@@ -241,7 +323,32 @@ impl Display for ViewName {
 }
 
 #[test]
-fn name_validation_tests() {
-    assert!(Name::new("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-").is_ok());
-    assert!(matches!(Name::new("."), Err(InvalidNameError(_))));
+fn name_escaping_tests() {
+    const VALID_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
+    const INVALID_CHARS: &str = "._hello\u{1F680}";
+    const ESCAPED_INVALID: &str = "_2e_5fhello_f0_9f_9a_80";
+    assert_eq!(Name::new(VALID_CHARS).to_string(), VALID_CHARS);
+    assert_eq!(Name::new(INVALID_CHARS).to_string(), INVALID_CHARS);
+    assert_eq!(Name::new(INVALID_CHARS).encoded(), ESCAPED_INVALID);
+    assert_eq!(
+        Name::parse_encoded(ESCAPED_INVALID).unwrap(),
+        Name::new(INVALID_CHARS)
+    );
+    Name::parse_encoded("_").unwrap_err();
+    Name::parse_encoded("_0").unwrap_err();
+    Name::parse_encoded("_z").unwrap_err();
+    Name::parse_encoded("_0z").unwrap_err();
+}
+
+#[test]
+fn joined_names_tests() {
+    const INVALID_CHARS: &str = "._hello\u{1F680}.._world\u{1F680}";
+    const ESCAPED_INVALID: &str = "_2e_5fhello_f0_9f_9a_80._2e_5fworld_f0_9f_9a_80";
+    let collection = CollectionName::parse_encoded(ESCAPED_INVALID).unwrap();
+    assert_eq!(collection.to_string(), INVALID_CHARS);
+    assert_eq!(collection.encoded(), ESCAPED_INVALID);
+
+    let schema_name = SchemaName::parse_encoded(ESCAPED_INVALID).unwrap();
+    assert_eq!(schema_name.to_string(), INVALID_CHARS);
+    assert_eq!(schema_name.encoded(), ESCAPED_INVALID);
 }

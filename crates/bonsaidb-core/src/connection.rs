@@ -42,7 +42,7 @@ pub trait Connection: Send + Sync {
         contents: Vec<u8>,
     ) -> Result<Header, Error> {
         let results = self
-            .apply_transaction(Transaction::insert(C::collection_name()?, id, contents))
+            .apply_transaction(Transaction::insert(C::collection_name(), id, contents))
             .await?;
         if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
             Ok(header.clone())
@@ -59,7 +59,7 @@ pub trait Connection: Send + Sync {
     async fn update<C: schema::Collection>(&self, doc: &mut Document) -> Result<(), Error> {
         let results = self
             .apply_transaction(Transaction::update(
-                C::collection_name()?,
+                C::collection_name(),
                 doc.header.clone(),
                 doc.contents.clone(),
             ))
@@ -98,7 +98,7 @@ pub trait Connection: Send + Sync {
     async fn delete<C: schema::Collection>(&self, doc: &Document) -> Result<(), Error> {
         let results = self
             .apply_transaction(Transaction::delete(
-                C::collection_name()?,
+                C::collection_name(),
                 doc.header.clone(),
             ))
             .await?;
@@ -779,7 +779,7 @@ pub trait StorageConnection: Send + Sync {
         name: &str,
         only_if_needed: bool,
     ) -> Result<(), crate::Error> {
-        self.create_database_with_schema(name, DB::schema_name()?, only_if_needed)
+        self.create_database_with_schema(name, DB::schema_name(), only_if_needed)
             .await
     }
 

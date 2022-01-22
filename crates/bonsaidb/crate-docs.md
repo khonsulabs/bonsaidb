@@ -17,7 +17,7 @@ struct Shape {
 }
 
 impl Collection for Shape {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "shapes")
     }
 
@@ -36,7 +36,7 @@ impl View for ShapesByNumberOfSides {
     type Key = u32;
     type Value = usize;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("by-number-of-sides")
     }
 }

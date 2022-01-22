@@ -3,8 +3,7 @@ use std::time::SystemTime;
 use bonsaidb::{
     core::{
         schema::{
-            Collection, CollectionName, DefaultSerialization, InvalidNameError, Schematic,
-            SerializedCollection,
+            Collection, CollectionName, DefaultSerialization, Schematic, SerializedCollection,
         },
         Error,
     },
@@ -22,7 +21,7 @@ struct Message {
 }
 
 impl Collection for Message {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "messages")
     }
 

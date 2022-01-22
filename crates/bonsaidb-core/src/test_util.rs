@@ -24,9 +24,8 @@ use crate::{
             map::{Mappings, ViewMappedValue},
             DefaultViewSerialization, ReduceResult, ViewSchema,
         },
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
-        MappedValue, Name, NamedCollection, Schema, SchemaName, Schematic, SerializedCollection,
-        View, ViewMapResult,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, MappedValue, Name,
+        NamedCollection, Schema, SchemaName, Schematic, SerializedCollection, View, ViewMapResult,
     },
     Error, ENCRYPTION_ENABLED,
 };
@@ -67,8 +66,10 @@ impl Basic {
 }
 
 impl Collection for Basic {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
-        CollectionName::new("khonsulabs", "basic")
+    fn collection_name() -> CollectionName {
+        // This collection purposely uses names with characters that need
+        // escaping, since it's used in backup/restore.
+        CollectionName::new("khonsulabs_", "_basic")
     }
 
     fn define_views(schema: &mut Schematic) -> Result<(), Error> {
@@ -89,7 +90,7 @@ impl View for BasicCount {
     type Key = ();
     type Value = usize;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("count")
     }
 }
@@ -120,7 +121,7 @@ impl View for BasicByParentId {
     type Key = Option<u64>;
     type Value = usize;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("by-parent-id")
     }
 }
@@ -155,7 +156,7 @@ impl View for BasicByCategory {
     type Key = String;
     type Value = usize;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("by-category")
     }
 }
@@ -191,7 +192,7 @@ impl View for BasicByTag {
     type Key = String;
     type Value = usize;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("by-tag")
     }
 }
@@ -228,7 +229,7 @@ impl View for BasicByBrokenParentId {
     type Key = ();
     type Value = ();
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("by-parent-id")
     }
 }
@@ -280,7 +281,7 @@ impl Collection for EncryptedBasic {
         }
     }
 
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "encrypted-basic")
     }
 
@@ -301,7 +302,7 @@ impl View for EncryptedBasicCount {
     type Key = ();
     type Value = usize;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("count")
     }
 }
@@ -332,7 +333,7 @@ impl View for EncryptedBasicByParentId {
     type Key = Option<u64>;
     type Value = usize;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("by-parent-id")
     }
 }
@@ -364,7 +365,7 @@ impl View for EncryptedBasicByCategory {
     type Key = String;
     type Value = usize;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("by-category")
     }
 }
@@ -396,7 +397,7 @@ impl DefaultViewSerialization for EncryptedBasicByCategory {}
 pub struct BasicSchema;
 
 impl Schema for BasicSchema {
-    fn schema_name() -> Result<SchemaName, InvalidNameError> {
+    fn schema_name() -> SchemaName {
         SchemaName::new("khonsulabs", "basic")
     }
 
@@ -421,7 +422,7 @@ impl Unique {
 }
 
 impl Collection for Unique {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "unique")
     }
 
@@ -440,7 +441,7 @@ impl View for UniqueValue {
     type Key = String;
     type Value = ();
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("unique-value")
     }
 }
@@ -504,7 +505,7 @@ impl Deref for TestDirectory {
 pub struct BasicCollectionWithNoViews;
 
 impl Collection for BasicCollectionWithNoViews {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         Basic::collection_name()
     }
 
@@ -526,7 +527,7 @@ impl SerializedCollection for BasicCollectionWithNoViews {
 pub struct BasicCollectionWithOnlyBrokenParentId;
 
 impl Collection for BasicCollectionWithOnlyBrokenParentId {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         Basic::collection_name()
     }
 
@@ -539,7 +540,7 @@ impl Collection for BasicCollectionWithOnlyBrokenParentId {
 pub struct UnassociatedCollection;
 
 impl Collection for UnassociatedCollection {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "unassociated")
     }
 
@@ -839,7 +840,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
             .documents()
             .expect("incorrect transaction type");
         assert_eq!(changed_documents.len(), 1);
-        assert_eq!(changed_documents[0].collection, Basic::collection_name()?);
+        assert_eq!(changed_documents[0].collection, Basic::collection_name());
         assert_eq!(changed_documents[0].id, header.id);
         assert!(!changed_documents[0].deleted);
     }
@@ -856,7 +857,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .documents()
         .expect("incorrect transaction type");
     assert_eq!(changed_documents.len(), 1);
-    assert_eq!(changed_documents[0].collection, Basic::collection_name()?);
+    assert_eq!(changed_documents[0].collection, Basic::collection_name());
     assert_eq!(changed_documents[0].id, header.id);
     assert!(changed_documents[0].deleted);
 
@@ -914,7 +915,7 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         .expect_err("conflict should have generated an error")
     {
         Error::DocumentConflict(collection, id) => {
-            assert_eq!(collection, Basic::collection_name()?);
+            assert_eq!(collection, Basic::collection_name());
             assert_eq!(id, doc.header.id);
         }
         other => return Err(anyhow::Error::from(other)),
@@ -937,7 +938,7 @@ pub async fn bad_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let mut doc = Document::with_contents(1, &Basic::default())?;
     match db.update::<Basic>(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
-            assert_eq!(collection, Basic::collection_name()?);
+            assert_eq!(collection, Basic::collection_name());
             assert_eq!(id, 1);
             Ok(())
         }
@@ -1447,7 +1448,7 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         conflicting_document,
     }) = db.collection::<Unique>().push(&Unique::new("1")).await
     {
-        assert_eq!(view, UniqueValue.view_name()?);
+        assert_eq!(view, UniqueValue.view_name());
         assert_eq!(existing_document.id, first_doc.id);
         // We can't predict the conflicting document id since it's generated
         // inside of the transaction, but we can assert that it's different than
@@ -1468,7 +1469,7 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         conflicting_document,
     }) = db.update::<Unique>(&mut second_doc).await
     {
-        assert_eq!(view, UniqueValue.view_name()?);
+        assert_eq!(view, UniqueValue.view_name());
         assert_eq!(existing_document.id, first_doc.id);
         assert_eq!(conflicting_document.id, second_doc.header.id);
     } else {
@@ -2106,13 +2107,15 @@ pub async fn basic_server_connection_tests<C: StorageConnection>(
 ) -> anyhow::Result<()> {
     let mut schemas = server.list_available_schemas().await?;
     schemas.sort();
-    assert!(schemas.contains(&Basic::schema_name()?));
-    assert!(schemas.contains(&SchemaName::new("khonsulabs", "bonsaidb-admin")?));
+    assert!(schemas.contains(&BasicSchema::schema_name()));
+    assert!(schemas.contains(&SchemaName::new("khonsulabs", "bonsaidb-admin")));
 
     let databases = server.list_databases().await?;
     assert!(databases.iter().any(|db| db.name == "tests"));
 
-    server.create_database::<Basic>(newdb_name, false).await?;
+    server
+        .create_database::<BasicSchema>(newdb_name, false)
+        .await?;
     server.delete_database(newdb_name).await?;
 
     assert!(matches!(
@@ -2121,17 +2124,19 @@ pub async fn basic_server_connection_tests<C: StorageConnection>(
     ));
 
     assert!(matches!(
-        server.create_database::<Basic>("tests", false).await,
+        server.create_database::<BasicSchema>("tests", false).await,
         Err(Error::DatabaseNameAlreadyTaken(_))
     ));
 
     assert!(matches!(
-        server.create_database::<Basic>("tests", true).await,
+        server.create_database::<BasicSchema>("tests", true).await,
         Ok(_)
     ));
 
     assert!(matches!(
-        server.create_database::<Basic>("|invalidname", false).await,
+        server
+            .create_database::<BasicSchema>("|invalidname", false)
+            .await,
         Err(Error::InvalidDatabaseName(_))
     ));
 

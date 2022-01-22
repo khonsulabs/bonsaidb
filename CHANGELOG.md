@@ -163,6 +163,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `reduce()`, `version()`, and `unique()` have moved. If you're using a
   `CollectionView`, the implementation should now be a combination of `View` and
   `CollectionViewSchema`.
+- `CollectionName`, `SchemaName`, and `Name` all no longer generate errors if
+  using invalid characters. When BonsaiDb needs to use these names in a context
+  that must be able to be parsed, the names are encoded automatically into a
+  safe format. This change also means that `View::view_name()`,
+  `Collection::collection_name()`, and `Schema::schema_name()` have been updated
+  to not return error types.
 
 ### Fixed
 

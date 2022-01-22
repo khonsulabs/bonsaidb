@@ -9,8 +9,8 @@ use crate::{
     document::KeyId,
     permissions::Permissions,
     schema::{
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
-        NamedCollection, Schematic,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, NamedCollection,
+        Schematic,
     },
     Error, ENCRYPTION_ENABLED,
 };
@@ -103,7 +103,7 @@ impl Collection for User {
         }
     }
 
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "user")
     }
 

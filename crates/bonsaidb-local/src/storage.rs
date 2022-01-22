@@ -271,7 +271,7 @@ impl Storage {
         let mut schemas = fast_async_write!(self.data.schemas);
         if schemas
             .insert(
-                DB::schema_name()?,
+                DB::schema_name(),
                 Box::new(StorageSchemaOpener::<DB>::new()?),
             )
             .is_none()
@@ -279,7 +279,7 @@ impl Storage {
             Ok(())
         } else {
             Err(Error::Core(bonsaidb_core::Error::SchemaAlreadyRegistered(
-                DB::schema_name()?,
+                DB::schema_name(),
             )))
         }
     }
@@ -537,12 +537,12 @@ impl StorageConnection for Storage {
         name: &str,
     ) -> Result<Self::Database, bonsaidb_core::Error> {
         let db = self.database_without_schema(name).await?;
-        if db.data.schema.name == DB::schema_name()? {
+        if db.data.schema.name == DB::schema_name() {
             Ok(db)
         } else {
             Err(bonsaidb_core::Error::SchemaMismatch {
                 database_name: name.to_owned(),
-                schema: DB::schema_name()?,
+                schema: DB::schema_name(),
                 stored_schema: db.data.schema.name.clone(),
             })
         }

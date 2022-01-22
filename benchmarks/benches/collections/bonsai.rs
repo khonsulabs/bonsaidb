@@ -1,7 +1,7 @@
 use bonsaidb::{
     core::{
         connection::Connection,
-        schema::{Collection, CollectionName, DefaultSerialization, InvalidNameError, Schematic},
+        schema::{Collection, CollectionName, DefaultSerialization, Schematic},
         test_util::TestDirectory,
         Error,
     },
@@ -16,7 +16,7 @@ use ubyte::ToByteUnit;
 use crate::collections::ResizableDocument;
 
 impl Collection for ResizableDocument {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "resizable-docs")
     }
 

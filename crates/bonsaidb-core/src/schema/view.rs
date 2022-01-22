@@ -8,8 +8,7 @@ use crate::{
     document::Document,
     schema::{
         view::map::{Mappings, ViewMappedValue},
-        Collection, CollectionDocument, CollectionName, InvalidNameError, Name,
-        SerializedCollection, ViewName,
+        Collection, CollectionDocument, CollectionName, Name, SerializedCollection, ViewName,
     },
     AnyError,
 };
@@ -67,14 +66,14 @@ pub trait View: Send + Sync + Debug + 'static {
     type Value: Send + Sync;
 
     /// The name of the view. Must be unique per collection.
-    fn name(&self) -> Result<Name, InvalidNameError>;
+    fn name(&self) -> Name;
 
     /// The namespaced name of the view.
-    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
-        Ok(ViewName {
-            collection: Self::Collection::collection_name()?,
-            name: self.name()?,
-        })
+    fn view_name(&self) -> ViewName {
+        ViewName {
+            collection: Self::Collection::collection_name(),
+            name: self.name(),
+        }
     }
 }
 
@@ -247,13 +246,13 @@ where
 /// Wraps a [`View`] with serialization to erase the associated types
 pub trait Serialized: Send + Sync + Debug {
     /// Wraps returing [`<View::Collection as Collection>::collection_name()`](crate::schema::Collection::collection_name)
-    fn collection(&self) -> Result<CollectionName, InvalidNameError>;
+    fn collection(&self) -> CollectionName;
     /// Wraps [`ViewSchema::unique`]
     fn unique(&self) -> bool;
     /// Wraps [`ViewSchema::version`]
     fn version(&self) -> u64;
     /// Wraps [`View::view_name`]
-    fn view_name(&self) -> Result<ViewName, InvalidNameError>;
+    fn view_name(&self) -> ViewName;
     /// Wraps [`ViewSchema::map`]
     fn map(&self, document: &Document) -> Result<Vec<map::Serialized>, Error>;
     /// Wraps [`ViewSchema::reduce`]
@@ -332,7 +331,7 @@ macro_rules! define_mapped_view {
             type Key = $key;
             type Value = $value;
 
-            fn name(&self) -> Result<$crate::schema::Name, $crate::schema::InvalidNameError> {
+            fn name(&self) -> $crate::schema::Name {
                 $crate::schema::Name::new($name)
             }
         }

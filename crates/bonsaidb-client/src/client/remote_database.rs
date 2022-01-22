@@ -63,7 +63,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Get {
-                    collection: C::collection_name()?,
+                    collection: C::collection_name(),
                     id,
                 },
             })
@@ -89,7 +89,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::GetMultiple {
-                    collection: C::collection_name()?,
+                    collection: C::collection_name(),
                     ids: ids.to_vec(),
                 },
             })
@@ -114,7 +114,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::List {
-                    collection: C::collection_name()?,
+                    collection: C::collection_name(),
                     ids: ids.into(),
                     order,
                     limit,
@@ -149,7 +149,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
                         .schema
                         .view::<V>()
                         .ok_or(bonsaidb_core::Error::CollectionNotFound)?
-                        .view_name()?,
+                        .view_name(),
                     key: key.map(|key| key.serialized()).transpose()?,
                     order,
                     limit,
@@ -190,7 +190,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
                         .schema
                         .view::<V>()
                         .ok_or(bonsaidb_core::Error::CollectionNotFound)?
-                        .view_name()?,
+                        .view_name(),
                     key: key.map(|key| key.serialized()).transpose()?,
                     order,
                     limit,
@@ -229,7 +229,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
                         .schema
                         .view::<V>()
                         .ok_or(bonsaidb_core::Error::CollectionNotFound)?
-                        .view_name()?,
+                        .view_name(),
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
                     grouped: false,
@@ -265,7 +265,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
                         .schema
                         .view::<V>()
                         .ok_or(bonsaidb_core::Error::CollectionNotFound)?
-                        .view_name()?,
+                        .view_name(),
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
                     grouped: true,
@@ -310,7 +310,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
                         .schema
                         .view::<V>()
                         .ok_or(bonsaidb_core::Error::CollectionNotFound)?
-                        .view_name()?,
+                        .view_name(),
                     key: key.map(|key| key.serialized()).transpose()?,
                     access_policy,
                 },
@@ -391,7 +391,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::CompactCollection {
-                    name: C::collection_name()?,
+                    name: C::collection_name(),
                 },
             })
             .await?

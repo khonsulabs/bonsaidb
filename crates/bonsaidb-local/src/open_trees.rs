@@ -76,7 +76,7 @@ impl OpenTrees {
 
         if let Some(views) = schema.views_in_collection(collection) {
             for view in views {
-                let view_name = view.view_name()?;
+                let view_name = view.view_name();
                 if view.unique() {
                     self.open_tree::<Unversioned>(
                         &view_omitted_docs_tree_name(&view_name),

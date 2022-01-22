@@ -7,8 +7,8 @@ use bonsaidb_core::{
     define_basic_unique_mapped_view,
     document::KeyId,
     schema::{
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
-        Schematic, SerializedCollection,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, Schematic,
+        SerializedCollection,
     },
     ENCRYPTION_ENABLED,
 };
@@ -32,7 +32,7 @@ impl Collection for AcmeAccount {
         }
     }
 
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "acme-accounts")
     }
 

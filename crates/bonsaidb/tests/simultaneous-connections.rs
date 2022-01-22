@@ -4,7 +4,7 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         connection::StorageConnection,
-        test_util::{self, Basic, BasicSchema, TestDirectory},
+        test_util::{self, BasicSchema, TestDirectory},
     },
     local::config::Builder,
     server::{DefaultPermissions, Server, ServerConfiguration},
@@ -46,10 +46,10 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
 async fn test_one_client(client: Client, database_name: String) -> anyhow::Result<()> {
     for _ in 0u32..50 {
         client
-            .create_database::<Basic>(&database_name, false)
+            .create_database::<BasicSchema>(&database_name, false)
             .await
             .unwrap();
-        let db = client.database::<Basic>(&database_name).await?;
+        let db = client.database::<BasicSchema>(&database_name).await?;
         test_util::store_retrieve_update_delete_tests(&db)
             .await
             .unwrap();

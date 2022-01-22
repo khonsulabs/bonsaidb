@@ -23,7 +23,7 @@ use crate::Error;
 /// Defines a group of collections that are stored into a single database.
 pub trait Schema: Send + Sync + Debug + 'static {
     /// Returns the unique [`SchemaName`] for this schema.
-    fn schema_name() -> Result<SchemaName, InvalidNameError>;
+    fn schema_name() -> SchemaName;
 
     /// Defines the `Collection`s into `schema`.
     fn define_collections(schema: &mut Schematic) -> Result<(), Error>;
@@ -38,7 +38,7 @@ pub trait Schema: Send + Sync + Debug + 'static {
 /// collections isn't required. For example, accessing only the key-value store
 /// or pubsub.
 impl Schema for () {
-    fn schema_name() -> Result<SchemaName, InvalidNameError> {
+    fn schema_name() -> SchemaName {
         SchemaName::new("", "")
     }
 
@@ -51,9 +51,9 @@ impl<T> Schema for T
 where
     T: Collection + 'static,
 {
-    fn schema_name() -> Result<SchemaName, InvalidNameError> {
-        let CollectionName { authority, name } = Self::collection_name()?;
-        Ok(SchemaName { authority, name })
+    fn schema_name() -> SchemaName {
+        let CollectionName { authority, name } = Self::collection_name();
+        SchemaName { authority, name }
     }
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {

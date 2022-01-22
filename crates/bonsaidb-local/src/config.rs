@@ -62,10 +62,8 @@ pub struct StorageConfiguration {
 impl StorageConfiguration {
     /// Registers the schema provided.
     pub fn register_schema<S: Schema>(&mut self) -> Result<(), Error> {
-        self.initial_schemas.insert(
-            S::schema_name()?,
-            Box::new(StorageSchemaOpener::<S>::new()?),
-        );
+        self.initial_schemas
+            .insert(S::schema_name(), Box::new(StorageSchemaOpener::<S>::new()?));
         Ok(())
     }
 }

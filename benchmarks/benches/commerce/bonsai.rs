@@ -9,7 +9,7 @@ use bonsaidb::{
         schema::{
             view::map::Mappings, Collection, CollectionDocument, CollectionName,
             CollectionViewSchema, DefaultSerialization, DefaultViewSerialization, InsertError,
-            InvalidNameError, Name, NamedCollection, ReduceResult, Schema, SchemaName, Schematic,
+            Name, NamedCollection, ReduceResult, Schema, SchemaName, Schematic,
             SerializedCollection, View, ViewMapResult, ViewMappedValue,
         },
         transaction::{self, Transaction},
@@ -389,7 +389,7 @@ impl Operator<ReviewProduct> for BonsaiOperator {
 }
 
 impl Schema for Commerce {
-    fn schema_name() -> Result<SchemaName, InvalidNameError> {
+    fn schema_name() -> SchemaName {
         SchemaName::new("benchmarks", "commerce")
     }
 
@@ -405,7 +405,7 @@ impl Schema for Commerce {
 }
 
 impl Collection for Product {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "products")
     }
 
@@ -438,7 +438,7 @@ impl View for ProductsByCategoryId {
     type Key = u32;
     type Value = u32;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("by-category")
     }
 }
@@ -465,7 +465,7 @@ impl NamedCollection for Product {
 }
 
 impl Collection for ProductReview {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "reviews")
     }
 
@@ -485,7 +485,7 @@ impl View for ProductReviewsByProduct {
     type Key = u32;
     type Value = ProductRatings;
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("by-product")
     }
 }
@@ -541,7 +541,7 @@ impl ProductRatings {
 }
 
 impl Collection for Category {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "categories")
     }
 
@@ -553,7 +553,7 @@ impl Collection for Category {
 impl DefaultSerialization for Category {}
 
 impl Collection for Customer {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "customers")
     }
 
@@ -565,7 +565,7 @@ impl Collection for Customer {
 impl DefaultSerialization for Customer {}
 
 impl Collection for Order {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "orders")
     }
 
@@ -577,7 +577,7 @@ impl Collection for Order {
 impl DefaultSerialization for Order {}
 
 impl Collection for Cart {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "carts")
     }
 

@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     define_basic_unique_mapped_view,
     schema::{
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
-        NamedCollection, Schematic,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, NamedCollection,
+        Schematic,
     },
     Error,
 };
@@ -35,7 +35,7 @@ impl Role {
 }
 
 impl Collection for Role {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "role")
     }
 

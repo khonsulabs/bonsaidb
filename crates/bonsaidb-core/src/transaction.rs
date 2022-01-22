@@ -92,7 +92,7 @@ impl Operation {
         contents: &C::Contents,
     ) -> Result<Self, Error> {
         let contents = C::serialize(contents)?;
-        Ok(Self::insert(C::collection_name()?, id, contents))
+        Ok(Self::insert(C::collection_name(), id, contents))
     }
 
     /// Updates a document in `collection`.
@@ -110,7 +110,7 @@ impl Operation {
         contents: &C::Contents,
     ) -> Result<Self, Error> {
         let contents = C::serialize(contents)?;
-        Ok(Self::update(C::collection_name()?, header, contents))
+        Ok(Self::update(C::collection_name(), header, contents))
     }
 
     /// Deletes a document from a `collection`.

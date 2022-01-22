@@ -6,7 +6,6 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use transmog::{Format, OwnedDeserializer};
 use transmog_pot::Pot;
 
-use super::names::InvalidNameError;
 use crate::{
     connection::Connection,
     document::{Document, Header, KeyId},
@@ -18,7 +17,7 @@ use crate::{
 #[async_trait]
 pub trait Collection: Debug + Send + Sync {
     /// The `Id` of this collection.
-    fn collection_name() -> Result<CollectionName, InvalidNameError>;
+    fn collection_name() -> CollectionName;
 
     /// Defines all `View`s in this collection in `schema`.
     fn define_views(schema: &mut Schematic) -> Result<(), Error>;
@@ -325,11 +324,9 @@ where
             if is_first_loop {
                 is_first_loop = false;
             } else {
-                *self = C::get(self.header.id, connection).await?.ok_or_else(|| {
-                    C::collection_name().map_or_else(Error::from, |collection| {
-                        Error::DocumentNotFound(collection, self.header.id)
-                    })
-                })?;
+                *self = C::get(self.header.id, connection)
+                    .await?
+                    .ok_or_else(|| Error::DocumentNotFound(C::collection_name(), self.header.id))?;
             }
             modifier(&mut *self);
             match self.update(connection).await {

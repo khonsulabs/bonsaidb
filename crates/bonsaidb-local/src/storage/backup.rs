@@ -111,13 +111,14 @@ impl Storage {
             let documents = database
                 .list(Range::from(..), Sort::Ascending, None, &collection)
                 .await?;
+            let collection_name = collection.encoded();
             // TODO consider how to best parallelize -- perhaps a location can opt into parallelization?
             for document in documents {
                 location
                     .store(
                         &schema,
                         database.name(),
-                        &collection.to_string(),
+                        &collection_name,
                         &document.id.to_string(),
                         &document.contents,
                     )
@@ -149,14 +150,14 @@ impl Storage {
         // Restore all the collections. However, there's one collection we don't
         // want to restore: the Databases list. This will be recreated during
         // the process of restoring the backup, so we skip it.
-        let database_collection = admin::Database::collection_name()?;
+        let database_collection = admin::Database::collection_name();
         for collection in database
             .schematic()
             .collections()
             .into_iter()
             .filter(|c| c != &database_collection)
         {
-            let collection_name = collection.to_string();
+            let collection_name = collection.encoded();
             for (id, id_string) in location
                 .list_stored(&schema, database.name(), &collection_name)
                 .await?
@@ -301,7 +302,7 @@ impl<'a> BackupLocation for &'a Path {
     async fn list_schemas(&self) -> Result<Vec<SchemaName>, Self::Error> {
         iterate_directory(self, |entry, file_name| async move {
             if entry.file_type().await?.is_dir() {
-                if let Ok(schema_name) = SchemaName::try_from(file_name.as_str()) {
+                if let Ok(schema_name) = SchemaName::parse_encoded(file_name.as_str()) {
                     return Ok(Some(schema_name));
                 }
             }
@@ -442,7 +443,7 @@ impl<T> IoResultExt<T> for Result<T, std::io::Error> {
 }
 
 fn schema_folder(base: &Path, schema: &SchemaName) -> PathBuf {
-    base.join(schema.to_string())
+    base.join(schema.encoded())
 }
 
 fn database_folder(base: &Path, schema: &SchemaName, database_name: &str) -> PathBuf {

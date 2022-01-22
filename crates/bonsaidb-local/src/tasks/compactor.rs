@@ -131,7 +131,7 @@ fn compact_collection(database: &Database, collection: &CollectionName) -> Resul
     // Compact the views
     if let Some(views) = database.data.schema.views_in_collection(collection) {
         for view in views {
-            compact_view(database, &view.view_name()?)?;
+            compact_view(database, &view.view_name())?;
         }
     }
     compact_tree::<Unversioned, _>(database, view_versions_tree_name(collection))?;

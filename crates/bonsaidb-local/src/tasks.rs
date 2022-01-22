@@ -70,8 +70,8 @@ impl TaskManager {
                 let statuses = fast_async_read!(self.statuses);
                 if let Some(last_transaction_indexed) = statuses.view_update_last_status.get(&(
                     database.data.name.clone(),
-                    view.collection()?,
-                    view.view_name()?,
+                    view.collection(),
+                    view.view_name(),
                 )) {
                     last_transaction_indexed < &current_transaction_id
                 } else {
@@ -88,8 +88,8 @@ impl TaskManager {
                             database: database.clone(),
                             map: Map {
                                 database: database.data.name.clone(),
-                                collection: view.collection()?,
-                                view_name: view_name.clone()?,
+                                collection: view.collection(),
+                                view_name: view_name.clone(),
                             },
                         })
                         .await;
@@ -126,11 +126,11 @@ impl TaskManager {
         view: &dyn view::Serialized,
         database: &Database,
     ) -> Result<Option<Handle<(), Error, Task>>, crate::Error> {
-        let view_name = view.view_name()?;
+        let view_name = view.view_name();
         if !self
             .view_integrity_checked(
                 database.data.name.clone(),
-                view.collection()?,
+                view.collection(),
                 view_name.clone(),
             )
             .await
@@ -142,7 +142,7 @@ impl TaskManager {
                     scan: IntegrityScan {
                         database: database.data.name.clone(),
                         view_version: view.version(),
-                        collection: view.collection()?,
+                        collection: view.collection(),
                         view_name,
                     },
                 })

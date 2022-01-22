@@ -183,8 +183,8 @@ impl Database {
         let view_entries = self
             .roots()
             .tree(self.collection_tree(
-                &view.collection()?,
-                view_entries_tree_name(&view.view_name()?),
+                &view.collection(),
+                view_entries_tree_name(&view.view_name()),
             )?)
             .map_err(Error::from)?;
 
@@ -196,7 +196,7 @@ impl Database {
 
         if matches!(access_policy, AccessPolicy::UpdateAfter) {
             let db = self.clone();
-            let view_name = view.view_name()?;
+            let view_name = view.view_name();
             tokio::task::spawn(async move {
                 let view = db
                     .data
@@ -336,7 +336,7 @@ impl Database {
         let mut documents = self
             .get_multiple_from_collection_id(
                 &results.iter().map(|m| m.source.id).collect::<Vec<_>>(),
-                &view.collection()?,
+                &view.collection(),
             )
             .await?
             .into_iter()
@@ -396,7 +396,7 @@ impl Database {
             .schema
             .view_by_name(view)
             .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
-        let collection = view.collection()?;
+        let collection = view.collection();
         let mut transaction = Transaction::default();
         self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
             let entry = ViewEntry::from(entry);
@@ -655,7 +655,7 @@ impl Database {
                 let changed_documents = changed_documents.collect::<Vec<_>>();
                 for view in views {
                     if !view.unique() {
-                        let view_name = view.view_name().map_err(bonsaidb_core::Error::from)?;
+                        let view_name = view.view_name();
                         for changed_document in &changed_documents {
                             let invalidated_docs = roots_transaction
                                 .tree::<Unversioned>(
@@ -862,7 +862,7 @@ impl Database {
             .unique_views_in_collection(&operation.collection)
         {
             for view in unique_views {
-                let name = view.view_name().map_err(bonsaidb_core::Error::from)?;
+                let name = view.view_name();
                 mapper::DocumentRequest {
                     database: self,
                     document_id,
@@ -1086,8 +1086,7 @@ impl Connection for Database {
         &self,
         id: u64,
     ) -> Result<Option<Document>, bonsaidb_core::Error> {
-        self.get_from_collection_id(id, &C::collection_name()?)
-            .await
+        self.get_from_collection_id(id, &C::collection_name()).await
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
@@ -1095,7 +1094,7 @@ impl Connection for Database {
         &self,
         ids: &[u64],
     ) -> Result<Vec<Document>, bonsaidb_core::Error> {
-        self.get_multiple_from_collection_id(ids, &C::collection_name()?)
+        self.get_multiple_from_collection_id(ids, &C::collection_name())
             .await
     }
 
@@ -1106,7 +1105,7 @@ impl Connection for Database {
         order: Sort,
         limit: Option<usize>,
     ) -> Result<Vec<Document>, bonsaidb_core::Error> {
-        self.list(ids.into(), order, limit, &C::collection_name()?)
+        self.list(ids.into(), order, limit, &C::collection_name())
             .await
     }
 
@@ -1260,7 +1259,7 @@ impl Connection for Database {
 
         let result = self
             .reduce_in_view(
-                &view.view_name()?,
+                &view.view_name(),
                 key.map(|key| key.serialized()).transpose()?,
                 access_policy,
             )
@@ -1287,7 +1286,7 @@ impl Connection for Database {
 
         let results = self
             .grouped_reduce_in_view(
-                &view.view_name()?,
+                &view.view_name(),
                 key.map(|key| key.serialized()).transpose()?,
                 access_policy,
             )
@@ -1312,7 +1311,7 @@ impl Connection for Database {
     where
         Self: Sized,
     {
-        let collection = <V::Collection as Collection>::collection_name()?;
+        let collection = <V::Collection as Collection>::collection_name();
         let mut transaction = Transaction::default();
         self.for_each_view_entry::<V, _>(
             key,
@@ -1345,7 +1344,7 @@ impl Connection for Database {
     async fn compact_collection<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
         self.storage()
             .tasks()
-            .compact_collection(self.clone(), C::collection_name()?)
+            .compact_collection(self.clone(), C::collection_name())
             .await?;
         Ok(())
     }

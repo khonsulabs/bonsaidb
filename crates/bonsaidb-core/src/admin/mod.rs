@@ -1,5 +1,5 @@
 use crate::{
-    schema::{InvalidNameError, Schema, SchemaName, Schematic},
+    schema::{Schema, SchemaName, Schematic},
     Error,
 };
 
@@ -27,7 +27,7 @@ pub use self::{group::PermissionGroup, role::Role, user::User};
 pub struct Admin;
 
 impl Schema for Admin {
-    fn schema_name() -> Result<SchemaName, InvalidNameError> {
+    fn schema_name() -> SchemaName {
         SchemaName::new("khonsulabs", "bonsaidb-admin")
     }
 

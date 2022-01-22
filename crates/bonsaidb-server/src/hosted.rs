@@ -2,8 +2,8 @@ use bonsaidb_core::{
     define_basic_mapped_view, define_basic_unique_mapped_view,
     document::KeyId,
     schema::{
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
-        NamedCollection, Schema, SchemaName, Schematic,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, NamedCollection,
+        Schema, SchemaName, Schematic,
     },
     ENCRYPTION_ENABLED,
 };
@@ -14,7 +14,7 @@ use serde::{de::Visitor, Deserialize, Serialize};
 pub struct Hosted;
 
 impl Schema for Hosted {
-    fn schema_name() -> Result<SchemaName, InvalidNameError> {
+    fn schema_name() -> SchemaName {
         SchemaName::new("khonsulabs", "hosted")
     }
 
@@ -46,7 +46,7 @@ impl Collection for TlsCertificate {
         }
     }
 
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "tls-certificates")
     }
 

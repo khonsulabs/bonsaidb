@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     define_basic_unique_mapped_view,
     schema::{
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
-        NamedCollection, SchemaName, Schematic,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, NamedCollection,
+        SchemaName, Schematic,
     },
     Error,
 };
@@ -19,7 +19,7 @@ pub struct Database {
 }
 
 impl Collection for Database {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("bonsaidb", "databases")
     }
 

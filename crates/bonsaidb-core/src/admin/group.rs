@@ -5,8 +5,8 @@ use crate::{
     define_basic_unique_mapped_view,
     permissions::Statement,
     schema::{
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, InvalidNameError,
-        NamedCollection, Schematic,
+        Collection, CollectionDocument, CollectionName, DefaultSerialization, NamedCollection,
+        Schematic,
     },
     Error,
 };
@@ -38,7 +38,7 @@ impl PermissionGroup {
 
 #[async_trait]
 impl Collection for PermissionGroup {
-    fn collection_name() -> Result<CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "permission-group")
     }
 

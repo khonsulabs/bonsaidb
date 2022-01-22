@@ -9,8 +9,7 @@ use crate::{
     password_config,
     schema::{
         view::{DefaultViewSerialization, ViewSchema},
-        Collection, CollectionName, DefaultSerialization, InvalidNameError, Name, View,
-        ViewMapResult,
+        Collection, CollectionName, DefaultSerialization, Name, View, ViewMapResult,
     },
 };
 
@@ -66,7 +65,7 @@ impl Deref for PasswordConfig {
 }
 
 impl Collection for PasswordConfig {
-    fn collection_name() -> Result<crate::schema::CollectionName, InvalidNameError> {
+    fn collection_name() -> CollectionName {
         CollectionName::new("khonsulabs", "password-config")
     }
 
@@ -86,7 +85,7 @@ impl View for Singleton {
     type Key = ();
     type Value = ();
 
-    fn name(&self) -> Result<Name, InvalidNameError> {
+    fn name(&self) -> Name {
         Name::new("singleton")
     }
 }

@@ -13,7 +13,7 @@ use crate::{
             map::{self, MappedValue},
             Key, Serialized, SerializedView, ViewSchema,
         },
-        CollectionName, InvalidNameError, Schema, SchemaName, View, ViewName,
+        CollectionName, Schema, SchemaName, View, ViewName,
     },
     Error,
 };
@@ -36,7 +36,7 @@ impl Schematic {
     /// Returns an initialized version from `S`.
     pub fn from_schema<S: Schema + ?Sized>() -> Result<Self, Error> {
         let mut schematic = Self {
-            name: S::schema_name()?,
+            name: S::schema_name(),
             contained_collections: HashSet::new(),
             collections_by_type_id: HashMap::new(),
             collection_encryption_keys: HashMap::new(),
@@ -51,7 +51,7 @@ impl Schematic {
 
     /// Adds the collection `C` and its views.
     pub fn define_collection<C: Collection + 'static>(&mut self) -> Result<(), Error> {
-        let name = C::collection_name()?;
+        let name = C::collection_name();
         if self.contained_collections.contains(&name) {
             Err(Error::CollectionAlreadyDefined)
         } else {
@@ -83,8 +83,8 @@ impl Schematic {
         schema: S,
     ) -> Result<(), Error> {
         let instance = ViewInstance { view, schema };
-        let name = instance.view_name()?;
-        let collection = instance.collection()?;
+        let name = instance.view_name();
+        let collection = instance.collection();
         let unique = instance.unique();
         self.views.insert(TypeId::of::<V>(), Box::new(instance));
         // TODO check for name collision
@@ -192,7 +192,7 @@ where
     S: ViewSchema<View = V>,
     <V as View>::Key: 'static,
 {
-    fn collection(&self) -> Result<CollectionName, InvalidNameError> {
+    fn collection(&self) -> CollectionName {
         <<V as View>::Collection as Collection>::collection_name()
     }
 
@@ -204,7 +204,7 @@ where
         self.schema.version()
     }
 
-    fn view_name(&self) -> Result<ViewName, InvalidNameError> {
+    fn view_name(&self) -> ViewName {
         self.view.view_name()
     }
 
@@ -244,12 +244,12 @@ fn schema_tests() -> anyhow::Result<()> {
     assert_eq!(schema.collections_by_type_id.len(), 1);
     assert_eq!(
         schema.collections_by_type_id[&TypeId::of::<Basic>()],
-        Basic::collection_name()?
+        Basic::collection_name()
     );
     assert_eq!(schema.views.len(), 4);
     assert_eq!(
-        schema.views[&TypeId::of::<BasicCount>()].view_name()?,
-        View::view_name(&BasicCount)?
+        schema.views[&TypeId::of::<BasicCount>()].view_name(),
+        View::view_name(&BasicCount)
     );
 
     Ok(())
