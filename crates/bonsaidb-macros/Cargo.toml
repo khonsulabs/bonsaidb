@@ -15,9 +15,17 @@ homepage = "https://bonsaidb.io/"
 proc-macro = true
 
 [dependencies]
-syn = "1"
-quote = "1"
 proc-macro-error = "1"
+quote = "1"
+syn = "1"
+trybuild = "1.0.54"
 
 [dev-dependencies]
 compiletest_rs = "0.7"
+
+[dev-dependencies.bonsaidb]
+path = "../bonsaidb/"
+
+[dev-dependencies.serde]
+version = "1.0.133"
+features = ["derive"]
