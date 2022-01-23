@@ -78,6 +78,15 @@ pub struct Client<A: CustomApi = ()> {
     pub(crate) data: Arc<Data<A>>,
 }
 
+impl<A> PartialEq for Client<A>
+where
+    A: CustomApi,
+{
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.data, &other.data)
+    }
+}
+
 #[derive(Debug)]
 pub struct Data<A: CustomApi> {
     request_sender: Sender<PendingRequest<A>>,
