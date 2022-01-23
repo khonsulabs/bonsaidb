@@ -159,5 +159,5 @@ pub fn collection_derive(input: TokenStream) -> TokenStream {
 fn ui() {
     use trybuild::TestCases;
 
-    TestCases::new().compile_fail("tests/ui/*.rs");
+    TestCases::new().compile_fail("tests/*/ui/*.rs");
 }

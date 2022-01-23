@@ -1,4 +1,4 @@
-use bonsaidb_macros::Collection;
+use bonsaidb::core::schema::Collection;
 
 #[derive(Collection)]
 #[collection(name = "hello")]

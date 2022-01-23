@@ -1,10 +1,15 @@
-use bonsaidb_macros::Collection;
+use bonsaidb::core::schema::Collection;
 
 #[test]
 fn name_only() {
     #[derive(Collection, Debug)]
     #[collection(name = "Name", authority = "Authority")]
-    struct Test {}
+    struct Test;
+
+    assert_eq!(
+        Test::collection_name().unwrap(),
+        bonsaidb::core::schema::CollectionName::new("Authority", "Name").unwrap()
+    );
 }
 #[test]
 fn views() {
@@ -45,10 +50,3 @@ fn views() {
 
     impl DefaultViewSerialization for ShapesByNumberOfSides {}
 }
-
-// #[test]
-// fn invalid_attribute() {
-//     #[derive(Collection)]
-//     #[collection(name = "hi", authority = "hello", "hi")]
-//     struct Test;
-// }

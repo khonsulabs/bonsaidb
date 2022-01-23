@@ -20,6 +20,8 @@ pub use self::{
 };
 use crate::Error;
 
+pub use bonsaidb_macros::Collection;
+
 /// Defines a group of collections that are stored into a single database.
 pub trait Schema: Send + Sync + Debug + 'static {
     /// Returns the unique [`SchemaName`] for this schema.
