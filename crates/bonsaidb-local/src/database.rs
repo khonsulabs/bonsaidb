@@ -1465,5 +1465,5 @@ impl Drop for ContextData {
 }
 
 pub fn document_tree_name(collection: &CollectionName) -> String {
-    format!("collection.{}", collection)
+    format!("collection.{:#}", collection)
 }
