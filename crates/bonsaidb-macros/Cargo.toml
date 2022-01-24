@@ -22,6 +22,7 @@ trybuild = "1.0.54"
 
 [dev-dependencies]
 compiletest_rs = "0.7"
+transmog-bincode = "0.1.0-dev.2"
 
 [dev-dependencies.bonsaidb]
 path = "../bonsaidb/"
