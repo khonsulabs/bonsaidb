@@ -10,15 +10,15 @@ fn name_only() {
     struct Test<T: Sync + Send + Debug>(T);
 
     assert_eq!(
-        Test::<String>::collection_name().unwrap(),
-        bonsaidb::core::schema::CollectionName::new("Authority", "Name").unwrap()
+        Test::<String>::collection_name(),
+        bonsaidb::core::schema::CollectionName::new("Authority", "Name")
     );
 }
 #[test]
 fn views() {
     use bonsaidb::core::schema::{
-        Collection, CollectionDocument, CollectionViewSchema, DefaultViewSerialization,
-        InvalidNameError, Name, View, ViewMapResult,
+        Collection, CollectionDocument, CollectionViewSchema, DefaultViewSerialization, Name, View,
+        ViewMapResult,
     };
     use serde::{Deserialize, Serialize};
 
@@ -38,7 +38,7 @@ fn views() {
         type Key = u32;
         type Value = usize;
 
-        fn name(&self) -> Result<Name, InvalidNameError> {
+        fn name(&self) -> Name {
             Name::new("by-number-of-sides")
         }
     }
@@ -68,8 +68,8 @@ fn serialization() {
     struct Test;
 
     assert_eq!(
-        Test::collection_name().unwrap(),
-        bonsaidb::core::schema::CollectionName::new("Authority", "Name").unwrap()
+        Test::collection_name(),
+        bonsaidb::core::schema::CollectionName::new("Authority", "Name")
     );
 
     let _: transmog_bincode::Bincode = Test::format();
@@ -87,7 +87,7 @@ fn serialization_none() {
     impl DefaultSerialization for Test {}
 
     assert_eq!(
-        Test::collection_name().unwrap(),
-        bonsaidb::core::schema::CollectionName::new("Authority", "Name").unwrap()
+        Test::collection_name(),
+        bonsaidb::core::schema::CollectionName::new("Authority", "Name")
     );
 }
