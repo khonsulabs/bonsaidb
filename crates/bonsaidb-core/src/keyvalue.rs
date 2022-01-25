@@ -41,12 +41,14 @@ mod implementation {
     ///
     /// ## Floating Point Operations
     ///
-    /// When using `set_numerical_key` or any numeric operations, if a [Not a
-    /// Number (NaN) value][nan] is encountered, [`Error::NotANumber`] will be
-    /// returned without allowing the operation to succeed.
+    /// When using [`KeyValue::set_numeric_key()`] or any numeric operations, if
+    /// a [Not a Number (NaN) value][nan] is encountered, [`Error::NotANumber`]
+    /// will be returned without allowing the operation to succeed.
     ///
     /// Positive and negative infinity values are allowed, as they do not break
     /// comparison operations.
+    ///
+    /// [nan]: https://en.wikipedia.org/wiki/NaN
     #[async_trait]
     pub trait KeyValue: Sized + Send + Sync {
         /// Executes a single [`KeyOperation`].
