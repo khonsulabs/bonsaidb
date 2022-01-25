@@ -12,7 +12,7 @@ use bonsaidb_core::{
     permissions::Permissions,
 };
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
-use derive_where::DeriveWhere;
+use derive_where::derive_where;
 use flume::Sender;
 
 use crate::{Backend, CustomServer, NoBackend};
@@ -28,7 +28,7 @@ pub enum Transport {
 }
 
 /// A connected database client.
-#[derive(Debug, DeriveWhere)]
+#[derive(Debug)]
 #[derive_where(Clone)]
 pub struct ConnectedClient<B: Backend = NoBackend> {
     data: Arc<Data<B>>,

@@ -12,7 +12,7 @@ use bonsaidb_core::{
     },
     transaction::{Executed, OperationResult, Transaction},
 };
-use derive_where::DeriveWhere;
+use derive_where::derive_where;
 
 use crate::Client;
 
@@ -22,7 +22,7 @@ pub use pubsub::*;
 mod keyvalue;
 
 /// A database on a remote server.
-#[derive(Debug, DeriveWhere)]
+#[derive(Debug)]
 #[derive_where(Clone)]
 pub struct RemoteDatabase<A: CustomApi = ()> {
     client: Client<A>,

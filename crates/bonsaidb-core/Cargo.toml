@@ -42,7 +42,7 @@ custodian-password = { git = "https://github.com/khonsulabs/custodian.git", bran
 anyhow = { version = "1", optional = true }
 itertools = "0.10"
 ordered-varint = "0.1.0-dev.1"
-derive-where = "1.0.0-rc.1"
+derive-where = "=1.0.0-rc.2"
 transmog = "0.1.0-dev.2"
 transmog-pot = "0.1.0-dev.2"
 

@@ -28,7 +28,7 @@ use bonsaidb_core::{
     schema::{NamedReference, Schema, SchemaName, Schematic},
 };
 use bonsaidb_utils::fast_async_lock;
-use derive_where::DeriveWhere;
+use derive_where::derive_where;
 use flume::Sender;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::task::JoinHandle;
@@ -72,7 +72,7 @@ pub type WebSocketError = tokio_tungstenite::tungstenite::Error;
 pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 
 /// Client for connecting to a `BonsaiDb` server.
-#[derive(Debug, DeriveWhere)]
+#[derive(Debug)]
 #[derive_where(Clone)]
 pub struct Client<A: CustomApi = ()> {
     pub(crate) data: Arc<Data<A>>,

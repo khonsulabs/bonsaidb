@@ -48,7 +48,7 @@ use bonsaidb_local::{
     Database, Storage,
 };
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
-use derive_where::DeriveWhere;
+use derive_where::derive_where;
 use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
 use flume::Sender;
 use futures::{Future, StreamExt};
@@ -90,7 +90,7 @@ pub use self::{
 static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// A `BonsaiDb` server.
-#[derive(Debug, DeriveWhere)]
+#[derive(Debug)]
 #[derive_where(Clone)]
 pub struct CustomServer<B: Backend = NoBackend> {
     data: Arc<Data<B>>,

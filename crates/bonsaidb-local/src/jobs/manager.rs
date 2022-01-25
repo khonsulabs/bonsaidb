@@ -2,7 +2,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use async_lock::RwLock;
 use bonsaidb_utils::{fast_async_read, fast_async_write};
-use derive_where::DeriveWhere;
+use derive_where::derive_where;
 
 use crate::jobs::{
     task::{Handle, Id},
@@ -17,7 +17,7 @@ pub(crate) use managed_job::ManagedJob;
 mod tests;
 
 /// A background jobs manager.
-#[derive(Debug, DeriveWhere)]
+#[derive(Debug)]
 #[derive_where(Clone, Default)]
 pub struct Manager<Key = ()> {
     // #[derive_where(default)]

@@ -3,7 +3,7 @@ use custodian_password::{
     LoginFinalization, LoginRequest, LoginResponse, RegistrationFinalization, RegistrationRequest,
     RegistrationResponse,
 };
-use derive_where::DeriveWhere;
+use derive_where::derive_where;
 use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
@@ -33,7 +33,7 @@ pub struct Payload<T> {
 }
 
 /// A request made to a server.
-#[derive(Clone, Deserialize, Serialize, DeriveWhere)]
+#[derive(Clone, Deserialize, Serialize)]
 #[derive_where(Debug)]
 #[cfg_attr(feature = "actionable-traits", derive(actionable::Actionable))]
 pub enum Request<T> {
@@ -306,7 +306,7 @@ pub enum DatabaseRequest {
 }
 
 /// A response from a server.
-#[derive(Clone, Serialize, Deserialize, DeriveWhere)]
+#[derive(Clone, Serialize, Deserialize)]
 #[derive_where(Debug)]
 pub enum Response<T> {
     /// A request succeded but provided no output.
