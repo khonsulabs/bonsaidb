@@ -303,7 +303,7 @@ impl KeyValueState {
         now: Timestamp,
     ) -> Result<Output, bonsaidb_core::Error> {
         let mut entry = Entry {
-            value: set.value,
+            value: set.value.validate()?,
             expiration: set.expiration,
             last_updated: now,
         };
@@ -489,7 +489,7 @@ impl KeyValueState {
 
         match entry.value {
             Value::Numeric(existing) => {
-                let value = Value::Numeric(op(&existing, amount, saturating));
+                let value = Value::Numeric(op(&existing, amount, saturating).validate()?);
                 entry.value = value.clone();
 
                 self.set(full_key, entry);

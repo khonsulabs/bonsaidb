@@ -1875,6 +1875,21 @@ macro_rules! define_kv_test_suite {
                 String::from("test")
             );
 
+            // Test that NaN cannot be stored
+            kv.set_numeric_key("f64", 0_f64).await?;
+            assert!(matches!(
+                kv.set_numeric_key("f64", f64::NAN).await,
+                Err(bonsaidb_core::Error::NotANumber)
+            ));
+            // Verify the value was unchanged.
+            $crate::assert_f64_eq!(kv.get_key("f64").into_f64().await?.unwrap(), 0.);
+            // Try to increment by nan
+            assert!(matches!(
+                kv.increment_key_by("f64", f64::NAN).await,
+                Err(bonsaidb_core::Error::NotANumber)
+            ));
+            $crate::assert_f64_eq!(kv.get_key("f64").into_f64().await?.unwrap(), 0.);
+
             harness.shutdown().await?;
 
             Ok(())

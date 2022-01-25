@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 mod timestamp;
 
 pub use self::timestamp::Timestamp;
+use crate::Error;
 
 mod implementation {
     use async_trait::async_trait;
@@ -32,11 +33,20 @@ mod implementation {
     ///
     /// When compared to Collections, the Key-Value store does not offer
     /// ACID-compliant transactions. Instead, the Key-Value store is made more
-    /// efficient by periodically flushing the store to disk rather than during each
-    /// operation. As such, the Key-Value store is intended to be used as a
+    /// efficient by periodically flushing the store to disk rather than during
+    /// each operation. As such, the Key-Value store is intended to be used as a
     /// lightweight caching layer. However, because each of the operations it
-    /// supports are executed atomically, the Key-Value store can also be utilized
-    /// for synchronized locking.
+    /// supports are executed atomically, the Key-Value store can also be
+    /// utilized for synchronized locking.
+    ///
+    /// ## Floating Point Operations
+    ///
+    /// When using `set_numerical_key` or any numeric operations, if a [Not a
+    /// Number (NaN) value][nan] is encountered, [`Error::NotANumber`] will be
+    /// returned without allowing the operation to succeed.
+    ///
+    /// Positive and negative infinity values are allowed, as they do not break
+    /// comparison operations.
     #[async_trait]
     pub trait KeyValue: Sized + Send + Sync {
         /// Executes a single [`KeyOperation`].
@@ -281,12 +291,20 @@ pub enum Value {
 }
 
 impl Value {
+    /// Validates this value to ensure it is safe to store.
+    pub fn validate(self) -> Result<Self, Error> {
+        match self {
+            Self::Numeric(numeric) => numeric.validate().map(Self::Numeric),
+            Self::Bytes(vec) => Ok(Self::Bytes(vec)),
+        }
+    }
+
     /// Deserializes the bytes contained inside of this value. Returns an error
     /// if this value doesn't contain bytes.
-    pub fn deserialize<V: for<'de> Deserialize<'de>>(&self) -> Result<V, crate::Error> {
+    pub fn deserialize<V: for<'de> Deserialize<'de>>(&self) -> Result<V, Error> {
         match self {
-            Value::Bytes(bytes) => Ok(pot::from_slice(bytes)?),
-            Value::Numeric(_) => Err(crate::Error::Database(String::from(
+            Self::Bytes(bytes) => Ok(pot::from_slice(bytes)?),
+            Self::Numeric(_) => Err(Error::Database(String::from(
                 "key contains numeric value, not serialized data",
             ))),
         }
@@ -296,8 +314,8 @@ impl Value {
     #[must_use]
     pub fn as_i64_lossy(&self, saturating: bool) -> Option<i64> {
         match self {
-            Value::Bytes(_) => None,
-            Value::Numeric(value) => Some(value.as_i64_lossy(saturating)),
+            Self::Bytes(_) => None,
+            Self::Numeric(value) => Some(value.as_i64_lossy(saturating)),
         }
     }
 
@@ -305,8 +323,8 @@ impl Value {
     #[must_use]
     pub fn as_u64_lossy(&self, saturating: bool) -> Option<u64> {
         match self {
-            Value::Bytes(_) => None,
-            Value::Numeric(value) => Some(value.as_u64_lossy(saturating)),
+            Self::Bytes(_) => None,
+            Self::Numeric(value) => Some(value.as_u64_lossy(saturating)),
         }
     }
 
@@ -314,8 +332,8 @@ impl Value {
     #[must_use]
     pub const fn as_f64_lossy(&self) -> Option<f64> {
         match self {
-            Value::Bytes(_) => None,
-            Value::Numeric(value) => Some(value.as_f64_lossy()),
+            Self::Bytes(_) => None,
+            Self::Numeric(value) => Some(value.as_f64_lossy()),
         }
     }
 
@@ -323,8 +341,8 @@ impl Value {
     #[must_use]
     pub fn as_i64(&self) -> Option<i64> {
         match self {
-            Value::Bytes(_) => None,
-            Value::Numeric(value) => value.as_i64(),
+            Self::Bytes(_) => None,
+            Self::Numeric(value) => value.as_i64(),
         }
     }
 
@@ -332,8 +350,8 @@ impl Value {
     #[must_use]
     pub fn as_u64(&self) -> Option<u64> {
         match self {
-            Value::Bytes(_) => None,
-            Value::Numeric(value) => value.as_u64(),
+            Self::Bytes(_) => None,
+            Self::Numeric(value) => value.as_u64(),
         }
     }
 
@@ -341,8 +359,8 @@ impl Value {
     #[must_use]
     pub const fn as_f64(&self) -> Option<f64> {
         match self {
-            Value::Bytes(_) => None,
-            Value::Numeric(value) => value.as_f64(),
+            Self::Bytes(_) => None,
+            Self::Numeric(value) => value.as_f64(),
         }
     }
 }
@@ -359,14 +377,31 @@ pub enum Numeric {
 }
 
 impl Numeric {
-    /// Returns this numeric as an `i64`. If this conversion cannot be done without losing precision or overflowing, None will be returned.
+    /// Ensures this value contains a valid value.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotANumber`] is returned if this contains a NaN floating point
+    /// value.
+    pub fn validate(self) -> Result<Self, Error> {
+        if let Self::Float(float) = self {
+            if float.is_nan() {
+                return Err(Error::NotANumber);
+            }
+        }
+
+        Ok(self)
+    }
+
+    /// Returns this numeric as an `i64`. If this conversion cannot be done
+    /// without losing precision or overflowing, None will be returned.
     #[must_use]
     #[allow(clippy::cast_possible_truncation)]
     pub fn as_i64(&self) -> Option<i64> {
         match self {
-            Numeric::Integer(value) => Some(*value),
-            Numeric::UnsignedInteger(value) => (*value).try_into().ok(),
-            Numeric::Float(value) => {
+            Self::Integer(value) => Some(*value),
+            Self::UnsignedInteger(value) => (*value).try_into().ok(),
+            Self::Float(value) => {
                 if value.fract().abs() > 0. {
                     None
                 } else {
@@ -376,20 +411,22 @@ impl Numeric {
         }
     }
 
-    /// Returns this numeric as an `i64`, allowing for precision to be lost if the type was not an `i64` originally. If saturating is true, the conversion will not allow overflows.
+    /// Returns this numeric as an `i64`, allowing for precision to be lost if
+    /// the type was not an `i64` originally. If saturating is true, the
+    /// conversion will not allow overflows.
     #[must_use]
     #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
     pub fn as_i64_lossy(&self, saturating: bool) -> i64 {
         match self {
-            Numeric::Integer(value) => *value,
-            Numeric::UnsignedInteger(value) => {
+            Self::Integer(value) => *value,
+            Self::UnsignedInteger(value) => {
                 if saturating {
                     (*value).try_into().unwrap_or(i64::MAX)
                 } else {
                     *value as i64
                 }
             }
-            Numeric::Float(value) => *value as i64,
+            Self::Float(value) => *value as i64,
         }
     }
 
@@ -399,9 +436,9 @@ impl Numeric {
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     pub fn as_u64(&self) -> Option<u64> {
         match self {
-            Numeric::UnsignedInteger(value) => Some(*value),
-            Numeric::Integer(value) => (*value).try_into().ok(),
-            Numeric::Float(value) => {
+            Self::UnsignedInteger(value) => Some(*value),
+            Self::Integer(value) => (*value).try_into().ok(),
+            Self::Float(value) => {
                 if value.fract() < f64::EPSILON && value.is_sign_positive() {
                     Some(*value as u64)
                 } else {
@@ -418,15 +455,15 @@ impl Numeric {
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     pub fn as_u64_lossy(&self, saturating: bool) -> u64 {
         match self {
-            Numeric::UnsignedInteger(value) => *value,
-            Numeric::Integer(value) => {
+            Self::UnsignedInteger(value) => *value,
+            Self::Integer(value) => {
                 if saturating {
                     (*value).try_into().unwrap_or(0)
                 } else {
                     *value as u64
                 }
             }
-            Numeric::Float(value) => *value as u64,
+            Self::Float(value) => *value as u64,
         }
     }
 
@@ -436,14 +473,14 @@ impl Numeric {
     #[allow(clippy::cast_precision_loss)]
     pub const fn as_f64(&self) -> Option<f64> {
         match self {
-            Numeric::UnsignedInteger(value) => {
+            Self::UnsignedInteger(value) => {
                 if *value > 2_u64.pow(f64::MANTISSA_DIGITS) {
                     None
                 } else {
                     Some(*value as f64)
                 }
             }
-            Numeric::Integer(value) => {
+            Self::Integer(value) => {
                 if *value > 2_i64.pow(f64::MANTISSA_DIGITS)
                     || *value < -(2_i64.pow(f64::MANTISSA_DIGITS))
                 {
@@ -452,18 +489,19 @@ impl Numeric {
                     Some(*value as f64)
                 }
             }
-            Numeric::Float(value) => Some(*value),
+            Self::Float(value) => Some(*value),
         }
     }
 
-    /// Returns this numeric as an `f64`, allowing for precision to be lost if the type was not an `f64` originally.
+    /// Returns this numeric as an `f64`, allowing for precision to be lost if
+    /// the type was not an `f64` originally.
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub const fn as_f64_lossy(&self) -> f64 {
         match self {
-            Numeric::UnsignedInteger(value) => *value as f64,
-            Numeric::Integer(value) => *value as f64,
-            Numeric::Float(value) => *value,
+            Self::UnsignedInteger(value) => *value as f64,
+            Self::Integer(value) => *value as f64,
+            Self::Float(value) => *value,
         }
     }
 }

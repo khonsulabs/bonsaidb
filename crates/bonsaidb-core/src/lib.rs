@@ -197,6 +197,10 @@ pub enum Error {
     /// Returned when the a view's reduce() function is unimplemented.
     #[error("reduce is unimplemented")]
     ReduceUnimplemented,
+
+    /// A floating point operation yielded Not a Number.
+    #[error("floating point operation yielded NaN")]
+    NotANumber,
 }
 
 impl From<pot::Error> for Error {
