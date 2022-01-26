@@ -18,7 +18,7 @@ use bonsaidb_utils::fast_async_lock;
 use nebari::{
     io::fs::StdFile,
     tree::{CompareSwap, KeyEvaluation, Operation, Root, Unversioned},
-    AbortError, Buffer, Roots,
+    AbortError, ArcBytes, Roots,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{runtime::Handle, sync::watch};
@@ -86,11 +86,11 @@ impl Database {
                 .roots()
                 .tree(Unversioned::tree(KEY_TREE))?
                 .scan::<Error, _, _, _, _>(
-                    ..,
+                    &(..),
                     true,
                     |_, _, _| true,
                     |_, _| KeyEvaluation::ReadData,
-                    |key, _, entry: Buffer<'static>| {
+                    |key, _, entry: ArcBytes<'static>| {
                         let entry = bincode::deserialize::<Entry>(&entry)
                             .map_err(|err| AbortError::Other(Error::from(err)))?;
                         let full_key = std::str::from_utf8(&key)
@@ -651,7 +651,7 @@ impl KeyValueState {
             .map_err(Error::from)?;
         let all_keys = keys
             .keys()
-            .map(|key| Buffer::from(key.as_bytes().to_vec()))
+            .map(|key| ArcBytes::from(key.as_bytes().to_vec()))
             .collect();
         let mut changed_keys = Vec::new();
         transaction
@@ -670,7 +670,7 @@ impl KeyValueState {
                             deleted: false,
                         });
                         let bytes = bincode::serialize(new_value).unwrap();
-                        nebari::tree::KeyOperation::Set(Buffer::from(bytes))
+                        nebari::tree::KeyOperation::Set(ArcBytes::from(bytes))
                     } else if existing_value.is_some() {
                         changed_keys.push(ChangedKey {
                             namespace,
@@ -800,7 +800,10 @@ impl Job for ExpirationLoader {
 mod tests {
     use std::time::Duration;
 
-    use bonsaidb_core::test_util::{TestDirectory, TimingTest};
+    use bonsaidb_core::{
+        arc_bytes::serde::Bytes,
+        test_util::{TestDirectory, TimingTest},
+    };
     use futures::Future;
     use nebari::io::fs::StdFile;
 
@@ -1030,7 +1033,7 @@ mod tests {
                             namespace: None,
                             key: String::from("key1"),
                             command: Command::Set(SetCommand {
-                                value: Value::Bytes(Vec::new()),
+                                value: Value::Bytes(Bytes::default()),
                                 expiration: None,
                                 keep_existing_expiration: false,
                                 check: None,
@@ -1044,7 +1047,7 @@ mod tests {
                             namespace: None,
                             key: String::from("key2"),
                             command: Command::Set(SetCommand {
-                                value: Value::Bytes(Vec::new()),
+                                value: Value::Bytes(Bytes::default()),
                                 expiration: None,
                                 keep_existing_expiration: false,
                                 check: None,
@@ -1058,7 +1061,7 @@ mod tests {
                             namespace: None,
                             key: String::from("key3"),
                             command: Command::Set(SetCommand {
-                                value: Value::Bytes(Vec::new()),
+                                value: Value::Bytes(Bytes::default()),
                                 expiration: None,
                                 keep_existing_expiration: false,
                                 check: None,
@@ -1108,7 +1111,7 @@ mod tests {
                 namespace: None,
                 key: String::from("key1"),
                 command: Command::Set(SetCommand {
-                    value: Value::Bytes(Vec::new()),
+                    value: Value::Bytes(Bytes::default()),
                     expiration: None,
                     keep_existing_expiration: false,
                     check: None,

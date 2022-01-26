@@ -208,7 +208,7 @@ where
         self.view.view_name()
     }
 
-    fn map(&self, document: &Document) -> Result<Vec<map::Serialized>, view::Error> {
+    fn map(&self, document: &Document<'_>) -> Result<Vec<map::Serialized<'static>>, view::Error> {
         let map = self.schema.map(document)?;
 
         map.into_iter()
@@ -223,7 +223,7 @@ where
                 |(key, value)| match <V::Key as Key>::from_big_endian_bytes(key) {
                     Ok(key) => {
                         let value = V::deserialize(value)?;
-                        Ok(MappedValue { key, value })
+                        Ok(MappedValue::new(key, value))
                     }
                     Err(err) => Err(view::Error::key_serialization(err)),
                 },

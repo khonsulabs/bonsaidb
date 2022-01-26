@@ -58,6 +58,7 @@ use std::{
 
 use async_trait::async_trait;
 use bonsaidb_core::{
+    arc_bytes::serde::Bytes,
     document::KeyId,
     permissions::{
         bonsai::{encryption_key_resource_name, EncryptionKeyAction},
@@ -259,7 +260,7 @@ impl Vault {
 
             let encrypted_master_keys_payload = bincode::serialize(&HpkePayload {
                 encryption: PublicKeyEncryption::X25519HkdfSha256ChaCha20,
-                payload: serialized_master_keys,
+                payload: Bytes::from(serialized_master_keys),
                 encapsulated_key,
                 tag,
             })?;
@@ -298,8 +299,7 @@ impl Vault {
             })
             .await
             .map_err(|err| Error::Initializing(format!("error reading master keys: {:?}", err)))?;
-        let mut encrypted_master_keys =
-            bincode::deserialize::<HpkePayload>(&encrypted_master_keys)?;
+        let encrypted_master_keys = bincode::deserialize::<HpkePayload>(&encrypted_master_keys)?;
         let PublicKeyEncryption::X25519HkdfSha256ChaCha20 = &encrypted_master_keys.encryption;
         if let Some(vault_key) = master_key_storage
             .vault_key_for(server_id)
@@ -315,15 +315,16 @@ impl Vault {
                             &encrypted_master_keys.encapsulated_key,
                             b"",
                         )?;
+
+                    // TODO if this wasn't wrapped in an arc this wouldn't need a copy.
+                    let mut payload = encrypted_master_keys.payload.to_vec();
                     decryption_context.open(
-                        &mut encrypted_master_keys.payload,
+                        &mut payload,
                         b"",
                         &AeadTag::<ChaCha20Poly1305>::from_bytes(&encrypted_master_keys.tag)?,
                     )?;
 
-                    bincode::deserialize::<HashMap<u32, EncryptionKey>>(
-                        &encrypted_master_keys.payload,
-                    )?
+                    bincode::deserialize::<HashMap<u32, EncryptionKey>>(&payload)?
                 }
             };
 
@@ -655,8 +656,7 @@ impl<'a> VaultPayload<'a> {
 #[derive(Serialize, Deserialize)]
 struct HpkePayload {
     encryption: PublicKeyEncryption,
-    #[serde(with = "serde_bytes")]
-    payload: Vec<u8>,
+    payload: Bytes,
     tag: [u8; 16],
     encapsulated_key: EncappedKey<X25519>,
 }

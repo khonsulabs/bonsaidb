@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     connection::Connection,
     custodian_password::ServerConfig,
-    document::Document,
+    document::{Doc, Document},
     password_config,
     schema::{
         view::{DefaultViewSerialization, ViewSchema},
@@ -101,7 +101,7 @@ impl ViewSchema for Singleton {
         1
     }
 
-    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
+    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
         Ok(document.emit())
     }
 }

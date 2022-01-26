@@ -7,6 +7,7 @@ use std::{
 
 use async_trait::async_trait;
 use bonsaidb_core::{
+    arc_bytes::{serde::Bytes, ArcBytes},
     connection::Connection,
     document::Header,
     schema::{
@@ -17,7 +18,7 @@ use bonsaidb_core::{
 use nebari::{
     io::fs::StdFile,
     tree::{AnyTreeRoot, Unversioned, Versioned},
-    Buffer, ExecutingTransaction, Tree,
+    ExecutingTransaction, Tree,
 };
 use serde::{Deserialize, Serialize};
 
@@ -141,7 +142,7 @@ fn map_view(
 ) -> Result<(), Error> {
     // Only do any work if there are invalidated documents to process
     let invalidated_ids = invalidated_entries
-        .get_range(..)?
+        .get_range(&(..))?
         .into_iter()
         .map(|(key, _)| key)
         .collect::<Vec<_>>();
@@ -281,7 +282,7 @@ impl<'a> DocumentRequest<'a> {
         &mut self,
         source: Header,
         key: &[u8],
-        value: Vec<u8>,
+        value: ArcBytes<'_>,
         mut has_reduce: bool,
     ) -> Result<bool, Error> {
         // Before altering any data, verify that the key is unique if this is a unique view.
@@ -302,7 +303,11 @@ impl<'a> DocumentRequest<'a> {
             .unwrap();
         omitted_entries.remove(self.document_id)?;
 
-        let entry_mapping = EntryMapping { source, value };
+        // TODO try borrowing
+        let entry_mapping = EntryMapping {
+            source,
+            value: Bytes::from(value),
+        };
 
         // Add a new ViewEntry or update an existing
         // ViewEntry for the key given
@@ -345,7 +350,7 @@ impl<'a> DocumentRequest<'a> {
 
                 match self.view.reduce(&mappings, false) {
                     Ok(reduced) => {
-                        entry.reduced_value = reduced;
+                        entry.reduced_value = Bytes::from(reduced);
                     }
                     Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
                         has_reduce = false;
@@ -369,10 +374,10 @@ impl<'a> DocumentRequest<'a> {
                 Vec::default()
             };
             ViewEntryCollection::from(ViewEntry {
-                key: key.to_vec(),
+                key: Bytes::from(key),
                 view_version: self.view.version(),
                 mappings: vec![entry_mapping],
-                reduced_value,
+                reduced_value: Bytes::from(reduced_value),
             })
         };
         self.save_entry_for_key(key, &view_entry)?;
@@ -413,7 +418,7 @@ impl<'a> DocumentRequest<'a> {
 
                     match self.view.reduce(&mappings, false) {
                         Ok(reduced) => {
-                            entry_collection.reduced_value = reduced;
+                            entry_collection.reduced_value = Bytes::from(reduced);
                         }
                         Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
                             has_reduce = false;
@@ -491,7 +496,7 @@ impl ViewEntryCollection {
     }
 }
 
-pub(crate) fn load_entry_for_key<F: FnOnce(&[u8]) -> Result<Option<Buffer<'static>>, Error>>(
+pub(crate) fn load_entry_for_key<F: FnOnce(&[u8]) -> Result<Option<ArcBytes<'static>>, Error>>(
     key: &[u8],
     get_entry_fn: F,
 ) -> Result<Option<ViewEntryCollection>, Error> {

@@ -16,12 +16,14 @@ use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
 use bonsaidb_core::{
     admin::User,
+    arc_bytes::serde::Bytes,
     circulate::{Message, Relay, Subscriber},
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     custodian_password::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
     },
     custom_api::{CustomApi, CustomApiResult},
+    document::Doc,
     keyvalue::{KeyOperation, KeyValue},
     networking::{
         self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
@@ -54,7 +56,6 @@ use flume::Sender;
 use futures::{Future, StreamExt};
 use rustls::sign::CertifiedKey;
 use schema::SchemaName;
-use serde_bytes::ByteBuf;
 #[cfg(not(windows))]
 use signal_hook::consts::SIGQUIT;
 use signal_hook::consts::{SIGINT, SIGTERM};
@@ -656,7 +657,7 @@ impl<B: Backend> CustomServer<B> {
                     wrapped: Response::Database(DatabaseResponse::MessageReceived {
                         subscriber_id,
                         topic: message.topic.clone(),
-                        payload: message.payload.clone(),
+                        payload: Bytes::from(&message.payload[..]),
                     }),
                 })
                 .is_err()
@@ -1036,7 +1037,10 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
 
 #[derive(Dispatcher, Debug)]
 #[dispatcher(input = Request<<B::CustomApi as CustomApi>::Request>, input = ServerRequest, actionable = bonsaidb_core::actionable)]
-struct ServerDispatcher<'s, B: Backend> {
+struct ServerDispatcher<'s, B>
+where
+    B: Backend,
+{
     server: &'s CustomServer<B>,
     client: &'s ConnectedClient<B>,
     subscribers: &'s Arc<RwLock<HashMap<u64, Subscriber>>>,
@@ -1558,7 +1562,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
     async fn resource_name<'a>(
         &'a self,
         view: &'a ViewName,
-        _key: &'a Option<QueryKey<ByteBuf>>,
+        _key: &'a Option<QueryKey<Bytes>>,
         _order: &'a Sort,
         _limit: &'a Option<usize>,
         _access_policy: &'a AccessPolicy,
@@ -1575,7 +1579,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
         &self,
         _permissions: &Permissions,
         view: ViewName,
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
@@ -1606,7 +1610,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispat
     async fn resource_name<'a>(
         &'a self,
         view: &'a ViewName,
-        _key: &'a Option<QueryKey<ByteBuf>>,
+        _key: &'a Option<QueryKey<Bytes>>,
         _access_policy: &'a AccessPolicy,
         _grouped: &'a bool,
     ) -> Result<ResourceName<'a>, Error> {
@@ -1621,7 +1625,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispat
         &self,
         _permissions: &Permissions,
         view: ViewName,
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
         grouped: bool,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
@@ -1638,7 +1642,9 @@ impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispat
                 .database
                 .reduce_by_name(&view, key, access_policy)
                 .await?;
-            Ok(Response::Database(DatabaseResponse::ViewReduction(value)))
+            Ok(Response::Database(DatabaseResponse::ViewReduction(
+                Bytes::from(value),
+            )))
         }
     }
 }
@@ -1692,7 +1698,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::DeleteDocsHandler for DatabaseDi
     async fn resource_name<'a>(
         &'a self,
         view: &'a ViewName,
-        _key: &'a Option<QueryKey<ByteBuf>>,
+        _key: &'a Option<QueryKey<Bytes>>,
         _access_policy: &'a AccessPolicy,
     ) -> Result<ResourceName<'a>, Error> {
         Ok(view_resource_name(&self.name, view))
@@ -1706,7 +1712,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::DeleteDocsHandler for DatabaseDi
         &self,
         _permissions: &Permissions,
         view: ViewName,
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let count = self
@@ -1825,7 +1831,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishHandler for DatabaseDispa
     async fn resource_name<'a>(
         &'a self,
         topic: &'a String,
-        _payload: &'a Vec<u8>,
+        _payload: &'a Bytes,
     ) -> Result<ResourceName<'a>, Error> {
         Ok(pubsub_topic_resource_name(&self.name, topic))
     }
@@ -1838,11 +1844,11 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishHandler for DatabaseDispa
         &self,
         _permissions: &Permissions,
         topic: String,
-        payload: Vec<u8>,
+        payload: Bytes,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         self.server_dispatcher
             .server
-            .publish_message(&self.name, &topic, payload)
+            .publish_message(&self.name, &topic, payload.into_vec())
             .await;
         Ok(Response::Ok)
     }
@@ -1854,7 +1860,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishToAllHandler for Database
         &self,
         permissions: &Permissions,
         topics: &Vec<String>,
-        _payload: &Vec<u8>,
+        _payload: &Bytes,
     ) -> Result<(), Error> {
         for topic in topics {
             let topic_name = pubsub_topic_resource_name(&self.name, topic);
@@ -1874,11 +1880,11 @@ impl<'s, B: Backend> bonsaidb_core::networking::PublishToAllHandler for Database
         &self,
         _permissions: &Permissions,
         topics: Vec<String>,
-        payload: Vec<u8>,
+        payload: Bytes,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         self.server_dispatcher
             .server
-            .publish_serialized_to_all(&self.name, &topics, payload)
+            .publish_serialized_to_all(&self.name, &topics, payload.into_vec())
             .await;
         Ok(Response::Ok)
     }

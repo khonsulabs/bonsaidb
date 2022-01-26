@@ -1,3 +1,4 @@
+use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -46,12 +47,12 @@ impl Transaction {
     /// Inserts a new document with `contents` into `collection`.  If `id` is
     /// `None` a unique id will be generated. If an id is provided and a
     /// document already exists with that id, a conflict error will be returned.
-    pub fn insert(collection: CollectionName, id: Option<u64>, contents: Vec<u8>) -> Self {
+    pub fn insert(collection: CollectionName, id: Option<u64>, contents: impl Into<Bytes>) -> Self {
         Self::from(Operation::insert(collection, id, contents))
     }
 
     /// Updates a document in `collection`.
-    pub fn update(collection: CollectionName, header: Header, contents: Vec<u8>) -> Self {
+    pub fn update(collection: CollectionName, header: Header, contents: impl Into<Bytes>) -> Self {
         Self::from(Operation::update(collection, header, contents))
     }
 
@@ -76,10 +77,13 @@ impl Operation {
     /// Inserts a new document with `contents` into `collection`.  If `id` is
     /// `None` a unique id will be generated. If an id is provided and a
     /// document already exists with that id, a conflict error will be returned.
-    pub const fn insert(collection: CollectionName, id: Option<u64>, contents: Vec<u8>) -> Self {
+    pub fn insert(collection: CollectionName, id: Option<u64>, contents: impl Into<Bytes>) -> Self {
         Self {
             collection,
-            command: Command::Insert { id, contents },
+            command: Command::Insert {
+                id,
+                contents: contents.into(),
+            },
         }
     }
 
@@ -96,10 +100,13 @@ impl Operation {
     }
 
     /// Updates a document in `collection`.
-    pub const fn update(collection: CollectionName, header: Header, contents: Vec<u8>) -> Self {
+    pub fn update(collection: CollectionName, header: Header, contents: impl Into<Bytes>) -> Self {
         Self {
             collection,
-            command: Command::Update { header, contents },
+            command: Command::Update {
+                header,
+                contents: contents.into(),
+            },
         }
     }
 
@@ -132,8 +139,7 @@ pub enum Command {
         /// that id, a conflict error will be returned.
         id: Option<u64>,
         /// The initial contents of the document.
-        #[serde(with = "serde_bytes")]
-        contents: Vec<u8>,
+        contents: Bytes,
     },
 
     /// Update an existing `Document` identified by `id`. `revision` must match
@@ -145,8 +151,7 @@ pub enum Command {
         header: Header,
 
         /// The new contents to store within the `Document`.
-        #[serde(with = "serde_bytes")]
-        contents: Vec<u8>,
+        contents: Bytes,
     },
 
     /// Delete an existing `Document` identified by `id`. `revision` must match

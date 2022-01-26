@@ -749,7 +749,7 @@ async fn process_response_payload<A: CustomApi>(
                     if sender
                         .send(std::sync::Arc::new(bonsaidb_core::circulate::Message {
                             topic,
-                            payload,
+                            payload: payload.to_vec(), // TODO convert circulate to ArcBytes?
                         }))
                         .is_err()
                     {

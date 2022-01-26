@@ -1,3 +1,4 @@
+use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 mod timestamp;
@@ -6,6 +7,7 @@ pub use self::timestamp::Timestamp;
 use crate::Error;
 
 mod implementation {
+    use arc_bytes::serde::Bytes;
     use async_trait::async_trait;
     use futures::future::BoxFuture;
     use serde::Serialize;
@@ -200,8 +202,8 @@ mod implementation {
     {
         fn prepare(self) -> Result<Value, Error> {
             match self {
-                Self::Bytes(bytes) => Ok(Value::Bytes(bytes.to_vec())),
-                Self::Serializeable(value) => Ok(Value::Bytes(pot::to_vec(value)?)),
+                Self::Bytes(bytes) => Ok(Value::Bytes(Bytes::from(bytes))),
+                Self::Serializeable(value) => Ok(Value::Bytes(Bytes::from(pot::to_vec(value)?))),
                 Self::Numeric(numeric) => Ok(Value::Numeric(numeric)),
             }
         }
@@ -287,7 +289,7 @@ pub struct SetCommand {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum Value {
     /// A value stored as a byte array.
-    Bytes(#[serde(with = "serde_bytes")] Vec<u8>),
+    Bytes(Bytes),
     /// A numeric value.
     Numeric(Numeric),
 }

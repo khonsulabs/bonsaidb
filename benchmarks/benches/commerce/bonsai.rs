@@ -448,8 +448,8 @@ impl CollectionViewSchema for ProductsByCategoryId {
 
     fn map(
         &self,
-        document: CollectionDocument<<Self as View>::Collection>,
-    ) -> ViewMapResult<Self::View> {
+        document: CollectionDocument<<Self::View as View>::Collection>,
+    ) -> ViewMapResult<'static, Self::View> {
         let mut mappings = Mappings::default();
         for &id in &document.contents.category_ids {
             mappings = mappings.and(document.emit_key_and_value(id, 1));
@@ -496,7 +496,7 @@ impl CollectionViewSchema for ProductReviewsByProduct {
     fn map(
         &self,
         document: CollectionDocument<<Self as View>::Collection>,
-    ) -> ViewMapResult<Self::View> {
+    ) -> ViewMapResult<'static, Self::View> {
         Ok(document.emit_key_and_value(
             document.contents.product_id,
             ProductRatings {

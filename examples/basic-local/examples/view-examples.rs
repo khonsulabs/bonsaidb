@@ -1,6 +1,7 @@
 use bonsaidb::{
     core::{
         connection::Connection,
+        document::Doc,
         schema::{
             view::CollectionViewSchema, Collection, CollectionDocument, CollectionName,
             DefaultSerialization, DefaultViewSerialization, Name, ReduceResult, Schematic,
@@ -49,7 +50,7 @@ impl View for ShapesByNumberOfSides {
 impl CollectionViewSchema for ShapesByNumberOfSides {
     type View = Self;
 
-    fn map(&self, document: CollectionDocument<Shape>) -> ViewMapResult<Self::View> {
+    fn map(&self, document: CollectionDocument<Shape>) -> ViewMapResult<'static, Self::View> {
         Ok(document.emit_key_and_value(document.contents.sides, 1))
     }
 

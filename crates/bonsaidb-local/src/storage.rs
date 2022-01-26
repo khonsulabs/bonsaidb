@@ -573,7 +573,7 @@ impl StorageConnection for Storage {
             .await?
             .first()
         {
-            admin.delete::<DatabaseRecord>(&entry.document).await?;
+            admin.delete::<DatabaseRecord, _>(&entry.document).await?;
 
             Ok(())
         } else {
