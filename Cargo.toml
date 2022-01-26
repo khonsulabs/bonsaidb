@@ -22,10 +22,10 @@ members = [
 # transmog-pot = { git = "https://github.com/khonsulabs/transmog.git", branch = "main" }
 # pot = { path = "../pot/pot", version = "1.0.0-rc.2" }
 # fabruic = { path = "../fabruic", version = "0.0.1-dev.3" }
-actionable = { git = "https://github.com/khonsulabs/actionable.git", branch = "lifetimes" }
+# actionable = { git = "https://github.com/khonsulabs/actionable.git", branch = "lifetimes" }
 # actionable = { path = "../actionable/actionable", version = "0.1.0-rc.1" }
 # nebari = { path = "../nebari/nebari", version = "0.1" }
-nebari = { git = "https://github.com/khonsulabs/nebari.git", branch = "main" }
+# nebari = { git = "https://github.com/khonsulabs/nebari.git", branch = "main" }
 # arc-bytes = { path = "../shared-buffer" }
 
 # [patch."https://github.com/khonsulabs/custodian.git"]

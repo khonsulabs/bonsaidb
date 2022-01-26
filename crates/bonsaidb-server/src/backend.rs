@@ -69,11 +69,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
 
 /// A trait that can dispatch requests for a [`CustomApi`].
 pub trait CustomApiDispatcher<B: Backend>:
-    Dispatcher<
-        'static,
-        <B::CustomApi as CustomApi>::Request,
-        Result = BackendApiResult<B::CustomApi>,
-    > + Debug
+    Dispatcher<<B::CustomApi as CustomApi>::Request, Result = BackendApiResult<B::CustomApi>> + Debug
 {
     /// Returns a dispatcher to handle custom api requests. The `server` and
     /// `client` parameters are provided to allow the dispatcher to have access
@@ -103,7 +99,7 @@ impl<B: Backend<CustomApi = ()>> CustomApiDispatcher<B> for NoDispatcher<B> {
 }
 
 #[async_trait]
-impl<B: Backend<CustomApi = ()>> actionable::Dispatcher<'static, ()> for NoDispatcher<B> {
+impl<B: Backend<CustomApi = ()>> actionable::Dispatcher<()> for NoDispatcher<B> {
     type Result = Result<(), BackendError>;
 
     async fn dispatch(&self, _permissions: &actionable::Permissions, _request: ()) -> Self::Result {
