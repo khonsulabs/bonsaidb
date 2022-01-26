@@ -1,10 +1,11 @@
 use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
+mod sorted_set;
 mod timestamp;
 
 pub use self::timestamp::Timestamp;
-use crate::Error;
+use crate::{keyvalue::sorted_set::SortedSet, Error};
 
 mod implementation {
     use arc_bytes::serde::Bytes;
@@ -286,12 +287,14 @@ pub struct SetCommand {
 }
 
 /// A value stored in a key.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Value {
     /// A value stored as a byte array.
     Bytes(Bytes),
     /// A numeric value.
     Numeric(Numeric),
+    /// A set of values sorted by an associated value.
+    SortedSet(SortedSet),
 }
 
 impl Value {
@@ -299,72 +302,79 @@ impl Value {
     pub fn validate(self) -> Result<Self, Error> {
         match self {
             Self::Numeric(numeric) => numeric.validate().map(Self::Numeric),
-            Self::Bytes(vec) => Ok(Self::Bytes(vec)),
+            other => Ok(other),
         }
     }
 
     /// Deserializes the bytes contained inside of this value. Returns an error
     /// if this value doesn't contain bytes.
     pub fn deserialize<V: for<'de> Deserialize<'de>>(&self) -> Result<V, Error> {
-        match self {
-            Self::Bytes(bytes) => Ok(pot::from_slice(bytes)?),
-            Self::Numeric(_) => Err(Error::Database(String::from(
-                "key contains numeric value, not serialized data",
-            ))),
+        if let Self::Bytes(bytes) = self {
+            pot::from_slice(bytes).map_err(Error::from)
+        } else {
+            Err(Error::Database(String::from(
+                "key contains another type of data",
+            )))
         }
     }
 
     /// Returns this value as an `i64`, allowing for precision to be lost if the type was not an `i64` originally. If saturating is true, the conversion will not allow overflows. Returns None if the value is bytes.
     #[must_use]
     pub fn as_i64_lossy(&self, saturating: bool) -> Option<i64> {
-        match self {
-            Self::Bytes(_) => None,
-            Self::Numeric(value) => Some(value.as_i64_lossy(saturating)),
+        if let Self::Numeric(value) = self {
+            Some(value.as_i64_lossy(saturating))
+        } else {
+            None
         }
     }
 
     /// Returns this value as an `u64`, allowing for precision to be lost if the type was not an `u64` originally. If saturating is true, the conversion will not allow overflows. Returns None if the value is bytes.
     #[must_use]
     pub fn as_u64_lossy(&self, saturating: bool) -> Option<u64> {
-        match self {
-            Self::Bytes(_) => None,
-            Self::Numeric(value) => Some(value.as_u64_lossy(saturating)),
+        if let Self::Numeric(value) = self {
+            Some(value.as_u64_lossy(saturating))
+        } else {
+            None
         }
     }
 
     /// Returns this value as an `f64`, allowing for precision to be lost if the type was not an `f64` originally. Returns None if the value is bytes.
     #[must_use]
     pub const fn as_f64_lossy(&self) -> Option<f64> {
-        match self {
-            Self::Bytes(_) => None,
-            Self::Numeric(value) => Some(value.as_f64_lossy()),
+        if let Self::Numeric(value) = self {
+            Some(value.as_f64_lossy())
+        } else {
+            None
         }
     }
 
     /// Returns this numeric as an `i64`, allowing for precision to be lost if the type was not an `i64` originally. Returns None if the value is bytes.
     #[must_use]
     pub fn as_i64(&self) -> Option<i64> {
-        match self {
-            Self::Bytes(_) => None,
-            Self::Numeric(value) => value.as_i64(),
+        if let Self::Numeric(value) = self {
+            value.as_i64()
+        } else {
+            None
         }
     }
 
     /// Returns this numeric as an `u64`, allowing for precision to be lost if the type was not an `u64` originally. Returns None if the value is bytes.
     #[must_use]
     pub fn as_u64(&self) -> Option<u64> {
-        match self {
-            Self::Bytes(_) => None,
-            Self::Numeric(value) => value.as_u64(),
+        if let Self::Numeric(value) = self {
+            value.as_u64()
+        } else {
+            None
         }
     }
 
     /// Returns this numeric as an `f64`, allowing for precision to be lost if the type was not an `f64` originally. Returns None if the value is bytes.
     #[must_use]
     pub const fn as_f64(&self) -> Option<f64> {
-        match self {
-            Self::Bytes(_) => None,
-            Self::Numeric(value) => value.as_f64(),
+        if let Self::Numeric(value) = self {
+            value.as_f64()
+        } else {
+            None
         }
     }
 }

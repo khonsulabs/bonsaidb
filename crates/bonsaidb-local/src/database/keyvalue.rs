@@ -487,17 +487,16 @@ impl KeyValueState {
             last_updated: now,
         });
 
-        match entry.value {
-            Value::Numeric(existing) => {
-                let value = Value::Numeric(op(&existing, amount, saturating).validate()?);
-                entry.value = value.clone();
+        if let Value::Numeric(existing) = entry.value {
+            let value = Value::Numeric(op(&existing, amount, saturating).validate()?);
+            entry.value = value.clone();
 
-                self.set(full_key, entry);
-                Ok(Output::Value(Some(value)))
-            }
-            Value::Bytes(_) => Err(bonsaidb_core::Error::Database(String::from(
+            self.set(full_key, entry);
+            Ok(Output::Value(Some(value)))
+        } else {
+            Err(bonsaidb_core::Error::Database(String::from(
                 "type of stored `Value` is not `Numeric`",
-            ))),
+            )))
         }
     }
 
