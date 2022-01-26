@@ -845,7 +845,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         assert!(!changed_documents[0].deleted);
     }
 
-    db.delete::<Basic, _>(&doc).await?;
+    db.collection::<Basic>().delete(&doc).await?;
     assert!(collection.get(header.id).await?.is_none());
     let transactions = db
         .list_executed_transactions(Some(transactions.last().as_ref().unwrap().id + 1), None)
@@ -1264,7 +1264,7 @@ pub async fn view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     assert_eq!(db.view::<BasicByParentId>().reduce().await?, 2);
 
     // Test deleting a record and ensuring it goes away
-    db.delete::<Basic, _>(&doc).await?;
+    db.collection::<Basic>().delete(&doc).await?;
 
     let all_entries = db.view::<BasicByParentId>().query().await?;
     assert_eq!(all_entries.len(), 1);

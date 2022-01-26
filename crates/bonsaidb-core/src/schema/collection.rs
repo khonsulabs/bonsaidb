@@ -339,9 +339,7 @@ where
 
     /// Removes the document from the collection.
     pub async fn delete<Cn: Connection>(&self, connection: &Cn) -> Result<(), Error> {
-        let doc = self.to_document()?;
-
-        connection.delete::<C, _>(&doc).await?;
+        connection.collection::<C>().delete(self).await?;
 
         Ok(())
     }

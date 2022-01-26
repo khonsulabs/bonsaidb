@@ -28,7 +28,7 @@ use crate::{
 #[async_trait]
 pub trait Connection: Send + Sync {
     /// Accesses a collection for the connected [`schema::Schema`].
-    fn collection<'a, C: schema::Collection + 'static>(&'a self) -> Collection<'a, Self, C>
+    fn collection<C: schema::Collection>(&self) -> Collection<'_, Self, C>
     where
         Self: Sized,
     {
@@ -305,6 +305,14 @@ where
                 limit: None,
             })),
         }
+    }
+
+    /// Removes a `Document` from the database.
+    pub async fn delete<H: Deref<Target = Header> + Send + Sync>(
+        &self,
+        doc: &H,
+    ) -> Result<(), Error> {
+        self.connection.delete::<Cl, H>(doc).await
     }
 }
 
