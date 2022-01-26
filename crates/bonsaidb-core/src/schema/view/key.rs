@@ -2,7 +2,10 @@ use std::{
     borrow::Cow, convert::Infallible, io::ErrorKind, num::TryFromIntError, string::FromUtf8Error,
 };
 
-use arc_bytes::{serde::Bytes, ArcBytes};
+use arc_bytes::{
+    serde::{Bytes, CowBytes},
+    ArcBytes,
+};
 use num_traits::{FromPrimitive, ToPrimitive};
 use ordered_varint::{Signed, Unsigned, Variable};
 
@@ -65,6 +68,21 @@ impl<'a> Key<'a> for ArcBytes<'a> {
         Ok(Self::from(bytes))
     }
 }
+
+impl<'a> Key<'a> for CowBytes<'a> {
+    type Error = Infallible;
+
+    const LENGTH: Option<usize> = None;
+
+    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+        Ok(self.0.clone())
+    }
+
+    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Ok(Self::from(bytes))
+    }
+}
+
 impl<'a> Key<'a> for Bytes {
     type Error = Infallible;
 

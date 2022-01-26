@@ -3,7 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use arc_bytes::{serde::Bytes, ArcBytes};
+use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
 #[cfg(feature = "multiuser")]
 use custodian_password::{
@@ -39,7 +39,7 @@ pub trait Connection: Send + Sync {
     /// for the [`Collection`] `C`. If `id` is `None` a unique id will be
     /// generated. If an id is provided and a document already exists with that
     /// id, a conflict error will be returned.
-    async fn insert<C: schema::Collection, B: Into<ArcBytes<'static>> + Send>(
+    async fn insert<C: schema::Collection, B: Into<Bytes> + Send>(
         &self,
         id: Option<u64>,
         contents: B,
@@ -560,11 +560,14 @@ impl<K: for<'a> Key<'a>> QueryKey<K> {
 }
 
 #[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
-impl<'a> QueryKey<ArcBytes<'a>> {
+impl<'a, T> QueryKey<T>
+where
+    T: AsRef<[u8]>,
+{
     /// Deserializes the bytes into `K` via the [`Key`] trait.
     pub fn deserialized<K: for<'k> Key<'k>>(&self) -> Result<QueryKey<K>, Error> {
         match self {
-            Self::Matches(key) => K::from_big_endian_bytes(key)
+            Self::Matches(key) => K::from_big_endian_bytes(key.as_ref())
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
                 .map(QueryKey::Matches),
             Self::Range(range) => Ok(QueryKey::Range(range.deserialize().map_err(|err| {
@@ -574,7 +577,7 @@ impl<'a> QueryKey<ArcBytes<'a>> {
                 let keys = keys
                     .iter()
                     .map(|key| {
-                        K::from_big_endian_bytes(key).map_err(|err| {
+                        K::from_big_endian_bytes(key.as_ref()).map_err(|err| {
                             Error::Database(view::Error::key_serialization(err).to_string())
                         })
                     })
@@ -634,19 +637,12 @@ impl<'a, T: Key<'a>> Range<T> {
     }
 }
 
-impl<'a> Range<ArcBytes<'a>> {
+impl<'a, B> Range<B>
+where
+    B: AsRef<[u8]>,
+{
     /// Deserializes the range's contained values from big-endian bytes.
     pub fn deserialize<T: for<'k> Key<'k>>(&'a self) -> Result<Range<T>, <T as Key<'_>>::Error> {
-        Ok(Range {
-            start: self.start.deserialize()?,
-            end: self.start.deserialize()?,
-        })
-    }
-}
-
-impl Range<Bytes> {
-    /// Deserializes the range's contained values from big-endian bytes.
-    pub fn deserialize<T: for<'k> Key<'k>>(&self) -> Result<Range<T>, <T as Key<'_>>::Error> {
         Ok(Range {
             start: self.start.deserialize()?,
             end: self.start.deserialize()?,
@@ -689,24 +685,20 @@ impl<'a, T: Key<'a>> Bound<T> {
     }
 }
 
-impl<'a> Bound<ArcBytes<'a>> {
+impl<'a, B> Bound<B>
+where
+    B: AsRef<[u8]>,
+{
     /// Deserializes the bound's contained value from big-endian bytes.
     pub fn deserialize<T: for<'k> Key<'k>>(&'a self) -> Result<Bound<T>, <T as Key<'_>>::Error> {
         match self {
             Bound::Unbounded => Ok(Bound::Unbounded),
-            Bound::Included(value) => Ok(Bound::Included(T::from_big_endian_bytes(value)?)),
-            Bound::Excluded(value) => Ok(Bound::Excluded(T::from_big_endian_bytes(value)?)),
-        }
-    }
-}
-
-impl Bound<Bytes> {
-    /// Deserializes the bound's contained value from big-endian bytes.
-    pub fn deserialize<T: for<'k> Key<'k>>(&self) -> Result<Bound<T>, <T as Key<'_>>::Error> {
-        match self {
-            Bound::Unbounded => Ok(Bound::Unbounded),
-            Bound::Included(value) => Ok(Bound::Included(T::from_big_endian_bytes(value)?)),
-            Bound::Excluded(value) => Ok(Bound::Excluded(T::from_big_endian_bytes(value)?)),
+            Bound::Included(value) => {
+                Ok(Bound::Included(T::from_big_endian_bytes(value.as_ref())?))
+            }
+            Bound::Excluded(value) => {
+                Ok(Bound::Excluded(T::from_big_endian_bytes(value.as_ref())?))
+            }
         }
     }
 }
