@@ -92,6 +92,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    if: ${{ github.ref == 'refs/heads/main' }}
     needs: [commerce, microbenchmarks]
     steps:
       - uses: actions/checkout@v2
@@ -104,8 +105,6 @@ jobs:
           mv microbenchmarks reports/suite
 
       - name: Deploy Docs
-        # TODO remove commerce-bench after merge
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/commerce-bench' }}
         uses: JamesIves/github-pages-deploy-action@releases/v4
         with:
           branch: gh-pages
