@@ -5,7 +5,7 @@ use transmog::{Format, OwnedDeserializer};
 use transmog_pot::Pot;
 
 use crate::{
-    document::Document,
+    document::BorrowedDocument,
     schema::{
         view::map::{Mappings, ViewMappedValue},
         Collection, CollectionDocument, CollectionName, Name, SerializedCollection, ViewName,
@@ -61,7 +61,7 @@ pub trait View: Send + Sync + Debug + 'static {
     /// The collection this view belongs to
     type Collection: Collection;
     /// The key for this view.
-    type Key: Key + 'static;
+    type Key: for<'a> Key<'a> + 'static;
     /// An associated type that can be stored with each entry in the view.
     type Value: Send + Sync;
 
@@ -106,7 +106,7 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     /// View. If None is returned, the View will not include the document. See [the user guide's chapter on
     /// views for more information on how map
     /// works](https://dev.bonsaidb.io/guide/about/concepts/view.html#map).
-    fn map(&self, document: &Document) -> ViewMapResult<Self::View>;
+    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View>;
 
     /// Returns a value that is produced by reducing a list of `mappings` into a
     /// single value. If `rereduce` is true, the values contained in the
@@ -226,7 +226,7 @@ where
         T::version(self)
     }
 
-    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
+    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
         T::map(self, CollectionDocument::try_from(document)?)
     }
 
@@ -254,7 +254,7 @@ pub trait Serialized: Send + Sync + Debug {
     /// Wraps [`View::view_name`]
     fn view_name(&self) -> ViewName;
     /// Wraps [`ViewSchema::map`]
-    fn map(&self, document: &Document) -> Result<Vec<map::Serialized>, Error>;
+    fn map(&self, document: &BorrowedDocument<'_>) -> Result<Vec<map::Serialized>, Error>;
     /// Wraps [`ViewSchema::reduce`]
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, Error>;
 }

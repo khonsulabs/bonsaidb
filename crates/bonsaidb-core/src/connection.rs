@@ -1,5 +1,9 @@
-use std::marker::PhantomData;
+use std::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+};
 
+use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
 #[cfg(feature = "multiuser")]
 use custodian_password::{
@@ -8,12 +12,11 @@ use custodian_password::{
 };
 use futures::{future::BoxFuture, Future, FutureExt};
 use serde::{Deserialize, Serialize};
-use serde_bytes::ByteBuf;
 
 #[cfg(feature = "multiuser")]
 use crate::schema::NamedReference;
 use crate::{
-    document::{Document, Header},
+    document::{Document, Header, OwnedDocument},
     schema::{
         self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName, SerializedCollection,
     },
@@ -36,11 +39,12 @@ pub trait Connection: Send + Sync {
     /// for the [`Collection`] `C`. If `id` is `None` a unique id will be
     /// generated. If an id is provided and a document already exists with that
     /// id, a conflict error will be returned.
-    async fn insert<C: schema::Collection>(
+    async fn insert<C: schema::Collection, B: Into<Bytes> + Send>(
         &self,
         id: Option<u64>,
-        contents: Vec<u8>,
+        contents: B,
     ) -> Result<Header, Error> {
+        let contents = contents.into();
         let results = self
             .apply_transaction(Transaction::insert(C::collection_name(), id, contents))
             .await?;
@@ -56,16 +60,19 @@ pub trait Connection: Send + Sync {
     /// Updates an existing document in the connected [`schema::Schema`] for the
     /// [`Collection`] `C`. Upon success, `doc.revision` will be updated with
     /// the new revision.
-    async fn update<C: schema::Collection>(&self, doc: &mut Document) -> Result<(), Error> {
+    async fn update<'a, C: schema::Collection, D: Document<'a> + Send + Sync>(
+        &self,
+        doc: &mut D,
+    ) -> Result<(), Error> {
         let results = self
             .apply_transaction(Transaction::update(
                 C::collection_name(),
-                doc.header.clone(),
-                doc.contents.clone(),
+                <D as Deref>::deref(doc).clone(),
+                doc.as_ref().to_vec(),
             ))
             .await?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            doc.header = header;
+            *<D as DerefMut>::deref_mut(doc) = header;
             Ok(())
         } else {
             unreachable!(
@@ -75,14 +82,14 @@ pub trait Connection: Send + Sync {
     }
 
     /// Retrieves a stored document from [`Collection`] `C` identified by `id`.
-    async fn get<C: schema::Collection>(&self, id: u64) -> Result<Option<Document>, Error>;
+    async fn get<C: schema::Collection>(&self, id: u64) -> Result<Option<OwnedDocument>, Error>;
 
     /// Retrieves all documents matching `ids`. Documents that are not found
     /// are not returned, but no error will be generated.
     async fn get_multiple<C: schema::Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<Document>, Error>;
+    ) -> Result<Vec<OwnedDocument>, Error>;
 
     /// Retrieves all documents within the range of `ids`. Documents that are
     /// not found are not returned, but no error will be generated. To retrieve
@@ -92,14 +99,17 @@ pub trait Connection: Send + Sync {
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<Document>, Error>;
+    ) -> Result<Vec<OwnedDocument>, Error>;
 
     /// Removes a `Document` from the database.
-    async fn delete<C: schema::Collection>(&self, doc: &Document) -> Result<(), Error> {
+    async fn delete<C: schema::Collection, H: Deref<Target = Header> + Send + Sync>(
+        &self,
+        doc: &H,
+    ) -> Result<(), Error> {
         let results = self
             .apply_transaction(Transaction::delete(
                 C::collection_name(),
-                doc.header.clone(),
+                doc.deref().clone(),
             ))
             .await?;
         if let OperationResult::DocumentDeleted { .. } = &results[0] {
@@ -263,7 +273,7 @@ where
         Cl: schema::SerializedCollection,
     {
         let contents = Cl::serialize(item)?;
-        Ok(self.connection.insert::<Cl>(None, contents).await?)
+        Ok(self.connection.insert::<Cl, _>(None, contents).await?)
     }
 
     /// Adds a new `Document<Cl>` with the given `id` and contents `item`.
@@ -276,11 +286,11 @@ where
         Cl: schema::SerializedCollection,
     {
         let contents = Cl::serialize(item)?;
-        Ok(self.connection.insert::<Cl>(Some(id), contents).await?)
+        Ok(self.connection.insert::<Cl, _>(Some(id), contents).await?)
     }
 
     /// Retrieves a `Document<Cl>` with `id` from the connection.
-    pub async fn get(&self, id: u64) -> Result<Option<Document>, Error> {
+    pub async fn get(&self, id: u64) -> Result<Option<OwnedDocument>, Error> {
         self.connection.get::<Cl>(id).await
     }
 
@@ -307,7 +317,7 @@ struct ListBuilder<'a, Cn, Cl, R> {
 
 enum ListState<'a, Cn, Cl, R> {
     Pending(Option<ListBuilder<'a, Cn, Cl, R>>),
-    Executing(BoxFuture<'a, Result<Vec<Document>, Error>>),
+    Executing(BoxFuture<'a, Result<Vec<OwnedDocument>, Error>>),
 }
 
 /// Executes [`Connection::list()`] when awaited. Also offers methods to
@@ -353,7 +363,7 @@ where
     Cl: schema::Collection,
     R: Into<Range<u64>> + Send + 'a + Unpin,
 {
-    type Output = Result<Vec<Document>, Error>;
+    type Output = Result<Vec<OwnedDocument>, Error>;
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
@@ -520,14 +530,14 @@ pub enum QueryKey<K> {
 }
 
 #[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
-impl<K: Key> QueryKey<K> {
+impl<K: for<'a> Key<'a>> QueryKey<K> {
     /// Converts this key to a serialized format using the [`Key`] trait.
-    pub fn serialized(&self) -> Result<QueryKey<ByteBuf>, Error> {
+    pub fn serialized(&self) -> Result<QueryKey<Bytes>, Error> {
         match self {
             Self::Matches(key) => key
                 .as_big_endian_bytes()
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
-                .map(|v| QueryKey::Matches(ByteBuf::from(v.to_vec()))),
+                .map(|v| QueryKey::Matches(Bytes::from(v.to_vec()))),
             Self::Range(range) => Ok(QueryKey::Range(range.as_big_endian_bytes().map_err(
                 |err| Error::Database(view::Error::key_serialization(err).to_string()),
             )?)),
@@ -536,7 +546,7 @@ impl<K: Key> QueryKey<K> {
                     .iter()
                     .map(|key| {
                         key.as_big_endian_bytes()
-                            .map(|key| ByteBuf::from(key.to_vec()))
+                            .map(|key| Bytes::from(key.to_vec()))
                             .map_err(|err| {
                                 Error::Database(view::Error::key_serialization(err).to_string())
                             })
@@ -550,11 +560,14 @@ impl<K: Key> QueryKey<K> {
 }
 
 #[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
-impl QueryKey<ByteBuf> {
+impl<'a, T> QueryKey<T>
+where
+    T: AsRef<[u8]>,
+{
     /// Deserializes the bytes into `K` via the [`Key`] trait.
-    pub fn deserialized<K: Key>(&self) -> Result<QueryKey<K>, Error> {
+    pub fn deserialized<K: for<'k> Key<'k>>(&self) -> Result<QueryKey<K>, Error> {
         match self {
-            Self::Matches(key) => K::from_big_endian_bytes(key)
+            Self::Matches(key) => K::from_big_endian_bytes(key.as_ref())
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
                 .map(QueryKey::Matches),
             Self::Range(range) => Ok(QueryKey::Range(range.deserialize().map_err(|err| {
@@ -564,7 +577,7 @@ impl QueryKey<ByteBuf> {
                 let keys = keys
                     .iter()
                     .map(|key| {
-                        K::from_big_endian_bytes(key).map_err(|err| {
+                        K::from_big_endian_bytes(key.as_ref()).map_err(|err| {
                             Error::Database(view::Error::key_serialization(err).to_string())
                         })
                     })
@@ -604,11 +617,19 @@ impl<T> Range<T> {
             end: self.end.map(&map),
         }
     }
+
+    /// Maps each contained value as a reference.
+    pub fn map_ref<U: ?Sized, F: Fn(&T) -> &U>(&self, map: F) -> Range<&U> {
+        Range {
+            start: self.start.map_ref(&map),
+            end: self.end.map_ref(&map),
+        }
+    }
 }
 
-impl<T: Key> Range<T> {
+impl<'a, T: Key<'a>> Range<T> {
     /// Serializes the range's contained values to big-endian bytes.
-    pub fn as_big_endian_bytes(&self) -> Result<Range<ByteBuf>, T::Error> {
+    pub fn as_big_endian_bytes(&'a self) -> Result<Range<Bytes>, T::Error> {
         Ok(Range {
             start: self.start.as_big_endian_bytes()?,
             end: self.end.as_big_endian_bytes()?,
@@ -616,9 +637,12 @@ impl<T: Key> Range<T> {
     }
 }
 
-impl Range<ByteBuf> {
+impl<'a, B> Range<B>
+where
+    B: AsRef<[u8]>,
+{
     /// Deserializes the range's contained values from big-endian bytes.
-    pub fn deserialize<T: Key>(&self) -> Result<Range<T>, T::Error> {
+    pub fn deserialize<T: for<'k> Key<'k>>(&'a self) -> Result<Range<T>, <T as Key<'_>>::Error> {
         Ok(Range {
             start: self.start.deserialize()?,
             end: self.start.deserialize()?,
@@ -635,30 +659,46 @@ impl<T> Bound<T> {
             Bound::Excluded(value) => Bound::Excluded(map(value)),
         }
     }
+
+    /// Maps each contained value as a reference.
+    pub fn map_ref<U: ?Sized, F: Fn(&T) -> &U>(&self, map: F) -> Bound<&U> {
+        match self {
+            Bound::Unbounded => Bound::Unbounded,
+            Bound::Included(value) => Bound::Included(map(value)),
+            Bound::Excluded(value) => Bound::Excluded(map(value)),
+        }
+    }
 }
 
-impl<T: Key> Bound<T> {
+impl<'a, T: Key<'a>> Bound<T> {
     /// Serializes the contained value to big-endian bytes.
-    pub fn as_big_endian_bytes(&self) -> Result<Bound<ByteBuf>, T::Error> {
+    pub fn as_big_endian_bytes(&'a self) -> Result<Bound<Bytes>, T::Error> {
         match self {
             Bound::Unbounded => Ok(Bound::Unbounded),
-            Bound::Included(value) => Ok(Bound::Included(ByteBuf::from(
+            Bound::Included(value) => Ok(Bound::Included(Bytes::from(
                 value.as_big_endian_bytes()?.to_vec(),
             ))),
-            Bound::Excluded(value) => Ok(Bound::Excluded(ByteBuf::from(
+            Bound::Excluded(value) => Ok(Bound::Excluded(Bytes::from(
                 value.as_big_endian_bytes()?.to_vec(),
             ))),
         }
     }
 }
 
-impl Bound<ByteBuf> {
+impl<'a, B> Bound<B>
+where
+    B: AsRef<[u8]>,
+{
     /// Deserializes the bound's contained value from big-endian bytes.
-    pub fn deserialize<T: Key>(&self) -> Result<Bound<T>, T::Error> {
+    pub fn deserialize<T: for<'k> Key<'k>>(&'a self) -> Result<Bound<T>, <T as Key<'_>>::Error> {
         match self {
             Bound::Unbounded => Ok(Bound::Unbounded),
-            Bound::Included(value) => Ok(Bound::Included(T::from_big_endian_bytes(value)?)),
-            Bound::Excluded(value) => Ok(Bound::Excluded(T::from_big_endian_bytes(value)?)),
+            Bound::Included(value) => {
+                Ok(Bound::Included(T::from_big_endian_bytes(value.as_ref())?))
+            }
+            Bound::Excluded(value) => {
+                Ok(Bound::Excluded(T::from_big_endian_bytes(value.as_ref())?))
+            }
         }
     }
 }

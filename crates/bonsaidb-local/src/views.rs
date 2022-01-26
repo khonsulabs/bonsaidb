@@ -1,23 +1,21 @@
 use std::fmt::Display;
 
-use bonsaidb_core::{document::Header, schema::CollectionName};
+use bonsaidb_core::{arc_bytes::serde::Bytes, document::Header, schema::CollectionName};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ViewEntry {
     pub view_version: u64,
-    #[serde(with = "serde_bytes")]
-    pub key: Vec<u8>,
+    pub key: Bytes,
     pub mappings: Vec<EntryMapping>,
-    #[serde(with = "serde_bytes")]
-    pub reduced_value: Vec<u8>,
+
+    pub reduced_value: Bytes,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EntryMapping {
     pub source: Header,
-    #[serde(with = "serde_bytes")]
-    pub value: Vec<u8>,
+    pub value: Bytes,
 }
 
 pub mod integrity_scanner;

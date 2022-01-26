@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     circulate::Message,
     connection::{AccessPolicy, QueryKey, Range, Sort},
-    document::Document,
+    document::OwnedDocument,
     keyvalue::KeyValue,
     pubsub::{PubSub, Subscriber},
     schema::{self, Collection, Map, MappedValue, SerializedView},
@@ -97,14 +97,17 @@ impl<B: Backend> Subscriber for ServerSubscriber<B> {
 /// Pass-through implementation
 #[async_trait]
 impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
-    async fn get<C: Collection>(&self, id: u64) -> Result<Option<Document>, bonsaidb_core::Error> {
+    async fn get<C: Collection>(
+        &self,
+        id: u64,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         self.db.get::<C>(id).await
     }
 
     async fn get_multiple<C: Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.db.get_multiple::<C>(ids).await
     }
 
@@ -113,7 +116,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.db.list::<C, R>(ids, order, limit).await
     }
 

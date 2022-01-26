@@ -448,7 +448,7 @@ impl CollectionViewSchema for ProductsByCategoryId {
 
     fn map(
         &self,
-        document: CollectionDocument<<Self as View>::Collection>,
+        document: CollectionDocument<<Self::View as View>::Collection>,
     ) -> ViewMapResult<Self::View> {
         let mut mappings = Mappings::default();
         for &id in &document.contents.category_ids {

@@ -10,8 +10,9 @@ use std::{
 use async_lock::Mutex;
 use async_trait::async_trait;
 use bonsaidb_core::{
+    arc_bytes::{serde::Bytes, ArcBytes},
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{Document, Header, KeyId},
+    document::{BorrowedDocument, Document, Header, KeyId, OwnedDocument},
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
@@ -30,10 +31,12 @@ use byteorder::{BigEndian, ByteOrder};
 use itertools::Itertools;
 use nebari::{
     io::fs::StdFile,
-    tree::{AnyTreeRoot, KeyEvaluation, Root, TreeRoot, Unversioned, Versioned},
-    AbortError, Buffer, ExecutingTransaction, Roots, Tree,
+    tree::{
+        AnyTreeRoot, BorrowByteRange, KeyEvaluation, Root, TreeRoot, U64Range, Unversioned,
+        Versioned,
+    },
+    AbortError, ExecutingTransaction, Roots, Tree,
 };
-use serde_bytes::ByteBuf;
 use tokio::sync::watch;
 
 #[cfg(feature = "encryption")]
@@ -166,7 +169,7 @@ impl Database {
     >(
         &self,
         view: &dyn view::Serialized,
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
@@ -248,7 +251,7 @@ impl Database {
         &self,
         id: u64,
         collection: &CollectionName,
-    ) -> Result<Option<Document>, bonsaidb_core::Error> {
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         self.get_from_collection_id(id, collection).await
     }
 
@@ -260,7 +263,7 @@ impl Database {
         order: Sort,
         limit: Option<usize>,
         collection: &CollectionName,
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.list(ids, order, limit, collection).await
     }
 
@@ -270,7 +273,7 @@ impl Database {
         &self,
         ids: &[u64],
         collection: &CollectionName,
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.get_multiple_from_collection_id(ids, collection).await
     }
 
@@ -292,7 +295,7 @@ impl Database {
     pub async fn query_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
@@ -323,7 +326,7 @@ impl Database {
     pub async fn query_by_name_with_docs(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
@@ -366,7 +369,7 @@ impl Database {
     pub async fn reduce_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         self.reduce_in_view(view, key, access_policy).await
@@ -377,7 +380,7 @@ impl Database {
     pub async fn reduce_grouped_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         self.grouped_reduce_in_view(view, key, access_policy).await
@@ -388,7 +391,7 @@ impl Database {
     pub async fn delete_docs_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
         let view = self
@@ -418,7 +421,7 @@ impl Database {
         &self,
         id: u64,
         collection: &CollectionName,
-    ) -> Result<Option<Document>, bonsaidb_core::Error> {
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         let task_self = self.clone();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
@@ -438,7 +441,7 @@ impl Database {
                 )
                 .map_err(Error::from)?
             {
-                Ok(Some(deserialize_document(&vec)?))
+                Ok(Some(deserialize_document(&vec)?.into_owned()))
             } else {
                 Ok(None)
             }
@@ -451,7 +454,7 @@ impl Database {
         &self,
         ids: &[u64],
         collection: &CollectionName,
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         let task_self = self.clone();
         let ids = ids.iter().map(|id| id.to_be_bytes()).collect::<Vec<_>>();
         let collection = collection.clone();
@@ -471,7 +474,7 @@ impl Database {
 
             keys_and_values
                 .into_iter()
-                .map(|(_, value)| deserialize_document(&value))
+                .map(|(_, value)| deserialize_document(&value).map(BorrowedDocument::into_owned))
                 .collect()
         })
         .await
@@ -484,7 +487,7 @@ impl Database {
         sort: Sort,
         limit: Option<usize>,
         collection: &CollectionName,
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         let task_self = self.clone();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
@@ -499,12 +502,9 @@ impl Database {
                 .map_err(Error::from)?;
             let mut found_docs = Vec::new();
             let mut keys_read = 0;
-            let ids = ids
-                .as_big_endian_bytes()
-                .map_err(view::Error::key_serialization)?
-                .map(|bytes| Buffer::from(bytes.into_vec()));
+            let ids = U64Range::new(ids);
             tree.scan(
-                ids,
+                &ids.borrow_as_bytes(),
                 match sort {
                     Sort::Ascending => true,
                     Sort::Descending => false,
@@ -521,7 +521,11 @@ impl Database {
                     KeyEvaluation::ReadData
                 },
                 |_, _, doc| {
-                    found_docs.push(deserialize_document(&doc).map_err(AbortError::Other)?);
+                    found_docs.push(
+                        deserialize_document(&doc)
+                            .map(BorrowedDocument::into_owned)
+                            .map_err(AbortError::Other)?,
+                    );
                     Ok(())
                 },
             )
@@ -539,7 +543,7 @@ impl Database {
     async fn reduce_in_view(
         &self,
         view_name: &ViewName,
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         let view = self
@@ -552,7 +556,7 @@ impl Database {
             .await?;
 
         let result = if mappings.len() == 1 {
-            mappings.pop().unwrap().value
+            mappings.pop().unwrap().value.into_vec()
         } else {
             view.reduce(
                 &mappings
@@ -570,7 +574,7 @@ impl Database {
     async fn grouped_reduce_in_view(
         &self,
         view_name: &ViewName,
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         let view = self
@@ -694,14 +698,14 @@ impl Database {
                 transaction,
                 tree_index_map,
                 *id,
-                contents.clone(),
+                contents.to_vec(),
             ),
             Command::Update { header, contents } => self.execute_update(
                 operation,
                 transaction,
                 tree_index_map,
                 header,
-                contents.clone(),
+                contents.to_vec(),
             ),
             Command::Delete { header } => {
                 self.execute_delete(operation, transaction, tree_index_map, header)
@@ -789,9 +793,9 @@ impl Database {
             last_key + 1
         };
 
-        let doc = Document::new(id, contents);
+        let doc = BorrowedDocument::new(id, contents);
         let serialized: Vec<u8> = serialize_document(&doc)?;
-        let document_id = Buffer::from(doc.header.id.as_big_endian_bytes().unwrap().to_vec());
+        let document_id = ArcBytes::from(doc.header.id.as_big_endian_bytes().unwrap().to_vec());
         if documents
             .replace(document_id.clone(), serialized)?
             .is_some()
@@ -885,7 +889,7 @@ impl Database {
         Ok(())
     }
 
-    fn create_view_iterator<'a, K: Key + 'a>(
+    fn create_view_iterator<'a, K: for<'k> Key<'k> + 'a>(
         view_entries: &'a Tree<Unversioned, StdFile>,
         key: Option<QueryKey<K>>,
         order: Sort,
@@ -902,10 +906,9 @@ impl Database {
                 QueryKey::Range(range) => {
                     let range = range
                         .as_big_endian_bytes()
-                        .map_err(view::Error::key_serialization)?
-                        .map(|bytes| Buffer::from(bytes.into_vec()));
+                        .map_err(view::Error::key_serialization)?;
                     view_entries.scan::<Infallible, _, _, _, _>(
-                        range,
+                        &range.map_ref(|bytes| &bytes[..]),
                         forwards,
                         |_, _, _| true,
                         |_, _| {
@@ -953,7 +956,7 @@ impl Database {
             }
         } else {
             view_entries.scan::<Infallible, _, _, _, _>(
-                ..,
+                &(..),
                 forwards,
                 |_, _, _| true,
                 |_, _| {
@@ -1026,12 +1029,14 @@ impl Database {
     }
 }
 
-pub(crate) fn deserialize_document(bytes: &[u8]) -> Result<Document, bonsaidb_core::Error> {
-    let document = bincode::deserialize::<Document>(bytes).map_err(Error::from)?;
+pub(crate) fn deserialize_document(
+    bytes: &[u8],
+) -> Result<BorrowedDocument<'_>, bonsaidb_core::Error> {
+    let document = bincode::deserialize::<BorrowedDocument<'_>>(bytes).map_err(Error::from)?;
     Ok(document)
 }
 
-fn serialize_document(document: &Document) -> Result<Vec<u8>, bonsaidb_core::Error> {
+fn serialize_document(document: &BorrowedDocument<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
     bincode::serialize(document)
         .map_err(Error::from)
         .map_err(bonsaidb_core::Error::from)
@@ -1085,7 +1090,7 @@ impl Connection for Database {
     async fn get<C: schema::Collection>(
         &self,
         id: u64,
-    ) -> Result<Option<Document>, bonsaidb_core::Error> {
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         self.get_from_collection_id(id, &C::collection_name()).await
     }
 
@@ -1093,7 +1098,7 @@ impl Connection for Database {
     async fn get_multiple<C: schema::Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.get_multiple_from_collection_id(ids, &C::collection_name())
             .await
     }
@@ -1104,7 +1109,7 @@ impl Connection for Database {
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.list(ids.into(), order, limit, &C::collection_name())
             .await
     }
@@ -1190,11 +1195,11 @@ impl Connection for Database {
                 .map_err(view::Error::key_serialization)
                 .map_err(Error::from)?;
             for entry in entry.mappings {
-                results.push(Map {
-                    source: entry.source,
-                    key: key.clone(),
-                    value: V::deserialize(&entry.value)?,
-                });
+                results.push(Map::new(
+                    entry.source,
+                    key.clone(),
+                    V::deserialize(&entry.value)?,
+                ));
             }
             Ok(())
         })
@@ -1294,11 +1299,11 @@ impl Connection for Database {
         results
             .into_iter()
             .map(|map| {
-                Ok(MappedValue {
-                    key: V::Key::from_big_endian_bytes(&map.key)
+                Ok(MappedValue::new(
+                    V::Key::from_big_endian_bytes(&map.key)
                         .map_err(view::Error::key_serialization)?,
-                    value: V::deserialize(&map.value)?,
-                })
+                    V::deserialize(&map.value)?,
+                ))
             })
             .collect::<Result<Vec<_>, bonsaidb_core::Error>>()
     }
@@ -1369,7 +1374,7 @@ impl Connection for Database {
 }
 
 type ViewIterator<'a> =
-    Box<dyn Iterator<Item = Result<(Buffer<'static>, Buffer<'static>), Error>> + 'a>;
+    Box<dyn Iterator<Item = Result<(ArcBytes<'static>, ArcBytes<'static>), Error>> + 'a>;
 
 struct ViewEntryCollectionIterator<'a> {
     iterator: ViewIterator<'a>,

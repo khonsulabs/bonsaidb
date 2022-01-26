@@ -1,3 +1,4 @@
+use bonsaidb::core::arc_bytes::serde::Bytes;
 use criterion::{Criterion, Throughput};
 use serde::{Deserialize, Serialize};
 
@@ -7,8 +8,7 @@ mod rusqlite;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct ResizableDocument {
-    #[serde(with = "serde_bytes")]
-    data: Vec<u8>,
+    data: Bytes,
 }
 
 pub fn save_documents(c: &mut Criterion) {
@@ -20,7 +20,9 @@ pub fn save_documents(c: &mut Criterion) {
         group.throughput(Throughput::Bytes(size as u64));
         let mut data = Vec::with_capacity(size);
         data.resize_with(size, || 7u8);
-        let doc = ResizableDocument { data };
+        let doc = ResizableDocument {
+            data: Bytes::from(data),
+        };
 
         bonsai::save_documents(&mut group, &doc);
         #[cfg(feature = "sqlite")]

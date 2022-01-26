@@ -3,9 +3,10 @@ use std::{sync::Arc, time::Duration};
 use async_acme::cache::AcmeCache;
 use async_trait::async_trait;
 use bonsaidb_core::{
+    arc_bytes::serde::Bytes,
     connection::Connection,
     define_basic_unique_mapped_view,
-    document::KeyId,
+    document::{Document, KeyId},
     schema::{
         Collection, CollectionDocument, CollectionName, DefaultSerialization, Schematic,
         SerializedCollection,
@@ -19,8 +20,7 @@ use crate::{Backend, CustomServer, Error};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AcmeAccount {
     pub contacts: Vec<String>,
-    #[serde(with = "serde_bytes")]
-    pub data: Vec<u8>,
+    pub data: Bytes,
 }
 
 impl Collection for AcmeAccount {
@@ -73,7 +73,7 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
 
         if let Some(contact) = contact {
             let contact = contact.document.contents::<AcmeAccount>()?;
-            Ok(Some(contact.data))
+            Ok(Some(contact.data.into_vec()))
         } else {
             Ok(None)
         }
@@ -89,13 +89,14 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
             .into_iter()
             .next();
         if let Some(mapped_account) = mapped_account {
-            let mut account = CollectionDocument::<AcmeAccount>::try_from(mapped_account.document)?;
-            account.contents.data = contents.to_vec();
+            let mut account =
+                CollectionDocument::<AcmeAccount>::try_from(&mapped_account.document)?;
+            account.contents.data = Bytes::from(contents);
             account.update(&db).await?;
         } else {
             AcmeAccount {
                 contacts: contacts.iter().map(|&c| c.to_string()).collect(),
-                data: contents.to_vec(),
+                data: Bytes::from(contents),
             }
             .push_into(&db)
             .await?;

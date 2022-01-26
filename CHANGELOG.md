@@ -169,6 +169,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   safe format. This change also means that `View::view_name()`,
   `Collection::collection_name()`, and `Schema::schema_name()` have been updated
   to not return error types.
+- The `Document` type has been renamed to `OwnedDocument`. A trait named
+  `Document` has been introduced that contains most of the functionality of
+  `Document`, but is now implemented by `OwnedDocument` in addition to a new
+  type: `BorrowedDocument`. Most APIs have been updated to return
+  `OwnedDocument`s. The View mapping process receives a `BorrowedDocument`
+  within the `map()` function.
+
+  This refactor changes the signatures of `ViewSchema::map()`,
+  `ViewSchema::reduce()`, `CollectionViewSchema::map()`, and
+  `CollectionViewSchema::reduce()`.
+
+  The benefit of this breaking change is that the view mapping process now can
+  happen with fewer copies of data.
 
 ### Fixed
 

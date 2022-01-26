@@ -1,6 +1,7 @@
 use bonsaidb::{
     core::{
         connection::Connection,
+        document::Document,
         schema::{
             view::CollectionViewSchema, Collection, CollectionDocument, CollectionName,
             DefaultSerialization, DefaultViewSerialization, Name, ReduceResult, Schematic,

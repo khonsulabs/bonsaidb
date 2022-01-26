@@ -160,6 +160,8 @@ fn integrity_checks() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "encryption")]
 fn encryption() -> anyhow::Result<()> {
+    use bonsaidb_core::document::Document;
+
     let path = TestDirectory::new("encryption");
     let document_header = {
         let rt = tokio::runtime::Runtime::new()?;

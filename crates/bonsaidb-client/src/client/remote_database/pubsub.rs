@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bonsaidb_core::{
+    arc_bytes::serde::Bytes,
     circulate::Message,
     custom_api::CustomApi,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
@@ -56,7 +57,7 @@ where
                 database: self.name.to_string(),
                 request: DatabaseRequest::Publish {
                     topic: topic.into(),
-                    payload,
+                    payload: Bytes::from(payload),
                 },
             })
             .await?
@@ -79,7 +80,10 @@ where
             .client
             .send_request(Request::Database {
                 database: self.name.to_string(),
-                request: DatabaseRequest::PublishToAll { topics, payload },
+                request: DatabaseRequest::PublishToAll {
+                    topics,
+                    payload: Bytes::from(payload),
+                },
             })
             .await?
         {

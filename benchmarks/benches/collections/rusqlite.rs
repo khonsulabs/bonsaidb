@@ -41,7 +41,7 @@ pub(super) fn save_documents(group: &mut BenchmarkGroup<WallTime>, doc: &Resizab
             .prepare("insert into save_documents (data) values (?)")
             .unwrap();
         b.iter(|| {
-            prepared.execute(params![doc.data]).unwrap();
+            prepared.execute(params![doc.data.as_slice()]).unwrap();
         });
     });
 

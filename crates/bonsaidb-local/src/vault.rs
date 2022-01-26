@@ -58,6 +58,7 @@ use std::{
 
 use async_trait::async_trait;
 use bonsaidb_core::{
+    arc_bytes::serde::Bytes,
     document::KeyId,
     permissions::{
         bonsai::{encryption_key_resource_name, EncryptionKeyAction},
@@ -259,7 +260,7 @@ impl Vault {
 
             let encrypted_master_keys_payload = bincode::serialize(&HpkePayload {
                 encryption: PublicKeyEncryption::X25519HkdfSha256ChaCha20,
-                payload: serialized_master_keys,
+                payload: Bytes::from(serialized_master_keys),
                 encapsulated_key,
                 tag,
             })?;
@@ -315,8 +316,9 @@ impl Vault {
                             &encrypted_master_keys.encapsulated_key,
                             b"",
                         )?;
+
                     decryption_context.open(
-                        &mut encrypted_master_keys.payload,
+                        &mut encrypted_master_keys.payload.0,
                         b"",
                         &AeadTag::<ChaCha20Poly1305>::from_bytes(&encrypted_master_keys.tag)?,
                     )?;
@@ -655,8 +657,7 @@ impl<'a> VaultPayload<'a> {
 #[derive(Serialize, Deserialize)]
 struct HpkePayload {
     encryption: PublicKeyEncryption,
-    #[serde(with = "serde_bytes")]
-    payload: Vec<u8>,
+    payload: Bytes,
     tag: [u8; 16],
     encapsulated_key: EncappedKey<X25519>,
 }

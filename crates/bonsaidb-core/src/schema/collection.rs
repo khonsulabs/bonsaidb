@@ -1,5 +1,6 @@
 use std::{borrow::Cow, fmt::Debug, marker::PhantomData, ops::Deref};
 
+use arc_bytes::serde::{Bytes, CowBytes};
 use async_trait::async_trait;
 use futures::{future::BoxFuture, Future, FutureExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -8,7 +9,7 @@ use transmog_pot::Pot;
 
 use crate::{
     connection::Connection,
-    document::{Document, Header, KeyId},
+    document::{BorrowedDocument, Header, KeyId, OwnedDocument},
     schema::{CollectionName, Schematic},
     Error,
 };
@@ -65,7 +66,7 @@ pub trait SerializedCollection: Collection {
         Self: Sized,
     {
         let possible_doc = connection.get::<Self>(id).await?;
-        Ok(possible_doc.map(Document::try_into).transpose()?)
+        Ok(possible_doc.as_ref().map(TryInto::try_into).transpose()?)
     }
 
     /// Pushes this value into the collection, returning the created document.
@@ -201,7 +202,7 @@ pub trait NamedCollection: Collection + Unpin {
     async fn load_document<'name, N: Into<NamedReference<'name>> + Send + Sync, C: Connection>(
         name: N,
         connection: &C,
-    ) -> Result<Option<Document>, Error>
+    ) -> Result<Option<OwnedDocument>, Error>
     where
         Self: SerializedCollection + Sized,
     {
@@ -243,13 +244,13 @@ where
     }
 }
 
-impl<'a, C> TryFrom<&'a Document> for CollectionDocument<C>
+impl<'a, C> TryFrom<&'a BorrowedDocument<'a>> for CollectionDocument<C>
 where
     C: SerializedCollection,
 {
     type Error = Error;
 
-    fn try_from(value: &'a Document) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a BorrowedDocument<'a>) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: C::deserialize(&value.contents)?,
             header: value.header.clone(),
@@ -257,21 +258,21 @@ where
     }
 }
 
-impl<'a, C> TryFrom<Document> for CollectionDocument<C>
+impl<'a, C> TryFrom<&'a OwnedDocument> for CollectionDocument<C>
 where
     C: SerializedCollection,
 {
     type Error = Error;
 
-    fn try_from(value: Document) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a OwnedDocument) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: C::deserialize(&value.contents)?,
-            header: value.header,
+            header: value.header.clone(),
         })
     }
 }
 
-impl<'a, 'b, C> TryFrom<&'b CollectionDocument<C>> for Document
+impl<'a, 'b, C> TryFrom<&'b CollectionDocument<C>> for BorrowedDocument<'a>
 where
     C: SerializedCollection,
 {
@@ -279,7 +280,7 @@ where
 
     fn try_from(value: &'b CollectionDocument<C>) -> Result<Self, Self::Error> {
         Ok(Self {
-            contents: C::serialize(&value.contents)?,
+            contents: CowBytes::from(C::serialize(&value.contents)?),
             header: value.header.clone(),
         })
     }
@@ -293,7 +294,7 @@ where
     pub async fn update<Cn: Connection>(&mut self, connection: &Cn) -> Result<(), Error> {
         let mut doc = self.to_document()?;
 
-        connection.update::<C>(&mut doc).await?;
+        connection.update::<C, _>(&mut doc).await?;
 
         self.header = doc.header;
 
@@ -340,15 +341,15 @@ where
     pub async fn delete<Cn: Connection>(&self, connection: &Cn) -> Result<(), Error> {
         let doc = self.to_document()?;
 
-        connection.delete::<C>(&doc).await?;
+        connection.delete::<C, _>(&doc).await?;
 
         Ok(())
     }
 
     /// Converts this value to a serialized `Document`.
-    pub fn to_document(&self) -> Result<Document, Error> {
-        Ok(Document {
-            contents: C::serialize(&self.contents)?,
+    pub fn to_document(&self) -> Result<OwnedDocument, Error> {
+        Ok(OwnedDocument {
+            contents: Bytes::from(C::serialize(&self.contents)?),
             header: self.header.clone(),
         })
     }
@@ -376,8 +377,8 @@ impl<'a> From<&'a String> for NamedReference<'a> {
     }
 }
 
-impl<'a, 'b, 'c> From<&'b Document> for NamedReference<'a> {
-    fn from(doc: &'b Document) -> Self {
+impl<'a, 'b, 'c> From<&'b BorrowedDocument<'b>> for NamedReference<'a> {
+    fn from(doc: &'b BorrowedDocument<'b>) -> Self {
         Self::Id(doc.header.id)
     }
 }

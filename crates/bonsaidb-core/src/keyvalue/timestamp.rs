@@ -73,17 +73,17 @@ impl std::ops::Add<Duration> for Timestamp {
     }
 }
 
-impl Key for Timestamp {
+impl<'a> Key<'a> for Timestamp {
     type Error = IncorrectByteLength;
     const LENGTH: Option<usize> = Some(12);
 
-    fn as_big_endian_bytes(&self) -> Result<std::borrow::Cow<'_, [u8]>, Self::Error> {
+    fn as_big_endian_bytes(&'a self) -> Result<std::borrow::Cow<'a, [u8]>, Self::Error> {
         let seconds_bytes: &[u8] = &self.seconds.to_be_bytes();
         let nanos_bytes = &self.nanos.to_be_bytes();
         Ok(Cow::Owned([seconds_bytes, nanos_bytes].concat()))
     }
 
-    fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         if bytes.len() != 12 {
             return Err(IncorrectByteLength);
         }

@@ -5,7 +5,7 @@ use bonsaidb_core::schema::{view, CollectionName, Key, ViewName};
 use nebari::{
     io::fs::StdFile,
     tree::{KeyEvaluation, Operation, Unversioned, Versioned},
-    Buffer, Tree,
+    ArcBytes, Tree,
 };
 
 use super::{
@@ -110,10 +110,10 @@ impl Job for IntegrityScanner {
                 let invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
                 let mut missing_entries = missing_entries
                     .into_iter()
-                    .map(|id| Buffer::from(id.to_be_bytes()))
+                    .map(|id| ArcBytes::from(id.to_be_bytes()))
                     .collect::<Vec<_>>();
                 missing_entries.sort();
-                invalidated_entries.modify(missing_entries, Operation::Set(Buffer::default()))?;
+                invalidated_entries.modify(missing_entries, Operation::Set(ArcBytes::default()))?;
                 transaction.commit()?;
 
                 return Ok(true);
@@ -157,12 +157,12 @@ impl Job for IntegrityScanner {
     }
 }
 
-fn tree_keys<K: Key + Hash + Eq + Clone, R: nebari::tree::Root>(
+fn tree_keys<K: for<'a> Key<'a> + Hash + Eq + Clone, R: nebari::tree::Root>(
     tree: &Tree<R, StdFile>,
 ) -> Result<HashSet<K>, crate::Error> {
     let mut ids = Vec::new();
     tree.scan::<Infallible, _, _, _, _>(
-        ..,
+        &(..),
         true,
         |_, _, _| true,
         |key, _| {

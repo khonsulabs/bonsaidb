@@ -1,4 +1,5 @@
 use actionable::Permissions;
+use arc_bytes::serde::Bytes;
 use custodian_password::{
     LoginFinalization, LoginRequest, LoginResponse, RegistrationFinalization, RegistrationRequest,
     RegistrationResponse,
@@ -6,15 +7,14 @@ use custodian_password::{
 use derive_where::derive_where;
 use schema::SchemaName;
 use serde::{Deserialize, Serialize};
-use serde_bytes::ByteBuf;
 
 use crate::{
     connection::{AccessPolicy, Database, QueryKey, Range, Sort},
-    document::Document,
+    document::OwnedDocument,
     keyvalue::{KeyOperation, Output},
     schema::{
         self,
-        view::map::{self, MappedSerializedValue},
+        view::map::{self},
         CollectionName, NamedReference, ViewName,
     },
     transaction::{Executed, OperationResult, Transaction},
@@ -192,7 +192,7 @@ pub enum DatabaseRequest {
         /// The name of the view.
         view: ViewName,
         /// The filter for the view.
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         /// The order for the query into the view.
         order: Sort,
         /// The maximum number of results to return.
@@ -210,7 +210,7 @@ pub enum DatabaseRequest {
         /// The name of the view.
         view: ViewName,
         /// The filter for the view.
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         /// The access policy for the query.
         access_policy: AccessPolicy,
         /// Whether to return a single value or values grouped by unique key. If
@@ -224,7 +224,7 @@ pub enum DatabaseRequest {
         /// The name of the view.
         view: ViewName,
         /// The filter for the view.
-        key: Option<QueryKey<ByteBuf>>,
+        key: Option<QueryKey<Bytes>>,
         /// The access policy for the query.
         access_policy: AccessPolicy,
     },
@@ -254,8 +254,7 @@ pub enum DatabaseRequest {
         /// The topics to publish to.
         topic: String,
         /// The payload to publish.
-        #[serde(with = "serde_bytes")]
-        payload: Vec<u8>,
+        payload: Bytes,
     },
     /// Publishes `payload` to all subscribers of all `topics`.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
@@ -263,8 +262,7 @@ pub enum DatabaseRequest {
         /// The topics to publish to.
         topics: Vec<String>,
         /// The payload to publish.
-        #[serde(with = "serde_bytes")]
-        payload: Vec<u8>,
+        payload: Bytes,
     },
     /// Subscribes `subscriber_id` to messages for `topic`.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
@@ -368,7 +366,7 @@ pub enum ServerResponse {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum DatabaseResponse {
     /// One or more documents.
-    Documents(Vec<Document>),
+    Documents(Vec<OwnedDocument>),
     /// A number of documents were deleted.
     DocumentsDeleted(u64),
     /// Results of [`DatabaseRequest::ApplyTransaction`].
@@ -378,9 +376,9 @@ pub enum DatabaseResponse {
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is true.
     ViewMappingsWithDocs(Vec<map::MappedSerialized>),
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is false.
-    ViewReduction(#[serde(with = "serde_bytes")] Vec<u8>),
+    ViewReduction(Bytes),
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is true.
-    ViewGroupedReduction(Vec<MappedSerializedValue>),
+    ViewGroupedReduction(Vec<map::MappedSerializedValue>),
     /// Results of [`DatabaseRequest::ListExecutedTransactions`].
     ExecutedTransactions(Vec<Executed>),
     /// Result of [`DatabaseRequest::LastTransactionId`].
@@ -397,8 +395,7 @@ pub enum DatabaseResponse {
         /// The topic the payload was received on.
         topic: String,
         /// The message payload.
-        #[serde(with = "serde_bytes")]
-        payload: Vec<u8>,
+        payload: Bytes,
     },
     /// Output from a [`KeyOperation`] being executed.
     KvOutput(Output),

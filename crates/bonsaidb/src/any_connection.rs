@@ -3,7 +3,7 @@ use bonsaidb_core::{
     async_trait::async_trait,
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     custodian_password::{RegistrationFinalization, RegistrationRequest, RegistrationResponse},
-    document::Document,
+    document::OwnedDocument,
     schema::{
         Collection, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
         SerializedView,
@@ -207,7 +207,10 @@ pub enum AnyDatabase<B: Backend = NoBackend> {
 
 #[async_trait]
 impl<B: Backend> Connection for AnyDatabase<B> {
-    async fn get<C: Collection>(&self, id: u64) -> Result<Option<Document>, bonsaidb_core::Error> {
+    async fn get<C: Collection>(
+        &self,
+        id: u64,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.get::<C>(id).await,
             Self::Networked(client) => client.get::<C>(id).await,
@@ -217,7 +220,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
     async fn get_multiple<C: Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.get_multiple::<C>(ids).await,
             Self::Networked(client) => client.get_multiple::<C>(ids).await,
@@ -229,7 +232,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.list::<C, R>(ids, order, limit).await,
             Self::Networked(client) => client.list::<C, R>(ids, order, limit).await,

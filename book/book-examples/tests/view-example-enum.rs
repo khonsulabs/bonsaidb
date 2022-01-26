@@ -1,7 +1,7 @@
 use bonsaidb::{
     core::{
         connection::Connection,
-        document::Document,
+        document::{BorrowedDocument, Document},
         schema::{
             view::{map::ViewMappedValue, EnumKey},
             Collection, CollectionName, DefaultSerialization, DefaultViewSerialization, Name,
@@ -66,7 +66,7 @@ impl View for BlogPostsByCategory {
 impl ViewSchema for BlogPostsByCategory {
     type View = Self;
 
-    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
+    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
         let post = document.contents::<BlogPost>()?;
         Ok(document.emit_key_and_value(post.category, 1))
     }

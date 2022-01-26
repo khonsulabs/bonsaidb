@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort},
     custom_api::CustomApi,
-    document::Document,
+    document::OwnedDocument,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
         view::{self, map, SerializedView},
@@ -57,7 +57,10 @@ impl<A: CustomApi> RemoteDatabase<A> {
 
 #[async_trait]
 impl<A: CustomApi> Connection for RemoteDatabase<A> {
-    async fn get<C: Collection>(&self, id: u64) -> Result<Option<Document>, bonsaidb_core::Error> {
+    async fn get<C: Collection>(
+        &self,
+        id: u64,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -83,7 +86,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
     async fn get_multiple<C: Collection>(
         &self,
         ids: &[u64],
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -108,7 +111,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<Document>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -276,14 +279,14 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
             Response::Database(DatabaseResponse::ViewGroupedReduction(values)) => values
                 .into_iter()
                 .map(|map| {
-                    Ok(MappedValue {
-                        key: V::Key::from_big_endian_bytes(&map.key).map_err(|err| {
+                    Ok(MappedValue::new(
+                        V::Key::from_big_endian_bytes(&map.key).map_err(|err| {
                             bonsaidb_core::Error::Database(
                                 view::Error::key_serialization(err).to_string(),
                             )
                         })?,
-                        value: V::deserialize(&map.value)?,
-                    })
+                        V::deserialize(&map.value)?,
+                    ))
                 })
                 .collect::<Result<Vec<_>, bonsaidb_core::Error>>(),
             Response::Error(err) => Err(err),
