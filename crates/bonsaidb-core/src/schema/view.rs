@@ -167,7 +167,7 @@ where
 
 /// A [`View`] for a [`Collection`] that stores Serde-compatible documents. The
 /// only difference between implmementing this and [`View`] is that the `map`
-/// function receives a [`CollectionDocument`] instead of a [`Document`].
+/// function receives a [`CollectionDocument`] instead of a [`BorrowedDocument`].
 pub trait CollectionViewSchema: Send + Sync + Debug + 'static
 where
     <Self::View as View>::Collection: SerializedCollection,

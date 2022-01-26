@@ -5,7 +5,6 @@ on: [push]
 jobs:
   docs:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v2
       - name: Install Rust
@@ -15,6 +14,7 @@ jobs:
           cargo doc --no-deps --all-features
 
       - name: Deploy Docs
+        if: github.ref == 'refs/heads/main'
         uses: JamesIves/github-pages-deploy-action@releases/v4
         with:
           branch: gh-pages
@@ -53,7 +53,7 @@ jobs:
       - name: Generate book
         run: cd book && mdbook build
 
-      - name: Generate
+      - name: Deploy
         uses: JamesIves/github-pages-deploy-action@releases/v4
         if: github.ref == 'refs/heads/main'
         with:
