@@ -1,8 +1,8 @@
 # Document
 
-A [Document](https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html) is a single piece of stored data. Each document is stored within a [`Collection`](./collection.md), and has a unique ID within that Collection.
+A [Document][document] is a single piece of stored data. Each document is stored within a [`Collection`](./collection.md), and has a unique ID within that Collection. There are two document types: [`OwnedDocument`][owned-document] and [`BorrowedDocument`][borrowed-document]. The [`View::map()` function][view-map] takes a [`BorrowedDocument`][borrowed-document], but nearly every other API utilizes [`OwnedDocument`][owned-document].
 
-When a Document is updated, BonsaiDb will check that the revision information passed matches the currently stored information. If not, a [conflict error](https://dev.bonsaidb.io/main/bonsaidb/core/enum.Error.html#variant.DocumentConflict) will be returned. This simple check ensures that if two writers try to update the document simultaneously, one will succeed and the other will receive an error.
+When a document is updated, BonsaiDb will check that the revision information passed matches the currently stored information. If not, a [conflict error](https://dev.bonsaidb.io/main/bonsaidb/core/enum.Error.html#variant.DocumentConflict) will be returned. This simple check ensures that if two writers try to update the document simultaneously, one will succeed and the other will receive an error.
 
 ## Serializable Collections
 
@@ -17,3 +17,8 @@ BonsaiDb provides a convenience trait for [Serde](https://serde.rs/)-compatible 
 ## Raw Collections
 
 If you would prefer to manually manage the data stored inside of a Document, you can directly manage the [`contents`](https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html#structfield.contents) field. BonsaiDb will not interact with the `contents` of a Document. Only code that you write will parse or update the stored data.
+
+[document]: https://dev.bonsaidb.io/main/bonsaidb/core/document/trait.Document.html
+[owned-document]: https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.OwnedDocument.html
+[borrowed-document]: https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.BorrowedDocument.html
+[view-map]: ./view.md#map
