@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    document::{Document, KeyId},
+    document::{BorrowedDocument, KeyId},
     schema::{
         collection::Collection,
         view::{
@@ -208,7 +208,7 @@ where
         self.view.view_name()
     }
 
-    fn map(&self, document: &Document<'_>) -> Result<Vec<map::Serialized<'static>>, view::Error> {
+    fn map(&self, document: &BorrowedDocument<'_>) -> Result<Vec<map::Serialized>, view::Error> {
         let map = self.schema.map(document)?;
 
         map.into_iter()

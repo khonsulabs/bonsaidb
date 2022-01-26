@@ -12,13 +12,13 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::{serde::Bytes, ArcBytes},
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{Doc, Document, Header, KeyId, OwnedDocument},
+    document::{BorrowedDocument, Document, Header, KeyId, OwnedDocument},
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
     schema::{
         self,
-        view::{self, map::OwnedMappedSerializedValue},
+        view::{self, map::MappedSerializedValue},
         Collection, CollectionName, Key, Map, MappedDocument, MappedValue, Schema, Schematic,
         ViewName,
     },
@@ -299,13 +299,13 @@ impl Database {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<bonsaidb_core::schema::view::map::OwnedSerialized>, bonsaidb_core::Error> {
+    ) -> Result<Vec<bonsaidb_core::schema::view::map::Serialized>, bonsaidb_core::Error> {
         if let Some(view) = self.schematic().view_by_name(view) {
             let mut results = Vec::new();
             self.for_each_in_view(view, key, order, limit, access_policy, |collection| {
                 let entry = ViewEntry::from(collection);
                 for mapping in entry.mappings {
-                    results.push(bonsaidb_core::schema::view::map::OwnedSerialized {
+                    results.push(bonsaidb_core::schema::view::map::Serialized {
                         source: mapping.source,
                         key: entry.key.clone(),
                         value: mapping.value,
@@ -330,8 +330,7 @@ impl Database {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<bonsaidb_core::schema::view::map::OwnedMappedSerialized>, bonsaidb_core::Error>
-    {
+    ) -> Result<Vec<bonsaidb_core::schema::view::map::MappedSerialized>, bonsaidb_core::Error> {
         let results = self
             .query_by_name(view, key, order, limit, access_policy)
             .await?;
@@ -351,8 +350,8 @@ impl Database {
             .into_iter()
             .filter_map(|map| {
                 if let Some(source) = documents.remove(&map.source.id) {
-                    Some(bonsaidb_core::schema::view::map::OwnedMappedSerialized {
-                        mapping: bonsaidb_core::schema::view::map::OwnedMappedSerializedValue {
+                    Some(bonsaidb_core::schema::view::map::MappedSerialized {
+                        mapping: bonsaidb_core::schema::view::map::MappedSerializedValue {
                             key: map.key,
                             value: map.value,
                         },
@@ -383,7 +382,7 @@ impl Database {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<OwnedMappedSerializedValue>, bonsaidb_core::Error> {
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         self.grouped_reduce_in_view(view, key, access_policy).await
     }
 
@@ -475,7 +474,7 @@ impl Database {
 
             keys_and_values
                 .into_iter()
-                .map(|(_, value)| deserialize_document(&value).map(Document::into_owned))
+                .map(|(_, value)| deserialize_document(&value).map(BorrowedDocument::into_owned))
                 .collect()
         })
         .await
@@ -524,7 +523,7 @@ impl Database {
                 |_, _, doc| {
                     found_docs.push(
                         deserialize_document(&doc)
-                            .map(Document::into_owned)
+                            .map(BorrowedDocument::into_owned)
                             .map_err(AbortError::Other)?,
                     );
                     Ok(())
@@ -577,7 +576,7 @@ impl Database {
         view_name: &ViewName,
         key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<OwnedMappedSerializedValue>, bonsaidb_core::Error> {
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         let view = self
             .data
             .schema
@@ -586,7 +585,7 @@ impl Database {
         let mut mappings = Vec::new();
         self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
             let entry = ViewEntry::from(entry);
-            mappings.push(OwnedMappedSerializedValue {
+            mappings.push(MappedSerializedValue {
                 key: entry.key,
                 value: entry.reduced_value,
             });
@@ -794,7 +793,7 @@ impl Database {
             last_key + 1
         };
 
-        let doc = Document::new(id, contents);
+        let doc = BorrowedDocument::new(id, contents);
         let serialized: Vec<u8> = serialize_document(&doc)?;
         let document_id = ArcBytes::from(doc.header.id.as_big_endian_bytes().unwrap().to_vec());
         if documents
@@ -1030,12 +1029,14 @@ impl Database {
     }
 }
 
-pub(crate) fn deserialize_document(bytes: &[u8]) -> Result<Document<'_>, bonsaidb_core::Error> {
-    let document = bincode::deserialize::<Document<'_>>(bytes).map_err(Error::from)?;
+pub(crate) fn deserialize_document(
+    bytes: &[u8],
+) -> Result<BorrowedDocument<'_>, bonsaidb_core::Error> {
+    let document = bincode::deserialize::<BorrowedDocument<'_>>(bytes).map_err(Error::from)?;
     Ok(document)
 }
 
-fn serialize_document(document: &Document<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
+fn serialize_document(document: &BorrowedDocument<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
     bincode::serialize(document)
         .map_err(Error::from)
         .map_err(bonsaidb_core::Error::from)

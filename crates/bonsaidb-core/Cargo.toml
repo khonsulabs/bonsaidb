@@ -44,7 +44,7 @@ ordered-varint = "0.1.0-dev.1"
 derive-where = "=1.0.0-rc.2"
 transmog = "0.1.0-dev.2"
 transmog-pot = "0.1.0-dev.2"
-arc-bytes = { version = "0.3", features = ["serde"] }
+arc-bytes = { version = "0.3.1", features = ["serde"] }
 
 [dev-dependencies]
 hex-literal = "0.3"

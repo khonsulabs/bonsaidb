@@ -1,6 +1,6 @@
 use std::{borrow::Cow, fmt::Debug, marker::PhantomData, ops::Deref};
 
-use arc_bytes::{serde::Bytes, ArcBytes};
+use arc_bytes::serde::{Bytes, CowBytes};
 use async_trait::async_trait;
 use futures::{future::BoxFuture, Future, FutureExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -9,7 +9,7 @@ use transmog_pot::Pot;
 
 use crate::{
     connection::Connection,
-    document::{Document, Header, KeyId, OwnedDocument},
+    document::{BorrowedDocument, Header, KeyId, OwnedDocument},
     schema::{CollectionName, Schematic},
     Error,
 };
@@ -244,13 +244,13 @@ where
     }
 }
 
-impl<'a, C> TryFrom<&'a Document<'a>> for CollectionDocument<C>
+impl<'a, C> TryFrom<&'a BorrowedDocument<'a>> for CollectionDocument<C>
 where
     C: SerializedCollection,
 {
     type Error = Error;
 
-    fn try_from(value: &'a Document<'a>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a BorrowedDocument<'a>) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: C::deserialize(&value.contents)?,
             header: value.header.clone(),
@@ -272,7 +272,7 @@ where
     }
 }
 
-impl<'a, 'b, C> TryFrom<&'b CollectionDocument<C>> for Document<'a>
+impl<'a, 'b, C> TryFrom<&'b CollectionDocument<C>> for BorrowedDocument<'a>
 where
     C: SerializedCollection,
 {
@@ -280,7 +280,7 @@ where
 
     fn try_from(value: &'b CollectionDocument<C>) -> Result<Self, Self::Error> {
         Ok(Self {
-            contents: ArcBytes::from(C::serialize(&value.contents)?),
+            contents: CowBytes::from(C::serialize(&value.contents)?),
             header: value.header.clone(),
         })
     }
@@ -377,8 +377,8 @@ impl<'a> From<&'a String> for NamedReference<'a> {
     }
 }
 
-impl<'a, 'b, 'c> From<&'b Document<'b>> for NamedReference<'a> {
-    fn from(doc: &'b Document<'b>) -> Self {
+impl<'a, 'b, 'c> From<&'b BorrowedDocument<'b>> for NamedReference<'a> {
+    fn from(doc: &'b BorrowedDocument<'b>) -> Self {
         Self::Id(doc.header.id)
     }
 }

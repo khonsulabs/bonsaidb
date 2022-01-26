@@ -1,8 +1,8 @@
-use arc_bytes::{serde::Bytes, ArcBytes};
+use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::{Document, Header, OwnedDocument},
+    document::{Header, OwnedDocument},
     schema::view::{self, Key, SerializedView, View},
 };
 
@@ -23,16 +23,16 @@ impl<K: for<'a> Key<'a>, V> Map<K, V> {
     /// Serializes this map.
     pub(crate) fn serialized<View: SerializedView<Value = V>>(
         &self,
-    ) -> Result<Serialized<'static>, view::Error> {
+    ) -> Result<Serialized, view::Error> {
         Ok(Serialized {
             source: self.source.clone(),
-            key: ArcBytes::from(
+            key: Bytes::from(
                 self.key
                     .as_big_endian_bytes()
                     .map_err(view::Error::key_serialization)?
                     .to_vec(),
             ),
-            value: ArcBytes::from(View::serialize(&self.value)?),
+            value: Bytes::from(View::serialize(&self.value)?),
         })
     }
 }
@@ -164,7 +164,7 @@ impl<K: for<'a> Key<'a>, V> Map<K, V> {
 
 /// Represents a document's entry in a View's mappings, serialized and ready to store.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OwnedSerialized {
+pub struct Serialized {
     /// The header of the document that emitted this entry.
     pub source: Header,
 
@@ -175,21 +175,7 @@ pub struct OwnedSerialized {
     pub value: Bytes,
 }
 
-/// Represents a document's entry in a View's mappings, serialized and ready to store.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Serialized<'a> {
-    /// The header of the document that emitted this entry.
-    pub source: Header,
-
-    /// The key used to index the View.Operation
-    #[serde(borrow)]
-    pub key: ArcBytes<'a>,
-
-    /// An associated value stored in the view.Operation
-    pub value: ArcBytes<'a>,
-}
-
-impl OwnedSerialized {
+impl Serialized {
     /// Deserializes this map.
     pub fn deserialized<View: SerializedView>(
         &self,
@@ -205,24 +191,14 @@ impl OwnedSerialized {
 
 /// A serialized [`MappedDocument`](MappedDocument).
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct MappedSerialized<'a> {
+pub struct MappedSerialized {
     /// The serialized mapped value.
-    #[serde(borrow)]
-    pub mapping: MappedSerializedValue<'a>,
-    /// The source document.
-    pub source: Document<'a>,
-}
-
-/// A serialized [`MappedDocument`](MappedDocument).
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct OwnedMappedSerialized {
-    /// The serialized mapped value.
-    pub mapping: OwnedMappedSerializedValue,
+    pub mapping: MappedSerializedValue,
     /// The source document.
     pub source: OwnedDocument,
 }
 
-impl OwnedMappedSerialized {
+impl MappedSerialized {
     /// Deserialize into a [`MappedDocument`](MappedDocument).
     pub fn deserialized<View: SerializedView>(
         self,
@@ -265,17 +241,7 @@ pub type ViewMappedValue<V: View> = MappedValue<V::Key, V::Value>;
 
 /// A serialized [`MappedValue`].
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct MappedSerializedValue<'a> {
-    /// The serialized key.
-    #[serde(borrow)]
-    pub key: ArcBytes<'a>,
-    /// The serialized value.
-    pub value: ArcBytes<'a>,
-}
-
-/// A serialized [`MappedValue`].
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct OwnedMappedSerializedValue {
+pub struct MappedSerializedValue {
     /// The serialized key.
     pub key: Bytes,
     /// The serialized value.

@@ -299,7 +299,8 @@ impl Vault {
             })
             .await
             .map_err(|err| Error::Initializing(format!("error reading master keys: {:?}", err)))?;
-        let encrypted_master_keys = bincode::deserialize::<HpkePayload>(&encrypted_master_keys)?;
+        let mut encrypted_master_keys =
+            bincode::deserialize::<HpkePayload>(&encrypted_master_keys)?;
         let PublicKeyEncryption::X25519HkdfSha256ChaCha20 = &encrypted_master_keys.encryption;
         if let Some(vault_key) = master_key_storage
             .vault_key_for(server_id)
@@ -316,15 +317,15 @@ impl Vault {
                             b"",
                         )?;
 
-                    // TODO if this wasn't wrapped in an arc this wouldn't need a copy.
-                    let mut payload = encrypted_master_keys.payload.to_vec();
                     decryption_context.open(
-                        &mut payload,
+                        &mut encrypted_master_keys.payload.0,
                         b"",
                         &AeadTag::<ChaCha20Poly1305>::from_bytes(&encrypted_master_keys.tag)?,
                     )?;
 
-                    bincode::deserialize::<HashMap<u32, EncryptionKey>>(&payload)?
+                    bincode::deserialize::<HashMap<u32, EncryptionKey>>(
+                        &encrypted_master_keys.payload,
+                    )?
                 }
             };
 

@@ -6,7 +6,7 @@ use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     connection::Connection,
     define_basic_unique_mapped_view,
-    document::{Doc, KeyId},
+    document::{Document, KeyId},
     schema::{
         Collection, CollectionDocument, CollectionName, DefaultSerialization, Schematic,
         SerializedCollection,

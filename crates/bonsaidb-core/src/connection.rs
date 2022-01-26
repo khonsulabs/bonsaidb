@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "multiuser")]
 use crate::schema::NamedReference;
 use crate::{
-    document::{Doc, Header, OwnedDocument},
+    document::{Document, Header, OwnedDocument},
     schema::{
         self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName, SerializedCollection,
     },
@@ -60,7 +60,7 @@ pub trait Connection: Send + Sync {
     /// Updates an existing document in the connected [`schema::Schema`] for the
     /// [`Collection`] `C`. Upon success, `doc.revision` will be updated with
     /// the new revision.
-    async fn update<'a, C: schema::Collection, D: Doc<'a> + Send + Sync>(
+    async fn update<'a, C: schema::Collection, D: Document<'a> + Send + Sync>(
         &self,
         doc: &mut D,
     ) -> Result<(), Error> {
@@ -530,9 +530,9 @@ pub enum QueryKey<K> {
 }
 
 #[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
-impl<'a, K: Key<'a>> QueryKey<K> {
+impl<K: for<'a> Key<'a>> QueryKey<K> {
     /// Converts this key to a serialized format using the [`Key`] trait.
-    pub fn serialized(&'a self) -> Result<QueryKey<Bytes>, Error> {
+    pub fn serialized(&self) -> Result<QueryKey<Bytes>, Error> {
         match self {
             Self::Matches(key) => key
                 .as_big_endian_bytes()
@@ -562,7 +562,7 @@ impl<'a, K: Key<'a>> QueryKey<K> {
 #[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
 impl<'a> QueryKey<ArcBytes<'a>> {
     /// Deserializes the bytes into `K` via the [`Key`] trait.
-    pub fn deserialized<K: for<'k> Key<'k>>(&'a self) -> Result<QueryKey<K>, Error> {
+    pub fn deserialized<K: for<'k> Key<'k>>(&self) -> Result<QueryKey<K>, Error> {
         match self {
             Self::Matches(key) => K::from_big_endian_bytes(key)
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))

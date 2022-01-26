@@ -372,13 +372,13 @@ pub enum DatabaseResponse {
     /// Results of [`DatabaseRequest::ApplyTransaction`].
     TransactionResults(Vec<OperationResult>),
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is false.
-    ViewMappings(Vec<map::OwnedSerialized>),
+    ViewMappings(Vec<map::Serialized>),
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is true.
-    ViewMappingsWithDocs(Vec<map::OwnedMappedSerialized>),
+    ViewMappingsWithDocs(Vec<map::MappedSerialized>),
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is false.
     ViewReduction(Bytes),
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is true.
-    ViewGroupedReduction(Vec<map::OwnedMappedSerializedValue>),
+    ViewGroupedReduction(Vec<map::MappedSerializedValue>),
     /// Results of [`DatabaseRequest::ListExecutedTransactions`].
     ExecutedTransactions(Vec<Executed>),
     /// Result of [`DatabaseRequest::LastTransactionId`].

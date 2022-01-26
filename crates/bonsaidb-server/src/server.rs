@@ -23,7 +23,7 @@ use bonsaidb_core::{
         LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
     },
     custom_api::{CustomApi, CustomApiResult},
-    document::Doc,
+    document::Document,
     keyvalue::{KeyOperation, KeyValue},
     networking::{
         self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,

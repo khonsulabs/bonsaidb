@@ -282,7 +282,7 @@ impl<'a> DocumentRequest<'a> {
         &mut self,
         source: Header,
         key: &[u8],
-        value: ArcBytes<'_>,
+        value: Bytes,
         mut has_reduce: bool,
     ) -> Result<bool, Error> {
         // Before altering any data, verify that the key is unique if this is a unique view.
@@ -303,11 +303,7 @@ impl<'a> DocumentRequest<'a> {
             .unwrap();
         omitted_entries.remove(self.document_id)?;
 
-        // TODO try borrowing
-        let entry_mapping = EntryMapping {
-            source,
-            value: Bytes::from(value),
-        };
+        let entry_mapping = EntryMapping { source, value };
 
         // Add a new ViewEntry or update an existing
         // ViewEntry for the key given

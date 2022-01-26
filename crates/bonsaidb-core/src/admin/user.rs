@@ -6,7 +6,7 @@ use crate::{
     connection::Connection,
     custodian_password::{ServerFile, ServerRegistration},
     define_basic_unique_mapped_view,
-    document::{Doc, KeyId},
+    document::{Document, KeyId},
     permissions::Permissions,
     schema::{
         Collection, CollectionDocument, CollectionName, DefaultSerialization, NamedCollection,

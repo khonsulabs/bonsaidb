@@ -164,7 +164,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         {
             Response::Database(DatabaseResponse::ViewMappings(mappings)) => Ok(mappings
                 .iter()
-                .map(map::OwnedSerialized::deserialized::<V>)
+                .map(map::Serialized::deserialized::<V>)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?),
             Response::Error(err) => Err(err),
@@ -205,7 +205,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         {
             Response::Database(DatabaseResponse::ViewMappingsWithDocs(mappings)) => Ok(mappings
                 .into_iter()
-                .map(map::OwnedMappedSerialized::deserialized::<V>)
+                .map(map::MappedSerialized::deserialized::<V>)
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?),
             Response::Error(err) => Err(err),

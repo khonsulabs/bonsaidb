@@ -463,7 +463,7 @@ fn container_folder(
 mod tests {
     use bonsaidb_core::{
         connection::Connection as _,
-        document::Doc,
+        document::Document,
         keyvalue::KeyValue,
         test_util::{Basic, TestDirectory},
     };
