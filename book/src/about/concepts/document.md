@@ -6,7 +6,7 @@ When a document is updated, BonsaiDb will check that the revision information pa
 
 ## Serializable Collections
 
-BonsaiDb provides the [`SerializedCollection`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.SerializedCollection.html) trait, which allows automatic serialization and deserialization in many sitautions. When using [`Document::contents()`](https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html#method.contents) function, the document is serialized and deserialized by the format returned from [`SerializedCollection::format()`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.SerializedCollection.html#tymethod.format).
+BonsaiDb provides the [`SerializedCollection`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.SerializedCollection.html) trait, which allows automatic serialization and deserialization in many sitautions. When using [`Document::contents()`](https://dev.bonsaidb.io/main/bonsaidb/core/document/trait.Document.html#method.contents) function, the document is serialized and deserialized by the format returned from [`SerializedCollection::format()`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.SerializedCollection.html#tymethod.format).
 
 The [`CollectionDocument`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/struct.CollectionDocument.html) type provides convenience methods of interacting with serializable documents.
 
@@ -16,7 +16,7 @@ BonsaiDb provides a convenience trait for [Serde](https://serde.rs/)-compatible 
 
 ## Raw Collections
 
-If you would prefer to manually manage the data stored inside of a Document, you can directly manage the [`contents`](https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html#structfield.contents) field. BonsaiDb will not interact with the `contents` of a Document. Only code that you write will parse or update the stored data.
+If you would prefer to manually manage the data stored inside of a Document, you can directly manage the [`contents`](https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.OwnedDocument.html#structfield.contents) field. BonsaiDb will not interact with the `contents` of a Document. Only code that you write will parse or update the stored data.
 
 [document]: https://dev.bonsaidb.io/main/bonsaidb/core/document/trait.Document.html
 [owned-document]: https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.OwnedDocument.html

@@ -24,7 +24,7 @@ server executable only.
 
 ## Views for [`SerializedCollection`][serialized-collection]
 
-For users who are using [`SerializedCollection`][serialized-collection], [`CollectionViewSchema`][collection-view-schema] can be implemented instead of [`ViewSchema`][viewschema-trait]. The only difference between the two is that the [`map()`][collection-view-schema-map] function takes a [`CollectionDocument`][collection-document] instead of a [`Document`][document].
+For users who are using [`SerializedCollection`][serialized-collection], [`CollectionViewSchema`][collection-view-schema] can be implemented instead of [`ViewSchema`][viewschema-trait]. The only difference between the two is that the [`map()`][collection-view-schema-map] function takes a [`CollectionDocument`][collection-document] instead of a [`BorrowedDocument`][borrowed-document].
 
 ## Value Serialization
 
@@ -32,7 +32,7 @@ For views to function, the Value type must able to be serialized and deserialize
 
 ## Map
 
-The first line of the `map` function calls [`Document::contents()`](https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html#method.contents) to deserialize the stored `BlogPost`. The second line returns an emitted Key and Value -- in our case a clone of the post's category and the value `1_u32`. With the map function, we're able to use [`query()`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/struct.View.html#method.query) and [`query_with_docs()`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/struct.View.html#method.query_with_docs):
+The first line of the `map` function calls [`Document::contents()`](https://dev.bonsaidb.io/main/bonsaidb/core/document/trait.Document.html#method.contents) to deserialize the stored `BlogPost`. The second line returns an emitted Key and Value -- in our case a clone of the post's category and the value `1_u32`. With the map function, we're able to use [`query()`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/struct.View.html#method.query) and [`query_with_docs()`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/struct.View.html#method.query_with_docs):
 
 ```rust,noplayground,no_run
 {{#include ../../../book-examples/tests/view-example-string.rs:query_with_docs}}
@@ -142,7 +142,7 @@ By implementing `Key` you can take full control of converting your view keys.
 [viewschema-trait]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.ViewSchema.html
 [viewschema-version]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.ViewSchema.html#method.version
 [serialized-collection]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.SerializedCollection.html
-[document]: https://dev.bonsaidb.io/main/bonsaidb/core/document/struct.Document.html
+[borrowed-document]: https://dev.bonsaidb.io/main/bonsaidb/core/document/trait.Document.html
 [collection-document]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/struct.CollectionDocument.html
 [collection-view-schema]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.CollectionViewSchema.html
 [collection-view-schema-map]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.CollectionViewSchema.html#tymethod.map
