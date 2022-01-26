@@ -50,7 +50,7 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
     fn map(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<'static, Self::View> {
+    ) -> ViewMapResult<Self::View> {
         Ok(document.emit_key_and_value(document.contents.sides, 1))
     }
 

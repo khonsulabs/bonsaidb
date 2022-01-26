@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use arc_bytes::{serde::Bytes, ArcBytes};
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +8,7 @@ use crate::{
 
 /// A document's entry in a View's mappings.
 #[derive(PartialEq, Debug)]
-pub struct Map<'a, K: Key<'a> = (), V = ()> {
+pub struct Map<K: for<'a> Key<'a> = (), V = ()> {
     /// The id of the document that emitted this entry.
     pub source: Header,
 
@@ -19,14 +17,12 @@ pub struct Map<'a, K: Key<'a> = (), V = ()> {
 
     /// An associated value stored in the view.
     pub value: V,
-
-    _lifetime: PhantomData<&'a ()>,
 }
 
-impl<'a, K: Key<'a>, V> Map<'a, K, V> {
+impl<K: for<'a> Key<'a>, V> Map<K, V> {
     /// Serializes this map.
     pub(crate) fn serialized<View: SerializedView<Value = V>>(
-        &'a self,
+        &self,
     ) -> Result<Serialized<'static>, view::Error> {
         Ok(Serialized {
             source: self.source.clone(),
@@ -43,27 +39,27 @@ impl<'a, K: Key<'a>, V> Map<'a, K, V> {
 
 /// A collection of [`Map`]s.
 #[derive(Debug, PartialEq)]
-pub enum Mappings<'a, K: Key<'a> = (), V = ()> {
+pub enum Mappings<K: for<'a> Key<'a> = (), V = ()> {
     /// Zero or one mappings.
-    Simple(Option<Map<'a, K, V>>),
+    Simple(Option<Map<K, V>>),
     /// More than one mapping.
-    List(Vec<Map<'a, K, V>>),
+    List(Vec<Map<K, V>>),
 }
 
-impl<'a, K: Key<'a>, V> Default for Mappings<'a, K, V> {
+impl<K: for<'a> Key<'a>, V> Default for Mappings<K, V> {
     fn default() -> Self {
         Self::none()
     }
 }
 
-impl<'a, K: Key<'a>, V> Mappings<'a, K, V> {
+impl<K: for<'a> Key<'a>, V> Mappings<K, V> {
     /// Returns an empty collection of mappings.
     pub fn none() -> Self {
         Self::Simple(None)
     }
 
     /// Appends `mapping` to the end of this collection.
-    pub fn push(&mut self, mapping: Map<'a, K, V>) {
+    pub fn push(&mut self, mapping: Map<K, V>) {
         match self {
             Self::Simple(existing_mapping) => {
                 *self = if let Some(existing_mapping) = existing_mapping.take() {
@@ -83,8 +79,8 @@ impl<'a, K: Key<'a>, V> Mappings<'a, K, V> {
     }
 }
 
-impl<'a, K: Key<'a>, V> Extend<Map<'a, K, V>> for Mappings<'a, K, V> {
-    fn extend<T: IntoIterator<Item = Map<'a, K, V>>>(&mut self, iter: T) {
+impl<K: for<'a> Key<'a>, V> Extend<Map<K, V>> for Mappings<K, V> {
+    fn extend<T: IntoIterator<Item = Map<K, V>>>(&mut self, iter: T) {
         let iter = iter.into_iter();
         for map in iter {
             self.push(map);
@@ -92,15 +88,15 @@ impl<'a, K: Key<'a>, V> Extend<Map<'a, K, V>> for Mappings<'a, K, V> {
     }
 }
 
-impl<'a, K: Key<'a>, V> FromIterator<Map<'a, K, V>> for Mappings<'a, K, V> {
-    fn from_iter<T: IntoIterator<Item = Map<'a, K, V>>>(iter: T) -> Self {
+impl<K: for<'a> Key<'a>, V> FromIterator<Map<K, V>> for Mappings<K, V> {
+    fn from_iter<T: IntoIterator<Item = Map<K, V>>>(iter: T) -> Self {
         let mut mappings = Self::none();
         mappings.extend(iter);
         mappings
     }
 }
 
-impl<'a, K: Key<'a>, V> FromIterator<Self> for Mappings<'a, K, V> {
+impl<K: for<'a> Key<'a>, V> FromIterator<Self> for Mappings<K, V> {
     fn from_iter<T: IntoIterator<Item = Self>>(iter: T) -> Self {
         let mut iter = iter.into_iter();
         if let Some(mut collected) = iter.next() {
@@ -114,10 +110,10 @@ impl<'a, K: Key<'a>, V> FromIterator<Self> for Mappings<'a, K, V> {
     }
 }
 
-impl<'a, K: Key<'a>, V> IntoIterator for Mappings<'a, K, V> {
-    type Item = Map<'a, K, V>;
+impl<K: for<'a> Key<'a>, V> IntoIterator for Mappings<K, V> {
+    type Item = Map<K, V>;
 
-    type IntoIter = MappingsIter<'a, K, V>;
+    type IntoIter = MappingsIter<K, V>;
 
     fn into_iter(self) -> Self::IntoIter {
         match self {
@@ -128,15 +124,15 @@ impl<'a, K: Key<'a>, V> IntoIterator for Mappings<'a, K, V> {
 }
 
 /// An iterator over [`Mappings`].
-pub enum MappingsIter<'a, K: Key<'a> = (), V = ()> {
+pub enum MappingsIter<K: for<'a> Key<'a> = (), V = ()> {
     /// An iterator over a [`Mappings::Simple`] value.
-    Inline(Option<Map<'a, K, V>>),
+    Inline(Option<Map<K, V>>),
     /// An iterator over a [`Mappings::List`] value.
-    Vec(std::vec::IntoIter<Map<'a, K, V>>),
+    Vec(std::vec::IntoIter<Map<K, V>>),
 }
 
-impl<'a, K: Key<'a>, V> Iterator for MappingsIter<'a, K, V> {
-    type Item = Map<'a, K, V>;
+impl<K: for<'a> Key<'a>, V> Iterator for MappingsIter<K, V> {
+    type Item = Map<K, V>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
@@ -159,15 +155,10 @@ pub struct MappedDocument<K: for<'a> Key<'a> = (), V = ()> {
     pub value: V,
 }
 
-impl<'a, K: Key<'a>, V> Map<'a, K, V> {
+impl<K: for<'a> Key<'a>, V> Map<K, V> {
     /// Creates a new Map entry for the document with id `source`.
     pub fn new(source: Header, key: K, value: V) -> Self {
-        Self {
-            source,
-            key,
-            value,
-            _lifetime: PhantomData,
-        }
+        Self { source, key, value }
     }
 }
 
@@ -202,7 +193,7 @@ impl OwnedSerialized {
     /// Deserializes this map.
     pub fn deserialized<View: SerializedView>(
         &self,
-    ) -> Result<Map<'static, View::Key, View::Value>, view::Error> {
+    ) -> Result<Map<View::Key, View::Value>, view::Error> {
         Ok(Map::new(
             self.source.clone(),
             <View::Key as Key>::from_big_endian_bytes(&self.key)
@@ -253,29 +244,24 @@ impl OwnedMappedSerialized {
 
 /// A key value pair
 #[derive(Clone, PartialEq, Debug)]
-pub struct MappedValue<'a, K: Key<'a>, V> {
+pub struct MappedValue<K: for<'a> Key<'a>, V> {
     /// The key responsible for generating the value
     pub key: K,
 
     /// The value generated by the `View`
     pub value: V,
-
-    _lifetime: PhantomData<&'a ()>,
 }
 
-impl<'a, K: Key<'a>, V> MappedValue<'a, K, V> {
+impl<K: for<'a> Key<'a>, V> MappedValue<K, V> {
+    /// Returns a new instance with the key/value pair.
     pub fn new(key: K, value: V) -> Self {
-        Self {
-            key,
-            value,
-            _lifetime: PhantomData,
-        }
+        Self { key, value }
     }
 }
 
 /// A mapped value in a [`View`].
 #[allow(type_alias_bounds)] // False positive, required for associated types
-pub type ViewMappedValue<'a, V: View> = MappedValue<'a, V::Key, V::Value>;
+pub type ViewMappedValue<V: View> = MappedValue<V::Key, V::Value>;
 
 /// A serialized [`MappedValue`].
 #[derive(Clone, Serialize, Deserialize, Debug)]

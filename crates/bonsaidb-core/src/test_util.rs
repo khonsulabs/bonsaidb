@@ -98,13 +98,13 @@ impl View for BasicCount {
 impl ViewSchema for BasicCount {
     type View = Self;
 
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
+    fn map(&self, document: &Document<'_>) -> ViewMapResult<Self::View> {
         Ok(document.emit_key_and_value((), 1))
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<'_, Self::View>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -133,14 +133,14 @@ impl ViewSchema for BasicByParentId {
         1
     }
 
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
+    fn map(&self, document: &Document<'_>) -> ViewMapResult<Self::View> {
         let contents = document.contents::<Basic>()?;
         Ok(document.emit_key_and_value(contents.parent_id, 1))
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<'_, Self::View>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -164,7 +164,7 @@ impl View for BasicByCategory {
 impl ViewSchema for BasicByCategory {
     type View = Self;
 
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
+    fn map(&self, document: &Document<'_>) -> ViewMapResult<Self::View> {
         let contents = document.contents::<Basic>()?;
         if let Some(category) = &contents.category {
             Ok(document.emit_key_and_value(category.to_lowercase(), 1))
@@ -175,7 +175,7 @@ impl ViewSchema for BasicByCategory {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<'_, Self::View>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -200,7 +200,7 @@ impl View for BasicByTag {
 impl ViewSchema for BasicByTag {
     type View = Self;
 
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
+    fn map(&self, document: &Document<'_>) -> ViewMapResult<Self::View> {
         let contents = document.contents::<Basic>()?;
 
         Ok(contents
@@ -212,7 +212,7 @@ impl ViewSchema for BasicByTag {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<'_, Self::View>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -237,7 +237,7 @@ impl View for BasicByBrokenParentId {
 impl ViewSchema for BasicByBrokenParentId {
     type View = Self;
 
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
+    fn map(&self, document: &Document<'_>) -> ViewMapResult<Self::View> {
         Ok(document.emit())
     }
 }
@@ -310,13 +310,13 @@ impl View for EncryptedBasicCount {
 impl ViewSchema for EncryptedBasicCount {
     type View = Self;
 
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
+    fn map(&self, document: &Document<'_>) -> ViewMapResult<Self::View> {
         Ok(document.emit_key_and_value((), 1))
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<'_, Self::View>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -341,14 +341,14 @@ impl View for EncryptedBasicByParentId {
 impl ViewSchema for EncryptedBasicByParentId {
     type View = Self;
 
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
+    fn map(&self, document: &Document<'_>) -> ViewMapResult<Self::View> {
         let contents = document.contents::<EncryptedBasic>()?;
         Ok(document.emit_key_and_value(contents.parent_id, 1))
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<'_, Self::View>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -373,7 +373,7 @@ impl View for EncryptedBasicByCategory {
 impl ViewSchema for EncryptedBasicByCategory {
     type View = Self;
 
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
+    fn map(&self, document: &Document<'_>) -> ViewMapResult<Self::View> {
         let contents = document.contents::<EncryptedBasic>()?;
         if let Some(category) = &contents.category {
             Ok(document.emit_key_and_value(category.to_lowercase(), 1))
@@ -384,7 +384,7 @@ impl ViewSchema for EncryptedBasicByCategory {
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<'_, Self::View>],
+        mappings: &[ViewMappedValue<Self::View>],
         _rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Ok(mappings.iter().map(|map| map.value).sum())
@@ -453,7 +453,7 @@ impl ViewSchema for UniqueValue {
         true
     }
 
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
+    fn map(&self, document: &Document<'_>) -> ViewMapResult<Self::View> {
         let entry = document.contents::<Unique>()?;
         Ok(document.emit_key(entry.value))
     }

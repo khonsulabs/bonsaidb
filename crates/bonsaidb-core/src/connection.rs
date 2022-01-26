@@ -138,7 +138,7 @@ pub trait Connection: Send + Sync {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<'static, V::Key, V::Value>>, Error>
+    ) -> Result<Vec<Map<V::Key, V::Value>>, Error>
     where
         Self: Sized;
 
@@ -171,7 +171,7 @@ pub trait Connection: Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<'static, V::Key, V::Value>>, Error>
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error>
     where
         Self: Sized;
 
@@ -472,7 +472,7 @@ where
     }
 
     /// Executes the query and retrieves the results.
-    pub async fn query(self) -> Result<Vec<Map<'static, V::Key, V::Value>>, Error> {
+    pub async fn query(self) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
         self.connection
             .query::<V>(self.key, self.sort, self.limit, self.access_policy)
             .await
@@ -493,9 +493,7 @@ where
     }
 
     /// Executes a reduce over the results of the query
-    pub async fn reduce_grouped(
-        self,
-    ) -> Result<Vec<MappedValue<'static, V::Key, V::Value>>, Error> {
+    pub async fn reduce_grouped(self) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error> {
         self.connection
             .reduce_grouped::<V>(self.key, self.access_policy)
             .await
@@ -617,6 +615,7 @@ impl<T> Range<T> {
         }
     }
 
+    /// Maps each contained value as a reference.
     pub fn map_ref<U: ?Sized, F: Fn(&T) -> &U>(&self, map: F) -> Range<&U> {
         Range {
             start: self.start.map_ref(&map),
@@ -665,6 +664,7 @@ impl<T> Bound<T> {
         }
     }
 
+    /// Maps each contained value as a reference.
     pub fn map_ref<U: ?Sized, F: Fn(&T) -> &U>(&self, map: F) -> Bound<&U> {
         match self {
             Bound::Unbounded => Bound::Unbounded,

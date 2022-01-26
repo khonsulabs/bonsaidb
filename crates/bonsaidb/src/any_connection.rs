@@ -3,7 +3,7 @@ use bonsaidb_core::{
     async_trait::async_trait,
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     custodian_password::{RegistrationFinalization, RegistrationRequest, RegistrationResponse},
-    document::{Document, OwnedDocument},
+    document::OwnedDocument,
     schema::{
         Collection, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
         SerializedView,
@@ -245,7 +245,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<'static, V::Key, V::Value>>, bonsaidb_core::Error>
+    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -297,7 +297,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<'static, V::Key, V::Value>>, bonsaidb_core::Error>
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {

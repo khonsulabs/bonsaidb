@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     circulate::Message,
     connection::{AccessPolicy, QueryKey, Range, Sort},
-    document::{Document, OwnedDocument},
+    document::OwnedDocument,
     keyvalue::KeyValue,
     pubsub::{PubSub, Subscriber},
     schema::{self, Collection, Map, MappedValue, SerializedView},
@@ -126,7 +126,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<'static, V::Key, V::Value>>, bonsaidb_core::Error>
+    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -163,7 +163,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<'static, V::Key, V::Value>>, bonsaidb_core::Error>
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {

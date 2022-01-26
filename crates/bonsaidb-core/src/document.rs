@@ -25,29 +25,29 @@ pub struct Header {
 impl Header {
     /// Creates a `Map` result with an empty key and value.
     #[must_use]
-    pub fn emit(&self) -> Mappings<'static, (), ()> {
+    pub fn emit(&self) -> Mappings<(), ()> {
         self.emit_key_and_value((), ())
     }
 
     /// Creates a `Map` result with a `key` and an empty value.
     #[must_use]
-    pub fn emit_key<'a, K: Key<'a>>(&self, key: K) -> Mappings<'a, K, ()> {
+    pub fn emit_key<K: for<'a> Key<'a>>(&self, key: K) -> Mappings<K, ()> {
         self.emit_key_and_value(key, ())
     }
 
     /// Creates a `Map` result with `value` and an empty key.
     #[must_use]
-    pub fn emit_value<'a, Value: 'a>(&self, value: Value) -> Mappings<'a, (), Value> {
+    pub fn emit_value<Value>(&self, value: Value) -> Mappings<(), Value> {
         self.emit_key_and_value((), value)
     }
 
     /// Creates a `Map` result with a `key` and `value`.
     #[must_use]
-    pub fn emit_key_and_value<'a, K: Key<'a>, Value: 'a>(
+    pub fn emit_key_and_value<K: for<'a> Key<'a>, Value>(
         &self,
         key: K,
         value: Value,
-    ) -> Mappings<'a, K, Value> {
+    ) -> Mappings<K, Value> {
         Mappings::Simple(Some(Map::new(self.clone(), key, value)))
     }
 }
@@ -81,8 +81,11 @@ pub struct OwnedDocument {
     pub contents: Bytes,
 }
 
+/// Common interface of a document in `BonsaiDb`.
 pub trait Doc<'a>: Deref<Target = Header> + DerefMut + AsRef<[u8]> + Sized {
+    /// The bytes type used in the interface.
     type Bytes;
+
     /// Creates a new document with `contents`.
     #[must_use]
     fn new(id: u64, contents: impl Into<Self::Bytes>) -> Self;
@@ -236,6 +239,7 @@ impl AsRef<[u8]> for OwnedDocument {
 }
 
 impl<'a> Document<'a> {
+    /// Converts this document to an owned document.
     #[must_use]
     pub fn into_owned(self) -> OwnedDocument {
         OwnedDocument {

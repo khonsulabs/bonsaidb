@@ -101,7 +101,7 @@ impl ViewSchema for Singleton {
         1
     }
 
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
+    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<Self::View> {
         Ok(document.emit())
     }
 }

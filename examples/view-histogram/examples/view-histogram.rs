@@ -134,7 +134,7 @@ impl CollectionViewSchema for AsHistogram {
     fn map(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> bonsaidb::core::schema::ViewMapResult<'static, Self::View> {
+    ) -> bonsaidb::core::schema::ViewMapResult<Self::View> {
         let mut histogram = Histogram::new(4).unwrap();
         for sample in &document.contents.entries {
             histogram.record(*sample).unwrap();

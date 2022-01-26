@@ -47,7 +47,7 @@ impl From<pot::Error> for Error {
 
 /// A type alias for the result of `ViewSchema::map()`.
 #[allow(type_alias_bounds)] // False positive, required for associated types
-pub type ViewMapResult<'a, V: View> = Result<Mappings<'a, V::Key, V::Value>, crate::Error>;
+pub type ViewMapResult<V: View> = Result<Mappings<V::Key, V::Value>, crate::Error>;
 
 /// A type alias for the result of `ViewSchema::reduce()`.
 #[allow(type_alias_bounds)] // False positive, required for associated types
@@ -106,7 +106,7 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     /// View. If None is returned, the View will not include the document. See [the user guide's chapter on
     /// views for more information on how map
     /// works](https://dev.bonsaidb.io/guide/about/concepts/view.html#map).
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View>;
+    fn map(&self, document: &Document<'_>) -> ViewMapResult<Self::View>;
 
     /// Returns a value that is produced by reducing a list of `mappings` into a
     /// single value. If `rereduce` is true, the values contained in the
@@ -118,7 +118,7 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<'_, Self::View>],
+        mappings: &[ViewMappedValue<Self::View>],
         rereduce: bool,
     ) -> Result<<Self::View as View>::Value, crate::Error> {
         Err(crate::Error::ReduceUnimplemented)
@@ -197,7 +197,7 @@ where
     fn map(
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<'static, Self::View>;
+    ) -> ViewMapResult<Self::View>;
 
     /// The reduce function for this view. If `Err(Error::ReduceUnimplemented)`
     /// is returned, queries that ask for a reduce operation will return an
@@ -207,7 +207,7 @@ where
     #[allow(unused_variables)]
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<'_, Self::View>],
+        mappings: &[ViewMappedValue<Self::View>],
         rereduce: bool,
     ) -> ReduceResult<Self::View> {
         Err(crate::Error::ReduceUnimplemented)
@@ -226,13 +226,13 @@ where
         T::version(self)
     }
 
-    fn map<'a>(&self, document: &'a Document<'_>) -> ViewMapResult<'a, Self::View> {
+    fn map(&self, document: &Document<'_>) -> ViewMapResult<Self::View> {
         T::map(self, CollectionDocument::try_from(document)?)
     }
 
     fn reduce(
         &self,
-        mappings: &[ViewMappedValue<'_, Self::View>],
+        mappings: &[ViewMappedValue<Self::View>],
         rereduce: bool,
     ) -> Result<<Self::View as View>::Value, crate::Error> {
         T::reduce(self, mappings, rereduce)
@@ -350,7 +350,7 @@ macro_rules! define_mapped_view {
             fn map(
                 &self,
                 document: $crate::schema::CollectionDocument<$collection>,
-            ) -> $crate::schema::ViewMapResult<'static, Self::View> {
+            ) -> $crate::schema::ViewMapResult<Self::View> {
                 Ok($mapping(document))
             }
         }

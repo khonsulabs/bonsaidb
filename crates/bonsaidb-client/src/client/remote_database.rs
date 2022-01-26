@@ -139,7 +139,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<'static, V::Key, V::Value>>, bonsaidb_core::Error>
+    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -255,7 +255,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<'static, V::Key, V::Value>>, bonsaidb_core::Error>
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {

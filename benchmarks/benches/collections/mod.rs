@@ -1,4 +1,4 @@
-use bonsaidb::core::arc_bytes::{ArcBytes, Bytes};
+use bonsaidb::core::arc_bytes::serde::Bytes;
 use criterion::{Criterion, Throughput};
 use serde::{Deserialize, Serialize};
 

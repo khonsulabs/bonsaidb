@@ -53,7 +53,7 @@ impl View for BlogPostsByCategory {
 impl ViewSchema for BlogPostsByCategory {
     type View = Self;
 
-    fn map(&self, document: &Document) -> ViewMapResult<'static, Self::View> {
+    fn map(&self, document: &Document) -> ViewMapResult<Self::View> {
         let post = document.contents::<BlogPost>()?;
         Ok(document.emit_key_and_value(post.category, 1))
     }
