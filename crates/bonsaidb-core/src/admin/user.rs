@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use crate::{
     admin::{group, role},
     connection::Connection,
-    custodian_password::{ServerFile, ServerRegistration},
     define_basic_unique_mapped_view,
     document::{Document, KeyId},
     permissions::Permissions,
@@ -24,13 +23,6 @@ pub struct User {
     pub groups: Vec<u64>,
     /// The IDs of the roles this user has been assigned.
     pub roles: Vec<u64>,
-
-    /// An `OPAQUE PAKE` payload.
-    pub password_hash: Option<ServerFile>,
-
-    /// A temporary password state. Each call to SetPassword will overwrite the
-    /// previous state.
-    pub pending_password_change_state: Option<ServerRegistration>,
 }
 
 impl User {

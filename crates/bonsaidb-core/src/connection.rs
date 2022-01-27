@@ -5,11 +5,6 @@ use std::{
 
 use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
-#[cfg(feature = "multiuser")]
-use custodian_password::{
-    ClientConfig, ClientFile, ClientRegistration, ExportKey, RegistrationFinalization,
-    RegistrationRequest, RegistrationResponse,
-};
 use futures::{future::BoxFuture, Future, FutureExt};
 use serde::{Deserialize, Serialize};
 
@@ -869,42 +864,13 @@ pub trait StorageConnection: Send + Sync {
     #[cfg(feature = "multiuser")]
     async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
 
-    /// Sets a user's password using `custodian-password` to register a password using `OPAQUE-PAKE`.
-    #[cfg(feature = "multiuser")]
-    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
-        &self,
-        user: U,
-        password_request: RegistrationRequest,
-    ) -> Result<RegistrationResponse, crate::Error>;
-
-    /// Finishes setting a user's password by finishing the `OPAQUE-PAKE`
-    /// registration.
-    #[cfg(feature = "multiuser")]
-    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
-        &self,
-        user: U,
-        password_finalization: RegistrationFinalization,
-    ) -> Result<(), crate::Error>;
-
-    /// Sets a user's password with the provided string. The password provided
-    /// will never leave the machine that is calling this function. Internally
-    /// uses `set_user_password` and `finish_set_user_password` in conjunction
-    /// with `custodian-password`.
     #[cfg(feature = "multiuser")]
     async fn set_user_password_str<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
         password: &str,
     ) -> Result<PasswordResult, crate::Error> {
-        let user = user.into();
-        let (registration, request) = ClientRegistration::register(
-            ClientConfig::new(crate::password_config(), None)?,
-            password,
-        )?;
-        let response = self.set_user_password(user.clone(), request).await?;
-        let (file, finalization, export_key) = registration.finish(response)?;
-        self.finish_set_user_password(user, finalization).await?;
-        Ok(PasswordResult { file, export_key })
+        todo!()
     }
 
     /// Adds a user to a permission group.
@@ -962,17 +928,7 @@ pub trait StorageConnection: Send + Sync {
 
 /// The result of logging in with a password or setting a password.
 #[cfg(feature = "multiuser")]
-pub struct PasswordResult {
-    /// A file that can be stored locally that can be used to further validate
-    /// future login attempts. This does not need to be stored, but can be used
-    /// to detect if the `BonsaiDb` key has been changed without our knowledge.
-    pub file: ClientFile,
-    /// A keypair derived from the OPAQUE-KE session. This key is
-    /// deterministically derived from the key exchange with the server such
-    /// that upon logging in with your password, this key will always be the
-    /// same until you change your password.
-    pub export_key: ExportKey,
-}
+pub struct PasswordResult {}
 
 /// A database stored in `BonsaiDb`.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]

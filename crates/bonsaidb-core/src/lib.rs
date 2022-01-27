@@ -52,8 +52,6 @@ pub use actionable;
 pub use arc_bytes;
 pub use async_trait;
 pub use circulate;
-#[cfg(feature = "multiuser")]
-pub use custodian_password;
 pub use num_traits;
 pub use ordered_varint;
 use schema::{view, CollectionName, SchemaName, ViewName};
@@ -232,28 +230,6 @@ impl From<FromUtf8Error> for Error {
 #[cfg(any(feature = "test-util", test))]
 #[allow(missing_docs)]
 pub mod test_util;
-
-#[cfg(feature = "multiuser")]
-use custodian_password::{Ake, Argon2Params, Config, Group, Hash, Mhf};
-
-#[cfg(feature = "multiuser")]
-impl From<custodian_password::Error> for Error {
-    fn from(err: custodian_password::Error) -> Self {
-        Self::Password(err.to_string())
-    }
-}
-
-/// The configuration used for `OPAQUE` password authentication.
-#[must_use]
-#[cfg(feature = "multiuser")]
-pub fn password_config() -> Config {
-    Config::new(
-        Ake::P256,
-        Group::P256,
-        Hash::Blake3,
-        Mhf::Argon2(Argon2Params::default()),
-    )
-}
 
 /// When true, encryption was enabled at build-time.
 #[cfg(feature = "encryption")]

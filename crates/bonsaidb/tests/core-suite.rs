@@ -306,7 +306,7 @@ async fn assume_permissions(
     };
 
     connection
-        .login_with_password_str(&username, "hunter2", None)
+        .login_with_password_str(&username, "hunter2")
         .await
         .unwrap();
 
@@ -350,9 +350,7 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
         Err(bonsaidb_core::Error::PermissionDenied(_)) => {}
         _ => unreachable!("should not have permission to create another user before logging in"),
     }
-    client
-        .login_with_password_str("ecton", "hunter2", None)
-        .await?;
+    client.login_with_password_str("ecton", "hunter2").await?;
     client
         .create_user("otheruser")
         .await

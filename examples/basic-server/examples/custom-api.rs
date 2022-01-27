@@ -304,7 +304,7 @@ async fn invoke_apis(
 
     // Now, let's authenticate and try calling the APIs that previously were denied permissions
     client
-        .login_with_password_str("test-user", "hunter2", None)
+        .login_with_password_str("test-user", "hunter2")
         .await?;
     assert!(matches!(
         client

@@ -6,11 +6,7 @@ use std::{
 };
 
 use async_lock::{Mutex, MutexGuard, RwLock};
-use bonsaidb_core::{
-    custodian_password::{LoginRequest, LoginResponse, ServerLogin},
-    custom_api::CustomApiResult,
-    permissions::Permissions,
-};
+use bonsaidb_core::{custom_api::CustomApiResult, permissions::Permissions};
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::derive_where;
 use flume::Sender;
@@ -41,7 +37,6 @@ struct Data<B: Backend = NoBackend> {
     transport: Transport,
     response_sender: Sender<CustomApiResult<B::CustomApi>>,
     auth_state: RwLock<AuthenticationState>,
-    pending_password_login: Mutex<Option<(Option<u64>, ServerLogin)>>,
     client_data: Mutex<Option<B::ClientData>>,
     subscriber_ids: Mutex<HashSet<u64>>,
 }
@@ -79,38 +74,10 @@ impl<B: Backend> ConnectedClient<B> {
         auth_state.user_id
     }
 
-    /// Initiates a login request for this client.
-    pub async fn initiate_login(
-        &self,
-        username: &str,
-        password_request: LoginRequest,
-        server: &CustomServer<B>,
-    ) -> Result<LoginResponse, bonsaidb_core::Error> {
-        let (user_id, login, response) = server
-            .internal_login_with_password(username, password_request)
-            .await?;
-        self.set_pending_password_login(user_id, login).await;
-        Ok(response)
-    }
-
     pub(crate) async fn logged_in_as(&self, user_id: u64, new_permissions: Permissions) {
         let mut auth_state = fast_async_write!(self.data.auth_state);
         auth_state.user_id = Some(user_id);
         auth_state.permissions = new_permissions;
-    }
-
-    pub(crate) async fn set_pending_password_login(
-        &self,
-        user_id: Option<u64>,
-        new_state: ServerLogin,
-    ) {
-        let mut pending_password_login = fast_async_lock!(self.data.pending_password_login);
-        *pending_password_login = Some((user_id, new_state));
-    }
-
-    pub(crate) async fn take_pending_password_login(&self) -> Option<(Option<u64>, ServerLogin)> {
-        let mut pending_password_login = fast_async_lock!(self.data.pending_password_login);
-        pending_password_login.take()
     }
 
     pub(crate) async fn owns_subscriber(&self, subscriber_id: u64) -> bool {
@@ -191,7 +158,6 @@ impl<B: Backend> OwnedClient<B> {
                         permissions: server.data.default_permissions.clone(),
                         user_id: None,
                     }),
-                    pending_password_login: Mutex::default(),
                     client_data: Mutex::default(),
                     subscriber_ids: Mutex::default(),
                 }),

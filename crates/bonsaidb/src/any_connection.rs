@@ -2,7 +2,6 @@ use bonsaidb_client::{Client, RemoteDatabase};
 use bonsaidb_core::{
     async_trait::async_trait,
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    custodian_password::{RegistrationFinalization, RegistrationRequest, RegistrationResponse},
     document::OwnedDocument,
     schema::{
         Collection, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
@@ -82,36 +81,6 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
         match self {
             Self::Local(server) => server.create_user(username).await,
             Self::Networked(client) => client.create_user(username).await,
-        }
-    }
-
-    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
-        &self,
-        user: U,
-        password_request: RegistrationRequest,
-    ) -> Result<RegistrationResponse, bonsaidb_core::Error> {
-        match self {
-            Self::Local(server) => server.set_user_password(user, password_request).await,
-            Self::Networked(client) => client.set_user_password(user, password_request).await,
-        }
-    }
-
-    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
-        &self,
-        user: U,
-        password_finalization: RegistrationFinalization,
-    ) -> Result<(), bonsaidb_core::Error> {
-        match self {
-            Self::Local(server) => {
-                server
-                    .finish_set_user_password(user, password_finalization)
-                    .await
-            }
-            Self::Networked(client) => {
-                client
-                    .finish_set_user_password(user, password_finalization)
-                    .await
-            }
         }
     }
 

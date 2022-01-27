@@ -9,8 +9,6 @@ use std::{
 use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
-#[cfg(feature = "internal-apis")]
-use bonsaidb_core::custodian_password::{LoginResponse, ServerLogin};
 use bonsaidb_core::{
     admin::{
         self,
@@ -23,8 +21,7 @@ use bonsaidb_core::{
 };
 #[cfg(feature = "multiuser")]
 use bonsaidb_core::{
-    admin::{password_config::PasswordConfig, user::User, PermissionGroup, Role},
-    custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
+    admin::{user::User, PermissionGroup, Role},
     schema::{CollectionDocument, NamedCollection, NamedReference},
 };
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
@@ -384,28 +381,6 @@ impl Storage {
         self.database_without_schema(name).await
     }
 
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    /// Authenticates a user.
-    pub async fn internal_login_with_password(
-        &self,
-        username: &str,
-        login_request: bonsaidb_core::custodian_password::LoginRequest,
-    ) -> Result<(Option<u64>, ServerLogin, LoginResponse), bonsaidb_core::Error> {
-        let admin = self.admin().await;
-        let config = PasswordConfig::load(&admin).await?;
-
-        let (user_id, existing_password_hash) =
-            if let Some(user) = User::load(username, &admin).await? {
-                (Some(user.header.id), user.contents.password_hash)
-            } else {
-                (None, None)
-            };
-
-        let (login, response) = ServerLogin::login(&config, existing_password_hash, login_request)?;
-        Ok((user_id, login, response))
-    }
-
     #[cfg(feature = "multiuser")]
     async fn update_user_with_named_id<
         'user,
@@ -609,59 +584,6 @@ impl StorageConnection for Storage {
             .push(&User::default_with_username(username))
             .await?;
         Ok(result.id)
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password_request)))]
-    #[cfg(feature = "multiuser")]
-    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
-        &self,
-        user: U,
-        password_request: RegistrationRequest,
-    ) -> Result<bonsaidb_core::custodian_password::RegistrationResponse, bonsaidb_core::Error> {
-        let admin = self.admin().await;
-
-        match User::load(user, &admin).await? {
-            Some(mut doc) => {
-                let config = PasswordConfig::load(&admin).await.unwrap();
-                let (register, response) = ServerRegistration::register(&config, password_request)?;
-
-                doc.contents.pending_password_change_state = Some(register);
-                doc.update(&admin).await?;
-
-                Ok(response)
-            }
-            None => Err(bonsaidb_core::Error::UserNotFound),
-        }
-    }
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip(user, password_finalization))
-    )]
-    #[cfg(feature = "multiuser")]
-    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
-        &self,
-        user: U,
-        password_finalization: RegistrationFinalization,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let user = user.into();
-        let admin = self.admin().await;
-        match User::load(user, &admin).await? {
-            Some(mut doc) => {
-                if let Some(registration) = doc.contents.pending_password_change_state.take() {
-                    let file = registration.finish(password_finalization)?;
-                    doc.contents.password_hash = Some(file);
-                    doc.update(&admin).await?;
-
-                    Ok(())
-                } else {
-                    Err(bonsaidb_core::Error::Password(String::from(
-                        "no existing state found",
-                    )))
-                }
-            }
-            None => Err(bonsaidb_core::Error::UserNotFound),
-        }
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]

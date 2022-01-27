@@ -15,15 +15,11 @@ use std::{
 use async_lock::Mutex;
 use async_trait::async_trait;
 use bonsaidb_core::{
-    connection::{Database, PasswordResult, StorageConnection},
-    custodian_password::{
-        ClientConfig, ClientFile, ClientLogin, LoginFinalization, LoginRequest, LoginResponse,
-    },
+    connection::{Database, StorageConnection},
     custom_api::{CustomApi, CustomApiResult},
     networking::{
         self, Payload, Request, Response, ServerRequest, ServerResponse, CURRENT_PROTOCOL_VERSION,
     },
-    password_config,
     permissions::Permissions,
     schema::{NamedReference, Schema, SchemaName, Schematic},
 };
@@ -296,51 +292,6 @@ impl<A: CustomApi> Client<A> {
         Ok(client)
     }
 
-    /// Logs in as a user with a password, using `custodian-password` to login using `OPAQUE-PAKE`.
-    pub async fn login_with_password(
-        &self,
-        username: &str,
-        login_request: LoginRequest,
-    ) -> Result<LoginResponse, bonsaidb_core::Error> {
-        match self
-            .send_request(Request::Server(ServerRequest::LoginWithPassword {
-                username: username.to_string(),
-                login_request,
-            }))
-            .await?
-        {
-            Response::Server(ServerResponse::PasswordLoginResponse { response }) => Ok(*response),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
-    }
-
-    /// Finishes setting a user's password by finishing the `OPAQUE-PAKE`
-    /// login.
-    pub async fn finish_login_with_password(
-        &self,
-        login_finalization: LoginFinalization,
-    ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request(Request::Server(ServerRequest::FinishPasswordLogin {
-                login_finalization,
-            }))
-            .await?
-        {
-            Response::Server(ServerResponse::LoggedIn { permissions }) => {
-                let mut effective_permissions = fast_async_lock!(self.data.effective_permissions);
-                *effective_permissions = Some(permissions);
-                Ok(())
-            }
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
-    }
-
     /// Authenticates as a user with a provided password. The password provided
     /// will never leave the machine that is calling this function. Internally
     /// uses `login_with_password` and `finish_login_with_password` in
@@ -349,17 +300,8 @@ impl<A: CustomApi> Client<A> {
         &self,
         username: &str,
         password: &str,
-        previous_file: Option<ClientFile>,
-    ) -> Result<PasswordResult, bonsaidb_core::Error> {
-        let (login, request) = ClientLogin::login(
-            ClientConfig::new(password_config(), None)?,
-            previous_file,
-            password,
-        )?;
-        let response = self.login_with_password(username, request).await?;
-        let (file, login_finalization, export_key) = login.finish(response)?;
-        self.finish_login_with_password(login_finalization).await?;
-        Ok(PasswordResult { file, export_key })
+    ) -> Result<(), bonsaidb_core::Error> {
+        todo!()
     }
 
     async fn send_request(
@@ -523,48 +465,6 @@ impl<A: CustomApi> StorageConnection for Client<A> {
             .await?
         {
             Response::Server(ServerResponse::UserCreated { id }) => Ok(id),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
-    }
-
-    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
-        &self,
-        user: U,
-        password_request: bonsaidb_core::custodian_password::RegistrationRequest,
-    ) -> Result<bonsaidb_core::custodian_password::RegistrationResponse, bonsaidb_core::Error> {
-        match self
-            .send_request(Request::Server(ServerRequest::SetPassword {
-                user: user.into().into_owned(),
-                password_request,
-            }))
-            .await?
-        {
-            Response::Server(ServerResponse::FinishSetPassword { password_reponse }) => {
-                Ok(*password_reponse)
-            }
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
-    }
-
-    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
-        &self,
-        user: U,
-        password_finalization: bonsaidb_core::custodian_password::RegistrationFinalization,
-    ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request(Request::Server(ServerRequest::FinishSetPassword {
-                user: user.into().into_owned(),
-                password_finalization,
-            }))
-            .await?
-        {
-            Response::Ok => Ok(()),
             Response::Error(err) => Err(err),
             other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),

@@ -18,7 +18,7 @@ networking = ["multiuser"]
 websockets = []
 actionable-traits = []
 instrument = ["pot/tracing"]
-multiuser = ["custodian-password"]
+multiuser = []
 encryption = []
 
 [dependencies]
@@ -34,10 +34,6 @@ futures = { version = "0.3" }
 tokio = { version = "1", features = ["time"], optional = true }
 num-traits = "0.2"
 actionable = "0.1"
-custodian-password = { git = "https://github.com/khonsulabs/custodian.git", branch = "main", default-features = false, features = [
-    "blake3",
-    "p256",
-], optional = true }
 anyhow = { version = "1", optional = true }
 itertools = "0.10"
 ordered-varint = "0.1.0-dev.1"

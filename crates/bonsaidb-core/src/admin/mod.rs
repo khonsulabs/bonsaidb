@@ -8,9 +8,6 @@ pub mod database;
 #[cfg(feature = "multiuser")]
 #[doc(hidden)]
 pub mod group;
-#[cfg(feature = "multiuser")]
-#[doc(hidden)]
-pub mod password_config;
 #[doc(hidden)]
 #[cfg(feature = "multiuser")]
 pub mod role;
@@ -39,7 +36,6 @@ impl Schema for Admin {
             schema.define_collection::<group::PermissionGroup>()?;
             schema.define_collection::<role::Role>()?;
             schema.define_collection::<user::User>()?;
-            schema.define_collection::<password_config::PasswordConfig>()?;
         }
 
         Ok(())

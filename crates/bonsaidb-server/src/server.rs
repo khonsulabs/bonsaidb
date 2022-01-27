@@ -19,9 +19,6 @@ use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     circulate::{Message, Relay, Subscriber},
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    custodian_password::{
-        LoginFinalization, LoginRequest, RegistrationFinalization, RegistrationRequest,
-    },
     custom_api::{CustomApi, CustomApiResult},
     document::Document,
     keyvalue::{KeyOperation, KeyValue},
@@ -954,28 +951,6 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         self.data.storage.create_user(username).await
     }
 
-    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
-        &self,
-        user: U,
-        password_request: RegistrationRequest,
-    ) -> Result<bonsaidb_core::custodian_password::RegistrationResponse, bonsaidb_core::Error> {
-        self.data
-            .storage
-            .set_user_password(user, password_request)
-            .await
-    }
-
-    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
-        &self,
-        user: U,
-        password_finalization: RegistrationFinalization,
-    ) -> Result<(), bonsaidb_core::Error> {
-        self.data
-            .storage
-            .finish_set_user_password(user, password_finalization)
-            .await
-    }
-
     async fn add_permission_group_to_user<
         'user,
         'group,
@@ -1227,129 +1202,6 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateUserHandler for ServerDisp
         Ok(Response::Server(ServerResponse::UserCreated {
             id: self.server.create_user(&username).await?,
         }))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::LoginWithPasswordHandler
-    for ServerDispatcher<'s, B>
-{
-    type Action = BonsaiAction;
-    async fn resource_name<'a>(
-        &'a self,
-        username: &'a String,
-        _password_request: &'a LoginRequest,
-    ) -> Result<ResourceName<'a>, Error> {
-        let id = NamedReference::from(username.as_str())
-            .id::<User, _>(&self.server.admin().await)
-            .await?
-            .ok_or(bonsaidb_core::Error::UserNotFound)?;
-
-        Ok(user_resource_name(id))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Server(ServerAction::LoginWithPassword)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        username: String,
-        password_request: LoginRequest,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let response = self
-            .client
-            .initiate_login(&username, password_request, self.server)
-            .await?;
-        Ok(Response::Server(ServerResponse::PasswordLoginResponse {
-            response: Box::new(response),
-        }))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::FinishPasswordLoginHandler
-    for ServerDispatcher<'s, B>
-{
-    async fn handle(
-        &self,
-        _permissions: &Permissions,
-        password_request: LoginFinalization,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        if let Some((user_id, login)) = self.client.take_pending_password_login().await {
-            login.finish(password_request)?;
-            let user_id = user_id.expect("logged in without a user_id");
-            let permissions = self
-                .server
-                .authenticate_client_as(user_id, self.client)
-                .await?;
-
-            Ok(Response::Server(ServerResponse::LoggedIn { permissions }))
-        } else {
-            // TODO make this a real error
-            Err(Error::from(bonsaidb_core::Error::Server(String::from(
-                "no login state found",
-            ))))
-        }
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::SetPasswordHandler for ServerDispatcher<'s, B> {
-    async fn verify_permissions(
-        &self,
-        permissions: &Permissions,
-        user: &NamedReference<'static>,
-        _password_request: &RegistrationRequest,
-    ) -> Result<(), Error> {
-        let id = user
-            .id::<User, _>(&self.server.admin().await)
-            .await?
-            .ok_or(bonsaidb_core::Error::UserNotFound)?;
-
-        // Users can always set their own password
-        if self.client.user_id().await != Some(id) {
-            let user_resource_id = user_resource_name(id);
-            permissions.check(
-                &user_resource_id,
-                &BonsaiAction::Server(ServerAction::SetPassword),
-            )?;
-        }
-
-        Ok(())
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        user: NamedReference<'static>,
-        password_request: RegistrationRequest,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        Ok(Response::Server(ServerResponse::FinishSetPassword {
-            password_reponse: Box::new(
-                self.server
-                    .set_user_password(user, password_request)
-                    .await?,
-            ),
-        }))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::FinishSetPasswordHandler
-    for ServerDispatcher<'s, B>
-{
-    async fn handle(
-        &self,
-        _permissions: &Permissions,
-        user: NamedReference<'static>,
-        password_request: RegistrationFinalization,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.server
-            .finish_set_user_password(user, password_request)
-            .await?;
-        Ok(Response::Ok)
     }
 }
 
