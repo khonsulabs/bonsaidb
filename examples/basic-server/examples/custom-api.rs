@@ -13,7 +13,7 @@ use bonsaidb::{
         custom_api::{CustomApi, Infallible},
         permissions::{
             bonsai::{BonsaiAction, ServerAction},
-            Action, ActionNameList, ResourceName, Statement,
+            Action, ResourceName, Statement,
         },
     },
     local::config::Builder,
@@ -187,20 +187,16 @@ async fn main() -> anyhow::Result<()> {
     // ANCHOR: server-init
     let server = CustomServer::<ExampleBackend>::open(
         ServerConfiguration::new("server-data.bonsaidb")
-            .default_permissions(Permissions::from(vec![Statement {
-                resources: vec![ResourceName::any()],
-                actions: ActionNameList::List(vec![
-                    BonsaiAction::Server(ServerAction::Connect).name(),
-                    BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
-                ]),
-            }]))
-            .authenticated_permissions(Permissions::from(vec![Statement {
-                resources: vec![ResourceName::any()],
-                actions: ActionNameList::List(vec![
-                    ExampleActions::DoSomethingSimple.name(),
-                    ExampleActions::DoSomethingCustom.name(),
-                ]),
-            }])),
+            .default_permissions(Permissions::from(
+                Statement::for_any()
+                    .allowing(&BonsaiAction::Server(ServerAction::Connect))
+                    .allowing(&BonsaiAction::Server(ServerAction::LoginWithPassword)),
+            ))
+            .authenticated_permissions(Permissions::from(
+                Statement::for_any()
+                    .allowing(&ExampleActions::DoSomethingSimple)
+                    .allowing(&ExampleActions::DoSomethingCustom),
+            )),
     )
     .await?;
     // ANCHOR_END: server-init

@@ -3,7 +3,7 @@ use std::time::Duration;
 use bonsaidb::{
     client::{url::Url, Client, RemoteDatabase},
     core::{
-        actionable::{Action, ActionNameList, Permissions, ResourceName},
+        actionable::Permissions,
         admin::{Admin, PermissionGroup, ADMIN_DATABASE_NAME},
         circulate::flume,
         connection::StorageConnection,
@@ -318,13 +318,11 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
     let database_path = TestDirectory::new("authenticated-permissions");
     let server = Server::open(
         ServerConfiguration::new(&database_path)
-            .default_permissions(Permissions::from(vec![Statement {
-                resources: vec![ResourceName::any()],
-                actions: ActionNameList::List(vec![
-                    BonsaiAction::Server(ServerAction::Connect).name(),
-                    BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
-                ]),
-            }]))
+            .default_permissions(Permissions::from(
+                Statement::for_any()
+                    .allowing(&BonsaiAction::Server(ServerAction::Connect))
+                    .allowing(&BonsaiAction::Server(ServerAction::LoginWithPassword)),
+            ))
             .authenticated_permissions(DefaultPermissions::AllowAll),
     )
     .await?;

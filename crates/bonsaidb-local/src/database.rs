@@ -532,7 +532,8 @@ impl Database {
             .map_err(|err| match err {
                 AbortError::Other(err) => err,
                 AbortError::Nebari(err) => bonsaidb_core::Error::from(crate::Error::from(err)),
-            })?;
+            })
+            .unwrap();
 
             Ok(found_docs)
         })

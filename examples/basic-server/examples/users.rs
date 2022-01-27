@@ -1,4 +1,4 @@
-//! Shows basic usage of a ser resources: (), actions: () ver.
+//! Shows basic usage of users and permissions.
 
 use std::time::Duration;
 
@@ -10,7 +10,7 @@ use bonsaidb::{
         document::KeyId,
         permissions::{
             bonsai::{BonsaiAction, ServerAction},
-            Action, ActionNameList, Permissions, ResourceName, Statement,
+            Permissions, Statement,
         },
         schema::{InsertError, SerializedCollection},
     },
@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
     let admin = server.admin().await;
     let administrator_group_id = match (PermissionGroup {
         name: String::from("administrators"),
-        statements: vec![Statement::allow_all()],
+        statements: vec![Statement::allow_all_for_any_resource()],
     }
     .push_into(&admin)
     .await)
@@ -115,13 +115,11 @@ async fn main() -> anyhow::Result<()> {
 async fn setup_server() -> anyhow::Result<Server> {
     let server = Server::open(
         ServerConfiguration::new("users-server-data.bonsaidb")
-            .default_permissions(Permissions::from(vec![Statement {
-                resources: vec![ResourceName::any()],
-                actions: ActionNameList::List(vec![
-                    BonsaiAction::Server(ServerAction::Connect).name(),
-                    BonsaiAction::Server(ServerAction::LoginWithPassword).name(),
-                ]),
-            }]))
+            .default_permissions(Permissions::from(
+                Statement::for_any()
+                    .allowing(&BonsaiAction::Server(ServerAction::Connect))
+                    .allowing(&BonsaiAction::Server(ServerAction::LoginWithPassword)),
+            ))
             .default_encryption_key(KeyId::Master)
             .with_schema::<Shape>()?,
     )
