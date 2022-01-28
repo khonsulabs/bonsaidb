@@ -59,9 +59,7 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
     println!("done inserting new samples");
 
     // We can ask for a histogram of all the data:
-    let total_histogram = db
-        .reduce::<AsHistogram>(None, AccessPolicy::UpdateBefore)
-        .await?;
+    let total_histogram = db.view::<AsHistogram>().reduce().await?;
     println!(
         "99th Percentile overall: {} ({} samples)",
         total_histogram.value_at_quantile(0.99),
