@@ -9,6 +9,8 @@ use std::{
 use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
+#[cfg(feature = "password-hashing")]
+use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     admin::{
         self,
@@ -50,6 +52,9 @@ use crate::{
     Database, Error,
 };
 
+#[cfg(feature = "password-hashing")]
+mod argon;
+
 mod backup;
 pub use backup::BackupLocation;
 
@@ -69,6 +74,8 @@ struct Data {
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
     open_roots: Mutex<HashMap<String, Context>>,
+    #[cfg(feature = "password-hashing")]
+    argon: argon::Hasher,
     #[cfg(feature = "encryption")]
     pub(crate) vault: Arc<Vault>,
     #[cfg(feature = "encryption")]
@@ -113,6 +120,8 @@ impl Storage {
 
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
         let key_value_persistence = configuration.key_value_persistence;
+        #[cfg(feature = "password-hashing")]
+        let argon = argon::Hasher::new(configuration.argon);
         #[cfg(feature = "encryption")]
         let default_encryption_key = configuration.default_encryption_key;
         let storage = tokio::task::spawn_blocking::<_, Result<Self, Error>>(move || {
@@ -120,6 +129,8 @@ impl Storage {
                 data: Arc::new(Data {
                     id,
                     tasks,
+                    #[cfg(feature = "password-hashing")]
+                    argon,
                     #[cfg(feature = "encryption")]
                     vault,
                     #[cfg(feature = "encryption")]
@@ -584,6 +595,53 @@ impl StorageConnection for Storage {
             .push(&User::default_with_username(username))
             .await?;
         Ok(result.id)
+    }
+
+    #[cfg(feature = "password-hashing")]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password)))]
+    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+        &self,
+        user: U,
+        password: bonsaidb_core::connection::Password,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let admin = self.admin().await;
+        let mut user = User::load(user, &admin)
+            .await?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
+        user.contents.argon_hash = Some(self.data.argon.hash(user.id, password).await?);
+        user.update(&admin).await
+    }
+
+    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
+    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+        &self,
+        user: U,
+        authentication: Authentication,
+    ) -> Result<Authenticated, bonsaidb_core::Error> {
+        let admin = self.admin().await;
+        let user = User::load(user, &admin)
+            .await?
+            .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+        match authentication {
+            Authentication::Password(password) => {
+                let saved_hash = user
+                    .contents
+                    .argon_hash
+                    .clone()
+                    .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+
+                self.data
+                    .argon
+                    .verify(user.id, password, saved_hash)
+                    .await?;
+                let permissions = user.contents.effective_permissions(&admin).await?;
+                Ok(Authenticated {
+                    user_id: user.id,
+                    permissions,
+                })
+            }
+        }
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]

@@ -1,11 +1,10 @@
-use actionable::Permissions;
 use arc_bytes::serde::Bytes;
 use derive_where::derive_where;
 use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    connection::{AccessPolicy, Database, QueryKey, Range, Sort},
+    connection::{AccessPolicy, Authenticated, Database, QueryKey, Range, Sort},
     document::OwnedDocument,
     keyvalue::{KeyOperation, Output},
     schema::{
@@ -84,6 +83,24 @@ pub enum ServerRequest {
     CreateUser {
         /// The unique username of the user to create.
         username: String,
+    },
+    /// Set's a user's password.
+    #[cfg(feature = "password-hashing")]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    SetUserPassword {
+        /// The username or id of the user.
+        user: NamedReference<'static>,
+        /// The user's new password.
+        password: crate::connection::Password,
+    },
+    /// Authenticate as a user.
+    #[cfg(feature = "password-hashing")]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
+    Authenticate {
+        /// The username or id of the user.
+        user: NamedReference<'static>,
+        /// The method of authentication.
+        authentication: crate::connection::Authentication,
     },
 
     /// Alter's a user's membership in a permission group.
@@ -302,10 +319,7 @@ pub enum ServerResponse {
         id: u64,
     },
     /// Successfully authenticated.
-    LoggedIn {
-        /// The effective permissions for the authenticated user.
-        permissions: Permissions,
-    },
+    Authenticated(Authenticated),
 }
 
 /// A response to a [`DatabaseRequest`].

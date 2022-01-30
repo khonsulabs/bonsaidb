@@ -41,6 +41,11 @@ use bonsaidb_core::{
     schema::{self, CollectionName, NamedCollection, NamedReference, Schema, ViewName},
     transaction::{Command, Transaction},
 };
+#[cfg(feature = "password-hashing")]
+use bonsaidb_core::{
+    connection::{Authenticated, Authentication},
+    permissions::bonsai::AuthenticationMethod,
+};
 use bonsaidb_local::{
     config::Builder,
     jobs::{manager::Manager, Job},
@@ -951,6 +956,24 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         self.data.storage.create_user(username).await
     }
 
+    #[cfg(feature = "password-hashing")]
+    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+        &self,
+        user: U,
+        password: bonsaidb_core::connection::Password,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.data.storage.set_user_password(user, password).await
+    }
+
+    #[cfg(feature = "password-hashing")]
+    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+        &self,
+        user: U,
+        authentication: Authentication,
+    ) -> Result<Authenticated, bonsaidb_core::Error> {
+        self.data.storage.authenticate(user, authentication).await
+    }
+
     async fn add_permission_group_to_user<
         'user,
         'group,
@@ -1202,6 +1225,90 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateUserHandler for ServerDisp
         Ok(Response::Server(ServerResponse::UserCreated {
             id: self.server.create_user(&username).await?,
         }))
+    }
+}
+
+#[cfg(feature = "password-hashing")]
+#[async_trait]
+impl<'s, B: Backend> bonsaidb_core::networking::SetUserPasswordHandler for ServerDispatcher<'s, B> {
+    type Action = BonsaiAction;
+
+    async fn resource_name<'a>(
+        &'a self,
+        user: &'a NamedReference<'static>,
+        _password: &'a bonsaidb_core::connection::Password,
+    ) -> Result<ResourceName<'a>, Error> {
+        let id = user
+            .id::<User, _>(&self.server.admin().await)
+            .await?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
+
+        Ok(user_resource_name(id))
+    }
+
+    fn action() -> Self::Action {
+        BonsaiAction::Server(ServerAction::SetPassword)
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        username: NamedReference<'static>,
+        password: bonsaidb_core::connection::Password,
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
+        self.server.set_user_password(username, password).await?;
+        Ok(Response::Ok)
+    }
+}
+
+#[async_trait]
+#[cfg(feature = "password-hashing")]
+impl<'s, B: Backend> bonsaidb_core::networking::AuthenticateHandler for ServerDispatcher<'s, B> {
+    async fn verify_permissions(
+        &self,
+        permissions: &Permissions,
+        user: &NamedReference<'static>,
+        authentication: &Authentication,
+    ) -> Result<(), Error> {
+        let id = user
+            .id::<User, _>(&self.server.admin().await)
+            .await?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
+        match authentication {
+            Authentication::Password(_) => {
+                permissions.check(
+                    user_resource_name(id),
+                    &BonsaiAction::Server(ServerAction::Authenticate(
+                        AuthenticationMethod::PasswordHash,
+                    )),
+                )?;
+                Ok(())
+            }
+        }
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        username: NamedReference<'static>,
+        authentication: Authentication,
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
+        let mut response = self
+            .server
+            .authenticate(username.clone(), authentication)
+            .await?;
+
+        // TODO this should be handled by the storage layer
+        response.permissions = Permissions::merged([
+            &response.permissions,
+            &self.server.data.authenticated_permissions,
+            &self.server.data.default_permissions,
+        ]);
+
+        self.client
+            .logged_in_as(response.user_id, response.permissions.clone())
+            .await;
+        Ok(Response::Server(ServerResponse::Authenticated(response)))
     }
 }
 

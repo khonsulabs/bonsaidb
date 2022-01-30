@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::schema::NamedReference;
 use crate::{
     document::{Document, Header, OwnedDocument},
+    permissions::Permissions,
     schema::{
         self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName, SerializedCollection,
     },
@@ -864,14 +865,21 @@ pub trait StorageConnection: Send + Sync {
     #[cfg(feature = "multiuser")]
     async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
 
-    #[cfg(feature = "multiuser")]
-    async fn set_user_password_str<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    /// Sets a user's password.
+    #[cfg(feature = "password-hashing")]
+    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
-        password: &str,
-    ) -> Result<PasswordResult, crate::Error> {
-        todo!()
-    }
+        password: Password,
+    ) -> Result<(), crate::Error>;
+
+    /// Authenticates as a user with a authentication method.
+    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+        &self,
+        user: U,
+        authentication: Authentication,
+    ) -> Result<Authenticated, crate::Error>;
 
     /// Adds a user to a permission group.
     #[cfg(feature = "multiuser")]
@@ -926,10 +934,6 @@ pub trait StorageConnection: Send + Sync {
     ) -> Result<(), crate::Error>;
 }
 
-/// The result of logging in with a password or setting a password.
-#[cfg(feature = "multiuser")]
-pub struct PasswordResult {}
-
 /// A database stored in `BonsaiDb`.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Database {
@@ -937,4 +941,34 @@ pub struct Database {
     pub name: String,
     /// The schema defining the database.
     pub schema: SchemaName,
+}
+
+/// A plain-text password. This struct automatically overwrites the password
+/// with zeroes when dropped.
+#[cfg(feature = "password-hashing")]
+#[derive(Clone, Serialize, Deserialize, zeroize::Zeroize)]
+pub struct Password(pub String);
+
+#[cfg(feature = "password-hashing")]
+impl std::fmt::Debug for Password {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Password(...)")
+    }
+}
+
+/// User authentication methods.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Authentication {
+    /// Authenticate using a password.
+    #[cfg(feature = "password-hashing")]
+    Password(crate::connection::Password),
+}
+
+/// Information about the authenticated session.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Authenticated {
+    /// The user id logged in as.
+    pub user_id: u64,
+    /// The effective permissions granted.
+    pub permissions: Permissions,
 }

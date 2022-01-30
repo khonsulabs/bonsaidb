@@ -1,4 +1,6 @@
 use bonsaidb_client::{Client, RemoteDatabase};
+#[cfg(feature = "password-hashing")]
+use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     async_trait::async_trait,
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
@@ -81,6 +83,30 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
         match self {
             Self::Local(server) => server.create_user(username).await,
             Self::Networked(client) => client.create_user(username).await,
+        }
+    }
+
+    #[cfg(feature = "password-hashing")]
+    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+        &self,
+        user: U,
+        password: bonsaidb_core::connection::Password,
+    ) -> Result<(), bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.set_user_password(user, password).await,
+            Self::Networked(client) => client.set_user_password(user, password).await,
+        }
+    }
+
+    #[cfg(feature = "password-hashing")]
+    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+        &self,
+        user: U,
+        authentication: Authentication,
+    ) -> Result<Authenticated, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.authenticate(user, authentication).await,
+            Self::Networked(client) => client.authenticate(user, authentication).await,
         }
     }
 

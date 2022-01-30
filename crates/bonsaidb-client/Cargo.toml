@@ -12,11 +12,12 @@ readme = "../../README.md"
 
 [features]
 default = ["full"]
-full = ["websockets", "trusted-dns"]
+full = ["websockets", "trusted-dns", "password-hashing"]
 websockets = ["bonsaidb-core/websockets", "tokio-tungstenite", "bincode"]
 trusted-dns = ["fabruic/trust-dns"]
 test-util = []
 tracing = ["pot/tracing"]
+password-hashing = ["bonsaidb-core/password-hashing"]
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [

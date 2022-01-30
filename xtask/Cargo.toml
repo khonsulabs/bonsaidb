@@ -9,3 +9,4 @@ publish = false
 khonsu-tools = { git = "https://github.com/khonsulabs/khonsu-tools.git", branch = "main" }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
+dirs = "4"

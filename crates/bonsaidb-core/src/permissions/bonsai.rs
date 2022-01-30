@@ -122,12 +122,19 @@ pub enum ServerAction {
     /// Permits [`StorageConnection::set_user_password`](crate::connection::StorageConnection::set_user_password).
     SetPassword,
     /// Permits the ability to log in with a password.
-    LoginWithPassword,
+    Authenticate(AuthenticationMethod),
     /// Permits [`StorageConnection::add_permission_group_to_user`](crate::connection::StorageConnection::add_permission_group_to_user) and [`StorageConnection::remove_permission_group_from_user`](crate::connection::StorageConnection::remove_permission_group_from_user).
     ModifyUserPermissionGroups,
     /// Permits .
     /// Permits [`StorageConnection::add_role_to_user`](crate::connection::StorageConnection::add_role_to_user) and [`StorageConnection::remove_role_from_user`](crate::connection::StorageConnection::remove_role_from_user).
     ModifyUserRoles,
+}
+
+/// Methods for user authentication.
+#[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
+pub enum AuthenticationMethod {
+    /// Authenticate the user using password hashing (Argon2).
+    PasswordHash,
 }
 
 /// Actions that operate on a specific database.

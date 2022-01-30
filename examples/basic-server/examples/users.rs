@@ -6,10 +6,10 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         admin::PermissionGroup,
-        connection::StorageConnection,
+        connection::{Authentication, Password, StorageConnection},
         document::KeyId,
         permissions::{
-            bonsai::{BonsaiAction, ServerAction},
+            bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
             Permissions, Statement,
         },
         schema::{InsertError, SerializedCollection},
@@ -29,9 +29,10 @@ async fn main() -> anyhow::Result<()> {
     // Create a database user, or get its ID if it already existed.
     let user_id = match server.create_user("ecton").await {
         Ok(id) => {
-            // Set the user's password. This uses OPAQUE to ensure the password
-            // never leaves the machine that executes `set_user_password_str`.
-            server.set_user_password_str("ecton", "hunter2").await?;
+            // Set the user's password.
+            server
+                .set_user_password("ecton", Password("hunter2".to_string()))
+                .await?;
 
             id
         }
@@ -97,7 +98,13 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Now, log in and try again.
-    client.login_with_password_str("ecton", "hunter2").await?;
+    client
+        .authenticate(
+            "ecton",
+            Authentication::Password(Password(String::from("hunter2"))),
+        )
+        .await
+        .unwrap();
     let shape_doc = Shape::new(3).push_into(&db).await?;
     log::info!("Successully inserted document {:?}", shape_doc);
 
@@ -116,7 +123,9 @@ async fn setup_server() -> anyhow::Result<Server> {
             .default_permissions(Permissions::from(
                 Statement::for_any()
                     .allowing(&BonsaiAction::Server(ServerAction::Connect))
-                    .allowing(&BonsaiAction::Server(ServerAction::LoginWithPassword)),
+                    .allowing(&BonsaiAction::Server(ServerAction::Authenticate(
+                        AuthenticationMethod::PasswordHash,
+                    ))),
             ))
             .default_encryption_key(KeyId::Master)
             .with_schema::<Shape>()?,

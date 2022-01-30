@@ -18,7 +18,13 @@ required-features = ["cli"]
 
 [[test]]
 name = "core-suite"
-required-features = ["server", "client", "test-util"]
+required-features = [
+    "server",
+    "client",
+    "test-util",
+    "server-password-hashing",
+    "client-password-hashing",
+]
 
 [[test]]
 name = "simultaneous-connections"
@@ -37,6 +43,7 @@ local-full = [
     "local-instrument",
     "local-encryption",
     "local-multiuser",
+    "local-password-hashing",
 ]
 local = ["bonsaidb-local", "bonsaidb-local/included-from-omnibus"]
 server-full = [
@@ -48,9 +55,15 @@ server-full = [
     "server-acme",
     "server-hyper",
     "server-pem",
+    "server-password-hashing",
 ]
 server = ["bonsaidb-server", "local", "bonsaidb-server/included-from-omnibus"]
-client-full = ["client", "client-websockets", "client-trusted-dns"]
+client-full = [
+    "client",
+    "client-websockets",
+    "client-trusted-dns",
+    "client-password-hashing",
+]
 client = ["bonsaidb-client"]
 test-util = ["bonsaidb-client/test-util", "bonsaidb-server/test-util"]
 
@@ -77,6 +90,17 @@ server-encryption = ["bonsaidb-server/encryption"]
 local-encryption = ["bonsaidb-local/encryption"]
 
 local-multiuser = ["bonsaidb-local/multiuser"]
+
+password-hashing = ["bonsaidb-core/password-hashing"]
+local-password-hashing = ["password-hashing", "bonsaidb-local/password-hashing"]
+server-password-hashing = [
+    "password-hashing",
+    "bonsaidb-server/password-hashing",
+]
+client-password-hashing = [
+    "password-hashing",
+    "bonsaidb-client/password-hashing",
+]
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false }

@@ -12,8 +12,10 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 bonsaidb = { path = "../../crates/bonsaidb", version = "0.1.0-dev.4", features = [
     "server",
+    "server-password-hashing",
     "cli",
     "client",
+    "client-password-hashing",
 ] }
 futures = "0.3"
 env_logger = "0.9"

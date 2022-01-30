@@ -96,6 +96,8 @@ bonsaidb = { version = "*", default-features = false, features = "full" }
 
 - `full`: Enables `local-full`, `server-full`, and `client-full`.
 - `cli`: Enables the `bonsaidb` executable.
+- `password-hashing`: Enables the ability to use password authentication using
+  Argon2 via `AnyConnection`.
 
 ### Local databases only
 
@@ -112,6 +114,8 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 - `local-encryption`: Enables at-rest encryption.
 - `local-instrument`: Enables instrumenting with `tracing`.
 - `local-multiuser`: Enables multi-user support.
+- `local-password-hashing`: Enables the ability to use password authentication
+  using Argon2.
 
 ### `BonsaiDb` server
 
@@ -130,6 +134,8 @@ bonsaidb = { version = "*", default-features = false, features = "server-full" }
 - `server-instrument`: Enables instrumenting with `tracing`.
 - `server-pem`: Enables the ability to install a certificate using the PEM format.
 - `server-websockets`: Enables `WebSocket` support.
+- `server-password-hashing`: Enables the ability to use password authentication
+  using Argon2.
 
 ### Client for accessing a `BonsaiDb` server
 
@@ -144,6 +150,8 @@ bonsaidb = { version = "*", default-features = false, features = "client-full" }
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
   enabled, all DNS resolution is done with the OS's default name resolver.
 - `client-websockets`: Enables `WebSocket` support for `bonsaidb-client`.
+- `client-password-hashing`: Enables the ability to use password authentication
+  using Argon2.
 
 ## Developing BonsaiDb
 

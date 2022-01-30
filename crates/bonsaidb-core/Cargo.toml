@@ -20,6 +20,7 @@ actionable-traits = []
 instrument = ["pot/tracing"]
 multiuser = []
 encryption = []
+password-hashing = ["zeroize"]
 
 [dependencies]
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }
@@ -41,6 +42,7 @@ derive-where = "=1.0.0-rc.2"
 transmog = "0.1.0-dev.2"
 transmog-pot = "0.1.0-dev.2"
 arc-bytes = { version = "0.3.1", features = ["serde"] }
+zeroize = { version = "1", optional = true, features = ["zeroize_derive"] }
 
 [dev-dependencies]
 hex-literal = "0.3"

@@ -89,7 +89,6 @@ fn integrity_checks() -> anyhow::Result<()> {
                 let collection = db.collection::<BasicCollectionWithNoViews>();
                 collection.push(&Basic::default().with_parent_id(1)).await?;
             }
-            tokio::time::sleep(Duration::from_millis(100)).await; // TODO need to be able to shut down a local database, including background jobs.
             Result::<(), anyhow::Error>::Ok(())
         })
         .unwrap();
@@ -119,7 +118,6 @@ fn integrity_checks() -> anyhow::Result<()> {
 
             // Regular query should show the correct data
             assert_eq!(db.view::<BasicByBrokenParentId>().query().await?.len(), 1);
-            tokio::time::sleep(Duration::from_millis(100)).await; // TODO need to be able to shut down a local database, including background jobs.
             Result::<(), anyhow::Error>::Ok(())
         })
         .unwrap();

@@ -59,11 +59,30 @@ pub enum Error {
     /// An error occurred from backing up or restoring.
     #[error("a backup error: {0}")]
     Backup(Box<dyn AnyError>),
+
+    /// An error occurred with a password hash.
+    #[cfg(feature = "password-hashing")]
+    #[error("password hash error: {0}")]
+    PasswordHash(String),
 }
 
 impl From<flume::RecvError> for Error {
     fn from(_: flume::RecvError) -> Self {
         Self::InternalCommunication
+    }
+}
+
+#[cfg(feature = "password-hashing")]
+impl From<argon2::Error> for Error {
+    fn from(err: argon2::Error) -> Self {
+        Self::PasswordHash(err.to_string())
+    }
+}
+
+#[cfg(feature = "password-hashing")]
+impl From<argon2::password_hash::Error> for Error {
+    fn from(err: argon2::password_hash::Error) -> Self {
+        Self::PasswordHash(err.to_string())
     }
 }
 

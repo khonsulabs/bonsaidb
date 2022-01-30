@@ -14,6 +14,8 @@ use std::{
 
 use async_lock::Mutex;
 use async_trait::async_trait;
+#[cfg(feature = "password-hashing")]
+use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     connection::{Database, StorageConnection},
     custom_api::{CustomApi, CustomApiResult},
@@ -292,18 +294,6 @@ impl<A: CustomApi> Client<A> {
         Ok(client)
     }
 
-    /// Authenticates as a user with a provided password. The password provided
-    /// will never leave the machine that is calling this function. Internally
-    /// uses `login_with_password` and `finish_login_with_password` in
-    /// conjunction with `custodian-password`.
-    pub async fn login_with_password_str(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> Result<(), bonsaidb_core::Error> {
-        todo!()
-    }
-
     async fn send_request(
         &self,
         request: Request<<A as CustomApi>::Request>,
@@ -465,6 +455,48 @@ impl<A: CustomApi> StorageConnection for Client<A> {
             .await?
         {
             Response::Server(ServerResponse::UserCreated { id }) => Ok(id),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    #[cfg(feature = "password-hashing")]
+    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+        &self,
+        user: U,
+        password: bonsaidb_core::connection::Password,
+    ) -> Result<(), bonsaidb_core::Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::SetUserPassword {
+                user: user.into().into_owned(),
+                password,
+            }))
+            .await?
+        {
+            Response::Ok => Ok(()),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    #[cfg(feature = "password-hashing")]
+    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+        &self,
+        user: U,
+        authentication: Authentication,
+    ) -> Result<Authenticated, bonsaidb_core::Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::Authenticate {
+                user: user.into().into_owned(),
+                authentication,
+            }))
+            .await?
+        {
+            Response::Server(ServerResponse::Authenticated(response)) => Ok(response),
             Response::Error(err) => Err(err),
             other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),

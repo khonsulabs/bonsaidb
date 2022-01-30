@@ -23,6 +23,14 @@ pub struct User {
     pub groups: Vec<u64>,
     /// The IDs of the roles this user has been assigned.
     pub roles: Vec<u64>,
+
+    /// The user's stored password hash.
+    ///
+    /// This field is not feature gated to prevent losing stored passwords if
+    /// the `password-hashing` feature is disabled and then re-enabled and user
+    /// records are updated in the meantime.
+    #[serde(default)]
+    pub argon_hash: Option<String>,
 }
 
 impl User {

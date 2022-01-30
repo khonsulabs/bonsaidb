@@ -1,6 +1,7 @@
 use std::{
-    env::{current_dir, set_current_dir},
+    env::{current_dir, set_current_dir, temp_dir},
     io::{stdout, Write},
+    str::FromStr,
 };
 
 use khonsu_tools::universal::{
@@ -90,7 +91,13 @@ fn all_tests() -> &'static [TestSuite] {
             cargo_args: "--package bonsaidb-local --no-default-features --features multiuser",
         },
         TestSuite {
+            cargo_args: "--package bonsaidb-local --no-default-features --features password-hashing",
+        },
+        TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features",
+        },
+        TestSuite {
+            cargo_args: "--package bonsaidb-server --no-default-features --features password-hashing",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features --features encryption",
@@ -114,6 +121,10 @@ fn all_tests() -> &'static [TestSuite] {
             cargo_args:
                 "--package bonsaidb --no-default-features --features server,client,test-util,server-acme,websockets",
         },
+        TestSuite {
+            cargo_args:
+                "--package bonsaidb --no-default-features --features server,client,test-util,server-acme,websockets,server-password-hashing,client-password-hashing",
+        },
     ]
 }
 
@@ -128,7 +139,14 @@ fn generate_test_matrix_output() -> anyhow::Result<()> {
 
 fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
     let executing_dir = current_dir()?;
-    for test in all_tests() {
+    let mut all_tests = all_tests().iter().enumerate().collect::<Vec<_>>();
+
+    if let Some(last_index) = last_succeeded_index() {
+        let recently_finished = all_tests.drain(..last_index + 1).collect::<Vec<_>>();
+        all_tests.extend(recently_finished);
+    }
+
+    for (index, test) in all_tests {
         println!("Running clippy for {}", test.cargo_args);
         let mut clippy = Cmd::new("cargo");
         let mut clippy = clippy.arg("clippy").arg("--all-targets");
@@ -151,6 +169,7 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
             cargo = cargo.arg(arg);
         }
         cargo.run()?;
+        set_last_succeeded_index(index);
     }
 
     println!("Running clippy for wasm32 client");
@@ -174,4 +193,17 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
     println!("Generating docs");
     run!("cargo", "doc", "--all-features", "--no-deps")?;
     Ok(())
+}
+
+fn set_last_succeeded_index(index: usize) {
+    drop(std::fs::write(
+        temp_dir().join("bonsaidb-test-all-index"),
+        index.to_string().as_bytes(),
+    ));
+}
+
+fn last_succeeded_index() -> Option<usize> {
+    std::fs::read_to_string(temp_dir().join("bonsaidb-test-all-index"))
+        .ok()
+        .and_then(|contents| usize::from_str(&contents).ok())
 }
