@@ -16,7 +16,9 @@ use crate::{
     document::{Document, Header, OwnedDocument},
     permissions::Permissions,
     schema::{
-        self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName, SerializedCollection,
+        self,
+        view::{self, map::MappedCollectionDocument},
+        Key, Map, MappedDocument, MappedValue, Schema, SchemaName, SerializedCollection,
     },
     transaction::{self, OperationResult, Transaction},
     Error,
@@ -140,7 +142,7 @@ pub trait Connection: Send + Sync {
     where
         Self: Sized;
 
-    /// Queries for view entries matching [`View`].
+    /// Queries for view entries matching [`View`] with their source documents.
     #[must_use]
     async fn query_with_docs<V: schema::SerializedView>(
         &self,
@@ -148,9 +150,34 @@ pub trait Connection: Send + Sync {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error>
+    ) -> Result<Vec<MappedDocument<V>>, Error>
     where
         Self: Sized;
+
+    /// Queries for view entries matching [`View`] with their source documents, deserialized.
+    #[must_use]
+    async fn query_with_collection_docs<V>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<usize>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedCollectionDocument<V>>, Error>
+    where
+        V: schema::SerializedView,
+        V::Collection: SerializedCollection,
+        <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
+        Self: Sized,
+    {
+        let mapped_docs = self
+            .query_with_docs::<V>(key, order, limit, access_policy)
+            .await?;
+        let mut collection_mapped_docs = Vec::with_capacity(mapped_docs.len());
+        for doc in mapped_docs {
+            collection_mapped_docs.push(doc.try_into()?);
+        }
+        Ok(collection_mapped_docs)
+    }
 
     /// Reduces the view entries matching [`View`].
     #[must_use]
@@ -484,10 +511,21 @@ where
             .await
     }
 
-    /// Executes the query and retrieves the results with the associated `Document`s.
-    pub async fn query_with_docs(self) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error> {
+    /// Executes the query and retrieves the results with the associated [`Document`s](crate::schema::OwnedDocument).
+    pub async fn query_with_docs(self) -> Result<Vec<MappedDocument<V>>, Error> {
         self.connection
             .query_with_docs::<V>(self.key, self.sort, self.limit, self.access_policy)
+            .await
+    }
+
+    /// Executes the query and retrieves the results with the associated [`CollectionDocument`s](crate::schema::CollectionDocument).
+    pub async fn query_with_collection_docs(self) -> Result<Vec<MappedCollectionDocument<V>>, Error>
+    where
+        V::Collection: SerializedCollection,
+        <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
+    {
+        self.connection
+            .query_with_collection_docs::<V>(self.key, self.sort, self.limit, self.access_policy)
             .await
     }
 

@@ -180,7 +180,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, bonsaidb_core::Error>
+    ) -> Result<Vec<MappedDocument<V>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {

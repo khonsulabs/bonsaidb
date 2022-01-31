@@ -1102,7 +1102,7 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let a_children = db
         .view::<BasicByParentId>()
         .with_key(Some(a.id))
-        .query_with_docs()
+        .query_with_collection_docs()
         .await?;
     assert_eq!(a_children.len(), 1);
     assert_eq!(a_children[0].document.header.id, a_child.id);
