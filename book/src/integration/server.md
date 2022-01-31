@@ -10,7 +10,7 @@ The first step is to create a [`Server`][storage], which uses local [`Storage`][
 {{#include ../../../examples/basic-server/examples/basic-server.rs:setup}}
 ```
 
-Once you have a server initialized, calling [`listen_on`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html#method.listen_on) will begin listening for connections on the port specified. This uses the preferred native protocol which uses UDP. If you find that UDP is not working for your setup or want to put `BonsaiDb` behind a load balancer that doesn't support UDP, you can enable WebSocket support and call [`listen_for_websockets_on`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html#method.listen_for_websockets_on).
+Once you have a server initialized, calling [`listen_on`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html#method.listen_on) will begin listening for connections on the port specified. This uses the preferred native protocol which uses UDP. If you find that UDP is not working for your setup or want to put `BonsaiDb` behind a load balancer that doesn't support UDP, you can enable WebSocket support and call [`listen_for_websockets_on`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html#method.listen_for_websockets_on).
 
 You can call both, but since these functions don't return until the server is shut down, you should spawn them instead:
 
@@ -53,10 +53,10 @@ This is using a pinned certificate to connect. Other methods are supported, but 
 ## Common Traits
 
 * [`Server`][server] implements [`StorageConnection`](../traits/storage_connection.md).
-* [`Server::database()`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html#method.database) returns a local [`Database`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Database.html), which implements [`Connection`](../traits/connection.md), [`KeyValue`](../traits/key-value.md), and [`PubSub`](../traits/pubsub.md). Local access in the server executable doesn't go over the network.
+* [`Server::database()`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html#method.database) returns a local [`Database`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Database.html), which implements [`Connection`](../traits/connection.md), [`KeyValue`](../traits/key-value.md), and [`PubSub`](../traits/pubsub.md). Local access in the server executable doesn't go over the network.
 * [`Client`][client] implements [`StorageConnection`](../traits/storage_connection.md).
-* [`Client::database()`](https://dev.bonsaidb.io/main/bonsaidb/client/struct.Client.html#method.database) returns a [`RemoteDatabase`](https://dev.bonsaidb.io/main/bonsaidb/client/struct.RemoteDatabase.html), which implements [`Connection`](../traits/connection.md), [`KeyValue`](../traits/key-value.md), and [`PubSub`](../traits/pubsub.md).
+* [`Client::database()`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.Client.html#method.database) returns a [`RemoteDatabase`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.RemoteDatabase.html), which implements [`Connection`](../traits/connection.md), [`KeyValue`](../traits/key-value.md), and [`PubSub`](../traits/pubsub.md).
 
-[server]: https://dev.bonsaidb.io/main/bonsaidb/server/type.Server.html
-[storage]: https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html
-[client]: https://dev.bonsaidb.io/main/bonsaidb/client/struct.Client.html
+[server]: {{DOCS_BASE_URL}}/bonsaidb/server/type.Server.html
+[storage]: {{DOCS_BASE_URL}}/bonsaidb/local/struct.Storage.html
+[client]: {{DOCS_BASE_URL}}/bonsaidb/client/struct.Client.html

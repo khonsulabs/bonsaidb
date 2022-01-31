@@ -1,6 +1,6 @@
 //! Shows basic setup of a custom api server.
 //!
-//! This example has a section in the User Guide: https://dev.bonsaidb.io/guide/about/access-models/custom-api-server.html
+//! This example has a section in the User Guide: https://dev.bonsaidb.io/main/guide/about/access-models/custom-api-server.html
 
 use std::time::Duration;
 

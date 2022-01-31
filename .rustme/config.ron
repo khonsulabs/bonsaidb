@@ -25,6 +25,16 @@ Configuration(
         ],
     },
     glossaries: [
-        "https://github.com/khonsulabs/.github/raw/main/snippets/glossary.ron"
+        "https://github.com/khonsulabs/.github/raw/main/snippets/glossary.ron",
+        {
+            "pages-base": (
+                default: "https://dev.bonsaidb.io/main",
+                release: "https://dev.bonsaidb.io/v0.1.0",
+            ),
+            "bonsaidb-docs": (
+                default: "https://dev.bonsaidb.io/main",
+                release: "https://docs.rs/bonsaidb",
+            ),
+        },
     ],
 )

@@ -14,6 +14,12 @@ additional-js = ["mermaid.min.js", "mermaid-init.js"]
 [output.linkcheck]
 follow-web-links = true
 
+[preprocessor.variables]
+use_env = true
+
+[preprocessor.variables.variables]
+DOCS_BASE_URL = "https://dev.bonsaidb.io/main"
+
 [output.linkcheck.http-headers]
 # Any hyperlink that contains this regexp will be sent
 # the "Accept: text/html" header

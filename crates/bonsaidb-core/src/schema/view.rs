@@ -56,7 +56,7 @@ pub type ReduceResult<V: View> = Result<V::Value, crate::Error>;
 /// A mechanism for accessing mapped and/or reduced data from a [`Collection`].
 ///
 /// See the [user guide for a walkthrough of how views
-/// work](https://dev.bonsaidb.io/guide/about/concepts/view.html).
+/// work](https://dev.bonsaidb.io/main/guide/about/concepts/view.html).
 pub trait View: Send + Sync + Debug + 'static {
     /// The collection this view belongs to
     type Collection: Collection;
@@ -80,7 +80,7 @@ pub trait View: Send + Sync + Debug + 'static {
 /// The implementation of Map/Reduce for a [`View`].
 ///
 /// See the [user guide for a walkthrough of how views
-/// work](https://dev.bonsaidb.io/guide/about/concepts/view.html).
+/// work](https://dev.bonsaidb.io/main/guide/about/concepts/view.html).
 pub trait ViewSchema: Send + Sync + Debug + 'static {
     /// The view this schema is defined for.
     type View: SerializedView;
@@ -105,7 +105,7 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     /// emitting entries for any documents that should be contained in this
     /// View. If None is returned, the View will not include the document. See [the user guide's chapter on
     /// views for more information on how map
-    /// works](https://dev.bonsaidb.io/guide/about/concepts/view.html#map).
+    /// works](https://dev.bonsaidb.io/main/guide/about/concepts/view.html#map).
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View>;
 
     /// Returns a value that is produced by reducing a list of `mappings` into a
@@ -114,7 +114,7 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
     /// [`ReduceUnimplemented`](crate::Error::ReduceUnimplemented) is returned,
     /// queries that ask for a reduce operation will return an error. See [the
     /// user guide's chapter on views for more information on how reduce
-    /// works](https://dev.bonsaidb.io/guide/about/concepts/view.html#reduce).
+    /// works](https://dev.bonsaidb.io/main/guide/about/concepts/view.html#reduce).
     #[allow(unused_variables)]
     fn reduce(
         &self,

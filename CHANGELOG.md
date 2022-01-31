@@ -137,7 +137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of `ChangedDocument`s or `ChangedKey`s.
 - The Key-Value store is now semi-transactional and more optimized. The behavior
   of persistence can be customized using the [`key_value_persistence`
-  option](https://dev.bonsaidb.io/guide/administration/configuration.html#key-value-persistence)
+  option](https://dev.bonsaidb.io/main/guide/administration/configuration.html#key-value-persistence)
   when opening a BonsaiDb instance. This can enable higher performace at the
   risk of data loss in the event of an unexpected hardware or power failure.
 - A new trait, `SerializedCollection`, now controls serialization within

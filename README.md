@@ -2,19 +2,17 @@
 
 *Formerly known as [`PliantDb`](https://crates.io/crates/pliantdb). Not yet released on crates.io as `BonsaiDb`.*
 
-![BonsaiDb is considered experimental and unsupported](https://img.shields.io/badge/status-experimental-blueviolet)
+BonsaiDb is a developer-friendly document database for [Rust](https://rust-lang.org) that grows with you. Visit [BonsaiDb.io](https://bonsaidb.io/about) to learn more about the features of BonsaiDb.
+
+![BonsaiDb is considered alpha](https://img.shields.io/badge/status-alpha-orange)
 [![crate version](https://img.shields.io/crates/v/bonsaidb.svg)](https://crates.io/crates/bonsaidb)
 [![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/main)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
-[![HTML Coverage Report for `main` branch](https://khonsulabs.github.io/bonsaidb/coverage/badge.svg)](https://khonsulabs.github.io/bonsaidb/coverage/)
-[![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://khonsulabs.github.io/bonsaidb/main/bonsaidb/)
-
-BonsaiDb is a developer-friendly document database for [Rust](https://rust-lang.org) that grows with you. Visit [BonsaiDb.io](https://bonsaidb.io/about) to learn more about the features of BonsaiDb.
+[![HTML Coverage Report for `main` branch](https://dev.bonsaidb.io/main/coverage/badge.svg)](https://dev.bonsaidb.io/main/coverage/)
+[![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)](https://dev.bonsaidb.io/main)
 
 ## ⚠️ Status of this project
 
-**You should not attempt to use this software in anything except for experiments.** This project is under active development (![GitHub commit activity](https://img.shields.io/github/commit-activity/m/khonsulabs/bonsaidb)), but at the point of writing this README, the project is too early to be used.
-
-If you're interested in chatting about this project or potentially wanting to contribute, come chat with us on Discord: [![Discord](https://img.shields.io/discord/578968877866811403)](https://discord.khonsulabs.com/).
+BonsaiDb is considered alpha software. It is under active development (![GitHub commit activity](https://img.shields.io/github/commit-activity/m/khonsulabs/bonsaidb)). There may still be bugs that result in data loss. All users should regularly back up their data and test that restoring from backup works correctly.
 
 ## Example
 
@@ -117,7 +115,7 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 ```
 
 - `local-full`: Enables all the flags below
-- `local`: Enables the [`local`](https://dev.bonsaidb.io/main/bonsaidb/local/) module, which re-exports the crate
+- `local`: Enables the [`local`](https://dev.bonsaidb.io/main/local/) module, which re-exports the crate
   `bonsaidb-local`.
 - `local-cli`: Enables the `StructOpt` structures for embedding database
   management commands into your own command-line interface.
@@ -135,7 +133,7 @@ bonsaidb = { version = "*", default-features = false, features = "server-full" }
 ```
 
 - `server-full`: Enables all the flags below,
-- `server`: Enables the [`server`](https://dev.bonsaidb.io/main/bonsaidb/server/) module, which re-exports the crate
+- `server`: Enables the [`server`](https://dev.bonsaidb.io/main/server/) module, which re-exports the crate
   `bonsaidb-server`.
 - `server-acme`: Enables automtic certificate acquisition through ACME/LetsEncrypt.
 - `server-cli`: Enables the `cli` module.
@@ -155,7 +153,7 @@ bonsaidb = { version = "*", default-features = false, features = "client-full" }
 ```
 
 - `client-full`: Enables `client`, `client-trusted-dns` and `client-websockets`
-- `client`: Enables the [`client`](https://dev.bonsaidb.io/main/bonsaidb/client/) module, which re-exports the crate
+- `client`: Enables the [`client`](https://dev.bonsaidb.io/main/client/) module, which re-exports the crate
   `bonsaidb-client`.
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
   enabled, all DNS resolution is done with the OS's default name resolver.

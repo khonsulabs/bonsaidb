@@ -15,7 +15,7 @@ A working example of how to use a local database can be found at [`examples/basi
 
 ## Multi-database model (No networking)
 
-This model is most similar to using multiple SQLite databases. In this mode, you interact with a [`Storage`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html) that you spawn within your code.
+This model is most similar to using multiple SQLite databases. In this mode, you interact with a [`Storage`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Storage.html) that you spawn within your code.
 
 ```mermaid
 graph LR
@@ -25,11 +25,11 @@ graph LR
   server <--> local
 ```
 
-If you look at the source behind [`Database::open_local`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html#method.open_local), you'll see that the single-database model is using `Storage` under the hood.
+If you look at the source behind [`Database::open_local`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Storage.html#method.open_local), you'll see that the single-database model is using `Storage` under the hood.
 
 ## Server model (QUIC or WebSockets)
 
-This model is most similar to using other document databases, like CouchDB or MongoDB. In this mode, you interact with a [`Client`](https://dev.bonsaidb.io/main/bonsaidb/client/struct.Client.html) that connects via either QUIC or WebSockets with a server. From the server code's perspective, this model is the same as the multi-database model, except that the server is listening for and responding to network traffic.
+This model is most similar to using other document databases, like CouchDB or MongoDB. In this mode, you interact with a [`Client`]({{DOCS_BASE_URL}}/bonsaidb/client/struct.Client.html) that connects via either QUIC or WebSockets with a server. From the server code's perspective, this model is the same as the multi-database model, except that the server is listening for and responding to network traffic.
 
 ```mermaid
 graph LR
@@ -66,7 +66,7 @@ graph LR
   backend <--> server
 ```
 
-The `BonsaiDb` [`CustomServer`](https://dev.bonsaidb.io/main/bonsaidb/server/struct.CustomServer.html) type accepts one generic parameter that implements the [`Backend`](https://dev.bonsaidb.io/main/bonsaidb/server/trait.Backend.html) trait. This trait is used to customize the server in many ways, but one of the associated types is a [`CustomApi`](https://dev.bonsaidb.io/main/bonsaidb/core/custom_api/trait.CustomApi.html) implementor.
+The `BonsaiDb` [`CustomServer`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html) type accepts one generic parameter that implements the [`Backend`]({{DOCS_BASE_URL}}/bonsaidb/server/trait.Backend.html) trait. This trait is used to customize the server in many ways, but one of the associated types is a [`CustomApi`]({{DOCS_BASE_URL}}/bonsaidb/core/custom_api/trait.CustomApi.html) implementor.
 
 See [this page](./access-models/custom-api-server.md) for an overview of how to set up a custom api server.
 

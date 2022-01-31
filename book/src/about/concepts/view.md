@@ -28,11 +28,11 @@ For users who are using [`SerializedCollection`][serialized-collection], [`Colle
 
 ## Value Serialization
 
-For views to function, the Value type must able to be serialized and deserialized from storage. To accomplish this, all views must implement the [`SerializedView`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.SerializedView.html) trait. For [Serde](https://serde.rs/)-compatible data structures, [`DefaultSerializedView`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.DefaultViewSerialization.html) is an empty trait that can be implemented instead to provide the default serialization that BonsaiDb recommends.
+For views to function, the Value type must able to be serialized and deserialized from storage. To accomplish this, all views must implement the [`SerializedView`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedView.html) trait. For [Serde](https://serde.rs/)-compatible data structures, [`DefaultSerializedView`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.DefaultViewSerialization.html) is an empty trait that can be implemented instead to provide the default serialization that BonsaiDb recommends.
 
 ## Map
 
-The first line of the `map` function calls [`Document::contents()`](https://dev.bonsaidb.io/main/bonsaidb/core/document/trait.Document.html#method.contents) to deserialize the stored `BlogPost`. The second line returns an emitted Key and Value -- in our case a clone of the post's category and the value `1_u32`. With the map function, we're able to use [`query()`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/struct.View.html#method.query) and [`query_with_docs()`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/struct.View.html#method.query_with_docs):
+The first line of the `map` function calls [`Document::contents()`]({{DOCS_BASE_URL}}/bonsaidb/core/document/trait.Document.html#method.contents) to deserialize the stored `BlogPost`. The second line returns an emitted Key and Value -- in our case a clone of the post's category and the value `1_u32`. With the map function, we're able to use [`query()`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/struct.View.html#method.query) and [`query_with_docs()`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/struct.View.html#method.query_with_docs):
 
 ```rust,noplayground,no_run
 {{#include ../../../book-examples/tests/view-example-string.rs:query_with_docs}}
@@ -99,9 +99,9 @@ This produces a final value of 4.
 
 When saving Documents, BonsaiDb does not immediately update related views. It instead notes what documents have been updated since the last time the View was indexed.
 
-When a View is accessed, the queries include an [`AccessPolicy`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/enum.AccessPolicy.html). If you aren't overriding it, [`UpdateBefore`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/enum.AccessPolicy.html#variant.UpdateBefore) is used. This means that when the query is evaluated, BonsaiDb will first check if the index is out of date due to any updated data. If it is, it will update the View before evaluating the query.
+When a View is accessed, the queries include an [`AccessPolicy`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/enum.AccessPolicy.html). If you aren't overriding it, [`UpdateBefore`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/enum.AccessPolicy.html#variant.UpdateBefore) is used. This means that when the query is evaluated, BonsaiDb will first check if the index is out of date due to any updated data. If it is, it will update the View before evaluating the query.
 
-If you're wanting to get results quickly and are willing to accept data that might not be updated, the access policies [`UpdateAfter`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/enum.AccessPolicy.html#variant.UpdateAfter) and [`NoUpdate`](https://dev.bonsaidb.io/main/bonsaidb/core/connection/enum.AccessPolicy.html#variant.NoUpdate) can be used depending on your needs.
+If you're wanting to get results quickly and are willing to accept data that might not be updated, the access policies [`UpdateAfter`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/enum.AccessPolicy.html#variant.UpdateAfter) and [`NoUpdate`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/enum.AccessPolicy.html#variant.NoUpdate) can be used depending on your needs.
 
 If multiple simulataneous queries are being evaluted for the same View and the View is outdated, BonsaiDb ensures that only a single view indexer will execute while both queries wait for it to complete.
 
@@ -127,7 +127,7 @@ BonsaiDb will convert the enum to a u64 and use that value as the Key. A u64 was
 
 ### Implementing the `Key` trait
 
-The [`Key`][key] trait declares two functions: [`as_big_endian_bytes()`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.Key.html#tymethod.as_big_endian_bytes) and [`from_big_endian_bytes`](https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.Key.html#tymethod.from_big_endian_bytes). The intention is to convert the type to bytes using a network byte order for numerical types, and for non-numerical types, the bytes need to be stored in binary-sortable order.
+The [`Key`][key] trait declares two functions: [`as_big_endian_bytes()`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Key.html#tymethod.as_big_endian_bytes) and [`from_big_endian_bytes`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Key.html#tymethod.from_big_endian_bytes). The intention is to convert the type to bytes using a network byte order for numerical types, and for non-numerical types, the bytes need to be stored in binary-sortable order.
 
 Here is how BonsaiDb implements Key for `EnumKey`:
 
@@ -137,12 +137,12 @@ Here is how BonsaiDb implements Key for `EnumKey`:
 
 By implementing `Key` you can take full control of converting your view keys.
 
-[key]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.Key.html
-[view-trait]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.View.html
-[viewschema-trait]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.ViewSchema.html
-[viewschema-version]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.ViewSchema.html#method.version
-[serialized-collection]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.SerializedCollection.html
-[borrowed-document]: https://dev.bonsaidb.io/main/bonsaidb/core/document/trait.Document.html
-[collection-document]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/struct.CollectionDocument.html
-[collection-view-schema]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.CollectionViewSchema.html
-[collection-view-schema-map]: https://dev.bonsaidb.io/main/bonsaidb/core/schema/trait.CollectionViewSchema.html#tymethod.map
+[key]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Key.html
+[view-trait]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.View.html
+[viewschema-trait]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.ViewSchema.html
+[viewschema-version]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.ViewSchema.html#method.version
+[serialized-collection]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedCollection.html
+[borrowed-document]: {{DOCS_BASE_URL}}/bonsaidb/core/document/trait.Document.html
+[collection-document]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/struct.CollectionDocument.html
+[collection-view-schema]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.CollectionViewSchema.html
+[collection-view-schema-map]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.CollectionViewSchema.html#tymethod.map

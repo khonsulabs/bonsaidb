@@ -1,6 +1,6 @@
 # Permissions
 
-`BonsaiDb` uses [role-based access control (RBAC)](https://en.wikipedia.org/wiki/Role-based_access_control). In short, permissions are granted through statements within permission groups. Users are able to [log in](https://dev.bonsaidb.io/main/bonsaidb/client/struct.Client.html#method.login_with_password_str) and receive permissions that were granted via permission groups or roles.
+`BonsaiDb` uses [role-based access control (RBAC)](https://en.wikipedia.org/wiki/Role-based_access_control). In short, permissions are granted through statements within permission groups. Users are able to [log in]({{DOCS_BASE_URL}}/bonsaidb/client/struct.Client.html#method.login_with_password_str) and receive permissions that were granted via permission groups or roles.
 
 This section has two subsections:
 

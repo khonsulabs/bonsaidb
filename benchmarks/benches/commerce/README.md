@@ -51,11 +51,11 @@ re-enabled easily by removing the SQL comments.
 
 ### Product Ratings
 
-Product Ratings are implemented using pure database features for aggregation. In BonsaiDb, this means utilizing a [Map/Reduce view](https://dev.bonsaidb.io/guide/about/concepts/view.html), and in PostgreSQL, this means using a [materialized view](https://www.postgresql.org/docs/current/rules-materializedviews.html). Because Views are the primary mechanism for querying data in BonsaiDb, they are more feature rich than PostgreSQL's materialized views.
+Product Ratings are implemented using pure database features for aggregation. In BonsaiDb, this means utilizing a [Map/Reduce view](https://dev.bonsaidb.io/main/guide/about/concepts/view.html), and in PostgreSQL, this means using a [materialized view](https://www.postgresql.org/docs/current/rules-materializedviews.html). Because Views are the primary mechanism for querying data in BonsaiDb, they are more feature rich than PostgreSQL's materialized views.
 
 The current implementation of the product review operation will not only insert or update any existing review, it will also refresh the view to ensure that the new information is available. BonsaiDb has the ability to control when to update the view using the [AccessPolicy](https://dev.bonsaidb.io/main/bonsaidb/core/connection/enum.AccessPolicy.html) enum.
 
-BonsaiDb's implementation isn't optimized in another way: the benchmark is making two database requests to fulfill queries for products -- one for the product data, and another for the ratings. With the local version of BonsaiDb, there is no network latency, so this isn't really a concern. But once network latency is involved, a [`CustomApi`](https://dev.bonsaidb.io/guide/about/access-models/custom-api-server.html) could have been written to make it a single request. We didn't take this route because to us `CustomApi` isn't a pure database function, and this benchmark suite is meant to test database functionality.
+BonsaiDb's implementation isn't optimized in another way: the benchmark is making two database requests to fulfill queries for products -- one for the product data, and another for the ratings. With the local version of BonsaiDb, there is no network latency, so this isn't really a concern. But once network latency is involved, a [`CustomApi`](https://dev.bonsaidb.io/main/guide/about/access-models/custom-api-server.html) could have been written to make it a single request. We didn't take this route because to us `CustomApi` isn't a pure database function, and this benchmark suite is meant to test database functionality.
 
 ## Preparing PostgreSQL for Benchmarks
 

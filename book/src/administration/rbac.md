@@ -1,10 +1,10 @@
 # Users, Groups, and Roles
 
-The most common flow that a database administrator needs to support is granting a user the ability to take specific actions on specific resources. To accomplish this, a [`PermissionGroup`](https://dev.bonsaidb.io/main/bonsaidb/core/admin/struct.PermissionGroup.html) must be created containing the permission statements, covered in [the previous section](./permission-statements.md), that you wish to apply.
+The most common flow that a database administrator needs to support is granting a user the ability to take specific actions on specific resources. To accomplish this, a [`PermissionGroup`]({{DOCS_BASE_URL}}/bonsaidb/core/admin/struct.PermissionGroup.html) must be created containing the permission statements, covered in [the previous section](./permission-statements.md), that you wish to apply.
 
-`PermissionGroup`s can be assigned directly to users by adding the group ID to their [`User` document](https://dev.bonsaidb.io/main/bonsaidb/core/admin/struct.User.html).
+`PermissionGroup`s can be assigned directly to users by adding the group ID to their [`User` document]({{DOCS_BASE_URL}}/bonsaidb/core/admin/struct.User.html).
 
-At first glance, [`Role`s](https://dev.bonsaidb.io/main/bonsaidb/core/admin/struct.Role.html) may appear somewhat redundant. One or more `PermissionGroup`s can be assigned to a role, and roles can be assigned to a user. Why would you want to use roles at all?
+At first glance, [`Role`s]({{DOCS_BASE_URL}}/bonsaidb/core/admin/struct.Role.html) may appear somewhat redundant. One or more `PermissionGroup`s can be assigned to a role, and roles can be assigned to a user. Why would you want to use roles at all?
 
 The general advice the authors of `BonsaiDb` suggest is to use groups for limited amounts of functionality, keeping each group's list of statements concise and easy to understand. Then, create roles that combine groups of functionality in meaningful ways. One meaningful way could be creating roles based on job titles inside of a company. In theory, a person's job defines what they do within the company.
 

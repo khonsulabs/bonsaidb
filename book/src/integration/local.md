@@ -10,7 +10,7 @@ let db = Database::<Message>::open(
 ).await?;
 ```
 
-Under the hood, `BonsaiDb` is creating a multi-database [`Storage`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html) with a local [`Database`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Database.html) named `default` for you. If you need to switch to a multi-database model, you can open the storage and access the `default` database: (adapted from [`examples/basic-local/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/basic-local-multidb.rs))
+Under the hood, `BonsaiDb` is creating a multi-database [`Storage`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Storage.html) with a local [`Database`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Database.html) named `default` for you. If you need to switch to a multi-database model, you can open the storage and access the `default` database: (adapted from [`examples/basic-local/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/basic-local-multidb.rs))
 
 ```rust,noplayground,no_run
 let storage = Storage::open(
@@ -26,8 +26,8 @@ You can register multiple schemas so that databases can be purpose-built.
 
 To help your code transition between different modes of accessing `BonsaiDb`, you can use these common traits to make your methods accept any style of `BonsaiDb` access.
 
-* [`Database`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Database.html) implements [`Connection`](../traits/connection.md), [`KeyValue`](../traits/key-value.md), and [`PubSub`](../traits/pubsub.md).
-* [`Storage`](https://dev.bonsaidb.io/main/bonsaidb/local/struct.Storage.html) implements [`StorageConnection`](../traits/storage_connection.md).
+* [`Database`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Database.html) implements [`Connection`](../traits/connection.md), [`KeyValue`](../traits/key-value.md), and [`PubSub`](../traits/pubsub.md).
+* [`Storage`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Storage.html) implements [`StorageConnection`](../traits/storage_connection.md).
 
 For example, [`examples/basic-local/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/basic-local-multidb.rs) uses this helper method to insert a record:
 
