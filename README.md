@@ -8,7 +8,7 @@ BonsaiDb is a developer-friendly document database for [Rust](https://rust-lang.
 [![crate version](https://img.shields.io/crates/v/bonsaidb.svg)](https://crates.io/crates/bonsaidb)
 [![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/release)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
 [![HTML Coverage Report for `release`](https://dev.bonsaidb.io/release/coverage/badge.svg)](https://dev.bonsaidb.io/release/coverage/)
-[![Documentation for `release`](https://img.shields.io/badge/docs-release-informational)](https://dev.bonsaidb.io/release)
+[![Documentation for `release`](https://img.shields.io/badge/docs-release-informational)](https://dev.bonsaidb.io/release/docs/bonsaidb)
 
 ## ⚠️ Status of this project
 
@@ -115,7 +115,7 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 ```
 
 - `local-full`: Enables all the flags below
-- `local`: Enables the [`local`](https://dev.bonsaidb.io/release/local/) module, which re-exports the crate
+- `local`: Enables the [`local`](https://dev.bonsaidb.io/release/docs/bonsaidb/local/) module, which re-exports the crate
   `bonsaidb-local`.
 - `local-cli`: Enables the `StructOpt` structures for embedding database
   management commands into your own command-line interface.
@@ -133,7 +133,7 @@ bonsaidb = { version = "*", default-features = false, features = "server-full" }
 ```
 
 - `server-full`: Enables all the flags below,
-- `server`: Enables the [`server`](https://dev.bonsaidb.io/release/server/) module, which re-exports the crate
+- `server`: Enables the [`server`](https://dev.bonsaidb.io/release/docs/bonsaidb/server/) module, which re-exports the crate
   `bonsaidb-server`.
 - `server-acme`: Enables automtic certificate acquisition through ACME/LetsEncrypt.
 - `server-cli`: Enables the `cli` module.
@@ -153,7 +153,7 @@ bonsaidb = { version = "*", default-features = false, features = "client-full" }
 ```
 
 - `client-full`: Enables `client`, `client-trusted-dns` and `client-websockets`
-- `client`: Enables the [`client`](https://dev.bonsaidb.io/release/client/) module, which re-exports the crate
+- `client`: Enables the [`client`](https://dev.bonsaidb.io/release/docs/bonsaidb/client/) module, which re-exports the crate
   `bonsaidb-client`.
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
   enabled, all DNS resolution is done with the OS's default name resolver.

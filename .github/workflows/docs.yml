@@ -21,7 +21,7 @@ jobs:
           folder: target/doc/
           git-config-name: kl-botsu
           git-config-email: botsu@khonsulabs.com
-          target-folder: /${{ github.ref_name }}/
+          target-folder: /${{ github.ref_name }}/docs
           clean: true
 
   book:
