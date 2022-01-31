@@ -15,7 +15,7 @@ homepage = "https://dev.bonsaidb.io/"
 
 [features]
 default = ["full"]
-full = ["cli", "encryption", "instrument", "multiuser"]
+full = ["cli", "encryption", "instrument", "multiuser", "password-hashing"]
 cli = ["clap"]
 internal-apis = []
 instrument = ["pot/tracing", "nebari/tracing", "tracing"]
@@ -30,6 +30,13 @@ encryption = [
     "chacha20poly1305",
 ]
 multiuser = ["bonsaidb-core/multiuser"]
+password-hashing = [
+    "argon2",
+    "zeroize",
+    "once_cell",
+    "multiuser",
+    "bonsaidb-core/password-hashing",
+]
 included-from-omnibus = []
 
 [dependencies]
@@ -64,6 +71,9 @@ tracing = { version = "0.1", optional = true, default-features = false, features
 log = "0.4"
 derive-where = "=1.0.0-rc.2"
 async-lock = "2"
+argon2 = { version = "^0.3.3", optional = true, features = ["parallel"] }
+sysinfo = { version = "0.23", default-features = false }
+once_cell = { version = "1", optional = true }
 
 [dev-dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", features = [

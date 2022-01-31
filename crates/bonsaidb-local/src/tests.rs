@@ -89,7 +89,6 @@ fn integrity_checks() -> anyhow::Result<()> {
                 let collection = db.collection::<BasicCollectionWithNoViews>();
                 collection.push(&Basic::default().with_parent_id(1)).await?;
             }
-            tokio::time::sleep(Duration::from_millis(100)).await; // TODO need to be able to shut down a local database, including background jobs.
             Result::<(), anyhow::Error>::Ok(())
         })
         .unwrap();
@@ -119,7 +118,6 @@ fn integrity_checks() -> anyhow::Result<()> {
 
             // Regular query should show the correct data
             assert_eq!(db.view::<BasicByBrokenParentId>().query().await?.len(), 1);
-            tokio::time::sleep(Duration::from_millis(100)).await; // TODO need to be able to shut down a local database, including background jobs.
             Result::<(), anyhow::Error>::Ok(())
         })
         .unwrap();
@@ -217,7 +215,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
     loop {
         let path = TestDirectory::new("expiration-after-close");
         // To ensure full cleanup between each block, each runs in its own runtime;
-        let timing = TimingTest::new(Duration::from_millis(500));
+        let timing = TimingTest::new(Duration::from_millis(100));
         // Set a key with an expiration, then close it. Then try to validate it
         // exists after opening, and then expires at the correct time.
         {
@@ -225,10 +223,18 @@ fn expiration_after_close() -> anyhow::Result<()> {
             rt.block_on(async {
                 let db = Database::open::<()>(StorageConfiguration::new(&path)).await?;
 
+                // TODO This is a workaroun for the key-value expiration task
+                // taking ownership of an instance of Database. If this async
+                // task runs too quickly, sometimes things don't get cleaned up
+                // if that task hasn't completed. This pause ensures the startup
+                // tasks complete before we continue with the test. This should
+                // be replaced with a proper shutdown call for the local
+                // storage/database.
+                tokio::time::sleep(Duration::from_millis(100)).await;
+
                 db.set_key("a", &0_u32)
                     .expire_in(Duration::from_secs(3))
                     .await?;
-
                 Result::<(), anyhow::Error>::Ok(())
             })?;
         }
@@ -238,11 +244,13 @@ fn expiration_after_close() -> anyhow::Result<()> {
             let retry = rt.block_on(async {
                 let db = Database::open::<()>(StorageConfiguration::new(&path)).await?;
 
+                let key = db.get_key("a").into().await?;
+
                 if timing.elapsed() > Duration::from_secs(1) {
                     return Ok(true);
                 }
 
-                assert_eq!(db.get_key("a").into().await?, Some(0_u32));
+                assert_eq!(key, Some(0_u32));
 
                 timing.wait_until(Duration::from_secs(4)).await;
 

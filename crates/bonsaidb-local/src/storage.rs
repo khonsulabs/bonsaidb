@@ -9,8 +9,8 @@ use std::{
 use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
-#[cfg(feature = "internal-apis")]
-use bonsaidb_core::custodian_password::{LoginResponse, ServerLogin};
+#[cfg(feature = "password-hashing")]
+use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     admin::{
         self,
@@ -23,8 +23,7 @@ use bonsaidb_core::{
 };
 #[cfg(feature = "multiuser")]
 use bonsaidb_core::{
-    admin::{password_config::PasswordConfig, user::User, PermissionGroup, Role},
-    custodian_password::{RegistrationFinalization, RegistrationRequest, ServerRegistration},
+    admin::{user::User, PermissionGroup, Role},
     schema::{CollectionDocument, NamedCollection, NamedReference},
 };
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
@@ -53,6 +52,9 @@ use crate::{
     Database, Error,
 };
 
+#[cfg(feature = "password-hashing")]
+mod argon;
+
 mod backup;
 pub use backup::BackupLocation;
 
@@ -72,6 +74,8 @@ struct Data {
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
     open_roots: Mutex<HashMap<String, Context>>,
+    #[cfg(feature = "password-hashing")]
+    argon: argon::Hasher,
     #[cfg(feature = "encryption")]
     pub(crate) vault: Arc<Vault>,
     #[cfg(feature = "encryption")]
@@ -116,6 +120,8 @@ impl Storage {
 
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
         let key_value_persistence = configuration.key_value_persistence;
+        #[cfg(feature = "password-hashing")]
+        let argon = argon::Hasher::new(configuration.argon);
         #[cfg(feature = "encryption")]
         let default_encryption_key = configuration.default_encryption_key;
         let storage = tokio::task::spawn_blocking::<_, Result<Self, Error>>(move || {
@@ -123,6 +129,8 @@ impl Storage {
                 data: Arc::new(Data {
                     id,
                     tasks,
+                    #[cfg(feature = "password-hashing")]
+                    argon,
                     #[cfg(feature = "encryption")]
                     vault,
                     #[cfg(feature = "encryption")]
@@ -384,28 +392,6 @@ impl Storage {
         self.database_without_schema(name).await
     }
 
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    /// Authenticates a user.
-    pub async fn internal_login_with_password(
-        &self,
-        username: &str,
-        login_request: bonsaidb_core::custodian_password::LoginRequest,
-    ) -> Result<(Option<u64>, ServerLogin, LoginResponse), bonsaidb_core::Error> {
-        let admin = self.admin().await;
-        let config = PasswordConfig::load(&admin).await?;
-
-        let (user_id, existing_password_hash) =
-            if let Some(user) = User::load(username, &admin).await? {
-                (Some(user.header.id), user.contents.password_hash)
-            } else {
-                (None, None)
-            };
-
-        let (login, response) = ServerLogin::login(&config, existing_password_hash, login_request)?;
-        Ok((user_id, login, response))
-    }
-
     #[cfg(feature = "multiuser")]
     async fn update_user_with_named_id<
         'user,
@@ -611,56 +597,50 @@ impl StorageConnection for Storage {
         Ok(result.id)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password_request)))]
-    #[cfg(feature = "multiuser")]
+    #[cfg(feature = "password-hashing")]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password)))]
     async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
-        password_request: RegistrationRequest,
-    ) -> Result<bonsaidb_core::custodian_password::RegistrationResponse, bonsaidb_core::Error> {
+        password: bonsaidb_core::connection::SensitiveString,
+    ) -> Result<(), bonsaidb_core::Error> {
         let admin = self.admin().await;
-
-        match User::load(user, &admin).await? {
-            Some(mut doc) => {
-                let config = PasswordConfig::load(&admin).await.unwrap();
-                let (register, response) = ServerRegistration::register(&config, password_request)?;
-
-                doc.contents.pending_password_change_state = Some(register);
-                doc.update(&admin).await?;
-
-                Ok(response)
-            }
-            None => Err(bonsaidb_core::Error::UserNotFound),
-        }
+        let mut user = User::load(user, &admin)
+            .await?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
+        user.contents.argon_hash = Some(self.data.argon.hash(user.id, password).await?);
+        user.update(&admin).await
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip(user, password_finalization))
-    )]
-    #[cfg(feature = "multiuser")]
-    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
+    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
-        password_finalization: RegistrationFinalization,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let user = user.into();
+        authentication: Authentication,
+    ) -> Result<Authenticated, bonsaidb_core::Error> {
         let admin = self.admin().await;
-        match User::load(user, &admin).await? {
-            Some(mut doc) => {
-                if let Some(registration) = doc.contents.pending_password_change_state.take() {
-                    let file = registration.finish(password_finalization)?;
-                    doc.contents.password_hash = Some(file);
-                    doc.update(&admin).await?;
+        let user = User::load(user, &admin)
+            .await?
+            .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+        match authentication {
+            Authentication::Password(password) => {
+                let saved_hash = user
+                    .contents
+                    .argon_hash
+                    .clone()
+                    .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
 
-                    Ok(())
-                } else {
-                    Err(bonsaidb_core::Error::Password(String::from(
-                        "no existing state found",
-                    )))
-                }
+                self.data
+                    .argon
+                    .verify(user.id, password, saved_hash)
+                    .await?;
+                let permissions = user.contents.effective_permissions(&admin).await?;
+                Ok(Authenticated {
+                    user_id: user.id,
+                    permissions,
+                })
             }
-            None => Err(bonsaidb_core::Error::UserNotFound),
         }
     }
 

@@ -22,6 +22,10 @@ use bonsaidb::{
         DefaultPermissions, Server, ServerConfiguration,
     },
 };
+use bonsaidb_core::{
+    connection::{Authentication, SensitiveString},
+    permissions::bonsai::AuthenticationMethod,
+};
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
@@ -268,10 +272,8 @@ async fn assume_permissions(
     let username = format!("{}-{}", database_name, label);
     match connection.create_user(&username).await {
         Ok(user_id) => {
-            // Set the user's password. This uses OPAQUE to ensure the password
-            // never leaves the machine that executes `set_user_password_str`.
             connection
-                .set_user_password_str(&username, "hunter2")
+                .set_user_password(&username, SensitiveString("hunter2".to_string()))
                 .await
                 .unwrap();
 
@@ -306,7 +308,10 @@ async fn assume_permissions(
     };
 
     connection
-        .login_with_password_str(&username, "hunter2", None)
+        .authenticate(
+            &username,
+            Authentication::Password(SensitiveString(String::from("hunter2"))),
+        )
         .await
         .unwrap();
 
@@ -321,7 +326,9 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
             .default_permissions(Permissions::from(
                 Statement::for_any()
                     .allowing(&BonsaiAction::Server(ServerAction::Connect))
-                    .allowing(&BonsaiAction::Server(ServerAction::LoginWithPassword)),
+                    .allowing(&BonsaiAction::Server(ServerAction::Authenticate(
+                        AuthenticationMethod::PasswordHash,
+                    ))),
             ))
             .authenticated_permissions(DefaultPermissions::AllowAll),
     )
@@ -333,7 +340,9 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
         .into_end_entity_certificate();
 
     server.create_user("ecton").await?;
-    server.set_user_password_str("ecton", "hunter2").await?;
+    server
+        .set_user_password("ecton", SensitiveString("hunter2".to_string()))
+        .await?;
     tokio::spawn(async move {
         server.listen_on(6002).await?;
         Result::<(), anyhow::Error>::Ok(())
@@ -350,9 +359,14 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
         Err(bonsaidb_core::Error::PermissionDenied(_)) => {}
         _ => unreachable!("should not have permission to create another user before logging in"),
     }
+
     client
-        .login_with_password_str("ecton", "hunter2", None)
-        .await?;
+        .authenticate(
+            "ecton",
+            Authentication::Password(SensitiveString(String::from("hunter2"))),
+        )
+        .await
+        .unwrap();
     client
         .create_user("otheruser")
         .await

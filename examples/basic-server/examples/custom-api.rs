@@ -9,10 +9,10 @@ use bonsaidb::{
     core::{
         actionable::{Actionable, Dispatcher, Permissions},
         async_trait::async_trait,
-        connection::StorageConnection,
+        connection::{Authentication, SensitiveString, StorageConnection},
         custom_api::{CustomApi, Infallible},
         permissions::{
-            bonsai::{BonsaiAction, ServerAction},
+            bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
             Action, ResourceName, Statement,
         },
     },
@@ -190,7 +190,9 @@ async fn main() -> anyhow::Result<()> {
             .default_permissions(Permissions::from(
                 Statement::for_any()
                     .allowing(&BonsaiAction::Server(ServerAction::Connect))
-                    .allowing(&BonsaiAction::Server(ServerAction::LoginWithPassword)),
+                    .allowing(&BonsaiAction::Server(ServerAction::Authenticate(
+                        AuthenticationMethod::PasswordHash,
+                    ))),
             ))
             .authenticated_permissions(Permissions::from(
                 Statement::for_any()
@@ -207,7 +209,9 @@ async fn main() -> anyhow::Result<()> {
         Err(other) => anyhow::bail!(other),
     }
 
-    server.set_user_password_str("test-user", "hunter2").await?;
+    server
+        .set_user_password("test-user", SensitiveString("hunter2".to_string()))
+        .await?;
 
     if server.certificate_chain().await.is_err() {
         server.install_self_signed_certificate(true).await?;
@@ -304,8 +308,12 @@ async fn invoke_apis(
 
     // Now, let's authenticate and try calling the APIs that previously were denied permissions
     client
-        .login_with_password_str("test-user", "hunter2", None)
-        .await?;
+        .authenticate(
+            "test-user",
+            Authentication::Password(SensitiveString(String::from("hunter2"))),
+        )
+        .await
+        .unwrap();
     assert!(matches!(
         client
             .send_api_request(Request::DoSomethingSimple { some_argument: 1 })

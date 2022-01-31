@@ -1,8 +1,9 @@
 use bonsaidb_client::{Client, RemoteDatabase};
+#[cfg(feature = "password-hashing")]
+use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     async_trait::async_trait,
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    custodian_password::{RegistrationFinalization, RegistrationRequest, RegistrationResponse},
     document::OwnedDocument,
     schema::{
         Collection, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
@@ -85,33 +86,27 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
         }
     }
 
+    #[cfg(feature = "password-hashing")]
     async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
-        password_request: RegistrationRequest,
-    ) -> Result<RegistrationResponse, bonsaidb_core::Error> {
+        password: bonsaidb_core::connection::SensitiveString,
+    ) -> Result<(), bonsaidb_core::Error> {
         match self {
-            Self::Local(server) => server.set_user_password(user, password_request).await,
-            Self::Networked(client) => client.set_user_password(user, password_request).await,
+            Self::Local(server) => server.set_user_password(user, password).await,
+            Self::Networked(client) => client.set_user_password(user, password).await,
         }
     }
 
-    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    #[cfg(feature = "password-hashing")]
+    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
-        password_finalization: RegistrationFinalization,
-    ) -> Result<(), bonsaidb_core::Error> {
+        authentication: Authentication,
+    ) -> Result<Authenticated, bonsaidb_core::Error> {
         match self {
-            Self::Local(server) => {
-                server
-                    .finish_set_user_password(user, password_finalization)
-                    .await
-            }
-            Self::Networked(client) => {
-                client
-                    .finish_set_user_password(user, password_finalization)
-                    .await
-            }
+            Self::Local(server) => server.authenticate(user, authentication).await,
+            Self::Networked(client) => client.authenticate(user, authentication).await,
         }
     }
 

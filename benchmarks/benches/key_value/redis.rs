@@ -3,7 +3,13 @@ use ubyte::ToByteUnit;
 
 pub fn read_blobs(c: &mut BenchmarkGroup<WallTime>, data: &[u8]) {
     let client = redis::Client::open("redis://localhost").unwrap();
-    let mut connection = client.get_connection().unwrap();
+    let mut connection = match client.get_connection() {
+        Ok(connection) => connection,
+        Err(err) => {
+            eprintln!("Error connecting to redis: {:?}", err);
+            return;
+        }
+    };
     // The high level api would require allocations. However, by using the low
     // level API we can skip the clone.
     let data = std::str::from_utf8(data).unwrap();
@@ -37,7 +43,13 @@ pub fn read_blobs(c: &mut BenchmarkGroup<WallTime>, data: &[u8]) {
 
 pub fn write_blobs(c: &mut BenchmarkGroup<WallTime>, data: &[u8]) {
     let client = redis::Client::open("redis://localhost").unwrap();
-    let mut connection = client.get_connection().unwrap();
+    let mut connection = match client.get_connection() {
+        Ok(connection) => connection,
+        Err(err) => {
+            eprintln!("Error connecting to redis: {:?}", err);
+            return;
+        }
+    };
     // Disable saving
     redis::cmd("CONFIG")
         .arg("SET")
@@ -74,7 +86,13 @@ pub fn write_blobs(c: &mut BenchmarkGroup<WallTime>, data: &[u8]) {
 
 pub fn increment(c: &mut BenchmarkGroup<WallTime>) {
     let client = redis::Client::open("redis://localhost").unwrap();
-    let mut connection = client.get_connection().unwrap();
+    let mut connection = match client.get_connection() {
+        Ok(connection) => connection,
+        Err(err) => {
+            eprintln!("Error connecting to redis: {:?}", err);
+            return;
+        }
+    };
     // Disable saving
     redis::cmd("CONFIG")
         .arg("SET")

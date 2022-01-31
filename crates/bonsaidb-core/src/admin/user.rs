@@ -3,8 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     admin::{group, role},
-    connection::Connection,
-    custodian_password::{ServerFile, ServerRegistration},
+    connection::{Connection, SensitiveString},
     define_basic_unique_mapped_view,
     document::{Document, KeyId},
     permissions::Permissions,
@@ -25,12 +24,13 @@ pub struct User {
     /// The IDs of the roles this user has been assigned.
     pub roles: Vec<u64>,
 
-    /// An `OPAQUE PAKE` payload.
-    pub password_hash: Option<ServerFile>,
-
-    /// A temporary password state. Each call to SetPassword will overwrite the
-    /// previous state.
-    pub pending_password_change_state: Option<ServerRegistration>,
+    /// The user's stored password hash.
+    ///
+    /// This field is not feature gated to prevent losing stored passwords if
+    /// the `password-hashing` feature is disabled and then re-enabled and user
+    /// records are updated in the meantime.
+    #[serde(default)]
+    pub argon_hash: Option<SensitiveString>,
 }
 
 impl User {

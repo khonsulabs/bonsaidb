@@ -31,6 +31,8 @@ mod tasks;
 pub mod vault;
 mod views;
 
+#[cfg(feature = "password-hashing")]
+pub use argon2;
 #[cfg(not(feature = "included-from-omnibus"))]
 pub use bonsaidb_core as core;
 

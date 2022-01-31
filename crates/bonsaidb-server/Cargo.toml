@@ -13,7 +13,7 @@ homepage = "https://dev.bonsaidb.io/"
 
 [features]
 default = ["full"]
-full = ["cli", "websockets", "acme", "encryption"]
+full = ["cli", "websockets", "acme", "encryption", "password-hashing"]
 cli = ["clap", "pem", "env_logger", "bonsaidb-local/cli"]
 test-util = ["bonsaidb-core/test-util"]
 websockets = [
@@ -26,6 +26,11 @@ websockets = [
 instrument = ["tracing", "pot/tracing"]
 acme = ["async-acme", "pem"]
 encryption = ["bonsaidb-local/encryption", "bonsaidb-core/encryption"]
+password-hashing = [
+    "bonsaidb-local/password-hashing",
+    "bonsaidb-core/password-hashing",
+]
+
 included-from-omnibus = []
 
 [dependencies]

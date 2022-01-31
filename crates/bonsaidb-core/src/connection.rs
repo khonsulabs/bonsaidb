@@ -5,18 +5,16 @@ use std::{
 
 use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
-#[cfg(feature = "multiuser")]
-use custodian_password::{
-    ClientConfig, ClientFile, ClientRegistration, ExportKey, RegistrationFinalization,
-    RegistrationRequest, RegistrationResponse,
-};
 use futures::{future::BoxFuture, Future, FutureExt};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "multiuser")]
+use zeroize::Zeroize;
 
 #[cfg(feature = "multiuser")]
 use crate::schema::NamedReference;
 use crate::{
     document::{Document, Header, OwnedDocument},
+    permissions::Permissions,
     schema::{
         self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName, SerializedCollection,
     },
@@ -869,43 +867,21 @@ pub trait StorageConnection: Send + Sync {
     #[cfg(feature = "multiuser")]
     async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
 
-    /// Sets a user's password using `custodian-password` to register a password using `OPAQUE-PAKE`.
-    #[cfg(feature = "multiuser")]
+    /// Sets a user's password.
+    #[cfg(feature = "password-hashing")]
     async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
-        password_request: RegistrationRequest,
-    ) -> Result<RegistrationResponse, crate::Error>;
-
-    /// Finishes setting a user's password by finishing the `OPAQUE-PAKE`
-    /// registration.
-    #[cfg(feature = "multiuser")]
-    async fn finish_set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
-        &self,
-        user: U,
-        password_finalization: RegistrationFinalization,
+        password: SensitiveString,
     ) -> Result<(), crate::Error>;
 
-    /// Sets a user's password with the provided string. The password provided
-    /// will never leave the machine that is calling this function. Internally
-    /// uses `set_user_password` and `finish_set_user_password` in conjunction
-    /// with `custodian-password`.
-    #[cfg(feature = "multiuser")]
-    async fn set_user_password_str<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    /// Authenticates as a user with a authentication method.
+    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
-        password: &str,
-    ) -> Result<PasswordResult, crate::Error> {
-        let user = user.into();
-        let (registration, request) = ClientRegistration::register(
-            ClientConfig::new(crate::password_config(), None)?,
-            password,
-        )?;
-        let response = self.set_user_password(user.clone(), request).await?;
-        let (file, finalization, export_key) = registration.finish(response)?;
-        self.finish_set_user_password(user, finalization).await?;
-        Ok(PasswordResult { file, export_key })
-    }
+        authentication: Authentication,
+    ) -> Result<Authenticated, crate::Error>;
 
     /// Adds a user to a permission group.
     #[cfg(feature = "multiuser")]
@@ -960,20 +936,6 @@ pub trait StorageConnection: Send + Sync {
     ) -> Result<(), crate::Error>;
 }
 
-/// The result of logging in with a password or setting a password.
-#[cfg(feature = "multiuser")]
-pub struct PasswordResult {
-    /// A file that can be stored locally that can be used to further validate
-    /// future login attempts. This does not need to be stored, but can be used
-    /// to detect if the `BonsaiDb` key has been changed without our knowledge.
-    pub file: ClientFile,
-    /// A keypair derived from the OPAQUE-KE session. This key is
-    /// deterministically derived from the key exchange with the server such
-    /// that upon logging in with your password, this key will always be the
-    /// same until you change your password.
-    pub export_key: ExportKey,
-}
-
 /// A database stored in `BonsaiDb`.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Database {
@@ -981,4 +943,45 @@ pub struct Database {
     pub name: String,
     /// The schema defining the database.
     pub schema: SchemaName,
+}
+
+/// A plain-text password. This struct automatically overwrites the password
+/// with zeroes when dropped.
+#[cfg(feature = "multiuser")]
+#[derive(Clone, Serialize, Deserialize, Zeroize)]
+#[zeroize(drop)]
+#[serde(transparent)]
+pub struct SensitiveString(pub String);
+
+#[cfg(feature = "multiuser")]
+impl std::fmt::Debug for SensitiveString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SensitiveString(...)")
+    }
+}
+
+#[cfg(feature = "multiuser")]
+impl Deref for SensitiveString {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// User authentication methods.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Authentication {
+    /// Authenticate using a password.
+    #[cfg(feature = "password-hashing")]
+    Password(crate::connection::SensitiveString),
+}
+
+/// Information about the authenticated session.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Authenticated {
+    /// The user id logged in as.
+    pub user_id: u64,
+    /// The effective permissions granted.
+    pub permissions: Permissions,
 }

@@ -1,15 +1,10 @@
-use actionable::Permissions;
 use arc_bytes::serde::Bytes;
-use custodian_password::{
-    LoginFinalization, LoginRequest, LoginResponse, RegistrationFinalization, RegistrationRequest,
-    RegistrationResponse,
-};
 use derive_where::derive_where;
 use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    connection::{AccessPolicy, Database, QueryKey, Range, Sort},
+    connection::{AccessPolicy, Authenticated, Database, QueryKey, Range, Sort},
     document::OwnedDocument,
     keyvalue::{KeyOperation, Output},
     schema::{
@@ -63,23 +58,6 @@ pub enum Request<T> {
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[cfg_attr(feature = "actionable-traits", derive(actionable::Actionable))]
 pub enum ServerRequest {
-    /// Authenticates the current session as `username` using a password.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
-    LoginWithPassword {
-        /// The username of the user to authenticate as.
-        username: String,
-
-        /// The password login request.
-        login_request: LoginRequest,
-    },
-
-    /// Completes logging in via `LoginWithPassword`.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
-    FinishPasswordLogin {
-        /// The payload required to complete logging in.
-        login_finalization: LoginFinalization,
-    },
-
     /// Creates a database.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     CreateDatabase {
@@ -106,25 +84,23 @@ pub enum ServerRequest {
         /// The unique username of the user to create.
         username: String,
     },
-
-    /// Sets a user's password.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
-    SetPassword {
-        /// The username or id of the user to set the password for.
+    /// Set's a user's password.
+    #[cfg(feature = "password-hashing")]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    SetUserPassword {
+        /// The username or id of the user.
         user: NamedReference<'static>,
-
-        /// A registration request for a password.
-        password_request: RegistrationRequest,
+        /// The user's new password.
+        password: crate::connection::SensitiveString,
     },
-
-    /// Finishes setting the password for a user.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
-    FinishSetPassword {
-        /// The username or id of the user to set the password for.
+    /// Authenticate as a user.
+    #[cfg(feature = "password-hashing")]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
+    Authenticate {
+        /// The username or id of the user.
         user: NamedReference<'static>,
-
-        /// The finalization payload for the password change.
-        password_finalization: RegistrationFinalization,
+        /// The method of authentication.
+        authentication: crate::connection::Authentication,
     },
 
     /// Alter's a user's membership in a permission group.
@@ -342,24 +318,8 @@ pub enum ServerResponse {
         /// The id of the user created.
         id: u64,
     },
-    /// Asks the client to complete the password change. This process ensures
-    /// the server receives no information that can be used to derive
-    /// information about the password.
-    FinishSetPassword {
-        /// The password registration response. Must be finalized using
-        /// `custodian-password`.
-        password_reponse: Box<RegistrationResponse>,
-    },
-    /// A response to a password login attempt.
-    PasswordLoginResponse {
-        /// The server's response to the provided [`LoginRequest`].
-        response: Box<LoginResponse>,
-    },
     /// Successfully authenticated.
-    LoggedIn {
-        /// The effective permissions for the authenticated user.
-        permissions: Permissions,
-    },
+    Authenticated(Authenticated),
 }
 
 /// A response to a [`DatabaseRequest`].

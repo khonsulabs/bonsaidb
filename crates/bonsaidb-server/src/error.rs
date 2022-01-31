@@ -44,10 +44,6 @@ pub enum Error {
     #[cfg(feature = "pem")]
     Pem(#[from] pem::PemError),
 
-    /// An error occurred with handling opaque-ke.
-    #[error("an opaque-ke error: {0}")]
-    Password(#[from] bonsaidb_core::custodian_password::Error),
-
     /// An error occurred requesting an ACME certificate.
     #[error("an error requesting an ACME certificate: {0}")]
     #[cfg(feature = "acme")]

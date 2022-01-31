@@ -1465,7 +1465,7 @@ impl Drop for ContextData {
         let key_value_state = self.key_value_state.clone();
         self.runtime.spawn(async move {
             let mut state = fast_async_lock!(key_value_state);
-            state.shutdown(&key_value_state);
+            state.shutdown(&key_value_state).await
         });
     }
 }

@@ -7,6 +7,7 @@ use std::{
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::schema::{Schema, SchemaName};
+use sysinfo::{RefreshKind, System, SystemExt};
 
 #[cfg(feature = "encryption")]
 use crate::vault::AnyVaultKeyStorage;
@@ -15,8 +16,13 @@ use crate::{
     Error,
 };
 
+#[cfg(feature = "password-hashing")]
+mod argon;
+#[cfg(feature = "password-hashing")]
+pub use argon::*;
+
 /// Configuration options for [`Storage`](crate::storage::Storage).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct StorageConfiguration {
     /// The path to the database. Defaults to `db.bonsaidb` if not specified.
@@ -56,7 +62,33 @@ pub struct StorageConfiguration {
     /// Controls how the key-value store persists keys, on a per-database basis.
     pub key_value_persistence: KeyValuePersistence,
 
+    /// Password hashing configuration.
+    #[cfg(feature = "password-hashing")]
+    pub argon: ArgonConfiguration,
+
     pub(crate) initial_schemas: HashMap<SchemaName, Box<dyn DatabaseOpener>>,
+}
+
+impl Default for StorageConfiguration {
+    fn default() -> Self {
+        let system_specs = RefreshKind::new().with_cpu().with_memory();
+        let mut system = System::new_with_specifics(system_specs);
+        system.refresh_specifics(system_specs);
+        Self {
+            path: None,
+            unique_id: None,
+            #[cfg(feature = "encryption")]
+            vault_key_storage: None,
+            #[cfg(feature = "encryption")]
+            default_encryption_key: None,
+            workers: Tasks::default_for(&system),
+            views: Views::default(),
+            key_value_persistence: KeyValuePersistence::default(),
+            #[cfg(feature = "password-hashing")]
+            argon: ArgonConfiguration::default_for(&system),
+            initial_schemas: HashMap::default(),
+        }
+    }
 }
 
 impl StorageConfiguration {
@@ -71,17 +103,18 @@ impl StorageConfiguration {
 /// Configuration options for background tasks.
 #[derive(Debug)]
 pub struct Tasks {
-    /// Defines how many workers should be spawned to process tasks. Default
-    /// value is `16`.
+    /// Defines how many workers should be spawned to process tasks. This
+    /// defaults to the 2x the number of cpu cores available to the system or 4, whichever is larger.
     pub worker_count: usize,
 }
 
-impl Default for Tasks {
-    fn default() -> Self {
+impl SystemDefault for Tasks {
+    fn default_for(system: &System) -> Self {
         Self {
-            // TODO this was arbitrarily picked, it probably should be higher,
-            // but it also should probably be based on the cpu's capabilities
-            worker_count: 16,
+            worker_count: system
+                .physical_core_count()
+                .unwrap_or_else(|| system.processors().len())
+                * 2,
         }
     }
 }
@@ -327,5 +360,15 @@ impl Builder for StorageConfiguration {
     fn key_value_persistence(mut self, persistence: KeyValuePersistence) -> Self {
         self.key_value_persistence = persistence;
         self
+    }
+}
+
+pub(crate) trait SystemDefault: Sized {
+    fn default_for(system: &System) -> Self;
+    fn default() -> Self {
+        let system_specs = RefreshKind::new().with_cpu().with_memory();
+        let mut system = System::new_with_specifics(system_specs);
+        system.refresh_specifics(system_specs);
+        Self::default_for(&system)
     }
 }

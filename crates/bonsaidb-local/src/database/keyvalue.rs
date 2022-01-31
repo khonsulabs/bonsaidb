@@ -21,7 +21,10 @@ use nebari::{
     AbortError, ArcBytes, Roots,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{runtime::Handle, sync::watch};
+use tokio::{
+    runtime::Handle,
+    sync::{oneshot, watch},
+};
 
 use crate::{
     config::KeyValuePersistence,
@@ -225,7 +228,7 @@ pub struct KeyValueState {
     expiration_order: VecDeque<String>,
     dirty_keys: BTreeMap<String, Option<Entry>>,
     keys_being_persisted: Option<Arc<BTreeMap<String, Option<Entry>>>>,
-    shutdown: bool,
+    shutdown: Option<oneshot::Sender<()>>,
 }
 
 impl KeyValueState {
@@ -243,16 +246,20 @@ impl KeyValueState {
             expiration_order: VecDeque::new(),
             dirty_keys: BTreeMap::new(),
             keys_being_persisted: None,
-            shutdown: false,
+            shutdown: None,
         }
     }
 
-    pub fn shutdown(&mut self, state: &Arc<Mutex<KeyValueState>>) {
-        if self.keys_being_persisted.is_some() {
-            self.shutdown = true;
-        } else {
+    pub async fn shutdown(
+        &mut self,
+        state: &Arc<Mutex<KeyValueState>>,
+    ) -> Result<(), oneshot::error::RecvError> {
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        self.shutdown = Some(shutdown_sender);
+        if self.keys_being_persisted.is_none() {
             self.commit_dirty_keys(state);
         }
+        shutdown_receiver.await
     }
 
     pub async fn perform_kv_operation(
@@ -693,12 +700,23 @@ impl KeyValueState {
             transaction.commit().map_err(Error::from)?;
         }
 
+        // If we are shutting down, check if we still have dirty keys.
         if let Some(final_keys) = runtime.block_on(async {
             let mut state = fast_async_lock!(key_value_state);
             state.keys_being_persisted = None;
             state.update_background_worker_target();
-            if state.shutdown {
-                state.stage_dirty_keys()
+            // This block is a little ugly to avoid having to acquire the lock
+            // twice. If we're shutting down and have no dirty keys, we notify
+            // the waiting shutdown task. If we have any dirty keys, we wait do
+            // to that step because we're going to recurse and reach this spot
+            // again.
+            if state.shutdown.is_some() {
+                let staged_keys = state.stage_dirty_keys();
+                if staged_keys.is_none() {
+                    let shutdown = state.shutdown.take().unwrap();
+                    let _ = shutdown.send(());
+                }
+                staged_keys
             } else {
                 None
             }

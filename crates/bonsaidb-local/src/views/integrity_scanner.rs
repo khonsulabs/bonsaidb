@@ -124,8 +124,7 @@ impl Job for IntegrityScanner {
         .await??;
 
         if needs_update {
-            let job = self
-                .database
+            self.database
                 .data
                 .storage
                 .tasks()
@@ -139,7 +138,6 @@ impl Job for IntegrityScanner {
                     },
                 })
                 .await;
-            job.receive().await??;
         }
 
         self.database
