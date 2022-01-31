@@ -37,7 +37,7 @@ Configuration(
                 release: "https://dev.bonsaidb.io/v0.0.0",
             ),
             "bonsaidb-docs": (
-                default: "https://dev.bonsaidb.io/main/bonsaidb",
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb",
                 release: "https://docs.rs/bonsaidb",
             ),
         },

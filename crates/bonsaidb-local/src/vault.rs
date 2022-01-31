@@ -30,7 +30,7 @@
 //! Instead, you should use a storage location that provides authentication and
 //! encryption. Our recommendation for production enviroments is to find an
 //! Amazon S3-compatible storage service and use
-//! [`S3VaultKeyStorage`](https://dev.bonsaidb.io/main/bonsaidb_keystorage_s3/struct.S3VaultKeyStorage.html).
+//! [`S3VaultKeyStorage`](https://dev.bonsaidb.io/main/docs/bonsaidb_keystorage_s3/struct.S3VaultKeyStorage.html).
 //! Eventually, other `BonsaiDb` servers will be able to operate as key storage
 //! for each other.
 //!
