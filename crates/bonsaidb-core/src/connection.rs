@@ -7,6 +7,8 @@ use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
 use futures::{future::BoxFuture, Future, FutureExt};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "multiuser")]
+use zeroize::Zeroize;
 
 #[cfg(feature = "multiuser")]
 use crate::schema::NamedReference;
@@ -870,7 +872,7 @@ pub trait StorageConnection: Send + Sync {
     async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
-        password: Password,
+        password: SensitiveString,
     ) -> Result<(), crate::Error>;
 
     /// Authenticates as a user with a authentication method.
@@ -945,14 +947,25 @@ pub struct Database {
 
 /// A plain-text password. This struct automatically overwrites the password
 /// with zeroes when dropped.
-#[cfg(feature = "password-hashing")]
-#[derive(Clone, Serialize, Deserialize, zeroize::Zeroize)]
-pub struct Password(pub String);
+#[cfg(feature = "multiuser")]
+#[derive(Clone, Serialize, Deserialize, Zeroize)]
+#[zeroize(drop)]
+#[serde(transparent)]
+pub struct SensitiveString(pub String);
 
-#[cfg(feature = "password-hashing")]
-impl std::fmt::Debug for Password {
+#[cfg(feature = "multiuser")]
+impl std::fmt::Debug for SensitiveString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Password(...)")
+        f.write_str("SensitiveString(...)")
+    }
+}
+
+#[cfg(feature = "multiuser")]
+impl Deref for SensitiveString {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -961,7 +974,7 @@ impl std::fmt::Debug for Password {
 pub enum Authentication {
     /// Authenticate using a password.
     #[cfg(feature = "password-hashing")]
-    Password(crate::connection::Password),
+    Password(crate::connection::SensitiveString),
 }
 
 /// Information about the authenticated session.

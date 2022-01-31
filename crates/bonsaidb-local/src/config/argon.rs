@@ -87,10 +87,10 @@ impl Default for TimedArgonParams {
     /// [`Self::MINIMUM_RAM_PER_HASHER`] of RAM per hasher, and a minimum
     /// duration of 1 second.
     ///
-    /// These settings are based on the smallest recommended memory settings
-    /// from [RFC 9106, section 4 "Parameter Choice"][rfc]. The strength of
-    /// Argon2 is derive largely by the amount of RAM dedicated to it, so the
-    /// largest value acceptable should be chosen for `ram_per_hasher`.
+    /// The strength of Argon2 is derived largely by the amount of RAM dedicated
+    /// to it, so the largest value acceptable should be chosen for
+    /// `ram_per_hasher`. For more guidance on parameter selection, see [RFC
+    /// 9106, section 4 "Parameter Choice"][rfc].
     ///
     /// [rfc]: https://www.rfc-editor.org/rfc/rfc9106.html#name-parameter-choice
     fn default() -> Self {
@@ -113,25 +113,25 @@ impl TimedArgonParams {
     /// Returns the default configuration based on the system information and
     /// number of hashers.
     ///
-    /// The total amount of RAM allocated will be the total system memory
-    /// divided by 16. This allocated amount will be divided equally between the
-    /// hashers. If this number is less than [`Self::MINIMUM_RAM_PER_HASHER`],
-    /// [`Self::MINIMUM_RAM_PER_HASHER`] will be used instead.
+    /// - `ram_per_hasher`: The total amount of RAM allocated will be the total
+    ///   system memory divided by 16. This allocated amount will be divided
+    ///   equally between the hashers. If this number is less than
+    ///   [`Self::MINIMUM_RAM_PER_HASHER`], [`Self::MINIMUM_RAM_PER_HASHER`]
+    ///   will be used instead.
     ///
-    /// For example, if 4 hashers are used on a system with 16GB of RAM, a total
-    /// of 1GB of RAM will be used between 4 hashers, yielding a
-    /// `ram_per_hasher` value of 256MB.
+    ///   For example, if 4 hashers are used on a system with 16GB of RAM, a
+    ///   total of 1GB of RAM will be used between 4 hashers, yielding a
+    ///   `ram_per_hasher` value of 256MB.
     ///
-    /// `lanes` defaults to 4.
+    /// - `lanes`: defaults to 4.
     ///
-    /// `minimum_duration` defaults to 1 second.
+    /// - `minimum_duration`: defaults to 1 second. The [RFC][rfc] suggests 0.5
+    ///   seconds, but many in the community recommend 1 second.
     ///
-    /// These settings are based on the recommended settings from [RFC 9106,
-    /// section 4 "Parameter Choice"][rfc], but scaling memory automatically
-    /// based on a ratio that we feel is reasonable for most server
-    /// configurations. The strength of Argon2 is derive largely by the amount
-    /// of RAM dedicated to it, so the largest value acceptable should be chosen
-    /// for `ram_per_hasher`.
+    /// The strength of Argon2 is derived largely by the amount of RAM dedicated
+    /// to it, so the largest value acceptable should be chosen for
+    /// `ram_per_hasher`. For more guidance on parameter selection, see [RFC
+    /// 9106, section 4 "Parameter Choice"][rfc].
     ///
     /// ## Debug Mode
     ///

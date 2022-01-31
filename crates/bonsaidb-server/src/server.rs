@@ -960,7 +960,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
     async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
-        password: bonsaidb_core::connection::Password,
+        password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<(), bonsaidb_core::Error> {
         self.data.storage.set_user_password(user, password).await
     }
@@ -1236,7 +1236,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::SetUserPasswordHandler for Serve
     async fn resource_name<'a>(
         &'a self,
         user: &'a NamedReference<'static>,
-        _password: &'a bonsaidb_core::connection::Password,
+        _password: &'a bonsaidb_core::connection::SensitiveString,
     ) -> Result<ResourceName<'a>, Error> {
         let id = user
             .id::<User, _>(&self.server.admin().await)
@@ -1254,7 +1254,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::SetUserPasswordHandler for Serve
         &self,
         _permissions: &Permissions,
         username: NamedReference<'static>,
-        password: bonsaidb_core::connection::Password,
+        password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         self.server.set_user_password(username, password).await?;
         Ok(Response::Ok)

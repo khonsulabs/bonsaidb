@@ -23,7 +23,7 @@ use bonsaidb::{
     },
 };
 use bonsaidb_core::{
-    connection::{Authentication, Password},
+    connection::{Authentication, SensitiveString},
     permissions::bonsai::AuthenticationMethod,
 };
 use once_cell::sync::Lazy;
@@ -273,7 +273,7 @@ async fn assume_permissions(
     match connection.create_user(&username).await {
         Ok(user_id) => {
             connection
-                .set_user_password(&username, Password("hunter2".to_string()))
+                .set_user_password(&username, SensitiveString("hunter2".to_string()))
                 .await
                 .unwrap();
 
@@ -310,7 +310,7 @@ async fn assume_permissions(
     connection
         .authenticate(
             &username,
-            Authentication::Password(Password(String::from("hunter2"))),
+            Authentication::Password(SensitiveString(String::from("hunter2"))),
         )
         .await
         .unwrap();
@@ -341,7 +341,7 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
 
     server.create_user("ecton").await?;
     server
-        .set_user_password("ecton", Password("hunter2".to_string()))
+        .set_user_password("ecton", SensitiveString("hunter2".to_string()))
         .await?;
     tokio::spawn(async move {
         server.listen_on(6002).await?;
@@ -363,7 +363,7 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
     client
         .authenticate(
             "ecton",
-            Authentication::Password(Password(String::from("hunter2"))),
+            Authentication::Password(SensitiveString(String::from("hunter2"))),
         )
         .await
         .unwrap();

@@ -8,7 +8,7 @@ use argon2::{
     password_hash::{ParamsString, SaltString},
     Algorithm, Argon2, Block, ParamsBuilder, PasswordHash, Version,
 };
-use bonsaidb_core::connection::Password;
+use bonsaidb_core::connection::SensitiveString;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, CryptoRng, Rng};
 use tokio::sync::oneshot;
@@ -43,7 +43,7 @@ impl Hasher {
         Hasher { sender, threads }
     }
 
-    pub async fn hash(&self, id: u64, password: Password) -> Result<String, Error> {
+    pub async fn hash(&self, id: u64, password: SensitiveString) -> Result<SensitiveString, Error> {
         let (result_sender, result_receiver) = oneshot::channel();
         if self
             .sender
@@ -68,8 +68,8 @@ impl Hasher {
     pub async fn verify(
         &self,
         id: u64,
-        password: Password,
-        saved_hash: String,
+        password: SensitiveString,
+        saved_hash: SensitiveString,
     ) -> Result<(), Error> {
         let (result_sender, result_receiver) = oneshot::channel();
         if self
@@ -240,7 +240,7 @@ impl HashingThread {
             )?)
         })?;
 
-        Ok(HashResponse::Hash(
+        Ok(HashResponse::Hash(SensitiveString(
             PasswordHash {
                 algorithm: self.algorithm.ident(),
                 version: Some(Version::V0x13.into()),
@@ -249,7 +249,7 @@ impl HashingThread {
                 hash: Some(output),
             }
             .to_string(),
-        ))
+        )))
     }
 
     fn allocate_blocks(&mut self, params: &argon2::Params) {
@@ -262,14 +262,14 @@ impl HashingThread {
 #[derive(Debug)]
 pub struct HashRequest {
     id: u64,
-    password: Password,
-    verify_against: Option<String>,
+    password: SensitiveString,
+    verify_against: Option<SensitiveString>,
     result_sender: oneshot::Sender<Result<HashResponse, Error>>,
 }
 
 #[derive(Debug)]
 pub enum HashResponse {
-    Hash(String),
+    Hash(SensitiveString),
     Verified,
 }
 
@@ -297,7 +297,7 @@ async fn basic_test() {
     use crate::config::SystemDefault;
     let hasher = Hasher::new(ArgonConfiguration::default());
 
-    let password = Password(String::from("hunter2"));
+    let password = SensitiveString(String::from("hunter2"));
     let hash = hasher.hash(1, password.clone()).await.unwrap();
     hasher
         .verify(1, password.clone(), hash.clone())

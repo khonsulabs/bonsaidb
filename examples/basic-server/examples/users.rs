@@ -6,7 +6,7 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         admin::PermissionGroup,
-        connection::{Authentication, Password, StorageConnection},
+        connection::{Authentication, SensitiveString, StorageConnection},
         document::KeyId,
         permissions::{
             bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
@@ -31,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
         Ok(id) => {
             // Set the user's password.
             server
-                .set_user_password("ecton", Password("hunter2".to_string()))
+                .set_user_password("ecton", SensitiveString("hunter2".to_string()))
                 .await?;
 
             id
@@ -101,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
     client
         .authenticate(
             "ecton",
-            Authentication::Password(Password(String::from("hunter2"))),
+            Authentication::Password(SensitiveString(String::from("hunter2"))),
         )
         .await
         .unwrap();

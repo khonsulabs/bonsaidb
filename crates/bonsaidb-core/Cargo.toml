@@ -18,9 +18,9 @@ networking = ["multiuser"]
 websockets = []
 actionable-traits = []
 instrument = ["pot/tracing"]
-multiuser = []
+multiuser = ["zeroize"]
 encryption = []
-password-hashing = ["zeroize"]
+password-hashing = ["multiuser"]
 
 [dependencies]
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }

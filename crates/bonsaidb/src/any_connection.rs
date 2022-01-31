@@ -90,7 +90,7 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
     async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
-        password: bonsaidb_core::connection::Password,
+        password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<(), bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.set_user_password(user, password).await,

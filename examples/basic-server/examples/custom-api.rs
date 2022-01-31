@@ -9,7 +9,7 @@ use bonsaidb::{
     core::{
         actionable::{Actionable, Dispatcher, Permissions},
         async_trait::async_trait,
-        connection::{Authentication, Password, StorageConnection},
+        connection::{Authentication, SensitiveString, StorageConnection},
         custom_api::{CustomApi, Infallible},
         permissions::{
             bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
@@ -210,7 +210,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     server
-        .set_user_password("test-user", Password("hunter2".to_string()))
+        .set_user_password("test-user", SensitiveString("hunter2".to_string()))
         .await?;
 
     if server.certificate_chain().await.is_err() {
@@ -310,7 +310,7 @@ async fn invoke_apis(
     client
         .authenticate(
             "test-user",
-            Authentication::Password(Password(String::from("hunter2"))),
+            Authentication::Password(SensitiveString(String::from("hunter2"))),
         )
         .await
         .unwrap();

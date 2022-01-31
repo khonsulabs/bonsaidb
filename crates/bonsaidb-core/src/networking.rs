@@ -91,7 +91,7 @@ pub enum ServerRequest {
         /// The username or id of the user.
         user: NamedReference<'static>,
         /// The user's new password.
-        password: crate::connection::Password,
+        password: crate::connection::SensitiveString,
     },
     /// Authenticate as a user.
     #[cfg(feature = "password-hashing")]

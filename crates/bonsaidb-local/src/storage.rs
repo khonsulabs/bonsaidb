@@ -602,7 +602,7 @@ impl StorageConnection for Storage {
     async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
         &self,
         user: U,
-        password: bonsaidb_core::connection::Password,
+        password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<(), bonsaidb_core::Error> {
         let admin = self.admin().await;
         let mut user = User::load(user, &admin)

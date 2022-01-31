@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     admin::{group, role},
-    connection::Connection,
+    connection::{Connection, SensitiveString},
     define_basic_unique_mapped_view,
     document::{Document, KeyId},
     permissions::Permissions,
@@ -30,7 +30,7 @@ pub struct User {
     /// the `password-hashing` feature is disabled and then re-enabled and user
     /// records are updated in the meantime.
     #[serde(default)]
-    pub argon_hash: Option<String>,
+    pub argon_hash: Option<SensitiveString>,
 }
 
 impl User {
