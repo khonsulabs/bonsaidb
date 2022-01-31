@@ -46,12 +46,12 @@ jobs:
           COMMERCE_POSTGRESQL_URL: postgres://postgres:postgres@localhost/postgres
 
       - name: Deploy Docs
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || github.event.ref_type == 'tag'
         uses: JamesIves/github-pages-deploy-action@releases/v4
         with:
           branch: gh-pages
           folder: coverage/
           git-config-name: kl-botsu
           git-config-email: botsu@khonsulabs.com
-          target-folder: /coverage/
+          target-folder: /${{ github.ref_name }}/coverage
           clean: true

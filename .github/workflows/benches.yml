@@ -92,7 +92,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || github.event.ref_type == 'tag'
     needs: [commerce, microbenchmarks]
     steps:
       - uses: actions/checkout@v2
@@ -111,5 +111,5 @@ jobs:
           folder: reports
           git-config-name: kl-botsu
           git-config-email: botsu@khonsulabs.com
-          target-folder: /benchmarks/
+          target-folder: /${{ github.ref_name }}/benchmarks
           clean: true

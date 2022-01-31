@@ -14,14 +14,14 @@ jobs:
           cargo doc --no-deps --all-features
 
       - name: Deploy Docs
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || github.event.ref_type == 'tag'
         uses: JamesIves/github-pages-deploy-action@releases/v4
         with:
           branch: gh-pages
           folder: target/doc/
           git-config-name: kl-botsu
           git-config-email: botsu@khonsulabs.com
-          target-folder: /main/
+          target-folder: /${{ github.ref_name }}/
           clean: true
 
   book:
@@ -44,22 +44,24 @@ jobs:
             ~/.cargo/bin/mdbook
             ~/.cargo/bin/mdbook-linkcheck
             ~/.cargo/bin/mdbook-mermaid
+            ~/.cargo/bin/mdbook-variables
           key: mdbook
       - name: Install mdbook
         run: |
           command -v mdbook || cargo install mdbook --no-default-features --features search
           command -v mdbook-linkcheck || cargo install mdbook-linkcheck
           command -v mdbook-mermaid || cargo install mdbook-mermaid
+          command -v mdbook-variables || cargo install mdbook-variables
       - name: Generate book
         run: cd book && mdbook build
 
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@releases/v4
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || github.event.ref_type == 'tag'
         with:
           branch: gh-pages
           folder: book/book/html/
           git-config-name: kl-botsu
           git-config-email: botsu@khonsulabs.com
-          target-folder: /guide
+          target-folder: /${{ github.ref_name }}/guide
           clean: true
