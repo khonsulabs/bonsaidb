@@ -28,16 +28,16 @@ Configuration(
         "https://github.com/khonsulabs/.github/raw/main/snippets/glossary.ron",
         {
             "ref-name": (
-                default: "main",
-                release: "v0.0.0",
+                default: "release",
+                release: "v0.1.0",
 
             ),
             "pages-base": (
-                default: "https://dev.bonsaidb.io/main",
-                release: "https://dev.bonsaidb.io/v0.0.0",
+                default: "https://dev.bonsaidb.io/release",
+                release: "https://dev.bonsaidb.io/v0.1.0",
             ),
             "bonsaidb-docs": (
-                default: "https://dev.bonsaidb.io/main/bonsaidb",
+                default: "https://dev.bonsaidb.io/release/bonsaidb",
                 release: "https://docs.rs/bonsaidb",
             ),
         },
