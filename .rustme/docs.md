@@ -2,9 +2,9 @@ BonsaiDb is a developer-friendly document database for [Rust](https://rust-lang.
 
 ![BonsaiDb is considered alpha](https://img.shields.io/badge/status-alpha-orange)
 [![crate version](https://img.shields.io/crates/v/bonsaidb.svg)](https://crates.io/crates/bonsaidb)
-[![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/main)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
-[![HTML Coverage Report for `main` branch]($pages-base$/coverage/badge.svg)]($pages-base$/coverage/)
-[![Documentation for `main` branch](https://img.shields.io/badge/docs-main-informational)]($bonsaidb-docs$)
+[![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/$ref-name$)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
+[![HTML Coverage Report for `$ref-name$`]($pages-base$/coverage/badge.svg)]($pages-base$/coverage/)
+[![Documentation for `$ref-name$`](https://img.shields.io/badge/docs-$ref-name$-informational)]($bonsaidb-docs$)
 
 ## ⚠️ Status of this project
 
@@ -30,7 +30,7 @@ And query data using the Map-Reduce-powered view:
 $../examples/basic-local/examples/view-examples.rs:snippet-c$
 ```
 
-See the [examples README](https://github.com/khonsulabs/bonsaidb/blob/main/examples/README.md) for a list of all available examples.
+See the [examples README](https://github.com/khonsulabs/bonsaidb/blob/$ref-name$/examples/README.md) for a list of all available examples.
 
 ## Feature Flags
 
