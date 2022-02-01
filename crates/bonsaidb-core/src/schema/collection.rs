@@ -15,7 +15,6 @@ use crate::{
 };
 
 /// A namespaced collection of `Document<Self>` items and views.
-#[async_trait]
 pub trait Collection: Debug + Send + Sync {
     /// The `Id` of this collection.
     fn collection_name() -> CollectionName;
@@ -129,7 +128,6 @@ pub trait SerializedCollection: Collection {
 }
 
 /// A convenience trait for easily storing Serde-compatible types in documents.
-#[async_trait]
 pub trait DefaultSerialization: Collection {}
 
 impl<T> SerializedCollection for T
