@@ -111,7 +111,7 @@ impl S3VaultKeyStorage {
         let config = aws_config::from_env().load().await;
         if let Some(endpoint) = self.endpoint.clone() {
             Client::with_config(
-                aws_smithy_client::Client::https(),
+                aws_smithy_client::Client::dyn_https(),
                 aws_sdk_s3::Config::builder()
                     .endpoint_resolver(endpoint)
                     .region(region_provider.region().await)

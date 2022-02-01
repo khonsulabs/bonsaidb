@@ -26,11 +26,11 @@ password-hashing = ["multiuser"]
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }
 circulate = { version = "0.2.1" }
 serde = { version = "1", features = ["derive"] }
-pot = "1.0.0-rc.3"
+pot = "1.0.0-rc.4"
 async-trait = "0.1"
 uuid = { version = "0.8", features = ["v4", "serde"], optional = true }
 thiserror = "1"
-sha2 = "0.9"
+sha2 = "0.10"
 futures = { version = "0.3" }
 tokio = { version = "1", features = ["time"], optional = true }
 num-traits = "0.2"

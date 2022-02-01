@@ -12,9 +12,9 @@ readme = "../../README.md"
 homepage = "https://dev.bonsaidb.io/"
 
 [dependencies]
-aws-sdk-s3 = { version = "0.2" }
-aws-config = { version = "0.2" }
-aws-smithy-client = { version = "0.32" }
+aws-sdk-s3 = { version = "0.6" }
+aws-config = { version = "0.6" }
+aws-smithy-client = { version = "0.36" }
 bonsaidb-local = { version = "0.1.0-dev.4", path = "../bonsaidb-local", default-features = false, features = [
     "encryption",
 ] }
