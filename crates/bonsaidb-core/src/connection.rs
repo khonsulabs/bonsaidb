@@ -511,7 +511,7 @@ where
             .await
     }
 
-    /// Executes the query and retrieves the results with the associated [`Document`s](crate::schema::OwnedDocument).
+    /// Executes the query and retrieves the results with the associated [`Document`s](crate::document::OwnedDocument).
     pub async fn query_with_docs(self) -> Result<Vec<MappedDocument<V>>, Error> {
         self.connection
             .query_with_docs::<V>(self.key, self.sort, self.limit, self.access_policy)
