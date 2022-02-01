@@ -180,6 +180,61 @@ pub struct InsertError<T> {
 }
 
 /// A collection with a unique name column.
+///
+/// ## Finding a document by unique name
+///
+/// ```rust
+/// # bonsaidb_core::__doctest_prelude!();
+/// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// if let Some(doc) = MyCollection::load("unique name", &db).await? {
+///     println!(
+///         "Retrieved revision {} with deserialized contents: {:?}",
+///         doc.header.revision, doc.contents
+///     );
+/// }
+/// # Ok(())
+/// # })
+/// # }
+/// ```
+///
+/// Load accepts either a string or a u64. This enables building methods that
+/// accept either the unique ID or the unique name:
+///
+/// ```rust
+/// # bonsaidb_core::__doctest_prelude!();
+/// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// if let Some(doc) = MyCollection::load(42, &db).await? {
+///     println!(
+///         "Retrieved revision {} with deserialized contents: {:?}",
+///         doc.header.revision, doc.contents
+///     );
+/// }
+/// # Ok(())
+/// # })
+/// # }
+/// ```
+///
+/// ## Executing an insert or update
+///
+/// ```rust
+/// # bonsaidb_core::__doctest_prelude!();
+/// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+/// let upserted = MyCollection::entry("unique name", &db)
+///     .update_with(|existing: &mut MyCollection| {
+///         existing.rank += 1;
+///     })
+///     .or_insert_with(MyCollection::default)
+///     .await?
+///     .unwrap();
+/// println!("Rank: {:?}", upserted.contents.rank);
+///
+/// # Ok(())
+/// # })
+/// # }
+/// ```
 #[async_trait]
 pub trait NamedCollection: Collection + Unpin {
     /// The name view defined for the collection.

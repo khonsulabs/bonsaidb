@@ -1583,8 +1583,8 @@ macro_rules! __doctest_prelude {
             document::{CollectionDocument, Document, OwnedDocument},
             schema::{
                 Collection, CollectionName, CollectionViewSchema, DefaultSerialization,
-                DefaultViewSerialization, Name, ReduceResult, Schema, SchemaName, Schematic,
-                SerializedCollection, View, ViewMapResult, ViewMappedValue,
+                DefaultViewSerialization, Name, NamedCollection, ReduceResult, Schema, SchemaName,
+                Schematic, SerializedCollection, View, ViewMapResult, ViewMappedValue,
             },
             Error,
         };
@@ -1633,6 +1633,10 @@ macro_rules! __doctest_prelude {
                 schema.define_view(MyCollectionByName)?;
                 Ok(())
             }
+        }
+
+        impl NamedCollection for MyCollection {
+            type ByNameView = MyCollectionByName;
         }
 
         impl DefaultSerialization for MyCollection {}
