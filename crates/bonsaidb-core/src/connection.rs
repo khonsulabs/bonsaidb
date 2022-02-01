@@ -16,7 +16,9 @@ use crate::{
     document::{Document, Header, OwnedDocument},
     permissions::Permissions,
     schema::{
-        self, view, Key, Map, MappedDocument, MappedValue, Schema, SchemaName, SerializedCollection,
+        self,
+        view::{self, map::MappedCollectionDocument},
+        Key, Map, MappedDocument, MappedValue, Schema, SchemaName, SerializedCollection,
     },
     transaction::{self, OperationResult, Transaction},
     Error,
@@ -140,7 +142,7 @@ pub trait Connection: Send + Sync {
     where
         Self: Sized;
 
-    /// Queries for view entries matching [`View`].
+    /// Queries for view entries matching [`View`] with their source documents.
     #[must_use]
     async fn query_with_docs<V: schema::SerializedView>(
         &self,
@@ -148,9 +150,34 @@ pub trait Connection: Send + Sync {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error>
+    ) -> Result<Vec<MappedDocument<V>>, Error>
     where
         Self: Sized;
+
+    /// Queries for view entries matching [`View`] with their source documents, deserialized.
+    #[must_use]
+    async fn query_with_collection_docs<V>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<usize>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedCollectionDocument<V>>, Error>
+    where
+        V: schema::SerializedView,
+        V::Collection: SerializedCollection,
+        <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
+        Self: Sized,
+    {
+        let mapped_docs = self
+            .query_with_docs::<V>(key, order, limit, access_policy)
+            .await?;
+        let mut collection_mapped_docs = Vec::with_capacity(mapped_docs.len());
+        for doc in mapped_docs {
+            collection_mapped_docs.push(doc.try_into()?);
+        }
+        Ok(collection_mapped_docs)
+    }
 
     /// Reduces the view entries matching [`View`].
     #[must_use]
@@ -249,6 +276,15 @@ pub struct Collection<'a, Cn, Cl> {
     _phantom: PhantomData<Cl>, // allows for extension traits to be written for collections of specific types
 }
 
+impl<'a, Cn, Cl> Clone for Collection<'a, Cn, Cl> {
+    fn clone(&self) -> Self {
+        Self {
+            connection: self.connection,
+            _phantom: PhantomData,
+        }
+    }
+}
+
 impl<'a, Cn, Cl> Collection<'a, Cn, Cl>
 where
     Cn: Connection,
@@ -294,15 +330,14 @@ where
 
     /// Retrieves all documents matching `ids`. Documents that are not found
     /// are not returned, but no error will be generated.
-    pub fn list<R: Into<Range<u64>> + Send>(&self, ids: R) -> List<'_, Cn, Cl, R> {
-        List {
-            state: ListState::Pending(Some(ListBuilder {
-                collection: self,
-                range: ids,
-                sort: Sort::Ascending,
-                limit: None,
-            })),
-        }
+    pub async fn get_multiple(&self, ids: &[u64]) -> Result<Vec<OwnedDocument>, Error> {
+        self.connection.get_multiple::<Cl>(ids).await
+    }
+
+    /// Retrieves all documents matching `ids`. Documents that are not found
+    /// are not returned, but no error will be generated.
+    pub fn list<R: Into<Range<u64>>>(&'a self, ids: R) -> List<'a, Cn, Cl> {
+        List::new(PossiblyOwned::Borrowed(self), ids.into())
     }
 
     /// Removes a `Document` from the database.
@@ -314,29 +349,57 @@ where
     }
 }
 
-struct ListBuilder<'a, Cn, Cl, R> {
-    collection: &'a Collection<'a, Cn, Cl>,
-    range: R,
+pub(crate) struct ListBuilder<'a, Cn, Cl> {
+    collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
+    range: Range<u64>,
     sort: Sort,
     limit: Option<usize>,
 }
 
-enum ListState<'a, Cn, Cl, R> {
-    Pending(Option<ListBuilder<'a, Cn, Cl, R>>),
+pub(crate) enum PossiblyOwned<'a, Cl> {
+    Owned(Cl),
+    Borrowed(&'a Cl),
+}
+
+impl<'a, Cl> Deref for PossiblyOwned<'a, Cl> {
+    type Target = Cl;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            PossiblyOwned::Owned(value) => value,
+            PossiblyOwned::Borrowed(value) => value,
+        }
+    }
+}
+
+pub(crate) enum ListState<'a, Cn, Cl> {
+    Pending(Option<ListBuilder<'a, Cn, Cl>>),
     Executing(BoxFuture<'a, Result<Vec<OwnedDocument>, Error>>),
 }
 
 /// Executes [`Connection::list()`] when awaited. Also offers methods to
 /// customize the options for the operation.
-pub struct List<'a, Cn, Cl, R> {
-    state: ListState<'a, Cn, Cl, R>,
+#[must_use]
+pub struct List<'a, Cn, Cl> {
+    state: ListState<'a, Cn, Cl>,
 }
 
-impl<'a, Cn, Cl, R> List<'a, Cn, Cl, R>
-where
-    R: Into<Range<u64>> + Send + 'a + Unpin,
-{
-    fn builder(&mut self) -> &mut ListBuilder<'a, Cn, Cl, R> {
+impl<'a, Cn, Cl> List<'a, Cn, Cl> {
+    pub(crate) const fn new(
+        collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
+        range: Range<u64>,
+    ) -> Self {
+        Self {
+            state: ListState::Pending(Some(ListBuilder {
+                collection,
+                range,
+                sort: Sort::Ascending,
+                limit: None,
+            })),
+        }
+    }
+
+    fn builder(&mut self) -> &mut ListBuilder<'a, Cn, Cl> {
         if let ListState::Pending(Some(builder)) = &mut self.state {
             builder
         } else {
@@ -344,13 +407,13 @@ where
         }
     }
 
-    /// Queries the view in ascending order.
+    /// Lists documents by id in ascending order.
     pub fn ascending(mut self) -> Self {
         self.builder().sort = Sort::Ascending;
         self
     }
 
-    /// Queries the view in descending order.
+    /// Lists documents by id in descending order.
     pub fn descending(mut self) -> Self {
         self.builder().sort = Sort::Descending;
         self
@@ -363,11 +426,10 @@ where
     }
 }
 
-impl<'a, Cn, Cl, R> Future for List<'a, Cn, Cl, R>
+impl<'a, Cn, Cl> Future for List<'a, Cn, Cl>
 where
     Cn: Connection,
-    Cl: schema::Collection,
-    R: Into<Range<u64>> + Send + 'a + Unpin,
+    Cl: schema::Collection + Unpin,
 {
     type Output = Result<Vec<OwnedDocument>, Error>;
 
@@ -388,7 +450,7 @@ where
                 let future = async move {
                     collection
                         .connection
-                        .list::<Cl, R>(range, sort, limit)
+                        .list::<Cl, _>(range, sort, limit)
                         .await
                 }
                 .boxed();
@@ -484,10 +546,21 @@ where
             .await
     }
 
-    /// Executes the query and retrieves the results with the associated `Document`s.
-    pub async fn query_with_docs(self) -> Result<Vec<MappedDocument<V::Key, V::Value>>, Error> {
+    /// Executes the query and retrieves the results with the associated [`Document`s](crate::document::OwnedDocument).
+    pub async fn query_with_docs(self) -> Result<Vec<MappedDocument<V>>, Error> {
         self.connection
             .query_with_docs::<V>(self.key, self.sort, self.limit, self.access_policy)
+            .await
+    }
+
+    /// Executes the query and retrieves the results with the associated [`CollectionDocument`s](crate::document::CollectionDocument).
+    pub async fn query_with_collection_docs(self) -> Result<Vec<MappedCollectionDocument<V>>, Error>
+    where
+        V::Collection: SerializedCollection,
+        <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
+    {
+        self.connection
+            .query_with_collection_docs::<V>(self.key, self.sort, self.limit, self.access_policy)
             .await
     }
 

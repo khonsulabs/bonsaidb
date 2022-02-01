@@ -6,11 +6,8 @@ use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     connection::Connection,
     define_basic_unique_mapped_view,
-    document::{Document, KeyId},
-    schema::{
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, Schematic,
-        SerializedCollection,
-    },
+    document::{CollectionDocument, Document, KeyId},
+    schema::{Collection, CollectionName, DefaultSerialization, Schematic, SerializedCollection},
     ENCRYPTION_ENABLED,
 };
 use serde::{Deserialize, Serialize};

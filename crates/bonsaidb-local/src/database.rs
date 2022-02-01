@@ -1219,12 +1219,13 @@ impl Connection for Database {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedDocument<V::Key, V::Value>>, bonsaidb_core::Error>
+    ) -> Result<Vec<MappedDocument<V>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
         let results = Connection::query::<V>(self, key, order, limit, access_policy).await?;
 
+        // TODO what was I thinking?
         let mut documents = self
             .get_multiple::<V::Collection>(&results.iter().map(|m| m.source.id).collect::<Vec<_>>())
             .await?
@@ -1236,11 +1237,7 @@ impl Connection for Database {
             .into_iter()
             .filter_map(|map| {
                 if let Some(document) = documents.remove(&map.source.id) {
-                    Some(MappedDocument {
-                        key: map.key,
-                        value: map.value,
-                        document,
-                    })
+                    Some(MappedDocument::new(document, map.key, map.value))
                 } else {
                     None
                 }

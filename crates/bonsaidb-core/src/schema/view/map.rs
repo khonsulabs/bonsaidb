@@ -1,9 +1,14 @@
+use std::{fmt::Debug, marker::PhantomData};
+
 use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::{Header, OwnedDocument},
-    schema::view::{self, Key, SerializedView, View},
+    document::{CollectionDocument, Header, OwnedDocument},
+    schema::{
+        view::{self, Key, SerializedView, View},
+        SerializedCollection,
+    },
 };
 
 /// A document's entry in a View's mappings.
@@ -144,21 +149,75 @@ impl<K: for<'a> Key<'a>, V> Iterator for MappingsIter<K, V> {
 
 /// A document's entry in a View's mappings.
 #[derive(Debug)]
-pub struct MappedDocument<K: for<'a> Key<'a> = (), V = ()> {
+pub struct MappedDocument<V: View> {
     /// The id of the document that emitted this entry.
     pub document: OwnedDocument,
 
     /// The key used to index the View.
-    pub key: K,
+    pub key: V::Key,
 
     /// An associated value stored in the view.
-    pub value: V,
+    pub value: V::Value,
+
+    _view: PhantomData<V>,
+}
+
+impl<V> MappedDocument<V>
+where
+    V: View,
+{
+    /// Returns a new instance.
+    pub fn new(document: OwnedDocument, key: V::Key, value: V::Value) -> Self {
+        Self {
+            document,
+            key,
+            value,
+            _view: PhantomData,
+        }
+    }
 }
 
 impl<K: for<'a> Key<'a>, V> Map<K, V> {
     /// Creates a new Map entry for the document with id `source`.
     pub fn new(source: Header, key: K, value: V) -> Self {
         Self { source, key, value }
+    }
+}
+
+/// A document's entry in a View's mappings.
+#[derive(Debug)]
+pub struct MappedCollectionDocument<V>
+where
+    V: View,
+    V::Collection: SerializedCollection,
+    <V::Collection as SerializedCollection>::Contents: Debug,
+{
+    /// The id of the document that emitted this entry.
+    pub document: CollectionDocument<V::Collection>,
+
+    /// The key used to index the View.
+    pub key: V::Key,
+
+    /// An associated value stored in the view.
+    pub value: V::Value,
+
+    _view: PhantomData<V>,
+}
+
+impl<V: View> TryFrom<MappedDocument<V>> for MappedCollectionDocument<V>
+where
+    V::Collection: SerializedCollection,
+    <V::Collection as SerializedCollection>::Contents: Debug,
+{
+    type Error = crate::Error;
+
+    fn try_from(map: MappedDocument<V>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            document: CollectionDocument::<V::Collection>::try_from(&map.document)?,
+            key: map.key,
+            value: map.value,
+            _view: PhantomData,
+        })
     }
 }
 
@@ -200,9 +259,7 @@ pub struct MappedSerialized {
 
 impl MappedSerialized {
     /// Deserialize into a [`MappedDocument`](MappedDocument).
-    pub fn deserialized<View: SerializedView>(
-        self,
-    ) -> Result<MappedDocument<View::Key, View::Value>, crate::Error> {
+    pub fn deserialized<View: SerializedView>(self) -> Result<MappedDocument<View>, crate::Error> {
         let key = Key::from_big_endian_bytes(&self.mapping.key).map_err(
             |err: <View::Key as Key<'_>>::Error| {
                 crate::Error::Database(view::Error::key_serialization(err).to_string())
@@ -214,6 +271,7 @@ impl MappedSerialized {
             document: self.source,
             key,
             value,
+            _view: PhantomData,
         })
     }
 }

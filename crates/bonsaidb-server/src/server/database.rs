@@ -139,7 +139,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<schema::MappedDocument<V::Key, V::Value>>, bonsaidb_core::Error>
+    ) -> Result<Vec<schema::MappedDocument<V>>, bonsaidb_core::Error>
     where
         Self: Sized,
     {

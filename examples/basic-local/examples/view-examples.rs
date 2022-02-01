@@ -1,11 +1,11 @@
 use bonsaidb::{
     core::{
         connection::Connection,
-        document::Document,
+        document::CollectionDocument,
         schema::{
-            view::CollectionViewSchema, Collection, CollectionDocument, CollectionName,
-            DefaultSerialization, DefaultViewSerialization, Name, ReduceResult, Schematic,
-            SerializedCollection, View, ViewMapResult, ViewMappedValue,
+            view::CollectionViewSchema, Collection, CollectionName, DefaultSerialization,
+            DefaultViewSerialization, Name, ReduceResult, Schematic, SerializedCollection, View,
+            ViewMapResult, ViewMappedValue,
         },
         Error,
     },
@@ -108,17 +108,16 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     // (source), the key of the entry, and the value of the entry:
     println!("Triangles: {:#?}", triangles);
 
-    // If you want the associated documents, use query_with_docs:
+    // If you want the associated documents, use query_with_collection_docs:
     for entry in db
         .view::<ShapesByNumberOfSides>()
         .with_key(3)
-        .query_with_docs()
+        .query_with_collection_docs()
         .await?
     {
-        let shape = entry.document.contents::<Shape>()?;
         println!(
             "Shape ID {} has {} sides",
-            entry.document.header.id, shape.sides
+            entry.document.header.id, entry.document.contents.sides
         );
     }
 

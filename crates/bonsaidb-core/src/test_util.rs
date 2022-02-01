@@ -16,7 +16,7 @@ use transmog_pot::Pot;
 use crate::admin::{PermissionGroup, Role, User};
 use crate::{
     connection::{AccessPolicy, Connection, StorageConnection},
-    document::{BorrowedDocument, Document, KeyId},
+    document::{BorrowedDocument, CollectionDocument, Document, KeyId},
     keyvalue::KeyValue,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
@@ -24,8 +24,8 @@ use crate::{
             map::{Mappings, ViewMappedValue},
             DefaultViewSerialization, ReduceResult, ViewSchema,
         },
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, MappedValue, Name,
-        NamedCollection, Schema, SchemaName, Schematic, SerializedCollection, View, ViewMapResult,
+        Collection, CollectionName, DefaultSerialization, MappedValue, Name, NamedCollection,
+        Schema, SchemaName, Schematic, SerializedCollection, View, ViewMapResult,
     },
     Error, ENCRYPTION_ENABLED,
 };
@@ -973,10 +973,10 @@ pub async fn get_multiple_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let doc2_value = Basic::new("second_value");
     let doc2 = collection.push(&doc2_value).await?;
 
-    let both_docs = db.get_multiple::<Basic>(&[doc1.id, doc2.id]).await?;
+    let both_docs = Basic::get_multiple(&[doc1.id, doc2.id], db).await?;
     assert_eq!(both_docs.len(), 2);
 
-    let out_of_order = db.get_multiple::<Basic>(&[doc2.id, doc1.id]).await?;
+    let out_of_order = Basic::get_multiple(&[doc2.id, doc1.id], db).await?;
     assert_eq!(out_of_order.len(), 2);
 
     // The order of get_multiple isn't guaranteed, so these two checks are done
@@ -985,14 +985,12 @@ pub async fn get_multiple_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         .iter()
         .find(|doc| doc.header.id == doc1.id)
         .expect("Couldn't find doc1");
-    let doc1 = doc1.contents::<Basic>()?;
-    assert_eq!(doc1.value, doc1_value.value);
+    assert_eq!(doc1.contents.value, doc1_value.value);
     let doc2 = both_docs
         .iter()
         .find(|doc| doc.header.id == doc2.id)
         .expect("Couldn't find doc2");
-    let doc2 = doc2.contents::<Basic>()?;
-    assert_eq!(doc2.value, doc2_value.value);
+    assert_eq!(doc2.contents.value, doc2_value.value);
 
     Ok(())
 }
@@ -1005,25 +1003,21 @@ pub async fn list_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let doc2_value = Basic::new("second_value");
     let doc2 = collection.push(&doc2_value).await?;
 
-    let both_docs = collection.list(doc1.id..=doc2.id).await?;
+    let both_docs = Basic::list(doc1.id..=doc2.id, db).await?;
     assert_eq!(both_docs.len(), 2);
 
-    let doc1_contents = both_docs[0].contents::<Basic>()?;
-    assert_eq!(doc1_contents.value, doc1_value.value);
-    let doc2_contents = both_docs[1].contents::<Basic>()?;
-    assert_eq!(doc2_contents.value, doc2_value.value);
+    assert_eq!(both_docs[0].contents.value, doc1_value.value);
+    assert_eq!(both_docs[1].contents.value, doc2_value.value);
 
-    let one_doc = collection.list(doc1.id..doc2.id).await?;
+    let one_doc = Basic::list(doc1.id..doc2.id, db).await?;
     assert_eq!(one_doc.len(), 1);
 
-    let limited = collection
-        .list(doc1.id..=doc2.id)
+    let limited = Basic::list(doc1.id..=doc2.id, db)
         .limit(1)
         .descending()
         .await?;
     assert_eq!(limited.len(), 1);
-    let limited = limited[0].contents::<Basic>()?;
-    assert_eq!(limited.value, doc2_contents.value);
+    assert_eq!(limited[0].contents.value, doc2_value.value);
 
     Ok(())
 }
@@ -1102,7 +1096,7 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let a_children = db
         .view::<BasicByParentId>()
         .with_key(Some(a.id))
-        .query_with_docs()
+        .query_with_collection_docs()
         .await?;
     assert_eq!(a_children.len(), 1);
     assert_eq!(a_children[0].document.header.id, a_child.id);

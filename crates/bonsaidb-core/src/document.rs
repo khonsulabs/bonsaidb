@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::schema::{view::map::Mappings, Key, Map, SerializedCollection};
 
+mod collection;
 mod revision;
+pub use collection::*;
 pub use revision::Revision;
 
 /// The header of a `Document`.
