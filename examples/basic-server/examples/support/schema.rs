@@ -1,8 +1,9 @@
 use bonsaidb::core::{
+    document::CollectionDocument,
     schema::{
-        view::CollectionViewSchema, Collection, CollectionDocument, CollectionName,
-        DefaultSerialization, DefaultViewSerialization, Name, ReduceResult, Schematic, View,
-        ViewMapResult, ViewMappedValue,
+        view::CollectionViewSchema, Collection, CollectionName, DefaultSerialization,
+        DefaultViewSerialization, Name, ReduceResult, Schematic, View, ViewMapResult,
+        ViewMappedValue,
     },
     Error,
 };

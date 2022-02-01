@@ -78,6 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   authenticated user, skipping BonsaiDb's authentication. This allows developers
   to still utilize the users and permissions within BonsaiDb while
   authenticating via some other mechanism.
+- `SerializedCollection::list()` and `SerializedCollection::get_multiple()` have
+  been added to make it easier to retrieve `CollectionDocument<T>`s.
 
 ### Changed
 
@@ -187,6 +189,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A new function, `query_with_collection_docs()` is provided that is
   functionally identical to `query_with_docs()`, except that the return type is
   `MappedCollectionDocument`.
+
+- Moved `CollectionDocument` from `bonsaidb_core::schema` to
+  `bonsaidb_core::document`.
 
 ### Fixed
 

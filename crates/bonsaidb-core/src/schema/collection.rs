@@ -1,15 +1,14 @@
-use std::{borrow::Cow, fmt::Debug, marker::PhantomData, ops::Deref};
+use std::{borrow::Cow, fmt::Debug, marker::PhantomData, task::Poll};
 
-use arc_bytes::serde::{Bytes, CowBytes};
 use async_trait::async_trait;
-use futures::{future::BoxFuture, Future, FutureExt};
+use futures::{future::BoxFuture, ready, Future, FutureExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use transmog::{Format, OwnedDeserializer};
 use transmog_pot::Pot;
 
 use crate::{
-    connection::Connection,
-    document::{BorrowedDocument, Header, KeyId, OwnedDocument},
+    connection::{self, Connection, Range},
+    document::{BorrowedDocument, CollectionDocument, KeyId, OwnedDocument, OwnedDocuments},
     schema::{CollectionName, Schematic},
     Error,
 };
@@ -66,6 +65,34 @@ pub trait SerializedCollection: Collection {
     {
         let possible_doc = connection.get::<Self>(id).await?;
         Ok(possible_doc.as_ref().map(TryInto::try_into).transpose()?)
+    }
+
+    /// Retrieves all documents matching `ids`. Documents that are not found
+    /// are not returned, but no error will be generated.
+    async fn get_multiple<C: Connection>(
+        ids: &[u64],
+        connection: &C,
+    ) -> Result<Vec<CollectionDocument<Self>>, Error>
+    where
+        Self: Sized,
+    {
+        connection
+            .collection::<Self>()
+            .get_multiple(ids)
+            .await
+            .and_then(|docs| docs.collection_documents())
+    }
+
+    /// Retrieves all documents matching `ids`. Documents that are not found
+    /// are not returned, but no error will be generated.
+    fn list<R: Into<Range<u64>>, C: Connection>(ids: R, connection: &'_ C) -> List<'_, C, Self>
+    where
+        Self: Sized,
+    {
+        List(connection::List::new(
+            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
+            ids.into(),
+        ))
     }
 
     /// Pushes this value into the collection, returning the created document.
@@ -215,139 +242,6 @@ pub trait NamedCollection: Collection + Unpin {
                 .next()
                 .map(|entry| entry.document)),
         }
-    }
-}
-
-/// A document with serializable contents.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CollectionDocument<C>
-where
-    C: SerializedCollection,
-{
-    /// The header of the document, which contains the id and `Revision`.
-    pub header: Header,
-
-    /// The document's contents.
-    pub contents: C::Contents,
-}
-
-impl<C> Deref for CollectionDocument<C>
-where
-    C: SerializedCollection,
-{
-    type Target = Header;
-
-    fn deref(&self) -> &Self::Target {
-        &self.header
-    }
-}
-
-impl<'a, C> TryFrom<&'a BorrowedDocument<'a>> for CollectionDocument<C>
-where
-    C: SerializedCollection,
-{
-    type Error = Error;
-
-    fn try_from(value: &'a BorrowedDocument<'a>) -> Result<Self, Self::Error> {
-        Ok(Self {
-            contents: C::deserialize(&value.contents)?,
-            header: value.header.clone(),
-        })
-    }
-}
-
-impl<'a, C> TryFrom<&'a OwnedDocument> for CollectionDocument<C>
-where
-    C: SerializedCollection,
-{
-    type Error = Error;
-
-    fn try_from(value: &'a OwnedDocument) -> Result<Self, Self::Error> {
-        Ok(Self {
-            contents: C::deserialize(&value.contents)?,
-            header: value.header.clone(),
-        })
-    }
-}
-
-impl<'a, 'b, C> TryFrom<&'b CollectionDocument<C>> for BorrowedDocument<'a>
-where
-    C: SerializedCollection,
-{
-    type Error = crate::Error;
-
-    fn try_from(value: &'b CollectionDocument<C>) -> Result<Self, Self::Error> {
-        Ok(Self {
-            contents: CowBytes::from(C::serialize(&value.contents)?),
-            header: value.header.clone(),
-        })
-    }
-}
-
-impl<C> CollectionDocument<C>
-where
-    C: SerializedCollection,
-{
-    /// Stores the new value of `contents` in the document.
-    pub async fn update<Cn: Connection>(&mut self, connection: &Cn) -> Result<(), Error> {
-        let mut doc = self.to_document()?;
-
-        connection.update::<C, _>(&mut doc).await?;
-
-        self.header = doc.header;
-
-        Ok(())
-    }
-
-    /// Modifies `self`, automatically retrying the modification if the document
-    /// has been updated on the server.
-    ///
-    /// ## Data loss warning
-    ///
-    /// If you've modified `self` before calling this function and a conflict
-    /// occurs, all changes to self will be lost when the current document is
-    /// fetched before retrying the process again. When you use this function,
-    /// you should limit the edits to the value to within the `modifier`
-    /// callback.
-    pub async fn modify<Cn: Connection, Modifier: FnMut(&mut Self) + Send + Sync>(
-        &mut self,
-        connection: &Cn,
-        mut modifier: Modifier,
-    ) -> Result<(), Error> {
-        let mut is_first_loop = true;
-        // TODO this should have a retry-limit.
-        loop {
-            // On the first attempt, we want to try sending the update to the
-            // database without fetching new contents. If we receive a conflict,
-            // on future iterations we will first re-load the data.
-            if is_first_loop {
-                is_first_loop = false;
-            } else {
-                *self = C::get(self.header.id, connection)
-                    .await?
-                    .ok_or_else(|| Error::DocumentNotFound(C::collection_name(), self.header.id))?;
-            }
-            modifier(&mut *self);
-            match self.update(connection).await {
-                Err(Error::DocumentConflict(..)) => {}
-                other => return other,
-            }
-        }
-    }
-
-    /// Removes the document from the collection.
-    pub async fn delete<Cn: Connection>(&self, connection: &Cn) -> Result<(), Error> {
-        connection.collection::<C>().delete(self).await?;
-
-        Ok(())
-    }
-
-    /// Converts this value to a serialized `Document`.
-    pub fn to_document(&self) -> Result<OwnedDocument, Error> {
-        Ok(OwnedDocument {
-            contents: Bytes::from(C::serialize(&self.contents)?),
-            header: self.header.clone(),
-        })
     }
 }
 
@@ -646,7 +540,7 @@ where
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
+    ) -> Poll<Self::Output> {
         if let Some(EntryBuilder {
             name,
             connection,
@@ -678,4 +572,45 @@ where
 {
     Pending(Option<EntryBuilder<'a, 'name, Connection, Col, EI, EU>>),
     Executing(BoxFuture<'a, Result<Option<CollectionDocument<Col>>, Error>>),
+}
+
+/// Executes [`Connection::list()`] when awaited. Also offers methods to
+/// customize the options for the operation.
+#[must_use]
+pub struct List<'a, Cn, Cl>(connection::List<'a, Cn, Cl>);
+
+impl<'a, Cn, Cl> List<'a, Cn, Cl> {
+    /// Lists documents by id in ascending order.
+    pub fn ascending(mut self) -> Self {
+        self.0 = self.0.ascending();
+        self
+    }
+
+    /// Lists documents by id in descending order.
+    pub fn descending(mut self) -> Self {
+        self.0 = self.0.descending();
+        self
+    }
+
+    /// Sets the maximum number of results to return.
+    pub fn limit(mut self, maximum_results: usize) -> Self {
+        self.0 = self.0.limit(maximum_results);
+        self
+    }
+}
+
+impl<'a, Cn, Cl> Future for List<'a, Cn, Cl>
+where
+    Cl: SerializedCollection + Unpin,
+    Cn: Connection,
+{
+    type Output = Result<Vec<CollectionDocument<Cl>>, Error>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Self::Output> {
+        let result = ready!(self.0.poll_unpin(cx));
+        Poll::Ready(result.and_then(|docs| docs.collection_documents()))
+    }
 }

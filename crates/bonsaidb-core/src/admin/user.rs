@@ -5,12 +5,9 @@ use crate::{
     admin::{group, role},
     connection::{Connection, SensitiveString},
     define_basic_unique_mapped_view,
-    document::{Document, KeyId},
+    document::{CollectionDocument, Document, KeyId},
     permissions::Permissions,
-    schema::{
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, NamedCollection,
-        Schematic,
-    },
+    schema::{Collection, CollectionName, DefaultSerialization, NamedCollection, Schematic},
     Error, ENCRYPTION_ENABLED,
 };
 

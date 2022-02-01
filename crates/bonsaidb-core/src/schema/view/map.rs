@@ -4,10 +4,10 @@ use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::{Header, OwnedDocument},
+    document::{CollectionDocument, Header, OwnedDocument},
     schema::{
         view::{self, Key, SerializedView, View},
-        CollectionDocument, SerializedCollection,
+        SerializedCollection,
     },
 };
 

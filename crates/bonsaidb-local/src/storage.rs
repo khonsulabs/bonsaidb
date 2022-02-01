@@ -24,7 +24,8 @@ use bonsaidb_core::{
 #[cfg(feature = "multiuser")]
 use bonsaidb_core::{
     admin::{user::User, PermissionGroup, Role},
-    schema::{CollectionDocument, NamedCollection, NamedReference},
+    document::CollectionDocument,
+    schema::{NamedCollection, NamedReference},
 };
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use futures::TryFutureExt;

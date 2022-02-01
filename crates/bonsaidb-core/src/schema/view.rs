@@ -5,10 +5,10 @@ use transmog::{Format, OwnedDeserializer};
 use transmog_pot::Pot;
 
 use crate::{
-    document::BorrowedDocument,
+    document::{BorrowedDocument, CollectionDocument},
     schema::{
         view::map::{Mappings, ViewMappedValue},
-        Collection, CollectionDocument, CollectionName, Name, SerializedCollection, ViewName,
+        Collection, CollectionName, Name, SerializedCollection, ViewName,
     },
     AnyError,
 };
@@ -349,7 +349,7 @@ macro_rules! define_mapped_view {
 
             fn map(
                 &self,
-                document: $crate::schema::CollectionDocument<$collection>,
+                document: $crate::document::CollectionDocument<$collection>,
             ) -> $crate::schema::ViewMapResult<Self::View> {
                 Ok($mapping(document))
             }

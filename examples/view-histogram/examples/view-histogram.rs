@@ -18,10 +18,10 @@ use std::ops::Deref;
 use bonsaidb::{
     core::{
         connection::Connection,
+        document::CollectionDocument,
         schema::{
-            view::CollectionViewSchema, Collection, CollectionDocument, CollectionName,
-            DefaultSerialization, Name, ReduceResult, Schematic, SerializedView, View,
-            ViewMappedValue,
+            view::CollectionViewSchema, Collection, CollectionName, DefaultSerialization, Name,
+            ReduceResult, Schematic, SerializedView, View, ViewMappedValue,
         },
         transmog::{Format, OwnedDeserializer},
     },

@@ -1,9 +1,9 @@
 use bonsaidb_core::{
     define_basic_mapped_view, define_basic_unique_mapped_view,
-    document::KeyId,
+    document::{CollectionDocument, KeyId},
     schema::{
-        Collection, CollectionDocument, CollectionName, DefaultSerialization, NamedCollection,
-        Schema, SchemaName, Schematic,
+        Collection, CollectionName, DefaultSerialization, NamedCollection, Schema, SchemaName,
+        Schematic,
     },
     ENCRYPTION_ENABLED,
 };

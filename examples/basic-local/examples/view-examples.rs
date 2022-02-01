@@ -1,10 +1,11 @@
 use bonsaidb::{
     core::{
         connection::Connection,
+        document::CollectionDocument,
         schema::{
-            view::CollectionViewSchema, Collection, CollectionDocument, CollectionName,
-            DefaultSerialization, DefaultViewSerialization, Name, ReduceResult, Schematic,
-            SerializedCollection, View, ViewMapResult, ViewMappedValue,
+            view::CollectionViewSchema, Collection, CollectionName, DefaultSerialization,
+            DefaultViewSerialization, Name, ReduceResult, Schematic, SerializedCollection, View,
+            ViewMapResult, ViewMappedValue,
         },
         Error,
     },
