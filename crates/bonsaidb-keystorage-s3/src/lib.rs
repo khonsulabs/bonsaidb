@@ -19,11 +19,11 @@
 //! #
 //! let directory = TestDirectory::new("bonsaidb-keystorage-s3-basic");
 //! let configuration = StorageConfiguration::new(&directory)
-//!     .vault_key_storage(S3VaultKeyStorage::new("bucket_name").endpoint(
-//!         Endpoint::immutable(
+//!     .vault_key_storage(
+//!         S3VaultKeyStorage::new("bucket_name").endpoint(Endpoint::immutable(
 //!             Uri::try_from("https://s3.us-west-001.backblazeb2.com").unwrap(),
-//!         ),
-//!     ))
+//!         )),
+//!     )
 //!     .default_encryption_key(KeyId::Master);
 //! ```
 //!
@@ -39,7 +39,6 @@
     future_incompatible,
     rust_2018_idioms,
 )]
-#![cfg_attr(doc, deny(rustdoc::all))]
 #![allow(
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::missing_panics_doc, // TODO clippy::missing_panics_doc
