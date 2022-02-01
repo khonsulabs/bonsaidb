@@ -48,7 +48,6 @@ use crate::{
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default)]
 /// pub struct MyCollection {
-///     pub name: String,
 ///     pub rank: u32,
 ///     pub score: f32,
 /// }
@@ -285,7 +284,7 @@ use crate::{
 ///
 /// ## Querying Views
 ///
-/// In these examples, two views have been defined:
+/// The examples use this view definition:
 ///
 /// ```rust
 /// # mod collection {
@@ -339,18 +338,6 @@ use crate::{
 /// }
 ///
 /// impl DefaultViewSerialization for ScoresByRank {}
-///
-/// define_basic_unique_mapped_view!(
-///     MyCollectionByName,
-///     MyCollection,
-///     1,
-///     "by-name",
-///     String,
-///     (),
-///     |document: CollectionDocument<MyCollection>| {
-///         document.header.emit_key(document.contents.name.clone())
-///     },
-/// );
 /// ```
 ///
 /// ### Retrieving all view entries
