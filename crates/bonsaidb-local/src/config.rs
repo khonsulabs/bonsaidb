@@ -161,9 +161,9 @@ pub struct Views {
 /// # use std::time::Duration;
 /// #
 /// let persistence = KeyValuePersistence::lazy([
-///   PersistenceThreshold::after_changes(1).and_duration(Duration::from_secs(120)),
-///   PersistenceThreshold::after_changes(10).and_duration(Duration::from_secs(10)),
-///   PersistenceThreshold::after_changes(100),
+///     PersistenceThreshold::after_changes(1).and_duration(Duration::from_secs(120)),
+///     PersistenceThreshold::after_changes(10).and_duration(Duration::from_secs(10)),
+///     PersistenceThreshold::after_changes(100),
 /// ]);
 ///
 /// // After 1 change and 60 seconds, no changes would be committed:
