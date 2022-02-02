@@ -1,7 +1,7 @@
 use bonsaidb::core::schema::View;
 
 #[derive(View)]
-#[view(name = "hi", authority = "hello", "hi")]
+#[view(collection = ())]
 struct Test;
 
 fn main() {}

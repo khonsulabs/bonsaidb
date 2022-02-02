@@ -12,17 +12,13 @@
 )]
 #![cfg_attr(doc, deny(rustdoc::all))]
 
-use proc_macro2::{Spacing, TokenStream};
+use attribute_derive::Attribute;
+use proc_macro2::TokenStream;
 use proc_macro_error::{abort, abort_call_site, proc_macro_error, ResultExt};
 use quote::quote;
 use syn::{
-    parse::{Parse, ParseStream},
-    parse_macro_input,
-    punctuated::Punctuated,
-    spanned::Spanned,
-    token::Paren,
-    DeriveInput, Error, Ident, Lit, LitStr, Meta, MetaList, MetaNameValue, NestedMeta, Path,
-    Result, Type, TypeTuple,
+    parse_macro_input, punctuated::Punctuated, spanned::Spanned, token::Paren, DeriveInput, Lit,
+    LitStr, Meta, MetaList, MetaNameValue, NestedMeta, Path, Type, TypeTuple,
 };
 
 /// Derives the `bonsaidb::core::schema::Collection` trait.
@@ -36,7 +32,6 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         generics,
         ..
     } = parse_macro_input!(input as DeriveInput);
-
 
     let mut name: Option<String> = None;
     let mut authority: Option<String> = None;
@@ -153,104 +148,15 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     .into()
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Attribute)]
+#[attribute(view)]
 struct ViewAttribute {
-    collection: Option<Type>,
-    key: Option<Type>,
+    collection: Type,
+    key: Type,
+    #[attribute(default)]
     name: Option<LitStr>,
+    #[attribute(default)]
     value: Option<Type>,
-}
-
-impl ViewAttribute {
-    pub fn extend_with(&mut self, other: Self) -> Result<()> {
-        match (&self.collection, other.collection) {
-            (None, value @ Some(_)) => self.collection = value,
-            (Some(first), Some(second)) => {
-                let mut error =
-                    Error::new_spanned(first, "`collection` type is specified multiple times");
-                error.combine(Error::new_spanned(
-                    second,
-                    "`collection` type was already specified",
-                ));
-                return Err(error);
-            }
-            _ => (),
-        }
-        match (&self.key, other.key) {
-            (None, value @ Some(_)) => self.key = value,
-            (Some(first), Some(second)) => {
-                let mut error = Error::new_spanned(first, "`key` type is specified multiple times");
-                error.combine(Error::new_spanned(
-                    second,
-                    "`key` type was already specified",
-                ));
-                return Err(error);
-            }
-            _ => (),
-        }
-        match (&self.name, other.name) {
-            (None, value @ Some(_)) => self.name = value,
-            (Some(first), Some(second)) => {
-                let mut error =
-                    Error::new_spanned(first, "`name` type is specified multiple times");
-                error.combine(Error::new_spanned(
-                    second,
-                    "`name` type was already specified",
-                ));
-                return Err(error);
-            }
-            _ => (),
-        }
-        Ok(())
-    }
-}
-
-impl Parse for ViewAttribute {
-    fn parse(input: ParseStream<'_>) -> Result<Self> {
-        let mut view_attribute = Self::default();
-        loop {
-            let variable = Ident::parse(input)?;
-
-            // Parse `=`
-            input.step(|cursor| match cursor.punct() {
-                Some((punct, rest))
-                    if punct.as_char() == '=' && punct.spacing() == Spacing::Alone =>
-                {
-                    Ok(((), rest))
-                }
-                _ => Err(cursor.error("Expected assignment `=`")),
-            })?;
-
-            match variable.to_string().as_str() {
-                "collection" => {
-                    view_attribute.collection = Some(input.parse()?);
-                }
-                "key" => {
-                    view_attribute.key = Some(input.parse()?);
-                }
-                "name" => {
-                    view_attribute.name = Some(input.parse()?);
-                }
-                _ => {
-                    return Err(Error::new(
-                        variable.span(),
-                        "Expected either `collection`, `key` or `name`",
-                    ))
-                }
-            }
-
-            if input.is_empty() {
-                break;
-            }
-
-            // Parse `,`
-            input.step(|cursor| match cursor.punct() {
-                Some((punct, rest)) if punct.as_char() == ',' => Ok(((), rest)),
-                _ => Err(cursor.error("Expected assignment `=`")),
-            })?;
-        }
-        Ok(view_attribute)
-    }
 }
 
 /// Derives the `bonsaidb::core::schema::View` trait.
@@ -265,32 +171,20 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         ..
     } = parse_macro_input!(input as DeriveInput);
 
-    let mut attributes = ViewAttribute::default();
+    let ViewAttribute {
+        collection,
+        key,
+        name,
+        value,
+    } = ViewAttribute::from_attributes(attrs).unwrap_or_abort();
 
-    for attibute in attrs {
-        if attibute.path.is_ident("view") {
-            attributes
-                .extend_with(attibute.parse_args().unwrap_or_abort())
-                .unwrap_or_abort();
-        }
-    }
-
-    let collection = attributes.collection.unwrap_or_else(|| {
-        abort_call_site!(
-            r#"You need to specify the collection type via `#[view(collection = CollectionType)]`"#
-        )
-    });
-    let key = attributes.key.unwrap_or_else(|| {
-        abort_call_site!(r#"You need to specify the key type via `#[view(key = KeyType)]`"#)
-    });
-    let value = attributes.value.unwrap_or_else(|| {
+    let value = value.unwrap_or_else(|| {
         Type::Tuple(TypeTuple {
             paren_token: Paren::default(),
             elems: Punctuated::new(),
         })
     });
-    let name = attributes
-        .name
+    let name = name
         .as_ref()
         .map_or_else(|| ident.to_string(), LitStr::value);
 

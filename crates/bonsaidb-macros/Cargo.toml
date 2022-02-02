@@ -21,6 +21,10 @@ quote = "1"
 syn = "1"
 trybuild = "1.0.54"
 
+# TODO change this to version after release of attribute-derive
+[dependencies.attribute-derive]
+git = "https://github.com/ModProg/attribute-derive"
+
 [dev-dependencies]
 compiletest_rs = "0.7"
 transmog-bincode = "0.1.0-dev.2"
