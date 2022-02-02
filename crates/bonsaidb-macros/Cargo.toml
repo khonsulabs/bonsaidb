@@ -16,6 +16,7 @@ proc-macro = true
 
 [dependencies]
 proc-macro-error = "1"
+proc-macro2 = "1.0.36"
 quote = "1"
 syn = "1"
 trybuild = "1.0.54"

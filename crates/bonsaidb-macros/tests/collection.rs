@@ -1,7 +1,5 @@
 use core::fmt::Debug;
 
-use bonsaidb::core::schema::SerializedCollection;
-
 #[test]
 fn name_only() {
     use bonsaidb::core::schema::Collection;
@@ -57,6 +55,7 @@ fn views() {
 #[test]
 fn serialization() {
     use bonsaidb::core::schema::Collection;
+    use bonsaidb::core::schema::SerializedCollection;
     use serde::{Deserialize, Serialize};
 
     #[derive(Collection, Debug, Deserialize, Serialize)]

@@ -1,5 +1,5 @@
 error: You need to specify the collection name via `#[collection(authority="authority")]`
- --> tests/collection/ui/missing_authority.rs:3:10
+ --> tests/ui/collection/missing_authority.rs:3:10
   |
 3 | #[derive(Collection)]
   |          ^^^^^^^^^^
