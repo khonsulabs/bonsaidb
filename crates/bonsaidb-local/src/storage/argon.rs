@@ -196,7 +196,7 @@ impl HashingThread {
             .transpose()?
             .unwrap_or(Version::V0x13);
 
-        let argon = Argon2::new(algorithm, version, argon2::Params::default());
+        let argon = Argon2::new(algorithm, version, argon2::Params::try_from(&hash)?);
 
         hash.verify_password(&[&argon], request.password.0.as_bytes())
             .map(|_| HashResponse::Verified)
@@ -233,7 +233,7 @@ impl HashingThread {
             .unwrap_or(argon2::Params::DEFAULT_OUTPUT_LEN);
         let output = argon2::password_hash::Output::init_with(output_len, |out| {
             Ok(argon.hash_password_into_with_memory(
-                b"hunter2",
+                request.password.as_bytes(),
                 salt_bytes,
                 out,
                 &mut self.blocks,
