@@ -143,6 +143,6 @@ By implementing `Key` you can take full control of converting your view keys.
 [viewschema-version]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.ViewSchema.html#method.version
 [serialized-collection]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedCollection.html
 [borrowed-document]: {{DOCS_BASE_URL}}/bonsaidb/core/document/trait.Document.html
-[collection-document]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/struct.CollectionDocument.html
+[collection-document]: {{DOCS_BASE_URL}}/bonsaidb/core/document/struct.CollectionDocument.html
 [collection-view-schema]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.CollectionViewSchema.html
 [collection-view-schema-map]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.CollectionViewSchema.html#tymethod.map

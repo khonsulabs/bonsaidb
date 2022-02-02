@@ -18,7 +18,7 @@ follow-web-links = true
 use_env = true
 
 [preprocessor.variables.variables]
-DOCS_BASE_URL = "https://dev.bonsaidb.io/main"
+DOCS_BASE_URL = "https://dev.bonsaidb.io/main/docs"
 
 [output.linkcheck.http-headers]
 # Any hyperlink that contains this regexp will be sent
