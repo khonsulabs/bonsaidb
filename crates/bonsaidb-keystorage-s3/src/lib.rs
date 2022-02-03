@@ -53,7 +53,7 @@ use aws_config::meta::region::RegionProviderChain;
 pub use aws_sdk_s3;
 use aws_sdk_s3::{error::GetObjectErrorKind, Client, Endpoint, Region};
 use bonsaidb_local::{
-    vault::{PrivateKey, VaultKeyStorage},
+    vault::{KeyPair, VaultKeyStorage},
     StorageId,
 };
 pub use http;
@@ -131,7 +131,7 @@ impl VaultKeyStorage for S3VaultKeyStorage {
     async fn set_vault_key_for(
         &self,
         storage_id: StorageId,
-        key: PrivateKey,
+        key: KeyPair,
     ) -> Result<(), Self::Error> {
         let client = self.client().await;
         let key = key.to_bytes()?;
@@ -145,10 +145,7 @@ impl VaultKeyStorage for S3VaultKeyStorage {
         Ok(())
     }
 
-    async fn vault_key_for(
-        &self,
-        storage_id: StorageId,
-    ) -> Result<Option<PrivateKey>, Self::Error> {
+    async fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<KeyPair>, Self::Error> {
         let client = self.client().await;
         match client
             .get_object()
@@ -159,8 +156,8 @@ impl VaultKeyStorage for S3VaultKeyStorage {
         {
             Ok(response) => {
                 let bytes = response.body.collect().await?.into_bytes();
-                let key = PrivateKey::from_bytes(&bytes)
-                    .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+                let key =
+                    KeyPair::from_bytes(&bytes).map_err(|err| anyhow::anyhow!(err.to_string()))?;
                 Ok(Some(key))
             }
             Err(aws_sdk_s3::SdkError::ServiceError {

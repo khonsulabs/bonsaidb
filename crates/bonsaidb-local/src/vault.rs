@@ -39,7 +39,7 @@
 //! `BonsaiDb` uses the [`hpke`](https://github.com/rozbb/rust-hpke) crate to
 //! provide Hybrid Public Key Encryption (HPKE) when public key encryption is
 //! being used. This is currently only utilized for encrypting the master keys
-//! with the vault key. Our HPKE uses `X25519+HKDF-SHA256+ChaCha20Poly1305`.
+//! with the vault key. Our HPKE uses `P256+HKDF-SHA256+ChaCha20Poly1305`.
 //! Long term, we plan to offer public key encryption APIs on top of these same
 //! choices.
 //!
@@ -74,9 +74,8 @@ use hpke::{
     self,
     aead::{AeadTag, ChaCha20Poly1305},
     kdf::HkdfSha256,
-    kem::X25519HkdfSha256,
-    kex::{KeyExchange, X25519},
-    Deserializable, EncappedKey, Kem, OpModeS, Serializable,
+    kem::DhP256HkdfSha256,
+    Deserializable, Kem, OpModeS, Serializable,
 };
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -84,17 +83,21 @@ use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncWriteExt},
 };
-use x25519_dalek::StaticSecret;
 use zeroize::{Zeroize, Zeroizing};
 
 /// A private encryption key.
 #[derive(Serialize, Deserialize)]
-pub enum PrivateKey {
-    /// An X25519 private key.
-    X25519(<X25519 as KeyExchange>::PrivateKey),
+pub enum KeyPair {
+    /// A P256 keypair.
+    P256 {
+        /// The private key.
+        private: <DhP256HkdfSha256 as Kem>::PrivateKey,
+        /// The public key.
+        public: <DhP256HkdfSha256 as Kem>::PublicKey,
+    },
 }
 
-impl PrivateKey {
+impl KeyPair {
     /// Serializes the private key into bytes.
     pub fn to_bytes(&self) -> Result<Zeroizing<Vec<u8>>, Error> {
         Ok(Zeroizing::new(bincode::serialize(self)?))
@@ -106,11 +109,11 @@ impl PrivateKey {
     }
 }
 
-/// A public key corresponding to a [`PrivateKey`].
+/// A public key corresponding to a [`KeyPair`].
 #[derive(Serialize, Deserialize)]
 pub enum PublicKey {
-    /// An X25519 public key.
-    X25519(<X25519 as KeyExchange>::PublicKey),
+    /// A P256 public key.
+    P256(<DhP256HkdfSha256 as Kem>::PublicKey),
 }
 
 impl PublicKey {
@@ -125,22 +128,10 @@ impl PublicKey {
     }
 }
 
-impl<'a> From<&'a PrivateKey> for PublicKey {
-    fn from(key: &'a PrivateKey) -> Self {
+impl<'a> From<&'a KeyPair> for PublicKey {
+    fn from(key: &'a KeyPair) -> Self {
         match key {
-            PrivateKey::X25519(key) => {
-                // TODO this should be something hpke exposes.
-                let mut vault_key_bytes = key.to_bytes();
-                let mut vault_key_array = [0_u8; 32];
-                vault_key_array.copy_from_slice(&vault_key_bytes);
-                let vault_key = StaticSecret::from(vault_key_array);
-                vault_key_bytes.zeroize();
-                vault_key_array.zeroize();
-                let public_key = x25519_dalek::PublicKey::from(&vault_key);
-                let public_key =
-                    <X25519 as KeyExchange>::PublicKey::from_bytes(public_key.as_bytes()).unwrap();
-                PublicKey::X25519(public_key)
-            }
+            KeyPair::P256 { public, .. } => PublicKey::P256(public.clone()),
         }
     }
 }
@@ -221,11 +212,16 @@ impl Vault {
         master_key_storage: Box<dyn AnyVaultKeyStorage>,
     ) -> Result<Self, Error> {
         let master_key = EncryptionKey::random();
-        let (vault_private_key, vault_public_key) =
-            X25519HkdfSha256::gen_keypair(&mut thread_rng());
+        let (private, public) = DhP256HkdfSha256::gen_keypair(&mut thread_rng());
 
         master_key_storage
-            .set_vault_key_for(server_id, PrivateKey::X25519(vault_private_key))
+            .set_vault_key_for(
+                server_id,
+                KeyPair::P256 {
+                    private: private.clone(),
+                    public: public.clone(),
+                },
+            )
             .await
             .map_err(|err| Error::VaultKeyStorage(err.to_string()))?;
         let mut master_keys = HashMap::new();
@@ -236,30 +232,31 @@ impl Vault {
             .vault_key_for(server_id)
             .await
             .map_err(|err| Error::VaultKeyStorage(err.to_string()))?;
-        let expected_public_key_bytes = PublicKey::X25519(vault_public_key.clone())
-            .to_bytes()
-            .unwrap();
+        let expected_public_key_bytes = PublicKey::P256(public.clone()).to_bytes().unwrap();
         let retrieved_key_matches = retrieved
             .map(|r| PublicKey::from(&r).to_bytes().ok() == Some(expected_public_key_bytes))
             .unwrap_or_default();
         if retrieved_key_matches {
             let mut serialized_master_keys = bincode::serialize(&master_keys)?;
 
-            let (encapsulated_key, aead_tag) =
-                hpke::single_shot_seal::<ChaCha20Poly1305, HkdfSha256, X25519HkdfSha256, _>(
-                    &OpModeS::Base,
-                    &vault_public_key,
-                    b"",
-                    &mut serialized_master_keys,
-                    b"",
-                    &mut thread_rng(),
-                )?;
-
+            let (encapsulated_key, aead_tag) = hpke::single_shot_seal_in_place_detached::<
+                ChaCha20Poly1305,
+                HkdfSha256,
+                DhP256HkdfSha256,
+                _,
+            >(
+                &OpModeS::Base,
+                &public,
+                b"",
+                &mut serialized_master_keys,
+                b"",
+                &mut thread_rng(),
+            )?;
             let mut tag = [0_u8; 16];
             tag.copy_from_slice(&aead_tag.to_bytes());
 
             let encrypted_master_keys_payload = bincode::serialize(&HpkePayload {
-                encryption: PublicKeyEncryption::X25519HkdfSha256ChaCha20,
+                encryption: PublicKeyEncryption::DhP256HkdfSha256ChaCha20,
                 payload: Bytes::from(serialized_master_keys),
                 encapsulated_key,
                 tag,
@@ -274,7 +271,7 @@ impl Vault {
                 .map_err(|err| Error::Initializing(format!("error saving vault key: {:?}", err)))?;
 
             Ok(Self {
-                _vault_public_key: PublicKey::X25519(vault_public_key),
+                _vault_public_key: PublicKey::P256(public),
                 master_keys,
                 current_master_key_id: 0,
                 master_key_storage,
@@ -292,36 +289,36 @@ impl Vault {
         master_key_storage: Box<dyn AnyVaultKeyStorage>,
     ) -> Result<Self, Error> {
         // The vault has been initilized previously. Do not overwrite this file voluntarily.
-        let encrypted_master_keys = File::open(master_keys_path)
-            .and_then(|mut f| async move {
-                let mut bytes = Vec::new();
-                f.read_to_end(&mut bytes).await.map(|_| bytes)
-            })
+        let encrypted_master_keys = tokio::fs::read(master_keys_path)
             .await
             .map_err(|err| Error::Initializing(format!("error reading master keys: {:?}", err)))?;
         let mut encrypted_master_keys =
             bincode::deserialize::<HpkePayload>(&encrypted_master_keys)?;
-        let PublicKeyEncryption::X25519HkdfSha256ChaCha20 = &encrypted_master_keys.encryption;
+        let PublicKeyEncryption::DhP256HkdfSha256ChaCha20 = &encrypted_master_keys.encryption;
         if let Some(vault_key) = master_key_storage
             .vault_key_for(server_id)
             .await
             .map_err(|err| Error::VaultKeyStorage(err.to_string()))?
         {
             let master_keys = match &vault_key {
-                PrivateKey::X25519(vault_key) => {
+                KeyPair::P256 { private, .. } => {
                     let mut decryption_context =
-                        hpke::setup_receiver::<ChaCha20Poly1305, HkdfSha256, X25519HkdfSha256>(
+                        hpke::setup_receiver::<ChaCha20Poly1305, HkdfSha256, DhP256HkdfSha256>(
                             &hpke::OpModeR::Base,
-                            vault_key,
+                            private,
                             &encrypted_master_keys.encapsulated_key,
                             b"",
-                        )?;
+                        )
+                        .unwrap();
 
-                    decryption_context.open(
-                        &mut encrypted_master_keys.payload.0,
-                        b"",
-                        &AeadTag::<ChaCha20Poly1305>::from_bytes(&encrypted_master_keys.tag)?,
-                    )?;
+                    decryption_context
+                        .open_in_place_detached(
+                            &mut encrypted_master_keys.payload.0,
+                            b"",
+                            &AeadTag::<ChaCha20Poly1305>::from_bytes(&encrypted_master_keys.tag)
+                                .unwrap(),
+                        )
+                        .unwrap();
 
                     bincode::deserialize::<HashMap<u32, EncryptionKey>>(
                         &encrypted_master_keys.payload,
@@ -414,12 +411,11 @@ pub trait VaultKeyStorage: Send + Sync + Debug + 'static {
     async fn set_vault_key_for(
         &self,
         storage_id: StorageId,
-        key: PrivateKey,
+        key: KeyPair,
     ) -> Result<(), Self::Error>;
 
     /// Retrieve all previously stored vault key for a given storage id.
-    async fn vault_key_for(&self, storage_id: StorageId)
-        -> Result<Option<PrivateKey>, Self::Error>;
+    async fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<KeyPair>, Self::Error>;
 }
 
 #[derive(Serialize, Deserialize)]
@@ -520,12 +516,12 @@ impl Debug for EncryptionKey {
 #[async_trait]
 pub trait AnyVaultKeyStorage: Send + Sync + Debug + 'static {
     /// Retrieve all previously stored master keys for a given storage id.
-    async fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<PrivateKey>, Error>;
+    async fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<KeyPair>, Error>;
 
     /// Store a key. Each server id should have unique storage. The keys are
     /// uniquely encrypted per storage id and can only be decrypted by keys
     /// contained in the storage itself.
-    async fn set_vault_key_for(&self, storage_id: StorageId, key: PrivateKey) -> Result<(), Error>;
+    async fn set_vault_key_for(&self, storage_id: StorageId, key: KeyPair) -> Result<(), Error>;
 }
 
 #[async_trait]
@@ -533,13 +529,13 @@ impl<T> AnyVaultKeyStorage for T
 where
     T: VaultKeyStorage + 'static,
 {
-    async fn vault_key_for(&self, server_id: StorageId) -> Result<Option<PrivateKey>, Error> {
+    async fn vault_key_for(&self, server_id: StorageId) -> Result<Option<KeyPair>, Error> {
         VaultKeyStorage::vault_key_for(self, server_id)
             .await
             .map_err(|err| Error::VaultKeyStorage(err.to_string()))
     }
 
-    async fn set_vault_key_for(&self, server_id: StorageId, key: PrivateKey) -> Result<(), Error> {
+    async fn set_vault_key_for(&self, server_id: StorageId, key: KeyPair) -> Result<(), Error> {
         VaultKeyStorage::set_vault_key_for(self, server_id, key)
             .await
             .map_err(|err| Error::VaultKeyStorage(err.to_string()))
@@ -597,7 +593,7 @@ pub enum LocalVaultKeyStorageError {
 impl VaultKeyStorage for LocalVaultKeyStorage {
     type Error = LocalVaultKeyStorageError;
 
-    async fn vault_key_for(&self, server_id: StorageId) -> Result<Option<PrivateKey>, Self::Error> {
+    async fn vault_key_for(&self, server_id: StorageId) -> Result<Option<KeyPair>, Self::Error> {
         let server_file = self.directory.join(server_id.to_string());
         if !server_file.exists() {
             return Ok(None);
@@ -609,7 +605,7 @@ impl VaultKeyStorage for LocalVaultKeyStorage {
             })
             .await?;
 
-        let key = bincode::deserialize::<PrivateKey>(&contents)?;
+        let key = bincode::deserialize::<KeyPair>(&contents)?;
         contents.zeroize();
 
         Ok(Some(key))
@@ -618,7 +614,7 @@ impl VaultKeyStorage for LocalVaultKeyStorage {
     async fn set_vault_key_for(
         &self,
         server_id: StorageId,
-        key: PrivateKey,
+        key: KeyPair,
     ) -> Result<(), Self::Error> {
         let server_file = self.directory.join(server_id.to_string());
         let bytes = bincode::serialize(&key)?;
@@ -659,7 +655,7 @@ struct HpkePayload {
     encryption: PublicKeyEncryption,
     payload: Bytes,
     tag: [u8; 16],
-    encapsulated_key: EncappedKey<X25519>,
+    encapsulated_key: <DhP256HkdfSha256 as Kem>::EncappedKey,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -669,7 +665,7 @@ enum Encryption {
 
 #[derive(Serialize, Deserialize)]
 enum PublicKeyEncryption {
-    X25519HkdfSha256ChaCha20,
+    DhP256HkdfSha256ChaCha20,
 }
 
 #[cfg(test)]
@@ -685,7 +681,7 @@ mod tests {
         async fn set_vault_key_for(
             &self,
             _storage_id: StorageId,
-            _key: PrivateKey,
+            _key: KeyPair,
         ) -> Result<(), Self::Error> {
             unreachable!()
         }
@@ -693,7 +689,7 @@ mod tests {
         async fn vault_key_for(
             &self,
             _storage_id: StorageId,
-        ) -> Result<Option<PrivateKey>, Self::Error> {
+        ) -> Result<Option<KeyPair>, Self::Error> {
             unreachable!()
         }
     }
@@ -702,11 +698,10 @@ mod tests {
         let mut master_keys = HashMap::new();
         master_keys.insert(0, EncryptionKey::random());
 
+        let (_, public_key) = <DhP256HkdfSha256 as Kem>::gen_keypair(&mut thread_rng());
+
         Vault {
-            _vault_public_key: PublicKey::X25519(
-                <X25519 as KeyExchange>::PublicKey::from_bytes(&thread_rng().gen::<[u8; 32]>())
-                    .unwrap(),
-            ),
+            _vault_public_key: PublicKey::P256(public_key),
             master_keys,
             current_master_key_id: 0,
             master_key_storage: Box::new(NullKeyStorage),

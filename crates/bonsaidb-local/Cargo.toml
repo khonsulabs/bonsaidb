@@ -21,8 +21,6 @@ internal-apis = []
 instrument = ["pot/tracing", "nebari/tracing", "tracing"]
 encryption = [
     "bonsaidb-core/encryption",
-    "x25519-dalek",
-    "x25519-rand",
     "hpke",
     "zeroize",
     "region",
@@ -59,12 +57,11 @@ chacha20poly1305 = { version = "0.9", optional = true }
 zeroize = { version = "1", optional = true }
 region = { version = "3", optional = true }
 blake3 = { version = "1", optional = true }
-x25519-dalek = { version = "1", optional = true }
-x25519-rand = { package = "rand", version = "0.7", optional = true }
-hpke = { version = "0.7", default-features = false, features = [
-    "x25519",
+hpke = { version = "0.8", default-features = false, features = [
+    "p256",
     "serde_impls",
 ], optional = true }
+p256 = "0.9.0"
 tracing = { version = "0.1", optional = true, default-features = false, features = [
     "attributes",
 ] }

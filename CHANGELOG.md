@@ -193,6 +193,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved `CollectionDocument` from `bonsaidb_core::schema` to
   `bonsaidb_core::document`.
 
+- Due to issues with unmaintained crates, X25519 has been swapped for P256 in
+  the vault implementation. This is an intra-alpha breaking change. Use the
+  backup functionality with the existing version of BonsaiDb to export a
+  decrypted version of your data that you can restore into the new version of
+  BonsaiDb.
+
+  If you have encryption enabled but aren't actually storing any encrypted data yet, you can remove these files from inside your database:
+
+  - `mydb.bonsaidb/master-keys`
+  - `mydb.bonsaidb/vault-keys/` (or remove the keys from your S3 bucket)
+
 ### Fixed
 
 - Adding two collections with the same name now throw an error.
