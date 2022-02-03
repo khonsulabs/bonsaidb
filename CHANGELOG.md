@@ -184,11 +184,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The benefit of this breaking change is that the view mapping process now can
   happen with fewer copies of data.
-- `MappedDocument` now takes a single generic parameter, the view. A new type, `MappedCollectionDocument` has been added that implemented `TryFrom<MappedDocument>` which converts the `OwnedDocument` into a `CollectionDocument<T>`.
-
-  A new function, `query_with_collection_docs()` is provided that is
-  functionally identical to `query_with_docs()`, except that the return type is
-  `MappedCollectionDocument`.
+- A new function, `query_with_collection_docs()` is provided that is
+  functionally identical to `query_with_docs()` except the return type contains
+  already deserialized `CollectionDocument<T>`s.
 
 - Moved `CollectionDocument` from `bonsaidb_core::schema` to
   `bonsaidb_core::document`.
@@ -203,6 +201,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   - `mydb.bonsaidb/master-keys`
   - `mydb.bonsaidb/vault-keys/` (or remove the keys from your S3 bucket)
+- `query_with_docs()` and `query_with_collection_docs()` now return a
+  `MappedDocuments` structure, which contains a list of mappings and a
+  `BTreeMap` containing the associated documents. Documents are allowed to emit
+  more than one mapping, and due to that design, a single document can be
+  returned multiple times.
 
 ### Fixed
 

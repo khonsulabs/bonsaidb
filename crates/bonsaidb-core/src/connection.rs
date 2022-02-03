@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
@@ -13,12 +14,12 @@ use zeroize::Zeroize;
 #[cfg(feature = "multiuser")]
 use crate::schema::NamedReference;
 use crate::{
-    document::{Document, Header, OwnedDocument},
+    document::{CollectionDocument, Document, Header, OwnedDocument},
     permissions::Permissions,
     schema::{
         self,
-        view::{self, map::MappedCollectionDocument},
-        Key, Map, MappedDocument, MappedValue, Schema, SchemaName, SerializedCollection,
+        view::{self, map::MappedDocuments},
+        Key, Map, MappedValue, Schema, SchemaName, SerializedCollection,
     },
     transaction::{self, OperationResult, Transaction},
     Error,
@@ -404,7 +405,7 @@ use crate::{
 /// # bonsaidb_core::__doctest_prelude!();
 /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-/// for mapping in db
+/// for mapping in &db
 ///     .view::<ScoresByRank>()
 ///     .with_key_range(42..=44)
 ///     .query_with_docs()
@@ -426,7 +427,7 @@ use crate::{
 /// # bonsaidb_core::__doctest_prelude!();
 /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-/// for mapping in db
+/// for mapping in &db
 ///     .view::<ScoresByRank>()
 ///     .with_key_range(42..=44)
 ///     .query_with_collection_docs()
@@ -546,7 +547,7 @@ pub trait Connection: Send + Sync {
             .apply_transaction(Transaction::update(
                 C::collection_name(),
                 <D as Deref>::deref(doc).clone(),
-                doc.as_ref().to_vec(),
+                <D as AsRef<[u8]>>::as_ref(doc).to_vec(),
             ))
             .await?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
@@ -580,14 +581,14 @@ pub trait Connection: Send + Sync {
     ) -> Result<Vec<OwnedDocument>, Error>;
 
     /// Removes a `Document` from the database.
-    async fn delete<C: schema::Collection, H: Deref<Target = Header> + Send + Sync>(
+    async fn delete<C: schema::Collection, H: AsRef<Header> + Send + Sync>(
         &self,
         doc: &H,
     ) -> Result<(), Error> {
         let results = self
             .apply_transaction(Transaction::delete(
                 C::collection_name(),
-                doc.deref().clone(),
+                doc.as_ref().clone(),
             ))
             .await?;
         if let OperationResult::DocumentDeleted { .. } = &results[0] {
@@ -628,7 +629,7 @@ pub trait Connection: Send + Sync {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedDocument<V>>, Error>
+    ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
     where
         Self: Sized;
 
@@ -640,7 +641,7 @@ pub trait Connection: Send + Sync {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedCollectionDocument<V>>, Error>
+    ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
         V: schema::SerializedView,
         V::Collection: SerializedCollection,
@@ -650,11 +651,14 @@ pub trait Connection: Send + Sync {
         let mapped_docs = self
             .query_with_docs::<V>(key, order, limit, access_policy)
             .await?;
-        let mut collection_mapped_docs = Vec::with_capacity(mapped_docs.len());
-        for doc in mapped_docs {
-            collection_mapped_docs.push(doc.try_into()?);
+        let mut collection_docs = BTreeMap::new();
+        for (id, doc) in mapped_docs.documents {
+            collection_docs.insert(id, CollectionDocument::<V::Collection>::try_from(&doc)?);
         }
-        Ok(collection_mapped_docs)
+        Ok(MappedDocuments {
+            mappings: mapped_docs.mappings,
+            documents: collection_docs,
+        })
     }
 
     /// Reduces the view entries matching [`View`].
@@ -842,10 +846,7 @@ where
     }
 
     /// Removes a `Document` from the database.
-    pub async fn delete<H: Deref<Target = Header> + Send + Sync>(
-        &self,
-        doc: &H,
-    ) -> Result<(), Error> {
+    pub async fn delete<H: AsRef<Header> + Send + Sync>(&self, doc: &H) -> Result<(), Error> {
         self.connection.delete::<Cl, H>(doc).await
     }
 }
@@ -1048,14 +1049,16 @@ where
     }
 
     /// Executes the query and retrieves the results with the associated [`Document`s](crate::document::OwnedDocument).
-    pub async fn query_with_docs(self) -> Result<Vec<MappedDocument<V>>, Error> {
+    pub async fn query_with_docs(self) -> Result<MappedDocuments<OwnedDocument, V>, Error> {
         self.connection
             .query_with_docs::<V>(self.key, self.sort, self.limit, self.access_policy)
             .await
     }
 
     /// Executes the query and retrieves the results with the associated [`CollectionDocument`s](crate::document::CollectionDocument).
-    pub async fn query_with_collection_docs(self) -> Result<Vec<MappedCollectionDocument<V>>, Error>
+    pub async fn query_with_collection_docs(
+        self,
+    ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
         V::Collection: SerializedCollection,
         <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,

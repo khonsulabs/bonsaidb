@@ -6,8 +6,8 @@ use bonsaidb_core::{
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     document::OwnedDocument,
     schema::{
-        Collection, Map, MappedDocument, MappedValue, NamedReference, Schema, SchemaName,
-        SerializedView,
+        view::map::MappedDocuments, Collection, Map, MappedValue, NamedReference, Schema,
+        SchemaName, SerializedView,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -256,7 +256,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedDocument<V>>, bonsaidb_core::Error>
+    ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
     where
         Self: Sized,
     {

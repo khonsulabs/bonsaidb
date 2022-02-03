@@ -1,20 +1,17 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{collections::BTreeMap, fmt::Debug};
 
 use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::{CollectionDocument, Header, OwnedDocument},
-    schema::{
-        view::{self, Key, SerializedView, View},
-        SerializedCollection,
-    },
+    document::{Header, OwnedDocument},
+    schema::view::{self, Key, SerializedView, View},
 };
 
 /// A document's entry in a View's mappings.
 #[derive(PartialEq, Debug)]
 pub struct Map<K: for<'a> Key<'a> = (), V = ()> {
-    /// The id of the document that emitted this entry.
+    /// The header of the document that emitted this entry.
     pub source: Header,
 
     /// The key used to index the View.
@@ -39,6 +36,13 @@ impl<K: for<'a> Key<'a>, V> Map<K, V> {
             ),
             value: Bytes::from(View::serialize(&self.value)?),
         })
+    }
+}
+
+impl<K: for<'a> Key<'a>, V> Map<K, V> {
+    /// Creates a new Map entry for the document with id `source`.
+    pub fn new(source: Header, key: K, value: V) -> Self {
+        Self { source, key, value }
     }
 }
 
@@ -147,78 +151,88 @@ impl<K: for<'a> Key<'a>, V> Iterator for MappingsIter<K, V> {
     }
 }
 
-/// A document's entry in a View's mappings.
+/// A collection of mappings and the associated documents.
 #[derive(Debug)]
-pub struct MappedDocument<V: View> {
-    /// The id of the document that emitted this entry.
-    pub document: OwnedDocument,
-
-    /// The key used to index the View.
-    pub key: V::Key,
-
-    /// An associated value stored in the view.
-    pub value: V::Value,
-
-    _view: PhantomData<V>,
+pub struct MappedDocuments<D, V: View> {
+    /// The collection of mappings.
+    pub mappings: Vec<Map<V::Key, V::Value>>,
+    /// All associated documents by ID.
+    ///
+    /// Documents can appear in a mapping query multiple times. As a result, they are stored separately to avoid duplication.
+    pub documents: BTreeMap<u64, D>,
 }
 
-impl<V> MappedDocument<V>
-where
-    V: View,
-{
-    /// Returns a new instance.
-    pub fn new(document: OwnedDocument, key: V::Key, value: V::Value) -> Self {
-        Self {
-            document,
-            key,
-            value,
-            _view: PhantomData,
+impl<D, V: View> MappedDocuments<D, V> {
+    /// The number of mappings contained in this collection.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.mappings.len()
+    }
+
+    /// Returns true if there are no mappings in this collection.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the mapped document at`index`, or `None` if `index >=
+    /// self.len()`.
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<MappedDocument<'_, D, V::Key, V::Value>> {
+        if index < self.len() {
+            let mapping = &self.mappings[index];
+            let document = self
+                .documents
+                .get(&mapping.source.id)
+                .expect("missing mapped document");
+            Some(MappedDocument {
+                key: &mapping.key,
+                value: &mapping.value,
+                document,
+            })
+        } else {
+            None
         }
     }
 }
 
-impl<K: for<'a> Key<'a>, V> Map<K, V> {
-    /// Creates a new Map entry for the document with id `source`.
-    pub fn new(source: Header, key: K, value: V) -> Self {
-        Self { source, key, value }
+/// An iterator of mapped documents.
+pub struct MappedDocumentsIter<'a, D, V: View> {
+    docs: &'a MappedDocuments<D, V>,
+    index: usize,
+}
+
+impl<'a, D, V: View> IntoIterator for &'a MappedDocuments<D, V> {
+    type Item = MappedDocument<'a, D, V::Key, V::Value>;
+
+    type IntoIter = MappedDocumentsIter<'a, D, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        MappedDocumentsIter {
+            docs: self,
+            index: 0,
+        }
     }
 }
 
-/// A document's entry in a View's mappings.
-#[derive(Debug)]
-pub struct MappedCollectionDocument<V>
-where
-    V: View,
-    V::Collection: SerializedCollection,
-    <V::Collection as SerializedCollection>::Contents: Debug,
-{
-    /// The id of the document that emitted this entry.
-    pub document: CollectionDocument<V::Collection>,
+impl<'a, D, V: View> Iterator for MappedDocumentsIter<'a, D, V> {
+    type Item = MappedDocument<'a, D, V::Key, V::Value>;
 
-    /// The key used to index the View.
-    pub key: V::Key,
-
-    /// An associated value stored in the view.
-    pub value: V::Value,
-
-    _view: PhantomData<V>,
+    fn next(&mut self) -> Option<Self::Item> {
+        let doc = self.docs.get(self.index);
+        self.index = self.index.saturating_add(1);
+        doc
+    }
 }
 
-impl<V: View> TryFrom<MappedDocument<V>> for MappedCollectionDocument<V>
-where
-    V::Collection: SerializedCollection,
-    <V::Collection as SerializedCollection>::Contents: Debug,
-{
-    type Error = crate::Error;
-
-    fn try_from(map: MappedDocument<V>) -> Result<Self, Self::Error> {
-        Ok(Self {
-            document: CollectionDocument::<V::Collection>::try_from(&map.document)?,
-            key: map.key,
-            value: map.value,
-            _view: PhantomData,
-        })
-    }
+/// A mapped document returned from a view query.
+pub struct MappedDocument<'a, D, K, V> {
+    /// The key that this document mapped to.
+    pub key: &'a K,
+    /// The associated value of this key.
+    pub value: &'a V,
+    /// The source document of this mapping.
+    pub document: &'a D,
 }
 
 /// Represents a document's entry in a View's mappings, serialized and ready to store.
@@ -250,28 +264,36 @@ impl Serialized {
 
 /// A serialized [`MappedDocument`](MappedDocument).
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct MappedSerialized {
+pub struct MappedSerializedDocuments {
     /// The serialized mapped value.
-    pub mapping: MappedSerializedValue,
+    pub mappings: Vec<Serialized>,
     /// The source document.
-    pub source: OwnedDocument,
+    pub documents: BTreeMap<u64, OwnedDocument>,
 }
 
-impl MappedSerialized {
+impl MappedSerializedDocuments {
     /// Deserialize into a [`MappedDocument`](MappedDocument).
-    pub fn deserialized<View: SerializedView>(self) -> Result<MappedDocument<View>, crate::Error> {
-        let key = Key::from_big_endian_bytes(&self.mapping.key).map_err(
-            |err: <View::Key as Key<'_>>::Error| {
-                crate::Error::Database(view::Error::key_serialization(err).to_string())
-            },
-        )?;
-        let value = View::deserialize(&self.mapping.value)?;
+    pub fn deserialized<View: SerializedView>(
+        self,
+    ) -> Result<MappedDocuments<OwnedDocument, View>, crate::Error> {
+        let mappings = self
+            .mappings
+            .iter()
+            .map(Serialized::deserialized::<View>)
+            .collect::<Result<Vec<_>, _>>()?;
+        // let documents = self.documents.into_iter().map(|id, document| {
 
-        Ok(MappedDocument {
-            document: self.source,
-            key,
-            value,
-            _view: PhantomData,
+        // });
+        // let key = Key::from_big_endian_bytes(&self.mapping.key).map_err(
+        //     |err: <View::Key as Key<'_>>::Error| {
+        //         crate::Error::Database(view::Error::key_serialization(err).to_string())
+        //     },
+        // )?;
+        // let value = View::deserialize(&self.mapping.value)?;
+
+        Ok(MappedDocuments {
+            mappings,
+            documents: self.documents,
         })
     }
 }

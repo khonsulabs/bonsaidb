@@ -293,9 +293,10 @@ pub trait NamedCollection: Collection + Unpin {
                 .with_key(name.as_ref().to_owned())
                 .query_with_docs()
                 .await?
+                .documents
                 .into_iter()
                 .next()
-                .map(|entry| entry.document)),
+                .map(|(_, document)| document)),
         }
     }
 }

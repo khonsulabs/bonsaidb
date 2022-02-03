@@ -24,6 +24,12 @@ pub struct Header {
     pub revision: Revision,
 }
 
+impl AsRef<Self> for Header {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 impl Header {
     /// Creates a `Map` result with an empty key and value.
     #[must_use]
@@ -84,7 +90,9 @@ pub struct OwnedDocument {
 }
 
 /// Common interface of a document in `BonsaiDb`.
-pub trait Document<'a>: Deref<Target = Header> + DerefMut + AsRef<[u8]> + Sized {
+pub trait Document<'a>:
+    Deref<Target = Header> + DerefMut + AsRef<Header> + AsRef<[u8]> + Sized
+{
     /// The bytes type used in the interface.
     type Bytes;
 
@@ -220,6 +228,12 @@ impl Document<'static> for OwnedDocument {
     }
 }
 
+impl AsRef<Header> for OwnedDocument {
+    fn as_ref(&self) -> &Header {
+        &self.header
+    }
+}
+
 impl Deref for OwnedDocument {
     type Target = Header;
 
@@ -248,6 +262,12 @@ impl<'a> BorrowedDocument<'a> {
             header: self.header,
             contents: Bytes::from(self.contents),
         }
+    }
+}
+
+impl<'a> AsRef<Header> for BorrowedDocument<'a> {
+    fn as_ref(&self) -> &Header {
+        &self.header
     }
 }
 

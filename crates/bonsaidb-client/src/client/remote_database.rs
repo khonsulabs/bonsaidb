@@ -7,8 +7,12 @@ use bonsaidb_core::{
     document::OwnedDocument,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
-        view::{self, map, SerializedView},
-        Collection, Key, Map, MappedDocument, MappedValue, Schematic,
+        view::{
+            self,
+            map::{self, MappedDocuments},
+            SerializedView,
+        },
+        Collection, Key, Map, MappedValue, Schematic,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -180,7 +184,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedDocument<V>>, bonsaidb_core::Error>
+    ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
@@ -204,9 +208,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
             .await?
         {
             Response::Database(DatabaseResponse::ViewMappingsWithDocs(mappings)) => Ok(mappings
-                .into_iter()
-                .map(map::MappedSerialized::deserialized::<V>)
-                .collect::<Result<Vec<_>, _>>()
+                .deserialized::<V>()
                 .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?),
             Response::Error(err) => Err(err),
             other => Err(bonsaidb_core::Error::Networking(

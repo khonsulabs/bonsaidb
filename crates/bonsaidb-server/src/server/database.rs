@@ -7,7 +7,7 @@ use bonsaidb_core::{
     document::OwnedDocument,
     keyvalue::KeyValue,
     pubsub::{PubSub, Subscriber},
-    schema::{self, Collection, Map, MappedValue, SerializedView},
+    schema::{self, view::map::MappedDocuments, Collection, Map, MappedValue, SerializedView},
     transaction::Transaction,
 };
 use bonsaidb_local::Database;
@@ -139,7 +139,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<schema::MappedDocument<V>>, bonsaidb_core::Error>
+    ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
     where
         Self: Sized,
     {

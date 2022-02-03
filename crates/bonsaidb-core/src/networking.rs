@@ -334,7 +334,7 @@ pub enum DatabaseResponse {
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is false.
     ViewMappings(Vec<map::Serialized>),
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is true.
-    ViewMappingsWithDocs(Vec<map::MappedSerialized>),
+    ViewMappingsWithDocs(map::MappedSerializedDocuments),
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is false.
     ViewReduction(Bytes),
     /// Result of [`DatabaseRequest::Reduce`] when `grouped` is true.
