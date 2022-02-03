@@ -5,7 +5,7 @@ on: [push]
 jobs:
   coverage:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     services:
       redis:
