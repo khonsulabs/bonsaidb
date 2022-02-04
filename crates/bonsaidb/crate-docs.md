@@ -2,9 +2,9 @@ BonsaiDb is a developer-friendly document database for [Rust](https://rust-lang.
 
 ![BonsaiDb is considered alpha](https://img.shields.io/badge/status-alpha-orange)
 [![crate version](https://img.shields.io/crates/v/bonsaidb.svg)](https://crates.io/crates/bonsaidb)
-[![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/release)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
-[![HTML Coverage Report for `release`](https://dev.bonsaidb.io/release/coverage/badge.svg)](https://dev.bonsaidb.io/release/coverage/)
-[![Documentation for `release`](https://img.shields.io/badge/docs-release-informational)](https://dev.bonsaidb.io/release/docs/bonsaidb)
+[![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/v0.1.0)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
+[![HTML Coverage Report for `v0.1.0`](https://dev.bonsaidb.io/v0.1.0/coverage/badge.svg)](https://dev.bonsaidb.io/v0.1.0/coverage/)
+[![Documentation for `v0.1.0`](https://img.shields.io/badge/docs-v0.1.0-informational)](https://docs.rs/bonsaidb)
 
 ## ⚠️ Status of this project
 
@@ -84,7 +84,7 @@ let triangles = db
 println!("Number of triangles: {}", triangles.len());
 ```
 
-See the [examples README](https://github.com/khonsulabs/bonsaidb/blob/release/examples/README.md) for a list of all available examples.
+See the [examples README](https://github.com/khonsulabs/bonsaidb/blob/v0.1.0/examples/README.md) for a list of all available examples.
 
 ## Feature Flags
 
@@ -111,7 +111,7 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 ```
 
 - `local-full`: Enables all the flags below
-- `local`: Enables the [`local`](https://dev.bonsaidb.io/release/docs/bonsaidb/local/) module, which re-exports the crate
+- `local`: Enables the [`local`](https://docs.rs/bonsaidb/local/) module, which re-exports the crate
   `bonsaidb-local`.
 - `local-cli`: Enables the `StructOpt` structures for embedding database
   management commands into your own command-line interface.
@@ -129,7 +129,7 @@ bonsaidb = { version = "*", default-features = false, features = "server-full" }
 ```
 
 - `server-full`: Enables all the flags below,
-- `server`: Enables the [`server`](https://dev.bonsaidb.io/release/docs/bonsaidb/server/) module, which re-exports the crate
+- `server`: Enables the [`server`](https://docs.rs/bonsaidb/server/) module, which re-exports the crate
   `bonsaidb-server`.
 - `server-acme`: Enables automtic certificate acquisition through ACME/LetsEncrypt.
 - `server-cli`: Enables the `cli` module.
@@ -149,7 +149,7 @@ bonsaidb = { version = "*", default-features = false, features = "client-full" }
 ```
 
 - `client-full`: Enables `client`, `client-trusted-dns` and `client-websockets`
-- `client`: Enables the [`client`](https://dev.bonsaidb.io/release/docs/bonsaidb/client/) module, which re-exports the crate
+- `client`: Enables the [`client`](https://docs.rs/bonsaidb/client/) module, which re-exports the crate
   `bonsaidb-client`.
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
   enabled, all DNS resolution is done with the OS's default name resolver.
