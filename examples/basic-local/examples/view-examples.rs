@@ -159,8 +159,6 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
 
 #[test]
 fn runs() {
-    tokio::fs::remove_dir_all("view-examples.bonsaidb")
-        .await
-        .unwrap();
+    drop(std::fs::remove_dir_all("view-examples.bonsaidb"));
     main().unwrap()
 }

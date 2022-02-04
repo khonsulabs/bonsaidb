@@ -86,7 +86,7 @@ impl DefaultViewSerialization for BlogPostsByCategory {}
 #[allow(unused_variables)]
 #[tokio::test]
 async fn example() -> Result<(), Error> {
-    tokio::fs::remove_dir_all("example.bonsaidb").await.unwrap();
+    drop(tokio::fs::remove_dir_all("example.bonsaidb").await);
     let db = Database::open::<BlogPost>(StorageConfiguration::new("example.bonsaidb")).await?;
     // ANCHOR: query_with_docs
     let rust_posts = db
