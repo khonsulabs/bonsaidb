@@ -22,6 +22,15 @@ where
     pub contents: C::Contents,
 }
 
+impl<C> AsRef<Header> for CollectionDocument<C>
+where
+    C: SerializedCollection,
+{
+    fn as_ref(&self) -> &Header {
+        &self.header
+    }
+}
+
 impl<C> Deref for CollectionDocument<C>
 where
     C: SerializedCollection,

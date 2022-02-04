@@ -27,6 +27,7 @@ use bonsaidb_core::{
     permissions::bonsai::AuthenticationMethod,
 };
 use once_cell::sync::Lazy;
+use rand::{distributions::Alphanumeric, Rng};
 use tokio::sync::Mutex;
 
 const INCOMPATIBLE_PROTOCOL_VERSION: &str = "otherprotocol";
@@ -270,10 +271,17 @@ async fn assume_permissions(
     statements: Vec<Statement>,
 ) -> anyhow::Result<RemoteDatabase> {
     let username = format!("{}-{}", database_name, label);
+    let password = SensitiveString(
+        rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(8)
+            .map(char::from)
+            .collect(),
+    );
     match connection.create_user(&username).await {
         Ok(user_id) => {
             connection
-                .set_user_password(&username, SensitiveString("hunter2".to_string()))
+                .set_user_password(&username, password.clone())
                 .await
                 .unwrap();
 
@@ -308,10 +316,7 @@ async fn assume_permissions(
     };
 
     connection
-        .authenticate(
-            &username,
-            Authentication::Password(SensitiveString(String::from("hunter2"))),
-        )
+        .authenticate(&username, Authentication::Password(password))
         .await
         .unwrap();
 

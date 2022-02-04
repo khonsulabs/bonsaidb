@@ -13,7 +13,7 @@ pub use self::{
     names::{Authority, CollectionName, InvalidNameError, Name, SchemaName, ViewName},
     schematic::Schematic,
     view::{
-        map::{Map, MappedDocument, MappedValue, ViewMappedValue},
+        map::{Map, MappedValue, ViewMappedValue},
         CollectionViewSchema, DefaultViewSerialization, Key, ReduceResult, SerializedView, View,
         ViewMapResult, ViewSchema,
     },

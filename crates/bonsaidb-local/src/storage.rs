@@ -556,11 +556,11 @@ impl StorageConnection for Storage {
         if let Some(entry) = admin
             .view::<database::ByName>()
             .with_key(name.to_ascii_lowercase())
-            .query_with_docs()
+            .query()
             .await?
             .first()
         {
-            admin.delete::<DatabaseRecord, _>(&entry.document).await?;
+            admin.delete::<DatabaseRecord, _>(&entry.source).await?;
 
             Ok(())
         } else {

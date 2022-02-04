@@ -1,6 +1,6 @@
 use std::{
     borrow::{Borrow, Cow},
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
     ops::Deref,
     sync::Arc,
@@ -18,9 +18,11 @@ use bonsaidb_core::{
     permissions::Permissions,
     schema::{
         self,
-        view::{self, map::MappedSerializedValue},
-        Collection, CollectionName, Key, Map, MappedDocument, MappedValue, Schema, Schematic,
-        ViewName,
+        view::{
+            self,
+            map::{MappedDocuments, MappedSerializedValue},
+        },
+        Collection, CollectionName, Key, Map, MappedValue, Schema, Schematic, ViewName,
     },
     transaction::{
         self, ChangedDocument, Changes, Command, Operation, OperationResult, Transaction,
@@ -330,13 +332,14 @@ impl Database {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<bonsaidb_core::schema::view::map::MappedSerialized>, bonsaidb_core::Error> {
+    ) -> Result<bonsaidb_core::schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error>
+    {
         let results = self
             .query_by_name(view, key, order, limit, access_policy)
             .await?;
         let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
 
-        let mut documents = self
+        let documents = self
             .get_multiple_from_collection_id(
                 &results.iter().map(|m| m.source.id).collect::<Vec<_>>(),
                 &view.collection(),
@@ -344,24 +347,14 @@ impl Database {
             .await?
             .into_iter()
             .map(|doc| (doc.header.id, doc))
-            .collect::<HashMap<_, _>>();
+            .collect::<BTreeMap<_, _>>();
 
-        Ok(results
-            .into_iter()
-            .filter_map(|map| {
-                if let Some(source) = documents.remove(&map.source.id) {
-                    Some(bonsaidb_core::schema::view::map::MappedSerialized {
-                        mapping: bonsaidb_core::schema::view::map::MappedSerializedValue {
-                            key: map.key,
-                            value: map.value,
-                        },
-                        source,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect())
+        Ok(
+            bonsaidb_core::schema::view::map::MappedSerializedDocuments {
+                mappings: results,
+                documents,
+            },
+        )
     }
 
     #[cfg(feature = "internal-apis")]
@@ -1219,30 +1212,23 @@ impl Connection for Database {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedDocument<V>>, bonsaidb_core::Error>
+    ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
     where
         Self: Sized,
     {
         let results = Connection::query::<V>(self, key, order, limit, access_policy).await?;
 
-        // TODO what was I thinking?
-        let mut documents = self
+        let documents = self
             .get_multiple::<V::Collection>(&results.iter().map(|m| m.source.id).collect::<Vec<_>>())
             .await?
             .into_iter()
             .map(|doc| (doc.header.id, doc))
-            .collect::<HashMap<_, _>>();
+            .collect::<BTreeMap<u64, _>>();
 
-        Ok(results
-            .into_iter()
-            .filter_map(|map| {
-                if let Some(document) = documents.remove(&map.source.id) {
-                    Some(MappedDocument::new(document, map.key, map.value))
-                } else {
-                    None
-                }
-            })
-            .collect())
+        Ok(MappedDocuments {
+            mappings: results,
+            documents,
+        })
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]

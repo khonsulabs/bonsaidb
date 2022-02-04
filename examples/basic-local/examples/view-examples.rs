@@ -109,7 +109,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     println!("Triangles: {:#?}", triangles);
 
     // If you want the associated documents, use query_with_collection_docs:
-    for entry in db
+    for entry in &db
         .view::<ShapesByNumberOfSides>()
         .with_key(3)
         .query_with_collection_docs()
@@ -159,5 +159,6 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
 
 #[test]
 fn runs() {
+    drop(std::fs::remove_dir_all("view-examples.bonsaidb"));
     main().unwrap()
 }

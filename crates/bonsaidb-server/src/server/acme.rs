@@ -6,7 +6,7 @@ use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     connection::Connection,
     define_basic_unique_mapped_view,
-    document::{CollectionDocument, Document, KeyId},
+    document::{CollectionDocument, KeyId},
     schema::{Collection, CollectionName, DefaultSerialization, Schematic, SerializedCollection},
     ENCRYPTION_ENABLED,
 };
@@ -63,14 +63,14 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
         let contact = db
             .view::<AcmeAccountByContacts>()
             .with_key(contacts.join(";"))
-            .query_with_docs()
+            .query_with_collection_docs()
             .await?
+            .documents
             .into_iter()
             .next();
 
-        if let Some(contact) = contact {
-            let contact = contact.document.contents::<AcmeAccount>()?;
-            Ok(Some(contact.data.into_vec()))
+        if let Some((_, contact)) = contact {
+            Ok(Some(contact.contents.data.into_vec()))
         } else {
             Ok(None)
         }
@@ -81,13 +81,12 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
         let mapped_account = db
             .view::<AcmeAccountByContacts>()
             .with_key(contacts.join(";"))
-            .query_with_docs()
+            .query_with_collection_docs()
             .await?
+            .documents
             .into_iter()
             .next();
-        if let Some(mapped_account) = mapped_account {
-            let mut account =
-                CollectionDocument::<AcmeAccount>::try_from(&mapped_account.document)?;
+        if let Some((_, mut account)) = mapped_account {
             account.contents.data = Bytes::from(contents);
             account.update(&db).await?;
         } else {

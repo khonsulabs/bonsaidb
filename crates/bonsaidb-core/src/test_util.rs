@@ -1099,7 +1099,7 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         .query_with_collection_docs()
         .await?;
     assert_eq!(a_children.len(), 1);
-    assert_eq!(a_children[0].document.header.id, a_child.id);
+    assert_eq!(a_children.get(0).unwrap().document.header, a_child);
 
     let b_children = db
         .view::<BasicByParentId>()
@@ -1283,6 +1283,8 @@ pub async fn view_multi_emit_tests<C: Connection>(db: &C) -> anyhow::Result<()> 
         .with_tag("green")
         .push_into(db)
         .await?;
+
+    assert_eq!(db.view::<BasicByTag>().query().await?.len(), 4);
 
     assert_eq!(
         db.view::<BasicByTag>()

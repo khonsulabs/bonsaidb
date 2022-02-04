@@ -20,7 +20,6 @@ use bonsaidb_core::{
     circulate::{Message, Relay, Subscriber},
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     custom_api::{CustomApi, CustomApiResult},
-    document::Document,
     keyvalue::{KeyOperation, KeyValue},
     networking::{
         self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
@@ -311,11 +310,12 @@ impl<B: Backend> CustomServer<B> {
 
     async fn tls_certificate(&self) -> Result<TlsCertificate, Error> {
         let db = self.hosted().await;
-        let certificate = db
+        let (_, certificate) = db
             .view::<TlsCertificatesByDomain>()
             .with_key(self.data.primary_domain.clone())
-            .query_with_docs()
+            .query_with_collection_docs()
             .await?
+            .documents
             .into_iter()
             .next()
             .ok_or_else(|| {
@@ -324,7 +324,7 @@ impl<B: Backend> CustomServer<B> {
                     self.data.primary_domain
                 )))
             })?;
-        Ok(certificate.document.contents::<TlsCertificate>()?)
+        Ok(certificate.contents)
     }
 
     /// Returns the current certificate chain.
