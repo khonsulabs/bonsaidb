@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-core"
-version = "0.1.0-dev.4"
+version = "0.1.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Core functionality and types for BonsaiDb."
@@ -23,10 +23,10 @@ encryption = []
 password-hashing = ["multiuser"]
 
 [dependencies]
-bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0-dev.4" }
+bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0" }
 circulate = { version = "0.2.1" }
 serde = { version = "1", features = ["derive"] }
-pot = "1.0.0-rc.4"
+pot = "1.0.0"
 async-trait = "0.1"
 uuid = { version = "0.8", features = ["v4", "serde"], optional = true }
 thiserror = "1"
@@ -37,10 +37,10 @@ num-traits = "0.2"
 actionable = "0.1"
 anyhow = { version = "1", optional = true }
 itertools = "0.10"
-ordered-varint = "0.1.0-dev.1"
+ordered-varint = "1.0.0"
 derive-where = "=1.0.0-rc.2"
-transmog = "0.1.0-dev.2"
-transmog-pot = "0.1.0-dev.2"
+transmog = "0.1.0"
+transmog-pot = "0.1.0"
 arc-bytes = { version = "0.3.1", features = ["serde"] }
 zeroize = { version = "1", optional = true, features = ["zeroize_derive"] }
 

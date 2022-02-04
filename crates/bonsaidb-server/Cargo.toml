@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-server"
-version = "0.1.0-dev.4"
+version = "0.1.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Database server for BonsaiDb."
@@ -34,16 +34,16 @@ password-hashing = [
 included-from-omnibus = []
 
 [dependencies]
-bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0", default-features = false, features = [
     "networking",
     "actionable-traits",
     "multiuser",
 ] }
-bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.0-dev.4", default-features = false, features = [
+bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.0", default-features = false, features = [
     "internal-apis",
     "multiuser",
 ] }
-bonsaidb-utils = { path = "../bonsaidb-utils", version = "0.1.0-dev.4" }
+bonsaidb-utils = { path = "../bonsaidb-utils", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "1"
@@ -54,7 +54,7 @@ flume = "0.10"
 itertools = "0.10"
 tokio-tungstenite = { version = "0.16", optional = true }
 bincode = { version = "1", optional = true }
-pot = "1.0.0-rc.3"
+pot = "1.0.0"
 fabruic = { version = "0.0.1-dev.5", features = ["dangerous"] }
 cfg-if = "1"
 pem = { version = "1", optional = true }
@@ -76,7 +76,7 @@ async-lock = "2"
 
 
 [dev-dependencies]
-bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0", default-features = false, features = [
     "test-util",
 ] }
 anyhow = "1"
