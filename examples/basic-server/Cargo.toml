@@ -10,7 +10,7 @@ websockets = ["bonsaidb/client-websockets", "bonsaidb/server-websockets"]
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
-bonsaidb = { path = "../../crates/bonsaidb", version = "0.1.0-dev.4", features = [
+bonsaidb = { path = "../../crates/bonsaidb", version = "0.1.0", features = [
     "server",
     "server-password-hashing",
     "cli",
