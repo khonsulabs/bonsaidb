@@ -281,15 +281,6 @@ impl MappedSerializedDocuments {
             .iter()
             .map(Serialized::deserialized::<View>)
             .collect::<Result<Vec<_>, _>>()?;
-        // let documents = self.documents.into_iter().map(|id, document| {
-
-        // });
-        // let key = Key::from_big_endian_bytes(&self.mapping.key).map_err(
-        //     |err: <View::Key as Key<'_>>::Error| {
-        //         crate::Error::Database(view::Error::key_serialization(err).to_string())
-        //     },
-        // )?;
-        // let value = View::deserialize(&self.mapping.value)?;
 
         Ok(MappedDocuments {
             mappings,

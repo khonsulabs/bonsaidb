@@ -10,6 +10,14 @@ Views are a powerful, yet abstract concept. Let's look at a concrete example: bl
 {{#include ../../../book-examples/tests/view-example-string.rs:struct}}
 ```
 
+Let's insert this data for these examples:
+
+```rust,no_run,noplayground
+{{#include ../../../book-examples/tests/view-example-string.rs:insert_data}}
+```
+
+> All examples on this page are available in their full form in the repository at [book/book-examples/tests](https://github.com/khonsulabs/bonsaidb/tree/main/book/book-examples/tests).
+
 While `category` should be an enum, let's first explore using `String` and upgrade to an enum at the end (it requires one additional step). Let's implement a View that will allow users to find blog posts by their category as well as count the number of posts in each category.
 
 ```rust,noplayground,no_run
@@ -38,7 +46,13 @@ The first line of the `map` function calls [`Document::contents()`]({{DOCS_BASE_
 {{#include ../../../book-examples/tests/view-example-string.rs:query_with_docs}}
 ```
 
-The above queries the [Database](./database.md) for all documents in the `BlogPost` Collection that emitted a Key of `Some("Rust")`.
+The above snippet queries the [Database](./database.md) for all documents in the `BlogPost` Collection that emitted a Key of `Some("Rust")`.
+
+If you're using a [`SerializedCollection`][serialized-collection], you can use [`query_with_collection_docs()`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/struct.View.html#method.query_with_collection_docs) to have the deserialization done automatically for you:
+
+```rust,noplayground,no_run
+{{#include ../../../book-examples/tests/view-example-string.rs:query_with_collection_docs}}
+```
 
 ## Reduce
 
