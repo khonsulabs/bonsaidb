@@ -1,4 +1,4 @@
-error: You need to specify the collection name via `#[collection(authority="authority")]`
+error: You need to specify the collection authority via `#[collection(authority = \"authority\")]`
  --> tests/ui/collection/missing_authority.rs:3:10
   |
 3 | #[derive(Collection)]

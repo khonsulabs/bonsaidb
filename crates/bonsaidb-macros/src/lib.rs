@@ -14,16 +14,37 @@
 
 use attribute_derive::Attribute;
 use proc_macro2::TokenStream;
-use proc_macro_error::{abort, abort_call_site, proc_macro_error, ResultExt};
+use proc_macro_error::{proc_macro_error, ResultExt};
 use quote::quote;
 use syn::{
-    parse_macro_input, punctuated::Punctuated, spanned::Spanned, token::Paren, DeriveInput, Lit,
-    LitStr, Meta, MetaList, MetaNameValue, NestedMeta, Path, Type, TypeTuple,
+    parse_macro_input, punctuated::Punctuated, token::Paren, DeriveInput, LitStr, Path, Type,
+    TypeTuple,
 };
+
+#[derive(Attribute)]
+#[attribute(ident = "collection")]
+#[attribute(
+    invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]`, `serialization = Serialization` are supported attributes"#
+)]
+struct CollectionAttribute {
+    #[attribute(
+        missing = r#"You need to specify the collection authority via `#[collection(authority = "authority")]`"#
+    )]
+    authority: String,
+    #[attribute(
+        missing = r#"You need to specify the collection name via `#[collection(name = "name")]`"#
+    )]
+    name: String,
+    #[attribute(default)]
+    #[attribute(expected = r#"Specify the `views` like so: `view = [SomeView, AnotherView]`"#)]
+    views: Vec<Type>,
+    #[attribute(expected = r#"Specify the `serialization` like so: `serialization = Format` or `serialization = None` to disable deriving it"#)]
+    serialization: Option<Path>,
+}
 
 /// Derives the `bonsaidb::core::schema::Collection` trait.
 #[proc_macro_error]
-/// `#[collection(authority = "Authority", name = "Name", views(a, b, c))]`
+/// `#[collection(authority = "Authority", name = "Name", views = [a, b, c])]`
 #[proc_macro_derive(Collection, attributes(collection))]
 pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let DeriveInput {
@@ -33,86 +54,12 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         ..
     } = parse_macro_input!(input as DeriveInput);
 
-    let mut name: Option<String> = None;
-    let mut authority: Option<String> = None;
-    let mut views: Vec<Path> = Vec::new();
-    let mut serialization: Option<Path> = None;
-
-    for attibute in attrs {
-        if attibute.path.is_ident("collection") {
-            if let Ok(Meta::List(MetaList { nested, .. })) = attibute.parse_meta() {
-                for item in nested {
-                    let span = item.span();
-                    match item {
-                        NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                            path,
-                            lit: Lit::Str(value),
-                            ..
-                        })) if path.is_ident("name") => name = Some(value.value()),
-                        NestedMeta::Meta(Meta::NameValue(MetaNameValue {
-                            path,
-                            lit: Lit::Str(value),
-                            ..
-                        })) if path.is_ident("authority") => authority = Some(value.value()),
-                        NestedMeta::Meta(Meta::List(MetaList { path, nested, .. }))
-                            if path.is_ident("serialization") =>
-                        {
-                            match nested.len() {
-                                0 => abort!(
-                                    span,
-                                    r#"You need to pass either a format type or `None` to `serialization`: `serialization(Format)`"#,
-                                ),
-                                2.. => abort!(
-                                    span,
-                                    r#"You can only specify a single format with `serialization` like so: `serialization(Format)`"#,
-                                ),
-                                _ => (),
-                            }
-                            serialization = nested
-                                .into_iter()
-                                .map(|meta| match meta {
-                                    NestedMeta::Meta(Meta::Path(path)) => path,
-                                    meta => abort!(
-                            meta.span(),
-                            r#"`{}` is not supported here, call `serialization` like so: `serialization(Format)`"#
-                        ),
-                                }).next();
-                        }
-                        NestedMeta::Meta(Meta::List(MetaList { path, nested, .. }))
-                            if path.is_ident("views") =>
-                        {
-                            views = nested
-                                .into_iter()
-                                .map(|meta| match meta {
-                                    NestedMeta::Meta(Meta::Path(path)) => path,
-                                    meta => abort!(
-                            meta.span(),
-                            r#"`{}` is not supported here, call `views` like so: `views(SomeView, AnotherView)`"#
-                        ),
-                                })
-                                .collect();
-                        }
-                        item => abort!(
-                            item.span(),
-                            r#"Only `authority="some-authority"`, `name="some-name"`, `views(SomeView, AnotherView)` are supported attributes"#
-                        ),
-                    }
-                }
-            }
-        }
-    }
-
-    let authority = authority.unwrap_or_else(|| {
-        abort_call_site!(
-            r#"You need to specify the collection name via `#[collection(authority="authority")]`"#
-        )
-    });
-
-    let name = name.unwrap_or_else(|| {
-        abort_call_site!(
-            r#"You need to specify the collection authority via `#[collection(name="name")]`"#
-        )
-    });
+    let CollectionAttribute {
+        authority,
+        name,
+        views,
+        serialization,
+    } = CollectionAttribute::from_attributes(attrs).unwrap_or_abort();
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -148,20 +95,29 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     .into()
 }
 
-#[derive(Debug, Clone, Attribute)]
-#[attribute(view)]
+#[derive(Attribute)]
+#[attribute(ident = "view")]
+#[attribute(
+    invalid_field = r#"Only `collection = CollectionType`, `key = KeyType`, `name = "by-name"`, `value = ValueType` are supported attributes"#
+)]
 struct ViewAttribute {
+    #[attribute(
+        missing = r#"You need to specify the collection type via `#[view(collection = CollectionType)]`"#
+    )]
+    #[attribute(expected = r#"Specify the collection type like so: `collection = CollectionType`"#)]
     collection: Type,
+    #[attribute(missing = r#"You need to specify the key type via `#[view(key = KeyType)]`"#)]
+    #[attribute(expected = r#"Specify the key type like so: `key = KeyType`"#)]
     key: Type,
-    #[attribute(default)]
     name: Option<LitStr>,
-    #[attribute(default)]
+    #[attribute(expected = r#"Specify the value type like so: `value = ValueType`"#)]
     value: Option<Type>,
 }
 
 /// Derives the `bonsaidb::core::schema::View` trait.
 #[proc_macro_error]
-/// `#[view(collection(CollectionType), key(KeyType), value(ValueType), name = "by-name", version = 0)]`
+/// `#[view(collection=CollectionType, key=KeyType, value=ValueType, name = "by-name")]`
+/// `name` and `value` are optional
 #[proc_macro_derive(View, attributes(view))]
 pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let DeriveInput {

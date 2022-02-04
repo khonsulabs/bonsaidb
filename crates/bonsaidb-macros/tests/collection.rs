@@ -21,7 +21,7 @@ fn views() {
     use serde::{Deserialize, Serialize};
 
     #[derive(Collection, Debug, Serialize, Deserialize)]
-    #[collection(name = "Name", authority = "Authority", views(ShapesByNumberOfSides))]
+    #[collection(name = "Name", authority = "Authority", views = [ShapesByNumberOfSides])]
     struct Shape {
         pub sides: u32,
     }
@@ -62,7 +62,7 @@ fn serialization() {
     #[collection(
         name = "Name",
         authority = "Authority",
-        serialization(transmog_bincode::Bincode)
+        serialization = transmog_bincode::Bincode
     )]
     struct Test;
 
@@ -80,7 +80,7 @@ fn serialization_none() {
     use serde::{Deserialize, Serialize};
 
     #[derive(Collection, Debug, Deserialize, Serialize)]
-    #[collection(name = "Name", authority = "Authority", serialization(None))]
+    #[collection(name = "Name", authority = "Authority", serialization = None)]
     struct Test;
 
     impl DefaultSerialization for Test {}

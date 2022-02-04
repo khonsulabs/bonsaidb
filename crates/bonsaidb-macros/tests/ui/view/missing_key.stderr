@@ -1,4 +1,4 @@
-error: Mandatory `key` was not specified via the attributes.
+error: You need to specify the key type via `#[view(key = KeyType)]`
  --> tests/ui/view/missing_key.rs:3:10
   |
 3 | #[derive(View)]

@@ -1,4 +1,4 @@
-error: Mandatory `collection` was not specified via the attributes.
+error: You need to specify the collection type via `#[view(collection = CollectionType)]`
  --> tests/ui/view/missing_collection.rs:3:10
   |
 3 | #[derive(View)]
