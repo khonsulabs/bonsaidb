@@ -4,11 +4,14 @@ use std::{
     str::FromStr,
 };
 
-use khonsu_tools::universal::{
-    anyhow, audit,
-    clap::{self, Parser},
-    devx_cmd::{run, Cmd},
-    DefaultConfig,
+use khonsu_tools::{
+    publish,
+    universal::{
+        anyhow, audit,
+        clap::{self, Parser},
+        devx_cmd::{run, Cmd},
+        DefaultConfig,
+    },
 };
 use serde::Serialize;
 
@@ -39,7 +42,7 @@ fn main() -> anyhow::Result<()> {
 enum Config {}
 
 impl khonsu_tools::Config for Config {
-    type Publish = DefaultConfig;
+    type Publish = Self;
     type Universal = Self;
 }
 
@@ -59,6 +62,21 @@ impl audit::Config for Config {
             String::from("--exclude=axum"),
             String::from("--exclude=acme"),
             String::from("--exclude=view-histogram"),
+        ]
+    }
+}
+
+impl publish::Config for Config {
+    fn paths() -> Vec<String> {
+        vec![
+            String::from("crates/bonsaidb-macros"),
+            String::from("crates/bonsaidb-core"),
+            String::from("crates/bonsaidb-utils"),
+            String::from("crates/bonsaidb-local"),
+            String::from("crates/bonsaidb-server"),
+            String::from("crates/bonsaidb-client"),
+            String::from("crates/bonsaidb-keystorage-s3"),
+            String::from("crates/bonsaidb-bonsaidb"),
         ]
     }
 }
