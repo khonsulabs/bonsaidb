@@ -1,7 +1,5 @@
 # BonsaiDb
 
-*Formerly known as [`PliantDb`](https://crates.io/crates/pliantdb). Not yet released on crates.io as `BonsaiDb`.*
-
 BonsaiDb is a developer-friendly document database for [Rust](https://rust-lang.org) that grows with you. Visit [BonsaiDb.io](https://bonsaidb.io/about) to learn more about the features of BonsaiDb.
 
 ![BonsaiDb is considered alpha](https://img.shields.io/badge/status-alpha-orange)
