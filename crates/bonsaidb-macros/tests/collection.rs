@@ -1,5 +1,7 @@
 use core::fmt::Debug;
 
+use bonsaidb::core::schema::Schematic;
+
 #[test]
 fn name_only() {
     use bonsaidb::core::schema::Collection;
@@ -26,7 +28,8 @@ fn views() {
         pub sides: u32,
     }
 
-    // TODO somehow test views
+    let schematic = Schematic::from_schema::<Shape>().unwrap();
+    assert!(schematic.view::<ShapesByNumberOfSides>().is_some());
 
     #[derive(Debug, Clone)]
     struct ShapesByNumberOfSides;
