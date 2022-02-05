@@ -964,7 +964,7 @@ where
     }
 }
 
-/// Parameters to query a `schema::View`.
+/// Parameters to query a [`schema::View`].
 pub struct View<'a, Cn, V: schema::SerializedView> {
     connection: &'a Cn,
 

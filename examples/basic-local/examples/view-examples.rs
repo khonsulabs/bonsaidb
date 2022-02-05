@@ -66,19 +66,13 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
 impl DefaultViewSerialization for ShapesByNumberOfSides {}
 // end rustme snippet
 
-impl Shape {
-    fn new(sides: u32) -> Self {
-        Self { sides }
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
     // begin rustme snippet: snippet-b
     let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
 
     // Insert a new document into the Shape collection.
-    Shape::new(3).push_into(&db).await?;
+    Shape { sides: 3 }.push_into(&db).await?;
     // end rustme snippet
 
     // Views in `BonsaiDb` are written using a Map/Reduce approach. In this
@@ -87,12 +81,12 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     //
     // Let's start by seeding the database with some shapes of various sizes:
     for sides in 3..=20 {
-        Shape::new(sides).push_into(&db).await?;
+        Shape { sides }.push_into(&db).await?;
     }
 
     // And, let's add a few shapes with the same number of sides
-    Shape::new(3).push_into(&db).await?;
-    Shape::new(4).push_into(&db).await?;
+    Shape { sides: 3 }.push_into(&db).await?;
+    Shape { sides: 4 }.push_into(&db).await?;
 
     // At this point, our database should have 3 triangles:
     // begin rustme snippet: snippet-c

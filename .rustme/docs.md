@@ -12,13 +12,18 @@ BonsaiDb is considered alpha software. It is under active development (![GitHub 
 
 ## Example
 
-To get an idea of how it works, this is a simple schema:
+To get an idea of how it works, let's review the [`view-examples` example][view-examples].
+See the [examples README][examples-readme] for a list of all available examples.
+
+The [`view-examples` example][view-examples] shows how to define a simple schema containing a single collection (`Shape`), a view to query the `Shape`s by their `number_of_sides` (`ShapesByNumberOfSides`), and demonstrates multiple ways to query that view.
+
+First, here's how the schema is defined:
 
 ```rust,ignore
 $../examples/basic-local/examples/view-examples.rs:snippet-a$
 ```
 
-After you have your collection(s) defined, you can open up a database and insert documents:
+After you have your collection(s) and view(s) defined, you can open up a database and insert documents:
 
 ```rust,ignore
 $../examples/basic-local/examples/view-examples.rs:snippet-b$
@@ -30,7 +35,10 @@ And query data using the Map-Reduce-powered view:
 $../examples/basic-local/examples/view-examples.rs:snippet-c$
 ```
 
-See the [examples README](https://github.com/khonsulabs/bonsaidb/blob/$ref-name$/examples/README.md) for a list of all available examples.
+You can review the [full example in the repository][view-examples], or see all available examples [in the examples README][examples-readme].
+
+[view-examples]: https://github.com/khonsulabs/bonsaidb/blob/$ref-name$/examples/basic-local/examples/view-examples.rs
+[examples-readme]: https://github.com/khonsulabs/bonsaidb/blob/$ref-name$/examples/README.md
 
 ## Feature Flags
 

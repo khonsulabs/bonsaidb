@@ -14,7 +14,12 @@ BonsaiDb is considered alpha software. It is under active development (![GitHub 
 
 ## Example
 
-To get an idea of how it works, this is a simple schema:
+To get an idea of how it works, let's review the [`view-examples` example][view-examples].
+See the [examples README][examples-readme] for a list of all available examples.
+
+The [`view-examples` example][view-examples] shows how to define a simple schema containing a single collection (`Shape`), a view to query the `Shape`s by their `number_of_sides` (`ShapesByNumberOfSides`), and demonstrates multiple ways to query that view.
+
+First, here's how the schema is defined:
 
 ```rust,ignore
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,13 +71,13 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
 impl DefaultViewSerialization for ShapesByNumberOfSides {}
 ```
 
-After you have your collection(s) defined, you can open up a database and insert documents:
+After you have your collection(s) and view(s) defined, you can open up a database and insert documents:
 
 ```rust,ignore
 let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
 
 // Insert a new document into the Shape collection.
-Shape::new(3).push_into(&db).await?;
+Shape { sides: 3 }.push_into(&db).await?;
 ```
 
 And query data using the Map-Reduce-powered view:
@@ -86,7 +91,10 @@ let triangles = db
 println!("Number of triangles: {}", triangles.len());
 ```
 
-See the [examples README](https://github.com/khonsulabs/bonsaidb/blob/main/examples/README.md) for a list of all available examples.
+You can review the [full example in the repository][view-examples], or see all available examples [in the examples README][examples-readme].
+
+[view-examples]: https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/view-examples.rs
+[examples-readme]: https://github.com/khonsulabs/bonsaidb/blob/main/examples/README.md
 
 ## Feature Flags
 
