@@ -1003,6 +1003,9 @@ pub async fn list_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let doc2_value = Basic::new("second_value");
     let doc2 = collection.push(&doc2_value).await?;
 
+    let all_docs = Basic::all(db).await?;
+    assert_eq!(all_docs.len(), 2);
+
     let both_docs = Basic::list(doc1.id..=doc2.id, db).await?;
     assert_eq!(both_docs.len(), 2);
 

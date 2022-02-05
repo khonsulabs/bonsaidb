@@ -83,8 +83,7 @@ pub trait SerializedCollection: Collection {
             .and_then(|docs| docs.collection_documents())
     }
 
-    /// Retrieves all documents matching `ids`. Documents that are not found
-    /// are not returned, but no error will be generated.
+    /// Retrieves all documents matching the range of `ids`.
     fn list<R: Into<Range<u64>>, C: Connection>(ids: R, connection: &'_ C) -> List<'_, C, Self>
     where
         Self: Sized,
@@ -92,6 +91,17 @@ pub trait SerializedCollection: Collection {
         List(connection::List::new(
             connection::PossiblyOwned::Owned(connection.collection::<Self>()),
             ids.into(),
+        ))
+    }
+
+    /// Retrieves all documents.
+    fn all<C: Connection>(connection: &C) -> List<'_, C, Self>
+    where
+        Self: Sized,
+    {
+        List(connection::List::new(
+            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
+            Range::from(..),
         ))
     }
 

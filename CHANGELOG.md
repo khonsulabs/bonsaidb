@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that allow defining names without specifying an authority. Developers
   creatingreusable collections and/or schemas should not use these methods as
   namespacing is meant to help prevent name collisions.
+- `connection::Collection::all()` and `SchemaCollection::all()` have been
+  implemented as simple wrappers around `list(..)`.
 
 ## v0.1.0
 

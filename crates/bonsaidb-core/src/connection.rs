@@ -149,7 +149,7 @@ use crate::{
 /// # bonsaidb_core::__doctest_prelude!();
 /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-/// for doc in db.collection::<MyCollection>().list(..).await? {
+/// for doc in db.collection::<MyCollection>().all().await? {
 ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
 ///     let deserialized = doc.contents::<MyCollection>()?;
 ///     println!("Deserialized contents: {:?}", deserialized);
@@ -167,7 +167,7 @@ use crate::{
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
 /// for doc in db
 ///     .collection::<MyCollection>()
-///     .list(..)
+///     .list(42..)
 ///     .descending()
 ///     .limit(20)
 ///     .await?
@@ -255,7 +255,7 @@ use crate::{
 /// # bonsaidb_core::__doctest_prelude!();
 /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-/// for doc in MyCollection::list(.., &db).await? {
+/// for doc in MyCollection::all(&db).await? {
 ///     println!(
 ///         "Retrieved #{} with deserialized contents: {:?}",
 ///         doc.header.id, doc.contents
@@ -272,7 +272,7 @@ use crate::{
 /// # bonsaidb_core::__doctest_prelude!();
 /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
 /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-/// for doc in MyCollection::list(.., &db).descending().limit(20).await? {
+/// for doc in MyCollection::list(42.., &db).descending().limit(20).await? {
 ///     println!(
 ///         "Retrieved #{} with deserialized contents: {:?}",
 ///         doc.header.id, doc.contents
@@ -839,10 +839,14 @@ where
         self.connection.get_multiple::<Cl>(ids).await
     }
 
-    /// Retrieves all documents matching `ids`. Documents that are not found
-    /// are not returned, but no error will be generated.
+    /// Retrieves all documents matching the range of `ids`.
     pub fn list<R: Into<Range<u64>>>(&'a self, ids: R) -> List<'a, Cn, Cl> {
         List::new(PossiblyOwned::Borrowed(self), ids.into())
+    }
+
+    /// Retrieves all documents.
+    pub fn all(&'a self) -> List<'a, Cn, Cl> {
+        List::new(PossiblyOwned::Borrowed(self), Range::from(..))
     }
 
     /// Removes a `Document` from the database.
