@@ -31,7 +31,7 @@ pub trait Collection: Debug + Send + Sync {
 
 /// A collection that knows how to serialize and deserialize documents to an associated type.
 ///
-/// These examples in this type use this basic collection definition:
+/// These examples for this type use this basic collection definition:
 ///
 /// ```rust
 /// use bonsaidb_core::{

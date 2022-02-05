@@ -347,6 +347,35 @@ pub trait Connection: Send + Sync {
 }
 
 /// Interacts with a collection over a `Connection`.
+///
+/// These examples in this type use this basic collection definition:
+///
+/// ```rust
+/// use bonsaidb_core::{
+///     schema::{Collection, CollectionName, DefaultSerialization, Schematic},
+///     Error,
+/// };
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default)]
+/// pub struct MyCollection {
+///     pub rank: u32,
+///     pub score: f32,
+/// }
+///
+/// impl Collection for MyCollection {
+///     fn collection_name() -> CollectionName {
+///         CollectionName::private("MyCollection")
+///     }
+///
+///     fn define_views(schema: &mut Schematic) -> Result<(), Error> {
+///         // ...
+///         Ok(())
+///     }
+/// }
+///
+/// impl DefaultSerialization for MyCollection {}
+/// ```
 pub struct Collection<'a, Cn, Cl> {
     connection: &'a Cn,
     _phantom: PhantomData<Cl>, /* allows for extension traits to be written for collections of specific types */

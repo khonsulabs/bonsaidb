@@ -4,7 +4,7 @@ use arc_bytes::serde::{Bytes, CowBytes};
 
 use crate::{
     connection::Connection,
-    document::{BorrowedDocument, Document, Header, OwnedDocument},
+    document::{BorrowedDocument, Header, OwnedDocument},
     schema::SerializedCollection,
     Error,
 };
