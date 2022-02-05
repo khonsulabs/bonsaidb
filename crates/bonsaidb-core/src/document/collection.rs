@@ -4,7 +4,7 @@ use arc_bytes::serde::{Bytes, CowBytes};
 
 use crate::{
     connection::Connection,
-    document::{BorrowedDocument, Header, OwnedDocument},
+    document::{BorrowedDocument, Document, Header, OwnedDocument},
     schema::SerializedCollection,
     Error,
 };
@@ -89,6 +89,20 @@ where
     C: SerializedCollection,
 {
     /// Stores the new value of `contents` in the document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// if let Some(mut document) = MyCollection::get(42, &db).await? {
+    ///     // modify the document
+    ///     document.update(&db).await?;
+    ///     println!("Updated revision: {:?}", document.header.revision);
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     pub async fn update<Cn: Connection>(&mut self, connection: &Cn) -> Result<(), Error> {
         let mut doc = self.to_document()?;
 
@@ -136,6 +150,18 @@ where
     }
 
     /// Removes the document from the collection.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// if let Some(document) = MyCollection::get(42, &db).await? {
+    ///     document.delete(&db).await?;
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     pub async fn delete<Cn: Connection>(&self, connection: &Cn) -> Result<(), Error> {
         connection.collection::<C>().delete(self).await?;
 

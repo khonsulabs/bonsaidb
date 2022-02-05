@@ -30,6 +30,35 @@ pub trait Collection: Debug + Send + Sync {
 }
 
 /// A collection that knows how to serialize and deserialize documents to an associated type.
+///
+/// These examples in this type use this basic collection definition:
+///
+/// ```rust
+/// use bonsaidb_core::{
+///     schema::{Collection, CollectionName, DefaultSerialization, Schematic},
+///     Error,
+/// };
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default)]
+/// pub struct MyCollection {
+///     pub rank: u32,
+///     pub score: f32,
+/// }
+///
+/// impl Collection for MyCollection {
+///     fn collection_name() -> CollectionName {
+///         CollectionName::private("MyCollection")
+///     }
+///
+///     fn define_views(schema: &mut Schematic) -> Result<(), Error> {
+///         // ...
+///         Ok(())
+///     }
+/// }
+///
+/// impl DefaultSerialization for MyCollection {}
+/// ```
 #[async_trait]
 pub trait SerializedCollection: Collection {
     /// The type of the contents stored in documents in this collection.
@@ -56,6 +85,21 @@ pub trait SerializedCollection: Collection {
     }
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// if let Some(doc) = MyCollection::get(42, &db).await? {
+    ///     println!(
+    ///         "Retrieved revision {} with deserialized contents: {:?}",
+    ///         doc.header.revision, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn get<C: Connection>(
         id: u64,
         connection: &C,
@@ -69,6 +113,21 @@ pub trait SerializedCollection: Collection {
 
     /// Retrieves all documents matching `ids`. Documents that are not found
     /// are not returned, but no error will be generated.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// for doc in MyCollection::get_multiple(&[42, 43], &db).await? {
+    ///     println!(
+    ///         "Retrieved #{} with deserialized contents: {:?}",
+    ///         doc.header.id, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn get_multiple<C: Connection>(
         ids: &[u64],
         connection: &C,
@@ -84,6 +143,21 @@ pub trait SerializedCollection: Collection {
     }
 
     /// Retrieves all documents matching the range of `ids`.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// for doc in MyCollection::list(42.., &db).descending().limit(20).await? {
+    ///     println!(
+    ///         "Retrieved #{} with deserialized contents: {:?}",
+    ///         doc.header.id, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     fn list<R: Into<Range<u64>>, C: Connection>(ids: R, connection: &'_ C) -> List<'_, C, Self>
     where
         Self: Sized,
@@ -95,6 +169,21 @@ pub trait SerializedCollection: Collection {
     }
 
     /// Retrieves all documents.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// for doc in MyCollection::all(&db).await? {
+    ///     println!(
+    ///         "Retrieved #{} with deserialized contents: {:?}",
+    ///         doc.header.id, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     fn all<C: Connection>(connection: &C) -> List<'_, C, Self>
     where
         Self: Sized,
@@ -106,6 +195,21 @@ pub trait SerializedCollection: Collection {
     }
 
     /// Pushes this value into the collection, returning the created document.
+    /// This function is useful when `Self != Self::Contents`.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::push(MyCollection::default(), &db).await?;
+    /// println!(
+    ///     "Inserted {:?} with id {} with revision {}",
+    ///     document.contents, document.header.id, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn push<Cn: Connection>(
         contents: Self::Contents,
         connection: &Cn,
@@ -122,6 +226,20 @@ pub trait SerializedCollection: Collection {
     }
 
     /// Pushes this value into the collection, returning the created document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::default().push_into(&db).await?;
+    /// println!(
+    ///     "Inserted {:?} with id {} with revision {}",
+    ///     document.contents, document.header.id, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn push_into<Cn: Connection>(
         self,
         connection: &Cn,
@@ -134,6 +252,21 @@ pub trait SerializedCollection: Collection {
 
     /// Inserts this value into the collection with the specified id, returning
     /// the created document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::insert(42, MyCollection::default(), &db).await?;
+    /// assert_eq!(document.header.id, 42);
+    /// println!(
+    ///     "Inserted {:?} with revision {}",
+    ///     document.contents, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn insert<Cn: Connection>(
         id: u64,
         contents: Self::Contents,
@@ -152,6 +285,21 @@ pub trait SerializedCollection: Collection {
 
     /// Inserts this value into the collection with the given `id`, returning
     /// the created document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::default().insert_into(42, &db).await?;
+    /// assert_eq!(document.header.id, 42);
+    /// println!(
+    ///     "Inserted {:?} with revision {}",
+    ///     document.contents, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn insert_into<Cn: Connection>(
         self,
         id: u64,
