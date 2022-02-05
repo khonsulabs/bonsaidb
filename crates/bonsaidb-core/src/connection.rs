@@ -55,7 +55,7 @@ use crate::{
 ///
 /// impl Collection for MyCollection {
 ///     fn collection_name() -> CollectionName {
-///         CollectionName::new("MyAuthority", "MyCollection")
+///         CollectionName::private("MyCollection")
 ///     }
 ///
 ///     fn define_views(schema: &mut Schematic) -> Result<(), Error> {
@@ -1585,7 +1585,7 @@ macro_rules! __doctest_prelude {
 
         impl Schema for MySchema {
             fn schema_name() -> SchemaName {
-                SchemaName::new("MyAuthority", "MySchema")
+                SchemaName::private("MySchema")
             }
 
             fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
@@ -1616,7 +1616,7 @@ macro_rules! __doctest_prelude {
 
         impl Collection for MyCollection {
             fn collection_name() -> CollectionName {
-                CollectionName::new("MyAuthority", "MyCollection")
+                CollectionName::private("MyCollection")
             }
 
             fn define_views(schema: &mut Schematic) -> Result<(), bonsaidb_core::Error> {

@@ -17,7 +17,7 @@ use crate::collections::ResizableDocument;
 
 impl Collection for ResizableDocument {
     fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "resizable-docs")
+        CollectionName::private("resizable-docs")
     }
 
     fn define_views(_schema: &mut Schematic) -> Result<(), Error> {

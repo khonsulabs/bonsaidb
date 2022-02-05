@@ -39,7 +39,7 @@ pub struct BlogPost {
 
 impl Collection for BlogPost {
     fn collection_name() -> CollectionName {
-        CollectionName::new("view-example", "blog-post")
+        CollectionName::private("blog-post")
     }
 
     fn define_views(schema: &mut bonsaidb::core::schema::Schematic) -> Result<(), Error> {

@@ -22,7 +22,7 @@ impl Shape {
 
 impl Collection for Shape {
     fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "shapes")
+        CollectionName::private("shapes")
     }
 
     fn define_views(schema: &mut Schematic) -> Result<(), Error> {

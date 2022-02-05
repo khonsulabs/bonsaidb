@@ -22,7 +22,7 @@ struct Message {
 
 impl Collection for Message {
     fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "messages")
+        CollectionName::private("messages")
     }
 
     fn define_views(_schema: &mut Schematic) -> Result<(), Error> {

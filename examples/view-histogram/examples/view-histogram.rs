@@ -102,7 +102,7 @@ pub struct Samples {
 
 impl Collection for Samples {
     fn collection_name() -> CollectionName {
-        CollectionName::new("histogram-example", "samples")
+        CollectionName::private("samples")
     }
 
     fn define_views(schema: &mut Schematic) -> Result<(), bonsaidb::core::Error> {

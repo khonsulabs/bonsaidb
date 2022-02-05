@@ -398,7 +398,7 @@ pub struct BasicSchema;
 
 impl Schema for BasicSchema {
     fn schema_name() -> SchemaName {
-        SchemaName::new("khonsulabs", "basic")
+        SchemaName::private("basic")
     }
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
