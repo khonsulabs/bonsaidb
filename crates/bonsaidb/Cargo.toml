@@ -103,11 +103,11 @@ client-password-hashing = [
 ]
 
 [dependencies]
-bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0", default-features = false }
-bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.0", default-features = false, optional = true }
-bonsaidb-client = { path = "../bonsaidb-client", version = "0.1.0", default-features = false, optional = true }
-bonsaidb-server = { path = "../bonsaidb-server", version = "0.1.0", default-features = false, optional = true }
-bonsaidb-keystorage-s3 = { path = "../bonsaidb-keystorage-s3", version = "0.1.0", default-features = false, optional = true }
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0-dev.4", default-features = false, features=["included-from-omnibus"] }
+bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.0-dev.4", default-features = false, optional = true }
+bonsaidb-client = { path = "../bonsaidb-client", version = "0.1.0-dev.4", default-features = false, optional = true }
+bonsaidb-server = { path = "../bonsaidb-server", version = "0.1.0-dev.4", default-features = false, optional = true }
+bonsaidb-keystorage-s3 = { path = "../bonsaidb-keystorage-s3", version = "0.1.0-dev.4", default-features = false, optional = true }
 
 tokio = { version = "1", features = ["full"], optional = true }
 clap = { version = "3", optional = true, features = ["derive"] }

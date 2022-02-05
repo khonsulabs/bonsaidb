@@ -1,12 +1,12 @@
 use core::fmt::Debug;
 
-use bonsaidb::core::schema::Schematic;
+use bonsaidb::core::{schema::Schematic, document::CollectionDocument};
 
 #[test]
 fn name_only() {
     use bonsaidb::core::schema::Collection;
     #[derive(Collection, Debug)]
-    #[collection(name = "Name", authority = "Authority")]
+    #[collection(name = "Name", authority = "Authority", core = ::bonsaidb::core)]
     struct Test<T: Sync + Send + Debug>(T);
 
     assert_eq!(
@@ -17,8 +17,7 @@ fn name_only() {
 #[test]
 fn views() {
     use bonsaidb::core::schema::{
-        Collection, CollectionDocument, CollectionViewSchema, DefaultViewSerialization, Name, View,
-        ViewMapResult,
+        Collection, CollectionViewSchema, DefaultViewSerialization, Name, View, ViewMapResult,
     };
     use serde::{Deserialize, Serialize};
 

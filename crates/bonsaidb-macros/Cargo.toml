@@ -20,6 +20,7 @@ proc-macro2 = "1.0.36"
 quote = "1"
 syn = "1"
 trybuild = "1.0.54"
+proc-macro-crate = "1.1.0"
 
 # TODO change this to version after release of attribute-derive
 [dependencies.attribute-derive]
@@ -35,3 +36,9 @@ path = "../bonsaidb/"
 [dev-dependencies.serde]
 version = "1.0.133"
 features = ["derive"]
+
+[features]
+omnibus-path = []
+server-path = []
+local-path = []
+client-path = []
