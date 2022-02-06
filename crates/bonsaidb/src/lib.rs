@@ -14,29 +14,26 @@
     clippy::option_if_let_else,
     clippy::multiple_crate_versions, // TODO custodian-password deps + x25119 deps
 )]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 #[cfg(feature = "client")]
-#[doc(inline)]
 pub use bonsaidb_client as client;
-#[doc(inline)]
 pub use bonsaidb_core as core;
 #[cfg(feature = "local")]
-#[doc(inline)]
 pub use bonsaidb_local as local;
 #[cfg(feature = "server")]
-#[doc(inline)]
 pub use bonsaidb_server as server;
-#[cfg(all(feature = "client", feature = "server"))]
-mod any_connection;
 #[cfg(feature = "cli")]
 pub mod cli;
 
 /// `VaultKeyStorage` implementors.
 #[cfg(feature = "keystorage-s3")]
 pub mod keystorage {
-    #[cfg(feature = "keystorage-s3")]
-    #[doc(inline)]
     pub use bonsaidb_keystorage_s3 as s3;
 }
+
 #[cfg(all(feature = "client", feature = "server"))]
-pub use any_connection::*;
+mod any_connection;
+#[cfg(all(feature = "client", feature = "server"))]
+pub use any_connection::{AnyDatabase, AnyServerConnection};

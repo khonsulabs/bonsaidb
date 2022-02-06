@@ -15,6 +15,8 @@
     clippy::option_if_let_else,
     clippy::module_name_repetitions,
 )]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 /// Types for creating and validating permissions.
 pub mod permissions;

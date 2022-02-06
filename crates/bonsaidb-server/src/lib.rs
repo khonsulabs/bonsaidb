@@ -16,6 +16,8 @@
     clippy::option_if_let_else,
     clippy::module_name_repetitions,
 )]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 mod backend;
 /// Command-line interface for the server.

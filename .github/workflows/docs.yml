@@ -12,6 +12,8 @@ jobs:
       - name: Generate Docs
         run: |
           cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: --cfg docsrs
 
       - name: Deploy Docs
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || github.event.ref_type == 'tag'
