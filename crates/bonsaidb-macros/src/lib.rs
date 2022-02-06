@@ -56,10 +56,7 @@ fn core_path() -> Path {
     invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]`, `serialization = Serialization` are supported attributes"#
 )]
 struct CollectionAttribute {
-    #[attribute(
-        missing = r#"You need to specify the collection authority via `#[collection(authority = "authority")]`"#
-    )]
-    authority: String,
+    authority: Option<String>,
     #[attribute(
         missing = r#"You need to specify the collection name via `#[collection(name = "name")]`"#
     )]
@@ -116,10 +113,15 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         },
     };
 
+    let name = authority.map_or_else(
+        || quote!(#core::schema::CollectionName::private(#name)),
+        |authority| quote!(#core::schema::CollectionName::new(#authority, #name)),
+    );
+
     quote! {
         impl #impl_generics #core::schema::Collection for #ident #ty_generics #where_clause {
             fn collection_name() -> #core::schema::CollectionName {
-                #core::schema::CollectionName::new(#authority, #name)
+                #name
             }
             fn define_views(schema: &mut #core::schema::Schematic) -> ::core::result::Result<(), #core::Error>{
                 #( schema.define_view(#views)?; )*
@@ -172,7 +174,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         key,
         name,
         value,
-        core
+        core,
     } = ViewAttribute::from_attributes(attrs).unwrap_or_abort();
 
     let core = core.unwrap_or_else(core_path);

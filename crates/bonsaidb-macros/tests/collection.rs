@@ -1,12 +1,24 @@
 use core::fmt::Debug;
 
-use bonsaidb::core::{schema::Schematic, document::CollectionDocument};
+use bonsaidb::core::{document::CollectionDocument, schema::Schematic};
 
 #[test]
 fn name_only() {
     use bonsaidb::core::schema::Collection;
     #[derive(Collection, Debug)]
-    #[collection(name = "Name", authority = "Authority", core = ::bonsaidb::core)]
+    #[collection(name = "Name", core = ::bonsaidb::core)]
+    struct Test<T: Sync + Send + Debug>(T);
+
+    assert_eq!(
+        Test::<String>::collection_name(),
+        bonsaidb::core::schema::CollectionName::private("Name")
+    );
+}
+#[test]
+fn name_and_authority() {
+    use bonsaidb::core::schema::Collection;
+    #[derive(Collection, Debug)]
+    #[collection(name = "Name", authority = "Authority")]
     struct Test<T: Sync + Send + Debug>(T);
 
     assert_eq!(
