@@ -15,16 +15,13 @@ homepage = "https://bonsaidb.io/"
 proc-macro = true
 
 [dependencies]
+attribute-derive = "0.1.0"
+proc-macro-crate = "1.1.0"
 proc-macro-error = "1"
 proc-macro2 = "1.0.36"
 quote = "1"
 syn = "1"
 trybuild = "1.0.54"
-proc-macro-crate = "1.1.0"
-
-# TODO change this to version after release of attribute-derive
-[dependencies.attribute-derive]
-git = "https://github.com/ModProg/attribute-derive"
 
 [dev-dependencies]
 compiletest_rs = "0.7"
