@@ -1,0 +1,7 @@
+error: You need to specify the collection name via `#[collection(name = \"name\")]`
+ --> tests/ui/collection/missing_name.rs:3:10
+  |
+3 | #[derive(Collection)]
+  |          ^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `Collection` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -15,9 +15,27 @@ homepage = "https://bonsaidb.io/"
 proc-macro = true
 
 [dependencies]
-syn = "1"
-quote = "1"
+attribute-derive = "0.1.0"
+proc-macro-crate = "1.1.0"
 proc-macro-error = "1"
+proc-macro2 = "1.0.36"
+quote = "1"
+syn = "1"
+trybuild = "1.0.54"
 
 [dev-dependencies]
 compiletest_rs = "0.7"
+transmog-bincode = "0.1.0-dev.2"
+
+[dev-dependencies.bonsaidb]
+path = "../bonsaidb/"
+
+[dev-dependencies.serde]
+version = "1.0.133"
+features = ["derive"]
+
+[features]
+omnibus-path = []
+server-path = []
+local-path = []
+client-path = []

@@ -39,7 +39,7 @@ included-from-omnibus = []
 
 [dependencies]
 async-trait = "0.1"
-bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0" }
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0", features = ["included-from-local"] }
 bonsaidb-utils = { path = "../bonsaidb-utils", version = "0.1.0" }
 nebari = { version = "0.2" }
 thiserror = "1"

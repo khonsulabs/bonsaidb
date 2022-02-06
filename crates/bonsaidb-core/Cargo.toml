@@ -21,6 +21,10 @@ instrument = ["pot/tracing"]
 multiuser = ["zeroize"]
 encryption = []
 password-hashing = ["multiuser"]
+included-from-omnibus = ["bonsaidb-macros/omnibus-path"]
+included-from-server = ["bonsaidb-macros/server-path"]
+included-from-local = ["bonsaidb-macros/local-path"]
+included-from-client = ["bonsaidb-macros/client-path"]
 
 [dependencies]
 bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.0" }

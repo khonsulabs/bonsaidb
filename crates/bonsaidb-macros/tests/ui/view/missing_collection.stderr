@@ -1,0 +1,7 @@
+error: You need to specify the collection type via `#[view(collection = CollectionType)]`
+ --> tests/ui/view/missing_collection.rs:3:10
+  |
+3 | #[derive(View)]
+  |          ^^^^
+  |
+  = note: this error originates in the derive macro `View` (in Nightly builds, run with -Z macro-backtrace for more info)
