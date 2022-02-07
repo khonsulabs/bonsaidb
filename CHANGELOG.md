@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   namespacing is meant to help prevent name collisions.
 - `connection::Collection::all()` and `SchemaCollection::all()` have been
   implemented as simple wrappers around `list(..)`.
+- The `Collection` trait can now be derived rather than manually implemented:
+
+  ```rust
+  #[derive(Debug, Serialize, Deserialize, Collection)]
+  #[collection(name = "shapes", views = [ShapesByNumberOfSides])]
+  struct Shape {
+      pub sides: u32,
+  }
+  ```
+
+  Pull request: #146
 
 ## v0.1.0
 

@@ -68,8 +68,7 @@ fn views() {
 
 #[test]
 fn serialization() {
-    use bonsaidb::core::schema::Collection;
-    use bonsaidb::core::schema::SerializedCollection;
+    use bonsaidb::core::schema::{Collection, SerializedCollection};
     use serde::{Deserialize, Serialize};
 
     #[derive(Collection, Debug, Deserialize, Serialize)]

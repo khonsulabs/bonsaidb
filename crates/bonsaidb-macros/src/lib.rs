@@ -32,11 +32,11 @@ fn core_path() -> Path {
             let ident = Ident::new(&name, Span::call_site());
             parse_quote!(::#ident::core)
         }
-        Ok(FoundCrate::Itself) => parse_quote!(crate),
+        Ok(FoundCrate::Itself) => parse_quote!(crate::core),
         Err(_) => match crate_name("bonsaidb_core") {
             Ok(FoundCrate::Name(name)) => {
                 let ident = Ident::new(&name, Span::call_site());
-                parse_quote!(::#ident::core)
+                parse_quote!(::#ident)
             }
             Ok(FoundCrate::Itself) => parse_quote!(crate),
             Err(_) => match () {

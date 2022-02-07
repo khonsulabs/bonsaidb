@@ -350,31 +350,19 @@ pub trait Connection: Send + Sync {
 ///
 /// These examples in this type use this basic collection definition:
 ///
-/// ```rust
+/// ```rust,ignore
 /// use bonsaidb_core::{
 ///     schema::{Collection, CollectionName, DefaultSerialization, Schematic},
 ///     Error,
 /// };
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default)]
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
 /// pub struct MyCollection {
 ///     pub rank: u32,
 ///     pub score: f32,
 /// }
-///
-/// impl Collection for MyCollection {
-///     fn collection_name() -> CollectionName {
-///         CollectionName::private("MyCollection")
-///     }
-///
-///     fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-///         // ...
-///         Ok(())
-///     }
-/// }
-///
-/// impl DefaultSerialization for MyCollection {}
 /// ```
 pub struct Collection<'a, Cn, Cl> {
     connection: &'a Cn,
@@ -1644,7 +1632,8 @@ macro_rules! __doctest_prelude {
             }
         }
 
-        #[derive(Debug, Serialize, Deserialize, Default)]
+        #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+        #[collection(name = "MyCollection", views = [MyCollectionByName], core = $crate)]
         pub struct MyCollection {
             pub name: String,
             pub rank: u32,
@@ -1665,22 +1654,9 @@ macro_rules! __doctest_prelude {
             }
         }
 
-        impl Collection for MyCollection {
-            fn collection_name() -> CollectionName {
-                CollectionName::private("MyCollection")
-            }
-
-            fn define_views(schema: &mut Schematic) -> Result<(), bonsaidb_core::Error> {
-                schema.define_view(MyCollectionByName)?;
-                Ok(())
-            }
-        }
-
         impl NamedCollection for MyCollection {
             type ByNameView = MyCollectionByName;
         }
-
-        impl DefaultSerialization for MyCollection {}
 
         #[derive(Debug)]
         pub struct ScoresByRank;

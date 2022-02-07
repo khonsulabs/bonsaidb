@@ -1,5 +1,6 @@
-use bonsaidb::core::schema::Collection;
 use core::fmt::Debug;
+
+use bonsaidb::core::schema::Collection;
 
 #[test]
 fn name_only() {

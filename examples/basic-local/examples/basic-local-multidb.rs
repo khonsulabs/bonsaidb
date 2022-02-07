@@ -3,10 +3,7 @@ use std::time::SystemTime;
 use bonsaidb::{
     core::{
         connection::{Connection, StorageConnection},
-        schema::{
-            Collection, CollectionName, DefaultSerialization, Schematic, SerializedCollection,
-        },
-        Error,
+        schema::{Collection, SerializedCollection},
     },
     local::{
         config::{Builder, StorageConfiguration},
@@ -15,23 +12,12 @@ use bonsaidb::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "messages")]
 struct Message {
     pub timestamp: SystemTime,
     pub contents: String,
 }
-
-impl Collection for Message {
-    fn collection_name() -> CollectionName {
-        CollectionName::private("messages")
-    }
-
-    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
-impl DefaultSerialization for Message {}
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {

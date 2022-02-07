@@ -3,9 +3,8 @@ use bonsaidb::{
         connection::Connection,
         document::{BorrowedDocument, Document},
         schema::{
-            view::map::ViewMappedValue, Collection, CollectionName, DefaultSerialization,
-            DefaultViewSerialization, Name, ReduceResult, SerializedCollection, View,
-            ViewMapResult, ViewSchema,
+            view::map::ViewMappedValue, Collection, DefaultViewSerialization, Name, ReduceResult,
+            SerializedCollection, View, ViewMapResult, ViewSchema,
         },
         Error,
     },
@@ -17,25 +16,14 @@ use bonsaidb::{
 use serde::{Deserialize, Serialize};
 
 // ANCHOR: struct
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Collection)]
+#[collection(name = "blog-post", views = [BlogPostsByCategory])]
 pub struct BlogPost {
     pub title: String,
     pub body: String,
     pub category: Option<String>,
 }
 // ANCHOR_END: struct
-
-impl Collection for BlogPost {
-    fn collection_name() -> CollectionName {
-        CollectionName::private("blog-post")
-    }
-
-    fn define_views(schema: &mut bonsaidb::core::schema::Schematic) -> Result<(), Error> {
-        schema.define_view(BlogPostsByCategory)
-    }
-}
-
-impl DefaultSerialization for BlogPost {}
 
 #[derive(Debug, Clone)]
 pub struct BlogPostsByCategory;

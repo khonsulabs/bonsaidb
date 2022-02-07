@@ -5,6 +5,8 @@ mod schematic;
 pub mod view;
 use std::fmt::Debug;
 
+pub use bonsaidb_macros::{Collection, View};
+
 pub use self::{
     collection::{
         Collection, DefaultSerialization, Entry, InsertError, List, NamedCollection,
@@ -19,8 +21,6 @@ pub use self::{
     },
 };
 use crate::Error;
-
-pub use bonsaidb_macros::{Collection, View};
 
 /// Defines a group of collections that are stored into a single database.
 pub trait Schema: Send + Sync + Debug + 'static {

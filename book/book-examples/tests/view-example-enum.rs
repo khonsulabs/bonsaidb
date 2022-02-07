@@ -4,8 +4,8 @@ use bonsaidb::{
         document::{BorrowedDocument, Document},
         schema::{
             view::{map::ViewMappedValue, EnumKey},
-            Collection, CollectionName, DefaultSerialization, DefaultViewSerialization, Name,
-            ReduceResult, View, ViewMapResult, ViewSchema,
+            Collection, DefaultViewSerialization, Name, ReduceResult, View, ViewMapResult,
+            ViewSchema,
         },
         Error,
     },
@@ -29,25 +29,14 @@ impl EnumKey for Category {}
 // ANCHOR_END: enum
 
 // ANCHOR: struct
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Collection)]
+#[collection(name = "blog-post", views = [BlogPostsByCategory])]
 pub struct BlogPost {
     pub title: String,
     pub body: String,
     pub category: Option<Category>,
 }
 // ANCHOR_END: struct
-
-impl Collection for BlogPost {
-    fn collection_name() -> CollectionName {
-        CollectionName::private("blog-post")
-    }
-
-    fn define_views(schema: &mut bonsaidb::core::schema::Schematic) -> Result<(), Error> {
-        schema.define_view(BlogPostsByCategory)
-    }
-}
-
-impl DefaultSerialization for BlogPost {}
 
 #[derive(Debug, Clone)]
 pub struct BlogPostsByCategory;

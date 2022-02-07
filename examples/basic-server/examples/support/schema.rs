@@ -1,15 +1,14 @@
 use bonsaidb::core::{
     document::CollectionDocument,
     schema::{
-        view::CollectionViewSchema, Collection, CollectionName, DefaultSerialization,
-        DefaultViewSerialization, Name, ReduceResult, Schematic, View, ViewMapResult,
-        ViewMappedValue,
+        view::CollectionViewSchema, Collection, DefaultViewSerialization, Name, ReduceResult, View,
+        ViewMapResult, ViewMappedValue,
     },
-    Error,
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "shapes", views = [ShapesByNumberOfSides])]
 pub struct Shape {
     pub sides: u32,
 }
@@ -19,18 +18,6 @@ impl Shape {
         Self { sides }
     }
 }
-
-impl Collection for Shape {
-    fn collection_name() -> CollectionName {
-        CollectionName::private("shapes")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(ShapesByNumberOfSides)
-    }
-}
-
-impl DefaultSerialization for Shape {}
 
 #[derive(Debug, Clone)]
 pub struct ShapesByNumberOfSides;

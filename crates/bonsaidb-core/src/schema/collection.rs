@@ -33,31 +33,19 @@ pub trait Collection: Debug + Send + Sync {
 ///
 /// These examples for this type use this basic collection definition:
 ///
-/// ```rust
+/// ```rust,ignore
 /// use bonsaidb_core::{
 ///     schema::{Collection, CollectionName, DefaultSerialization, Schematic},
 ///     Error,
 /// };
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default)]
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
 /// pub struct MyCollection {
 ///     pub rank: u32,
 ///     pub score: f32,
 /// }
-///
-/// impl Collection for MyCollection {
-///     fn collection_name() -> CollectionName {
-///         CollectionName::private("MyCollection")
-///     }
-///
-///     fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-///         // ...
-///         Ok(())
-///     }
-/// }
-///
-/// impl DefaultSerialization for MyCollection {}
 /// ```
 #[async_trait]
 pub trait SerializedCollection: Collection {

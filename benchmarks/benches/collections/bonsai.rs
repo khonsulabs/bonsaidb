@@ -1,10 +1,5 @@
 use bonsaidb::{
-    core::{
-        connection::Connection,
-        schema::{Collection, CollectionName, DefaultSerialization, Schematic},
-        test_util::TestDirectory,
-        Error,
-    },
+    core::{connection::Connection, test_util::TestDirectory},
     local::{
         config::{Builder, StorageConfiguration},
         Database,
@@ -14,18 +9,6 @@ use criterion::{measurement::WallTime, BenchmarkGroup, BenchmarkId};
 use ubyte::ToByteUnit;
 
 use crate::collections::ResizableDocument;
-
-impl Collection for ResizableDocument {
-    fn collection_name() -> CollectionName {
-        CollectionName::private("resizable-docs")
-    }
-
-    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
-impl DefaultSerialization for ResizableDocument {}
 
 async fn save_document(doc: &ResizableDocument, db: &Database) {
     db.collection::<ResizableDocument>()

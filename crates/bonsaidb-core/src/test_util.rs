@@ -30,7 +30,10 @@ use crate::{
     Error, ENCRYPTION_ENABLED,
 };
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Collection)]
+// This collection purposely uses names with characters that need
+// escaping, since it's used in backup/restore.
+#[collection(name = "_basic", authority = "khonsulabs_", views = [BasicCount, BasicByParentId, BasicByTag, BasicByCategory], core = crate)]
 pub struct Basic {
     pub value: String,
     pub category: Option<String>,
@@ -64,23 +67,6 @@ impl Basic {
         self
     }
 }
-
-impl Collection for Basic {
-    fn collection_name() -> CollectionName {
-        // This collection purposely uses names with characters that need
-        // escaping, since it's used in backup/restore.
-        CollectionName::new("khonsulabs_", "_basic")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(BasicCount)?;
-        schema.define_view(BasicByParentId)?;
-        schema.define_view(BasicByTag)?;
-        schema.define_view(BasicByCategory)
-    }
-}
-
-impl DefaultSerialization for Basic {}
 
 #[derive(Debug, Clone)]
 pub struct BasicCount;
@@ -408,7 +394,8 @@ impl Schema for BasicSchema {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Collection)]
+#[collection(name = "unique", authority = "khonsulabs", views = [UniqueValue], core = crate)]
 pub struct Unique {
     pub value: String,
 }
@@ -420,18 +407,6 @@ impl Unique {
         }
     }
 }
-
-impl Collection for Unique {
-    fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "unique")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(UniqueValue)
-    }
-}
-
-impl DefaultSerialization for Unique {}
 
 #[derive(Debug, Clone)]
 pub struct UniqueValue;
@@ -536,18 +511,9 @@ impl Collection for BasicCollectionWithOnlyBrokenParentId {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Collection)]
+#[collection(name = "unassociated", authority = "khonsulabs", core = crate)]
 pub struct UnassociatedCollection;
-
-impl Collection for UnassociatedCollection {
-    fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "unassociated")
-    }
-
-    fn define_views(_schema: &mut Schematic) -> Result<(), Error> {
-        Ok(())
-    }
-}
 
 #[derive(Copy, Clone, Debug)]
 pub enum HarnessTest {

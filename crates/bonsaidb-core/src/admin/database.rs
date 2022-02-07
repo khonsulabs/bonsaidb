@@ -3,32 +3,18 @@ use serde::{Deserialize, Serialize};
 use crate::{
     define_basic_unique_mapped_view,
     document::CollectionDocument,
-    schema::{
-        Collection, CollectionName, DefaultSerialization, NamedCollection, SchemaName, Schematic,
-    },
-    Error,
+    schema::{Collection, NamedCollection, SchemaName},
 };
 
 /// A database stored in `BonsaiDb`.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Collection)]
+#[collection(authority = "bonsaidb", name = "databases", views = [ByName], core = crate)]
 pub struct Database {
     /// The name of the database.
     pub name: String,
     /// The schema defining the database.
     pub schema: SchemaName,
 }
-
-impl Collection for Database {
-    fn collection_name() -> CollectionName {
-        CollectionName::new("bonsaidb", "databases")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(ByName)
-    }
-}
-
-impl DefaultSerialization for Database {}
 
 define_basic_unique_mapped_view!(
     ByName,

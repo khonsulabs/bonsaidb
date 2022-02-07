@@ -20,8 +20,8 @@ use bonsaidb::{
         connection::Connection,
         document::CollectionDocument,
         schema::{
-            view::CollectionViewSchema, Collection, CollectionName, DefaultSerialization, Name,
-            ReduceResult, Schematic, SerializedView, View, ViewMappedValue,
+            view::CollectionViewSchema, Collection, Name, ReduceResult, SerializedView, View,
+            ViewMappedValue,
         },
         transmog::{Format, OwnedDeserializer},
     },
@@ -92,25 +92,14 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
 }
 
 /// A set of samples that were taken at a specific time.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "samples", views = [AsHistogram])]
 pub struct Samples {
     /// The timestamp of the samples.
     pub timestamp: u64,
     /// The raw samples.
     pub entries: Vec<u64>,
 }
-
-impl Collection for Samples {
-    fn collection_name() -> CollectionName {
-        CollectionName::private("samples")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), bonsaidb::core::Error> {
-        schema.define_view(AsHistogram)
-    }
-}
-
-impl DefaultSerialization for Samples {}
 
 /// A view for [`Samples`] which produces a histogram.
 #[derive(Debug, Clone)]
