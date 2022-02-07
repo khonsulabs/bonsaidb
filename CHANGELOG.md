@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   namespacing is meant to help prevent name collisions.
 - `connection::Collection::all()` and `SchemaCollection::all()` have been
   implemented as simple wrappers around `list(..)`.
-- The `Collection` trait can now be derived rather than manually implemented:
+- [#146][146]: The `Collection` trait can now be derived rather than manually implemented:
 
   ```rust
   #[derive(Debug, Serialize, Deserialize, Collection)]
@@ -25,8 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   }
   ```
 
-  Pull request: #146
-
+[146]: https://github.com/khonsulabs/bonsaidb/pull/146
+  
 ## v0.1.0
 
 ### Added

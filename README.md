@@ -22,22 +22,11 @@ The [`view-examples` example][view-examples] shows how to define a simple schema
 First, here's how the schema is defined:
 
 ```rust,ignore
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "shapes", views = [ShapesByNumberOfSides])]
 struct Shape {
     pub sides: u32,
 }
-
-impl Collection for Shape {
-    fn collection_name() -> CollectionName {
-        CollectionName::private("shapes")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(ShapesByNumberOfSides)
-    }
-}
-
-impl DefaultSerialization for Shape {}
 
 #[derive(Debug, Clone)]
 struct ShapesByNumberOfSides;
