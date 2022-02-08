@@ -14,6 +14,8 @@
     clippy::option_if_let_else,
     clippy::module_name_repetitions,
 )]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 /// Command-line interface helpers.
 #[cfg(feature = "cli")]

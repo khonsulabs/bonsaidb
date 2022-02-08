@@ -128,3 +128,4 @@ env_logger = "0.9"
 
 [package.metadata.docs.rs]
 all-features = true
+rustc-args = ["--cfg", "docsrs"]
