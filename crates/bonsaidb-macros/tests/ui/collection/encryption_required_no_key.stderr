@@ -1,0 +1,7 @@
+error: If `collection(encryption_required)` is set you need to provide an encryption key via `collection(encryption_key = EncryptionKey)`
+ --> tests/ui/collection/encryption_required_no_key.rs:3:10
+  |
+3 | #[derive(Collection)]
+  |          ^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `Collection` (in Nightly builds, run with -Z macro-backtrace for more info)

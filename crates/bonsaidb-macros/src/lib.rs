@@ -15,10 +15,10 @@
 use attribute_derive::Attribute;
 use proc_macro2::{Span, TokenStream};
 use proc_macro_crate::{crate_name, FoundCrate};
-use proc_macro_error::{proc_macro_error, ResultExt};
-use quote::quote;
+use proc_macro_error::{proc_macro_error, ResultExt, abort_call_site};
+use quote::{quote, ToTokens};
 use syn::{
-    parse_macro_input, parse_quote, punctuated::Punctuated, token::Paren, DeriveInput, Ident,
+    parse_macro_input, parse_quote, punctuated::Punctuated, token::Paren, DeriveInput, Expr, Ident,
     LitStr, Path, Type, TypeTuple,
 };
 
@@ -68,6 +68,11 @@ struct CollectionAttribute {
         expected = r#"Specify the `serialization` like so: `serialization = Format` or `serialization = None` to disable deriving it"#
     )]
     serialization: Option<Path>,
+    // TODO add some explanaition when it is possble to integrate the parse error in the printed
+    // error message, for now the default error is probably more helpful
+    encryption_key: Option<Expr>,
+    encryption_required: bool,
+    encryption_optional: bool,
     #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
     core: Option<Path>,
 }
@@ -90,7 +95,14 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         views,
         serialization,
         core,
+        encryption_key,
+        encryption_required,
+        encryption_optional,
     } = CollectionAttribute::from_attributes(attrs).unwrap_or_abort();
+
+    if encryption_required && encryption_key.is_none() {
+        abort_call_site!("If `collection(encryption_required)` is set you need to provide an encryption key via `collection(encryption_key = EncryptionKey)`")
+    }
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -118,6 +130,25 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         |authority| quote!(#core::schema::CollectionName::new(#authority, #name)),
     );
 
+    let encryption = encryption_key.map(|encryption_key| {
+        let encryption = if encryption_required || !encryption_optional {
+            encryption_key.into_token_stream()
+        } else {
+            quote! {
+                if #core::ENCRYPTION_ENABLED {
+                    #encryption_key
+                } else {
+                    ::core::option::Option::None
+                }
+            }
+        };
+        quote! {
+            fn encryption_key() -> ::core::option::Option<#core::document::KeyId> {
+                #encryption
+            }
+        }
+    });
+
     quote! {
         impl #impl_generics #core::schema::Collection for #ident #ty_generics #where_clause {
             fn collection_name() -> #core::schema::CollectionName {
@@ -127,6 +158,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
                 #( schema.define_view(#views)?; )*
                 ::core::result::Result::Ok(())
             }
+            #encryption
         }
         #serialization
     }
