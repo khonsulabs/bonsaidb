@@ -163,6 +163,11 @@ impl Builder for ServerConfiguration {
         self
     }
 
+    fn memory_only(mut self) -> Self {
+        self.storage.memory_only = true;
+        self
+    }
+
     fn unique_id(mut self, unique_id: u64) -> Self {
         self.storage.unique_id = Some(unique_id);
         self

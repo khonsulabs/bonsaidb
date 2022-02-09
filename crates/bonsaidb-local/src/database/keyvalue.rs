@@ -16,7 +16,7 @@ use bonsaidb_core::{
 };
 use bonsaidb_utils::fast_async_lock;
 use nebari::{
-    io::fs::StdFile,
+    io::any::AnyFile,
     tree::{CompareSwap, KeyEvaluation, Operation, Root, Unversioned},
     AbortError, ArcBytes, Roots,
 };
@@ -220,7 +220,7 @@ fn decrement(existing: &Numeric, amount: &Numeric, saturating: bool) -> Numeric 
 
 #[derive(Debug)]
 pub struct KeyValueState {
-    roots: Roots<StdFile>,
+    roots: Roots<AnyFile>,
     persistence: KeyValuePersistence,
     last_commit: Timestamp,
     background_worker_target: watch::Sender<Option<Timestamp>>,
@@ -234,7 +234,7 @@ pub struct KeyValueState {
 impl KeyValueState {
     pub fn new(
         persistence: KeyValuePersistence,
-        roots: Roots<StdFile>,
+        roots: Roots<AnyFile>,
         background_worker_target: watch::Sender<Option<Timestamp>>,
     ) -> Self {
         Self {
@@ -574,7 +574,7 @@ impl KeyValueState {
     }
 
     fn retrieve_key_from_disk(
-        roots: &Roots<StdFile>,
+        roots: &Roots<AnyFile>,
         key: &str,
     ) -> Result<Option<Entry>, nebari::Error> {
         roots
@@ -649,7 +649,7 @@ impl KeyValueState {
 
     fn persist_keys(
         key_value_state: &Arc<Mutex<KeyValueState>>,
-        roots: &Roots<StdFile>,
+        roots: &Roots<AnyFile>,
         keys: &BTreeMap<String, Option<Entry>>,
         runtime: &Handle,
     ) -> Result<(), bonsaidb_core::Error> {
@@ -823,13 +823,13 @@ mod tests {
         test_util::{TestDirectory, TimingTest},
     };
     use futures::Future;
-    use nebari::io::fs::StdFile;
+    use nebari::io::any::{AnyFile, AnyFileManager};
 
     use super::*;
     use crate::{config::PersistenceThreshold, database::Context};
 
     async fn run_test_with_persistence<
-        F: Fn(Context, nebari::Roots<StdFile>) -> R + Send,
+        F: Fn(Context, nebari::Roots<AnyFile>) -> R + Send,
         R: Future<Output = anyhow::Result<()>> + Send,
     >(
         name: &str,
@@ -837,7 +837,9 @@ mod tests {
         test_contents: &F,
     ) -> anyhow::Result<()> {
         let dir = TestDirectory::new(name);
-        let sled = nebari::Config::new(&dir).open()?;
+        let sled = nebari::Config::new(&dir)
+            .file_manager(AnyFileManager::std())
+            .open()?;
 
         let context = Context::new(sled.clone(), persistence);
 
@@ -847,7 +849,7 @@ mod tests {
     }
 
     async fn run_test<
-        F: Fn(Context, nebari::Roots<StdFile>) -> R + Send,
+        F: Fn(Context, nebari::Roots<AnyFile>) -> R + Send,
         R: Future<Output = anyhow::Result<()>> + Send,
     >(
         name: &str,
@@ -1117,7 +1119,9 @@ mod tests {
     #[tokio::test]
     async fn saves_on_drop() -> anyhow::Result<()> {
         let dir = TestDirectory::new("saves-on-drop.bonsaidb");
-        let sled = nebari::Config::new(&dir).open()?;
+        let sled = nebari::Config::new(&dir)
+            .file_manager(AnyFileManager::std())
+            .open()?;
         let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
 
         let context = Context::new(

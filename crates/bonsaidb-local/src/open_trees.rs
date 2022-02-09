@@ -7,7 +7,7 @@ use bonsaidb_core::{
     schema::{CollectionName, Schematic},
 };
 use nebari::{
-    io::fs::StdFile,
+    io::any::AnyFile,
     tree::{AnyTreeRoot, Root, Unversioned, Versioned},
 };
 
@@ -24,7 +24,7 @@ use crate::{
 
 #[derive(Default)]
 pub(crate) struct OpenTrees {
-    pub trees: Vec<Box<dyn AnyTreeRoot<StdFile>>>,
+    pub trees: Vec<Box<dyn AnyTreeRoot<AnyFile>>>,
     pub trees_index_by_name: HashMap<String, usize>,
 }
 

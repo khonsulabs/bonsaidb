@@ -16,7 +16,7 @@ use bonsaidb_core::{
     },
 };
 use nebari::{
-    io::fs::StdFile,
+    io::any::AnyFile,
     tree::{AnyTreeRoot, Unversioned, Versioned},
     ExecutingTransaction, Tree,
 };
@@ -132,11 +132,11 @@ impl Job for Mapper {
 }
 
 fn map_view(
-    invalidated_entries: &Tree<Unversioned, StdFile>,
-    document_map: &Tree<Unversioned, StdFile>,
-    documents: &Tree<Versioned, StdFile>,
-    omitted_entries: &Tree<Unversioned, StdFile>,
-    view_entries: &Tree<Unversioned, StdFile>,
+    invalidated_entries: &Tree<Unversioned, AnyFile>,
+    document_map: &Tree<Unversioned, AnyFile>,
+    documents: &Tree<Versioned, AnyFile>,
+    omitted_entries: &Tree<Unversioned, AnyFile>,
+    view_entries: &Tree<Unversioned, AnyFile>,
     database: &Database,
     map_request: &Map,
 ) -> Result<(), Error> {
@@ -149,8 +149,8 @@ fn map_view(
     if !invalidated_ids.is_empty() {
         let mut transaction = database
             .roots()
-            .transaction::<_, dyn AnyTreeRoot<StdFile>>(&[
-                Box::new(invalidated_entries.clone()) as Box<dyn AnyTreeRoot<StdFile>>,
+            .transaction::<_, dyn AnyTreeRoot<AnyFile>>(&[
+                Box::new(invalidated_entries.clone()) as Box<dyn AnyTreeRoot<AnyFile>>,
                 Box::new(document_map.clone()),
                 Box::new(documents.clone()),
                 Box::new(omitted_entries.clone()),
@@ -188,7 +188,7 @@ pub struct DocumentRequest<'a> {
     pub map_request: &'a Map,
     pub database: &'a Database,
 
-    pub transaction: &'a mut ExecutingTransaction<StdFile>,
+    pub transaction: &'a mut ExecutingTransaction<AnyFile>,
     pub document_map_index: usize,
     pub documents_index: usize,
     pub omitted_entries_index: usize,

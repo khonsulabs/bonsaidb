@@ -28,6 +28,11 @@ pub struct StorageConfiguration {
     /// The path to the database. Defaults to `db.bonsaidb` if not specified.
     pub path: Option<PathBuf>,
 
+    /// Prevents storing data on the disk. This is intended for testing purposes
+    /// primarily. Keep in mind that the underlying storage format is
+    /// append-only.
+    pub memory_only: bool,
+
     /// The unique id of the server. If not specified, the server will randomly
     /// generate a unique id on startup. If the server generated an id and this
     /// value is subsequently set, the generated id will be overridden by the
@@ -76,6 +81,7 @@ impl Default for StorageConfiguration {
         system.refresh_specifics(system_specs);
         Self {
             path: None,
+            memory_only: false,
             unique_id: None,
             #[cfg(feature = "encryption")]
             vault_key_storage: None,
@@ -291,6 +297,9 @@ pub trait Builder: Default {
         Self::default().path(path)
     }
 
+    /// Sets [`StorageConfiguration::path`](StorageConfiguration#structfield.memory_only) to true and returns self.
+    fn memory_only(self) -> Self;
+
     /// Registers the schema and returns self.
     fn with_schema<S: Schema>(self) -> Result<Self, Error>;
 
@@ -320,6 +329,11 @@ impl Builder for StorageConfiguration {
     fn with_schema<S: Schema>(mut self) -> Result<Self, Error> {
         self.register_schema::<S>()?;
         Ok(self)
+    }
+
+    fn memory_only(mut self) -> Self {
+        self.memory_only = true;
+        self
     }
 
     fn path<P: AsRef<Path>>(mut self, path: P) -> Self {
