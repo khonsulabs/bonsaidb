@@ -53,7 +53,7 @@ fn core_path() -> Path {
 #[derive(Attribute)]
 #[attribute(ident = "collection")]
 #[attribute(
-    invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]`, `serialization = Serialization` are supported attributes"#
+    invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]` and `serialization = SerializationFormat` are supported attributes"#
 )]
 struct CollectionAttribute {
     authority: Option<String>,
@@ -136,7 +136,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
 #[derive(Attribute)]
 #[attribute(ident = "view")]
 #[attribute(
-    invalid_field = r#"Only `collection = CollectionType`, `key = KeyType`, `name = "by-name"`, `value = ValueType` are supported attributes"#
+    invalid_field = r#"Only `collection = CollectionType`, `key = KeyType`, `name = "by-name"`, `value = ValueType` and `serialization = SerializationFormat` are supported attributes"#
 )]
 struct ViewAttribute {
     #[attribute(
@@ -154,6 +154,10 @@ struct ViewAttribute {
     value: Option<Type>,
     #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
     core: Option<Path>,
+    #[attribute(
+        expected = r#"Specify the `serialization` like so: `serialization = Format` or `serialization = None` to disable deriving it"#
+    )]
+    serialization: Option<Path>,
 }
 
 /// Derives the `bonsaidb::core::schema::View` trait.
@@ -175,6 +179,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         name,
         value,
         core,
+        serialization,
     } = ViewAttribute::from_attributes(attrs).unwrap_or_abort();
 
     let core = core.unwrap_or_else(core_path);
@@ -185,11 +190,28 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             elems: Punctuated::new(),
         })
     });
+
     let name = name
         .as_ref()
         .map_or_else(|| ident.to_string(), LitStr::value);
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    let serialization = match serialization {
+        Some(serialization) if serialization.is_ident("None") => TokenStream::new(),
+        Some(serialization) => quote! {
+            impl #impl_generics #core::schema::SerializedView for #ident #ty_generics #where_clause {
+                type Format = #serialization;
+
+                fn format() -> Self::Format {
+                    #serialization::default()
+                }
+            }
+        },
+        None => quote! {
+            impl #impl_generics #core::schema::DefaultViewSerialization for #ident #ty_generics #where_clause {}
+        },
+    };
 
     quote! {
         impl #impl_generics #core::schema::View for #ident #ty_generics #where_clause {
@@ -201,6 +223,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 #core::schema::Name::new(#name)
             }
         }
+        #serialization
     }
     .into()
 }

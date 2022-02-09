@@ -4,7 +4,7 @@ error: expected identifier
 4 | #[collection(name = "hi", authority = "hello", "hi")]
   |                                                ^^^^
 
-error: Only `authority = \"some-authority\"`, `name = \"some-name\"`, `views = [SomeView, AnotherView]`, `serialization = Serialization` are supported attributes
+error: Only `authority = \"some-authority\"`, `name = \"some-name\"`, `views = [SomeView, AnotherView]` and `serialization = SerializationFormat` are supported attributes
  --> tests/ui/collection/invalid_attribute.rs:8:48
   |
 8 | #[collection(name = "hi", authority = "hello", field = 200)]

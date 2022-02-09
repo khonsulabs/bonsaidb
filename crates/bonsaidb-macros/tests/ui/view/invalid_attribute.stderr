@@ -1,4 +1,4 @@
-error: Only `collection = CollectionType`, `key = KeyType`, `name = \"by-name\"`, `value = ValueType` are supported attributes
+error: Only `collection = CollectionType`, `key = KeyType`, `name = \"by-name\"`, `value = ValueType` and `serialization = SerializationFormat` are supported attributes
  --> tests/ui/view/invalid_attribute.rs:4:21
   |
 4 | #[view(name = "hi", authority = "hello", "hi")]
