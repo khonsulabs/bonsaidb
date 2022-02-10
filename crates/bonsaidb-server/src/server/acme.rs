@@ -7,39 +7,19 @@ use bonsaidb_core::{
     connection::Connection,
     define_basic_unique_mapped_view,
     document::{CollectionDocument, KeyId},
-    schema::{Collection, CollectionName, DefaultSerialization, Schematic, SerializedCollection},
-    ENCRYPTION_ENABLED,
+    schema::{Collection, SerializedCollection},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{Backend, CustomServer, Error};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "acme-accounts", authority = "khonsulabs", views = [AcmeAccountByContacts])]
+#[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = bonsaidb_core)]
 pub struct AcmeAccount {
     pub contacts: Vec<String>,
     pub data: Bytes,
 }
-
-impl Collection for AcmeAccount {
-    fn encryption_key() -> Option<KeyId> {
-        if ENCRYPTION_ENABLED {
-            Some(KeyId::Master)
-        } else {
-            None
-        }
-    }
-
-    fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "acme-accounts")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), bonsaidb_core::Error> {
-        schema.define_view(AcmeAccountByContacts)?;
-        Ok(())
-    }
-}
-
-impl DefaultSerialization for AcmeAccount {}
 
 define_basic_unique_mapped_view!(
     AcmeAccountByContacts,

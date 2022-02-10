@@ -1,10 +1,7 @@
 use bonsaidb_core::{
     define_basic_mapped_view, define_basic_unique_mapped_view,
     document::{CollectionDocument, KeyId},
-    schema::{
-        Collection, CollectionName, DefaultSerialization, NamedCollection, Schema, Schematic,
-    },
-    ENCRYPTION_ENABLED,
+    schema::{Collection, NamedCollection, Schema},
 };
 use fabruic::{CertificateChain, PrivateKey};
 use serde::{de::Visitor, Deserialize, Serialize};
@@ -15,7 +12,9 @@ use serde::{de::Visitor, Deserialize, Serialize};
 #[cfg_attr(not(feature = "acme"), schema(collections = [TlsCertificate]))]
 pub struct Hosted;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "tls-certificates", authority = "khonsulabs", views = [TlsCertificatesByDomain, TlsCertificateByAllDomains])]
+#[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = bonsaidb_core)]
 pub struct TlsCertificate {
     pub domains: Vec<String>,
     pub private_key: SerializablePrivateKey,
@@ -25,28 +24,6 @@ pub struct TlsCertificate {
 impl NamedCollection for TlsCertificate {
     type ByNameView = TlsCertificateByAllDomains;
 }
-
-impl Collection for TlsCertificate {
-    fn encryption_key() -> Option<KeyId> {
-        if ENCRYPTION_ENABLED {
-            Some(KeyId::Master)
-        } else {
-            None
-        }
-    }
-
-    fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "tls-certificates")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), bonsaidb_core::Error> {
-        schema.define_view(TlsCertificatesByDomain)?;
-        schema.define_view(TlsCertificateByAllDomains)?;
-        Ok(())
-    }
-}
-
-impl DefaultSerialization for TlsCertificate {}
 
 define_basic_unique_mapped_view!(
     TlsCertificateByAllDomains,

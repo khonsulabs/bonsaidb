@@ -24,10 +24,10 @@ use crate::{
             map::{Mappings, ViewMappedValue},
             ReduceResult, ViewSchema,
         },
-        Collection, CollectionName, DefaultSerialization, MappedValue, NamedCollection, Schema,
-        SchemaName, Schematic, SerializedCollection, View, ViewMapResult,
+        Collection, CollectionName, MappedValue, NamedCollection, Schema, SchemaName, Schematic,
+        SerializedCollection, View, ViewMapResult,
     },
-    Error, ENCRYPTION_ENABLED,
+    Error,
 };
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Collection)]
@@ -176,7 +176,9 @@ impl ViewSchema for BasicByBrokenParentId {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Collection)]
+#[collection(name = "encrypted-basic", authority = "khonsulabs", views = [EncryptedBasicCount, EncryptedBasicByParentId, EncryptedBasicByCategory])]
+#[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = crate)]
 pub struct EncryptedBasic {
     pub value: String,
     pub category: Option<String>,
@@ -203,28 +205,6 @@ impl EncryptedBasic {
         self
     }
 }
-
-impl Collection for EncryptedBasic {
-    fn encryption_key() -> Option<KeyId> {
-        if ENCRYPTION_ENABLED {
-            Some(KeyId::Master)
-        } else {
-            None
-        }
-    }
-
-    fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "encrypted-basic")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(EncryptedBasicCount)?;
-        schema.define_view(EncryptedBasicByParentId)?;
-        schema.define_view(EncryptedBasicByCategory)
-    }
-}
-
-impl DefaultSerialization for EncryptedBasic {}
 
 #[derive(Debug, Clone, View)]
 #[view(collection = EncryptedBasic, key = (), value = usize, name = "count", core = crate)]
