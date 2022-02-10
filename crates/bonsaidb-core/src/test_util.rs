@@ -1466,13 +1466,12 @@ macro_rules! define_kv_test_suite {
                 db.get_key("akey").and_delete().into().await?,
                 Some(String::from("new_value"))
             );
-            assert_eq!(db.get_key("akey").await?, None);
-            assert_eq!(
-                db.set_key("akey", &String::from("new_value"))
-                    .returning_previous()
-                    .await?,
-                None
-            );
+            assert!(db.get_key("akey").await?.is_none());
+            assert!(db
+                .set_key("akey", &String::from("new_value"))
+                .returning_previous()
+                .await?
+                .is_none());
             assert_eq!(db.delete_key("akey").await?, KeyStatus::Deleted);
             assert_eq!(db.delete_key("akey").await?, KeyStatus::NotChanged);
 
@@ -1787,10 +1786,10 @@ macro_rules! define_kv_test_suite {
                     continue;
                 }
 
-                assert_eq!(kv.get_key("b").await?, None, "b never expired");
+                assert!(kv.get_key("b").await?.is_none(), "b never expired");
 
                 timing.wait_until(Duration::from_secs_f32(5.)).await;
-                assert_eq!(kv.get_key("a").await?, None, "a never expired");
+                assert!(kv.get_key("a").await?.is_none(), "a never expired");
                 break;
             }
             harness.shutdown().await?;
