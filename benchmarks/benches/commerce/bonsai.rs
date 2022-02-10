@@ -1,5 +1,7 @@
 use std::{path::Path, time::Duration};
 
+#[cfg(feature = "compression")]
+use bonsaidb::local::config::Compression;
 use bonsaidb::{
     client::{url::Url, Client},
     core::{
@@ -32,6 +34,7 @@ use crate::{
 
 pub enum Bonsai {
     Local,
+    LocalLz4,
     Quic,
     WebSockets,
 }
@@ -40,6 +43,7 @@ impl Bonsai {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Local => "bonsaidb-local",
+            Self::LocalLz4 => "bonsaidb-local+lz4",
             Self::Quic => "bonsaidb-quic",
             Self::WebSockets => "bonsaidb-ws",
         }
@@ -69,19 +73,25 @@ impl Backend for BonsaiBackend {
         self.kind.label()
     }
 
+    #[cfg_attr(not(feature = "compression"), allow(unused_mut))]
     async fn new(config: Self::Config) -> Self {
         let path = Path::new("commerce-benchmarks.bonsaidb");
         if path.exists() {
             std::fs::remove_dir_all(path).unwrap();
         }
-        let server = Server::open(
-            ServerConfiguration::new(path)
-                .default_permissions(DefaultPermissions::AllowAll)
-                .with_schema::<Commerce>()
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+        let mut server_config = ServerConfiguration::new(path)
+            .default_permissions(DefaultPermissions::AllowAll)
+            .with_schema::<Commerce>()
+            .unwrap();
+
+        #[cfg(feature = "compression")]
+        {
+            if matches!(config, Bonsai::LocalLz4) {
+                server_config = server_config.default_compression(Compression::Lz4);
+            }
+        }
+
+        let server = Server::open(server_config).await.unwrap();
         server.install_self_signed_certificate(false).await.unwrap();
         server
             .create_database::<Commerce>("commerce", false)
@@ -104,7 +114,7 @@ impl Backend for BonsaiBackend {
                         .unwrap();
                 });
             }
-            Bonsai::Local => {}
+            Bonsai::Local | Bonsai::LocalLz4 => {}
         }
         // Allow the server time to start listening
         tokio::time::sleep(Duration::from_millis(1000)).await;
@@ -117,7 +127,7 @@ impl Backend for BonsaiBackend {
 
     async fn new_operator_async(&self) -> Self::Operator {
         let database = match self.kind {
-            Bonsai::Local => {
+            Bonsai::Local | Bonsai::LocalLz4 => {
                 AnyDatabase::Local(self.server.database::<Commerce>("commerce").await.unwrap())
             }
 

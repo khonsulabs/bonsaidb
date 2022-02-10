@@ -53,6 +53,7 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Display},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use async_trait::async_trait;
@@ -141,7 +142,7 @@ pub(crate) struct Vault {
     _vault_public_key: PublicKey,
     master_keys: HashMap<u32, EncryptionKey>,
     current_master_key_id: u32,
-    master_key_storage: Box<dyn AnyVaultKeyStorage>,
+    master_key_storage: Arc<dyn AnyVaultKeyStorage>,
 }
 
 impl Debug for Vault {
@@ -194,7 +195,7 @@ impl Vault {
     pub async fn initialize(
         server_id: StorageId,
         server_directory: &Path,
-        master_key_storage: Box<dyn AnyVaultKeyStorage>,
+        master_key_storage: Arc<dyn AnyVaultKeyStorage>,
     ) -> Result<Self, Error> {
         let master_keys_path = server_directory.join("master-keys");
         if master_keys_path.exists() {
@@ -208,7 +209,7 @@ impl Vault {
     async fn initialize_vault_key_storage(
         master_keys_path: &Path,
         server_id: StorageId,
-        master_key_storage: Box<dyn AnyVaultKeyStorage>,
+        master_key_storage: Arc<dyn AnyVaultKeyStorage>,
     ) -> Result<Self, Error> {
         let master_key = EncryptionKey::random();
         let (private, public) = DhP256HkdfSha256::gen_keypair(&mut thread_rng());
@@ -285,7 +286,7 @@ impl Vault {
     async fn unseal(
         master_keys_path: &Path,
         server_id: StorageId,
-        master_key_storage: Box<dyn AnyVaultKeyStorage>,
+        master_key_storage: Arc<dyn AnyVaultKeyStorage>,
     ) -> Result<Self, Error> {
         // The vault has been initilized previously. Do not overwrite this file voluntarily.
         let encrypted_master_keys = tokio::fs::read(master_keys_path)
@@ -703,7 +704,7 @@ mod tests {
             _vault_public_key: PublicKey::P256(public_key),
             master_keys,
             current_master_key_id: 0,
-            master_key_storage: Box::new(NullKeyStorage),
+            master_key_storage: Arc::new(NullKeyStorage),
         }
     }
 

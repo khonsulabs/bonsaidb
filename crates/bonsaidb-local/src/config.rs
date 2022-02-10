@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -22,7 +23,7 @@ mod argon;
 pub use argon::*;
 
 /// Configuration options for [`Storage`](crate::storage::Storage).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct StorageConfiguration {
     /// The path to the database. Defaults to `db.bonsaidb` if not specified.
@@ -49,7 +50,7 @@ pub struct StorageConfiguration {
     /// hardware as the encrypted content, anyone with access to the disk will
     /// be able to decrypt the stored data.
     #[cfg(feature = "encryption")]
-    pub vault_key_storage: Option<Box<dyn AnyVaultKeyStorage>>,
+    pub vault_key_storage: Option<Arc<dyn AnyVaultKeyStorage>>,
 
     /// The default encryption key for the database. If specified, all documents
     /// will be stored encrypted at-rest using the key specified. Having this
@@ -75,7 +76,7 @@ pub struct StorageConfiguration {
     #[cfg(feature = "password-hashing")]
     pub argon: ArgonConfiguration,
 
-    pub(crate) initial_schemas: HashMap<SchemaName, Box<dyn DatabaseOpener>>,
+    pub(crate) initial_schemas: HashMap<SchemaName, Arc<dyn DatabaseOpener>>,
 }
 
 impl Default for StorageConfiguration {
@@ -107,13 +108,13 @@ impl StorageConfiguration {
     /// Registers the schema provided.
     pub fn register_schema<S: Schema>(&mut self) -> Result<(), Error> {
         self.initial_schemas
-            .insert(S::schema_name(), Box::new(StorageSchemaOpener::<S>::new()?));
+            .insert(S::schema_name(), Arc::new(StorageSchemaOpener::<S>::new()?));
         Ok(())
     }
 }
 
 /// Configuration options for background tasks.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tasks {
     /// Defines how many workers should be spawned to process tasks. This
     /// defaults to the 2x the number of cpu cores available to the system or 4, whichever is larger.
@@ -360,7 +361,7 @@ impl Builder for StorageConfiguration {
         mut self,
         key_storage: VaultKeyStorage,
     ) -> Self {
-        self.vault_key_storage = Some(Box::new(key_storage));
+        self.vault_key_storage = Some(Arc::new(key_storage));
         self
     }
 
@@ -402,7 +403,7 @@ pub(crate) trait SystemDefault: Sized {
     }
 }
 
-/// Compression algorithms for [`Storage`].
+/// All available compression algorithms.
 #[derive(Debug, Clone, Copy)]
 pub enum Compression {
     /// Compress data using the

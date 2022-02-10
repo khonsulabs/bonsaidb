@@ -180,7 +180,7 @@ impl Builder for ServerConfiguration {
         mut self,
         key_storage: VaultKeyStorage,
     ) -> Self {
-        self.storage.vault_key_storage = Some(Box::new(key_storage));
+        self.storage.vault_key_storage = Some(std::sync::Arc::new(key_storage));
         self
     }
 

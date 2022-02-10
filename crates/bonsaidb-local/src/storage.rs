@@ -161,7 +161,7 @@ struct Data {
     threadpool: ThreadPool<AnyFile>,
     file_manager: AnyFileManager,
     pub(crate) tasks: TaskManager,
-    schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
+    schemas: RwLock<HashMap<SchemaName, Arc<dyn DatabaseOpener>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
     open_roots: Mutex<HashMap<String, Context>>,
     #[cfg(feature = "password-hashing")]
@@ -205,7 +205,7 @@ impl Storage {
         let vault = {
             let vault_key_storage = match configuration.vault_key_storage {
                 Some(storage) => storage,
-                None => Box::new(
+                None => Arc::new(
                     LocalVaultKeyStorage::new(owned_path.join("vault-keys"))
                         .await
                         .map_err(|err| Error::Vault(vault::Error::Initializing(err.to_string())))?,
@@ -396,7 +396,7 @@ impl Storage {
         if schemas
             .insert(
                 DB::schema_name(),
-                Box::new(StorageSchemaOpener::<DB>::new()?),
+                Arc::new(StorageSchemaOpener::<DB>::new()?),
             )
             .is_none()
         {

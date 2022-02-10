@@ -15,6 +15,7 @@ harness = false
 [features]
 sqlite = ["rusqlite", "sqlx", "sqlx/sqlite"]
 postgresql = ["sqlx", "sqlx/postgres"]
+compression = ["bonsaidb/server-compression", "bonsaidb/local-compression"]
 
 [dependencies]
 redis = { version = "0.21", optional = true, features = ["tokio-comp"] }

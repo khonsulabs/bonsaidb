@@ -43,6 +43,8 @@ use nebari::{
 };
 use tokio::sync::watch;
 
+#[cfg(feature = "encryption")]
+use crate::storage::TreeVault;
 use crate::{
     config::{Builder, KeyValuePersistence, StorageConfiguration},
     database::keyvalue::BackgroundWorkerProcessTarget,
@@ -55,9 +57,6 @@ use crate::{
     },
     Storage,
 };
-
-#[cfg(feature = "encryption")]
-use crate::storage::TreeVault;
 
 pub mod keyvalue;
 

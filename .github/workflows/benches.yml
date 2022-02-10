@@ -37,7 +37,7 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          cargo bench --bench suite --features sqlite,redis
+          cargo bench --bench suite --features sqlite,redis,compression
         env:
           COMMERCE_POSTGRESQL_URL: postgres://postgres:postgres@localhost/postgres
 
@@ -80,7 +80,7 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          cargo bench --bench commerce --features postgresql -- --suite -n1000
+          cargo bench --bench commerce --features postgresql,compression -- --suite -n1000
         env:
           COMMERCE_POSTGRESQL_URL: postgres://postgres:postgres@localhost/postgres
 
