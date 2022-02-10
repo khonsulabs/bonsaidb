@@ -1,0 +1,7 @@
+error: You need to specify the schema name via `#[schema(name = \"name\")]`
+ --> tests/ui/schema/missing_name.rs:3:10
+  |
+3 | #[derive(Schema)]
+  |          ^^^^^^
+  |
+  = note: this error originates in the derive macro `Schema` (in Nightly builds, run with -Z macro-backtrace for more info)

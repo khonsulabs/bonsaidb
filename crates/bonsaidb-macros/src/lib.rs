@@ -15,7 +15,7 @@
 use attribute_derive::Attribute;
 use proc_macro2::{Span, TokenStream};
 use proc_macro_crate::{crate_name, FoundCrate};
-use proc_macro_error::{proc_macro_error, ResultExt, abort_call_site};
+use proc_macro_error::{abort_call_site, proc_macro_error, ResultExt};
 use quote::{quote, ToTokens};
 use syn::{
     parse_macro_input, parse_quote, punctuated::Punctuated, token::Paren, DeriveInput, Expr, Ident,
@@ -53,7 +53,7 @@ fn core_path() -> Path {
 #[derive(Attribute)]
 #[attribute(ident = "collection")]
 #[attribute(
-    invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]` and `serialization = SerializationFormat` are supported attributes"#
+    invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]`, `serialization = SerializationFormat` and `core = bonsaidb::core` are supported attributes"#
 )]
 struct CollectionAttribute {
     authority: Option<String>,
@@ -154,7 +154,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
             fn collection_name() -> #core::schema::CollectionName {
                 #name
             }
-            fn define_views(schema: &mut #core::schema::Schematic) -> ::core::result::Result<(), #core::Error>{
+            fn define_views(schema: &mut #core::schema::Schematic) -> ::core::result::Result<(), #core::Error> {
                 #( schema.define_view(#views)?; )*
                 ::core::result::Result::Ok(())
             }
@@ -168,7 +168,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
 #[derive(Attribute)]
 #[attribute(ident = "view")]
 #[attribute(
-    invalid_field = r#"Only `collection = CollectionType`, `key = KeyType`, `name = "by-name"`, `value = ValueType` and `serialization = SerializationFormat` are supported attributes"#
+    invalid_field = r#"Only `collection = CollectionType`, `key = KeyType`, `name = "by-name"`, `value = ValueType` and `serialization = SerializationFormat` and `core = bonsaidb::core` are supported attributes"#
 )]
 struct ViewAttribute {
     #[attribute(
@@ -256,6 +256,69 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
         #serialization
+    }
+    .into()
+}
+
+#[derive(Attribute)]
+#[attribute(ident = "schema")]
+#[attribute(
+    invalid_field = r#"Only `name = "name""`, `authority = "authority"`, `collections = [SomeCollection, AnotherCollection]` and `core = bonsaidb::core` are supported attributes"#
+)]
+struct SchemaAttribute {
+    #[attribute(
+        missing = r#"You need to specify the schema name via `#[schema(name = "name")]`"#
+    )]
+    name: String,
+    authority: Option<String>,
+    #[attribute(default)]
+    #[attribute(expected = r#"Specify the `collections` like so: `collections = [SomeCollection, AnotherCollection]`"#)]
+    collections: Vec<Type>,
+    #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
+    core: Option<Path>,
+}
+
+/// Derives the `bonsaidb::core::schema::Schema` trait.
+#[proc_macro_error]
+/// `#[schema(name = "Name", authority = "Authority", collections = [A, B, C]), core = bonsaidb::core]`
+/// `authority`, `collections` and `core` are optional
+#[proc_macro_derive(Schema, attributes(schema))]
+pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let DeriveInput {
+        attrs,
+        ident,
+        generics,
+        ..
+    } = parse_macro_input!(input as DeriveInput);
+
+    let SchemaAttribute {
+        name,
+        authority,
+        collections,
+        core,
+    } = SchemaAttribute::from_attributes(attrs).unwrap_or_abort();
+
+    let core = core.unwrap_or_else(core_path);
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    let name = authority.map_or_else(
+        || quote!(#core::schema::SchemaName::private(#name)),
+        |authority| quote!(#core::schema::SchemaName::new(#authority, #name)),
+    );
+
+    quote! {
+        impl #impl_generics #core::schema::Schema for #ident #ty_generics #where_clause {
+            fn schema_name() -> #core::schema::SchemaName {
+                #name
+            }
+
+            fn define_collections(
+                schema: &mut #core::schema::Schematic
+            ) -> ::core::result::Result<(), #core::Error> {
+                #( schema.define_collection::<#collections>()?; )*
+                ::core::result::Result::Ok(())
+            }
+        }
     }
     .into()
 }

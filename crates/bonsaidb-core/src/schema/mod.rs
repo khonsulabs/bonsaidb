@@ -5,7 +5,7 @@ mod schematic;
 pub mod view;
 use std::fmt::Debug;
 
-pub use bonsaidb_macros::{Collection, View};
+pub use bonsaidb_macros::{Collection, View, Schema};
 
 pub use self::{
     collection::{
