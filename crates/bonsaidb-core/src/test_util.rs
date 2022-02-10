@@ -1378,14 +1378,19 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
 
     let role = Role::named(format!("role-{}", server_name))
         .push_into(admin)
-        .await?;
+        .await
+        .unwrap();
     let group = PermissionGroup::named(format!("group-{}", server_name))
         .push_into(admin)
-        .await?;
+        .await
+        .unwrap();
 
     // Add the role and group.
-    server.add_permission_group_to_user(user_id, &group).await?;
-    server.add_role_to_user(user_id, &role).await?;
+    server
+        .add_permission_group_to_user(user_id, &group)
+        .await
+        .unwrap();
+    server.add_role_to_user(user_id, &role).await.unwrap();
 
     // Test the results
     {
@@ -1400,8 +1405,9 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
     // Add the same things again (should not do anything). With names this time.
     server
         .add_permission_group_to_user(&username, &group)
-        .await?;
-    server.add_role_to_user(&username, &role).await?;
+        .await
+        .unwrap();
+    server.add_role_to_user(&username, &role).await.unwrap();
     {
         // TODO this is what's failing.
         let user = User::load(&username, admin)
@@ -1415,8 +1421,9 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
     // Remove the group.
     server
         .remove_permission_group_from_user(user_id, &group)
-        .await?;
-    server.remove_role_from_user(user_id, &role).await?;
+        .await
+        .unwrap();
+    server.remove_role_from_user(user_id, &role).await.unwrap();
     {
         let user = User::get(user_id, admin)
             .await

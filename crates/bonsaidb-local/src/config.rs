@@ -67,6 +67,10 @@ pub struct StorageConfiguration {
     /// Controls how the key-value store persists keys, on a per-database basis.
     pub key_value_persistence: KeyValuePersistence,
 
+    /// Sets the default compression algorithm.
+    #[cfg(feature = "compression")]
+    pub default_compression: Option<Compression>,
+
     /// Password hashing configuration.
     #[cfg(feature = "password-hashing")]
     pub argon: ArgonConfiguration,
@@ -87,6 +91,8 @@ impl Default for StorageConfiguration {
             vault_key_storage: None,
             #[cfg(feature = "encryption")]
             default_encryption_key: None,
+            #[cfg(feature = "compression")]
+            default_compression: None,
             workers: Tasks::default_for(&system),
             views: Views::default(),
             key_value_persistence: KeyValuePersistence::default(),
@@ -320,6 +326,9 @@ pub trait Builder: Default {
     fn tasks_worker_count(self, worker_count: usize) -> Self;
     /// Sets [`Views::check_integrity_on_open`] to `check` and returns self.
     fn check_view_integrity_on_open(self, check: bool) -> Self;
+    /// Sets [`StorageConfiguration::default_compression`](StorageConfiguration#structfield.default_compression) to `path` and returns self.
+    #[cfg(feature = "compression")]
+    fn default_compression(self, compression: Compression) -> Self;
 
     /// Sets [`StorageConfiguration::key_value_persistence`](StorageConfiguration#structfield.key_value_persistence) to `persistence` and returns self.
     fn key_value_persistence(self, persistence: KeyValuePersistence) -> Self;
@@ -361,6 +370,12 @@ impl Builder for StorageConfiguration {
         self
     }
 
+    #[cfg(feature = "compression")]
+    fn default_compression(mut self, compression: Compression) -> Self {
+        self.default_compression = Some(compression);
+        self
+    }
+
     fn tasks_worker_count(mut self, worker_count: usize) -> Self {
         self.workers.worker_count = worker_count;
         self
@@ -384,5 +399,26 @@ pub(crate) trait SystemDefault: Sized {
         let mut system = System::new_with_specifics(system_specs);
         system.refresh_specifics(system_specs);
         Self::default_for(&system)
+    }
+}
+
+/// Compression algorithms for [`Storage`].
+#[derive(Debug, Clone, Copy)]
+pub enum Compression {
+    /// Compress data using the
+    /// [lz4](https://en.wikipedia.org/wiki/LZ4_(compression_algorithm))
+    /// algorithm. This is powered by
+    /// [lz4_flex](https://crates.io/crates/lz4_flex).
+    Lz4 = 1,
+}
+
+impl Compression {
+    #[must_use]
+    #[cfg(feature = "compression")]
+    pub(crate) fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            1 => Some(Self::Lz4),
+            _ => None,
+        }
     }
 }

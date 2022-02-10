@@ -53,7 +53,6 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Display},
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use async_trait::async_trait;
@@ -737,23 +736,5 @@ mod tests {
                 _
             )))
         ));
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct TreeVault {
-    pub key: KeyId,
-    pub vault: Arc<Vault>,
-}
-
-impl nebari::Vault for TreeVault {
-    type Error = crate::Error;
-
-    fn encrypt(&self, payload: &[u8]) -> Result<Vec<u8>, crate::Error> {
-        self.vault.encrypt_payload(&self.key, payload, None)
-    }
-
-    fn decrypt(&self, payload: &[u8]) -> Result<Vec<u8>, crate::Error> {
-        self.vault.decrypt_payload(payload, None)
     }
 }

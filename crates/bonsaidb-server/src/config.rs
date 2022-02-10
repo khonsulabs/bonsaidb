@@ -3,6 +3,8 @@ use std::path::Path;
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{permissions::Permissions, schema::Schema};
+#[cfg(feature = "compression")]
+use bonsaidb_local::config::Compression;
 use bonsaidb_local::config::{Builder, KeyValuePersistence, StorageConfiguration};
 #[cfg(feature = "encryption")]
 use bonsaidb_local::vault::AnyVaultKeyStorage;
@@ -185,6 +187,12 @@ impl Builder for ServerConfiguration {
     #[cfg(feature = "encryption")]
     fn default_encryption_key(mut self, key: KeyId) -> Self {
         self.storage.default_encryption_key = Some(key);
+        self
+    }
+
+    #[cfg(feature = "compression")]
+    fn default_compression(mut self, compression: Compression) -> Self {
+        self.storage.default_compression = Some(compression);
         self
     }
 

@@ -1,25 +1,19 @@
 use std::collections::HashMap;
-#[cfg(feature = "encryption")]
-use std::sync::Arc;
 
-use bonsaidb_core::{
-    document::KeyId,
-    schema::{CollectionName, Schematic},
-};
+use bonsaidb_core::schema::{CollectionName, Schematic};
 use nebari::{
     io::any::AnyFile,
     tree::{AnyTreeRoot, Root, Unversioned, Versioned},
 };
 
-#[cfg(feature = "encryption")]
-use crate::vault::{TreeVault, Vault};
+#[cfg(any(feature = "encryption", feature = "compression"))]
+use crate::storage::TreeVault;
 use crate::{
     database::document_tree_name,
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
         view_omitted_docs_tree_name,
     },
-    Error,
 };
 
 #[derive(Default)]
@@ -34,45 +28,34 @@ impl OpenTrees {
     pub fn open_tree<R: Root>(
         &mut self,
         name: &str,
-        encryption_key: Option<&KeyId>,
-        #[cfg(feature = "encryption")] vault: &Arc<Vault>,
-    ) -> Result<(), Error> {
+        #[cfg(any(feature = "encryption", feature = "compression"))] vault: Option<TreeVault>,
+    ) {
         if !self.trees_index_by_name.contains_key(name) {
             self.trees_index_by_name
                 .insert(name.to_string(), self.trees.len());
             let mut tree = R::tree(name.to_string());
 
-            #[cfg(feature = "encryption")]
-            if let Some(encryption_key) = encryption_key {
-                tree = tree.with_vault(TreeVault {
-                    key: encryption_key.clone(),
-                    vault: vault.clone(),
-                });
-            }
-
-            #[cfg(not(feature = "encryption"))]
-            if encryption_key.is_some() {
-                return Err(Error::EncryptionDisabled);
+            #[cfg(any(feature = "encryption", feature = "compression"))]
+            if let Some(vault) = vault {
+                tree = tree.with_vault(vault);
             }
 
             self.trees.push(Box::new(tree));
         }
-        Ok(())
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     pub fn open_trees_for_document_change(
         &mut self,
         collection: &CollectionName,
         schema: &Schematic,
-        encryption_key: Option<&KeyId>,
-        #[cfg(feature = "encryption")] vault: &Arc<Vault>,
-    ) -> Result<(), Error> {
+        #[cfg(any(feature = "encryption", feature = "compression"))] vault: Option<TreeVault>,
+    ) {
         self.open_tree::<Versioned>(
             &document_tree_name(collection),
-            encryption_key,
-            #[cfg(feature = "encryption")]
-            vault,
-        )?;
+            #[cfg(any(feature = "encryption", feature = "compression"))]
+            vault.clone(),
+        );
 
         if let Some(views) = schema.views_in_collection(collection) {
             for view in views {
@@ -80,33 +63,27 @@ impl OpenTrees {
                 if view.unique() {
                     self.open_tree::<Unversioned>(
                         &view_omitted_docs_tree_name(&view_name),
-                        encryption_key,
-                        #[cfg(feature = "encryption")]
-                        vault,
-                    )?;
+                        #[cfg(any(feature = "encryption", feature = "compression"))]
+                        vault.clone(),
+                    );
                     self.open_tree::<Unversioned>(
                         &view_document_map_tree_name(&view_name),
-                        encryption_key,
-                        #[cfg(feature = "encryption")]
-                        vault,
-                    )?;
+                        #[cfg(any(feature = "encryption", feature = "compression"))]
+                        vault.clone(),
+                    );
                     self.open_tree::<Unversioned>(
                         &view_entries_tree_name(&view_name),
-                        encryption_key,
-                        #[cfg(feature = "encryption")]
-                        vault,
-                    )?;
+                        #[cfg(any(feature = "encryption", feature = "compression"))]
+                        vault.clone(),
+                    );
                 } else {
                     self.open_tree::<Unversioned>(
                         &view_invalidated_docs_tree_name(&view_name),
-                        encryption_key,
-                        #[cfg(feature = "encryption")]
-                        vault,
-                    )?;
+                        #[cfg(any(feature = "encryption", feature = "compression"))]
+                        vault.clone(),
+                    );
                 }
             }
         }
-
-        Ok(())
     }
 }

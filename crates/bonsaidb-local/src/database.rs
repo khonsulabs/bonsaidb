@@ -9,10 +9,12 @@ use std::{
 
 use async_lock::Mutex;
 use async_trait::async_trait;
+#[cfg(any(feature = "encryption", feature = "compression"))]
+use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
     arc_bytes::{serde::Bytes, ArcBytes},
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{BorrowedDocument, Document, Header, KeyId, OwnedDocument},
+    document::{BorrowedDocument, Document, Header, OwnedDocument},
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
@@ -41,8 +43,6 @@ use nebari::{
 };
 use tokio::sync::watch;
 
-#[cfg(feature = "encryption")]
-use crate::vault::TreeVault;
 use crate::{
     config::{Builder, KeyValuePersistence, StorageConfiguration},
     database::keyvalue::BackgroundWorkerProcessTarget,
@@ -55,6 +55,9 @@ use crate::{
     },
     Storage,
 };
+
+#[cfg(feature = "encryption")]
+use crate::storage::TreeVault;
 
 pub mod keyvalue;
 
@@ -636,13 +639,38 @@ impl Database {
                 return Err(Error::Core(bonsaidb_core::Error::CollectionNotFound));
             }
 
+            #[cfg(any(feature = "encryption", feature = "compression"))]
+            let vault = if let Some(encryption_key) =
+                self.collection_encryption_key(&op.collection).cloned()
+            {
+                #[cfg(feature = "encryption")]
+                if let Some(mut vault) = self.storage().tree_vault().cloned() {
+                    vault.key = Some(encryption_key);
+                    Some(vault)
+                } else {
+                    TreeVault::new_if_needed(
+                        Some(encryption_key),
+                        self.storage().vault(),
+                        #[cfg(feature = "compression")]
+                        None,
+                    )
+                }
+
+                #[cfg(not(feature = "encryption"))]
+                {
+                    drop(encryption_key);
+                    return Err(Error::EncryptionDisabled);
+                }
+            } else {
+                self.storage().tree_vault().cloned()
+            };
+
             open_trees.open_trees_for_document_change(
                 &op.collection,
                 &self.data.schema,
-                self.collection_encryption_key(&op.collection),
-                #[cfg(feature = "encryption")]
-                self.storage().vault(),
-            )?;
+                #[cfg(any(feature = "encryption", feature = "compression"))]
+                vault,
+            );
         }
 
         let mut roots_transaction = self
@@ -1009,6 +1037,7 @@ impl Database {
             .collect::<Result<Vec<_>, Error>>()
     }
 
+    #[cfg(any(feature = "encryption", feature = "compression"))]
     pub(crate) fn collection_encryption_key(&self, collection: &CollectionName) -> Option<&KeyId> {
         self.schematic()
             .encryption_key_for_collection(collection)
@@ -1017,9 +1046,14 @@ impl Database {
 
     #[cfg_attr(
         not(feature = "encryption"),
-        allow(unused_mut, unused_variables, clippy::let_and_return)
+        allow(
+            unused_mut,
+            unused_variables,
+            clippy::unused_self,
+            clippy::let_and_return
+        )
     )]
-    #[cfg_attr(feature = "encryption", allow(clippy::unnecessary_wraps))]
+    #[allow(clippy::unnecessary_wraps)]
     pub(crate) fn collection_tree<R: Root, S: Into<Cow<'static, str>>>(
         &self,
         collection: &CollectionName,
@@ -1027,18 +1061,41 @@ impl Database {
     ) -> Result<TreeRoot<R, AnyFile>, Error> {
         let mut tree = R::tree(name);
 
-        if let Some(key) = self.collection_encryption_key(collection) {
-            #[cfg(feature = "encryption")]
-            {
-                tree = tree.with_vault(TreeVault {
-                    key: key.clone(),
-                    vault: self.storage().vault().clone(),
-                });
-            }
+        #[cfg(any(feature = "encryption", feature = "compression"))]
+        match (
+            self.collection_encryption_key(collection),
+            self.storage().tree_vault().cloned(),
+        ) {
+            (Some(override_key), Some(mut vault)) => {
+                #[cfg(feature = "encryption")]
+                {
+                    vault.key = Some(override_key.clone());
+                    tree = tree.with_vault(vault);
+                }
 
-            #[cfg(not(feature = "encryption"))]
-            {
-                return Err(Error::EncryptionDisabled);
+                #[cfg(not(feature = "encryption"))]
+                {
+                    return Err(Error::EncryptionDisabled);
+                }
+            }
+            (None, Some(vault)) => {
+                tree = tree.with_vault(vault);
+            }
+            (key, None) => {
+                #[cfg(feature = "encryption")]
+                if let Some(vault) = TreeVault::new_if_needed(
+                    key.cloned(),
+                    self.storage().vault(),
+                    #[cfg(feature = "compression")]
+                    None,
+                ) {
+                    tree = tree.with_vault(vault);
+                }
+
+                #[cfg(not(feature = "encryption"))]
+                if key.is_some() {
+                    return Err(Error::EncryptionDisabled);
+                }
             }
         }
 

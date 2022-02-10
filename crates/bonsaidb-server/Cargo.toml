@@ -13,7 +13,14 @@ homepage = "https://bonsaidb.io/"
 
 [features]
 default = ["full"]
-full = ["cli", "websockets", "acme", "encryption", "password-hashing"]
+full = [
+    "cli",
+    "websockets",
+    "acme",
+    "encryption",
+    "password-hashing",
+    "compression",
+]
 cli = ["clap", "pem", "env_logger", "bonsaidb-local/cli"]
 test-util = ["bonsaidb-core/test-util"]
 websockets = [
@@ -30,6 +37,7 @@ password-hashing = [
     "bonsaidb-local/password-hashing",
     "bonsaidb-core/password-hashing",
 ]
+compression = ["bonsaidb-local/compression"]
 
 included-from-omnibus = []
 
