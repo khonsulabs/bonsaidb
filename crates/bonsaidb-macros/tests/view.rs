@@ -1,5 +1,6 @@
-use bonsaidb::core::schema::{Collection, View};
 use core::fmt::Debug;
+
+use bonsaidb::core::schema::{Collection, View};
 
 #[derive(Collection, Debug)]
 #[collection(name = "name", authority = "authority")]

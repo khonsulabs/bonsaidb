@@ -3,8 +3,8 @@ use bonsaidb::{
         connection::Connection,
         document::{BorrowedDocument, Document},
         schema::{
-            view::map::ViewMappedValue, Collection, DefaultViewSerialization, Name, ReduceResult,
-            SerializedCollection, View, ViewMapResult, ViewSchema,
+            view::map::ViewMappedValue, Collection, ReduceResult, SerializedCollection, View,
+            ViewMapResult, ViewSchema,
         },
         Error,
     },
@@ -25,19 +25,10 @@ pub struct BlogPost {
 }
 // ANCHOR_END: struct
 
-#[derive(Debug, Clone)]
-pub struct BlogPostsByCategory;
-
 // ANCHOR: view
-impl View for BlogPostsByCategory {
-    type Collection = BlogPost;
-    type Key = Option<String>;
-    type Value = u32;
-
-    fn name(&self) -> Name {
-        Name::new("by-category")
-    }
-}
+#[derive(Debug, Clone, View)]
+#[view(collection = BlogPost, key = Option<String>, value = u32, name = "by-category")]
+pub struct BlogPostsByCategory;
 
 impl ViewSchema for BlogPostsByCategory {
     type View = Self;
@@ -56,8 +47,6 @@ impl ViewSchema for BlogPostsByCategory {
     }
 }
 // ANCHOR_END: view
-
-impl DefaultViewSerialization for BlogPostsByCategory {}
 
 #[allow(unused_variables)]
 #[tokio::test]

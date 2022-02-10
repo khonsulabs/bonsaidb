@@ -1,5 +1,6 @@
-use bonsaidb::core::schema::{Collection, CollectionName, Schema, Schematic};
 use core::fmt::Debug;
+
+use bonsaidb::core::schema::{Collection, CollectionName, Schema, Schematic};
 
 #[test]
 fn core() {

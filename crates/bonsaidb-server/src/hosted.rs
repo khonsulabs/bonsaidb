@@ -2,29 +2,18 @@ use bonsaidb_core::{
     define_basic_mapped_view, define_basic_unique_mapped_view,
     document::{CollectionDocument, KeyId},
     schema::{
-        Collection, CollectionName, DefaultSerialization, NamedCollection, Schema, SchemaName,
-        Schematic,
+        Collection, CollectionName, DefaultSerialization, NamedCollection, Schema, Schematic,
     },
     ENCRYPTION_ENABLED,
 };
 use fabruic::{CertificateChain, PrivateKey};
 use serde::{de::Visitor, Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Schema)]
+#[schema(name = "hosted", authority = "khonsulabs", core = bonsaidb_core)]
+#[cfg_attr(feature = "acme", schema(collections = [TlsCertificate, crate::server::acme::AcmeAccount]))]
+#[cfg_attr(not(feature = "acme"), schema(collections = [TlsCertificate]))]
 pub struct Hosted;
-
-impl Schema for Hosted {
-    fn schema_name() -> SchemaName {
-        SchemaName::new("khonsulabs", "hosted")
-    }
-
-    fn define_collections(schema: &mut Schematic) -> Result<(), bonsaidb_core::Error> {
-        schema.define_collection::<TlsCertificate>()?;
-        #[cfg(feature = "acme")]
-        schema.define_collection::<crate::server::acme::AcmeAccount>()?;
-        Ok(())
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TlsCertificate {

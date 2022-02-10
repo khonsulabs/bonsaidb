@@ -28,18 +28,9 @@ struct Shape {
     pub sides: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Shape, key = u32, value = usize, name = "by-number-of-sides")]
 struct ShapesByNumberOfSides;
-
-impl View for ShapesByNumberOfSides {
-    type Collection = Shape;
-    type Key = u32;
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("by-number-of-sides")
-    }
-}
 
 impl CollectionViewSchema for ShapesByNumberOfSides {
     type View = Self;
@@ -56,8 +47,6 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
         Ok(mappings.iter().map(|m| m.value).sum())
     }
 }
-
-impl DefaultViewSerialization for ShapesByNumberOfSides {}
 ```
 
 After you have your collection(s) and view(s) defined, you can open up a database and insert documents:

@@ -266,13 +266,13 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     invalid_field = r#"Only `name = "name""`, `authority = "authority"`, `collections = [SomeCollection, AnotherCollection]` and `core = bonsaidb::core` are supported attributes"#
 )]
 struct SchemaAttribute {
-    #[attribute(
-        missing = r#"You need to specify the schema name via `#[schema(name = "name")]`"#
-    )]
+    #[attribute(missing = r#"You need to specify the schema name via `#[schema(name = "name")]`"#)]
     name: String,
     authority: Option<String>,
     #[attribute(default)]
-    #[attribute(expected = r#"Specify the `collections` like so: `collections = [SomeCollection, AnotherCollection]`"#)]
+    #[attribute(
+        expected = r#"Specify the `collections` like so: `collections = [SomeCollection, AnotherCollection]`"#
+    )]
     collections: Vec<Type>,
     #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
     core: Option<Path>,

@@ -9,9 +9,8 @@ use bonsaidb::{
         document::CollectionDocument,
         schema::{
             view::map::Mappings, Collection, CollectionName, CollectionViewSchema,
-            DefaultSerialization, DefaultViewSerialization, InsertError, Name, NamedCollection,
-            ReduceResult, Schema, SchemaName, Schematic, SerializedCollection, View, ViewMapResult,
-            ViewMappedValue,
+            DefaultSerialization, InsertError, NamedCollection, ReduceResult, Schema, Schematic,
+            SerializedCollection, View, ViewMapResult, ViewMappedValue,
         },
         transaction::{self, Transaction},
         Error,
@@ -57,7 +56,8 @@ pub struct BonsaiOperator {
     database: AnyDatabase,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Schema)]
+#[schema(name = "commerce", authority = "benchmarks", collections = [Product, Category, Customer, Order, Cart, ProductReview])]
 pub enum Commerce {}
 
 #[async_trait]
@@ -389,22 +389,6 @@ impl Operator<ReviewProduct> for BonsaiOperator {
     }
 }
 
-impl Schema for Commerce {
-    fn schema_name() -> SchemaName {
-        SchemaName::new("benchmarks", "commerce")
-    }
-
-    fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_collection::<Product>()?;
-        schema.define_collection::<Category>()?;
-        schema.define_collection::<Customer>()?;
-        schema.define_collection::<Order>()?;
-        schema.define_collection::<Cart>()?;
-        schema.define_collection::<ProductReview>()?;
-        Ok(())
-    }
-}
-
 impl Collection for Product {
     fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "products")
@@ -431,18 +415,9 @@ define_basic_unique_mapped_view!(
     },
 );
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Product, key = u32, value = u32, name = "by-category")]
 pub struct ProductsByCategoryId;
-
-impl View for ProductsByCategoryId {
-    type Collection = Product;
-    type Key = u32;
-    type Value = u32;
-
-    fn name(&self) -> Name {
-        Name::new("by-category")
-    }
-}
 
 impl CollectionViewSchema for ProductsByCategoryId {
     type View = Self;
@@ -458,8 +433,6 @@ impl CollectionViewSchema for ProductsByCategoryId {
         Ok(mappings)
     }
 }
-
-impl DefaultViewSerialization for ProductsByCategoryId {}
 
 impl NamedCollection for Product {
     type ByNameView = ProductsByName;
@@ -478,18 +451,9 @@ impl Collection for ProductReview {
 
 impl DefaultSerialization for ProductReview {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = ProductReview, key = u32, value = ProductRatings, name = "by-product")]
 pub struct ProductReviewsByProduct;
-
-impl View for ProductReviewsByProduct {
-    type Collection = ProductReview;
-    type Key = u32;
-    type Value = ProductRatings;
-
-    fn name(&self) -> Name {
-        Name::new("by-product")
-    }
-}
 
 impl CollectionViewSchema for ProductReviewsByProduct {
     type View = Self;
@@ -522,8 +486,6 @@ impl CollectionViewSchema for ProductReviewsByProduct {
             .unwrap_or_default())
     }
 }
-
-impl DefaultViewSerialization for ProductReviewsByProduct {}
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ProductRatings {

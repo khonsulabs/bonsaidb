@@ -20,7 +20,7 @@ use bonsaidb::{
         connection::Connection,
         document::CollectionDocument,
         schema::{
-            view::CollectionViewSchema, Collection, Name, ReduceResult, SerializedView, View,
+            view::CollectionViewSchema, Collection, ReduceResult, SerializedView, View,
             ViewMappedValue,
         },
         transmog::{Format, OwnedDeserializer},
@@ -102,18 +102,9 @@ pub struct Samples {
 }
 
 /// A view for [`Samples`] which produces a histogram.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Samples, key = u64, value = SyncHistogram<u64>, name = "as-histogram", serialization = None)]
 pub struct AsHistogram;
-
-impl View for AsHistogram {
-    type Collection = Samples;
-    type Key = u64;
-    type Value = SyncHistogram<u64>;
-
-    fn name(&self) -> Name {
-        Name::new("as-histogram")
-    }
-}
 
 impl CollectionViewSchema for AsHistogram {
     type View = Self;

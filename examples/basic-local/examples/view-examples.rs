@@ -3,8 +3,8 @@ use bonsaidb::{
         connection::Connection,
         document::CollectionDocument,
         schema::{
-            view::CollectionViewSchema, Collection, DefaultViewSerialization, Name, ReduceResult,
-            SerializedCollection, View, ViewMapResult, ViewMappedValue,
+            view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection, View,
+            ViewMapResult, ViewMappedValue,
         },
     },
     local::{
@@ -21,18 +21,9 @@ struct Shape {
     pub sides: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Shape, key = u32, value = usize, name = "by-number-of-sides")]
 struct ShapesByNumberOfSides;
-
-impl View for ShapesByNumberOfSides {
-    type Collection = Shape;
-    type Key = u32;
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("by-number-of-sides")
-    }
-}
 
 impl CollectionViewSchema for ShapesByNumberOfSides {
     type View = Self;
@@ -49,8 +40,6 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
         Ok(mappings.iter().map(|m| m.value).sum())
     }
 }
-
-impl DefaultViewSerialization for ShapesByNumberOfSides {}
 // end rustme snippet
 
 #[tokio::main]

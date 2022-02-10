@@ -22,10 +22,10 @@ use crate::{
     schema::{
         view::{
             map::{Mappings, ViewMappedValue},
-            DefaultViewSerialization, ReduceResult, ViewSchema,
+            ReduceResult, ViewSchema,
         },
-        Collection, CollectionName, DefaultSerialization, MappedValue, Name, NamedCollection,
-        Schema, SchemaName, Schematic, SerializedCollection, View, ViewMapResult,
+        Collection, CollectionName, DefaultSerialization, MappedValue, NamedCollection, Schema,
+        SchemaName, Schematic, SerializedCollection, View, ViewMapResult,
     },
     Error, ENCRYPTION_ENABLED,
 };
@@ -68,18 +68,9 @@ impl Basic {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Basic, key = (), value = usize, name = "count", core = crate)]
 pub struct BasicCount;
-
-impl View for BasicCount {
-    type Collection = Basic;
-    type Key = ();
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("count")
-    }
-}
 
 impl ViewSchema for BasicCount {
     type View = Self;
@@ -97,20 +88,9 @@ impl ViewSchema for BasicCount {
     }
 }
 
-impl DefaultViewSerialization for BasicCount {}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Basic, key = Option<u64>, value = usize, name = "by-parent-id", core = crate)]
 pub struct BasicByParentId;
-
-impl View for BasicByParentId {
-    type Collection = Basic;
-    type Key = Option<u64>;
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("by-parent-id")
-    }
-}
 
 impl ViewSchema for BasicByParentId {
     type View = Self;
@@ -132,20 +112,10 @@ impl ViewSchema for BasicByParentId {
         Ok(mappings.iter().map(|map| map.value).sum())
     }
 }
-impl DefaultViewSerialization for BasicByParentId {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Basic, key = String, value = usize, name = "by-category", core = crate)]
 pub struct BasicByCategory;
-
-impl View for BasicByCategory {
-    type Collection = Basic;
-    type Key = String;
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("by-category")
-    }
-}
 
 impl ViewSchema for BasicByCategory {
     type View = Self;
@@ -168,20 +138,9 @@ impl ViewSchema for BasicByCategory {
     }
 }
 
-impl DefaultViewSerialization for BasicByCategory {}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Basic, key = String, value = usize, name = "by-tag", core = crate)]
 pub struct BasicByTag;
-
-impl View for BasicByTag {
-    type Collection = Basic;
-    type Key = String;
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("by-tag")
-    }
-}
 
 impl ViewSchema for BasicByTag {
     type View = Self;
@@ -205,20 +164,9 @@ impl ViewSchema for BasicByTag {
     }
 }
 
-impl DefaultViewSerialization for BasicByTag {}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Basic, key = (), value = (), name = "by-parent-id", core = crate)]
 pub struct BasicByBrokenParentId;
-
-impl View for BasicByBrokenParentId {
-    type Collection = Basic;
-    type Key = ();
-    type Value = ();
-
-    fn name(&self) -> Name {
-        Name::new("by-parent-id")
-    }
-}
 
 impl ViewSchema for BasicByBrokenParentId {
     type View = Self;
@@ -227,8 +175,6 @@ impl ViewSchema for BasicByBrokenParentId {
         Ok(document.emit())
     }
 }
-
-impl DefaultViewSerialization for BasicByBrokenParentId {}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone)]
 pub struct EncryptedBasic {
@@ -280,18 +226,9 @@ impl Collection for EncryptedBasic {
 
 impl DefaultSerialization for EncryptedBasic {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = EncryptedBasic, key = (), value = usize, name = "count", core = crate)]
 pub struct EncryptedBasicCount;
-
-impl View for EncryptedBasicCount {
-    type Collection = EncryptedBasic;
-    type Key = ();
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("count")
-    }
-}
 
 impl ViewSchema for EncryptedBasicCount {
     type View = Self;
@@ -309,20 +246,9 @@ impl ViewSchema for EncryptedBasicCount {
     }
 }
 
-impl DefaultViewSerialization for EncryptedBasicCount {}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = EncryptedBasic, key = Option<u64>, value = usize, name = "by-parent-id", core = crate)]
 pub struct EncryptedBasicByParentId;
-
-impl View for EncryptedBasicByParentId {
-    type Collection = EncryptedBasic;
-    type Key = Option<u64>;
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("by-parent-id")
-    }
-}
 
 impl ViewSchema for EncryptedBasicByParentId {
     type View = Self;
@@ -341,20 +267,9 @@ impl ViewSchema for EncryptedBasicByParentId {
     }
 }
 
-impl DefaultViewSerialization for EncryptedBasicByParentId {}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = EncryptedBasic, key = String, value = usize, name = "by-category", core = crate)]
 pub struct EncryptedBasicByCategory;
-
-impl View for EncryptedBasicByCategory {
-    type Collection = EncryptedBasic;
-    type Key = String;
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("by-category")
-    }
-}
 
 impl ViewSchema for EncryptedBasicByCategory {
     type View = Self;
@@ -377,22 +292,9 @@ impl ViewSchema for EncryptedBasicByCategory {
     }
 }
 
-impl DefaultViewSerialization for EncryptedBasicByCategory {}
-
-#[derive(Debug)]
+#[derive(Debug, Schema)]
+#[schema(name = "basic", collections = [Basic, EncryptedBasic, Unique], core = crate)]
 pub struct BasicSchema;
-
-impl Schema for BasicSchema {
-    fn schema_name() -> SchemaName {
-        SchemaName::private("basic")
-    }
-
-    fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_collection::<Basic>()?;
-        schema.define_collection::<EncryptedBasic>()?;
-        schema.define_collection::<Unique>()
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Collection)]
 #[collection(name = "unique", authority = "khonsulabs", views = [UniqueValue], core = crate)]
@@ -408,18 +310,9 @@ impl Unique {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Unique, key = String, value = (), name = "unique-value", core = crate)]
 pub struct UniqueValue;
-
-impl View for UniqueValue {
-    type Collection = Unique;
-    type Key = String;
-    type Value = ();
-
-    fn name(&self) -> Name {
-        Name::new("unique-value")
-    }
-}
 
 impl ViewSchema for UniqueValue {
     type View = Self;
@@ -433,8 +326,6 @@ impl ViewSchema for UniqueValue {
         Ok(document.emit_key(entry.value))
     }
 }
-
-impl DefaultViewSerialization for UniqueValue {}
 
 impl NamedCollection for Unique {
     type ByNameView = UniqueValue;

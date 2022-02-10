@@ -33,7 +33,7 @@ pub trait Collection: Debug + Send + Sync {
 ///
 /// These examples for this type use this basic collection definition:
 ///
-/// ```rust,ignore
+/// ```rust
 /// use bonsaidb_core::{
 ///     schema::{Collection, CollectionName, DefaultSerialization, Schematic},
 ///     Error,
@@ -42,6 +42,7 @@ pub trait Collection: Debug + Send + Sync {
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection")]
+/// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection {
 ///     pub rank: u32,
 ///     pub score: f32,

@@ -15,18 +15,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   namespacing is meant to help prevent name collisions.
 - `connection::Collection::all()` and `SchemaCollection::all()` have been
   implemented as simple wrappers around `list(..)`.
-- [#146][146]: The `Collection` trait can now be derived rather than manually implemented:
+- [#146][146], [#187][187]: The `Schema`, `Collection`, and `View` traits can
+      now be derived rather than manually implemented:
 
   ```rust
+  #[derive(Debug, Serialize, Deserialize, Schema)]
+  #[schema(name = "my-schema", collections = [Shape])]
+  struct MySchema;
+
   #[derive(Debug, Serialize, Deserialize, Collection)]
   #[collection(name = "shapes", views = [ShapesByNumberOfSides])]
   struct Shape {
       pub sides: u32,
   }
+
+  #[derive(Debug, Clone, View)]
+  #[view(collection = Shape, key = u32, value = usize, name = "by-number-of-sides")]
+  struct ShapesByNumberOfSides;
   ```
 
 [146]: https://github.com/khonsulabs/bonsaidb/pull/146
-  
+[187]: https://github.com/khonsulabs/bonsaidb/pull/187
+
 ## v0.1.0
 
 ### Added

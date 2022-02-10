@@ -350,7 +350,7 @@ pub trait Connection: Send + Sync {
 ///
 /// These examples in this type use this basic collection definition:
 ///
-/// ```rust,ignore
+/// ```rust
 /// use bonsaidb_core::{
 ///     schema::{Collection, CollectionName, DefaultSerialization, Schematic},
 ///     Error,
@@ -359,6 +359,7 @@ pub trait Connection: Send + Sync {
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection")]
+/// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection {
 ///     pub rank: u32,
 ///     pub score: f32,
@@ -766,18 +767,10 @@ where
 ///     },
 /// };
 ///
-/// #[derive(Debug)]
+/// #[derive(Debug, Clone, View)]
+/// #[view(collection = MyCollection, key = u32, value = f32, name = "scores-by-rank")]
+/// # #[view(core = bonsaidb_core)]
 /// pub struct ScoresByRank;
-///
-/// impl View for ScoresByRank {
-///     type Collection = MyCollection;
-///     type Key = u32;
-///     type Value = f32;
-///
-///     fn name(&self) -> Name {
-///         Name::new("scores-by-rank")
-///     }
-/// }
 ///
 /// impl CollectionViewSchema for ScoresByRank {
 ///     type View = Self;
@@ -802,8 +795,6 @@ where
 ///         }
 ///     }
 /// }
-///
-/// impl DefaultViewSerialization for ScoresByRank {}
 /// ```
 pub struct View<'a, Cn, V: schema::SerializedView> {
     connection: &'a Cn,
@@ -1619,18 +1610,9 @@ macro_rules! __doctest_prelude {
         };
         use serde::{Deserialize, Serialize};
 
-        #[derive(Debug)]
+        #[derive(Debug, Schema)]
+        #[schema(name = "MySchema", collections = [MyCollection], core = $crate)]
         pub struct MySchema;
-
-        impl Schema for MySchema {
-            fn schema_name() -> SchemaName {
-                SchemaName::private("MySchema")
-            }
-
-            fn define_collections(schema: &mut Schematic) -> Result<(), Error> {
-                Ok(())
-            }
-        }
 
         #[derive(Debug, Serialize, Deserialize, Default, Collection)]
         #[collection(name = "MyCollection", views = [MyCollectionByName], core = $crate)]
@@ -1658,18 +1640,9 @@ macro_rules! __doctest_prelude {
             type ByNameView = MyCollectionByName;
         }
 
-        #[derive(Debug)]
+        #[derive(Debug, Clone, View)]
+        #[view(collection = MyCollection, key = u32, value = f32, name = "scores-by-rank", core = $crate)]
         pub struct ScoresByRank;
-
-        impl View for ScoresByRank {
-            type Collection = MyCollection;
-            type Key = u32;
-            type Value = f32;
-
-            fn name(&self) -> Name {
-                Name::new("scores-by-rank")
-            }
-        }
 
         impl CollectionViewSchema for ScoresByRank {
             type View = Self;
@@ -1694,8 +1667,6 @@ macro_rules! __doctest_prelude {
                 }
             }
         }
-
-        impl DefaultViewSerialization for ScoresByRank {}
 
         define_basic_unique_mapped_view!(
             MyCollectionByName,
