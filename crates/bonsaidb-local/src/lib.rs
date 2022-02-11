@@ -1,5 +1,5 @@
 #![doc = include_str!(".crate-docs.md")]
-#![cfg_attr(not(feature = "included-from-omnibus"), doc = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.rustme/local-feature-flags.md")))]
+#![cfg_attr(not(feature = "included-from-omnibus"), doc = include_str!("../local-feature-flags.md"))]
 #![forbid(unsafe_code)]
 #![warn(
     clippy::cargo,
