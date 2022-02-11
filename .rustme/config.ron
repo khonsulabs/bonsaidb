@@ -26,7 +26,7 @@ Configuration(
         "../crates/bonsaidb-client/README.md":  [
             "client-header.md",
             "client-docs.md",
-            "client-feature-flags.md",
+            "../crates/bonsaidb-client/client-feature-flags.md",
             "https://github.com/khonsulabs/.github/raw/main/snippets/readme-footer.md",
         ],
         "../crates/bonsaidb-client/src/.crate-docs.md":  (
@@ -38,7 +38,7 @@ Configuration(
         "../crates/bonsaidb-local/README.md":  [
             "local-header.md",
             "local-docs.md",
-            "local-feature-flags.md",
+            "../crates/bonsaidb-local/local-feature-flags.md",
             "https://github.com/khonsulabs/.github/raw/main/snippets/readme-footer.md",
         ],
         "../crates/bonsaidb-local/src/.crate-docs.md":  (
@@ -50,7 +50,7 @@ Configuration(
         "../crates/bonsaidb-server/README.md":  [
             "server-header.md",
             "server-docs.md",
-            "server-feature-flags.md",
+            "../crates/bonsaidb-server/server-feature-flags.md",
             "https://github.com/khonsulabs/.github/raw/main/snippets/readme-footer.md",
         ],
         "../crates/bonsaidb-server/src/.crate-docs.md":  (
