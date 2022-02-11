@@ -1,6 +1,6 @@
 # Integrating BonsaiDb Locally
 
-`BonsaiDb` supports multiple [databases](../about/concepts/database.md) and multiple [schemas](../about/concepts/schema.md). However, for many applications, you only need a single database.
+BonsaiDb supports multiple [databases](../about/concepts/database.md) and multiple [schemas](../about/concepts/schema.md). However, for many applications, you only need a single database.
 
 If you're only wanting a single database, the setup is straightforward: (from [`examples/basic-local/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/basic-local.rs))
 
@@ -10,7 +10,7 @@ let db = Database::<Message>::open(
 ).await?;
 ```
 
-Under the hood, `BonsaiDb` is creating a multi-database [`Storage`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Storage.html) with a local [`Database`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Database.html) named `default` for you. If you need to switch to a multi-database model, you can open the storage and access the `default` database: (adapted from [`examples/basic-local/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/basic-local-multidb.rs))
+Under the hood, BonsaiDb is creating a multi-database [`Storage`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Storage.html) with a local [`Database`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Database.html) named `default` for you. If you need to switch to a multi-database model, you can open the storage and access the `default` database: (adapted from [`examples/basic-local/examples/basic-local.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/basic-local-multidb.rs))
 
 ```rust,noplayground,no_run
 let storage = Storage::open(
@@ -24,7 +24,7 @@ You can register multiple schemas so that databases can be purpose-built.
 
 ## Common Traits
 
-To help your code transition between different modes of accessing `BonsaiDb`, you can use these common traits to make your methods accept any style of `BonsaiDb` access.
+To help your code transition between different modes of accessing BonsaiDb, you can use these common traits to make your methods accept any style of BonsaiDb access.
 
 * [`Database`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Database.html) implements [`Connection`](../traits/connection.md), [`KeyValue`](../traits/key-value.md), and [`PubSub`](../traits/pubsub.md).
 * [`Storage`]({{DOCS_BASE_URL}}/bonsaidb/local/struct.Storage.html) implements [`StorageConnection`](../traits/storage_connection.md).

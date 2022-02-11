@@ -1,4 +1,4 @@
-//! Macros `BonsaiDb`.
+//! Macros BonsaiDb.
 
 #![forbid(unsafe_code)]
 #![warn(

@@ -60,6 +60,92 @@ mod backup;
 pub use backup::BackupLocation;
 
 /// A file-based, multi-database, multi-user database engine.
+///
+/// ## Converting from `Database::open` to `Storage::open`
+///
+/// [`Database::open`](Database::open) is a simple method that uses `Storage` to
+/// create a database named `default` with the schema provided. These two ways
+/// of opening the database are the same:
+///
+/// ```rust
+/// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_local::core`.
+/// use bonsaidb_core::{connection::StorageConnection, schema::Schema};
+/// // `bonsaidb_local` is re-exported to `bonsaidb::local` if using the omnibus crate.
+/// use bonsaidb_local::{
+///     config::{Builder, StorageConfiguration},
+///     Database, Storage,
+/// };
+/// # async fn open<MySchema: Schema>() -> anyhow::Result<()> {
+/// // This creates a Storage instance, creates a database, and returns it.
+/// let db = Database::open::<MySchema>(StorageConfiguration::new("my-db.bonsaidb")).await?;
+///
+/// // This is the equivalent code being executed:
+/// let storage =
+///     Storage::open(StorageConfiguration::new("my-db.bonsaidb").with_schema::<MySchema>()?)
+///         .await?;
+/// storage.create_database::<MySchema>("default", true).await?;
+/// let db = storage.database::<MySchema>("default").await?;
+/// #     Ok(())
+/// # }
+/// ```
+///
+/// ## Using multiple databases
+///
+/// This example shows how to use `Storage` to create and use multiple databases
+/// with multiple schemas:
+///
+/// ```rust
+/// use bonsaidb_core::{
+///     connection::StorageConnection,
+///     schema::{Collection, Schema},
+/// };
+/// use bonsaidb_local::{
+///     config::{Builder, StorageConfiguration},
+///     Storage,
+/// };
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Schema)]
+/// #[schema(name = "my-schema", collections = [BlogPost, Author])]
+/// # #[schema(core = bonsaidb_core)]
+/// struct MySchema;
+///
+/// #[derive(Debug, Serialize, Deserialize, Collection)]
+/// #[collection(name = "blog-posts")]
+/// # #[collection(core = bonsaidb_core)]
+/// struct BlogPost {
+///     pub title: String,
+///     pub contents: String,
+///     pub author_id: u64,
+/// }
+///
+/// #[derive(Debug, Serialize, Deserialize, Collection)]
+/// #[collection(name = "blog-posts")]
+/// # #[collection(core = bonsaidb_core)]
+/// struct Author {
+///     pub name: String,
+/// }
+///
+/// # async fn test_fn() -> Result<(), bonsaidb_core::Error> {
+/// let storage = Storage::open(
+///     StorageConfiguration::new("my-db.bonsaidb")
+///         .with_schema::<BlogPost>()?
+///         .with_schema::<MySchema>()?,
+/// )
+/// .await?;
+///
+/// storage
+///     .create_database::<BlogPost>("ectons-blog", true)
+///     .await?;
+/// let ectons_blog = storage.database::<BlogPost>("ectons-blog").await?;
+/// storage
+///     .create_database::<MySchema>("another-db", true)
+///     .await?;
+/// let another_db = storage.database::<MySchema>("another-db").await?;
+///
+/// #     Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct Storage {
     data: Arc<Data>,

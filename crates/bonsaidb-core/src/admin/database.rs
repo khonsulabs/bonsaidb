@@ -6,7 +6,7 @@ use crate::{
     schema::{Collection, NamedCollection, SchemaName},
 };
 
-/// A database stored in `BonsaiDb`.
+/// A database stored in BonsaiDb.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Collection)]
 #[collection(authority = "bonsaidb", name = "databases", views = [ByName], core = crate)]
 pub struct Database {

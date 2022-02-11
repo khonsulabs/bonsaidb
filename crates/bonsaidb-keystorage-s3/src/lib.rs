@@ -1,11 +1,11 @@
 //! [`VaultKeyStorage`] using S3-compatible storage.
 //!
-//! This is the recommended method for securing your `BonsaiDb` database. There
+//! This is the recommended method for securing your BonsaiDb database. There
 //! are many ways to acquire secure, inexpensive S3-compatible storage, such as
 //! Backblaze B2.
 //!
 //! Do not configure your bucket with public access. You should only allow
-//! access from the IP addresses that your `BonsaiDb` server(s) are hosted on,
+//! access from the IP addresses that your BonsaiDb server(s) are hosted on,
 //! or only allow authenticated access.
 //!
 //! To use this, specify the `vault_key_storage` configuration parameter:

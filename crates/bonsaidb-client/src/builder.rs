@@ -63,7 +63,7 @@ impl Builder<()> {
 }
 
 impl<A: CustomApi> Builder<A> {
-    /// Connects to a server using a pinned `certificate`. Only supported with `BonsaiDb` protocol-based connections.
+    /// Connects to a server using a pinned `certificate`. Only supported with BonsaiDb protocol-based connections.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_certificate(mut self, certificate: Certificate) -> Self {
         self.certificate = Some(certificate);

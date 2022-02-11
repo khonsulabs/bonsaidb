@@ -1,4 +1,4 @@
-//! `BonsaiDb` command line tools.
+//! BonsaiDb command line tools.
 
 use std::{ffi::OsString, fmt::Debug, marker::PhantomData, path::PathBuf};
 
@@ -18,7 +18,7 @@ pub enum Command<Cli: CommandLine> {
     /// Executes an admin command.
     #[clap(subcommand)]
     Admin(admin::Command),
-    /// Execute a `BonsaiDb` server command.
+    /// Execute a BonsaiDb server command.
     #[clap(subcommand)]
     Server(bonsaidb_server::cli::Command<Cli::Backend>),
     /// An external command.
@@ -107,7 +107,7 @@ impl<Cli: CommandLine> Args<Cli> {
 pub trait CommandLine: Sized + Send + Sync {
     /// The Backend for this command line.
     type Backend: Backend;
-    /// The [`Subcommand`] which is embedded next to the built-in `BonsaiDb`
+    /// The [`Subcommand`] which is embedded next to the built-in BonsaiDb
     /// commands.
     type Subcommand: Subcommand + Send + Sync + Debug;
 

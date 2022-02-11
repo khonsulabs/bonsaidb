@@ -130,7 +130,7 @@ use crate::{
 ///
 /// ### Changing the serialization strategy
 ///
-/// `BonsaiDb` uses [`transmog`](::transmog) to allow customizing serialization
+/// BonsaiDb uses [`transmog`](::transmog) to allow customizing serialization
 /// formats. To use one of the formats Transmog already supports, add its crate
 /// to your Cargo.toml and use it like this example using `transmog_bincode`:
 ///

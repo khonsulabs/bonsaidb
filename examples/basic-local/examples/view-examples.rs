@@ -51,7 +51,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     Shape { sides: 3 }.push_into(&db).await?;
     // end rustme snippet
 
-    // Views in `BonsaiDb` are written using a Map/Reduce approach. In this
+    // Views in BonsaiDb are written using a Map/Reduce approach. In this
     // example, we take a look at how document mapping can be used to filter and
     // retrieve data
     //

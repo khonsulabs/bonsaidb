@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       now be derived rather than manually implemented:
 
   ```rust
-  #[derive(Debug, Serialize, Deserialize, Schema)]
+  #[derive(Debug, Schema)]
   #[schema(name = "my-schema", collections = [Shape])]
   struct MySchema;
 
@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   #[view(collection = Shape, key = u32, value = usize, name = "by-number-of-sides")]
   struct ShapesByNumberOfSides;
   ```
+
+### Changed
+
+- Inline examples have been added for every `connection::Collection` and
+  `connection::View` function.
+- All examples have been updated to the new derive macro syntax. Additionally,
+  documentation and examples for deriving Schema, Collection, and View have been
+  added to the respective traits.
 
 [146]: https://github.com/khonsulabs/bonsaidb/pull/146
 [187]: https://github.com/khonsulabs/bonsaidb/pull/187

@@ -91,14 +91,14 @@ pub use self::{
 
 static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-/// A `BonsaiDb` server.
+/// A BonsaiDb server.
 #[derive(Debug)]
 #[derive_where(Clone)]
 pub struct CustomServer<B: Backend = NoBackend> {
     data: Arc<Data<B>>,
 }
 
-/// A `BonsaiDb` server without a custom backend.
+/// A BonsaiDb server without a custom backend.
 pub type Server = CustomServer<NoBackend>;
 
 #[derive(Debug)]

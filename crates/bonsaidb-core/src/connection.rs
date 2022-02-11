@@ -1408,7 +1408,7 @@ pub enum AccessPolicy {
     NoUpdate,
 }
 
-/// Functions for interacting with a multi-database `BonsaiDb` instance.
+/// Functions for interacting with a multi-database BonsaiDb instance.
 #[async_trait]
 pub trait StorageConnection: Send + Sync {
     /// The type that represents a database for this implementation.
@@ -1540,7 +1540,7 @@ pub trait StorageConnection: Send + Sync {
     ) -> Result<(), crate::Error>;
 }
 
-/// A database stored in `BonsaiDb`.
+/// A database stored in BonsaiDb.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Database {
     /// The name of the database.

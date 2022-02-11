@@ -9,7 +9,7 @@ use crate::{
     schema::{Collection, NamedCollection},
 };
 
-/// A user that can authenticate with `BonsaiDb`.
+/// A user that can authenticate with BonsaiDb.
 #[derive(Debug, Serialize, Deserialize, Default, Collection)]
 #[collection(name = "user", authority = "khonsulabs", views = [ByName])]
 #[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = crate)]

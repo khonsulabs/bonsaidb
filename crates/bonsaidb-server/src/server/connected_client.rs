@@ -16,7 +16,7 @@ use crate::{Backend, CustomServer, NoBackend};
 /// The ways a client can be connected to the server.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Transport {
-    /// A connection over `BonsaiDb`'s QUIC-based protocol.
+    /// A connection over BonsaiDb's QUIC-based protocol.
     Bonsai,
     /// A connection over WebSockets.
     #[cfg(feature = "websockets")]

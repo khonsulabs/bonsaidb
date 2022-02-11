@@ -1,5 +1,5 @@
-//! The `BonsaiDb` Server.
-
+#![doc = include_str!(".crate-docs.md")]
+#![cfg_attr(not(feature = "included-from-omnibus"), doc = include_str!("../../../.rustme/server-feature-flags.md"))]
 #![forbid(unsafe_code)]
 #![warn(
     clippy::cargo,

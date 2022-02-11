@@ -1,4 +1,4 @@
-//! Core functionality and types for `BonsaiDb`.
+//! Core functionality and types for BonsaiDb.
 
 #![forbid(unsafe_code)]
 #![warn(
@@ -21,11 +21,11 @@ pub mod permissions;
 
 /// Database administration types and functionality.
 pub mod admin;
-/// Types for interacting with `BonsaiDb`.
+/// Types for interacting with BonsaiDb.
 pub mod connection;
 /// Types for interacting with `Document`s.
 pub mod document;
-/// Limits used within `BonsaiDb`.
+/// Limits used within BonsaiDb.
 pub mod limits;
 /// Types for defining database schema.
 pub mod schema;
@@ -39,7 +39,7 @@ pub mod keyvalue;
 pub mod custom_api;
 
 #[cfg(feature = "networking")]
-/// Types for implementing the `BonsaiDb` network protocol.
+/// Types for implementing the BonsaiDb network protocol.
 pub mod networking;
 
 /// Types for Publish/Subscribe (`PubSub`) messaging.

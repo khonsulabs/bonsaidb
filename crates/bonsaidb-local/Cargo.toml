@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-local"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Local database storage for BonsaiDb."
@@ -39,10 +39,10 @@ included-from-omnibus = []
 
 [dependencies]
 async-trait = "0.1"
-bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0", features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.1", features = [
     "included-from-local",
 ] }
-bonsaidb-utils = { path = "../bonsaidb-utils", version = "0.1.0" }
+bonsaidb-utils = { path = "../bonsaidb-utils", version = "0.1.1" }
 nebari = { version = "0.3.0" }
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
@@ -75,11 +75,11 @@ sysinfo = { version = "0.23", default-features = false }
 once_cell = { version = "1", optional = true }
 
 [dev-dependencies]
-bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0", features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.1", features = [
     "test-util",
 ] }
 futures = "0.3"
 anyhow = "1"
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["full"]

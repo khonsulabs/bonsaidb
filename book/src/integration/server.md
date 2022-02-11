@@ -1,16 +1,16 @@
 # Integrating the networked BonsaiDb Server
 
-To access `BonsaiDb` over the network, you're going to be writing two pieces of code: the server code and the client code.
+To access BonsaiDb over the network, you're going to be writing two pieces of code: the server code and the client code.
 
 ## Your BonsaiDb Server
 
-The first step is to create a [`Server`][storage], which uses local [`Storage`][storage] under the hood. This means that if you're already using `BonsaiDb` in local mode, you can swap your usage of [`Storage`][storage] with [`Server`][server] in your server code without running your database through any tools. Here's the setup code from [`basic-server/examples/basic-server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/basic-server.rs)
+The first step is to create a [`Server`][storage], which uses local [`Storage`][storage] under the hood. This means that if you're already using BonsaiDb in local mode, you can swap your usage of [`Storage`][storage] with [`Server`][server] in your server code without running your database through any tools. Here's the setup code from [`basic-server/examples/basic-server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/basic-server.rs)
 
 ```rust,noplayground,no_run
 {{#include ../../../examples/basic-server/examples/basic-server.rs:setup}}
 ```
 
-Once you have a server initialized, calling [`listen_on`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html#method.listen_on) will begin listening for connections on the port specified. This uses the preferred native protocol which uses UDP. If you find that UDP is not working for your setup or want to put `BonsaiDb` behind a load balancer that doesn't support UDP, you can enable WebSocket support and call [`listen_for_websockets_on`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html#method.listen_for_websockets_on).
+Once you have a server initialized, calling [`listen_on`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html#method.listen_on) will begin listening for connections on the port specified. This uses the preferred native protocol which uses UDP. If you find that UDP is not working for your setup or want to put BonsaiDb behind a load balancer that doesn't support UDP, you can enable WebSocket support and call [`listen_for_websockets_on`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html#method.listen_for_websockets_on).
 
 You can call both, but since these functions don't return until the server is shut down, you should spawn them instead:
 
@@ -33,7 +33,7 @@ If you're not running any of your own code on the server, and you're only using 
 
 The [`Client`][client] can support both the native protocol and WebSockets. It determines which protocol to use based on the scheme in the URL:
 
-* `bonsaidb://host:port` will connect using the native `BonsaiDb` protocol.
+* `bonsaidb://host:port` will connect using the native BonsaiDb protocol.
 * `ws://host:port` will connect using WebSockets.
 
 Here's how to connect, from [`examples/basic-server/examples/basic-server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/basic-server.rs):

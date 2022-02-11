@@ -299,7 +299,7 @@ pub struct Peer<P: ApplicationProtocols = StandardTcpProtocols> {
     pub protocol: P,
 }
 
-/// TCP [`ApplicationProtocols`] that `BonsaiDb` has some knowledge of.
+/// TCP [`ApplicationProtocols`] that BonsaiDb has some knowledge of.
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub enum StandardTcpProtocols {

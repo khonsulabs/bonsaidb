@@ -22,7 +22,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
 
     // Insert a new `Message` into the database. `Message` is a `Collection`
     // implementor, which makes them act in a similar fashion to tables in other
-    // databases. `BonsaiDb` stores each "row" as a `Document`. This document
+    // databases. BonsaiDb stores each "row" as a `Document`. This document
     // will have a unique ID, some other metadata, and your stored value. In
     // this case, `Message` implements `Serialize` and `Deserialize`, so we can
     // use convenience methods that return a `CollectionDocument`, moving all

@@ -1,7 +1,7 @@
 //! Encryption and secret management.
 //!
-//! `BonsaiDb`'s vault is the core of encryption and secret management. To offer
-//! this security, `BonsaiDb` relies on external [`VaultKeyStorage`] to provide
+//! BonsaiDb's vault is the core of encryption and secret management. To offer
+//! this security, BonsaiDb relies on external [`VaultKeyStorage`] to provide
 //! the key needed to decrypt the master keys. After the master keys have been
 //! decrypted, the vault is able to function without [`VaultKeyStorage`]. This
 //! design ensures that if a copy of a database was stolen, the data that is
@@ -11,9 +11,9 @@
 //! ## At-Rest Encryption
 //!
 //! At-rest encryption only ensures that if the database files are stolen that
-//! an attacker cannot access the data without the encryption key. `BonsaiDb`
+//! an attacker cannot access the data without the encryption key. BonsaiDb
 //! will regularly decrypt data to process it, and while the data is in-memory,
-//! it is subject to the security of the machine running it. If using `BonsaiDb`
+//! it is subject to the security of the machine running it. If using BonsaiDb
 //! over a network, the network transport layer's encryption is what ensures
 //! your data's safety.
 //!
@@ -31,12 +31,12 @@
 //! encryption. Our recommendation for production enviroments is to find an
 //! Amazon S3-compatible storage service and use
 //! [`S3VaultKeyStorage`](https://dev.bonsaidb.io/main/docs/bonsaidb_keystorage_s3/struct.S3VaultKeyStorage.html).
-//! Eventually, other `BonsaiDb` servers will be able to operate as key storage
+//! Eventually, other BonsaiDb servers will be able to operate as key storage
 //! for each other.
 //!
 //! ## Encryption Algorithms Used
 //!
-//! `BonsaiDb` uses the [`hpke`](https://github.com/rozbb/rust-hpke) crate to
+//! BonsaiDb uses the [`hpke`](https://github.com/rozbb/rust-hpke) crate to
 //! provide Hybrid Public Key Encryption (HPKE) when public key encryption is
 //! being used. This is currently only utilized for encrypting the master keys
 //! with the vault key. Our HPKE uses `P256+HKDF-SHA256+ChaCha20Poly1305`.
@@ -545,7 +545,7 @@ where
 /// Stores vault key locally on disk. This is in general considered insecure,
 /// and shouldn't be used without careful consideration.
 ///
-/// The primary goal of encryption within `BonsaiDb` is to offer limited
+/// The primary goal of encryption within BonsaiDb is to offer limited
 /// encryption at-rest. Within these goals, the primary attack vector being
 /// protected against is an attacker being able to copy the data off of the
 /// disks, either by physically gaining access to the drives or having

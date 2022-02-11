@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "A programmable, ACID-compliant, document-database inspired by CouchDB."
@@ -45,7 +45,7 @@ local-full = [
     "local-multiuser",
     "local-password-hashing",
 ]
-local = ["bonsaidb-local", "bonsaidb-local/included-from-omnibus"]
+local = ["bonsaidb-local"]
 server-full = [
     "server",
     "server-websockets",
@@ -57,7 +57,7 @@ server-full = [
     "server-pem",
     "server-password-hashing",
 ]
-server = ["bonsaidb-server", "local", "bonsaidb-server/included-from-omnibus"]
+server = ["bonsaidb-server", "local"]
 client-full = [
     "client",
     "client-websockets",
@@ -103,11 +103,19 @@ client-password-hashing = [
 ]
 
 [dependencies]
-bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0", default-features = false, features=["included-from-omnibus"] }
-bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.0", default-features = false, optional = true }
-bonsaidb-client = { path = "../bonsaidb-client", version = "0.1.0", default-features = false, optional = true }
-bonsaidb-server = { path = "../bonsaidb-server", version = "0.1.0", default-features = false, optional = true }
-bonsaidb-keystorage-s3 = { path = "../bonsaidb-keystorage-s3", version = "0.1.0", default-features = false, optional = true }
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.1", default-features = false, features = [
+    "included-from-omnibus",
+] }
+bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.1", default-features = false, features = [
+    "included-from-omnibus",
+], optional = true }
+bonsaidb-client = { path = "../bonsaidb-client", version = "0.1.1", default-features = false, features = [
+    "included-from-omnibus",
+], optional = true }
+bonsaidb-server = { path = "../bonsaidb-server", version = "0.1.1", default-features = false, features = [
+    "included-from-omnibus",
+], optional = true }
+bonsaidb-keystorage-s3 = { path = "../bonsaidb-keystorage-s3", version = "0.1.1", default-features = false, optional = true }
 
 tokio = { version = "1", features = ["full"], optional = true }
 clap = { version = "3", optional = true, features = ["derive"] }
@@ -118,7 +126,7 @@ url = { version = "2.2", optional = true }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 anyhow = "1"
-bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0", default-features = false, features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.1", default-features = false, features = [
     "test-util",
 ] }
 futures = "0.3"

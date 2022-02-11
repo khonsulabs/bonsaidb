@@ -118,7 +118,7 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 - `local-full`: Enables all the flags below
 - `local`: Enables the [`local`](https://dev.bonsaidb.io/release/docs/bonsaidb/local/) module, which re-exports the crate
   `bonsaidb-local`.
-- `local-cli`: Enables the `StructOpt` structures for embedding database
+- `local-cli`: Enables the `clap` structures for embedding database
   management commands into your own command-line interface.
 - `local-encryption`: Enables at-rest encryption.
 - `local-instrument`: Enables instrumenting with `tracing`.
@@ -126,7 +126,7 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 - `local-password-hashing`: Enables the ability to use password authentication
   using Argon2.
 
-### `BonsaiDb` server
+### BonsaiDb server
 
 ```toml
 [dependencies]
@@ -146,14 +146,14 @@ bonsaidb = { version = "*", default-features = false, features = "server-full" }
 - `server-password-hashing`: Enables the ability to use password authentication
   using Argon2.
 
-### Client for accessing a `BonsaiDb` server
+### Client for accessing a BonsaiDb server
 
 ```toml
 [dependencies]
 bonsaidb = { version = "*", default-features = false, features = "client-full" }
 ```
 
-- `client-full`: Enables `client`, `client-trusted-dns` and `client-websockets`
+- `client-full`: Enables `client`, `client-trusted-dns`, `client-websockets`, and `client-password-hashing`.
 - `client`: Enables the [`client`](https://dev.bonsaidb.io/release/docs/bonsaidb/client/) module, which re-exports the crate
   `bonsaidb-client`.
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not

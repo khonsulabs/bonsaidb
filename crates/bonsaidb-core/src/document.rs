@@ -89,7 +89,7 @@ pub struct OwnedDocument {
     pub contents: Bytes,
 }
 
-/// Common interface of a document in `BonsaiDb`.
+/// Common interface of a document in BonsaiDb.
 pub trait Document<'a>:
     Deref<Target = Header> + DerefMut + AsRef<Header> + AsRef<[u8]> + Sized
 {
@@ -116,7 +116,7 @@ pub trait Document<'a>:
     /// Creates a new revision.
     ///
     /// **WARNING: This normally should not be used** outside of implementing a
-    /// backend for `BonsaiDb`. To update a document, use `set_contents()` and
+    /// backend for BonsaiDb. To update a document, use `set_contents()` and
     /// send the document with the existing `Revision` information.
     #[must_use]
     fn create_new_revision(&self, contents: impl Into<Self::Bytes>) -> Option<Self>;
