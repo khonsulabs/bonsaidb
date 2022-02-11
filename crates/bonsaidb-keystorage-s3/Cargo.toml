@@ -8,7 +8,7 @@ repository = "https://github.com/khonsulabs/bonsaidb"
 license = "MIT OR Apache-2.0"
 keywords = ["s3", "bonsaidb", "keystorage"]
 categories = ["config"]
-readme = "../../README.md"
+readme = "./README.md"
 homepage = "https://bonsaidb.io/"
 
 [dependencies]

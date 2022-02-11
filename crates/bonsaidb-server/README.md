@@ -15,7 +15,7 @@ reliably than TCP, and features TLS built-in at the protocol level.
 WebSockets are an established protocol built atop TCP and HTTP.
 
 Our user's guide has a section covering [setting up and accessing a BonsaiDb
-server](https://dev.bonsaidb.io/main/guide/integration/server.html).
+server](https://dev.bonsaidb.io/release/guide/integration/server.html).
 
 ## Feature Flags
 
