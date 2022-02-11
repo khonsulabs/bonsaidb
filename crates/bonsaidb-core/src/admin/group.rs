@@ -1,16 +1,16 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     define_basic_unique_mapped_view,
     document::CollectionDocument,
     permissions::Statement,
-    schema::{Collection, CollectionName, DefaultSerialization, NamedCollection, Schematic},
-    Error,
+    schema::{Collection, NamedCollection},
 };
 
 /// A named group of permissions statements.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "permission-group", authority="khonsulabs", views = [ByName], core = crate)]
+
 pub struct PermissionGroup {
     /// The name of the group. Must be unique.
     pub name: String,
@@ -33,19 +33,6 @@ impl PermissionGroup {
         self
     }
 }
-
-#[async_trait]
-impl Collection for PermissionGroup {
-    fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "permission-group")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(ByName)
-    }
-}
-
-impl DefaultSerialization for PermissionGroup {}
 
 impl NamedCollection for PermissionGroup {
     type ByNameView = ByName;

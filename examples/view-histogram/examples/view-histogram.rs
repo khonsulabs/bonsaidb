@@ -20,8 +20,8 @@ use bonsaidb::{
         connection::Connection,
         document::CollectionDocument,
         schema::{
-            view::CollectionViewSchema, Collection, CollectionName, DefaultSerialization, Name,
-            ReduceResult, Schematic, SerializedView, View, ViewMappedValue,
+            view::CollectionViewSchema, Collection, ReduceResult, SerializedView, View,
+            ViewMappedValue,
         },
         transmog::{Format, OwnedDeserializer},
     },
@@ -92,7 +92,8 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
 }
 
 /// A set of samples that were taken at a specific time.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "samples", views = [AsHistogram])]
 pub struct Samples {
     /// The timestamp of the samples.
     pub timestamp: u64,
@@ -100,31 +101,10 @@ pub struct Samples {
     pub entries: Vec<u64>,
 }
 
-impl Collection for Samples {
-    fn collection_name() -> CollectionName {
-        CollectionName::new("histogram-example", "samples")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), bonsaidb::core::Error> {
-        schema.define_view(AsHistogram)
-    }
-}
-
-impl DefaultSerialization for Samples {}
-
 /// A view for [`Samples`] which produces a histogram.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Samples, key = u64, value = SyncHistogram<u64>, name = "as-histogram", serialization = None)]
 pub struct AsHistogram;
-
-impl View for AsHistogram {
-    type Collection = Samples;
-    type Key = u64;
-    type Value = SyncHistogram<u64>;
-
-    fn name(&self) -> Name {
-        Name::new("as-histogram")
-    }
-}
 
 impl CollectionViewSchema for AsHistogram {
     type View = Self;

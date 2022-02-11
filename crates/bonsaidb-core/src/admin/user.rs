@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -7,12 +6,13 @@ use crate::{
     define_basic_unique_mapped_view,
     document::{CollectionDocument, Document, KeyId},
     permissions::Permissions,
-    schema::{Collection, CollectionName, DefaultSerialization, NamedCollection, Schematic},
-    Error, ENCRYPTION_ENABLED,
+    schema::{Collection, NamedCollection},
 };
 
 /// A user that can authenticate with `BonsaiDb`.
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Collection)]
+#[collection(name = "user", authority = "khonsulabs", views = [ByName])]
+#[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = crate)]
 pub struct User {
     /// The name of the role. Must be unique.
     pub username: String,
@@ -89,27 +89,6 @@ impl User {
         Ok(merged_permissions)
     }
 }
-
-#[async_trait]
-impl Collection for User {
-    fn encryption_key() -> Option<KeyId> {
-        if ENCRYPTION_ENABLED {
-            Some(KeyId::Master)
-        } else {
-            None
-        }
-    }
-
-    fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "user")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(ByName)
-    }
-}
-
-impl DefaultSerialization for User {}
 
 impl NamedCollection for User {
     type ByNameView = ByName;

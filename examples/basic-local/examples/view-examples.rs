@@ -3,11 +3,9 @@ use bonsaidb::{
         connection::Connection,
         document::CollectionDocument,
         schema::{
-            view::CollectionViewSchema, Collection, CollectionName, DefaultSerialization,
-            DefaultViewSerialization, Name, ReduceResult, Schematic, SerializedCollection, View,
+            view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection, View,
             ViewMapResult, ViewMappedValue,
         },
-        Error,
     },
     local::{
         config::{Builder, StorageConfiguration},
@@ -17,35 +15,15 @@ use bonsaidb::{
 use serde::{Deserialize, Serialize};
 
 // begin rustme snippet: snippet-a
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "shapes", views = [ShapesByNumberOfSides])]
 struct Shape {
     pub sides: u32,
 }
 
-impl Collection for Shape {
-    fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "shapes")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(ShapesByNumberOfSides)
-    }
-}
-
-impl DefaultSerialization for Shape {}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Shape, key = u32, value = usize, name = "by-number-of-sides")]
 struct ShapesByNumberOfSides;
-
-impl View for ShapesByNumberOfSides {
-    type Collection = Shape;
-    type Key = u32;
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("by-number-of-sides")
-    }
-}
 
 impl CollectionViewSchema for ShapesByNumberOfSides {
     type View = Self;
@@ -62,15 +40,7 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
         Ok(mappings.iter().map(|m| m.value).sum())
     }
 }
-
-impl DefaultViewSerialization for ShapesByNumberOfSides {}
 // end rustme snippet
-
-impl Shape {
-    fn new(sides: u32) -> Self {
-        Self { sides }
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
@@ -78,7 +48,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
 
     // Insert a new document into the Shape collection.
-    Shape::new(3).push_into(&db).await?;
+    Shape { sides: 3 }.push_into(&db).await?;
     // end rustme snippet
 
     // Views in `BonsaiDb` are written using a Map/Reduce approach. In this
@@ -87,12 +57,12 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     //
     // Let's start by seeding the database with some shapes of various sizes:
     for sides in 3..=20 {
-        Shape::new(sides).push_into(&db).await?;
+        Shape { sides }.push_into(&db).await?;
     }
 
     // And, let's add a few shapes with the same number of sides
-    Shape::new(3).push_into(&db).await?;
-    Shape::new(4).push_into(&db).await?;
+    Shape { sides: 3 }.push_into(&db).await?;
+    Shape { sides: 4 }.push_into(&db).await?;
 
     // At this point, our database should have 3 triangles:
     // begin rustme snippet: snippet-c

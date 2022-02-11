@@ -4,8 +4,7 @@ use bonsaidb::{
         document::{BorrowedDocument, Document},
         schema::{
             view::{map::ViewMappedValue, EnumKey},
-            Collection, CollectionName, DefaultSerialization, DefaultViewSerialization, Name,
-            ReduceResult, View, ViewMapResult, ViewSchema,
+            Collection, ReduceResult, View, ViewMapResult, ViewSchema,
         },
         Error,
     },
@@ -29,7 +28,8 @@ impl EnumKey for Category {}
 // ANCHOR_END: enum
 
 // ANCHOR: struct
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Collection)]
+#[collection(name = "blog-post", views = [BlogPostsByCategory])]
 pub struct BlogPost {
     pub title: String,
     pub body: String,
@@ -37,31 +37,11 @@ pub struct BlogPost {
 }
 // ANCHOR_END: struct
 
-impl Collection for BlogPost {
-    fn collection_name() -> CollectionName {
-        CollectionName::new("view-example", "blog-post")
-    }
-
-    fn define_views(schema: &mut bonsaidb::core::schema::Schematic) -> Result<(), Error> {
-        schema.define_view(BlogPostsByCategory)
-    }
-}
-
-impl DefaultSerialization for BlogPost {}
-
-#[derive(Debug, Clone)]
-pub struct BlogPostsByCategory;
-
 // ANCHOR: view
-impl View for BlogPostsByCategory {
-    type Collection = BlogPost;
-    type Key = Option<Category>;
-    type Value = u32;
 
-    fn name(&self) -> Name {
-        Name::new("by-category")
-    }
-}
+#[derive(Debug, Clone, View)]
+#[view(collection = BlogPost, key = Option<Category>, value = u32, name = "by-category")]
+pub struct BlogPostsByCategory;
 
 impl ViewSchema for BlogPostsByCategory {
     type View = Self;
@@ -80,8 +60,6 @@ impl ViewSchema for BlogPostsByCategory {
     }
 }
 // ANCHOR_END: view
-
-impl DefaultViewSerialization for BlogPostsByCategory {}
 
 #[allow(unused_variables)]
 #[tokio::test]

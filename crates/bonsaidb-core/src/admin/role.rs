@@ -3,12 +3,12 @@ use serde::{Deserialize, Serialize};
 use crate::{
     define_basic_unique_mapped_view,
     document::CollectionDocument,
-    schema::{Collection, CollectionName, DefaultSerialization, NamedCollection, Schematic},
-    Error,
+    schema::{Collection, NamedCollection},
 };
 
 /// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::admin::PermissionGroup)s.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "role", authority="khonsulabs", views = [ByName], core = crate)]
 pub struct Role {
     /// The name of the role. Must be unique.
     pub name: String,
@@ -31,18 +31,6 @@ impl Role {
         self
     }
 }
-
-impl Collection for Role {
-    fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "role")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(ByName)
-    }
-}
-
-impl DefaultSerialization for Role {}
 
 impl NamedCollection for Role {
     type ByNameView = ByName;

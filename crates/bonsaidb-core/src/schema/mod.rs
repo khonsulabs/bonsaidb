@@ -5,6 +5,8 @@ mod schematic;
 pub mod view;
 use std::fmt::Debug;
 
+pub use bonsaidb_macros::{Collection, Schema, View};
+
 pub use self::{
     collection::{
         Collection, DefaultSerialization, Entry, InsertError, List, NamedCollection,
@@ -21,6 +23,50 @@ pub use self::{
 use crate::Error;
 
 /// Defines a group of collections that are stored into a single database.
+///
+/// ## Deriving this trait
+///
+/// This trait can be derived rather than manually implemented:
+///
+/// ```rust
+/// use bonsaidb_core::schema::{Collection, Schema};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Schema)]
+/// #[schema(name = "MySchema", collections = [MyCollection])]
+/// # #[schema(core = bonsaidb_core)]
+/// pub struct MySchema;
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection {
+///     pub rank: u32,
+///     pub score: f32,
+/// }
+/// ```
+///
+/// If you're publishing a schema for use in multiple projects, consider giving
+/// the schema an `authority`, which gives your schema a namespace:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Schema;
+///
+/// #[derive(Debug, Schema)]
+/// #[schema(name = "MySchema", authority = "khonsulabs", collections = [MyCollection])]
+/// # #[schema(core = bonsaidb_core)]
+/// pub struct MySchema;
+///
+/// # use serde::{Deserialize, Serialize};
+/// # use bonsaidb_core::schema::Collection;
+/// # #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// # #[collection(name = "MyCollection")]
+/// # #[collection(core = bonsaidb_core)]
+/// # pub struct MyCollection {
+/// #    pub rank: u32,
+/// #    pub score: f32,
+/// # }
+/// ```
 pub trait Schema: Send + Sync + Debug + 'static {
     /// Returns the unique [`SchemaName`] for this schema.
     fn schema_name() -> SchemaName;

@@ -1,4 +1,4 @@
-use bonsaidb::core::arc_bytes::serde::Bytes;
+use bonsaidb::core::{arc_bytes::serde::Bytes, schema::Collection};
 use criterion::{Criterion, Throughput};
 use serde::{Deserialize, Serialize};
 
@@ -6,7 +6,8 @@ mod bonsai;
 #[cfg(feature = "sqlite")]
 mod rusqlite;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Collection)]
+#[collection(name = "resizable-docs")]
 struct ResizableDocument {
     data: Bytes,
 }

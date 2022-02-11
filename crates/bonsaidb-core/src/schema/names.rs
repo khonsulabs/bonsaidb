@@ -195,6 +195,14 @@ pub struct SchemaName {
 }
 
 impl SchemaName {
+    /// Creates a name for a [`Schema`](super::Schema) that is not meant
+    /// to be shared with other developers.
+    pub fn private<N: Into<Name>>(name: N) -> Self {
+        let authority = Authority::from("private");
+        let name = name.into();
+        Self { authority, name }
+    }
+
     /// Creates a new schema name.
     pub fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
         let authority = authority.into();
@@ -237,17 +245,27 @@ impl Display for SchemaName {
     }
 }
 
-/// The name of a [`Collection`](super::Collection).
+/// The namespaced name of a [`Collection`](super::Collection).
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone)]
 pub struct CollectionName {
-    /// The authority of this collection.
+    /// The authority of this collection. This name is used to ensure
+    /// collections from multiple authors/authorities can be used in the same
+    /// schema.
     pub authority: Authority,
 
-    /// The name of this collection.
+    /// The name of this collection. Must be unique within the [`Schema`](super::Schema)
     pub name: Name,
 }
 
 impl CollectionName {
+    /// Creates a name for a [`Collection`](super::Collection) that is not meant
+    /// to be shared with other developers.
+    pub fn private<N: Into<Name>>(name: N) -> Self {
+        let authority = Authority::from("private");
+        let name = name.into();
+        Self { authority, name }
+    }
+
     /// Creates a new collection name.
     pub fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
         let authority = authority.into();

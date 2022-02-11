@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `SchemaName:private` and `CollectionName::private` are two new constructors
+  that allow defining names without specifying an authority. Developers
+  creatingreusable collections and/or schemas should not use these methods as
+  namespacing is meant to help prevent name collisions.
+- `connection::Collection::all()` and `SchemaCollection::all()` have been
+  implemented as simple wrappers around `list(..)`.
+- [#146][146], [#187][187]: The `Schema`, `Collection`, and `View` traits can
+      now be derived rather than manually implemented:
+
+  ```rust
+  #[derive(Debug, Serialize, Deserialize, Schema)]
+  #[schema(name = "my-schema", collections = [Shape])]
+  struct MySchema;
+
+  #[derive(Debug, Serialize, Deserialize, Collection)]
+  #[collection(name = "shapes", views = [ShapesByNumberOfSides])]
+  struct Shape {
+      pub sides: u32,
+  }
+
+  #[derive(Debug, Clone, View)]
+  #[view(collection = Shape, key = u32, value = usize, name = "by-number-of-sides")]
+  struct ShapesByNumberOfSides;
+  ```
+
+[146]: https://github.com/khonsulabs/bonsaidb/pull/146
+[187]: https://github.com/khonsulabs/bonsaidb/pull/187
+
+## v0.1.0
+
+### Added
+
 - `bonsaidb::local::admin` now exposes collections that are used to manage `BonsaiDb`.
 - Ability to add users, set a user's password, and log in as a user.
 - Each `bonsaidb::local::Storage` now has a unique ID. It will be randomly

@@ -3,7 +3,7 @@ use std::{borrow::Cow, collections::HashSet, convert::Infallible, hash::Hash, sy
 use async_trait::async_trait;
 use bonsaidb_core::schema::{view, CollectionName, Key, ViewName};
 use nebari::{
-    io::fs::StdFile,
+    io::any::AnyFile,
     tree::{KeyEvaluation, Operation, Unversioned, Versioned},
     ArcBytes, Tree,
 };
@@ -156,7 +156,7 @@ impl Job for IntegrityScanner {
 }
 
 fn tree_keys<K: for<'a> Key<'a> + Hash + Eq + Clone, R: nebari::tree::Root>(
-    tree: &Tree<R, StdFile>,
+    tree: &Tree<R, AnyFile>,
 ) -> Result<HashSet<K>, crate::Error> {
     let mut ids = Vec::new();
     tree.scan::<Infallible, _, _, _, _>(

@@ -7,7 +7,6 @@ use bonsaidb::{
     core::{
         admin::PermissionGroup,
         connection::{Authentication, SensitiveString, StorageConnection},
-        document::KeyId,
         permissions::{
             bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
             Permissions, Statement,
@@ -127,7 +126,6 @@ async fn setup_server() -> anyhow::Result<Server> {
                         AuthenticationMethod::PasswordHash,
                     ))),
             ))
-            .default_encryption_key(KeyId::Master)
             .with_schema::<Shape>()?,
     )
     .await?;

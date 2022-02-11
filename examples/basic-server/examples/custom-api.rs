@@ -186,7 +186,7 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
     // ANCHOR: server-init
     let server = CustomServer::<ExampleBackend>::open(
-        ServerConfiguration::new("server-data.bonsaidb")
+        ServerConfiguration::new("custom-api.bonsaidb")
             .default_permissions(Permissions::from(
                 Statement::for_any()
                     .allowing(&BonsaiAction::Server(ServerAction::Connect))

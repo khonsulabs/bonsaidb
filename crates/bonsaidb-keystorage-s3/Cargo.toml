@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 keywords = ["s3", "bonsaidb", "keystorage"]
 categories = ["config"]
 readme = "../../README.md"
-homepage = "https://dev.bonsaidb.io/"
+homepage = "https://bonsaidb.io/"
 
 [dependencies]
 aws-sdk-s3 = { version = "0.6" }

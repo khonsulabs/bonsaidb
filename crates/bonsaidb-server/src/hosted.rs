@@ -1,32 +1,20 @@
 use bonsaidb_core::{
     define_basic_mapped_view, define_basic_unique_mapped_view,
     document::{CollectionDocument, KeyId},
-    schema::{
-        Collection, CollectionName, DefaultSerialization, NamedCollection, Schema, SchemaName,
-        Schematic,
-    },
-    ENCRYPTION_ENABLED,
+    schema::{Collection, NamedCollection, Schema},
 };
 use fabruic::{CertificateChain, PrivateKey};
 use serde::{de::Visitor, Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Schema)]
+#[schema(name = "hosted", authority = "khonsulabs", core = bonsaidb_core)]
+#[cfg_attr(feature = "acme", schema(collections = [TlsCertificate, crate::server::acme::AcmeAccount]))]
+#[cfg_attr(not(feature = "acme"), schema(collections = [TlsCertificate]))]
 pub struct Hosted;
 
-impl Schema for Hosted {
-    fn schema_name() -> SchemaName {
-        SchemaName::new("khonsulabs", "hosted")
-    }
-
-    fn define_collections(schema: &mut Schematic) -> Result<(), bonsaidb_core::Error> {
-        schema.define_collection::<TlsCertificate>()?;
-        #[cfg(feature = "acme")]
-        schema.define_collection::<crate::server::acme::AcmeAccount>()?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "tls-certificates", authority = "khonsulabs", views = [TlsCertificatesByDomain, TlsCertificateByAllDomains])]
+#[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = bonsaidb_core)]
 pub struct TlsCertificate {
     pub domains: Vec<String>,
     pub private_key: SerializablePrivateKey,
@@ -36,28 +24,6 @@ pub struct TlsCertificate {
 impl NamedCollection for TlsCertificate {
     type ByNameView = TlsCertificateByAllDomains;
 }
-
-impl Collection for TlsCertificate {
-    fn encryption_key() -> Option<KeyId> {
-        if ENCRYPTION_ENABLED {
-            Some(KeyId::Master)
-        } else {
-            None
-        }
-    }
-
-    fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "tls-certificates")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), bonsaidb_core::Error> {
-        schema.define_view(TlsCertificatesByDomain)?;
-        schema.define_view(TlsCertificateByAllDomains)?;
-        Ok(())
-    }
-}
-
-impl DefaultSerialization for TlsCertificate {}
 
 define_basic_unique_mapped_view!(
     TlsCertificateByAllDomains,

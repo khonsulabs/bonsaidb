@@ -14,6 +14,149 @@ use crate::{
 };
 
 /// A namespaced collection of `Document<Self>` items and views.
+///
+/// ## Deriving this trait
+///
+/// This trait can be derived instead of manually implemented:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// If you're publishing a collection for use in multiple projects, consider
+/// giving the collection an `authority`, which gives your collection a
+/// namespace:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection", authority = "khonsulabs")]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// The list of views can be specified using the `views` parameter:
+///
+/// ```rust
+/// use bonsaidb_core::schema::{Collection, View};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection", views = [ScoresByRank])]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+///
+/// #[derive(Debug, Clone, View)]
+/// #[view(collection = MyCollection, key = u32, value = f32, name = "scores-by-rank")]
+/// # #[view(core = bonsaidb_core)]
+/// pub struct ScoresByRank;
+/// #
+/// # use bonsaidb_core::{
+/// #     document::CollectionDocument,
+/// #     schema::{
+/// #         CollectionViewSchema,   ReduceResult,
+/// #         ViewMapResult, ViewMappedValue,
+/// #    },
+/// # };
+/// # impl CollectionViewSchema for ScoresByRank {
+/// #     type View = Self;
+/// #     fn map(
+/// #         &self,
+/// #         _document: CollectionDocument<<Self::View as View>::Collection>,
+/// #     ) -> ViewMapResult<Self::View> {
+/// #         todo!()
+/// #     }
+/// #
+/// #     fn reduce(
+/// #         &self,
+/// #         _mappings: &[ViewMappedValue<Self::View>],
+/// #         _rereduce: bool,
+/// #     ) -> ReduceResult<Self::View> {
+/// #         todo!()
+/// #     }
+/// # }
+/// ```
+///
+/// ### Specifying a Collection Encryption Key
+///
+/// By default, encryption will be required if an `encryption_key` is provided:
+///
+/// ```rust
+/// use bonsaidb_core::{document::KeyId, schema::Collection};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection", encryption_key = Some(KeyId::Master))]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// The `encryption_required` parameter can be provided if you wish to be
+/// explicit:
+///
+/// ```rust
+/// use bonsaidb_core::{document::KeyId, schema::Collection};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// #[collection(encryption_key = Some(KeyId::Master), encryption_required)]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// Or, if you wish your collection to be encrypted if its available, but not
+/// cause errors when being stored without encryption, you can provide the
+/// `encryption_optional` parameter:
+///
+/// ```rust
+/// use bonsaidb_core::{document::KeyId, schema::Collection};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// #[collection(encryption_key = Some(KeyId::Master), encryption_optional)]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// ### Changing the serialization strategy
+///
+/// `BonsaiDb` uses [`transmog`](::transmog) to allow customizing serialization
+/// formats. To use one of the formats Transmog already supports, add its crate
+/// to your Cargo.toml and use it like this example using `transmog_bincode`:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// #[collection(serialization = transmog_bincode::Bincode)]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// To manually implement `SerializedCollection` you can pass `None` to
+/// `serialization`:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+///
+/// #[derive(Debug, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// #[collection(serialization = None)]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
 pub trait Collection: Debug + Send + Sync {
     /// The `Id` of this collection.
     fn collection_name() -> CollectionName;
@@ -30,6 +173,24 @@ pub trait Collection: Debug + Send + Sync {
 }
 
 /// A collection that knows how to serialize and deserialize documents to an associated type.
+///
+/// These examples for this type use this basic collection definition:
+///
+/// ```rust
+/// use bonsaidb_core::{
+///     schema::{Collection, CollectionName, DefaultSerialization, Schematic},
+///     Error,
+/// };
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection {
+///     pub rank: u32,
+///     pub score: f32,
+/// }
+/// ```
 #[async_trait]
 pub trait SerializedCollection: Collection {
     /// The type of the contents stored in documents in this collection.
@@ -56,6 +217,21 @@ pub trait SerializedCollection: Collection {
     }
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// if let Some(doc) = MyCollection::get(42, &db).await? {
+    ///     println!(
+    ///         "Retrieved revision {} with deserialized contents: {:?}",
+    ///         doc.header.revision, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn get<C: Connection>(
         id: u64,
         connection: &C,
@@ -69,6 +245,21 @@ pub trait SerializedCollection: Collection {
 
     /// Retrieves all documents matching `ids`. Documents that are not found
     /// are not returned, but no error will be generated.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// for doc in MyCollection::get_multiple(&[42, 43], &db).await? {
+    ///     println!(
+    ///         "Retrieved #{} with deserialized contents: {:?}",
+    ///         doc.header.id, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn get_multiple<C: Connection>(
         ids: &[u64],
         connection: &C,
@@ -83,8 +274,22 @@ pub trait SerializedCollection: Collection {
             .and_then(|docs| docs.collection_documents())
     }
 
-    /// Retrieves all documents matching `ids`. Documents that are not found
-    /// are not returned, but no error will be generated.
+    /// Retrieves all documents matching the range of `ids`.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// for doc in MyCollection::list(42.., &db).descending().limit(20).await? {
+    ///     println!(
+    ///         "Retrieved #{} with deserialized contents: {:?}",
+    ///         doc.header.id, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     fn list<R: Into<Range<u64>>, C: Connection>(ids: R, connection: &'_ C) -> List<'_, C, Self>
     where
         Self: Sized,
@@ -95,7 +300,48 @@ pub trait SerializedCollection: Collection {
         ))
     }
 
+    /// Retrieves all documents.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// for doc in MyCollection::all(&db).await? {
+    ///     println!(
+    ///         "Retrieved #{} with deserialized contents: {:?}",
+    ///         doc.header.id, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    fn all<C: Connection>(connection: &C) -> List<'_, C, Self>
+    where
+        Self: Sized,
+    {
+        List(connection::List::new(
+            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
+            Range::from(..),
+        ))
+    }
+
     /// Pushes this value into the collection, returning the created document.
+    /// This function is useful when `Self != Self::Contents`.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::push(MyCollection::default(), &db).await?;
+    /// println!(
+    ///     "Inserted {:?} with id {} with revision {}",
+    ///     document.contents, document.header.id, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn push<Cn: Connection>(
         contents: Self::Contents,
         connection: &Cn,
@@ -112,6 +358,20 @@ pub trait SerializedCollection: Collection {
     }
 
     /// Pushes this value into the collection, returning the created document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::default().push_into(&db).await?;
+    /// println!(
+    ///     "Inserted {:?} with id {} with revision {}",
+    ///     document.contents, document.header.id, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn push_into<Cn: Connection>(
         self,
         connection: &Cn,
@@ -124,6 +384,21 @@ pub trait SerializedCollection: Collection {
 
     /// Inserts this value into the collection with the specified id, returning
     /// the created document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::insert(42, MyCollection::default(), &db).await?;
+    /// assert_eq!(document.header.id, 42);
+    /// println!(
+    ///     "Inserted {:?} with revision {}",
+    ///     document.contents, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn insert<Cn: Connection>(
         id: u64,
         contents: Self::Contents,
@@ -142,6 +417,21 @@ pub trait SerializedCollection: Collection {
 
     /// Inserts this value into the collection with the given `id`, returning
     /// the created document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::default().insert_into(42, &db).await?;
+    /// assert_eq!(document.header.id, 42);
+    /// println!(
+    ///     "Inserted {:?} with revision {}",
+    ///     document.contents, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
     async fn insert_into<Cn: Connection>(
         self,
         id: u64,

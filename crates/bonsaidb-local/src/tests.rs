@@ -15,61 +15,74 @@ use config::StorageConfiguration;
 use super::*;
 use crate::{config::Builder, Database};
 
-struct TestHarness {
-    _directory: TestDirectory,
-    db: Database,
+macro_rules! define_local_suite {
+    ($name:ident) => {
+        mod $name {
+            use super::*;
+            struct TestHarness {
+                _directory: TestDirectory,
+                db: Database,
+            }
+
+            impl TestHarness {
+                async fn new(test: HarnessTest) -> anyhow::Result<Self> {
+                    let directory = TestDirectory::new(format!("{}-{}", stringify!($name), test));
+                    let mut config =
+                        StorageConfiguration::new(&directory).with_schema::<BasicSchema>()?;
+                    if stringify!($name) == "memory" {
+                        config = config.memory_only()
+                    }
+                    let storage = Storage::open(config).await?;
+                    storage
+                        .create_database::<BasicSchema>("tests", false)
+                        .await?;
+                    let db = storage.database::<BasicSchema>("tests").await?;
+
+                    Ok(Self {
+                        _directory: directory,
+                        db,
+                    })
+                }
+
+                const fn server_name() -> &'static str {
+                    stringify!($name)
+                }
+
+                fn server(&self) -> &'_ Storage {
+                    self.db.storage()
+                }
+
+                #[allow(dead_code)]
+                async fn connect_with_permissions(
+                    &self,
+                    permissions: Vec<Statement>,
+                    _label: &str,
+                ) -> anyhow::Result<Database> {
+                    Ok(self
+                        .db
+                        .with_effective_permissions(Permissions::from(permissions)))
+                }
+
+                async fn connect(&self) -> anyhow::Result<Database> {
+                    Ok(self.db.clone())
+                }
+
+                pub async fn shutdown(&self) -> anyhow::Result<()> {
+                    Ok(())
+                }
+            }
+
+            bonsaidb_core::define_connection_test_suite!(TestHarness);
+
+            bonsaidb_core::define_pubsub_test_suite!(TestHarness);
+
+            bonsaidb_core::define_kv_test_suite!(TestHarness);
+        }
+    };
 }
 
-impl TestHarness {
-    async fn new(test: HarnessTest) -> anyhow::Result<Self> {
-        let directory = TestDirectory::new(format!("local-{}", test));
-        let storage =
-            Storage::open(StorageConfiguration::new(&directory).with_schema::<BasicSchema>()?)
-                .await?;
-        storage
-            .create_database::<BasicSchema>("tests", false)
-            .await?;
-        let db = storage.database::<BasicSchema>("tests").await?;
-
-        Ok(Self {
-            _directory: directory,
-            db,
-        })
-    }
-
-    const fn server_name() -> &'static str {
-        "local"
-    }
-
-    fn server(&self) -> &'_ Storage {
-        self.db.storage()
-    }
-
-    #[allow(dead_code)]
-    async fn connect_with_permissions(
-        &self,
-        permissions: Vec<Statement>,
-        _label: &str,
-    ) -> anyhow::Result<Database> {
-        Ok(self
-            .db
-            .with_effective_permissions(Permissions::from(permissions)))
-    }
-
-    async fn connect(&self) -> anyhow::Result<Database> {
-        Ok(self.db.clone())
-    }
-
-    pub async fn shutdown(&self) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-bonsaidb_core::define_connection_test_suite!(TestHarness);
-
-bonsaidb_core::define_pubsub_test_suite!(TestHarness);
-
-bonsaidb_core::define_kv_test_suite!(TestHarness);
+define_local_suite!(persisted);
+define_local_suite!(memory);
 
 #[test]
 fn integrity_checks() -> anyhow::Result<()> {
@@ -132,7 +145,7 @@ fn integrity_checks() -> anyhow::Result<()> {
                 StorageConfiguration::new(&path).check_view_integrity_on_open(true),
             )
             .await?;
-            for _ in 0_u8..10 {
+            for _ in 0_u8..100 {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
                 if db
                     .view::<BasicByParentId>()

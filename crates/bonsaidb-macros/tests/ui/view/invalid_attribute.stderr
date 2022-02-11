@@ -1,0 +1,11 @@
+error: expected identifier
+ --> tests/ui/view/invalid_attribute.rs:4:21
+  |
+4 | #[view(name = "hi", "hi")]
+  |                     ^^^^
+
+error: Only `collection = CollectionType`, `key = KeyType`, `name = \"by-name\"`, `value = ValueType` and `serialization = SerializationFormat` and `core = bonsaidb::core` are supported attributes
+ --> tests/ui/view/invalid_attribute.rs:8:21
+  |
+8 | #[view(name = "hi", authority = "hello", "hi")]
+  |                     ^^^^^^^^^

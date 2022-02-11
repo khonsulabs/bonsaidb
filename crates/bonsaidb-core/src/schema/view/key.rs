@@ -125,6 +125,28 @@ impl<'a> Key<'a> for () {
     }
 }
 
+impl<'a> Key<'a> for bool {
+    type Error = Infallible;
+
+    const LENGTH: Option<usize> = Some(1);
+
+    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+        if *self {
+            Ok(Cow::Borrowed(&[1_u8]))
+        } else {
+            Ok(Cow::Borrowed(&[0_u8]))
+        }
+    }
+
+    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        if bytes.is_empty() || bytes[0] == 0 {
+            Ok(false)
+        } else {
+            Ok(true)
+        }
+    }
+}
+
 macro_rules! impl_key_for_tuple {
     ($(($index:tt, $varname:ident, $generic:ident)),+) => {
         impl<'a, $($generic),+> Key<'a> for ($($generic),+)
@@ -572,6 +594,16 @@ fn optional_key_encoding_tests() -> anyhow::Result<()> {
 fn unit_key_encoding_tests() -> anyhow::Result<()> {
     assert!(().as_big_endian_bytes()?.is_empty());
     assert_eq!((), <() as Key>::from_big_endian_bytes(&[])?);
+    Ok(())
+}
+
+#[test]
+#[allow(clippy::unit_cmp)] // this is more of a compilation test
+fn bool_key_encoding_tests() -> anyhow::Result<()> {
+    let true_as_bytes = true.as_big_endian_bytes()?;
+    let false_as_bytes = false.as_big_endian_bytes()?;
+    assert!(bool::from_big_endian_bytes(&true_as_bytes)?);
+    assert!(!bool::from_big_endian_bytes(&false_as_bytes)?);
     Ok(())
 }
 

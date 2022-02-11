@@ -32,7 +32,7 @@ use bonsaidb_utils::fast_async_lock;
 use byteorder::{BigEndian, ByteOrder};
 use itertools::Itertools;
 use nebari::{
-    io::fs::StdFile,
+    io::any::AnyFile,
     tree::{
         AnyTreeRoot, BorrowByteRange, KeyEvaluation, Root, TreeRoot, U64Range, Unversioned,
         Versioned,
@@ -162,7 +162,7 @@ impl Database {
         &self.data.schema
     }
 
-    pub(crate) fn roots(&self) -> &'_ nebari::Roots<StdFile> {
+    pub(crate) fn roots(&self) -> &'_ nebari::Roots<AnyFile> {
         &self.data.context.roots
     }
 
@@ -613,7 +613,7 @@ impl Database {
             .data
             .context
             .roots
-            .transaction::<_, dyn AnyTreeRoot<StdFile>>(&open_trees.trees)?;
+            .transaction::<_, dyn AnyTreeRoot<AnyFile>>(&open_trees.trees)?;
 
         let mut results = Vec::new();
         let mut changed_documents = Vec::new();
@@ -683,7 +683,7 @@ impl Database {
     fn execute_operation(
         &self,
         operation: &Operation,
-        transaction: &mut ExecutingTransaction<StdFile>,
+        transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<OperationResult, Error> {
         match &operation.command {
@@ -710,7 +710,7 @@ impl Database {
     fn execute_update(
         &self,
         operation: &Operation,
-        transaction: &mut ExecutingTransaction<StdFile>,
+        transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
         contents: Vec<u8>,
@@ -769,7 +769,7 @@ impl Database {
     fn execute_insert(
         &self,
         operation: &Operation,
-        transaction: &mut ExecutingTransaction<StdFile>,
+        transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
         id: Option<u64>,
         contents: Vec<u8>,
@@ -811,7 +811,7 @@ impl Database {
     fn execute_delete(
         &self,
         operation: &Operation,
-        transaction: &mut ExecutingTransaction<StdFile>,
+        transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
     ) -> Result<OperationResult, Error> {
@@ -851,7 +851,7 @@ impl Database {
         &self,
         document_id: &[u8],
         operation: &Operation,
-        transaction: &mut ExecutingTransaction<StdFile>,
+        transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<(), Error> {
         if let Some(unique_views) = self
@@ -884,7 +884,7 @@ impl Database {
     }
 
     fn create_view_iterator<'a, K: for<'k> Key<'k> + 'a>(
-        view_entries: &'a Tree<Unversioned, StdFile>,
+        view_entries: &'a Tree<Unversioned, AnyFile>,
         key: Option<QueryKey<K>>,
         order: Sort,
         limit: Option<usize>,
@@ -990,7 +990,7 @@ impl Database {
         &self,
         collection: &CollectionName,
         name: S,
-    ) -> Result<TreeRoot<R, StdFile>, Error> {
+    ) -> Result<TreeRoot<R, AnyFile>, Error> {
         let mut tree = R::tree(name);
 
         if let Some(key) = self.collection_encryption_key(collection) {
@@ -1390,19 +1390,19 @@ impl Deref for Context {
 
 #[derive(Debug)]
 pub(crate) struct ContextData {
-    pub(crate) roots: Roots<StdFile>,
+    pub(crate) roots: Roots<AnyFile>,
     key_value_state: Arc<Mutex<keyvalue::KeyValueState>>,
     runtime: tokio::runtime::Handle,
 }
 
-impl Borrow<Roots<StdFile>> for Context {
-    fn borrow(&self) -> &Roots<StdFile> {
+impl Borrow<Roots<AnyFile>> for Context {
+    fn borrow(&self) -> &Roots<AnyFile> {
         &self.data.roots
     }
 }
 
 impl Context {
-    pub(crate) fn new(roots: Roots<StdFile>, key_value_persistence: KeyValuePersistence) -> Self {
+    pub(crate) fn new(roots: Roots<AnyFile>, key_value_persistence: KeyValuePersistence) -> Self {
         let (background_sender, background_receiver) = watch::channel(None);
         let key_value_state = Arc::new(Mutex::new(keyvalue::KeyValueState::new(
             key_value_persistence,

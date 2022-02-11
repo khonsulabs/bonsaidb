@@ -32,7 +32,7 @@ use futures::TryFutureExt;
 use itertools::Itertools;
 use nebari::{
     io::{
-        fs::{StdFile, StdFileManager},
+        any::{AnyFile, AnyFileManager},
         FileManager,
     },
     ChunkCache, ThreadPool,
@@ -69,8 +69,8 @@ pub struct Storage {
 struct Data {
     id: StorageId,
     path: PathBuf,
-    threadpool: ThreadPool<StdFile>,
-    file_manager: StdFileManager,
+    threadpool: ThreadPool<AnyFile>,
+    file_manager: AnyFileManager,
     pub(crate) tasks: TaskManager,
     schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
@@ -94,6 +94,11 @@ impl Storage {
             .path
             .clone()
             .unwrap_or_else(|| PathBuf::from("db.bonsaidb"));
+        let file_manager = if configuration.memory_only {
+            AnyFileManager::memory()
+        } else {
+            AnyFileManager::std()
+        };
 
         let manager = Manager::default();
         for _ in 0..configuration.workers.worker_count {
@@ -137,7 +142,7 @@ impl Storage {
                     #[cfg(feature = "encryption")]
                     default_encryption_key,
                     path: owned_path,
-                    file_manager: StdFileManager::default(),
+                    file_manager,
                     chunk_cache: ChunkCache::new(2000, 160_384),
                     threadpool: ThreadPool::default(),
                     schemas: RwLock::new(configuration.initial_schemas),
@@ -303,9 +308,9 @@ impl Storage {
             let task_name = name.to_string();
             let roots = tokio::task::spawn_blocking(move || {
                 let mut config = nebari::Config::new(task_self.data.path.join(task_name))
+                    .file_manager(task_self.data.file_manager.clone())
                     .cache(task_self.data.chunk_cache.clone())
-                    .shared_thread_pool(&task_self.data.threadpool)
-                    .file_manager(task_self.data.file_manager.clone());
+                    .shared_thread_pool(&task_self.data.threadpool);
                 #[cfg(feature = "encryption")]
                 if let Some(key) = task_self.default_encryption_key() {
                     config = config.vault(TreeVault {

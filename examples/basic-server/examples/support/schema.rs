@@ -1,15 +1,13 @@
 use bonsaidb::core::{
     document::CollectionDocument,
     schema::{
-        view::CollectionViewSchema, Collection, CollectionName, DefaultSerialization,
-        DefaultViewSerialization, Name, ReduceResult, Schematic, View, ViewMapResult,
-        ViewMappedValue,
+        view::CollectionViewSchema, Collection, ReduceResult, View, ViewMapResult, ViewMappedValue,
     },
-    Error,
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
+#[collection(name = "shapes", views = [ShapesByNumberOfSides])]
 pub struct Shape {
     pub sides: u32,
 }
@@ -20,30 +18,9 @@ impl Shape {
     }
 }
 
-impl Collection for Shape {
-    fn collection_name() -> CollectionName {
-        CollectionName::new("khonsulabs", "shapes")
-    }
-
-    fn define_views(schema: &mut Schematic) -> Result<(), Error> {
-        schema.define_view(ShapesByNumberOfSides)
-    }
-}
-
-impl DefaultSerialization for Shape {}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, View)]
+#[view(collection = Shape, key = u32, value = usize, name = "by-number-of-sides")]
 pub struct ShapesByNumberOfSides;
-
-impl View for ShapesByNumberOfSides {
-    type Collection = Shape;
-    type Key = u32;
-    type Value = usize;
-
-    fn name(&self) -> Name {
-        Name::new("by-number-of-sides")
-    }
-}
 
 impl CollectionViewSchema for ShapesByNumberOfSides {
     type View = Self;
@@ -63,5 +40,3 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
         Ok(mappings.iter().map(|m| m.value).sum())
     }
 }
-
-impl DefaultViewSerialization for ShapesByNumberOfSides {}
