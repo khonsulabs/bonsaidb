@@ -57,4 +57,4 @@ anyhow = "1"
 transmog-bincode = "0.1"
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["networking", "websockets", "encryption", "password-hashing"]

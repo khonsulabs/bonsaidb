@@ -38,7 +38,7 @@ bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0", default-features
     "networking",
     "actionable-traits",
     "multiuser",
-    "included-from-server"
+    "included-from-server",
 ] }
 bonsaidb-local = { path = "../bonsaidb-local", version = "0.1.0", default-features = false, features = [
     "internal-apis",
@@ -83,4 +83,4 @@ bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0", default-features
 anyhow = "1"
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["full"]

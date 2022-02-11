@@ -82,4 +82,4 @@ futures = "0.3"
 anyhow = "1"
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["full"]
