@@ -754,9 +754,9 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         .await
         .expect_err("conflict should have generated an error")
     {
-        Error::DocumentConflict(collection, id) => {
+        Error::DocumentConflict(collection, header) => {
             assert_eq!(collection, Basic::collection_name());
-            assert_eq!(id, doc.header.id);
+            assert_eq!(header.id, doc.header.id);
         }
         other => return Err(anyhow::Error::from(other)),
     }

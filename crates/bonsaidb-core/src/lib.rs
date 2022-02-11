@@ -151,11 +151,15 @@ pub enum Error {
     #[error("the requested document id {1} from collection {0} was not found")]
     DocumentNotFound(CollectionName, u64),
 
-    /// When updating a document, if a situation is detected where the contents have changed on the server since the `Revision` provided, a Conflict error will be returned.
-    #[error("a conflict was detected while updating document id {1} from collection {0}")]
-    DocumentConflict(CollectionName, u64),
+    /// When updating a document, if a situation is detected where the contents
+    /// have changed on the server since the `Revision` provided, a Conflict
+    /// error will be returned.
+    #[error("a conflict was detected while updating document {1} from collection {0}")]
+    DocumentConflict(CollectionName, Header),
 
-    /// When saving a document in a collection with unique views, a document emits a key that is already emitted by an existing ocument, this error is returned.
+    /// When saving a document in a collection with unique views, a document
+    /// emits a key that is already emitted by an existing ocument, this error
+    /// is returned.
     #[error("a unique key violation occurred: document `{existing_document}` already has the same key as `{conflicting_document}` for {view}")]
     UniqueKeyViolation {
         /// The name of the view that the unique key violation occurred.

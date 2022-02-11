@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Breaking Changes
+
+- `bonsaidb::core::Error::DocumentConflict` now contains a `Header` instead of
+  just the document's ID. This allows an application to re-submit an update with
+  the updated header without another request to the database.
+
 ## v0.1.1
 
 ### Added
@@ -33,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   #[view(collection = Shape, key = u32, value = usize, name = "by-number-of-sides")]
   struct ShapesByNumberOfSides;
   ```
+
+- Memory-only instances of Storage can be created now. This is primarily intended for testing purposes.
 
 ### Changed
 

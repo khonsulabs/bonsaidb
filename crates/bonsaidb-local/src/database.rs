@@ -790,7 +790,7 @@ impl Database {
             } else {
                 Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
                     operation.collection.clone(),
-                    header.id,
+                    header.clone(),
                 )))
             }
         } else {
@@ -825,13 +825,11 @@ impl Database {
         let doc = BorrowedDocument::new(id, contents);
         let serialized: Vec<u8> = serialize_document(&doc)?;
         let document_id = ArcBytes::from(doc.header.id.as_big_endian_bytes().unwrap().to_vec());
-        if documents
-            .replace(document_id.clone(), serialized)?
-            .is_some()
-        {
+        if let Some(document) = documents.replace(document_id.clone(), serialized)? {
+            let doc = deserialize_document(&document)?;
             Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
                 operation.collection.clone(),
-                id,
+                doc.header,
             )))
         } else {
             self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
@@ -871,7 +869,7 @@ impl Database {
             } else {
                 Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
                     operation.collection.clone(),
-                    header.id,
+                    header.clone(),
                 )))
             }
         } else {

@@ -722,17 +722,17 @@ where
                     update.call(&mut existing.contents);
                     match existing.update(connection).await {
                         Ok(()) => return Ok(Some(existing)),
-                        Err(Error::DocumentConflict(collection, id)) => {
+                        Err(Error::DocumentConflict(collection, header)) => {
                             // Another client has updated the document underneath us.
                             if retry_limit > 0 {
                                 retry_limit -= 1;
-                                existing = match Col::load(id, connection).await? {
+                                existing = match Col::load(header.id, connection).await? {
                                     Some(doc) => doc,
                                     // Another client deleted the document before we could reload it.
                                     None => break Ok(None),
                                 }
                             } else {
-                                break Err(Error::DocumentConflict(collection, id));
+                                break Err(Error::DocumentConflict(collection, header));
                             }
                         }
                         Err(other) => break Err(other),
