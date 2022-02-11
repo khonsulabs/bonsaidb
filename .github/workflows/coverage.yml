@@ -46,7 +46,7 @@ jobs:
           COMMERCE_POSTGRESQL_URL: postgres://postgres:postgres@localhost/postgres
 
       - name: Deploy Docs
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || github.event.ref_type == 'tag'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release' || startsWith(github.ref, 'refs/tags/')
         uses: JamesIves/github-pages-deploy-action@releases/v4
         with:
           branch: gh-pages
