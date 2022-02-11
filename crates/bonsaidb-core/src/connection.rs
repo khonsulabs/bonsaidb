@@ -351,10 +351,7 @@ pub trait Connection: Send + Sync {
 /// These examples in this type use this basic collection definition:
 ///
 /// ```rust
-/// use bonsaidb_core::{
-///     schema::{Collection, CollectionName, DefaultSerialization, Schematic},
-///     Error,
-/// };
+/// use bonsaidb_core::{schema::Collection, Error};
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]

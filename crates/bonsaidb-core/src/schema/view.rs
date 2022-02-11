@@ -54,9 +54,8 @@ pub type ViewMapResult<V: View> = Result<Mappings<V::Key, V::Value>, crate::Erro
 pub type ReduceResult<V: View> = Result<V::Value, crate::Error>;
 
 /// A mechanism for accessing mapped and/or reduced data from a [`Collection`].
-///
-/// See the [user guide for a walkthrough of how views
-/// work](https://dev.bonsaidb.io/main/guide/about/concepts/view.html).
+#[doc = "\n"]
+#[doc = include_str!("./view-overview.md")]
 pub trait View: Send + Sync + Debug + 'static {
     /// The collection this view belongs to
     type Collection: Collection;
@@ -78,9 +77,8 @@ pub trait View: Send + Sync + Debug + 'static {
 }
 
 /// The implementation of Map/Reduce for a [`View`].
-///
-/// See the [user guide for a walkthrough of how views
-/// work](https://dev.bonsaidb.io/main/guide/about/concepts/view.html).
+#[doc = "\n"]
+#[doc = include_str!("./view-overview.md")]
 pub trait ViewSchema: Send + Sync + Debug + 'static {
     /// The view this schema is defined for.
     type View: SerializedView;

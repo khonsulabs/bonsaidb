@@ -1,16 +1,33 @@
 # BonsaiDb
 
-BonsaiDb is a developer-friendly document database for [Rust](https://rust-lang.org) that grows with you. Visit [BonsaiDb.io](https://bonsaidb.io/about) to learn more about the features of BonsaiDb.
-
 ![BonsaiDb is considered alpha](https://img.shields.io/badge/status-alpha-orange)
 [![crate version](https://img.shields.io/crates/v/bonsaidb.svg)](https://crates.io/crates/bonsaidb)
 [![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/main)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
 [![HTML Coverage Report for `main`](https://dev.bonsaidb.io/main/coverage/badge.svg)](https://dev.bonsaidb.io/main/coverage/)
 [![Documentation for `main`](https://img.shields.io/badge/docs-main-informational)](https://dev.bonsaidb.io/main/docs/bonsaidb)
 
+BonsaiDb is a developer-friendly document database for
+[Rust](https://rust-lang.org) that grows with you. It offers many features out
+of the box that many developers need:
+
+- ACID-compliant, transactional storage of [Collections][collection]
+- [Atomic Key-Value storage](key-value) with configurable delayed persistence (similar to Redis)
+- At-rest Encryption
+- Backup/Restore
+- Role-Based Access Control (RBAC)
+- Local-only access, networked access via QUIC, or networked access via WebSockets
+- And [much more](https://bonsaidb.io/about).
+
+[collection]: https://dev.bonsaidb.io/main/guide/about/concepts/collection.html
+[key-value]: https://dev.bonsaidb.io/main/guide/traits/key-value.html
+
 ## ⚠️ Status of this project
 
-BonsaiDb is considered alpha software. It is under active development (![GitHub commit activity](https://img.shields.io/github/commit-activity/m/khonsulabs/bonsaidb)). There may still be bugs that result in data loss. All users should regularly back up their data and test that restoring from backup works correctly.
+BonsaiDb is considered alpha software. It is under active development (![GitHub
+commit
+activity](https://img.shields.io/github/commit-activity/m/khonsulabs/bonsaidb)).
+There may still be bugs that result in data loss. All users should regularly
+back up their data and test that restoring from backup works correctly.
 
 ## Example
 

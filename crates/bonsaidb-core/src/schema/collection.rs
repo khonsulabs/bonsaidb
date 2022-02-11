@@ -14,6 +14,149 @@ use crate::{
 };
 
 /// A namespaced collection of `Document<Self>` items and views.
+///
+/// ## Deriving this trait
+///
+/// This trait can be derived instead of manually implemented:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// If you're publishing a collection for use in multiple projects, consider
+/// giving the collection an `authority`, which gives your collection a
+/// namespace:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection", authority = "khonsulabs")]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// The list of views can be specified using the `views` parameter:
+///
+/// ```rust
+/// use bonsaidb_core::schema::{Collection, View};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection", views = [ScoresByRank])]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+///
+/// #[derive(Debug, Clone, View)]
+/// #[view(collection = MyCollection, key = u32, value = f32, name = "scores-by-rank")]
+/// # #[view(core = bonsaidb_core)]
+/// pub struct ScoresByRank;
+/// #
+/// # use bonsaidb_core::{
+/// #     document::CollectionDocument,
+/// #     schema::{
+/// #         CollectionViewSchema,   ReduceResult,
+/// #         ViewMapResult, ViewMappedValue,
+/// #    },
+/// # };
+/// # impl CollectionViewSchema for ScoresByRank {
+/// #     type View = Self;
+/// #     fn map(
+/// #         &self,
+/// #         _document: CollectionDocument<<Self::View as View>::Collection>,
+/// #     ) -> ViewMapResult<Self::View> {
+/// #         todo!()
+/// #     }
+/// #
+/// #     fn reduce(
+/// #         &self,
+/// #         _mappings: &[ViewMappedValue<Self::View>],
+/// #         _rereduce: bool,
+/// #     ) -> ReduceResult<Self::View> {
+/// #         todo!()
+/// #     }
+/// # }
+/// ```
+///
+/// ### Specifying a Collection Encryption Key
+///
+/// By default, encryption will be required if an `encryption_key` is provided:
+///
+/// ```rust
+/// use bonsaidb_core::{document::KeyId, schema::Collection};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection", encryption_key = Some(KeyId::Master))]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// The `encryption_required` parameter can be provided if you wish to be
+/// explicit:
+///
+/// ```rust
+/// use bonsaidb_core::{document::KeyId, schema::Collection};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// #[collection(encryption_key = Some(KeyId::Master), encryption_required)]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// Or, if you wish your collection to be encrypted if its available, but not
+/// cause errors when being stored without encryption, you can provide the
+/// `encryption_optional` parameter:
+///
+/// ```rust
+/// use bonsaidb_core::{document::KeyId, schema::Collection};
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// #[collection(encryption_key = Some(KeyId::Master), encryption_optional)]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// ### Changing the serialization strategy
+///
+/// `BonsaiDb` uses [`transmog`](::transmog) to allow customizing serialization
+/// formats. To use one of the formats Transmog already supports, add its crate
+/// to your Cargo.toml and use it like this example using `transmog_bincode`:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// #[collection(serialization = transmog_bincode::Bincode)]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// To manually implement `SerializedCollection` you can pass `None` to
+/// `serialization`:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+///
+/// #[derive(Debug, Default, Collection)]
+/// #[collection(name = "MyCollection")]
+/// #[collection(serialization = None)]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
 pub trait Collection: Debug + Send + Sync {
     /// The `Id` of this collection.
     fn collection_name() -> CollectionName;
