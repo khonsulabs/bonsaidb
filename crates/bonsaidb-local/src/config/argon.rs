@@ -7,7 +7,7 @@ use crate::config::SystemDefault;
 
 /// Password hashing configuration.
 ///
-/// `BonsaiDb` uses [`argon2`](https://crates.io/crates/argon2) for its password hashing.
+/// BonsaiDb uses [`argon2`](https://crates.io/crates/argon2) for its password hashing.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ArgonConfiguration {

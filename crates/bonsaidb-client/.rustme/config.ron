@@ -1,0 +1,28 @@
+Configuration(
+    files: {
+        "../README.md":  [
+            "header.md",
+            "docs.md",
+            "feature-flags.md",
+            "https://github.com/khonsulabs/.github/raw/main/snippets/readme-footer.md",
+        ],
+    },
+    glossaries: [
+        "https://github.com/khonsulabs/.github/raw/main/snippets/glossary.ron",
+        {
+            "ref-name": (
+                default: "main",
+                release: "v0.0.0",
+
+            ),
+            "pages-base": (
+                default: "https://dev.bonsaidb.io/main",
+                release: "https://dev.bonsaidb.io/v0.0.0",
+            ),
+            "bonsaidb-docs": (
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb",
+                release: "https://docs.rs/bonsaidb",
+            ),
+        },
+    ],
+)

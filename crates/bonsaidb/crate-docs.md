@@ -124,7 +124,7 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 - `local-password-hashing`: Enables the ability to use password authentication
   using Argon2.
 
-### `BonsaiDb` server
+### BonsaiDb server
 
 ```toml
 [dependencies]
@@ -144,14 +144,14 @@ bonsaidb = { version = "*", default-features = false, features = "server-full" }
 - `server-password-hashing`: Enables the ability to use password authentication
   using Argon2.
 
-### Client for accessing a `BonsaiDb` server
+### Client for accessing a BonsaiDb server
 
 ```toml
 [dependencies]
 bonsaidb = { version = "*", default-features = false, features = "client-full" }
 ```
 
-- `client-full`: Enables `client`, `client-trusted-dns` and `client-websockets`
+- `client-full`: Enables `client`, `client-trusted-dns`, `client-websockets`, and `client-password-hashing`.
 - `client`: Enables the [`client`](https://dev.bonsaidb.io/main/docs/bonsaidb/client/) module, which re-exports the crate
   `bonsaidb-client`.
 - `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not

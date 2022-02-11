@@ -1,5 +1,5 @@
-//! Client for `bonsaidb-server`.
-
+#![doc = include_str!("../.rustme/docs.md")]
+#![cfg_attr(not(feature = "included-from-omnibus"), doc = include_str!("../.rustme/feature-flags.md"))]
 #![forbid(unsafe_code)]
 #![warn(
     clippy::cargo,

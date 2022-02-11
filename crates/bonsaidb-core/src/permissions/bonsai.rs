@@ -6,7 +6,7 @@ use crate::{
     schema::{CollectionName, ViewName},
 };
 
-/// The base `BonsaiDb` resource namespace. All database objects have this as
+/// The base BonsaiDb resource namespace. All database objects have this as
 /// their first name segment.
 #[must_use]
 pub fn bonsaidb_resource_name<'a>() -> ResourceName<'a> {
@@ -92,7 +92,7 @@ pub fn user_resource_name<'a>(user_id: u64) -> ResourceName<'a> {
     bonsaidb_resource_name().and("user").and(user_id)
 }
 
-/// Actions that can be permitted within `BonsaiDb`.
+/// Actions that can be permitted within BonsaiDb.
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum BonsaiAction {
     /// Actions that operate on a server

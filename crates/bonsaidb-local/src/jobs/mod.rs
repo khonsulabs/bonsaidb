@@ -1,4 +1,4 @@
-//! Aysnc jobs management for `BonsaiDb`.
+//! Aysnc jobs management for BonsaiDb.
 
 /// Types related to the job [`Manager`](manager::Manager).
 pub mod manager;

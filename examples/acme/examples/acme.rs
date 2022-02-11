@@ -1,4 +1,4 @@
-//! Shows how to use ACME to automatically acquire a TLS certificate for your `BonsaiDb` server.
+//! Shows how to use ACME to automatically acquire a TLS certificate for your BonsaiDb server.
 
 use std::time::Duration;
 

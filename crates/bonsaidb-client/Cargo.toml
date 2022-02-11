@@ -19,11 +19,12 @@ trusted-dns = ["fabruic/trust-dns"]
 test-util = []
 tracing = ["pot/tracing"]
 password-hashing = ["bonsaidb-core/password-hashing"]
+included-from-omnibus = []
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.0", default-features = false, features = [
     "networking",
-    "included-from-client"
+    "included-from-client",
 ] }
 bonsaidb-utils = { path = "../bonsaidb-utils", version = "0.1.0" }
 thiserror = "1"
@@ -61,8 +62,11 @@ tokio-tungstenite = { version = "0.16", optional = true, features = [
     "rustls-tls-native-roots",
 ] }
 
+[dev-dependencies]
+anyhow = "1"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "1", features = ["sync", "macros"] }
 
 [package.metadata.docs.rs]
-all-features = true
+features = ["full"]

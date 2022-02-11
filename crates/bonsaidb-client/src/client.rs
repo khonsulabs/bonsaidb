@@ -69,7 +69,7 @@ pub type WebSocketError = tokio_tungstenite::tungstenite::Error;
 #[cfg(all(feature = "websockets", target_arch = "wasm32"))]
 pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 
-/// Client for connecting to a `BonsaiDb` server.
+/// Client for connecting to a BonsaiDb server.
 #[derive(Debug)]
 #[derive_where(Clone)]
 pub struct Client<A: CustomApi = ()> {

@@ -44,11 +44,11 @@ graph LR
   server-code <--> server
 ```
 
-A working example of this model can be found at [`examples/basic-server/examples/basic-server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/basic-server.rs). When writing client/server applications that utilize `BonsaiDb`, you can have the `BonsaiDb` server running withing your server application. This means that your server still has the ability not use networking to interact with `BonsaiDb`. Regardless of if you run any other server code, your `BonsaiDb` server will be accessible through a `Client` over the network.
+A working example of this model can be found at [`examples/basic-server/examples/basic-server.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/basic-server.rs). When writing client/server applications that utilize BonsaiDb, you can have the BonsaiDb server running withing your server application. This means that your server still has the ability not use networking to interact with BonsaiDb. Regardless of if you run any other server code, your BonsaiDb server will be accessible through a `Client` over the network.
 
 ## API Platform model (QUIC or WebSockets)
 
-If you're finding yourself developing an API for your application, and all of the consumers of this API are already connected to `BonsaiDb`, you may want to take advantage of the custom api functionality of the server:
+If you're finding yourself developing an API for your application, and all of the consumers of this API are already connected to BonsaiDb, you may want to take advantage of the custom api functionality of the server:
 
 ```mermaid
 graph LR
@@ -66,7 +66,7 @@ graph LR
   backend <--> server
 ```
 
-The `BonsaiDb` [`CustomServer`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html) type accepts one generic parameter that implements the [`Backend`]({{DOCS_BASE_URL}}/bonsaidb/server/trait.Backend.html) trait. This trait is used to customize the server in many ways, but one of the associated types is a [`CustomApi`]({{DOCS_BASE_URL}}/bonsaidb/core/custom_api/trait.CustomApi.html) implementor.
+The BonsaiDb [`CustomServer`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html) type accepts one generic parameter that implements the [`Backend`]({{DOCS_BASE_URL}}/bonsaidb/server/trait.Backend.html) trait. This trait is used to customize the server in many ways, but one of the associated types is a [`CustomApi`]({{DOCS_BASE_URL}}/bonsaidb/core/custom_api/trait.CustomApi.html) implementor.
 
 See [this page](./access-models/custom-api-server.md) for an overview of how to set up a custom api server.
 

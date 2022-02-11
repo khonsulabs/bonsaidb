@@ -1,4 +1,4 @@
-//! The `BonsaiDb` Server.
+//! The BonsaiDb Server.
 
 #![forbid(unsafe_code)]
 #![warn(

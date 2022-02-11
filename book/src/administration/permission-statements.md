@@ -6,9 +6,9 @@ A [Statement]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/struct.Statement.html)
 
 `ResourceName`s are simply namespaced [`Identifier`s]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/enum.Identifier.html). An example could be: `"bonsaidb".*."khonsulabs-admin.users".1`. Each segment can be [a string]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/enum.Identifier.html#variant.String), [an integer]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/enum.Identifier.html#variant.Integer), or [a wildcard (`*`)]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/enum.Identifier.html#variant.Any).
 
-In `BonsaiDb`, nearly everything has a resource name. The example above refers to a document with ID `1` in the `khonsulabs-admin.users` collection in any database. The [`bonsaidb::core::permissions::bonsai`]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/bonsai/index.html) module contains functions to create properly formatted `ResourceName`s.
+In BonsaiDb, nearly everything has a resource name. The example above refers to a document with ID `1` in the `khonsulabs-admin.users` collection in any database. The [`bonsaidb::core::permissions::bonsai`]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/bonsai/index.html) module contains functions to create properly formatted `ResourceName`s.
 
-Also within the same module are the built-in `Action`s. The base enum for all actions used within `BonsaiDb` is [`BonsaiAction`]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/bonsai/enum.BonsaiAction.html) Below is an overview of the resource names and actions by category.
+Also within the same module are the built-in `Action`s. The base enum for all actions used within BonsaiDb is [`BonsaiAction`]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/bonsai/enum.BonsaiAction.html) Below is an overview of the resource names and actions by category.
 
 ### Server
 
@@ -18,7 +18,7 @@ For actions that operate upon users (e.g., creating a user), the resource name i
 
 #### At-rest Encryption
 
-Access to encrypted information can be controlled by limiting access to the encryption key used. Currently, `BonsaiDb` only has support for a shared master key, but in the future additional keys will be able to be created. Because [`Encrypt`]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/bonsai/enum.EncryptionKeyAction.html#variant.Encrypt) and [`Decrypt`]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/bonsai/enum.EncryptionKeyAction.html#variant.Decrypt) are separate actions, access to read and write can be controlled independently.
+Access to encrypted information can be controlled by limiting access to the encryption key used. Currently, BonsaiDb only has support for a shared master key, but in the future additional keys will be able to be created. Because [`Encrypt`]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/bonsai/enum.EncryptionKeyAction.html#variant.Encrypt) and [`Decrypt`]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/bonsai/enum.EncryptionKeyAction.html#variant.Decrypt) are separate actions, access to read and write can be controlled independently.
 
 The resource name for an encryption key is [`encryption_key_resource_name(key_id)`]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/bonsai/fn.encryption_key_resource_name.html).
 

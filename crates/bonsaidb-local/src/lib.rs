@@ -1,4 +1,4 @@
-//! Local storage backend for `BonsaiDb`.
+//! Local storage backend for BonsaiDb.
 
 #![forbid(unsafe_code)]
 #![warn(

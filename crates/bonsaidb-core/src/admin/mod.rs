@@ -16,7 +16,7 @@ pub use self::database::Database;
 #[cfg(feature = "multiuser")]
 pub use self::{group::PermissionGroup, role::Role, user::User};
 
-/// The `BonsaiDb` administration schema.
+/// The BonsaiDb administration schema.
 #[derive(Debug, Schema)]
 #[schema(name = "bonsaidb-admin", authority = "khonsulabs", core = crate)]
 #[cfg_attr(feature = "multiuser", schema(collections = [Database, PermissionGroup, Role, User]))]

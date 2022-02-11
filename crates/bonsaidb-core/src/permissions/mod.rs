@@ -1,4 +1,4 @@
-/// Types used for granting permissions within `BonsaiDb`.
+/// Types used for granting permissions within BonsaiDb.
 pub mod bonsai;
 
 pub use actionable::{
