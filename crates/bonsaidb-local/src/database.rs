@@ -60,6 +60,41 @@ pub mod keyvalue;
 pub mod pubsub;
 
 /// A local, file-based database.
+///
+/// ## Using `Database` to create a single database
+///
+/// `Database`provides an easy mechanism to open and access a single database:
+///
+/// ```rust
+/// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_local::core`.
+/// use bonsaidb_core::schema::Collection;
+/// // `bonsaidb_local` is re-exported to `bonsaidb::local` if using the omnibus crate.
+/// use bonsaidb_local::{
+///     config::{Builder, StorageConfiguration},
+///     Database,
+/// };
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Collection)]
+/// #[collection(name = "blog-posts")]
+/// # #[collection(core = bonsaidb_core)]
+/// struct BlogPost {
+///     pub title: String,
+///     pub contents: String,
+/// }
+///
+/// # async fn test_fn() -> Result<(), bonsaidb_core::Error> {
+/// let db = Database::open::<BlogPost>(StorageConfiguration::new("my-db.bonsaidb")).await?;
+/// #     Ok(())
+/// # }
+/// ```
+///
+/// Under the hood, this initializes a [`Storage`] instance pointing at
+/// "./my-db.bonsaidb". It then returns (or creates) a database named "default"
+/// with the schema `BlogPost`.
+///
+/// In this example, `BlogPost` implements the [`Collection`] trait, and all
+/// collections can be used as a [`Schema`].
 #[derive(Debug)]
 pub struct Database {
     pub(crate) data: Arc<Data>,

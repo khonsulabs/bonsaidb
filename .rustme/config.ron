@@ -23,6 +23,42 @@ Configuration(
         "../LICENSE-MIT":  [
             "https://github.com/khonsulabs/.github/raw/main/licenses/LICENSE-MIT",
         ],
+        "../crates/bonsaidb-client/README.md":  [
+            "client-header.md",
+            "client-docs.md",
+            "client-feature-flags.md",
+            "https://github.com/khonsulabs/.github/raw/main/snippets/readme-footer.md",
+        ],
+        "../crates/bonsaidb-client/src/.crate-docs.md":  (
+            for_docs: true,
+            sections: [
+                "client-docs.md",
+            ],
+        ),
+        "../crates/bonsaidb-local/README.md":  [
+            "local-header.md",
+            "local-docs.md",
+            "local-feature-flags.md",
+            "https://github.com/khonsulabs/.github/raw/main/snippets/readme-footer.md",
+        ],
+        "../crates/bonsaidb-local/src/.crate-docs.md":  (
+            for_docs: true,
+            sections: [
+                "local-docs.md",
+            ],
+        ),
+        "../crates/bonsaidb-server/README.md":  [
+            "server-header.md",
+            "server-docs.md",
+            "server-feature-flags.md",
+            "https://github.com/khonsulabs/.github/raw/main/snippets/readme-footer.md",
+        ],
+        "../crates/bonsaidb-server/src/.crate-docs.md":  (
+            for_docs: true,
+            sections: [
+                "server-docs.md",
+            ],
+        ),
     },
     glossaries: [
         "https://github.com/khonsulabs/.github/raw/main/snippets/glossary.ron",
@@ -39,6 +75,46 @@ Configuration(
             "bonsaidb-docs": (
                 default: "https://dev.bonsaidb.io/main/docs/bonsaidb",
                 release: "https://docs.rs/bonsaidb",
+            ),
+            "client-type": (
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb_client/struct.Client.html",
+                release: "https://docs.rs/bonsaidb-client/*/bonsaidb_client/struct.Client.html",
+                for_docs: "crate::Client",
+            ),
+            "storage-connection-trait": (
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb/core/connection/trait.StorageConnection.html",
+                release: "https://docs.rs/bonsaidb-core/*/bonsaidb_core/connection/trait.StorageConnection.html",
+                for_docs: "::bonsaidb_core::connection::StorageConnection",
+            ),
+            "schema-trait": (
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb/core/schema/trait.Schema.html",
+                release: "https://docs.rs/bonsaidb-core/*/bonsaidb_core/schema/trait.Schema.html",
+                for_docs: "::bonsaidb_core::schema::Schema",
+            ),
+            "collection-trait": (
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb/core/schema/trait.Collection.html",
+                release: "https://docs.rs/bonsaidb-core/*/bonsaidb_core/schema/trait.Collection.html",
+                for_docs: "::bonsaidb_core::schema::Collection",
+            ),
+            "storage-type": (
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb_local/struct.Storage.html",
+                release: "https://docs.rs/bonsaidb-client/*/bonsaidb_local/struct.Storage.html",
+                for_docs: "crate::Storage",
+            ),
+            "database-type": (
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb_local/struct.Database.html",
+                release: "https://docs.rs/bonsaidb-client/*/bonsaidb_local/struct.Database.html",
+                for_docs: "crate::Database",
+            ),
+            "customserver-type": (
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb_server/struct.CustomServer.html",
+                release: "https://docs.rs/bonsaidb-server/*/bonsaidb_server/struct.CustomServer.html",
+                for_docs: "crate::CustomServer",
+            ),
+            "server-alias": (
+                default: "https://dev.bonsaidb.io/main/docs/bonsaidb_server/type.Server.html",
+                release: "https://docs.rs/bonsaidb-server/*/bonsaidb_server/type.Server.html",
+                for_docs: "crate::Server",
             ),
         },
     ],
