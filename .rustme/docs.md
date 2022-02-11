@@ -9,7 +9,7 @@ BonsaiDb is a developer-friendly document database for
 of the box that many developers need:
 
 - ACID-compliant, transactional storage of [Collections][collection]
-- [Atomic Key-Value storage](key-value) with configurable delayed persistence (similar to Redis)
+- [Atomic Key-Value storage][key-value] with configurable delayed persistence (similar to Redis)
 - At-rest Encryption
 - Backup/Restore
 - Role-Based Access Control (RBAC)
