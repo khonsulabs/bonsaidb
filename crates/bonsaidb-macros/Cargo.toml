@@ -15,7 +15,7 @@ homepage = "https://bonsaidb.io/"
 proc-macro = true
 
 [dependencies]
-attribute-derive = "0.1.0"
+attribute-derive = "0.2.2"
 proc-macro-crate = "1.1.0"
 proc-macro-error = "1"
 proc-macro2 = "1.0.36"

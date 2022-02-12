@@ -7,9 +7,8 @@ use fabruic::{CertificateChain, PrivateKey};
 use serde::{de::Visitor, Deserialize, Serialize};
 
 #[derive(Debug, Schema)]
-#[schema(name = "hosted", authority = "khonsulabs", core = bonsaidb_core)]
-#[cfg_attr(feature = "acme", schema(collections = [TlsCertificate, crate::server::acme::AcmeAccount]))]
-#[cfg_attr(not(feature = "acme"), schema(collections = [TlsCertificate]))]
+#[schema(name = "hosted", authority = "khonsulabs", collections = [TlsCertificate], core = bonsaidb_core)]
+#[cfg_attr(feature = "acme", schema(collections = [crate::server::acme::AcmeAccount]))]
 pub struct Hosted;
 
 #[derive(Debug, Serialize, Deserialize, Collection)]
