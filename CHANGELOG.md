@@ -31,6 +31,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Some of the benchmark suite has been expanded to include comparisons between
   local storage with and without compression.
 
+### Changed
+
+- Internal dependencies between crates are now pinned based on their needs. This
+  means that `bonsaidb-sever` will require a matching verison of
+  `bonsaidb-local` when compiling. A simple example of a change that is a
+  breaking compilation change but is not breaking from a compatibility
+  standpoint is a change to a structure where `#[serde(rename)]` is used to
+  remap an old value to a new value.
+
+  The only crate currently not pinning its dependencies is
+  `bonsaidb-keystorage-s3`. This crate, and hopefully many crates to come, are
+  only tying themselves to the public API of BonsaiDb.
+
+  This may generate slightly more crate updates than absolutely necessary, but
+  for a small team it seems like the most manageable approach.
+
 ## v0.1.2
 
 ### Fixed

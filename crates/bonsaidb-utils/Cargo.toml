@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-utils"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Utilities used within BonsaiDb."
