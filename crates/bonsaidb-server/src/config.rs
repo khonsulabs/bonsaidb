@@ -10,7 +10,7 @@ use bonsaidb_local::config::{Builder, KeyValuePersistence, StorageConfiguration}
 use bonsaidb_local::vault::AnyVaultKeyStorage;
 
 /// Configuration options for [`Server`](crate::Server)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[must_use]
 #[non_exhaustive]
 pub struct ServerConfiguration {
@@ -106,7 +106,7 @@ impl Default for ServerConfiguration {
 #[cfg(feature = "acme")]
 mod acme {
     /// The Automated Certificate Management Environment (ACME) configuration.
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct AcmeConfiguration {
         /// The contact email to register with the ACME directory for the account.
         pub contact_email: Option<String>,
@@ -131,7 +131,7 @@ mod acme {
 pub use acme::*;
 
 /// The default permissions to use for all connections to the server.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DefaultPermissions {
     /// Allow all permissions. Do not use outside of completely trusted environments.
     AllowAll,

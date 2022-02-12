@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `bonsaidb::core::Error::DocumentConflict` now contains a `Header` instead of
   just the document's ID. This allows an application to re-submit an update with
   the updated header without another request to the database.
+- `StorageConfiguratation::vault_key_storage` now uses an `Arc` instead of a
+  `Box`. This change allows `StorageConfiguration` and `ServerConfiguration` to
+  implement `Clone`.
 
 ### Added
 
