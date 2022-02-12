@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   just the document's ID. This allows an application to re-submit an update with
   the updated header without another request to the database.
 
+### Fixes
+
+- [#196][196]: Fixed a panic a user reported relating to an undocumented panic
+      within `tokio::time::sleep()`.
+
+[196]: https://github.com/khonsulabs/bonsaidb/pull/196
+
 ## v0.1.1
 
 ### Added
