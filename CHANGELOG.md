@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   just the document's ID. This allows an application to re-submit an update with
   the updated header without another request to the database.
 
-### Fixes
+## v0.1.2
+
+### Fixed
 
 - [#196][196]: Fixed a panic a user reported relating to an undocumented panic
       within `tokio::time::sleep()`.
