@@ -45,6 +45,7 @@ use tokio::sync::watch;
 use crate::vault::TreeVault;
 use crate::{
     config::{Builder, KeyValuePersistence, StorageConfiguration},
+    database::keyvalue::BackgroundWorkerProcessTarget,
     error::Error,
     open_trees::OpenTrees,
     views::{
@@ -1438,7 +1439,8 @@ impl Borrow<Roots<AnyFile>> for Context {
 
 impl Context {
     pub(crate) fn new(roots: Roots<AnyFile>, key_value_persistence: KeyValuePersistence) -> Self {
-        let (background_sender, background_receiver) = watch::channel(None);
+        let (background_sender, background_receiver) =
+            watch::channel(BackgroundWorkerProcessTarget::Never);
         let key_value_state = Arc::new(Mutex::new(keyvalue::KeyValueState::new(
             key_value_persistence,
             roots.clone(),
