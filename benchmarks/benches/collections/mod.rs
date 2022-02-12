@@ -1,5 +1,6 @@
 use bonsaidb::core::{arc_bytes::serde::Bytes, schema::Collection};
 use criterion::{Criterion, Throughput};
+use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 
 mod bonsai;
@@ -18,8 +19,9 @@ pub fn save_documents(c: &mut Criterion) {
     // First set of benchmarks tests inserting documents
     let mut group = c.benchmark_group("save_documents");
     for size in [KB, 2 * KB, 8 * KB, 32 * KB, KB * KB] {
+        let mut rng = thread_rng();
         group.throughput(Throughput::Bytes(size as u64));
-        let mut data = Vec::with_capacity(size);
+        let mut data = (0..size).map(|_| rng.gen()).collect::<Vec<_>>();
         data.resize_with(size, || 7u8);
         let doc = ResizableDocument {
             data: Bytes::from(data),

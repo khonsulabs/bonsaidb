@@ -11,6 +11,8 @@ use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::connection::{Authenticated, Authentication};
+#[cfg(any(feature = "encryption", feature = "compression"))]
+use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
     admin::{
         self,
@@ -18,7 +20,6 @@ use bonsaidb_core::{
         Admin, ADMIN_DATABASE_NAME,
     },
     connection::{self, Connection, StorageConnection},
-    document::KeyId,
     schema::{Schema, SchemaName, Schematic},
 };
 #[cfg(feature = "multiuser")]
@@ -43,8 +44,10 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
 };
 
+#[cfg(feature = "compression")]
+use crate::config::Compression;
 #[cfg(feature = "encryption")]
-use crate::vault::{self, LocalVaultKeyStorage, TreeVault, Vault};
+use crate::vault::{self, LocalVaultKeyStorage, Vault};
 use crate::{
     config::{KeyValuePersistence, StorageConfiguration},
     database::Context,
@@ -158,7 +161,7 @@ struct Data {
     threadpool: ThreadPool<AnyFile>,
     file_manager: AnyFileManager,
     pub(crate) tasks: TaskManager,
-    schemas: RwLock<HashMap<SchemaName, Box<dyn DatabaseOpener>>>,
+    schemas: RwLock<HashMap<SchemaName, Arc<dyn DatabaseOpener>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
     open_roots: Mutex<HashMap<String, Context>>,
     #[cfg(feature = "password-hashing")]
@@ -167,6 +170,8 @@ struct Data {
     pub(crate) vault: Arc<Vault>,
     #[cfg(feature = "encryption")]
     default_encryption_key: Option<KeyId>,
+    #[cfg(any(feature = "compression", feature = "encryption"))]
+    tree_vault: Option<TreeVault>,
     pub(crate) key_value_persistence: KeyValuePersistence,
     chunk_cache: ChunkCache,
     pub(crate) check_view_integrity_on_database_open: bool,
@@ -200,7 +205,7 @@ impl Storage {
         let vault = {
             let vault_key_storage = match configuration.vault_key_storage {
                 Some(storage) => storage,
-                None => Box::new(
+                None => Arc::new(
                     LocalVaultKeyStorage::new(owned_path.join("vault-keys"))
                         .await
                         .map_err(|err| Error::Vault(vault::Error::Initializing(err.to_string())))?,
@@ -216,6 +221,17 @@ impl Storage {
         let argon = argon::Hasher::new(configuration.argon);
         #[cfg(feature = "encryption")]
         let default_encryption_key = configuration.default_encryption_key;
+        #[cfg(all(feature = "compression", feature = "encryption"))]
+        let tree_vault = TreeVault::new_if_needed(
+            default_encryption_key.clone(),
+            &vault,
+            configuration.default_compression,
+        );
+        #[cfg(all(not(feature = "compression"), feature = "encryption"))]
+        let tree_vault = TreeVault::new_if_needed(default_encryption_key.clone(), &vault);
+        #[cfg(all(feature = "compression", not(feature = "encryption")))]
+        let tree_vault = TreeVault::new_if_needed(configuration.default_compression);
+
         let storage = tokio::task::spawn_blocking::<_, Result<Self, Error>>(move || {
             Ok(Self {
                 data: Arc::new(Data {
@@ -227,6 +243,8 @@ impl Storage {
                     vault,
                     #[cfg(feature = "encryption")]
                     default_encryption_key,
+                    #[cfg(any(feature = "compression", feature = "encryption"))]
+                    tree_vault,
                     path: owned_path,
                     file_manager,
                     chunk_cache: ChunkCache::new(2000, 160_384),
@@ -354,13 +372,19 @@ impl Storage {
     }
 
     #[must_use]
+    #[cfg(any(feature = "encryption", feature = "compression"))]
+    pub(crate) fn tree_vault(&self) -> Option<&TreeVault> {
+        self.data.tree_vault.as_ref()
+    }
+
+    #[must_use]
     #[cfg(feature = "encryption")]
     pub(crate) fn default_encryption_key(&self) -> Option<&KeyId> {
         self.data.default_encryption_key.as_ref()
     }
 
     #[must_use]
-    #[cfg(not(feature = "encryption"))]
+    #[cfg(all(feature = "compression", not(feature = "encryption")))]
     #[allow(clippy::unused_self)]
     pub(crate) fn default_encryption_key(&self) -> Option<&KeyId> {
         None
@@ -372,7 +396,7 @@ impl Storage {
         if schemas
             .insert(
                 DB::schema_name(),
-                Box::new(StorageSchemaOpener::<DB>::new()?),
+                Arc::new(StorageSchemaOpener::<DB>::new()?),
             )
             .is_none()
         {
@@ -384,7 +408,10 @@ impl Storage {
         }
     }
 
-    #[cfg_attr(not(feature = "encryption"), allow(unused_mut))]
+    #[cfg_attr(
+        not(any(feature = "encryption", feature = "compression")),
+        allow(unused_mut)
+    )]
     pub(crate) async fn open_roots(&self, name: &str) -> Result<Context, Error> {
         let mut open_roots = fast_async_lock!(self.data.open_roots);
         if let Some(roots) = open_roots.get(name) {
@@ -397,13 +424,12 @@ impl Storage {
                     .file_manager(task_self.data.file_manager.clone())
                     .cache(task_self.data.chunk_cache.clone())
                     .shared_thread_pool(&task_self.data.threadpool);
-                #[cfg(feature = "encryption")]
-                if let Some(key) = task_self.default_encryption_key() {
-                    config = config.vault(TreeVault {
-                        key: key.clone(),
-                        vault: task_self.vault().clone(),
-                    });
+
+                #[cfg(any(feature = "encryption", feature = "compression"))]
+                if let Some(vault) = task_self.data.tree_vault.clone() {
+                    config = config.vault(vault);
                 }
+
                 config.open().map_err(Error::from)
             })
             .await
@@ -870,5 +896,198 @@ impl Debug for StorageId {
 impl Display for StorageId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+#[derive(Debug, Clone)]
+#[cfg(any(feature = "compression", feature = "encryption"))]
+pub(crate) struct TreeVault {
+    #[cfg(feature = "compression")]
+    compression: Option<Compression>,
+    #[cfg(feature = "encryption")]
+    pub key: Option<KeyId>,
+    #[cfg(feature = "encryption")]
+    pub vault: Arc<Vault>,
+}
+
+#[cfg(all(feature = "compression", feature = "encryption"))]
+impl TreeVault {
+    pub(crate) fn new_if_needed(
+        key: Option<KeyId>,
+        vault: &Arc<Vault>,
+        compression: Option<Compression>,
+    ) -> Option<Self> {
+        if key.is_none() && compression.is_none() {
+            None
+        } else {
+            Some(Self {
+                key,
+                compression,
+                vault: vault.clone(),
+            })
+        }
+    }
+
+    fn header(&self, compressed: bool) -> u8 {
+        let mut bits = if self.key.is_some() { 0b1000_0000 } else { 0 };
+
+        if compressed {
+            if let Some(compression) = self.compression {
+                bits |= compression as u8;
+            }
+        }
+
+        bits
+    }
+}
+
+#[cfg(all(feature = "compression", feature = "encryption"))]
+impl nebari::Vault for TreeVault {
+    type Error = Error;
+
+    fn encrypt(&self, payload: &[u8]) -> Result<Vec<u8>, Error> {
+        use std::borrow::Cow;
+
+        // TODO this allocates too much. The vault should be able to do an
+        // in-place encryption operation so that we can use a single buffer.
+        let mut includes_compression = false;
+        let compressed = match (payload.len(), self.compression) {
+            (128..=usize::MAX, Some(Compression::Lz4)) => {
+                includes_compression = true;
+                Cow::Owned(lz4_flex::block::compress_prepend_size(payload))
+            }
+            _ => Cow::Borrowed(payload),
+        };
+
+        let mut complete = if let Some(key) = &self.key {
+            self.vault.encrypt_payload(key, &compressed, None)?
+        } else {
+            compressed.into_owned()
+        };
+
+        let header = self.header(includes_compression);
+        if header != 0 {
+            let header = [b't', b'r', b'v', header];
+            complete.splice(0..0, header);
+        }
+
+        Ok(complete)
+    }
+
+    fn decrypt(&self, payload: &[u8]) -> Result<Vec<u8>, Error> {
+        use std::borrow::Cow;
+
+        if payload.len() >= 4 && &payload[0..3] == b"trv" {
+            let header = payload[3];
+            let payload = &payload[4..];
+            let encrypted = (header & 0b1000_0000) != 0;
+            let compression = header & 0b0111_1111;
+            let decrypted = if encrypted {
+                Cow::Owned(self.vault.decrypt_payload(payload, None)?)
+            } else {
+                Cow::Borrowed(payload)
+            };
+            #[allow(clippy::single_match)] // Make it an error when we add a new algorithm
+            return Ok(match Compression::from_u8(compression) {
+                Some(Compression::Lz4) => {
+                    lz4_flex::block::decompress_size_prepended(&decrypted).map_err(Error::from)?
+                }
+                None => decrypted.into_owned(),
+            });
+        }
+        self.vault.decrypt_payload(payload, None)
+    }
+}
+
+#[cfg(all(feature = "compression", not(feature = "encryption")))]
+impl TreeVault {
+    pub(crate) fn new_if_needed(compression: Option<Compression>) -> Option<Self> {
+        compression.map(|compression| Self {
+            compression: Some(compression),
+        })
+    }
+}
+
+#[cfg(all(feature = "compression", not(feature = "encryption")))]
+impl nebari::Vault for TreeVault {
+    type Error = Error;
+
+    fn encrypt(&self, payload: &[u8]) -> Result<Vec<u8>, Error> {
+        Ok(match self.compression {
+            Some(Compression::Lz4) => {
+                let mut destination =
+                    vec![0; lz4_flex::block::get_maximum_output_size(payload.len()) + 8];
+                let compressed_length =
+                    lz4_flex::block::compress_into(payload, &mut destination[8..])
+                        .expect("lz4-flex documents this shouldn't fail");
+                destination.truncate(compressed_length + 8);
+                destination[0..4].copy_from_slice(&[b't', b'r', b'v', Compression::Lz4 as u8]);
+                // to_le_bytes() makes it compatible with lz4-flex decompress_size_prepended.
+                let uncompressed_length =
+                    u32::try_from(payload.len()).expect("nebari doesn't support >32 bit blocks");
+                destination[4..8].copy_from_slice(&uncompressed_length.to_le_bytes());
+                destination
+            }
+            // TODO this shouldn't copy
+            None => payload.to_vec(),
+        })
+    }
+
+    fn decrypt(&self, payload: &[u8]) -> Result<Vec<u8>, Error> {
+        if payload.len() >= 4 && &payload[0..3] == b"trv" {
+            let header = payload[3];
+            let payload = &payload[4..];
+            let encrypted = (header & 0b1000_0000) != 0;
+            let compression = header & 0b0111_1111;
+            if encrypted {
+                return Err(Error::EncryptionDisabled);
+            }
+
+            #[allow(clippy::single_match)] // Make it an error when we add a new algorithm
+            return Ok(match Compression::from_u8(compression) {
+                Some(Compression::Lz4) => {
+                    lz4_flex::block::decompress_size_prepended(payload).map_err(Error::from)?
+                }
+                None => payload.to_vec(),
+            });
+        }
+        Ok(payload.to_vec())
+    }
+}
+
+#[cfg(all(not(feature = "compression"), feature = "encryption"))]
+impl TreeVault {
+    pub(crate) fn new_if_needed(key: Option<KeyId>, vault: &Arc<Vault>) -> Option<Self> {
+        key.map(|key| Self {
+            key: Some(key),
+            vault: vault.clone(),
+        })
+    }
+
+    #[allow(dead_code)] // This implementation is sort of documentation for what it would be. But our Vault payload already can detect if a parsing error occurs, so we don't need a header if only encryption is enabled.
+    fn header(&self) -> u8 {
+        if self.key.is_some() {
+            0b1000_0000
+        } else {
+            0
+        }
+    }
+}
+
+#[cfg(all(not(feature = "compression"), feature = "encryption"))]
+impl nebari::Vault for TreeVault {
+    type Error = Error;
+
+    fn encrypt(&self, payload: &[u8]) -> Result<Vec<u8>, Error> {
+        if let Some(key) = &self.key {
+            self.vault.encrypt_payload(key, payload, None)
+        } else {
+            // TODO does this need to copy?
+            Ok(payload.to_vec())
+        }
+    }
+
+    fn decrypt(&self, payload: &[u8]) -> Result<Vec<u8>, Error> {
+        self.vault.decrypt_payload(payload, None)
     }
 }

@@ -3,12 +3,14 @@ use std::path::Path;
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{permissions::Permissions, schema::Schema};
+#[cfg(feature = "compression")]
+use bonsaidb_local::config::Compression;
 use bonsaidb_local::config::{Builder, KeyValuePersistence, StorageConfiguration};
 #[cfg(feature = "encryption")]
 use bonsaidb_local::vault::AnyVaultKeyStorage;
 
 /// Configuration options for [`Server`](crate::Server)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[must_use]
 #[non_exhaustive]
 pub struct ServerConfiguration {
@@ -104,7 +106,7 @@ impl Default for ServerConfiguration {
 #[cfg(feature = "acme")]
 mod acme {
     /// The Automated Certificate Management Environment (ACME) configuration.
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct AcmeConfiguration {
         /// The contact email to register with the ACME directory for the account.
         pub contact_email: Option<String>,
@@ -129,7 +131,7 @@ mod acme {
 pub use acme::*;
 
 /// The default permissions to use for all connections to the server.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DefaultPermissions {
     /// Allow all permissions. Do not use outside of completely trusted environments.
     AllowAll,
@@ -178,13 +180,19 @@ impl Builder for ServerConfiguration {
         mut self,
         key_storage: VaultKeyStorage,
     ) -> Self {
-        self.storage.vault_key_storage = Some(Box::new(key_storage));
+        self.storage.vault_key_storage = Some(std::sync::Arc::new(key_storage));
         self
     }
 
     #[cfg(feature = "encryption")]
     fn default_encryption_key(mut self, key: KeyId) -> Self {
         self.storage.default_encryption_key = Some(key);
+        self
+    }
+
+    #[cfg(feature = "compression")]
+    fn default_compression(mut self, compression: Compression) -> Self {
+        self.storage.default_compression = Some(compression);
         self
     }
 

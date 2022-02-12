@@ -32,6 +32,12 @@ macro_rules! define_local_suite {
                     if stringify!($name) == "memory" {
                         config = config.memory_only()
                     }
+
+                    #[cfg(feature = "compression")]
+                    {
+                        config = config.default_compression(crate::config::Compression::Lz4);
+                    }
+
                     let storage = Storage::open(config).await?;
                     storage
                         .create_database::<BasicSchema>("tests", false)

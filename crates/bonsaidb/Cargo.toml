@@ -44,6 +44,7 @@ local-full = [
     "local-encryption",
     "local-multiuser",
     "local-password-hashing",
+    "local-compression",
 ]
 local = ["bonsaidb-local"]
 server-full = [
@@ -56,6 +57,7 @@ server-full = [
     "server-hyper",
     "server-pem",
     "server-password-hashing",
+    "server-compression",
 ]
 server = ["bonsaidb-server", "local"]
 client-full = [
@@ -101,6 +103,9 @@ client-password-hashing = [
     "password-hashing",
     "bonsaidb-client/password-hashing",
 ]
+
+local-compression = ["bonsaidb-local/compression"]
+server-compression = ["bonsaidb-server/compression"]
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "0.1.1", default-features = false, features = [

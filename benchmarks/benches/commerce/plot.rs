@@ -155,6 +155,7 @@ impl DiscreteRanged for NanosRange {
 pub fn label_to_color(label: &str) -> RGBColor {
     match label {
         "bonsaidb-local" => COLORS[0],
+        "bonsaidb-local+lz4" => COLORS[5],
         "bonsaidb-quic" => COLORS[1],
         "bonsaidb-ws" => COLORS[2],
         "postgresql" => COLORS[3],

@@ -12,6 +12,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `bonsaidb::core::Error::DocumentConflict` now contains a `Header` instead of
   just the document's ID. This allows an application to re-submit an update with
   the updated header without another request to the database.
+- `StorageConfiguratation::vault_key_storage` now uses an `Arc` instead of a
+  `Box`. This change allows `StorageConfiguration` and `ServerConfiguration` to
+  implement `Clone`.
+
+### Added
+
+- Optional compression is now available, using the LZ4 algorithm.
+  `StorageConfiguration::default_compression` controls the setting. When using
+  the `bonsaidb` crate, the feature can be made available using either
+  `local-compression` or `server-compression`. When using `bonsaidb-server` or
+  `bonsaidb-local` directly, the feature name is `compression`.
+
+  This compression is currently applied on all chunks of data written to
+  BonsaiDb that are larger than a hardcoded threshold. This includes the
+  Key-Value store. The threshold may be configurable in the future.
+
+  Some of the benchmark suite has been expanded to include comparisons between
+  local storage with and without compression.
 
 ## v0.1.2
 
