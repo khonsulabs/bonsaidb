@@ -229,14 +229,14 @@ impl Operator<FindProduct> for BonsaiOperator {
         let rating = self
             .database
             .view::<ProductReviewsByProduct>()
-            .with_key(doc.id as u32)
+            .with_key(doc.header.id as u32)
             .with_access_policy(AccessPolicy::NoUpdate)
             .reduce()
             .await
             .unwrap();
         measurement.finish();
         OperationResult::Product {
-            id: doc.id as u32,
+            id: doc.header.id as u32,
             product: doc.contents,
             rating: rating.average(),
         }
@@ -259,14 +259,14 @@ impl Operator<LookupProduct> for BonsaiOperator {
         let rating = self
             .database
             .view::<ProductReviewsByProduct>()
-            .with_key(doc.id as u32)
+            .with_key(doc.header.id as u32)
             .with_access_policy(AccessPolicy::NoUpdate)
             .reduce()
             .await
             .unwrap();
         measurement.finish();
         OperationResult::Product {
-            id: doc.id as u32,
+            id: doc.header.id as u32,
             product: doc.contents,
             rating: rating.average(),
         }
@@ -284,7 +284,9 @@ impl Operator<CreateCart> for BonsaiOperator {
         let measurement = measurements.begin(self.label, Metric::CreateCart);
         let cart = Cart::default().push_into(&self.database).await.unwrap();
         measurement.finish();
-        OperationResult::Cart { id: cart.id as u32 }
+        OperationResult::Cart {
+            id: cart.header.id as u32,
+        }
     }
 }
 
@@ -420,9 +422,7 @@ define_basic_unique_mapped_view!(
     "by-name",
     String,
     (),
-    |document: CollectionDocument<Product>| {
-        document.header.emit_key(document.contents.name.clone())
-    },
+    |document: CollectionDocument<Product>| { document.header.emit_key(document.contents.name) },
 );
 
 #[derive(Debug, Clone, View)]
@@ -438,7 +438,7 @@ impl CollectionViewSchema for ProductsByCategoryId {
     ) -> ViewMapResult<Self::View> {
         let mut mappings = Mappings::default();
         for &id in &document.contents.category_ids {
-            mappings = mappings.and(document.emit_key_and_value(id, 1));
+            mappings = mappings.and(document.header.emit_key_and_value(id, 1));
         }
         Ok(mappings)
     }
@@ -472,7 +472,7 @@ impl CollectionViewSchema for ProductReviewsByProduct {
         &self,
         document: CollectionDocument<<Self as View>::Collection>,
     ) -> ViewMapResult<Self::View> {
-        Ok(document.emit_key_and_value(
+        Ok(document.header.emit_key_and_value(
             document.contents.product_id,
             ProductRatings {
                 total_score: document.contents.rating as u32,

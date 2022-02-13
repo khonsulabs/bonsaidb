@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-};
+use std::{collections::BTreeMap, marker::PhantomData, ops::Deref};
 
 use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
@@ -59,7 +55,7 @@ pub trait Connection: Send + Sync {
             .apply_transaction(Transaction::insert(C::collection_name(), id, contents))
             .await?;
         if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
-            Ok(header.clone())
+            Ok(*header)
         } else {
             unreachable!(
                 "apply_transaction on a single insert should yield a single DocumentUpdated entry"
@@ -83,12 +79,12 @@ pub trait Connection: Send + Sync {
         let results = self
             .apply_transaction(Transaction::update(
                 C::collection_name(),
-                <D as Deref>::deref(doc).clone(),
+                *<D as AsRef<Header>>::as_ref(doc),
                 <D as AsRef<[u8]>>::as_ref(doc).to_vec(),
             ))
             .await?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            *<D as DerefMut>::deref_mut(doc) = header;
+            *<D as AsMut<Header>>::as_mut(doc) = header;
             Ok(())
         } else {
             unreachable!(
@@ -174,10 +170,7 @@ pub trait Connection: Send + Sync {
         doc: &H,
     ) -> Result<(), Error> {
         let results = self
-            .apply_transaction(Transaction::delete(
-                C::collection_name(),
-                doc.as_ref().clone(),
-            ))
+            .apply_transaction(Transaction::delete(C::collection_name(), *doc.as_ref()))
             .await?;
         if let OperationResult::DocumentDeleted { .. } = &results[0] {
             Ok(())
@@ -571,7 +564,10 @@ where
         doc: &mut D,
     ) -> Result<(), Error> {
         let contents = <D as AsRef<[u8]>>::as_ref(doc).to_vec();
-        **doc = self.connection.overwrite::<Cl>(doc.id, contents).await?;
+        *<D as AsMut<Header>>::as_mut(doc) = self
+            .connection
+            .overwrite::<Cl>(<D as AsRef<Header>>::as_ref(doc).id, contents)
+            .await?;
         Ok(())
     }
 

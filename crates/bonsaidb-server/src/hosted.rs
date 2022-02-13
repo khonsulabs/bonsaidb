@@ -31,7 +31,9 @@ define_basic_unique_mapped_view!(
     "by-all-domains",
     String,
     |document: CollectionDocument<TlsCertificate>| {
-        document.emit_key(document.contents.domains.join(";"))
+        document
+            .header
+            .emit_key(document.contents.domains.join(";"))
     }
 );
 

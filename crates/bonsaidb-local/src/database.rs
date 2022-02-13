@@ -810,7 +810,7 @@ impl Database {
                                 revision: updated_revision,
                             };
                             let serialized_doc = match serialize_document(&BorrowedDocument {
-                                header: updated_header.clone(),
+                                header: updated_header,
                                 contents: CowBytes::from(contents),
                             }) {
                                 Ok(bytes) => bytes,
@@ -940,7 +940,7 @@ impl Database {
             } else {
                 Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
                     operation.collection.clone(),
-                    header.clone(),
+                    *header,
                 )))
             }
         } else {

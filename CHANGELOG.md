@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implement `Clone`.
 - `Document::create_new_revision` has been removed. It was meant to be an
   internal function.
+- `Document` now requires `AsRef<Header>` and `AsMut<Header>` instead of
+  `Deref<Header>`/`DerefMut`. The publicly visible change is that the shortcut
+  of accessing `document.header.emit_*` through deref by using `document.emit_*`
+  will no longer work. This impacts `CollectionDocument`, `OwnedDocument`, and
+  `BorrowedDocument`.
+
+  This removes a little magic, but in some code flows, it was impossible to use
+  Deref anyways due to Deref borrowing the entire document, not just the header.
 
 ### Added
 

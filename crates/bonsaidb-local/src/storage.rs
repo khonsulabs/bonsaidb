@@ -726,7 +726,7 @@ impl StorageConnection for Storage {
         let mut user = User::load(user, &admin)
             .await?
             .ok_or(bonsaidb_core::Error::UserNotFound)?;
-        user.contents.argon_hash = Some(self.data.argon.hash(user.id, password).await?);
+        user.contents.argon_hash = Some(self.data.argon.hash(user.header.id, password).await?);
         user.update(&admin).await
     }
 
@@ -751,11 +751,11 @@ impl StorageConnection for Storage {
 
                 self.data
                     .argon
-                    .verify(user.id, password, saved_hash)
+                    .verify(user.header.id, password, saved_hash)
                     .await?;
                 let permissions = user.contents.effective_permissions(&admin).await?;
                 Ok(Authenticated {
-                    user_id: user.id,
+                    user_id: user.header.id,
                     permissions,
                 })
             }

@@ -1,7 +1,6 @@
 use std::{
     borrow::Cow,
     fmt::{Display, Write},
-    ops::{Deref, DerefMut},
 };
 
 use arc_bytes::serde::{Bytes, CowBytes};
@@ -15,7 +14,7 @@ pub use collection::*;
 pub use revision::Revision;
 
 /// The header of a `Document`.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header {
     /// The id of the Document. Unique across the collection `C`
     pub id: u64,
@@ -33,30 +32,30 @@ impl AsRef<Self> for Header {
 impl Header {
     /// Creates a `Map` result with an empty key and value.
     #[must_use]
-    pub fn emit(&self) -> Mappings<(), ()> {
+    pub fn emit(self) -> Mappings<(), ()> {
         self.emit_key_and_value((), ())
     }
 
     /// Creates a `Map` result with a `key` and an empty value.
     #[must_use]
-    pub fn emit_key<K: for<'a> Key<'a>>(&self, key: K) -> Mappings<K, ()> {
+    pub fn emit_key<K: for<'a> Key<'a>>(self, key: K) -> Mappings<K, ()> {
         self.emit_key_and_value(key, ())
     }
 
     /// Creates a `Map` result with `value` and an empty key.
     #[must_use]
-    pub fn emit_value<Value>(&self, value: Value) -> Mappings<(), Value> {
+    pub fn emit_value<Value>(self, value: Value) -> Mappings<(), Value> {
         self.emit_key_and_value((), value)
     }
 
     /// Creates a `Map` result with a `key` and `value`.
     #[must_use]
     pub fn emit_key_and_value<K: for<'a> Key<'a>, Value>(
-        &self,
+        self,
         key: K,
         value: Value,
     ) -> Mappings<K, Value> {
-        Mappings::Simple(Some(Map::new(self.clone(), key, value)))
+        Mappings::Simple(Some(Map::new(self, key, value)))
     }
 }
 
@@ -91,7 +90,7 @@ pub struct OwnedDocument {
 
 /// Common interface of a document in BonsaiDb.
 pub trait Document<'a>:
-    Deref<Target = Header> + DerefMut + AsRef<Header> + AsRef<[u8]> + Sized
+    AsRef<Header> + AsMut<Header> + AsRef<Header> + AsRef<[u8]> + Sized
 {
     /// The bytes type used in the interface.
     type Bytes;
@@ -199,16 +198,8 @@ impl AsRef<Header> for OwnedDocument {
     }
 }
 
-impl Deref for OwnedDocument {
-    type Target = Header;
-
-    fn deref(&self) -> &Self::Target {
-        &self.header
-    }
-}
-
-impl DerefMut for OwnedDocument {
-    fn deref_mut(&mut self) -> &mut Self::Target {
+impl AsMut<Header> for OwnedDocument {
+    fn as_mut(&mut self) -> &mut Header {
         &mut self.header
     }
 }
@@ -236,16 +227,8 @@ impl<'a> AsRef<Header> for BorrowedDocument<'a> {
     }
 }
 
-impl<'a> Deref for BorrowedDocument<'a> {
-    type Target = Header;
-
-    fn deref(&self) -> &Self::Target {
-        &self.header
-    }
-}
-
-impl<'a> DerefMut for BorrowedDocument<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
+impl<'a> AsMut<Header> for BorrowedDocument<'a> {
+    fn as_mut(&mut self) -> &mut Header {
         &mut self.header
     }
 }
@@ -268,23 +251,23 @@ fn emissions_tests() -> Result<(), crate::Error> {
     let doc = BorrowedDocument::with_contents(1, &Basic::default())?;
 
     assert_eq!(
-        doc.emit(),
-        Mappings::Simple(Some(Map::new(doc.header.clone(), (), ())))
+        doc.header.emit(),
+        Mappings::Simple(Some(Map::new(doc.header, (), ())))
     );
 
     assert_eq!(
-        doc.emit_key(1),
-        Mappings::Simple(Some(Map::new(doc.header.clone(), 1, ())))
+        doc.header.emit_key(1),
+        Mappings::Simple(Some(Map::new(doc.header, 1, ())))
     );
 
     assert_eq!(
-        doc.emit_value(1),
-        Mappings::Simple(Some(Map::new(doc.header.clone(), (), 1)))
+        doc.header.emit_value(1),
+        Mappings::Simple(Some(Map::new(doc.header, (), 1)))
     );
 
     assert_eq!(
-        doc.emit_key_and_value(1, 2),
-        Mappings::Simple(Some(Map::new(doc.header.clone(), 1, 2)))
+        doc.header.emit_key_and_value(1, 2),
+        Mappings::Simple(Some(Map::new(doc.header, 1, 2)))
     );
 
     Ok(())
@@ -297,10 +280,10 @@ fn chained_mappings_test() -> Result<(), crate::Error> {
     let doc = BorrowedDocument::with_contents(1, &Basic::default())?;
 
     assert_eq!(
-        doc.emit().and(doc.emit()),
+        doc.header.emit().and(doc.header.emit()),
         Mappings::List(vec![
-            Map::new(doc.header.clone(), (), ()),
-            Map::new(doc.header.clone(), (), ())
+            Map::new(doc.header, (), ()),
+            Map::new(doc.header, (), ())
         ])
     );
 

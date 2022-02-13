@@ -292,7 +292,7 @@ impl<'a> DocumentRequest<'a> {
                     return Err(Error::Core(bonsaidb_core::Error::UniqueKeyViolation {
                         view: self.map_request.view_name.clone(),
                         conflicting_document: source,
-                        existing_document: existing_entry.mappings[0].source.clone(),
+                        existing_document: existing_entry.mappings[0].source,
                     }));
                 }
             }

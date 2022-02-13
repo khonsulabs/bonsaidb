@@ -119,7 +119,7 @@ impl Storage {
                         &schema,
                         database.name(),
                         &collection_name,
-                        &document.id.to_string(),
+                        &document.header.id.to_string(),
                         &document.contents,
                     )
                     .await?;

@@ -777,7 +777,9 @@ impl<B: Backend> CustomServer<B> {
             ]
             .into_iter(),
         );
-        client.logged_in_as(user.id, permissions.clone()).await;
+        client
+            .logged_in_as(user.header.id, permissions.clone())
+            .await;
         Ok(permissions)
     }
 

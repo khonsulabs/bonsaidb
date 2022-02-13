@@ -51,7 +51,9 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
     type View = Self;
 
     fn map(&self, document: CollectionDocument<Shape>) -> ViewMapResult<Self::View> {
-        Ok(document.emit_key_and_value(document.contents.sides, 1))
+        Ok(document
+            .header
+            .emit_key_and_value(document.contents.sides, 1))
     }
 
     fn reduce(
@@ -118,6 +120,7 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
   `bonsaidb-local`.
 - `local-cli`: Enables the `clap` structures for embedding database
   management commands into your own command-line interface.
+- `local-compression`: Enables support for compressed storage using lz4.
 - `local-encryption`: Enables at-rest encryption.
 - `local-instrument`: Enables instrumenting with `tracing`.
 - `local-multiuser`: Enables multi-user support.
@@ -136,6 +139,7 @@ bonsaidb = { version = "*", default-features = false, features = "server-full" }
   `bonsaidb-server`.
 - `server-acme`: Enables automtic certificate acquisition through ACME/LetsEncrypt.
 - `server-cli`: Enables the `cli` module.
+- `server-compression`: Enables support for compressed storage using lz4.
 - `server-encryption`: Enables at-rest encryption.
 - `server-hyper`: Enables convenience functions for upgrading websockets using `hyper`.
 - `server-instrument`: Enables instrumenting with `tracing`.

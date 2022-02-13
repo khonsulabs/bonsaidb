@@ -59,7 +59,9 @@ fn views() {
         type View = Self;
 
         fn map(&self, document: CollectionDocument<Shape>) -> ViewMapResult<Self::View> {
-            Ok(document.emit_key_and_value(document.contents.sides, 1))
+            Ok(document
+                .header
+                .emit_key_and_value(document.contents.sides, 1))
         }
     }
 

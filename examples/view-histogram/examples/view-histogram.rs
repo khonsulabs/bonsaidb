@@ -118,7 +118,9 @@ impl CollectionViewSchema for AsHistogram {
             histogram.record(*sample).unwrap();
         }
 
-        Ok(document.emit_key_and_value(document.contents.timestamp, histogram.into_sync()))
+        Ok(document
+            .header
+            .emit_key_and_value(document.contents.timestamp, histogram.into_sync()))
     }
 
     fn reduce(

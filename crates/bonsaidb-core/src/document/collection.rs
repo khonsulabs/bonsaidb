@@ -1,4 +1,4 @@
-use std::{fmt::Debug, ops::Deref};
+use std::fmt::Debug;
 
 use arc_bytes::serde::{Bytes, CowBytes};
 
@@ -31,17 +31,6 @@ where
     }
 }
 
-impl<C> Deref for CollectionDocument<C>
-where
-    C: SerializedCollection,
-{
-    type Target = Header;
-
-    fn deref(&self) -> &Self::Target {
-        &self.header
-    }
-}
-
 impl<'a, C> TryFrom<&'a BorrowedDocument<'a>> for CollectionDocument<C>
 where
     C: SerializedCollection,
@@ -51,7 +40,7 @@ where
     fn try_from(value: &'a BorrowedDocument<'a>) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: C::deserialize(&value.contents)?,
-            header: value.header.clone(),
+            header: value.header,
         })
     }
 }
@@ -65,7 +54,7 @@ where
     fn try_from(value: &'a OwnedDocument) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: C::deserialize(&value.contents)?,
-            header: value.header.clone(),
+            header: value.header,
         })
     }
 }
@@ -79,7 +68,7 @@ where
     fn try_from(value: &'b CollectionDocument<C>) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: CowBytes::from(C::serialize(&value.contents)?),
-            header: value.header.clone(),
+            header: value.header,
         })
     }
 }
@@ -172,7 +161,7 @@ where
     pub fn to_document(&self) -> Result<OwnedDocument, Error> {
         Ok(OwnedDocument {
             contents: Bytes::from(C::serialize(&self.contents)?),
-            header: self.header.clone(),
+            header: self.header,
         })
     }
 }

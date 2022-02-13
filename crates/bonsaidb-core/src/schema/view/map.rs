@@ -27,7 +27,7 @@ impl<K: for<'a> Key<'a>, V> Map<K, V> {
         &self,
     ) -> Result<Serialized, view::Error> {
         Ok(Serialized {
-            source: self.source.clone(),
+            source: self.source,
             key: Bytes::from(
                 self.key
                     .as_big_endian_bytes()
@@ -254,7 +254,7 @@ impl Serialized {
         &self,
     ) -> Result<Map<View::Key, View::Value>, view::Error> {
         Ok(Map::new(
-            self.source.clone(),
+            self.source,
             <View::Key as Key>::from_big_endian_bytes(&self.key)
                 .map_err(view::Error::key_serialization)?,
             View::deserialize(&self.value)?,

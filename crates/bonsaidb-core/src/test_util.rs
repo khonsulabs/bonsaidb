@@ -76,7 +76,7 @@ impl ViewSchema for BasicCount {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        Ok(document.emit_key_and_value((), 1))
+        Ok(document.header.emit_key_and_value((), 1))
     }
 
     fn reduce(
@@ -101,7 +101,7 @@ impl ViewSchema for BasicByParentId {
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
         let contents = document.contents::<Basic>()?;
-        Ok(document.emit_key_and_value(contents.parent_id, 1))
+        Ok(document.header.emit_key_and_value(contents.parent_id, 1))
     }
 
     fn reduce(
@@ -123,7 +123,9 @@ impl ViewSchema for BasicByCategory {
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
         let contents = document.contents::<Basic>()?;
         if let Some(category) = &contents.category {
-            Ok(document.emit_key_and_value(category.to_lowercase(), 1))
+            Ok(document
+                .header
+                .emit_key_and_value(category.to_lowercase(), 1))
         } else {
             Ok(Mappings::none())
         }
@@ -151,7 +153,7 @@ impl ViewSchema for BasicByTag {
         Ok(contents
             .tags
             .iter()
-            .map(|tag| document.emit_key_and_value(tag.clone(), 1))
+            .map(|tag| document.header.emit_key_and_value(tag.clone(), 1))
             .collect())
     }
 
@@ -172,7 +174,7 @@ impl ViewSchema for BasicByBrokenParentId {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        Ok(document.emit())
+        Ok(document.header.emit())
     }
 }
 
@@ -214,7 +216,7 @@ impl ViewSchema for EncryptedBasicCount {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        Ok(document.emit_key_and_value((), 1))
+        Ok(document.header.emit_key_and_value((), 1))
     }
 
     fn reduce(
@@ -235,7 +237,7 @@ impl ViewSchema for EncryptedBasicByParentId {
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
         let contents = document.contents::<EncryptedBasic>()?;
-        Ok(document.emit_key_and_value(contents.parent_id, 1))
+        Ok(document.header.emit_key_and_value(contents.parent_id, 1))
     }
 
     fn reduce(
@@ -257,7 +259,9 @@ impl ViewSchema for EncryptedBasicByCategory {
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
         let contents = document.contents::<EncryptedBasic>()?;
         if let Some(category) = &contents.category {
-            Ok(document.emit_key_and_value(category.to_lowercase(), 1))
+            Ok(document
+                .header
+                .emit_key_and_value(category.to_lowercase(), 1))
         } else {
             Ok(Mappings::none())
         }
@@ -303,7 +307,7 @@ impl ViewSchema for UniqueValue {
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
         let entry = document.contents::<Unique>()?;
-        Ok(document.emit_key(entry.value))
+        Ok(document.header.emit_key(entry.value))
     }
 }
 
@@ -650,7 +654,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .expect("couldn't retrieve stored item");
     let mut value = doc.contents::<Basic>()?;
     assert_eq!(original_value, value);
-    let old_revision = doc.header.revision.clone();
+    let old_revision = doc.header.revision;
 
     // Update the value
     value.value = String::from("updated_value");
@@ -708,11 +712,11 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     // Test Connection::insert with a specified id
     let doc = BorrowedDocument::with_contents(42, &Basic::new("42"))?;
     let document_42 = db
-        .insert::<Basic, _>(Some(doc.id), doc.contents.into_vec())
+        .insert::<Basic, _>(Some(doc.header.id), doc.contents.into_vec())
         .await?;
     assert_eq!(document_42.id, 42);
     let document_43 = Basic::new("43").insert_into(43, db).await?;
-    assert_eq!(document_43.id, 43);
+    assert_eq!(document_43.header.id, 43);
 
     // Test that inserting a document with the same ID results in a conflict:
     let conflict_err = Basic::new("43")
@@ -779,7 +783,7 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     })
     .await?;
     assert_eq!(doc.contents.value, "modify worked");
-    let doc = Basic::get(doc.id, db).await?.unwrap();
+    let doc = Basic::get(doc.header.id, db).await?.unwrap();
     assert_eq!(doc.contents.value, "modify worked");
 
     Ok(())
@@ -1334,7 +1338,7 @@ pub async fn named_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()>
         .or_insert_with(|| unreachable!())
         .await?
         .unwrap();
-    assert_eq!(original_entry.id, updated.id);
+    assert_eq!(original_entry.header.id, updated.header.id);
     assert_ne!(original_entry.contents.value, updated.contents.value);
 
     let retrieved = Unique::entry("2", db).await?.unwrap();
