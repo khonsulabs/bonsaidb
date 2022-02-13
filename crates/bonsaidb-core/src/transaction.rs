@@ -56,6 +56,13 @@ impl Transaction {
         Self::from(Operation::update(collection, header, contents))
     }
 
+    /// Overwrites a document in `collection`. If a document with `id` exists,
+    /// it will be overwritten. If a document with `id` doesn't exist, it will
+    /// be created.
+    pub fn overwrite(collection: CollectionName, id: u64, contents: impl Into<Bytes>) -> Self {
+        Self::from(Operation::overwrite(collection, id, contents))
+    }
+
     /// Deletes a document from a `collection`.
     pub fn delete(collection: CollectionName, header: Header) -> Self {
         Self::from(Operation::delete(collection, header))
@@ -120,6 +127,30 @@ impl Operation {
         Ok(Self::update(C::collection_name(), header, contents))
     }
 
+    /// Overwrites a document in `collection`. If a document with `id` exists,
+    /// it will be overwritten. If a document with `id` doesn't exist, it will
+    /// be created.
+    pub fn overwrite(collection: CollectionName, id: u64, contents: impl Into<Bytes>) -> Self {
+        Self {
+            collection,
+            command: Command::Overwrite {
+                id,
+                contents: contents.into(),
+            },
+        }
+    }
+
+    /// Overwrites a document with the serialized representation of `contents`
+    /// in `collection`. If a document with `id` exists, it will be overwritten.
+    /// If a document with `id` doesn't exist, it will be created.
+    pub fn overwrite_serialized<C: SerializedCollection>(
+        id: u64,
+        contents: &C::Contents,
+    ) -> Result<Self, Error> {
+        let contents = C::serialize(contents)?;
+        Ok(Self::overwrite(C::collection_name(), id, contents))
+    }
+
     /// Deletes a document from a `collection`.
     pub const fn delete(collection: CollectionName, header: Header) -> Self {
         Self {
@@ -142,13 +173,24 @@ pub enum Command {
         contents: Bytes,
     },
 
-    /// Update an existing `Document` identified by `id`. `revision` must match
+    /// Update an existing `Document` identified by `header`. `header.revision` must match
     /// the currently stored revision on the `Document`. If it does not, the
     /// command fill fail with a `DocumentConflict` error.
     Update {
         /// The header of the `Document`. The revision must match the current
         /// document.
         header: Header,
+
+        /// The new contents to store within the `Document`.
+        contents: Bytes,
+    },
+
+    /// Overwrite an existing `Document` identified by `id`. The revision will
+    /// not be checked before the document is updated. If the document does not
+    /// exist, it will be created.
+    Overwrite {
+        /// The id of the document to overwrite.
+        id: u64,
 
         /// The new contents to store within the `Document`.
         contents: Bytes,

@@ -721,6 +721,13 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .unwrap_err();
     assert!(matches!(conflict_err.error, Error::DocumentConflict(..)));
 
+    // Test that overwriting works
+    let overwritten = Basic::new("43")
+        .overwrite_into(doc.header.id, db)
+        .await
+        .unwrap();
+    assert!(overwritten.header.revision.id > doc.header.revision.id);
+
     Ok(())
 }
 
@@ -760,6 +767,10 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         }
         other => return Err(anyhow::Error::from(other)),
     }
+
+    // Let's force an update through overwrite. After this succeeds, the header
+    // is updated to the new revision.
+    db.collection::<Basic>().overwrite(&mut doc).await.unwrap();
 
     // Now, let's use the CollectionDocument API to modify the document through a refetch.
     let mut doc = CollectionDocument::<Basic>::try_from(&doc)?;

@@ -113,13 +113,6 @@ pub trait Document<'a>:
         &mut self,
         contents: &S,
     ) -> Result<(), crate::Error>;
-    /// Creates a new revision.
-    ///
-    /// **WARNING: This normally should not be used** outside of implementing a
-    /// backend for BonsaiDb. To update a document, use `set_contents()` and
-    /// send the document with the existing `Revision` information.
-    #[must_use]
-    fn create_new_revision(&self, contents: impl Into<Self::Bytes>) -> Option<Self>;
 }
 
 impl<'a> AsRef<[u8]> for BorrowedDocument<'a> {
@@ -161,20 +154,6 @@ impl<'a> Document<'a> for BorrowedDocument<'a> {
         self.contents = CowBytes::from(<S as SerializedCollection>::serialize(contents)?);
         Ok(())
     }
-
-    fn create_new_revision(&self, contents: impl Into<Self::Bytes>) -> Option<Self> {
-        let contents = contents.into();
-        self.header
-            .revision
-            .next_revision(&contents)
-            .map(|revision| Self {
-                header: Header {
-                    id: self.header.id,
-                    revision,
-                },
-                contents,
-            })
-    }
 }
 
 impl Document<'static> for OwnedDocument {
@@ -211,20 +190,6 @@ impl Document<'static> for OwnedDocument {
     ) -> Result<(), crate::Error> {
         self.contents = Bytes::from(<S as SerializedCollection>::serialize(contents)?);
         Ok(())
-    }
-
-    fn create_new_revision(&self, contents: impl Into<Self::Bytes>) -> Option<Self> {
-        let contents = Bytes(contents.into());
-        self.header
-            .revision
-            .next_revision(&contents)
-            .map(|revision| Self {
-                header: Header {
-                    id: self.header.id,
-                    revision,
-                },
-                contents,
-            })
     }
 }
 

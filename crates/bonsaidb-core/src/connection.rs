@@ -97,6 +97,31 @@ pub trait Connection: Send + Sync {
         }
     }
 
+    /// Overwrites an existing document, or inserts a new document. Upon success,
+    /// `doc.revision` will be updated with the new revision information.
+    ///
+    /// This is the lower-level API. For better ergonomics, consider using
+    /// one of:
+    ///
+    /// - [`CollectionDocument::overwrite()`]
+    /// - [`self.collection::<Collection>().overwrite()`](Collection::overwrite)
+    async fn overwrite<'a, C: schema::Collection>(
+        &self,
+        id: u64,
+        contents: Vec<u8>,
+    ) -> Result<Header, Error> {
+        let results = self
+            .apply_transaction(Transaction::overwrite(C::collection_name(), id, contents))
+            .await?;
+        if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
+            Ok(header)
+        } else {
+            unreachable!(
+                "apply_transaction on a single update should yield a single DocumentUpdated entry"
+            )
+        }
+    }
+
     /// Retrieves a stored document from [`Collection`] `C` identified by `id`.
     ///
     /// This is the lower-level API. For better ergonomics, consider using
@@ -523,6 +548,31 @@ where
         doc: &mut D,
     ) -> Result<(), Error> {
         self.connection.update::<Cl, D>(doc).await
+    }
+
+    /// Overwrites an existing document, or inserts a new document. Upon success,
+    /// `doc.revision` will be updated with the new revision information.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// if let Some(mut document) = db.collection::<MyCollection>().get(42).await? {
+    ///     // modify the document
+    ///     db.collection::<MyCollection>().overwrite(&mut document);
+    ///     println!("Updated revision: {:?}", document.header.revision);
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub async fn overwrite<'d, D: Document<'d> + Send + Sync>(
+        &self,
+        doc: &mut D,
+    ) -> Result<(), Error> {
+        let contents = <D as AsRef<[u8]>>::as_ref(doc).to_vec();
+        **doc = self.connection.overwrite::<Cl>(doc.id, contents).await?;
+        Ok(())
     }
 
     /// Retrieves a `Document<Cl>` with `id` from the connection.

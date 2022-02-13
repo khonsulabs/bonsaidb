@@ -442,6 +442,70 @@ pub trait SerializedCollection: Collection {
     {
         Self::insert(id, self, connection).await
     }
+
+    /// Overwrites this value into the collection with the specified id, returning
+    /// the created or updated document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::overwrite(42, MyCollection::default(), &db).await?;
+    /// assert_eq!(document.header.id, 42);
+    /// println!(
+    ///     "Overwrote {:?} with revision {}",
+    ///     document.contents, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    async fn overwrite<Cn: Connection>(
+        id: u64,
+        contents: Self::Contents,
+        connection: &Cn,
+    ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
+    where
+        Self: Sized + 'static,
+        Self::Contents: 'async_trait,
+    {
+        let header = match Self::serialize(&contents) {
+            Ok(serialized) => match connection.overwrite::<Self>(id, serialized).await {
+                Ok(header) => header,
+                Err(error) => return Err(InsertError { contents, error }),
+            },
+            Err(error) => return Err(InsertError { contents, error }),
+        };
+        Ok(CollectionDocument { header, contents })
+    }
+
+    /// Overwrites this value into the collection with the given `id`, returning
+    /// the created or updated document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::default().overwrite_into(42, &db).await?;
+    /// assert_eq!(document.header.id, 42);
+    /// println!(
+    ///     "Overwrote {:?} with revision {}",
+    ///     document.contents, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    async fn overwrite_into<Cn: Connection>(
+        self,
+        id: u64,
+        connection: &Cn,
+    ) -> Result<CollectionDocument<Self>, InsertError<Self>>
+    where
+        Self: SerializedCollection<Contents = Self> + Sized + 'static,
+    {
+        Self::overwrite(id, self, connection).await
+    }
 }
 
 /// A convenience trait for easily storing Serde-compatible types in documents.

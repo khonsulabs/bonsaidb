@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `StorageConfiguratation::vault_key_storage` now uses an `Arc` instead of a
   `Box`. This change allows `StorageConfiguration` and `ServerConfiguration` to
   implement `Clone`.
+- `Document::create_new_revision` has been removed. It was meant to be an
+  internal function.
 
 ### Added
 
@@ -30,6 +32,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Some of the benchmark suite has been expanded to include comparisons between
   local storage with and without compression.
+  
+- Added ability to "overwrite" documents without checking the stored revision
+information. Because this removes a layer of safety, it has its own permissible
+action: `DocumentAction::Overwrite`. The functions that have been added are:
+
+  - `connection::Connection::overwrite`
+  - `connection::Collection::overwrite`
+  - `schema::SerializedCollection::overwrite`
+  - `schema::SerializedCollection::overwrite_into`
+  - `document::CollectionDocument::overwrite`
+  - `transaction::Transaction::overwrite`
+  - `transaction::Operation::overwrite`
 
 ### Changed
 

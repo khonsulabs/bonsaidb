@@ -12,9 +12,12 @@ use async_trait::async_trait;
 #[cfg(any(feature = "encryption", feature = "compression"))]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
-    arc_bytes::{serde::Bytes, ArcBytes},
+    arc_bytes::{
+        serde::{Bytes, CowBytes},
+        ArcBytes,
+    },
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{BorrowedDocument, Document, Header, OwnedDocument},
+    document::{BorrowedDocument, Document, Header, OwnedDocument, Revision},
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
@@ -36,8 +39,8 @@ use itertools::Itertools;
 use nebari::{
     io::any::AnyFile,
     tree::{
-        AnyTreeRoot, BorrowByteRange, KeyEvaluation, Root, TreeRoot, U64Range, Unversioned,
-        Versioned,
+        AnyTreeRoot, BorrowByteRange, CompareSwap, KeyEvaluation, Root, TreeRoot, U64Range,
+        Unversioned, Versioned,
     },
     AbortError, ExecutingTransaction, Roots, Tree,
 };
@@ -750,20 +753,20 @@ impl Database {
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<OperationResult, Error> {
         match &operation.command {
-            Command::Insert { id, contents } => self.execute_insert(
-                operation,
-                transaction,
-                tree_index_map,
-                *id,
-                contents.to_vec(),
-            ),
+            Command::Insert { id, contents } => {
+                self.execute_insert(operation, transaction, tree_index_map, *id, contents)
+            }
             Command::Update { header, contents } => self.execute_update(
                 operation,
                 transaction,
                 tree_index_map,
-                header,
-                contents.to_vec(),
+                header.id,
+                Some(&header.revision),
+                contents,
             ),
+            Command::Overwrite { id, contents } => {
+                self.execute_update(operation, transaction, tree_index_map, *id, None, contents)
+            }
             Command::Delete { header } => {
                 self.execute_delete(operation, transaction, tree_index_map, header)
             }
@@ -775,58 +778,98 @@ impl Database {
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
-        header: &Header,
-        contents: Vec<u8>,
+        id: u64,
+        check_revision: Option<&Revision>,
+        contents: &[u8],
     ) -> Result<OperationResult, crate::Error> {
         let documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
-        let document_id = header.id.as_big_endian_bytes().unwrap();
-        // TODO switch to compare_swap
+        let document_id = ArcBytes::from(id.as_big_endian_bytes().unwrap());
+        let mut result = None;
+        let mut updated = false;
+        documents.modify(
+            vec![document_id.clone()],
+            nebari::tree::Operation::CompareSwap(CompareSwap::new(&mut |_key,
+                                                                        value: Option<
+                ArcBytes<'_>,
+            >| {
+                if let Some(old) = value {
+                    let doc = match deserialize_document(&old) {
+                        Ok(doc) => doc,
+                        Err(err) => {
+                            result = Some(Err(Error::from(err)));
+                            return nebari::tree::KeyOperation::Skip;
+                        }
+                    };
+                    if check_revision.is_none() || Some(&doc.header.revision) == check_revision {
+                        if let Some(updated_revision) = doc.header.revision.next_revision(contents)
+                        {
+                            let updated_header = Header {
+                                id,
+                                revision: updated_revision,
+                            };
+                            let serialized_doc = match serialize_document(&BorrowedDocument {
+                                header: updated_header.clone(),
+                                contents: CowBytes::from(contents),
+                            }) {
+                                Ok(bytes) => bytes,
+                                Err(err) => {
+                                    result = Some(Err(Error::from(err)));
+                                    return nebari::tree::KeyOperation::Skip;
+                                }
+                            };
+                            result = Some(Ok(OperationResult::DocumentUpdated {
+                                collection: operation.collection.clone(),
+                                header: updated_header,
+                            }));
+                            updated = true;
+                            return nebari::tree::KeyOperation::Set(ArcBytes::from(serialized_doc));
+                        }
 
-        if let Some(vec) = documents.get(document_id.as_ref())? {
-            let doc = deserialize_document(&vec)?;
-            if doc.header.revision == header.revision {
-                if let Some(updated_doc) = doc.create_new_revision(contents) {
-                    documents.set(
-                        updated_doc
-                            .header
-                            .id
-                            .as_big_endian_bytes()
-                            .unwrap()
-                            .as_ref()
-                            .to_vec(),
-                        serialize_document(&updated_doc)?,
-                    )?;
-
-                    self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
-
-                    Ok(OperationResult::DocumentUpdated {
-                        collection: operation.collection.clone(),
-                        header: updated_doc.header,
-                    })
+                        // If no new revision was made, it means an attempt to
+                        // save a document with the same contents was made.
+                        // We'll return a success but not actually give a new
+                        // version
+                        result = Some(Ok(OperationResult::DocumentUpdated {
+                            collection: operation.collection.clone(),
+                            header: doc.header,
+                        }));
+                    } else {
+                        result = Some(Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
+                            operation.collection.clone(),
+                            doc.header,
+                        ))));
+                    }
+                } else if check_revision.is_none() {
+                    let doc = BorrowedDocument::new(id, contents);
+                    match serialize_document(&doc) {
+                        Ok(serialized) => {
+                            result = Some(Ok(OperationResult::DocumentUpdated {
+                                collection: operation.collection.clone(),
+                                header: doc.header,
+                            }));
+                            return nebari::tree::KeyOperation::Set(ArcBytes::from(serialized));
+                        }
+                        Err(err) => {
+                            result = Some(Err(Error::from(err)));
+                        }
+                    }
                 } else {
-                    // If no new revision was made, it means an attempt to
-                    // save a document with the same contents was made.
-                    // We'll return a success but not actually give a new
-                    // version
-                    Ok(OperationResult::DocumentUpdated {
-                        collection: operation.collection.clone(),
-                        header: doc.header,
-                    })
+                    result = Some(Err(Error::Core(bonsaidb_core::Error::DocumentNotFound(
+                        operation.collection.clone(),
+                        id,
+                    ))));
                 }
-            } else {
-                Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
-                    operation.collection.clone(),
-                    header.clone(),
-                )))
-            }
-        } else {
-            Err(Error::Core(bonsaidb_core::Error::DocumentNotFound(
-                operation.collection.clone(),
-                header.id,
-            )))
+                nebari::tree::KeyOperation::Skip
+            })),
+        )?;
+
+        if updated {
+            self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
         }
+
+        result.expect("nebari should invoke the callback even when the key isn't found")
     }
 
     fn execute_insert(
@@ -835,7 +878,7 @@ impl Database {
         transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
         id: Option<u64>,
-        contents: Vec<u8>,
+        contents: &[u8],
     ) -> Result<OperationResult, Error> {
         let documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])

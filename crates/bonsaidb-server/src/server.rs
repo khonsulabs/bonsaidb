@@ -1627,6 +1627,10 @@ impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
                     document_resource_name(&self.name, &op.collection, header.id),
                     BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Update)),
                 ),
+                Command::Overwrite { id, .. } => (
+                    document_resource_name(&self.name, &op.collection, *id),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Overwrite)),
+                ),
                 Command::Delete { header } => (
                     document_resource_name(&self.name, &op.collection, header.id),
                     BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
