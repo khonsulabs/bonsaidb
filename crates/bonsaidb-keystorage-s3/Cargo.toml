@@ -10,6 +10,7 @@ keywords = ["s3", "bonsaidb", "keystorage"]
 categories = ["config"]
 readme = "./README.md"
 homepage = "https://bonsaidb.io/"
+rust-version = "1.58"
 
 [dependencies]
 aws-sdk-s3 = { version = "0.6" }

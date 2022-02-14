@@ -91,6 +91,14 @@ You can review the [full example in the repository][view-examples], or see all a
 [view-examples]: https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/view-examples.rs
 [examples-readme]: https://github.com/khonsulabs/bonsaidb/blob/main/examples/README.md
 
+## Minimum Supported Rust Version (MSRV)
+
+While this project is alpha, we are actively adopting the current version of
+Rust. The current minimum version is `1.58`, and we plan on updating the MSRV to
+implement [namespaced
+Features](https://github.com/khonsulabs/bonsaidb/issues/178) as soon as the
+feature is released.
+
 ## Feature Flags
 
 No feature flags are enabled by default in the `bonsaidb` crate. This is
