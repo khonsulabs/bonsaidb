@@ -263,13 +263,17 @@ fn expiration_after_close() -> anyhow::Result<()> {
             let retry = rt.block_on(async {
                 let db = Database::open::<()>(StorageConfiguration::new(&path)).await?;
 
-                let key = db.get_key("a").into().await?;
-
-                if timing.elapsed() > Duration::from_secs(1) {
+                let key = db.get_key("a").await?;
+                // Due to not having a reliable way to shut down the database,
+                // we can't make many guarantees about what happened after
+                // setting the key in the above block. If we get None back,
+                // we'll consider the test needing to retry. Once we have a
+                // shutdown operation that guarantees that the key-value store
+                // persists, the key.is_none() check shoud be removed, instead
+                // asserting `key.is_some()`.
+                if timing.elapsed() > Duration::from_secs(1) || key.is_none() {
                     return Ok(true);
                 }
-
-                assert_eq!(key, Some(0_u32));
 
                 timing.wait_until(Duration::from_secs(4)).await;
 
