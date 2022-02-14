@@ -2,7 +2,7 @@ use actionable::{Action, Identifier, ResourceName};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::KeyId,
+    document::{DocumentId, KeyId},
     schema::{CollectionName, ViewName},
 };
 
@@ -33,11 +33,12 @@ pub fn collection_resource_name<'a>(
 pub fn document_resource_name<'a>(
     database: impl Into<Identifier<'a>>,
     collection: &CollectionName,
-    id: u64,
+    id: DocumentId,
 ) -> ResourceName<'a> {
+    // TODO this should borrow DocumentId
     collection_resource_name(database, collection)
         .and("document")
-        .and(id)
+        .and(id.to_string())
 }
 
 /// Creaets a resource name for a `view` within `database`.
@@ -88,8 +89,11 @@ pub fn encryption_key_resource_name(key_id: &KeyId) -> ResourceName<'_> {
 
 /// Creates a resource name for `user_id`.
 #[must_use]
-pub fn user_resource_name<'a>(user_id: u64) -> ResourceName<'a> {
-    bonsaidb_resource_name().and("user").and(user_id)
+pub fn user_resource_name<'a>(user_id: DocumentId) -> ResourceName<'a> {
+    // TODO this should be able to borrow the DocumentId
+    bonsaidb_resource_name()
+        .and("user")
+        .and(user_id.to_string())
 }
 
 /// Actions that can be permitted within BonsaiDb.

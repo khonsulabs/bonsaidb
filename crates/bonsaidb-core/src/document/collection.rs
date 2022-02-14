@@ -126,9 +126,9 @@ where
             if is_first_loop {
                 is_first_loop = false;
             } else {
-                *self = C::get(self.header.id, connection)
-                    .await?
-                    .ok_or_else(|| Error::DocumentNotFound(C::collection_name(), self.header.id))?;
+                *self = C::get(self.header.id, connection).await?.ok_or_else(|| {
+                    Error::DocumentNotFound(C::collection_name(), Box::new(self.header.id))
+                })?;
             }
             modifier(&mut *self);
             match self.update(connection).await {

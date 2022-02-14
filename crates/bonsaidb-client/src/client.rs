@@ -19,6 +19,7 @@ use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     connection::{Database, StorageConnection},
     custom_api::{CustomApi, CustomApiResult},
+    document::DocumentId,
     networking::{
         self, Payload, Request, Response, ServerRequest, ServerResponse, CURRENT_PROTOCOL_VERSION,
     },
@@ -594,7 +595,7 @@ impl<A: CustomApi> StorageConnection for Client<A> {
         }
     }
 
-    async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
+    async fn create_user(&self, username: &str) -> Result<DocumentId, bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::CreateUser {
                 username: username.to_string(),

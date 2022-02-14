@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort},
     custom_api::CustomApi,
-    document::OwnedDocument,
+    document::{DocumentId, OwnedDocument},
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
         view::{
@@ -63,7 +63,7 @@ impl<A: CustomApi> RemoteDatabase<A> {
 impl<A: CustomApi> Connection for RemoteDatabase<A> {
     async fn get<C: Collection>(
         &self,
-        id: u64,
+        id: DocumentId,
     ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         match self
             .client
@@ -89,7 +89,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
 
     async fn get_multiple<C: Collection>(
         &self,
-        ids: &[u64],
+        ids: &[DocumentId],
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         match self
             .client
@@ -110,7 +110,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn list<C: Collection, R: Into<Range<u64>> + Send>(
+    async fn list<C: Collection, R: Into<Range<DocumentId>> + Send>(
         &self,
         ids: R,
         order: Sort,

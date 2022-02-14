@@ -2,7 +2,7 @@ use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::Header,
+    document::{DocumentId, Header},
     schema::{CollectionName, SerializedCollection},
     Error,
 };
@@ -47,7 +47,11 @@ impl Transaction {
     /// Inserts a new document with `contents` into `collection`.  If `id` is
     /// `None` a unique id will be generated. If an id is provided and a
     /// document already exists with that id, a conflict error will be returned.
-    pub fn insert(collection: CollectionName, id: Option<u64>, contents: impl Into<Bytes>) -> Self {
+    pub fn insert(
+        collection: CollectionName,
+        id: Option<DocumentId>,
+        contents: impl Into<Bytes>,
+    ) -> Self {
         Self::from(Operation::insert(collection, id, contents))
     }
 
@@ -59,7 +63,11 @@ impl Transaction {
     /// Overwrites a document in `collection`. If a document with `id` exists,
     /// it will be overwritten. If a document with `id` doesn't exist, it will
     /// be created.
-    pub fn overwrite(collection: CollectionName, id: u64, contents: impl Into<Bytes>) -> Self {
+    pub fn overwrite(
+        collection: CollectionName,
+        id: DocumentId,
+        contents: impl Into<Bytes>,
+    ) -> Self {
         Self::from(Operation::overwrite(collection, id, contents))
     }
 
@@ -84,7 +92,11 @@ impl Operation {
     /// Inserts a new document with `contents` into `collection`.  If `id` is
     /// `None` a unique id will be generated. If an id is provided and a
     /// document already exists with that id, a conflict error will be returned.
-    pub fn insert(collection: CollectionName, id: Option<u64>, contents: impl Into<Bytes>) -> Self {
+    pub fn insert(
+        collection: CollectionName,
+        id: Option<DocumentId>,
+        contents: impl Into<Bytes>,
+    ) -> Self {
         Self {
             collection,
             command: Command::Insert {
@@ -99,7 +111,7 @@ impl Operation {
     /// an id is provided and a document already exists with that id, a conflict
     /// error will be returned.
     pub fn insert_serialized<C: SerializedCollection>(
-        id: Option<u64>,
+        id: Option<DocumentId>,
         contents: &C::Contents,
     ) -> Result<Self, Error> {
         let contents = C::serialize(contents)?;
@@ -130,7 +142,11 @@ impl Operation {
     /// Overwrites a document in `collection`. If a document with `id` exists,
     /// it will be overwritten. If a document with `id` doesn't exist, it will
     /// be created.
-    pub fn overwrite(collection: CollectionName, id: u64, contents: impl Into<Bytes>) -> Self {
+    pub fn overwrite(
+        collection: CollectionName,
+        id: DocumentId,
+        contents: impl Into<Bytes>,
+    ) -> Self {
         Self {
             collection,
             command: Command::Overwrite {
@@ -144,7 +160,7 @@ impl Operation {
     /// in `collection`. If a document with `id` exists, it will be overwritten.
     /// If a document with `id` doesn't exist, it will be created.
     pub fn overwrite_serialized<C: SerializedCollection>(
-        id: u64,
+        id: DocumentId,
         contents: &C::Contents,
     ) -> Result<Self, Error> {
         let contents = C::serialize(contents)?;
@@ -168,7 +184,7 @@ pub enum Command {
         /// An optional id for the document. If this is `None`, a unique id will
         /// be generated. If this is `Some()` and a document already exists with
         /// that id, a conflict error will be returned.
-        id: Option<u64>,
+        id: Option<DocumentId>,
         /// The initial contents of the document.
         contents: Bytes,
     },
@@ -190,7 +206,7 @@ pub enum Command {
     /// exist, it will be created.
     Overwrite {
         /// The id of the document to overwrite.
-        id: u64,
+        id: DocumentId,
 
         /// The new contents to store within the `Document`.
         contents: Bytes,
@@ -226,7 +242,7 @@ pub enum OperationResult {
         collection: CollectionName,
 
         /// The id of the deleted `Document`.
-        id: u64,
+        id: DocumentId,
     },
 }
 
@@ -280,7 +296,7 @@ pub struct ChangedDocument {
     pub collection: CollectionName,
 
     /// The id of the changed `Document`.
-    pub id: u64,
+    pub id: DocumentId,
 
     /// If the `Document` has been deleted, this will be `true`.
     pub deleted: bool,

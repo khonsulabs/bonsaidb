@@ -8,7 +8,9 @@ use transmog_pot::Pot;
 
 use crate::{
     connection::{self, Connection, Range},
-    document::{BorrowedDocument, CollectionDocument, KeyId, OwnedDocument, OwnedDocuments},
+    document::{
+        BorrowedDocument, CollectionDocument, DocumentId, KeyId, OwnedDocument, OwnedDocuments,
+    },
     schema::{CollectionName, Schematic},
     Error,
 };
@@ -233,7 +235,7 @@ pub trait SerializedCollection: Collection {
     /// # }
     /// ```
     async fn get<C: Connection>(
-        id: u64,
+        id: DocumentId,
         connection: &C,
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
@@ -261,7 +263,7 @@ pub trait SerializedCollection: Collection {
     /// # }
     /// ```
     async fn get_multiple<C: Connection>(
-        ids: &[u64],
+        ids: &[DocumentId],
         connection: &C,
     ) -> Result<Vec<CollectionDocument<Self>>, Error>
     where
@@ -290,7 +292,10 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    fn list<R: Into<Range<u64>>, C: Connection>(ids: R, connection: &'_ C) -> List<'_, C, Self>
+    fn list<R: Into<Range<DocumentId>>, C: Connection>(
+        ids: R,
+        connection: &'_ C,
+    ) -> List<'_, C, Self>
     where
         Self: Sized,
     {
@@ -400,7 +405,7 @@ pub trait SerializedCollection: Collection {
     /// # }
     /// ```
     async fn insert<Cn: Connection>(
-        id: u64,
+        id: DocumentId,
         contents: Self::Contents,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
@@ -434,7 +439,7 @@ pub trait SerializedCollection: Collection {
     /// ```
     async fn insert_into<Cn: Connection>(
         self,
-        id: u64,
+        id: DocumentId,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
@@ -461,7 +466,7 @@ pub trait SerializedCollection: Collection {
     /// # }
     /// ```
     async fn overwrite<Cn: Connection>(
-        id: u64,
+        id: DocumentId,
         contents: Self::Contents,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
@@ -498,7 +503,7 @@ pub trait SerializedCollection: Collection {
     /// ```
     async fn overwrite_into<Cn: Connection>(
         self,
-        id: u64,
+        id: DocumentId,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
@@ -552,8 +557,8 @@ pub struct InsertError<T> {
 /// # }
 /// ```
 ///
-/// Load accepts either a string or a u64. This enables building methods that
-/// accept either the unique ID or the unique name:
+/// Load accepts either a string or a [`DocumentId`]. This enables building
+/// methods that accept either the unique ID or the unique name:
 ///
 /// ```rust
 /// # bonsaidb_core::__doctest_prelude!();
@@ -662,7 +667,7 @@ pub enum NamedReference<'a> {
     /// An entity's name.
     Name(Cow<'a, str>),
     /// A document id.
-    Id(u64),
+    Id(DocumentId),
 }
 
 impl<'a> From<&'a str> for NamedReference<'a> {
@@ -698,8 +703,8 @@ impl<'a> From<String> for NamedReference<'a> {
     }
 }
 
-impl<'a> From<u64> for NamedReference<'a> {
-    fn from(id: u64) -> Self {
+impl<'a> From<DocumentId> for NamedReference<'a> {
+    fn from(id: DocumentId) -> Self {
         Self::Id(id)
     }
 }
@@ -721,7 +726,7 @@ impl<'a> NamedReference<'a> {
     pub async fn id<Col: NamedCollection, Cn: Connection>(
         &self,
         connection: &Cn,
-    ) -> Result<Option<u64>, Error> {
+    ) -> Result<Option<DocumentId>, Error> {
         match self {
             Self::Name(name) => Ok(connection
                 .view::<Col::ByNameView>()

@@ -25,7 +25,7 @@ use bonsaidb_core::{
 #[cfg(feature = "multiuser")]
 use bonsaidb_core::{
     admin::{user::User, PermissionGroup, Role},
-    document::CollectionDocument,
+    document::{CollectionDocument, DocumentId},
     schema::{NamedCollection, NamedReference},
 };
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
@@ -517,7 +517,7 @@ impl Storage {
         Col: NamedCollection,
         U: Into<NamedReference<'user>> + Send + Sync,
         O: Into<NamedReference<'other>> + Send + Sync,
-        F: FnOnce(&mut CollectionDocument<User>, u64) -> bool,
+        F: FnOnce(&mut CollectionDocument<User>, DocumentId) -> bool,
     >(
         &self,
         user: U,
@@ -705,7 +705,7 @@ impl StorageConnection for Storage {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
     #[cfg(feature = "multiuser")]
-    async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
+    async fn create_user(&self, username: &str) -> Result<DocumentId, bonsaidb_core::Error> {
         let result = self
             .admin()
             .await

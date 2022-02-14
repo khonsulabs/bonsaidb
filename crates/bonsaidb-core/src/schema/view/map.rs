@@ -4,7 +4,7 @@ use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::{Header, OwnedDocument},
+    document::{DocumentId, Header, OwnedDocument},
     schema::view::{self, Key, SerializedView, View},
 };
 
@@ -159,7 +159,7 @@ pub struct MappedDocuments<D, V: View> {
     /// All associated documents by ID.
     ///
     /// Documents can appear in a mapping query multiple times. As a result, they are stored separately to avoid duplication.
-    pub documents: BTreeMap<u64, D>,
+    pub documents: BTreeMap<DocumentId, D>,
 }
 
 impl<D, V: View> MappedDocuments<D, V> {
@@ -268,7 +268,7 @@ pub struct MappedSerializedDocuments {
     /// The serialized mapped value.
     pub mappings: Vec<Serialized>,
     /// The source document.
-    pub documents: BTreeMap<u64, OwnedDocument>,
+    pub documents: BTreeMap<DocumentId, OwnedDocument>,
 }
 
 impl MappedSerializedDocuments {

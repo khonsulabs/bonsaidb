@@ -16,7 +16,7 @@ use transmog_pot::Pot;
 use crate::admin::{PermissionGroup, Role, User};
 use crate::{
     connection::{AccessPolicy, Connection, StorageConnection},
-    document::{BorrowedDocument, CollectionDocument, Document, KeyId},
+    document::{BorrowedDocument, CollectionDocument, Document, DocumentId, KeyId},
     keyvalue::KeyValue,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
@@ -37,7 +37,7 @@ use crate::{
 pub struct Basic {
     pub value: String,
     pub category: Option<String>,
-    pub parent_id: Option<u64>,
+    pub parent_id: Option<DocumentId>,
     pub tags: Vec<String>,
 }
 
@@ -62,7 +62,7 @@ impl Basic {
     }
 
     #[must_use]
-    pub const fn with_parent_id(mut self, parent_id: u64) -> Self {
+    pub const fn with_parent_id(mut self, parent_id: DocumentId) -> Self {
         self.parent_id = Some(parent_id);
         self
     }
@@ -89,7 +89,7 @@ impl ViewSchema for BasicCount {
 }
 
 #[derive(Debug, Clone, View)]
-#[view(collection = Basic, key = Option<u64>, value = usize, name = "by-parent-id", core = crate)]
+#[view(collection = Basic, key = Option<DocumentId>, value = usize, name = "by-parent-id", core = crate)]
 pub struct BasicByParentId;
 
 impl ViewSchema for BasicByParentId {
@@ -714,9 +714,11 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     let document_42 = db
         .insert::<Basic, _>(Some(doc.header.id), doc.contents.into_vec())
         .await?;
-    assert_eq!(document_42.id, 42);
-    let document_43 = Basic::new("43").insert_into(43, db).await?;
-    assert_eq!(document_43.header.id, 43);
+    assert_eq!(document_42.id, DocumentId::from_u64(42));
+    let document_43 = Basic::new("43")
+        .insert_into(DocumentId::from_u64(43), db)
+        .await?;
+    assert_eq!(document_43.header.id, DocumentId::from_u64(43));
 
     // Test that inserting a document with the same ID results in a conflict:
     let conflict_err = Basic::new("43")
@@ -736,7 +738,11 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
 }
 
 pub async fn not_found_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    assert!(db.collection::<Basic>().get(1).await?.is_none());
+    assert!(db
+        .collection::<Basic>()
+        .get(DocumentId::from_u64(1))
+        .await?
+        .is_none());
 
     assert!(db.last_transaction_id().await?.is_none());
 
@@ -794,7 +800,7 @@ pub async fn bad_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     match db.update::<Basic, _>(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
             assert_eq!(collection, Basic::collection_name());
-            assert_eq!(id, 1);
+            assert_eq!(id.as_ref(), &DocumentId::from_u64(1));
             Ok(())
         }
         other => panic!("expected DocumentNotFound from update but got: {:?}", other),
@@ -980,7 +986,7 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 
     let has_parent = db
         .view::<BasicByParentId>()
-        .with_key_range(Some(0)..=Some(u64::MAX))
+        .with_key_range(Some(DocumentId::from_u64(0))..=Some(DocumentId::from_u64(u64::MAX)))
         .query()
         .await?;
     assert_eq!(has_parent.len(), 3);
@@ -992,7 +998,7 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     // Test limiting and descending order
     let last_with_parent = db
         .view::<BasicByParentId>()
-        .with_key_range(Some(0)..=Some(u64::MAX))
+        .with_key_range(Some(DocumentId::from_u64(0))..=Some(DocumentId::from_u64(u64::MAX)))
         .descending()
         .limit(1)
         .query()

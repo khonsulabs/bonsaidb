@@ -20,6 +20,7 @@ use bonsaidb_core::{
     circulate::{Message, Relay, Subscriber},
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     custom_api::{CustomApi, CustomApiResult},
+    document::DocumentId,
     keyvalue::{KeyOperation, KeyValue},
     networking::{
         self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
@@ -954,7 +955,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         self.data.storage.list_available_schemas().await
     }
 
-    async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
+    async fn create_user(&self, username: &str) -> Result<DocumentId, bonsaidb_core::Error> {
         self.data.storage.create_user(username).await
     }
 
@@ -1423,7 +1424,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatche
     async fn resource_name<'a>(
         &'a self,
         collection: &'a CollectionName,
-        id: &'a u64,
+        id: &'a DocumentId,
     ) -> Result<ResourceName<'a>, Error> {
         Ok(document_resource_name(&self.name, collection, *id))
     }
@@ -1436,15 +1437,18 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatche
         &self,
         _permissions: &Permissions,
         collection: CollectionName,
-        id: u64,
+        id: DocumentId,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let document = self
             .database
             .internal_get_from_collection_id(id, &collection)
             .await?
-            .ok_or(Error::Core(bonsaidb_core::Error::DocumentNotFound(
-                collection, id,
-            )))?;
+            .ok_or_else(|| {
+                Error::Core(bonsaidb_core::Error::DocumentNotFound(
+                    collection,
+                    Box::new(id),
+                ))
+            })?;
         Ok(Response::Database(DatabaseResponse::Documents(vec![
             document,
         ])))
@@ -1457,7 +1461,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseD
         &self,
         permissions: &Permissions,
         collection: &CollectionName,
-        ids: &Vec<u64>,
+        ids: &Vec<DocumentId>,
     ) -> Result<(), Error> {
         for &id in ids {
             let document_name = document_resource_name(&self.name, collection, id);
@@ -1472,7 +1476,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseD
         &self,
         _permissions: &Permissions,
         collection: CollectionName,
-        ids: Vec<u64>,
+        ids: Vec<DocumentId>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let documents = self
             .database
@@ -1489,7 +1493,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
     async fn resource_name<'a>(
         &'a self,
         collection: &'a CollectionName,
-        _ids: &'a Range<u64>,
+        _ids: &'a Range<DocumentId>,
         _order: &'a Sort,
         _limit: &'a Option<usize>,
     ) -> Result<ResourceName<'a>, Error> {
@@ -1504,7 +1508,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
         &self,
         _permissions: &Permissions,
         collection: CollectionName,
-        ids: Range<u64>,
+        ids: Range<DocumentId>,
         order: Sort,
         limit: Option<usize>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {

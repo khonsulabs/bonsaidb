@@ -10,7 +10,7 @@ use zeroize::Zeroize;
 #[cfg(feature = "multiuser")]
 use crate::schema::NamedReference;
 use crate::{
-    document::{CollectionDocument, Document, Header, OwnedDocument},
+    document::{CollectionDocument, Document, DocumentId, Header, OwnedDocument},
     permissions::Permissions,
     schema::{
         self,
@@ -47,7 +47,7 @@ pub trait Connection: Send + Sync {
     /// - [`self.collection::<Collection>().push()`](Collection::push)
     async fn insert<C: schema::Collection, B: Into<Bytes> + Send>(
         &self,
-        id: Option<u64>,
+        id: Option<DocumentId>,
         contents: B,
     ) -> Result<Header, Error> {
         let contents = contents.into();
@@ -103,7 +103,7 @@ pub trait Connection: Send + Sync {
     /// - [`self.collection::<Collection>().overwrite()`](Collection::overwrite)
     async fn overwrite<'a, C: schema::Collection>(
         &self,
-        id: u64,
+        id: DocumentId,
         contents: Vec<u8>,
     ) -> Result<Header, Error> {
         let results = self
@@ -125,7 +125,10 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`SerializedCollection::get()`]
     /// - [`self.collection::<Collection>().get()`](Collection::get)
-    async fn get<C: schema::Collection>(&self, id: u64) -> Result<Option<OwnedDocument>, Error>;
+    async fn get<C: schema::Collection>(
+        &self,
+        id: DocumentId,
+    ) -> Result<Option<OwnedDocument>, Error>;
 
     /// Retrieves all documents matching `ids`. Documents that are not found
     /// are not returned, but no error will be generated.
@@ -137,7 +140,7 @@ pub trait Connection: Send + Sync {
     /// - [`self.collection::<Collection>().get_multiple()`](Collection::get_multiple)
     async fn get_multiple<C: schema::Collection>(
         &self,
-        ids: &[u64],
+        ids: &[DocumentId],
     ) -> Result<Vec<OwnedDocument>, Error>;
 
     /// Retrieves all documents within the range of `ids`. Documents that are
@@ -151,7 +154,7 @@ pub trait Connection: Send + Sync {
     /// - [`self.collection::<Collection>().all()`](Collection::all)
     /// - [`SerializedCollection::list()`]
     /// - [`self.collection::<Collection>().list()`](Collection::list)
-    async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
+    async fn list<C: schema::Collection, R: Into<Range<DocumentId>> + Send>(
         &self,
         ids: R,
         order: Sort,
@@ -481,7 +484,7 @@ where
     /// ```
     pub async fn insert(
         &self,
-        id: u64,
+        id: DocumentId,
         item: &<Cl as SerializedCollection>::Contents,
     ) -> Result<Header, crate::Error>
     where
@@ -511,7 +514,7 @@ where
     /// ```
     pub async fn insert_bytes<B: Into<Bytes> + Send>(
         &self,
-        id: u64,
+        id: DocumentId,
         contents: B,
     ) -> Result<Header, crate::Error>
     where
@@ -589,7 +592,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn get(&self, id: u64) -> Result<Option<OwnedDocument>, Error> {
+    pub async fn get(&self, id: DocumentId) -> Result<Option<OwnedDocument>, Error> {
         self.connection.get::<Cl>(id).await
     }
 
@@ -613,7 +616,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn get_multiple(&self, ids: &[u64]) -> Result<Vec<OwnedDocument>, Error> {
+    pub async fn get_multiple(&self, ids: &[DocumentId]) -> Result<Vec<OwnedDocument>, Error> {
         self.connection.get_multiple::<Cl>(ids).await
     }
 
@@ -638,7 +641,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn list<R: Into<Range<u64>>>(&'a self, ids: R) -> List<'a, Cn, Cl> {
+    pub fn list<R: Into<Range<DocumentId>>>(&'a self, ids: R) -> List<'a, Cn, Cl> {
         List::new(PossiblyOwned::Borrowed(self), ids.into())
     }
 
@@ -681,7 +684,7 @@ where
 
 pub(crate) struct ListBuilder<'a, Cn, Cl> {
     collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-    range: Range<u64>,
+    range: Range<DocumentId>,
     sort: Sort,
     limit: Option<usize>,
 }
@@ -717,7 +720,7 @@ pub struct List<'a, Cn, Cl> {
 impl<'a, Cn, Cl> List<'a, Cn, Cl> {
     pub(crate) const fn new(
         collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-        range: Range<u64>,
+        range: Range<DocumentId>,
     ) -> Self {
         Self {
             state: ListState::Pending(Some(ListBuilder {
@@ -1515,7 +1518,7 @@ pub trait StorageConnection: Send + Sync {
 
     /// Creates a user.
     #[cfg(feature = "multiuser")]
-    async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
+    async fn create_user(&self, username: &str) -> Result<DocumentId, crate::Error>;
 
     /// Sets a user's password.
     #[cfg(feature = "password-hashing")]
@@ -1631,7 +1634,7 @@ pub enum Authentication {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Authenticated {
     /// The user id logged in as.
-    pub user_id: u64,
+    pub user_id: DocumentId,
     /// The effective permissions granted.
     pub permissions: Permissions,
 }

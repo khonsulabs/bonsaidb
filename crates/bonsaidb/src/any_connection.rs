@@ -4,7 +4,7 @@ use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     async_trait::async_trait,
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::OwnedDocument,
+    document::{DocumentId, OwnedDocument},
     schema::{
         view::map::MappedDocuments, Collection, Map, MappedValue, NamedReference, Schema,
         SchemaName, SerializedView,
@@ -79,7 +79,7 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
         }
     }
 
-    async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
+    async fn create_user(&self, username: &str) -> Result<DocumentId, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.create_user(username).await,
             Self::Networked(client) => client.create_user(username).await,
@@ -204,7 +204,7 @@ pub enum AnyDatabase<B: Backend = NoBackend> {
 impl<B: Backend> Connection for AnyDatabase<B> {
     async fn get<C: Collection>(
         &self,
-        id: u64,
+        id: DocumentId,
     ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.get::<C>(id).await,
@@ -214,7 +214,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
 
     async fn get_multiple<C: Collection>(
         &self,
-        ids: &[u64],
+        ids: &[DocumentId],
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.get_multiple::<C>(ids).await,
@@ -222,7 +222,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         }
     }
 
-    async fn list<C: Collection, R: Into<Range<u64>> + Send>(
+    async fn list<C: Collection, R: Into<Range<DocumentId>> + Send>(
         &self,
         ids: R,
         order: Sort,

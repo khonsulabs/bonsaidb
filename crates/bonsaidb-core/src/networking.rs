@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     connection::{AccessPolicy, Authenticated, Database, QueryKey, Range, Sort},
-    document::OwnedDocument,
+    document::{DocumentId, OwnedDocument},
     keyvalue::{KeyOperation, Output},
     schema::{
         self,
@@ -140,7 +140,7 @@ pub enum DatabaseRequest {
         /// The collection of the document.
         collection: CollectionName,
         /// The id of the document.
-        id: u64,
+        id: DocumentId,
     },
     /// Retrieve multiple documents.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
@@ -148,7 +148,7 @@ pub enum DatabaseRequest {
         /// The collection of the documents.
         collection: CollectionName,
         /// The ids of the documents.
-        ids: Vec<u64>,
+        ids: Vec<DocumentId>,
     },
     /// Retrieve multiple documents.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
@@ -156,7 +156,7 @@ pub enum DatabaseRequest {
         /// The collection of the documents.
         collection: CollectionName,
         /// The range of ids to list.
-        ids: Range<u64>,
+        ids: Range<DocumentId>,
         /// The order for the query into the collection.
         order: Sort,
         /// The maximum number of results to return.
@@ -316,7 +316,7 @@ pub enum ServerResponse {
     /// A user was created.
     UserCreated {
         /// The id of the user created.
-        id: u64,
+        id: DocumentId,
     },
     /// Successfully authenticated.
     Authenticated(Authenticated),

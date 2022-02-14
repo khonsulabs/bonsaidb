@@ -9,10 +9,10 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::{serde::Bytes, ArcBytes},
     connection::Connection,
-    document::Header,
+    document::{DocumentId, Header},
     schema::{
         view::{self, map, Serialized},
-        CollectionName, Key, ViewName,
+        CollectionName, ViewName,
     },
 };
 use nebari::{
@@ -291,8 +291,8 @@ impl<'a> DocumentRequest<'a> {
                 if existing_entry.mappings[0].source.id != source.id {
                     return Err(Error::Core(bonsaidb_core::Error::UniqueKeyViolation {
                         view: self.map_request.view_name.clone(),
-                        conflicting_document: source,
-                        existing_document: existing_entry.mappings[0].source,
+                        conflicting_document: Box::new(source),
+                        existing_document: Box::new(existing_entry.mappings[0].source),
                     }));
                 }
             }
@@ -389,7 +389,7 @@ impl<'a> DocumentRequest<'a> {
         let mut has_reduce = true;
         for key_to_remove_from in existing_keys.difference(keys) {
             if let Some(mut entry_collection) = self.load_entry_for_key(key_to_remove_from)? {
-                let document_id = u64::from_big_endian_bytes(self.document_id).unwrap();
+                let document_id = DocumentId::try_from(self.document_id).unwrap();
                 entry_collection
                     .mappings
                     .retain(|m| m.source.id != document_id);

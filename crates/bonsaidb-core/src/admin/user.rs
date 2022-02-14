@@ -4,7 +4,7 @@ use crate::{
     admin::{group, role},
     connection::{Connection, SensitiveString},
     define_basic_unique_mapped_view,
-    document::{CollectionDocument, Document, KeyId},
+    document::{CollectionDocument, Document, DocumentId, KeyId},
     permissions::Permissions,
     schema::{Collection, NamedCollection},
 };
@@ -17,9 +17,9 @@ pub struct User {
     /// The name of the role. Must be unique.
     pub username: String,
     /// The IDs of the user groups this user belongs to.
-    pub groups: Vec<u64>,
+    pub groups: Vec<DocumentId>,
     /// The IDs of the roles this user has been assigned.
-    pub roles: Vec<u64>,
+    pub roles: Vec<DocumentId>,
 
     /// The user's stored password hash.
     ///
@@ -53,11 +53,11 @@ impl User {
             let role_groups = roles
                 .into_iter()
                 .map(|doc| doc.contents::<role::Role>().map(|role| role.groups))
-                .collect::<Result<Vec<Vec<u64>>, _>>()?;
+                .collect::<Result<Vec<Vec<DocumentId>>, _>>()?;
             role_groups
                 .into_iter()
                 .flat_map(Vec::into_iter)
-                .collect::<Vec<u64>>()
+                .collect::<Vec<DocumentId>>()
         };
         // Retrieve all of the groups.
         let groups = if role_groups.is_empty() {
