@@ -349,7 +349,7 @@ macro_rules! define_mapped_view {
                 &self,
                 document: $crate::document::CollectionDocument<$collection>,
             ) -> $crate::schema::ViewMapResult<Self::View> {
-                Ok($mapping(document))
+                $mapping(document)
             }
         }
 

@@ -1,6 +1,6 @@
 use bonsaidb_core::{
     define_basic_mapped_view, define_basic_unique_mapped_view,
-    document::{CollectionDocument, KeyId},
+    document::{CollectionDocument, Emit, KeyId},
     schema::{Collection, NamedCollection, Schema},
 };
 use fabruic::{CertificateChain, PrivateKey};
@@ -11,7 +11,7 @@ use serde::{de::Visitor, Deserialize, Serialize};
 #[cfg_attr(feature = "acme", schema(collections = [crate::server::acme::AcmeAccount]))]
 pub struct Hosted;
 
-#[derive(Debug, Serialize, Deserialize, Collection)]
+#[derive(Clone, Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "tls-certificates", authority = "khonsulabs", views = [TlsCertificatesByDomain, TlsCertificateByAllDomains])]
 #[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = bonsaidb_core)]
 pub struct TlsCertificate {
@@ -58,7 +58,7 @@ define_basic_mapped_view!(
     }
 );
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SerializablePrivateKey(pub PrivateKey);
 
 impl Serialize for SerializablePrivateKey {

@@ -19,12 +19,11 @@ use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     connection::{Database, StorageConnection},
     custom_api::{CustomApi, CustomApiResult},
-    document::DocumentId,
     networking::{
         self, Payload, Request, Response, ServerRequest, ServerResponse, CURRENT_PROTOCOL_VERSION,
     },
     permissions::Permissions,
-    schema::{NamedReference, Schema, SchemaName, Schematic},
+    schema::{Nameable, Schema, SchemaName, Schematic},
 };
 use bonsaidb_utils::fast_async_lock;
 use derive_where::derive_where;
@@ -595,7 +594,7 @@ impl<A: CustomApi> StorageConnection for Client<A> {
         }
     }
 
-    async fn create_user(&self, username: &str) -> Result<DocumentId, bonsaidb_core::Error> {
+    async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::CreateUser {
                 username: username.to_string(),
@@ -611,14 +610,14 @@ impl<A: CustomApi> StorageConnection for Client<A> {
     }
 
     #[cfg(feature = "password-hashing")]
-    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<(), bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::SetUserPassword {
-                user: user.into().into_owned(),
+                user: user.name()?.into_owned(),
                 password,
             }))
             .await?
@@ -632,14 +631,14 @@ impl<A: CustomApi> StorageConnection for Client<A> {
     }
 
     #[cfg(feature = "password-hashing")]
-    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         authentication: Authentication,
     ) -> Result<Authenticated, bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::Authenticate {
-                user: user.into().into_owned(),
+                user: user.name()?.into_owned(),
                 authentication,
             }))
             .await?
@@ -655,8 +654,8 @@ impl<A: CustomApi> StorageConnection for Client<A> {
     async fn add_permission_group_to_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -665,8 +664,8 @@ impl<A: CustomApi> StorageConnection for Client<A> {
         match self
             .send_request(Request::Server(
                 ServerRequest::AlterUserPermissionGroupMembership {
-                    user: user.into().into_owned(),
-                    group: permission_group.into().into_owned(),
+                    user: user.name()?.into_owned(),
+                    group: permission_group.name()?.into_owned(),
                     should_be_member: true,
                 },
             ))
@@ -683,8 +682,8 @@ impl<A: CustomApi> StorageConnection for Client<A> {
     async fn remove_permission_group_from_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -693,8 +692,8 @@ impl<A: CustomApi> StorageConnection for Client<A> {
         match self
             .send_request(Request::Server(
                 ServerRequest::AlterUserPermissionGroupMembership {
-                    user: user.into().into_owned(),
-                    group: permission_group.into().into_owned(),
+                    user: user.name()?.into_owned(),
+                    group: permission_group.name()?.into_owned(),
                     should_be_member: false,
                 },
             ))
@@ -711,8 +710,8 @@ impl<A: CustomApi> StorageConnection for Client<A> {
     async fn add_role_to_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -720,8 +719,8 @@ impl<A: CustomApi> StorageConnection for Client<A> {
     ) -> Result<(), bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::AlterUserRoleMembership {
-                user: user.into().into_owned(),
-                role: role.into().into_owned(),
+                user: user.name()?.into_owned(),
+                role: role.name()?.into_owned(),
                 should_be_member: true,
             }))
             .await?
@@ -737,8 +736,8 @@ impl<A: CustomApi> StorageConnection for Client<A> {
     async fn remove_role_from_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -746,8 +745,8 @@ impl<A: CustomApi> StorageConnection for Client<A> {
     ) -> Result<(), bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::AlterUserRoleMembership {
-                user: user.into().into_owned(),
-                role: role.into().into_owned(),
+                user: user.name()?.into_owned(),
+                role: role.name()?.into_owned(),
                 should_be_member: false,
             }))
             .await?

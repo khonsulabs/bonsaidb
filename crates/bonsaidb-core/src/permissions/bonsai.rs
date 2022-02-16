@@ -89,11 +89,8 @@ pub fn encryption_key_resource_name(key_id: &KeyId) -> ResourceName<'_> {
 
 /// Creates a resource name for `user_id`.
 #[must_use]
-pub fn user_resource_name<'a>(user_id: DocumentId) -> ResourceName<'a> {
-    // TODO this should be able to borrow the DocumentId
-    bonsaidb_resource_name()
-        .and("user")
-        .and(user_id.to_string())
+pub fn user_resource_name<'a>(user_id: u64) -> ResourceName<'a> {
+    bonsaidb_resource_name().and("user").and(user_id)
 }
 
 /// Actions that can be permitted within BonsaiDb.

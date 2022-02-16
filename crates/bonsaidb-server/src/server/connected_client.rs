@@ -6,7 +6,7 @@ use std::{
 };
 
 use async_lock::{Mutex, MutexGuard, RwLock};
-use bonsaidb_core::{custom_api::CustomApiResult, document::DocumentId, permissions::Permissions};
+use bonsaidb_core::{custom_api::CustomApiResult, permissions::Permissions};
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::derive_where;
 use flume::Sender;
@@ -43,7 +43,7 @@ struct Data<B: Backend = NoBackend> {
 
 #[derive(Debug, Default)]
 struct AuthenticationState {
-    user_id: Option<DocumentId>,
+    user_id: Option<u64>,
     permissions: Permissions,
 }
 
@@ -69,12 +69,12 @@ impl<B: Backend> ConnectedClient<B> {
 
     /// Returns the unique id of the user this client is connected as. Returns
     /// None if the connection isn't authenticated.
-    pub async fn user_id(&self) -> Option<DocumentId> {
+    pub async fn user_id(&self) -> Option<u64> {
         let auth_state = fast_async_read!(self.data.auth_state);
         auth_state.user_id
     }
 
-    pub(crate) async fn logged_in_as(&self, user_id: DocumentId, new_permissions: Permissions) {
+    pub(crate) async fn logged_in_as(&self, user_id: u64, new_permissions: Permissions) {
         let mut auth_state = fast_async_write!(self.data.auth_state);
         auth_state.user_id = Some(user_id);
         auth_state.permissions = new_permissions;

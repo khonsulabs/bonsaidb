@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     define_basic_unique_mapped_view,
-    document::CollectionDocument,
+    document::{CollectionDocument, Emit},
     schema::{Collection, NamedCollection, SchemaName},
 };
 

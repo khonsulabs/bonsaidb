@@ -2,18 +2,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     define_basic_unique_mapped_view,
-    document::{CollectionDocument, DocumentId},
+    document::{CollectionDocument, Emit},
     schema::{Collection, NamedCollection},
 };
 
 /// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::admin::PermissionGroup)s.
-#[derive(Debug, Serialize, Deserialize, Collection)]
+#[derive(Clone, Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "role", authority="khonsulabs", views = [ByName], core = crate)]
 pub struct Role {
     /// The name of the role. Must be unique.
     pub name: String,
     /// The IDs of the permission groups this role belongs to.
-    pub groups: Vec<DocumentId>,
+    pub groups: Vec<u64>,
 }
 
 impl Role {
@@ -26,7 +26,7 @@ impl Role {
     }
 
     /// Builder-style method. Returns self after replacing the current groups with `ids`.
-    pub fn with_group_ids<I: IntoIterator<Item = DocumentId>>(mut self, ids: I) -> Self {
+    pub fn with_group_ids<I: IntoIterator<Item = u64>>(mut self, ids: I) -> Self {
         self.groups = ids.into_iter().collect();
         self
     }

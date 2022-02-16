@@ -8,9 +8,11 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 #[cfg(feature = "multiuser")]
-use crate::schema::NamedReference;
+use crate::schema::Nameable;
 use crate::{
-    document::{CollectionDocument, Document, DocumentId, Header, OwnedDocument},
+    document::{
+        CollectionDocument, CollectionHeader, Document, DocumentKey, HasHeader, OwnedDocument,
+    },
     permissions::Permissions,
     schema::{
         self,
@@ -45,17 +47,25 @@ pub trait Connection: Send + Sync {
     /// - [`SerializedCollection::insert_into()`]
     /// - [`self.collection::<Collection>().insert()`](Collection::insert)
     /// - [`self.collection::<Collection>().push()`](Collection::push)
-    async fn insert<C: schema::Collection, B: Into<Bytes> + Send>(
+    async fn insert<
+        C: schema::Collection,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+        B: Into<Bytes> + Send,
+    >(
         &self,
-        id: Option<DocumentId>,
+        id: Option<PK>,
         contents: B,
-    ) -> Result<Header, Error> {
+    ) -> Result<CollectionHeader<C::PrimaryKey>, Error> {
         let contents = contents.into();
         let results = self
-            .apply_transaction(Transaction::insert(C::collection_name(), id, contents))
+            .apply_transaction(Transaction::insert(
+                C::collection_name(),
+                id.map(|id| id.into().to_document_id()).transpose()?,
+                contents,
+            ))
             .await?;
-        if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
-            Ok(*header)
+        if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
+            CollectionHeader::try_from(header)
         } else {
             unreachable!(
                 "apply_transaction on a single insert should yield a single DocumentUpdated entry"
@@ -72,19 +82,19 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`CollectionDocument::update()`]
     /// - [`self.collection::<Collection>().update()`](Collection::update)
-    async fn update<'a, C: schema::Collection, D: Document<'a> + Send + Sync>(
+    async fn update<C: schema::Collection, D: Document<C> + Send + Sync>(
         &self,
         doc: &mut D,
     ) -> Result<(), Error> {
         let results = self
             .apply_transaction(Transaction::update(
                 C::collection_name(),
-                *<D as AsRef<Header>>::as_ref(doc),
-                <D as AsRef<[u8]>>::as_ref(doc).to_vec(),
+                doc.header().into_header()?,
+                doc.bytes()?,
             ))
             .await?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            *<D as AsMut<Header>>::as_mut(doc) = header;
+            doc.set_header(header)?;
             Ok(())
         } else {
             unreachable!(
@@ -101,16 +111,24 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`CollectionDocument::overwrite()`]
     /// - [`self.collection::<Collection>().overwrite()`](Collection::overwrite)
-    async fn overwrite<'a, C: schema::Collection>(
+    async fn overwrite<'a, C, PK>(
         &self,
-        id: DocumentId,
+        id: PK,
         contents: Vec<u8>,
-    ) -> Result<Header, Error> {
+    ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
+    where
+        C: schema::Collection,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+    {
         let results = self
-            .apply_transaction(Transaction::overwrite(C::collection_name(), id, contents))
+            .apply_transaction(Transaction::overwrite(
+                C::collection_name(),
+                id.into().to_document_id()?,
+                contents,
+            ))
             .await?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            Ok(header)
+            CollectionHeader::try_from(header)
         } else {
             unreachable!(
                 "apply_transaction on a single update should yield a single DocumentUpdated entry"
@@ -125,10 +143,10 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`SerializedCollection::get()`]
     /// - [`self.collection::<Collection>().get()`](Collection::get)
-    async fn get<C: schema::Collection>(
-        &self,
-        id: DocumentId,
-    ) -> Result<Option<OwnedDocument>, Error>;
+    async fn get<C, PK>(&self, id: PK) -> Result<Option<OwnedDocument>, Error>
+    where
+        C: schema::Collection,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send;
 
     /// Retrieves all documents matching `ids`. Documents that are not found
     /// are not returned, but no error will be generated.
@@ -138,10 +156,15 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`SerializedCollection::get_multiple()`]
     /// - [`self.collection::<Collection>().get_multiple()`](Collection::get_multiple)
-    async fn get_multiple<C: schema::Collection>(
+    async fn get_multiple<C, PK, DocumentIds, I>(
         &self,
-        ids: &[DocumentId],
-    ) -> Result<Vec<OwnedDocument>, Error>;
+        ids: DocumentIds,
+    ) -> Result<Vec<OwnedDocument>, Error>
+    where
+        C: schema::Collection,
+        DocumentIds: IntoIterator<Item = PK, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PK> + Send + Sync,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send + Sync;
 
     /// Retrieves all documents within the range of `ids`. Documents that are
     /// not found are not returned, but no error will be generated. To retrieve
@@ -154,12 +177,16 @@ pub trait Connection: Send + Sync {
     /// - [`self.collection::<Collection>().all()`](Collection::all)
     /// - [`SerializedCollection::list()`]
     /// - [`self.collection::<Collection>().list()`](Collection::list)
-    async fn list<C: schema::Collection, R: Into<Range<DocumentId>> + Send>(
+    async fn list<C, R, PK>(
         &self,
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<OwnedDocument>, Error>;
+    ) -> Result<Vec<OwnedDocument>, Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PK>> + Send,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send;
 
     /// Removes a `Document` from the database.
     ///
@@ -168,12 +195,12 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`CollectionDocument::delete()`]
     /// - [`self.collection::<Collection>().delete()`](Collection::delete)
-    async fn delete<C: schema::Collection, H: AsRef<Header> + Send + Sync>(
+    async fn delete<C: schema::Collection, H: HasHeader + Send + Sync>(
         &self,
         doc: &H,
     ) -> Result<(), Error> {
         let results = self
-            .apply_transaction(Transaction::delete(C::collection_name(), *doc.as_ref()))
+            .apply_transaction(Transaction::delete(C::collection_name(), doc.header()?))
             .await?;
         if let OperationResult::DocumentDeleted { .. } = &results[0] {
             Ok(())
@@ -431,7 +458,7 @@ where
     pub async fn push(
         &self,
         item: &<Cl as SerializedCollection>::Contents,
-    ) -> Result<Header, crate::Error>
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
     {
@@ -457,11 +484,13 @@ where
     pub async fn push_bytes<B: Into<Bytes> + Send>(
         &self,
         contents: B,
-    ) -> Result<Header, crate::Error>
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
     {
-        self.connection.insert::<Cl, B>(None, contents).await
+        self.connection
+            .insert::<Cl, _, B>(Option::<Cl::PrimaryKey>::None, contents)
+            .await
     }
 
     /// Adds a new `Document<Cl>` with the given `id` and contents `item`.
@@ -482,16 +511,17 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn insert(
+    pub async fn insert<PK>(
         &self,
-        id: DocumentId,
+        id: PK,
         item: &<Cl as SerializedCollection>::Contents,
-    ) -> Result<Header, crate::Error>
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
+        PK: Into<DocumentKey<Cl::PrimaryKey>> + Send + Sync,
     {
         let contents = Cl::serialize(item)?;
-        self.connection.insert::<Cl, _>(Some(id), contents).await
+        self.connection.insert::<Cl, _, _>(Some(id), contents).await
     }
 
     /// Adds a new `Document<Cl>` with the the given `id` and `contents`.
@@ -514,13 +544,13 @@ where
     /// ```
     pub async fn insert_bytes<B: Into<Bytes> + Send>(
         &self,
-        id: DocumentId,
+        id: Cl::PrimaryKey, // TODO
         contents: B,
-    ) -> Result<Header, crate::Error>
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
     {
-        self.connection.insert::<Cl, B>(Some(id), contents).await
+        self.connection.insert::<Cl, _, B>(Some(id), contents).await
     }
 
     /// Updates an existing document. Upon success, `doc.revision` will be
@@ -539,10 +569,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn update<'d, D: Document<'d> + Send + Sync>(
-        &self,
-        doc: &mut D,
-    ) -> Result<(), Error> {
+    pub async fn update<D: Document<Cl> + Send + Sync>(&self, doc: &mut D) -> Result<(), Error> {
         self.connection.update::<Cl, D>(doc).await
     }
 
@@ -562,16 +589,13 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn overwrite<'d, D: Document<'d> + Send + Sync>(
-        &self,
-        doc: &mut D,
-    ) -> Result<(), Error> {
-        let contents = <D as AsRef<[u8]>>::as_ref(doc).to_vec();
-        *<D as AsMut<Header>>::as_mut(doc) = self
-            .connection
-            .overwrite::<Cl>(<D as AsRef<Header>>::as_ref(doc).id, contents)
-            .await?;
-        Ok(())
+    pub async fn overwrite<D: Document<Cl> + Send + Sync>(&self, doc: &mut D) -> Result<(), Error> {
+        let contents = doc.bytes()?;
+        doc.set_collection_header(
+            self.connection
+                .overwrite::<Cl, _>(doc.key(), contents)
+                .await?,
+        )
     }
 
     /// Retrieves a `Document<Cl>` with `id` from the connection.
@@ -592,8 +616,11 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn get(&self, id: DocumentId) -> Result<Option<OwnedDocument>, Error> {
-        self.connection.get::<Cl>(id).await
+    pub async fn get<PK>(&self, id: PK) -> Result<Option<OwnedDocument>, Error>
+    where
+        PK: Into<DocumentKey<Cl::PrimaryKey>> + Send,
+    {
+        self.connection.get::<Cl, _>(id).await
     }
 
     /// Retrieves all documents matching `ids`. Documents that are not found
@@ -616,8 +643,16 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn get_multiple(&self, ids: &[DocumentId]) -> Result<Vec<OwnedDocument>, Error> {
-        self.connection.get_multiple::<Cl>(ids).await
+    pub async fn get_multiple<DocumentIds, PK, I>(
+        &self,
+        ids: DocumentIds,
+    ) -> Result<Vec<OwnedDocument>, Error>
+    where
+        DocumentIds: IntoIterator<Item = PK, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PK> + Send + Sync,
+        PK: Into<DocumentKey<Cl::PrimaryKey>> + Send + Sync,
+    {
+        self.connection.get_multiple::<Cl, _, _, _>(ids).await
     }
 
     /// Retrieves all documents matching the range of `ids`.
@@ -641,8 +676,12 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn list<R: Into<Range<DocumentId>>>(&'a self, ids: R) -> List<'a, Cn, Cl> {
-        List::new(PossiblyOwned::Borrowed(self), ids.into())
+    pub fn list<PK, R>(&'a self, ids: R) -> List<'a, Cn, Cl>
+    where
+        R: Into<Range<PK>>,
+        PK: Into<DocumentKey<Cl::PrimaryKey>>,
+    {
+        List::new(PossiblyOwned::Borrowed(self), ids.into().map(PK::into))
     }
 
     /// Retrieves all documents.
@@ -677,14 +716,17 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn delete<H: AsRef<Header> + Send + Sync>(&self, doc: &H) -> Result<(), Error> {
+    pub async fn delete<H: HasHeader + Send + Sync>(&self, doc: &H) -> Result<(), Error> {
         self.connection.delete::<Cl, H>(doc).await
     }
 }
 
-pub(crate) struct ListBuilder<'a, Cn, Cl> {
+pub(crate) struct ListBuilder<'a, Cn, Cl>
+where
+    Cl: schema::Collection,
+{
     collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-    range: Range<DocumentId>,
+    range: Range<DocumentKey<Cl::PrimaryKey>>,
     sort: Sort,
     limit: Option<usize>,
 }
@@ -705,7 +747,10 @@ impl<'a, Cl> Deref for PossiblyOwned<'a, Cl> {
     }
 }
 
-pub(crate) enum ListState<'a, Cn, Cl> {
+pub(crate) enum ListState<'a, Cn, Cl>
+where
+    Cl: schema::Collection,
+{
     Pending(Option<ListBuilder<'a, Cn, Cl>>),
     Executing(BoxFuture<'a, Result<Vec<OwnedDocument>, Error>>),
 }
@@ -713,14 +758,20 @@ pub(crate) enum ListState<'a, Cn, Cl> {
 /// Executes [`Connection::list()`] when awaited. Also offers methods to
 /// customize the options for the operation.
 #[must_use]
-pub struct List<'a, Cn, Cl> {
+pub struct List<'a, Cn, Cl>
+where
+    Cl: schema::Collection,
+{
     state: ListState<'a, Cn, Cl>,
 }
 
-impl<'a, Cn, Cl> List<'a, Cn, Cl> {
-    pub(crate) const fn new(
+impl<'a, Cn, Cl> List<'a, Cn, Cl>
+where
+    Cl: schema::Collection,
+{
+    pub(crate) fn new(
         collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-        range: Range<DocumentId>,
+        range: Range<DocumentKey<Cl::PrimaryKey>>,
     ) -> Self {
         Self {
             state: ListState::Pending(Some(ListBuilder {
@@ -763,6 +814,7 @@ impl<'a, Cn, Cl> Future for List<'a, Cn, Cl>
 where
     Cn: Connection,
     Cl: schema::Collection + Unpin,
+    Cl::PrimaryKey: Unpin,
 {
     type Output = Result<Vec<OwnedDocument>, Error>;
 
@@ -783,7 +835,7 @@ where
                 let future = async move {
                     collection
                         .connection
-                        .list::<Cl, _>(range, sort, limit)
+                        .list::<Cl, _, _>(range, sort, limit)
                         .await
                 }
                 .boxed();
@@ -1276,6 +1328,14 @@ impl<T> Range<T> {
             end: self.end.map(&map),
         }
     }
+    /// Maps each contained value with the function provided. The callback's
+    /// return type is a Result, unlike with `map`.
+    pub fn map_result<U, E, F: Fn(T) -> Result<U, E>>(self, map: F) -> Result<Range<U>, E> {
+        Ok(Range {
+            start: self.start.map_result(&map)?,
+            end: self.end.map_result(&map)?,
+        })
+    }
 
     /// Maps each contained value as a reference.
     pub fn map_ref<U: ?Sized, F: Fn(&T) -> &U>(&self, map: F) -> Range<&U> {
@@ -1317,6 +1377,13 @@ impl<T> Bound<T> {
             Bound::Included(value) => Bound::Included(map(value)),
             Bound::Excluded(value) => Bound::Excluded(map(value)),
         }
+    }
+    pub fn map_result<U, E, F: Fn(T) -> Result<U, E>>(self, map: F) -> Result<Bound<U>, E> {
+        Ok(match self {
+            Bound::Unbounded => Bound::Unbounded,
+            Bound::Included(value) => Bound::Included(map(value)?),
+            Bound::Excluded(value) => Bound::Excluded(map(value)?),
+        })
     }
 
     /// Maps each contained value as a reference.
@@ -1518,11 +1585,11 @@ pub trait StorageConnection: Send + Sync {
 
     /// Creates a user.
     #[cfg(feature = "multiuser")]
-    async fn create_user(&self, username: &str) -> Result<DocumentId, crate::Error>;
+    async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
 
     /// Sets a user's password.
     #[cfg(feature = "password-hashing")]
-    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         password: SensitiveString,
@@ -1530,7 +1597,7 @@ pub trait StorageConnection: Send + Sync {
 
     /// Authenticates as a user with a authentication method.
     #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
-    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         authentication: Authentication,
@@ -1541,8 +1608,8 @@ pub trait StorageConnection: Send + Sync {
     async fn add_permission_group_to_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -1554,8 +1621,8 @@ pub trait StorageConnection: Send + Sync {
     async fn remove_permission_group_from_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -1567,8 +1634,8 @@ pub trait StorageConnection: Send + Sync {
     async fn add_role_to_user<
         'user,
         'role,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        R: Into<NamedReference<'role>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        R: Nameable<'role, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -1580,8 +1647,8 @@ pub trait StorageConnection: Send + Sync {
     async fn remove_role_from_user<
         'user,
         'role,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        R: Into<NamedReference<'role>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        R: Nameable<'role, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -1634,7 +1701,7 @@ pub enum Authentication {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Authenticated {
     /// The user id logged in as.
-    pub user_id: DocumentId,
+    pub user_id: u64,
     /// The effective permissions granted.
     pub permissions: Permissions,
 }

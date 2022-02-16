@@ -17,7 +17,7 @@ use bonsaidb_core::{
         ArcBytes,
     },
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{BorrowedDocument, Document, DocumentId, Header, OwnedDocument, Revision},
+    document::{BorrowedDocument, DocumentId, DocumentKey, Header, OwnedDocument, Revision},
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
@@ -467,13 +467,7 @@ impl Database {
                     document_tree_name(&collection),
                 )?)
                 .map_err(Error::from)?;
-            if let Some(vec) = tree
-                .get(
-                    &id.as_big_endian_bytes()
-                        .map_err(view::Error::key_serialization)?,
-                )
-                .map_err(Error::from)?
-            {
+            if let Some(vec) = tree.get(id.as_ref()).map_err(Error::from)? {
                 Ok(Some(deserialize_document(&vec)?.into_owned()))
             } else {
                 Ok(None)
@@ -726,10 +720,7 @@ impl Database {
                                         [&view_invalidated_docs_tree_name(&view_name)],
                                 )
                                 .unwrap();
-                            invalidated_docs.set(
-                                changed_document.id.as_big_endian_bytes().unwrap().to_vec(),
-                                b"",
-                            )?;
+                            invalidated_docs.set(changed_document.id.as_ref().to_vec(), b"")?;
                         }
                     }
                 }
@@ -784,7 +775,7 @@ impl Database {
         let documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
-        let document_id = ArcBytes::from(id.as_big_endian_bytes().unwrap());
+        let document_id = ArcBytes::from(id.as_ref());
         let mut result = None;
         let mut updated = false;
         documents.modify(
@@ -841,9 +832,8 @@ impl Database {
                         ))));
                     }
                 } else if check_revision.is_none() {
-                    match BorrowedDocument::new(id, contents)
-                        .and_then(|doc| serialize_document(&doc).map(|bytes| (doc, bytes)))
-                    {
+                    let doc = BorrowedDocument::new(id, contents);
+                    match serialize_document(&doc).map(|bytes| (doc, bytes)) {
                         Ok((doc, serialized)) => {
                             result = Some(Ok(OperationResult::DocumentUpdated {
                                 collection: operation.collection.clone(),
@@ -891,9 +881,9 @@ impl Database {
             DocumentId::from_u64(0)
         };
 
-        let doc = BorrowedDocument::new(id, contents)?;
+        let doc = BorrowedDocument::new(id, contents);
         let serialized: Vec<u8> = serialize_document(&doc)?;
-        let document_id = ArcBytes::from(doc.header.id.as_big_endian_bytes().unwrap().to_vec());
+        let document_id = ArcBytes::from(doc.header.id.as_ref().to_vec());
         if let Some(document) = documents.replace(document_id.clone(), serialized)? {
             let doc = deserialize_document(&document)?;
             Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
@@ -920,12 +910,11 @@ impl Database {
         let documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
-        let document_id = header.id.as_big_endian_bytes().unwrap();
-        if let Some(vec) = documents.remove(&document_id)? {
+        if let Some(vec) = documents.remove(header.id.as_ref())? {
             let doc = deserialize_document(&vec)?;
             if &doc.header == header {
                 self.update_unique_views(
-                    document_id.as_ref(),
+                    doc.header.id.as_ref(),
                     operation,
                     transaction,
                     tree_index_map,
@@ -1212,31 +1201,54 @@ impl Connection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(id)))]
-    async fn get<C: schema::Collection>(
-        &self,
-        id: DocumentId,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
-        self.get_from_collection_id(id, &C::collection_name()).await
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
-    async fn get_multiple<C: schema::Collection>(
-        &self,
-        ids: &[DocumentId],
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        self.get_multiple_from_collection_id(ids, &C::collection_name())
+    async fn get<C, PK>(&self, id: PK) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+    {
+        self.get_from_collection_id(id.into().to_document_id()?, &C::collection_name())
             .await
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
+    async fn get_multiple<C, PK, DocumentIds, I>(
+        &self,
+        ids: DocumentIds,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        DocumentIds: IntoIterator<Item = PK, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PK> + Send + Sync,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send + Sync,
+    {
+        self.get_multiple_from_collection_id(
+            &ids.into_iter()
+                .map(|id| id.into().to_document_id())
+                .collect::<Result<Vec<_>, _>>()?,
+            &C::collection_name(),
+        )
+        .await
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids, order, limit)))]
-    async fn list<C: schema::Collection, R: Into<Range<DocumentId>> + Send>(
+    async fn list<C, R, PK>(
         &self,
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        self.list(ids.into(), order, limit, &C::collection_name())
-            .await
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PK>> + Send,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+    {
+        self.list(
+            ids.into().map_result(|id| id.into().to_document_id())?,
+            order,
+            limit,
+            &C::collection_name(),
+        )
+        .await
     }
 
     #[cfg_attr(
@@ -1350,7 +1362,7 @@ impl Connection for Database {
         let results = Connection::query::<V>(self, key, order, limit, access_policy).await?;
 
         let documents = self
-            .get_multiple::<V::Collection>(&results.iter().map(|m| m.source.id).collect::<Vec<_>>())
+            .get_multiple::<V::Collection, _, _, _>(results.iter().map(|m| m.source.id))
             .await?
             .into_iter()
             .map(|doc| (doc.header.id, doc))

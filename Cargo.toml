@@ -23,8 +23,8 @@ members = [
 # pot = { path = "../pot/pot", version = "1.0.0-rc.2" }
 # fabruic = { path = "../fabruic", version = "0.0.1-dev.3" }
 # actionable = { git = "https://github.com/khonsulabs/actionable.git", branch = "lifetimes" }
-# actionable = { path = "../actionable/actionable", version = "0.1.0-rc.1" }
-nebari = { path = "../nebari/nebari", version = "0.3" }
+actionable = { path = "../actionable/actionable", version = "0.1" }
+# nebari = { path = "../nebari/nebari", version = "0.3" }
 # nebari = { git = "https://github.com/khonsulabs/nebari.git", branch = "main" }
 # arc-bytes = { path = "../shared-buffer" }
 

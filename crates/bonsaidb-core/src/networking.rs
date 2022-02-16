@@ -89,7 +89,7 @@ pub enum ServerRequest {
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     SetUserPassword {
         /// The username or id of the user.
-        user: NamedReference<'static>,
+        user: NamedReference<'static, u64>,
         /// The user's new password.
         password: crate::connection::SensitiveString,
     },
@@ -98,7 +98,7 @@ pub enum ServerRequest {
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
     Authenticate {
         /// The username or id of the user.
-        user: NamedReference<'static>,
+        user: NamedReference<'static, u64>,
         /// The method of authentication.
         authentication: crate::connection::Authentication,
     },
@@ -107,10 +107,10 @@ pub enum ServerRequest {
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     AlterUserPermissionGroupMembership {
         /// The username or id of the user.
-        user: NamedReference<'static>,
+        user: NamedReference<'static, u64>,
 
         /// The name or id of the group.
-        group: NamedReference<'static>,
+        group: NamedReference<'static, u64>,
 
         /// Whether the user should be in the group.
         should_be_member: bool,
@@ -120,10 +120,10 @@ pub enum ServerRequest {
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     AlterUserRoleMembership {
         /// The username or id of the user.
-        user: NamedReference<'static>,
+        user: NamedReference<'static, u64>,
 
         /// The name or id of the role.
-        role: NamedReference<'static>,
+        role: NamedReference<'static, u64>,
 
         /// Whether the user should have the role.
         should_be_member: bool,
@@ -316,7 +316,7 @@ pub enum ServerResponse {
     /// A user was created.
     UserCreated {
         /// The id of the user created.
-        id: DocumentId,
+        id: u64,
     },
     /// Successfully authenticated.
     Authenticated(Authenticated),

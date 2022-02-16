@@ -12,7 +12,7 @@ use bonsaidb::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, Collection)]
+#[derive(Debug, Clone, Serialize, Deserialize, Collection)]
 #[collection(name = "messages")]
 struct Message {
     pub timestamp: SystemTime,

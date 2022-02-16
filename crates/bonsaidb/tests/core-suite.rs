@@ -301,7 +301,7 @@ async fn assume_permissions(
                             existing_document, ..
                         },
                     ..
-                }) => existing_document.id,
+                }) => existing_document.id.deserialize()?,
                 Err(other) => anyhow::bail!(other),
             };
 

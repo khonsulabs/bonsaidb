@@ -1,7 +1,7 @@
 use bonsaidb::{
     core::{
         connection::Connection,
-        document::{BorrowedDocument, Document},
+        document::{BorrowedDocument, Emit},
         schema::{
             view::map::ViewMappedValue, Collection, ReduceResult, SerializedCollection, View,
             ViewMapResult, ViewSchema,
@@ -16,7 +16,7 @@ use bonsaidb::{
 use serde::{Deserialize, Serialize};
 
 // ANCHOR: struct
-#[derive(Serialize, Deserialize, Debug, Collection)]
+#[derive(Clone, Serialize, Deserialize, Debug, Collection)]
 #[collection(name = "blog-post", views = [BlogPostsByCategory])]
 pub struct BlogPost {
     pub title: String,
@@ -34,8 +34,8 @@ impl ViewSchema for BlogPostsByCategory {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        let post = document.contents::<BlogPost>()?;
-        Ok(document.header.emit_key_and_value(post.category, 1))
+        let post = BlogPost::document_contents(document)?;
+        document.header.emit_key_and_value(post.category, 1)
     }
 
     fn reduce(
@@ -85,7 +85,7 @@ async fn example() -> Result<(), Error> {
         .query_with_docs()
         .await?;
     for mapping in &rust_posts {
-        let post = mapping.document.contents::<BlogPost>()?;
+        let post = BlogPost::document_contents(mapping.document)?;
         println!(
             "Retrieved post #{} \"{}\"",
             mapping.document.header.id, post.title

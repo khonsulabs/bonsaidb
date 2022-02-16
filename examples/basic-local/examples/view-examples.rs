@@ -1,7 +1,7 @@
 use bonsaidb::{
     core::{
         connection::Connection,
-        document::CollectionDocument,
+        document::{CollectionDocument, Emit},
         schema::{
             view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection, View,
             ViewMapResult, ViewMappedValue,
@@ -15,7 +15,7 @@ use bonsaidb::{
 use serde::{Deserialize, Serialize};
 
 // begin rustme snippet: snippet-a
-#[derive(Debug, Serialize, Deserialize, Collection)]
+#[derive(Clone, Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "shapes", views = [ShapesByNumberOfSides])]
 struct Shape {
     pub sides: u32,
@@ -29,9 +29,9 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
     type View = Self;
 
     fn map(&self, document: CollectionDocument<Shape>) -> ViewMapResult<Self::View> {
-        Ok(document
+        document
             .header
-            .emit_key_and_value(document.contents.sides, 1))
+            .emit_key_and_value(document.contents.sides, 1)
     }
 
     fn reduce(

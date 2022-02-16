@@ -159,7 +159,7 @@ fn integrity_checks() -> anyhow::Result<()> {
                 if db
                     .view::<BasicByParentId>()
                     .with_access_policy(AccessPolicy::NoUpdate)
-                    .with_key(Some(DocumentId::from_u64(1)))
+                    .with_key(Some(1))
                     .query()
                     .await?
                     .len()
@@ -180,8 +180,7 @@ fn integrity_checks() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "encryption")]
 fn encryption() -> anyhow::Result<()> {
-    use bonsaidb_core::document::Document;
-
+    use bonsaidb_core::schema::SerializedCollection;
     let path = TestDirectory::new("encryption");
     let document_header = {
         let rt = tokio::runtime::Runtime::new()?;
@@ -199,7 +198,7 @@ fn encryption() -> anyhow::Result<()> {
                 .get(document_header.id)
                 .await?
                 .expect("doc not found");
-            assert_eq!(&doc.contents::<EncryptedBasic>()?.value, "hello");
+            assert_eq!(&EncryptedBasic::document_contents(&doc)?.value, "hello");
 
             Result::<_, anyhow::Error>::Ok(document_header)
         })?
@@ -208,6 +207,7 @@ fn encryption() -> anyhow::Result<()> {
     // By resetting the encryption key, we should be able to force an error in
     // decryption, which proves that the document was encrypted. To ensure the
     // server starts up and generates a new key, we must delete the sealing key.
+
     std::fs::remove_file(path.join("master-keys"))?;
 
     let rt = tokio::runtime::Runtime::new()?;

@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Err(bonsaidb::core::Error::UniqueKeyViolation {
             existing_document, ..
-        }) => existing_document.id,
+        }) => existing_document.id.deserialize()?,
         Err(other) => anyhow::bail!(other),
     };
 
@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
                     existing_document, ..
                 },
             ..
-        }) => existing_document.id,
+        }) => existing_document.id.deserialize()?,
         Err(other) => anyhow::bail!(other),
     };
 

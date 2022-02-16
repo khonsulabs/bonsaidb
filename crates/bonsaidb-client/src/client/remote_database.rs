@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort},
     custom_api::CustomApi,
-    document::{DocumentId, OwnedDocument},
+    document::{DocumentKey, OwnedDocument},
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
         view::{
@@ -61,17 +61,18 @@ impl<A: CustomApi> RemoteDatabase<A> {
 
 #[async_trait]
 impl<A: CustomApi> Connection for RemoteDatabase<A> {
-    async fn get<C: Collection>(
-        &self,
-        id: DocumentId,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
+    async fn get<C, PK>(&self, id: PK) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: Collection,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+    {
         match self
             .client
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Get {
                     collection: C::collection_name(),
-                    id,
+                    id: id.into().to_document_id()?,
                 },
             })
             .await?
@@ -87,17 +88,26 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn get_multiple<C: Collection>(
+    async fn get_multiple<C, PK, DocumentIds, I>(
         &self,
-        ids: &[DocumentId],
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        ids: DocumentIds,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: Collection,
+        DocumentIds: IntoIterator<Item = PK, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PK> + Send + Sync,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send + Sync,
+    {
         match self
             .client
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::GetMultiple {
                     collection: C::collection_name(),
-                    ids: ids.to_vec(),
+                    ids: ids
+                        .into_iter()
+                        .map(|id| id.into().to_document_id())
+                        .collect::<Result<Vec<_>, _>>()?,
                 },
             })
             .await?
@@ -110,19 +120,24 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn list<C: Collection, R: Into<Range<DocumentId>> + Send>(
+    async fn list<C, R, PK>(
         &self,
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: Collection,
+        R: Into<Range<PK>> + Send,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+    {
         match self
             .client
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::List {
                     collection: C::collection_name(),
-                    ids: ids.into(),
+                    ids: ids.into().map_result(|id| id.into().to_document_id())?,
                     order,
                     limit,
                 },

@@ -1,7 +1,7 @@
 use core::fmt::Debug;
 
 use bonsaidb::core::{
-    document::{CollectionDocument, KeyId},
+    document::{CollectionDocument, Emit, KeyId},
     schema::{
         Collection, CollectionViewSchema, DefaultSerialization, DefaultViewSerialization, Name,
         Schematic, SerializedCollection, View, ViewMapResult,
@@ -33,7 +33,7 @@ fn name_and_authority() {
 }
 #[test]
 fn views() {
-    #[derive(Collection, Debug, Serialize, Deserialize)]
+    #[derive(Clone, Collection, Debug, Serialize, Deserialize)]
     #[collection(name = "Name", authority = "Authority", views = [ShapesByNumberOfSides])]
     struct Shape {
         pub sides: u32,
@@ -59,9 +59,9 @@ fn views() {
         type View = Self;
 
         fn map(&self, document: CollectionDocument<Shape>) -> ViewMapResult<Self::View> {
-            Ok(document
+            document
                 .header
-                .emit_key_and_value(document.contents.sides, 1))
+                .emit_key_and_value(document.contents.sides, 1)
         }
     }
 
@@ -70,7 +70,7 @@ fn views() {
 
 #[test]
 fn serialization() {
-    #[derive(Collection, Debug, Deserialize, Serialize)]
+    #[derive(Collection, Clone, Debug, Deserialize, Serialize)]
     #[collection(
         name = "Name",
         authority = "Authority",

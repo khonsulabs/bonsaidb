@@ -20,13 +20,13 @@ use bonsaidb_core::{
         Admin, ADMIN_DATABASE_NAME,
     },
     connection::{self, Connection, StorageConnection},
-    schema::{Schema, SchemaName, Schematic},
+    schema::{Nameable, Schema, SchemaName, Schematic},
 };
 #[cfg(feature = "multiuser")]
 use bonsaidb_core::{
     admin::{user::User, PermissionGroup, Role},
-    document::{CollectionDocument, DocumentId},
-    schema::{NamedCollection, NamedReference},
+    document::CollectionDocument,
+    schema::NamedCollection,
 };
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use futures::TryFutureExt;
@@ -514,21 +514,20 @@ impl Storage {
     async fn update_user_with_named_id<
         'user,
         'other,
-        Col: NamedCollection,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        O: Into<NamedReference<'other>> + Send + Sync,
-        F: FnOnce(&mut CollectionDocument<User>, DocumentId) -> bool,
+        Col: NamedCollection<PrimaryKey = u64>,
+        U: Nameable<'user, u64> + Send + Sync,
+        O: Nameable<'other, u64> + Send + Sync,
+        F: FnOnce(&mut CollectionDocument<User>, u64) -> bool,
     >(
         &self,
         user: U,
         other: O,
         callback: F,
     ) -> Result<(), bonsaidb_core::Error> {
-        let user = user.into();
-        let other = other.into();
         let admin = self.admin().await;
+        let other = other.name()?;
         let (user, other) =
-            futures::try_join!(User::load(user, &admin), other.id::<Col, _>(&admin),)?;
+            futures::try_join!(User::load(user.name()?, &admin), other.id::<Col, _>(&admin),)?;
         match (user, other) {
             (Some(mut user), Some(other)) => {
                 if callback(&mut user, other) {
@@ -705,7 +704,7 @@ impl StorageConnection for Storage {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
     #[cfg(feature = "multiuser")]
-    async fn create_user(&self, username: &str) -> Result<DocumentId, bonsaidb_core::Error> {
+    async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         let result = self
             .admin()
             .await
@@ -717,7 +716,7 @@ impl StorageConnection for Storage {
 
     #[cfg(feature = "password-hashing")]
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password)))]
-    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         password: bonsaidb_core::connection::SensitiveString,
@@ -732,7 +731,7 @@ impl StorageConnection for Storage {
 
     #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
-    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         authentication: Authentication,
@@ -767,8 +766,8 @@ impl StorageConnection for Storage {
     async fn add_permission_group_to_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -794,8 +793,8 @@ impl StorageConnection for Storage {
     async fn remove_permission_group_from_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -818,8 +817,8 @@ impl StorageConnection for Storage {
     async fn add_role_to_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -841,8 +840,8 @@ impl StorageConnection for Storage {
     async fn remove_role_from_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,

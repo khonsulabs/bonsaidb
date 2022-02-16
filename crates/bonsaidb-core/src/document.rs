@@ -9,7 +9,7 @@ use std::{
 use arc_bytes::serde::{Bytes, CowBytes};
 use serde::{de::Visitor, Deserialize, Serialize};
 
-use crate::schema::{view::map::Mappings, Key, Map, SerializedCollection};
+use crate::schema::{view::map::Mappings, Collection, Key, Map, SerializedCollection};
 
 mod collection;
 mod revision;
@@ -26,39 +26,47 @@ pub struct Header {
     pub revision: Revision,
 }
 
-impl AsRef<Self> for Header {
-    fn as_ref(&self) -> &Self {
-        self
+pub trait HasHeader {
+    fn header(&self) -> Result<Header, crate::Error>;
+}
+
+impl HasHeader for Header {
+    fn header(&self) -> Result<Header, crate::Error> {
+        Ok(*self)
     }
 }
 
-impl Header {
+pub trait Emit {
     /// Creates a `Map` result with an empty key and value.
-    #[must_use]
-    pub fn emit(self) -> Mappings<(), ()> {
+    fn emit(&self) -> Result<Mappings<(), ()>, crate::Error> {
         self.emit_key_and_value((), ())
     }
 
     /// Creates a `Map` result with a `key` and an empty value.
-    #[must_use]
-    pub fn emit_key<K: for<'a> Key<'a>>(self, key: K) -> Mappings<K, ()> {
+    fn emit_key<K: for<'a> Key<'a>>(&self, key: K) -> Result<Mappings<K, ()>, crate::Error> {
         self.emit_key_and_value(key, ())
     }
 
     /// Creates a `Map` result with `value` and an empty key.
-    #[must_use]
-    pub fn emit_value<Value>(self, value: Value) -> Mappings<(), Value> {
+    fn emit_value<Value>(&self, value: Value) -> Result<Mappings<(), Value>, crate::Error> {
         self.emit_key_and_value((), value)
     }
 
     /// Creates a `Map` result with a `key` and `value`.
-    #[must_use]
-    pub fn emit_key_and_value<K: for<'a> Key<'a>, Value>(
-        self,
+    fn emit_key_and_value<K: for<'a> Key<'a>, Value>(
+        &self,
         key: K,
         value: Value,
-    ) -> Mappings<K, Value> {
-        Mappings::Simple(Some(Map::new(self, key, value)))
+    ) -> Result<Mappings<K, Value>, crate::Error>;
+}
+
+impl Emit for Header {
+    fn emit_key_and_value<K: for<'a> Key<'a>, Value>(
+        &self,
+        key: K,
+        value: Value,
+    ) -> Result<Mappings<K, Value>, crate::Error> {
+        Ok(Mappings::Simple(Some(Map::new(*self, key, value))))
     }
 }
 
@@ -67,6 +75,101 @@ impl Display for Header {
         self.id.fmt(f)?;
         f.write_char('@')?;
         self.revision.fmt(f)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CollectionHeader<PK> {
+    pub id: PK,
+    pub revision: Revision,
+}
+
+impl<PK> Emit for CollectionHeader<PK>
+where
+    PK: for<'k> Key<'k>,
+{
+    fn emit_key_and_value<K: for<'a> Key<'a>, Value>(
+        &self,
+        key: K,
+        value: Value,
+    ) -> Result<Mappings<K, Value>, crate::Error> {
+        let header = Header::try_from(self.clone())?;
+        Ok(Mappings::Simple(Some(Map::new(header, key, value))))
+    }
+}
+
+impl<PK> HasHeader for CollectionHeader<PK>
+where
+    PK: for<'k> Key<'k>,
+{
+    fn header(&self) -> Result<Header, crate::Error> {
+        Header::try_from(self.clone())
+    }
+}
+
+impl HasHeader for OwnedDocument {
+    fn header(&self) -> Result<Header, crate::Error> {
+        self.header.header()
+    }
+}
+
+impl<'a> HasHeader for BorrowedDocument<'a> {
+    fn header(&self) -> Result<Header, crate::Error> {
+        self.header.header()
+    }
+}
+
+impl<C> HasHeader for CollectionDocument<C>
+where
+    C: SerializedCollection,
+{
+    fn header(&self) -> Result<Header, crate::Error> {
+        self.header.header()
+    }
+}
+
+impl<PK> TryFrom<Header> for CollectionHeader<PK>
+where
+    PK: for<'k> Key<'k>,
+{
+    type Error = crate::Error;
+
+    fn try_from(value: Header) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: value.id.deserialize::<PK>()?,
+            revision: value.revision,
+        })
+    }
+}
+
+impl<PK> TryFrom<CollectionHeader<PK>> for Header
+where
+    PK: for<'k> Key<'k>,
+{
+    type Error = crate::Error;
+
+    fn try_from(value: CollectionHeader<PK>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: DocumentId::new(value.id)?,
+            revision: value.revision,
+        })
+    }
+}
+
+pub enum AnyHeader<K> {
+    Serialized(Header),
+    Collection(CollectionHeader<K>),
+}
+
+impl<K> AnyHeader<K>
+where
+    K: for<'k> Key<'k>,
+{
+    pub fn into_header(self) -> Result<Header, crate::Error> {
+        match self {
+            AnyHeader::Serialized(header) => Ok(header),
+            AnyHeader::Collection(header) => Header::try_from(header),
+        }
     }
 }
 
@@ -145,19 +248,19 @@ impl Hash for DocumentId {
     }
 }
 
-impl<'k> Key<'k> for DocumentId {
-    type Error = crate::Error;
+// impl<'k> Key<'k> for DocumentId {
+//     type Error = crate::Error;
 
-    const LENGTH: Option<usize> = None;
+//     const LENGTH: Option<usize> = None;
 
-    fn as_big_endian_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
-        Ok(Cow::Borrowed(self.as_ref()))
-    }
+//     fn as_big_endian_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+//         Ok(Cow::Borrowed(self.as_ref()))
+//     }
 
-    fn from_big_endian_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
-        Self::try_from(bytes)
-    }
-}
+//     fn from_big_endian_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+//         Self::try_from(bytes)
+//     }
+// }
 
 /// An invalid hexadecimal character was encountered.
 #[derive(thiserror::Error, Debug)]
@@ -197,7 +300,7 @@ impl FromStr for DocumentId {
                 id.bytes[write_at] = upper << 4 | lower;
             }
             if !chunks.remainder().is_empty() {
-                todo!()
+                return Err(crate::Error::from(InvalidHexadecimal));
             }
         } else if bytes.len() > Self::MAX_LENGTH {
             return Err(crate::Error::DocumentIdTooLong);
@@ -367,6 +470,44 @@ impl<'de> Visitor<'de> for DocumentIdVisitor {
     }
 }
 
+pub enum DocumentKey<K> {
+    Id(DocumentId),
+    Key(K),
+}
+
+impl<K> DocumentKey<K>
+where
+    K: for<'k> Key<'k>,
+{
+    pub fn to_document_id(&self) -> Result<DocumentId, crate::Error> {
+        match self {
+            Self::Id(id) => Ok(*id),
+            Self::Key(key) => DocumentId::new(key.clone()),
+        }
+    }
+    pub fn to_primary_key(&self) -> Result<K, crate::Error> {
+        match self {
+            Self::Id(id) => id.deserialize::<K>(),
+            Self::Key(key) => Ok(key.clone()),
+        }
+    }
+}
+
+impl<K> From<K> for DocumentKey<K>
+where
+    K: for<'k> Key<'k>,
+{
+    fn from(key: K) -> Self {
+        Self::Key(key)
+    }
+}
+
+impl<K> From<DocumentId> for DocumentKey<K> {
+    fn from(id: DocumentId) -> Self {
+        Self::Id(id)
+    }
+}
+
 /// Contains a serialized document in the database.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BorrowedDocument<'a> {
@@ -389,31 +530,31 @@ pub struct OwnedDocument {
 }
 
 /// Common interface of a document in BonsaiDb.
-pub trait Document<'a>:
-    AsRef<Header> + AsMut<Header> + AsRef<Header> + AsRef<[u8]> + Sized
+pub trait Document<C>: Sized
+where
+    C: Collection,
 {
     /// The bytes type used in the interface.
     type Bytes;
 
-    /// Creates a new document with `contents`.
-    fn new<Id: for<'k> Key<'k>, Contents: Into<Self::Bytes>>(
-        id: Id,
-        contents: Contents,
-    ) -> Result<Self, crate::Error>;
-    /// Creates a new document with serialized bytes from `contents`.
-    fn with_contents<S: SerializedCollection<Contents = S>>(
-        id: u64,
-        contents: &S,
-    ) -> Result<Self, crate::Error>;
-    /// Retrieves `contents` through deserialization into the type `D`.
-    fn contents<D>(&self) -> Result<D::Contents, crate::Error>
-    where
-        D: SerializedCollection<Contents = D>;
-    /// Serializes and stores `contents` into this document.
-    fn set_contents<S: SerializedCollection<Contents = S>>(
+    fn key(&self) -> DocumentKey<C::PrimaryKey>;
+    fn header(&self) -> AnyHeader<C::PrimaryKey>;
+    fn set_header(&mut self, header: Header) -> Result<(), crate::Error>;
+    fn set_collection_header(
         &mut self,
-        contents: &S,
-    ) -> Result<(), crate::Error>;
+        header: CollectionHeader<C::PrimaryKey>,
+    ) -> Result<(), crate::Error> {
+        self.set_header(Header::try_from(header)?)
+    }
+    fn bytes(&self) -> Result<Vec<u8>, crate::Error>;
+    /// Retrieves `contents` through deserialization into the type `D`.
+    fn contents(&self) -> Result<C::Contents, crate::Error>
+    where
+        C: SerializedCollection;
+    /// Stores `contents` into this document.
+    fn set_contents(&mut self, contents: C::Contents) -> Result<(), crate::Error>
+    where
+        C: SerializedCollection;
 }
 
 impl<'a> AsRef<[u8]> for BorrowedDocument<'a> {
@@ -422,84 +563,103 @@ impl<'a> AsRef<[u8]> for BorrowedDocument<'a> {
     }
 }
 
-impl<'a> Document<'a> for BorrowedDocument<'a> {
+impl<'a, C> Document<C> for BorrowedDocument<'a>
+where
+    C: Collection,
+{
     type Bytes = CowBytes<'a>;
-    fn new<Id: for<'k> Key<'k>, Contents: Into<Self::Bytes>>(
-        id: Id,
-        contents: Contents,
-    ) -> Result<Self, crate::Error> {
-        let contents = contents.into();
-        let revision = Revision::new(&contents);
-        Ok(Self {
-            header: Header {
-                id: DocumentId::new(id)?,
-                revision,
-            },
-            contents,
-        })
-    }
 
-    fn with_contents<S: SerializedCollection<Contents = S>>(
-        id: u64,
-        contents: &S,
-    ) -> Result<Self, crate::Error> {
-        let contents = <S as SerializedCollection>::serialize(contents)?;
-        Self::new(id, contents)
-    }
-
-    fn contents<D>(&self) -> Result<D::Contents, crate::Error>
+    fn contents(&self) -> Result<C::Contents, crate::Error>
     where
-        D: SerializedCollection<Contents = D>,
+        C: SerializedCollection,
     {
-        <D as SerializedCollection>::deserialize(&self.contents)
+        <C as SerializedCollection>::deserialize(&self.contents)
     }
 
-    fn set_contents<S: SerializedCollection<Contents = S>>(
-        &mut self,
-        contents: &S,
-    ) -> Result<(), crate::Error> {
-        self.contents = CowBytes::from(<S as SerializedCollection>::serialize(contents)?);
+    fn set_contents(&mut self, contents: C::Contents) -> Result<(), crate::Error>
+    where
+        C: SerializedCollection,
+    {
+        self.contents = CowBytes::from(<C as SerializedCollection>::serialize(&contents)?);
         Ok(())
+    }
+
+    fn header(&self) -> AnyHeader<C::PrimaryKey> {
+        AnyHeader::Serialized(self.header)
+    }
+
+    fn set_header(&mut self, header: Header) -> Result<(), crate::Error> {
+        self.header = header;
+        Ok(())
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, crate::Error> {
+        Ok(self.contents.to_vec())
+    }
+
+    fn key(&self) -> DocumentKey<C::PrimaryKey> {
+        DocumentKey::Id(self.header.id)
     }
 }
 
-impl Document<'static> for OwnedDocument {
+impl<'a, C> Document<C> for OwnedDocument
+where
+    C: Collection,
+{
     type Bytes = Vec<u8>;
 
-    fn new<Id: for<'k> Key<'k>, Contents: Into<Self::Bytes>>(
-        id: Id,
-        contents: Contents,
-    ) -> Result<Self, crate::Error> {
-        let contents = Bytes(contents.into());
-        Ok(Self {
-            header: Header {
-                id: DocumentId::new(id)?,
-                revision: Revision::new(&contents),
-            },
-            contents,
-        })
-    }
+    // fn new<Contents: Into<Self::Bytes>>(
+    //     id: C::PrimaryKey,
+    //     contents: Contents,
+    // ) -> Result<Self, crate::Error> {
+    //     let contents = Bytes(contents.into());
+    //     Ok(Self {
+    //         header: Header {
+    //             id: DocumentId::new(id)?,
+    //             revision: Revision::new(&contents),
+    //         },
+    //         contents,
+    //     })
+    // }
 
-    fn with_contents<S: SerializedCollection<Contents = S>>(
-        id: u64,
-        contents: &S,
-    ) -> Result<Self, crate::Error> {
-        BorrowedDocument::with_contents(id, contents).map(BorrowedDocument::into_owned)
-    }
+    // fn with_contents(id: C::PrimaryKey, contents: C::Contents) -> Result<Self, crate::Error>
+    // where
+    //     C: SerializedCollection,
+    // {
+    //     <BorrowedDocument<'_> as Document<C>>::with_contents(id, contents)
+    //         .map(BorrowedDocument::into_owned)
+    // }
 
-    fn contents<D>(&self) -> Result<D::Contents, crate::Error>
+    fn contents(&self) -> Result<C::Contents, crate::Error>
     where
-        D: SerializedCollection<Contents = D>,
+        C: SerializedCollection,
     {
-        <D as SerializedCollection>::deserialize(&self.contents)
+        <C as SerializedCollection>::deserialize(&self.contents)
     }
 
-    fn set_contents<S: SerializedCollection<Contents = S>>(
-        &mut self,
-        contents: &S,
-    ) -> Result<(), crate::Error> {
-        self.contents = Bytes::from(<S as SerializedCollection>::serialize(contents)?);
+    fn set_contents(&mut self, contents: C::Contents) -> Result<(), crate::Error>
+    where
+        C: SerializedCollection,
+    {
+        self.contents = Bytes::from(<C as SerializedCollection>::serialize(&contents)?);
         Ok(())
+    }
+
+    fn key(&self) -> DocumentKey<C::PrimaryKey> {
+        DocumentKey::Id(self.header.id)
+    }
+
+    fn header(&self) -> AnyHeader<C::PrimaryKey> {
+        AnyHeader::Serialized(self.header)
+    }
+
+    fn set_header(&mut self, header: Header) -> Result<(), crate::Error> {
+        self.header = header;
+        Ok(())
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, crate::Error> {
+        Ok(self.contents.to_vec())
     }
 }
 
@@ -522,6 +682,23 @@ impl AsRef<[u8]> for OwnedDocument {
 }
 
 impl<'a> BorrowedDocument<'a> {
+    pub fn new<Contents: Into<CowBytes<'a>>>(id: DocumentId, contents: Contents) -> Self {
+        let contents = contents.into();
+        let revision = Revision::new(&contents);
+        Self {
+            header: Header { id, revision },
+            contents,
+        }
+    }
+
+    pub fn with_contents<C>(id: C::PrimaryKey, contents: &C::Contents) -> Result<Self, crate::Error>
+    where
+        C: SerializedCollection,
+    {
+        let contents = <C as SerializedCollection>::serialize(contents)?;
+        Ok(Self::new(DocumentId::new(id)?, contents))
+    }
+
     /// Converts this document to an owned document.
     #[must_use]
     pub fn into_owned(self) -> OwnedDocument {
@@ -559,25 +736,25 @@ pub enum KeyId {
 fn emissions_tests() -> Result<(), crate::Error> {
     use crate::{schema::Map, test_util::Basic};
 
-    let doc = BorrowedDocument::with_contents(1, &Basic::default())?;
+    let doc = BorrowedDocument::with_contents::<Basic>(1, &Basic::default())?;
 
     assert_eq!(
-        doc.header.emit(),
+        doc.header.emit()?,
         Mappings::Simple(Some(Map::new(doc.header, (), ())))
     );
 
     assert_eq!(
-        doc.header.emit_key(1),
+        doc.header.emit_key(1)?,
         Mappings::Simple(Some(Map::new(doc.header, 1, ())))
     );
 
     assert_eq!(
-        doc.header.emit_value(1),
+        doc.header.emit_value(1)?,
         Mappings::Simple(Some(Map::new(doc.header, (), 1)))
     );
 
     assert_eq!(
-        doc.header.emit_key_and_value(1, 2),
+        doc.header.emit_key_and_value(1, 2)?,
         Mappings::Simple(Some(Map::new(doc.header, 1, 2)))
     );
 
@@ -588,10 +765,10 @@ fn emissions_tests() -> Result<(), crate::Error> {
 fn chained_mappings_test() -> Result<(), crate::Error> {
     use crate::{schema::Map, test_util::Basic};
 
-    let doc = BorrowedDocument::with_contents(1, &Basic::default())?;
+    let doc = BorrowedDocument::with_contents::<Basic>(1, &Basic::default())?;
 
     assert_eq!(
-        doc.header.emit().and(doc.header.emit()),
+        doc.header.emit()?.and(doc.header.emit()?),
         Mappings::List(vec![
             Map::new(doc.header, (), ()),
             Map::new(doc.header, (), ())

@@ -9,7 +9,7 @@ pub use bonsaidb_macros::{Collection, Schema, View};
 
 pub use self::{
     collection::{
-        Collection, DefaultSerialization, Entry, InsertError, List, NamedCollection,
+        Collection, DefaultSerialization, Entry, InsertError, List, Nameable, NamedCollection,
         NamedReference, SerializedCollection,
     },
     names::{Authority, CollectionName, InvalidNameError, Name, SchemaName, ViewName},

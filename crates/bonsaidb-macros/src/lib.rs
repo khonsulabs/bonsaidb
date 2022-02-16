@@ -53,7 +53,7 @@ fn core_path() -> Path {
 #[derive(Attribute)]
 #[attribute(ident = "collection")]
 #[attribute(
-    invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]`, `serialization = SerializationFormat` and `core = bonsaidb::core` are supported attributes"#
+    invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]`, `primary_key = u64`, `serialization = SerializationFormat` and `core = bonsaidb::core` are supported attributes"#
 )]
 struct CollectionAttribute {
     authority: Option<String>,
@@ -73,6 +73,8 @@ struct CollectionAttribute {
     encryption_key: Option<Expr>,
     encryption_required: bool,
     encryption_optional: bool,
+    #[attribute(expected = r#"Specify the `primary_key` like so: `primary_key = u64`"#)]
+    primary_key: Option<Type>,
     #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
     core: Option<Path>,
 }
@@ -94,6 +96,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         name,
         views,
         serialization,
+        primary_key,
         core,
         encryption_key,
         encryption_required,
@@ -107,6 +110,8 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     let core = core.unwrap_or_else(core_path);
+
+    let primary_key = primary_key.unwrap_or_else(|| parse_quote!(u64));
 
     let serialization = match serialization {
         Some(serialization) if serialization.is_ident("None") => TokenStream::new(),
@@ -151,6 +156,8 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
 
     quote! {
         impl #impl_generics #core::schema::Collection for #ident #ty_generics #where_clause {
+            type PrimaryKey = #primary_key;
+
             fn collection_name() -> #core::schema::CollectionName {
                 #name
             }

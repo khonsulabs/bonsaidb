@@ -4,10 +4,10 @@ use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     async_trait::async_trait,
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{DocumentId, OwnedDocument},
+    document::{DocumentKey, OwnedDocument},
     schema::{
-        view::map::MappedDocuments, Collection, Map, MappedValue, NamedReference, Schema,
-        SchemaName, SerializedView,
+        view::map::MappedDocuments, Collection, Map, MappedValue, Nameable, Schema, SchemaName,
+        SerializedView,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -79,7 +79,7 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
         }
     }
 
-    async fn create_user(&self, username: &str) -> Result<DocumentId, bonsaidb_core::Error> {
+    async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.create_user(username).await,
             Self::Networked(client) => client.create_user(username).await,
@@ -87,7 +87,7 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
     }
 
     #[cfg(feature = "password-hashing")]
-    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         password: bonsaidb_core::connection::SensitiveString,
@@ -99,7 +99,7 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
     }
 
     #[cfg(feature = "password-hashing")]
-    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         authentication: Authentication,
@@ -113,8 +113,8 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
     async fn add_permission_group_to_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -137,8 +137,8 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
     async fn remove_permission_group_from_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -161,8 +161,8 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
     async fn add_role_to_user<
         'user,
         'role,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        R: Into<NamedReference<'role>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        R: Nameable<'role, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -177,8 +177,8 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
     async fn remove_role_from_user<
         'user,
         'role,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        R: Into<NamedReference<'role>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        R: Nameable<'role, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -202,35 +202,47 @@ pub enum AnyDatabase<B: Backend = NoBackend> {
 
 #[async_trait]
 impl<B: Backend> Connection for AnyDatabase<B> {
-    async fn get<C: Collection>(
-        &self,
-        id: DocumentId,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
+    async fn get<C, PK>(&self, id: PK) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: Collection,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+    {
         match self {
-            Self::Local(server) => server.get::<C>(id).await,
-            Self::Networked(client) => client.get::<C>(id).await,
+            Self::Local(server) => server.get::<C, _>(id).await,
+            Self::Networked(client) => client.get::<C, _>(id).await,
         }
     }
 
-    async fn get_multiple<C: Collection>(
+    async fn get_multiple<C, PK, DocumentIds, I>(
         &self,
-        ids: &[DocumentId],
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        ids: DocumentIds,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: Collection,
+        DocumentIds: IntoIterator<Item = PK, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PK> + Send + Sync,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send + Sync,
+    {
         match self {
-            Self::Local(server) => server.get_multiple::<C>(ids).await,
-            Self::Networked(client) => client.get_multiple::<C>(ids).await,
+            Self::Local(server) => server.get_multiple::<C, _, _, _>(ids).await,
+            Self::Networked(client) => client.get_multiple::<C, _, _, _>(ids).await,
         }
     }
 
-    async fn list<C: Collection, R: Into<Range<DocumentId>> + Send>(
+    async fn list<C, R, PK>(
         &self,
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: Collection,
+        R: Into<Range<PK>> + Send,
+        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+    {
         match self {
-            Self::Local(server) => server.list::<C, R>(ids, order, limit).await,
-            Self::Networked(client) => client.list::<C, R>(ids, order, limit).await,
+            Self::Local(server) => server.list::<C, _, _>(ids, order, limit).await,
+            Self::Networked(client) => client.list::<C, _, _>(ids, order, limit).await,
         }
     }
 

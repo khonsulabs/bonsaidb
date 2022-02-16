@@ -160,11 +160,15 @@ impl Operation {
     /// in `collection`. If a document with `id` exists, it will be overwritten.
     /// If a document with `id` doesn't exist, it will be created.
     pub fn overwrite_serialized<C: SerializedCollection>(
-        id: DocumentId,
+        id: C::PrimaryKey,
         contents: &C::Contents,
     ) -> Result<Self, Error> {
         let contents = C::serialize(contents)?;
-        Ok(Self::overwrite(C::collection_name(), id, contents))
+        Ok(Self::overwrite(
+            C::collection_name(),
+            DocumentId::new(id)?,
+            contents,
+        ))
     }
 
     /// Deletes a document from a `collection`.

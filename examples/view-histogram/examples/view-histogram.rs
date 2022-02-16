@@ -18,7 +18,7 @@ use std::ops::Deref;
 use bonsaidb::{
     core::{
         connection::Connection,
-        document::CollectionDocument,
+        document::{CollectionDocument, Emit},
         schema::{
             view::CollectionViewSchema, Collection, ReduceResult, SerializedView, View,
             ViewMappedValue,
@@ -92,7 +92,7 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
 }
 
 /// A set of samples that were taken at a specific time.
-#[derive(Debug, Serialize, Deserialize, Collection)]
+#[derive(Clone, Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "samples", views = [AsHistogram])]
 pub struct Samples {
     /// The timestamp of the samples.
@@ -118,9 +118,9 @@ impl CollectionViewSchema for AsHistogram {
             histogram.record(*sample).unwrap();
         }
 
-        Ok(document
+        document
             .header
-            .emit_key_and_value(document.contents.timestamp, histogram.into_sync()))
+            .emit_key_and_value(document.contents.timestamp, histogram.into_sync())
     }
 
     fn reduce(

@@ -469,8 +469,8 @@ fn container_folder(
 mod tests {
     use bonsaidb_core::{
         connection::Connection as _,
-        document::Document,
         keyvalue::KeyValue,
+        schema::SerializedCollection,
         test_util::{Basic, TestDirectory},
     };
 
@@ -521,12 +521,10 @@ mod tests {
             .unwrap();
 
         let db = restored_storage.database::<Basic>("basic").await?;
-        let doc = db
-            .get::<Basic>(test_doc.id)
+        let doc = Basic::get(test_doc.id, &db)
             .await?
             .expect("Backed up document.not found");
-        let contents = doc.contents::<Basic>()?;
-        assert_eq!(contents.value, "somevalue");
+        assert_eq!(doc.contents.value, "somevalue");
         assert_eq!(db.get_key("key1").into_u64().await?, Some(1));
         assert_eq!(db.get_key("key2").into_u64().await?, Some(2));
         assert_eq!(db.get_key("key3").into_u64().await?, Some(3));

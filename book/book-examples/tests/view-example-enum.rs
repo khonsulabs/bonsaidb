@@ -1,10 +1,10 @@
 use bonsaidb::{
     core::{
         connection::Connection,
-        document::{BorrowedDocument, Document},
+        document::{BorrowedDocument, Emit},
         schema::{
             view::{map::ViewMappedValue, EnumKey},
-            Collection, ReduceResult, View, ViewMapResult, ViewSchema,
+            Collection, ReduceResult, SerializedCollection, View, ViewMapResult, ViewSchema,
         },
         Error,
     },
@@ -28,7 +28,7 @@ impl EnumKey for Category {}
 // ANCHOR_END: enum
 
 // ANCHOR: struct
-#[derive(Serialize, Deserialize, Debug, Collection)]
+#[derive(Clone, Serialize, Deserialize, Debug, Collection)]
 #[collection(name = "blog-post", views = [BlogPostsByCategory])]
 pub struct BlogPost {
     pub title: String,
@@ -47,8 +47,8 @@ impl ViewSchema for BlogPostsByCategory {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        let post = document.contents::<BlogPost>()?;
-        Ok(document.header.emit_key_and_value(post.category, 1))
+        let post = BlogPost::document_contents(document)?;
+        document.header.emit_key_and_value(post.category, 1)
     }
 
     fn reduce(
