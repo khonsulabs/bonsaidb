@@ -60,7 +60,7 @@ pub use transmog_pot;
 
 use crate::{
     document::{DocumentId, Header, InvalidHexadecimal},
-    schema::InsertError,
+    schema::{view::NextValueError, InsertError},
 };
 
 /// an enumeration of errors that this crate can produce
@@ -178,6 +178,10 @@ pub enum Error {
         /// The document that already uses the same key.
         existing_document: Box<Header>,
     },
+
+    /// When pushing a document, an error occurred while generating the next unique id.
+    #[error("an error occurred generating a new unique id for {0}: {1}")]
+    DocumentPush(CollectionName, NextValueError),
 
     /// An invalid name was specified during schema creation.
     #[error("an invalid name was used in a schema: {0}")]

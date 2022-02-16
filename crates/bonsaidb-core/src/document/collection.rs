@@ -127,6 +127,7 @@ where
     fn contents(&self) -> Result<C::Contents, crate::Error>
     where
         C: SerializedCollection,
+        <C as SerializedCollection>::Contents: Clone,
     {
         Ok(self.contents.clone())
     }

@@ -20,13 +20,13 @@ use bonsaidb_core::{
         Admin, ADMIN_DATABASE_NAME,
     },
     connection::{self, Connection, StorageConnection},
-    schema::{Nameable, Schema, SchemaName, Schematic},
+    schema::{Schema, SchemaName, Schematic},
 };
 #[cfg(feature = "multiuser")]
 use bonsaidb_core::{
     admin::{user::User, PermissionGroup, Role},
     document::CollectionDocument,
-    schema::NamedCollection,
+    schema::{Nameable, NamedCollection},
 };
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use futures::TryFutureExt;

@@ -164,9 +164,13 @@ pub trait Collection: Debug + Send + Sync
 where
     DocumentKey<Self::PrimaryKey>: From<Self::PrimaryKey>,
 {
+    /// The unique id type. Each document stored in a collection will be
+    /// uniquely identified by this type.
     type PrimaryKey: for<'k> Key<'k>;
 
-    /// The `Id` of this collection.
+    /// The unique name of this collection. Each collection must be uniquely
+    /// named within the [`Schema`](crate::schema::Schema) it is registered
+    /// within.
     fn collection_name() -> CollectionName;
 
     /// Defines all `View`s in this collection in `schema`.
@@ -202,7 +206,7 @@ where
 #[async_trait]
 pub trait SerializedCollection: Collection {
     /// The type of the contents stored in documents in this collection.
-    type Contents: Clone + Send + Sync;
+    type Contents: Send + Sync;
     /// The serialization format for this collection.
     type Format: OwnedDeserializer<Self::Contents>;
 
@@ -217,13 +221,16 @@ pub trait SerializedCollection: Collection {
             .map_err(|err| crate::Error::Serialization(err.to_string()))
     }
 
+    /// Returns the deserialized contents of `doc`.
     fn document_contents<D: Document<Self>>(doc: &D) -> Result<Self::Contents, Error>
     where
+        Self::Contents: Clone,
         Self: Sized,
     {
         doc.contents()
     }
 
+    /// Sets the contents of `doc` to `contents`.
     fn set_document_contents<D: Document<Self>>(
         doc: &mut D,
         contents: Self::Contents,
@@ -720,7 +727,10 @@ impl<'a, Id> From<&'a str> for NamedReference<'a, Id> {
     }
 }
 
+/// A type that can be used as a unique reference for a collection that
+/// implements [`NamedCollection`].
 pub trait Nameable<'a, Id> {
+    /// Returns this name as a [`NamedReference`].
     fn name(self) -> Result<NamedReference<'a, Id>, crate::Error>;
 }
 

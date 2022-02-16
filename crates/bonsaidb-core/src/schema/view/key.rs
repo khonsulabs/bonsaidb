@@ -8,11 +8,12 @@ use arc_bytes::{
 };
 use num_traits::{FromPrimitive, ToPrimitive};
 use ordered_varint::{Signed, Unsigned, Variable};
+use serde::{Deserialize, Serialize};
 
 use crate::AnyError;
 
 /// A trait that enables a type to convert itself to a big-endian/network byte order.
-pub trait Key<'k>: Clone + Send + Sync {
+pub trait Key<'k>: Clone + std::fmt::Debug + Send + Sync {
     /// The error type that can be produced by either serialization or
     /// deserialization.
     type Error: AnyError;
@@ -25,6 +26,29 @@ pub trait Key<'k>: Clone + Send + Sync {
 
     /// Convert a slice of bytes into `Self` by interpretting `bytes` in big-endian/network byte order.
     fn from_big_endian_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error>;
+
+    /// Return the first value in sequence for this type. Not all types
+    /// implement this.
+    fn first_value() -> Result<Self, NextValueError> {
+        Err(NextValueError::Unsupported)
+    }
+
+    /// Return the next value in sequence for this type. Not all types implement
+    /// this. Instead of wrapping/overflowing, None should be returned.
+    fn next_value(&self) -> Result<Self, NextValueError> {
+        Err(NextValueError::Unsupported)
+    }
+}
+
+/// The error types for [`Key::next_value()`].
+#[derive(Clone, thiserror::Error, Debug, Serialize, Deserialize)]
+pub enum NextValueError {
+    /// The key type does not support this operation.
+    #[error("the key type does not support automatic ids")]
+    Unsupported,
+    /// Generating a new value would wrap the underlying value.
+    #[error("the key type has run out of unique values")]
+    WouldWrap,
 }
 
 impl<'k> Key<'k> for Cow<'k, [u8]> {
@@ -404,6 +428,18 @@ impl<'a> Key<'a> for Signed {
     fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes)
     }
+
+    fn first_value() -> Result<Self, NextValueError> {
+        Ok(Self::from(0_i128))
+    }
+
+    fn next_value(&self) -> Result<Self, NextValueError> {
+        i128::try_from(*self)
+            .ok()
+            .and_then(|key| key.checked_add(1))
+            .map(Self::from)
+            .ok_or(NextValueError::WouldWrap)
+    }
 }
 
 impl<'a> Key<'a> for Unsigned {
@@ -417,6 +453,18 @@ impl<'a> Key<'a> for Unsigned {
 
     fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes)
+    }
+
+    fn first_value() -> Result<Self, NextValueError> {
+        Ok(Self::from(0_u128))
+    }
+
+    fn next_value(&self) -> Result<Self, NextValueError> {
+        u128::try_from(*self)
+            .ok()
+            .and_then(|key| key.checked_add(1))
+            .map(Self::from)
+            .ok_or(NextValueError::WouldWrap)
     }
 }
 
@@ -466,6 +514,14 @@ where
             Ok(Some(T::from_big_endian_bytes(bytes)?))
         }
     }
+
+    fn first_value() -> Result<Self, NextValueError> {
+        Ok(Some(T::first_value()?))
+    }
+
+    fn next_value(&self) -> Result<Self, NextValueError> {
+        self.as_ref().map(T::next_value).transpose()
+    }
 }
 
 /// Adds `Key` support to an enum. Requires implementing
@@ -475,7 +531,7 @@ where
 /// Take care when using enums as keys: if the order changes or if the meaning
 /// of existing numerical values changes, make sure to update any related views'
 /// version number to ensure the values are re-evaluated.
-pub trait EnumKey: ToPrimitive + FromPrimitive + Clone + Send + Sync {}
+pub trait EnumKey: ToPrimitive + FromPrimitive + Clone + std::fmt::Debug + Send + Sync {}
 
 /// An error that indicates an unexpected number of bytes were present.
 #[derive(thiserror::Error, Debug)]
@@ -529,6 +585,14 @@ macro_rules! impl_key_for_primitive {
 
             fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
                 Ok($type::from_be_bytes(bytes.try_into()?))
+            }
+
+            fn first_value() -> Result<Self, NextValueError> {
+                Ok(0)
+            }
+
+            fn next_value(&self) -> Result<Self, NextValueError> {
+                self.checked_add(1).ok_or(NextValueError::WouldWrap)
             }
         }
     };
@@ -621,7 +685,7 @@ fn vec_key_encoding_tests() -> anyhow::Result<()> {
 #[test]
 #[allow(clippy::use_self)] // Weird interaction with num_derive
 fn enum_derive_tests() -> anyhow::Result<()> {
-    #[derive(Clone, num_derive::ToPrimitive, num_derive::FromPrimitive)]
+    #[derive(Debug, Clone, num_derive::ToPrimitive, num_derive::FromPrimitive)]
     enum SomeEnum {
         One = 1,
         NineNineNine = 999,

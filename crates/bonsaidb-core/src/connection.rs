@@ -1378,6 +1378,9 @@ impl<T> Bound<T> {
             Bound::Excluded(value) => Bound::Excluded(map(value)),
         }
     }
+
+    /// Maps the contained value with the function provided. The callback's
+    /// return type is a Result, unlike with `map`.
     pub fn map_result<U, E, F: Fn(T) -> Result<U, E>>(self, map: F) -> Result<Bound<U>, E> {
         Ok(match self {
             Bound::Unbounded => Bound::Unbounded,

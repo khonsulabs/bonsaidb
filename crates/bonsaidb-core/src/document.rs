@@ -3,6 +3,7 @@ use std::{
     borrow::Cow,
     fmt::{Display, Write},
     hash::Hash,
+    ops::Deref,
     str::FromStr,
 };
 
@@ -26,7 +27,9 @@ pub struct Header {
     pub revision: Revision,
 }
 
+/// A type that can return a [`Header`].
 pub trait HasHeader {
+    /// Returns the header for this instance.
     fn header(&self) -> Result<Header, crate::Error>;
 }
 
@@ -36,6 +39,8 @@ impl HasHeader for Header {
     }
 }
 
+/// View mapping emit functions. Used when implementing a view's `map()`
+/// function.
 pub trait Emit {
     /// Creates a `Map` result with an empty key and value.
     fn emit(&self) -> Result<Mappings<(), ()>, crate::Error> {
@@ -78,9 +83,12 @@ impl Display for Header {
     }
 }
 
+/// A header for a [`CollectionDocument`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CollectionHeader<PK> {
+    /// The unique id of the document.
     pub id: PK,
+    /// The revision of the document.
     pub revision: Revision,
 }
 
@@ -156,8 +164,12 @@ where
     }
 }
 
+/// A header with either a serialized or deserialized primary key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnyHeader<K> {
+    /// A serialized header.
     Serialized(Header),
+    /// A deserialized header.
     Collection(CollectionHeader<K>),
 }
 
@@ -165,6 +177,7 @@ impl<K> AnyHeader<K>
 where
     K: for<'k> Key<'k>,
 {
+    /// Returns the contained header as a [`Header`].
     pub fn into_header(self) -> Result<Header, crate::Error> {
         match self {
             AnyHeader::Serialized(header) => Ok(header),
@@ -180,15 +193,16 @@ pub struct DocumentId {
     bytes: [u8; Self::MAX_LENGTH],
 }
 
-impl AsRef<[u8]> for DocumentId {
-    fn as_ref(&self) -> &[u8] {
+impl Deref for DocumentId {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
         &self.bytes[..usize::from(self.length)]
     }
 }
 
 impl Ord for DocumentId {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.as_ref().cmp(other.as_ref())
+        (&**self).cmp(&**other)
     }
 }
 
@@ -202,14 +216,14 @@ impl Eq for DocumentId {}
 
 impl PartialEq for DocumentId {
     fn eq(&self, other: &Self) -> bool {
-        self.as_ref() == other.as_ref()
+        **self == **other
     }
 }
 
 impl std::fmt::Debug for DocumentId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("DocumentId(")?;
-        arc_bytes::print_bytes(self.as_ref(), f)?;
+        arc_bytes::print_bytes(self, f)?;
         f.write_char(')')
     }
 }
@@ -217,27 +231,35 @@ impl std::fmt::Debug for DocumentId {
 impl Display for DocumentId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Ok(string) = std::str::from_utf8(self.as_ref()) {
-            if string.bytes().any(|b| (32..=127).contains(&b)) {
+            if string.bytes().all(|b| (32..=127).contains(&b)) {
                 return f.write_str(string);
             }
         }
 
-        match self.length {
-            4 => {
-                let u32 = self.deserialize::<u32>().unwrap();
-                write!(f, "#{}", u32)
+        if let Some((first_nonzero_byte, _)) = self
+            .as_ref()
+            .iter()
+            .copied()
+            .enumerate()
+            .find(|(_index, b)| *b != 0)
+        {
+            if first_nonzero_byte > 0 {
+                write!(f, "{:x}$", first_nonzero_byte)?;
+            } else {
+                f.write_char('$')?;
             }
-            8 => {
-                let u64 = self.deserialize::<u64>().unwrap();
-                write!(f, "#{}", u64)
-            }
-            _ => {
-                f.write_char('%')?;
-                for byte in self.as_ref() {
+
+            for (index, byte) in self[first_nonzero_byte..].iter().enumerate() {
+                if index > 0 {
                     write!(f, "{:02x}", byte)?;
+                } else {
+                    write!(f, "{:x}", byte)?;
                 }
-                Ok(())
             }
+            Ok(())
+        } else {
+            // All zeroes
+            write!(f, "{:x}$", self.len())
         }
     }
 }
@@ -283,24 +305,35 @@ impl FromStr for DocumentId {
         if s.is_empty() {
             return Ok(Self::default());
         }
-
         let mut id = Self::default();
         let bytes = s.as_bytes();
-        if bytes[0] == b'#' {
-            // Hexadecimal
-            let mut chunks = bytes[1..].chunks_exact(2);
-            for chunk in &mut chunks {
-                let write_at = usize::from(id.length);
-                id.length += 1;
-                if usize::from(id.length) >= Self::MAX_LENGTH {
+
+        if let Some((pound_offset, _)) = s.bytes().enumerate().find(|(_index, b)| *b == b'$') {
+            if pound_offset > 2 {
+                return Err(crate::Error::DocumentIdTooLong);
+            }
+
+            let preceding_zeroes = if pound_offset > 0 {
+                let mut length = [0_u8];
+                decode_big_endian_hex(&bytes[0..pound_offset], &mut length)?;
+                usize::from(length[0])
+            } else {
+                0
+            };
+
+            let decoded_length = decode_big_endian_hex(&bytes[pound_offset + 1..], &mut id.bytes)?;
+            if preceding_zeroes > 0 {
+                let total_length = preceding_zeroes + usize::from(decoded_length);
+                if total_length > Self::MAX_LENGTH {
                     return Err(crate::Error::DocumentIdTooLong);
                 }
-                let upper = decode_hex_nibble(chunk[0])?;
-                let lower = decode_hex_nibble(chunk[1])?;
-                id.bytes[write_at] = upper << 4 | lower;
-            }
-            if !chunks.remainder().is_empty() {
-                return Err(crate::Error::from(InvalidHexadecimal));
+                // The full length indicated a longer ID, so we need to prefix some null bytes.
+                id.bytes
+                    .copy_within(0..usize::from(decoded_length), preceding_zeroes);
+                id.bytes[0..preceding_zeroes].fill(0);
+                id.length = u8::try_from(total_length).unwrap();
+            } else {
+                id.length = decoded_length;
             }
         } else if bytes.len() > Self::MAX_LENGTH {
             return Err(crate::Error::DocumentIdTooLong);
@@ -309,9 +342,58 @@ impl FromStr for DocumentId {
             id.length = u8::try_from(bytes.len()).unwrap();
             id.bytes[0..bytes.len()].copy_from_slice(bytes);
         }
-
         Ok(id)
     }
+}
+
+fn decode_big_endian_hex(bytes: &[u8], output: &mut [u8]) -> Result<u8, crate::Error> {
+    let mut length = 0;
+    let mut chunks = if bytes.len() & 1 == 0 {
+        bytes.chunks_exact(2)
+    } else {
+        // Odd amount of bytes, special case the first char
+        output[0] = decode_hex_nibble(bytes[0])?;
+        length = 1;
+        bytes[1..].chunks_exact(2)
+    };
+    for chunk in &mut chunks {
+        let write_at = length;
+        length += 1;
+        if length > output.len() {
+            return Err(crate::Error::DocumentIdTooLong);
+        }
+        let upper = decode_hex_nibble(chunk[0])?;
+        let lower = decode_hex_nibble(chunk[1])?;
+        output[write_at] = upper << 4 | lower;
+    }
+    if !chunks.remainder().is_empty() {
+        return Err(crate::Error::from(InvalidHexadecimal));
+    }
+    Ok(u8::try_from(length).unwrap())
+}
+
+#[test]
+fn document_id_parsing() {
+    fn test_id(bytes: &[u8], display: &str) {
+        let id = DocumentId::try_from(bytes).unwrap();
+        let as_string = id.to_string();
+        assert_eq!(as_string, display);
+        let parsed = DocumentId::from_str(&as_string).unwrap();
+        assert_eq!(&*parsed, bytes);
+    }
+
+    test_id(b"hello", "hello");
+    test_id(b"\x00\x0a\xaf\xfa", "1$aaffa");
+    test_id(&1_u128.to_be_bytes(), "f$1");
+    test_id(&17_u8.to_be_bytes(), "$11");
+    test_id(&[0_u8; 63], "3f$");
+    // The above test is the same as this one, at the time of writing, but in
+    // case we update MAX_LENGTH in the future, this extra test will ensure the
+    // max-length formatting is always tested.
+    test_id(
+        &[0_u8; DocumentId::MAX_LENGTH],
+        &format!("{:x}$", DocumentId::MAX_LENGTH),
+    );
 }
 
 impl Default for DocumentId {
@@ -356,49 +438,6 @@ impl DocumentId {
             .as_big_endian_bytes()
             .map_err(|err| crate::Error::Serialization(err.to_string()))?;
         Self::try_from(&bytes[..])
-    }
-
-    /// Returns the next ID in sequence after the byte sequence passed in.
-    pub fn next(after: &[u8]) -> Result<Self, crate::Error> {
-        match after.len() {
-            4 => {
-                let mut bytes = [0_u8; 4];
-                bytes.copy_from_slice(after);
-                let int = u32::from_be_bytes(bytes);
-                if let Some(int) = int.checked_add(1) {
-                    Self::try_from(int.to_be_bytes())
-                } else {
-                    Self::try_from([1_u8, 0, 0, 0, 0])
-                }
-            }
-            8 => {
-                let mut bytes = [0_u8; 8];
-                bytes.copy_from_slice(after);
-                let int = u64::from_be_bytes(bytes);
-                if let Some(int) = int.checked_add(1) {
-                    Self::try_from(int.to_be_bytes())
-                } else {
-                    Self::try_from([1_u8, 0, 0, 0, 0, 0, 0, 0, 0])
-                }
-            }
-            _ => {
-                let mut id = Self::try_from(after)?;
-                for index in (0..usize::from(id.length)).rev() {
-                    id.bytes[index] += 1;
-                    if id.bytes[index] != 0 {
-                        return Ok(id);
-                    }
-                }
-
-                id.length += 1;
-                if usize::from(id.length) <= Self::MAX_LENGTH {
-                    id.bytes[0] = 1;
-                    Ok(id)
-                } else {
-                    Err(crate::Error::DocumentIdTooLong)
-                }
-            }
-        }
     }
 
     /// Returns a new document ID for a u64. This is equivalent to
@@ -468,10 +507,21 @@ impl<'de> Visitor<'de> for DocumentIdVisitor {
             Err(E::invalid_length(v.len(), &"< 64 bytes"))
         }
     }
+
+    // Provided for backwards compatibility. No new data is written with this.
+    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(DocumentId::from_u64(v))
+    }
 }
 
+/// A unique id for a document, either serialized or deserialized.
 pub enum DocumentKey<K> {
+    /// A serialized id.
     Id(DocumentId),
+    /// A deserialized id.
     Key(K),
 }
 
@@ -479,12 +529,15 @@ impl<K> DocumentKey<K>
 where
     K: for<'k> Key<'k>,
 {
+    /// Converts this value to a document id.
     pub fn to_document_id(&self) -> Result<DocumentId, crate::Error> {
         match self {
             Self::Id(id) => Ok(*id),
             Self::Key(key) => DocumentId::new(key.clone()),
         }
     }
+
+    /// Converts this value to the primary key type.
     pub fn to_primary_key(&self) -> Result<K, crate::Error> {
         match self {
             Self::Id(id) => id.deserialize::<K>(),
@@ -537,20 +590,26 @@ where
     /// The bytes type used in the interface.
     type Bytes;
 
+    /// Returns the unique key for this document.
     fn key(&self) -> DocumentKey<C::PrimaryKey>;
+    /// Returns the header of this document.
     fn header(&self) -> AnyHeader<C::PrimaryKey>;
+    /// Sets the header to the new header.
     fn set_header(&mut self, header: Header) -> Result<(), crate::Error>;
+    /// Sets the header to the new collection header.
     fn set_collection_header(
         &mut self,
         header: CollectionHeader<C::PrimaryKey>,
     ) -> Result<(), crate::Error> {
         self.set_header(Header::try_from(header)?)
     }
+    /// Returns the contents of this document, serialized.
     fn bytes(&self) -> Result<Vec<u8>, crate::Error>;
     /// Retrieves `contents` through deserialization into the type `D`.
     fn contents(&self) -> Result<C::Contents, crate::Error>
     where
-        C: SerializedCollection;
+        C: SerializedCollection,
+        <C as SerializedCollection>::Contents: Clone;
     /// Stores `contents` into this document.
     fn set_contents(&mut self, contents: C::Contents) -> Result<(), crate::Error>
     where
@@ -682,6 +741,7 @@ impl AsRef<[u8]> for OwnedDocument {
 }
 
 impl<'a> BorrowedDocument<'a> {
+    /// Returns a new instance with the id and content bytes.
     pub fn new<Contents: Into<CowBytes<'a>>>(id: DocumentId, contents: Contents) -> Self {
         let contents = contents.into();
         let revision = Revision::new(&contents);
@@ -691,6 +751,7 @@ impl<'a> BorrowedDocument<'a> {
         }
     }
 
+    /// Returns a new instance with `contents`, after serializing.
     pub fn with_contents<C>(id: C::PrimaryKey, contents: &C::Contents) -> Result<Self, crate::Error>
     where
         C: SerializedCollection,
@@ -788,6 +849,6 @@ fn header_display_test() {
     };
     assert_eq!(
         header.to_string(),
-        "#42@0-7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed"
+        "7$2a@0-7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed"
     );
 }

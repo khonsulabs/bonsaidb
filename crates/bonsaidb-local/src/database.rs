@@ -495,7 +495,7 @@ impl Database {
                     document_tree_name(&collection),
                 )?)
                 .map_err(Error::from)?;
-            let mut ids = ids.iter().map(DocumentId::as_ref).collect::<Vec<_>>();
+            let mut ids = ids.iter().map(DocumentId::deref).collect::<Vec<_>>();
             ids.sort();
             let keys_and_values = tree.get_multiple(&ids).map_err(Error::from)?;
 
@@ -876,9 +876,14 @@ impl Database {
         let id = if let Some(id) = id {
             id
         } else if let Some(last_key) = documents.last_key()? {
-            DocumentId::next(&last_key)?
+            let id = DocumentId::try_from(last_key.as_slice())?;
+            self.data
+                .schema
+                .next_id_for_collection(&operation.collection, Some(id))?
         } else {
-            DocumentId::from_u64(0)
+            self.data
+                .schema
+                .next_id_for_collection(&operation.collection, None)?
         };
 
         let doc = BorrowedDocument::new(id, contents);
