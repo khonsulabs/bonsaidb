@@ -9,10 +9,10 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::{serde::Bytes, ArcBytes},
     connection::Connection,
-    document::Header,
+    document::{DocumentId, Header},
     schema::{
         view::{self, map, Serialized},
-        CollectionName, Key, ViewName,
+        CollectionName, ViewName,
     },
 };
 use nebari::{
@@ -287,12 +287,12 @@ impl<'a> DocumentRequest<'a> {
     ) -> Result<bool, Error> {
         // Before altering any data, verify that the key is unique if this is a unique view.
         if self.view.unique() {
-            if let Some(existing_entry) = self.load_entry_for_key(key)? {
+            if let Ok(Some(existing_entry)) = self.load_entry_for_key(key) {
                 if existing_entry.mappings[0].source.id != source.id {
                     return Err(Error::Core(bonsaidb_core::Error::UniqueKeyViolation {
                         view: self.map_request.view_name.clone(),
-                        conflicting_document: source,
-                        existing_document: existing_entry.mappings[0].source,
+                        conflicting_document: Box::new(source),
+                        existing_document: Box::new(existing_entry.mappings[0].source.clone()),
                     }));
                 }
             }
@@ -307,7 +307,7 @@ impl<'a> DocumentRequest<'a> {
 
         // Add a new ViewEntry or update an existing
         // ViewEntry for the key given
-        let view_entry = if let Some(mut entry) = self.load_entry_for_key(key)? {
+        let view_entry = if let Ok(Some(mut entry)) = self.load_entry_for_key(key) {
             // attempt to update an existing
             // entry for this document, if
             // present
@@ -388,8 +388,8 @@ impl<'a> DocumentRequest<'a> {
         let existing_keys = bincode::deserialize::<HashSet<Cow<'_, [u8]>>>(existing_map)?;
         let mut has_reduce = true;
         for key_to_remove_from in existing_keys.difference(keys) {
-            if let Some(mut entry_collection) = self.load_entry_for_key(key_to_remove_from)? {
-                let document_id = u64::from_big_endian_bytes(self.document_id).unwrap();
+            if let Ok(Some(mut entry_collection)) = self.load_entry_for_key(key_to_remove_from) {
+                let document_id = DocumentId::try_from(self.document_id).unwrap();
                 entry_collection
                     .mappings
                     .retain(|m| m.source.id != document_id);
@@ -492,7 +492,7 @@ impl ViewEntryCollection {
     }
 }
 
-pub(crate) fn load_entry_for_key<F: FnOnce(&[u8]) -> Result<Option<ArcBytes<'static>>, Error>>(
+fn load_entry_for_key<F: FnOnce(&[u8]) -> Result<Option<ArcBytes<'static>>, Error>>(
     key: &[u8],
     get_entry_fn: F,
 ) -> Result<Option<ViewEntryCollection>, Error> {

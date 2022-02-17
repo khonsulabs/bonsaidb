@@ -20,6 +20,7 @@ use bonsaidb_core::{
     circulate::{Message, Relay, Subscriber},
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     custom_api::{CustomApi, CustomApiResult},
+    document::DocumentId,
     keyvalue::{KeyOperation, KeyValue},
     networking::{
         self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
@@ -37,7 +38,7 @@ use bonsaidb_core::{
         Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
     },
     pubsub::database_topic,
-    schema::{self, CollectionName, NamedCollection, NamedReference, Schema, ViewName},
+    schema::{self, CollectionName, Nameable, NamedCollection, NamedReference, Schema, ViewName},
     transaction::{Command, Transaction},
 };
 #[cfg(feature = "password-hashing")]
@@ -758,7 +759,7 @@ impl<B: Backend> CustomServer<B> {
     /// Manually authenticates `client` as `user`. `user` can be the user's id
     /// ([`u64`]) or the username ([`String`]/[`str`]). Returns the permissions
     /// that the user now has.
-    pub async fn authenticate_client_as<'name, N: Into<NamedReference<'name>> + Send + Sync>(
+    pub async fn authenticate_client_as<'name, N: Nameable<'name, u64> + Send + Sync>(
         &self,
         user: N,
         client: &ConnectedClient<B>,
@@ -959,7 +960,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
     }
 
     #[cfg(feature = "password-hashing")]
-    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         password: bonsaidb_core::connection::SensitiveString,
@@ -968,7 +969,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
     }
 
     #[cfg(feature = "password-hashing")]
-    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         authentication: Authentication,
@@ -979,8 +980,8 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
     async fn add_permission_group_to_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -995,8 +996,8 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
     async fn remove_permission_group_from_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -1011,8 +1012,8 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
     async fn add_role_to_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -1024,8 +1025,8 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
     async fn remove_role_from_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -1237,7 +1238,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::SetUserPasswordHandler for Serve
 
     async fn resource_name<'a>(
         &'a self,
-        user: &'a NamedReference<'static>,
+        user: &'a NamedReference<'static, u64>,
         _password: &'a bonsaidb_core::connection::SensitiveString,
     ) -> Result<ResourceName<'a>, Error> {
         let id = user
@@ -1255,7 +1256,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::SetUserPasswordHandler for Serve
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-        username: NamedReference<'static>,
+        username: NamedReference<'static, u64>,
         password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         self.server.set_user_password(username, password).await?;
@@ -1269,7 +1270,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::AuthenticateHandler for ServerDi
     async fn verify_permissions(
         &self,
         permissions: &Permissions,
-        user: &NamedReference<'static>,
+        user: &NamedReference<'static, u64>,
         authentication: &Authentication,
     ) -> Result<(), Error> {
         let id = user
@@ -1292,7 +1293,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::AuthenticateHandler for ServerDi
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-        username: NamedReference<'static>,
+        username: NamedReference<'static, u64>,
         authentication: Authentication,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let mut response = self
@@ -1322,8 +1323,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::AlterUserPermissionGroupMembersh
 
     async fn resource_name<'a>(
         &'a self,
-        user: &'a NamedReference<'static>,
-        _group: &'a NamedReference<'static>,
+        user: &'a NamedReference<'static, u64>,
+        _group: &'a NamedReference<'static, u64>,
         _should_be_member: &'a bool,
     ) -> Result<ResourceName<'a>, Error> {
         let id = user
@@ -1341,8 +1342,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::AlterUserPermissionGroupMembersh
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-        user: NamedReference<'static>,
-        group: NamedReference<'static>,
+        user: NamedReference<'static, u64>,
+        group: NamedReference<'static, u64>,
         should_be_member: bool,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         if should_be_member {
@@ -1367,8 +1368,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::AlterUserRoleMembershipHandler
 
     async fn resource_name<'a>(
         &'a self,
-        user: &'a NamedReference<'static>,
-        _role: &'a NamedReference<'static>,
+        user: &'a NamedReference<'static, u64>,
+        _role: &'a NamedReference<'static, u64>,
         _should_be_member: &'a bool,
     ) -> Result<ResourceName<'a>, Error> {
         let id = user
@@ -1386,8 +1387,8 @@ impl<'s, B: Backend> bonsaidb_core::networking::AlterUserRoleMembershipHandler
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-        user: NamedReference<'static>,
-        role: NamedReference<'static>,
+        user: NamedReference<'static, u64>,
+        role: NamedReference<'static, u64>,
         should_be_member: bool,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         if should_be_member {
@@ -1423,7 +1424,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatche
     async fn resource_name<'a>(
         &'a self,
         collection: &'a CollectionName,
-        id: &'a u64,
+        id: &'a DocumentId,
     ) -> Result<ResourceName<'a>, Error> {
         Ok(document_resource_name(&self.name, collection, *id))
     }
@@ -1436,15 +1437,18 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatche
         &self,
         _permissions: &Permissions,
         collection: CollectionName,
-        id: u64,
+        id: DocumentId,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let document = self
             .database
             .internal_get_from_collection_id(id, &collection)
             .await?
-            .ok_or(Error::Core(bonsaidb_core::Error::DocumentNotFound(
-                collection, id,
-            )))?;
+            .ok_or_else(|| {
+                Error::Core(bonsaidb_core::Error::DocumentNotFound(
+                    collection,
+                    Box::new(id),
+                ))
+            })?;
         Ok(Response::Database(DatabaseResponse::Documents(vec![
             document,
         ])))
@@ -1457,7 +1461,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseD
         &self,
         permissions: &Permissions,
         collection: &CollectionName,
-        ids: &Vec<u64>,
+        ids: &Vec<DocumentId>,
     ) -> Result<(), Error> {
         for &id in ids {
             let document_name = document_resource_name(&self.name, collection, id);
@@ -1472,7 +1476,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseD
         &self,
         _permissions: &Permissions,
         collection: CollectionName,
-        ids: Vec<u64>,
+        ids: Vec<DocumentId>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let documents = self
             .database
@@ -1489,7 +1493,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
     async fn resource_name<'a>(
         &'a self,
         collection: &'a CollectionName,
-        _ids: &'a Range<u64>,
+        _ids: &'a Range<DocumentId>,
         _order: &'a Sort,
         _limit: &'a Option<usize>,
     ) -> Result<ResourceName<'a>, Error> {
@@ -1504,7 +1508,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
         &self,
         _permissions: &Permissions,
         collection: CollectionName,
-        ids: Range<u64>,
+        ids: Range<DocumentId>,
         order: Sort,
         limit: Option<usize>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {

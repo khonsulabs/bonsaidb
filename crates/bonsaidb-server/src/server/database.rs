@@ -4,10 +4,10 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     circulate::Message,
     connection::{AccessPolicy, QueryKey, Range, Sort},
-    document::OwnedDocument,
+    document::{AnyDocumentId, OwnedDocument},
     keyvalue::KeyValue,
     pubsub::{PubSub, Subscriber},
-    schema::{self, view::map::MappedDocuments, Collection, Map, MappedValue, SerializedView},
+    schema::{self, view::map::MappedDocuments, Map, MappedValue, SerializedView},
     transaction::Transaction,
 };
 use bonsaidb_local::Database;
@@ -97,27 +97,42 @@ impl<B: Backend> Subscriber for ServerSubscriber<B> {
 /// Pass-through implementation
 #[async_trait]
 impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
-    async fn get<C: Collection>(
+    async fn get<C, PrimaryKey>(
         &self,
-        id: u64,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
-        self.db.get::<C>(id).await
+        id: PrimaryKey,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        self.db.get::<C, PrimaryKey>(id).await
     }
 
-    async fn get_multiple<C: Collection>(
+    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
         &self,
-        ids: &[u64],
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        self.db.get_multiple::<C>(ids).await
+        ids: DocumentIds,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
+    {
+        self.db.get_multiple::<C, _, _, _>(ids).await
     }
 
-    async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
+    async fn list<C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        self.db.list::<C, R>(ids, order, limit).await
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        self.db.list::<C, R, PrimaryKey>(ids, order, limit).await
     }
 
     async fn query<V: SerializedView>(

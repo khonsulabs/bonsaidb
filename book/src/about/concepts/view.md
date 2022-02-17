@@ -141,7 +141,7 @@ BonsaiDb will convert the enum to a u64 and use that value as the Key. A u64 was
 
 ### Implementing the `Key` trait
 
-The [`Key`][key] trait declares two functions: [`as_big_endian_bytes()`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Key.html#tymethod.as_big_endian_bytes) and [`from_big_endian_bytes`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Key.html#tymethod.from_big_endian_bytes). The intention is to convert the type to bytes using a network byte order for numerical types, and for non-numerical types, the bytes need to be stored in binary-sortable order.
+The [`Key`][key] trait declares two functions: [`as_ord_bytes()`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Key.html#tymethod.as_ord_bytes) and [`from_ord_bytes`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Key.html#tymethod.from_ord_bytes). The intention is to convert the type to bytes using a network byte order for numerical types, and for non-numerical types, the bytes need to be stored in binary-sortable order.
 
 Here is how BonsaiDb implements Key for `EnumKey`:
 

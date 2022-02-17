@@ -4,6 +4,7 @@ use std::time::Duration;
 use bonsaidb_core::test_util::EncryptedBasic;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, StorageConnection},
+    document::DocumentId,
     permissions::{Permissions, Statement},
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
@@ -106,7 +107,9 @@ fn integrity_checks() -> anyhow::Result<()> {
                     Database::open::<BasicCollectionWithNoViews>(StorageConfiguration::new(&path))
                         .await?;
                 let collection = db.collection::<BasicCollectionWithNoViews>();
-                collection.push(&Basic::default().with_parent_id(1)).await?;
+                collection
+                    .push(&Basic::default().with_parent_id(DocumentId::from_u64(1)))
+                    .await?;
             }
             Result::<(), anyhow::Error>::Ok(())
         })
@@ -177,8 +180,7 @@ fn integrity_checks() -> anyhow::Result<()> {
 #[test]
 #[cfg(feature = "encryption")]
 fn encryption() -> anyhow::Result<()> {
-    use bonsaidb_core::document::Document;
-
+    use bonsaidb_core::schema::SerializedCollection;
     let path = TestDirectory::new("encryption");
     let document_header = {
         let rt = tokio::runtime::Runtime::new()?;
@@ -196,7 +198,7 @@ fn encryption() -> anyhow::Result<()> {
                 .get(document_header.id)
                 .await?
                 .expect("doc not found");
-            assert_eq!(&doc.contents::<EncryptedBasic>()?.value, "hello");
+            assert_eq!(&EncryptedBasic::document_contents(&doc)?.value, "hello");
 
             Result::<_, anyhow::Error>::Ok(document_header)
         })?
@@ -205,6 +207,7 @@ fn encryption() -> anyhow::Result<()> {
     // By resetting the encryption key, we should be able to force an error in
     // decryption, which proves that the document was encrypted. To ensure the
     // server starts up and generates a new key, we must delete the sealing key.
+
     std::fs::remove_file(path.join("master-keys"))?;
 
     let rt = tokio::runtime::Runtime::new()?;

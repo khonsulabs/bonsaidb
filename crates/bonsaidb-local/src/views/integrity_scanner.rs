@@ -1,12 +1,17 @@
 use std::{borrow::Cow, collections::HashSet, convert::Infallible, hash::Hash, sync::Arc};
 
+use async_lock::Mutex;
 use async_trait::async_trait;
-use bonsaidb_core::schema::{view, CollectionName, Key, ViewName};
+use bonsaidb_core::{
+    document::DocumentId,
+    schema::{CollectionName, ViewName},
+};
 use nebari::{
     io::any::AnyFile,
     tree::{KeyEvaluation, Operation, Unversioned, Versioned},
     ArcBytes, Tree,
 };
+use serde::{Deserialize, Serialize};
 
 use super::{
     mapper::{Map, Mapper},
@@ -14,7 +19,7 @@ use super::{
 };
 use crate::{
     database::{document_tree_name, Database},
-    jobs::{Job, Keyed},
+    jobs::{task, Job, Keyed},
     tasks::Task,
     Error,
 };
@@ -33,9 +38,11 @@ pub struct IntegrityScan {
     pub view_name: ViewName,
 }
 
+pub type OptionalViewMapHandle = Option<Arc<Mutex<Option<task::Handle<u64, Error, Task>>>>>;
+
 #[async_trait]
 impl Job for IntegrityScanner {
-    type Output = ();
+    type Output = OptionalViewMapHandle;
     type Error = Error;
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
@@ -73,11 +80,11 @@ impl Job for IntegrityScanner {
         let roots = self.database.roots().clone();
 
         let needs_update = tokio::task::spawn_blocking::<_, Result<bool, Error>>(move || {
-            let document_ids = tree_keys::<u64, Versioned>(&documents)?;
+            let document_ids = tree_keys::<Versioned>(&documents)?;
             let view_is_current_version =
                 if let Some(version) = view_versions.get(view_name.to_string().as_bytes())? {
-                    if let Ok(version) = u64::from_big_endian_bytes(version.as_slice()) {
-                        version == view_version
+                    if let Ok(version) = ViewVersion::from_bytes(&version) {
+                        version.is_current(view_version)
                     } else {
                         false
                     }
@@ -86,7 +93,7 @@ impl Job for IntegrityScanner {
                 };
 
             let missing_entries = if view_is_current_version {
-                let stored_document_ids = tree_keys::<u64, Unversioned>(&document_map)?;
+                let stored_document_ids = tree_keys::<Unversioned>(&document_map)?;
 
                 document_ids
                     .difference(&stored_document_ids)
@@ -105,12 +112,12 @@ impl Job for IntegrityScanner {
                 let view_versions = transaction.tree::<Unversioned>(1).unwrap();
                 view_versions.set(
                     view_name.to_string().as_bytes().to_vec(),
-                    view_version.as_big_endian_bytes().unwrap().to_vec(),
+                    ViewVersion::current_for(view_version).to_vec()?,
                 )?;
                 let invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
                 let mut missing_entries = missing_entries
                     .into_iter()
-                    .map(|id| ArcBytes::from(id.to_be_bytes()))
+                    .map(|id| ArcBytes::from(id.to_vec()))
                     .collect::<Vec<_>>();
                 missing_entries.sort();
                 invalidated_entries.modify(missing_entries, Operation::Set(ArcBytes::default()))?;
@@ -123,22 +130,26 @@ impl Job for IntegrityScanner {
         })
         .await??;
 
-        if needs_update {
-            self.database
-                .data
-                .storage
-                .tasks()
-                .jobs
-                .lookup_or_enqueue(Mapper {
-                    database: self.database.clone(),
-                    map: Map {
-                        database: self.database.data.name.clone(),
-                        collection: self.scan.collection.clone(),
-                        view_name: self.scan.view_name.clone(),
-                    },
-                })
-                .await;
-        }
+        let task = if needs_update {
+            Some(Arc::new(Mutex::new(Some(
+                self.database
+                    .data
+                    .storage
+                    .tasks()
+                    .jobs
+                    .lookup_or_enqueue(Mapper {
+                        database: self.database.clone(),
+                        map: Map {
+                            database: self.database.data.name.clone(),
+                            collection: self.scan.collection.clone(),
+                            view_name: self.scan.view_name.clone(),
+                        },
+                    })
+                    .await,
+            ))))
+        } else {
+            None
+        };
 
         self.database
             .data
@@ -151,13 +162,53 @@ impl Job for IntegrityScanner {
             )
             .await;
 
-        Ok(())
+        Ok(task)
     }
 }
 
-fn tree_keys<K: for<'a> Key<'a> + Hash + Eq + Clone, R: nebari::tree::Root>(
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ViewVersion {
+    internal_version: u8,
+    schema_version: u64,
+}
+
+impl ViewVersion {
+    const CURRENT_VERSION: u8 = 1;
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
+        match pot::from_slice(bytes) {
+            Ok(version) => Ok(version),
+            Err(err) if matches!(err, pot::Error::NotAPot) && bytes.len() == 8 => {
+                let mut be_bytes = [0_u8; 8];
+                be_bytes.copy_from_slice(bytes);
+                let schema_version = u64::from_be_bytes(be_bytes);
+                Ok(Self {
+                    internal_version: 0,
+                    schema_version,
+                })
+            }
+            Err(err) => Err(crate::Error::from(err)),
+        }
+    }
+
+    pub fn to_vec(&self) -> Result<Vec<u8>, crate::Error> {
+        pot::to_vec(self).map_err(crate::Error::from)
+    }
+
+    pub fn current_for(schema_version: u64) -> Self {
+        Self {
+            internal_version: Self::CURRENT_VERSION,
+            schema_version,
+        }
+    }
+
+    pub fn is_current(&self, schema_version: u64) -> bool {
+        self.internal_version == Self::CURRENT_VERSION && self.schema_version == schema_version
+    }
+}
+
+fn tree_keys<R: nebari::tree::Root>(
     tree: &Tree<R, AnyFile>,
-) -> Result<HashSet<K>, crate::Error> {
+) -> Result<HashSet<DocumentId>, crate::Error> {
     let mut ids = Vec::new();
     tree.scan::<Infallible, _, _, _, _>(
         &(..),
@@ -172,8 +223,8 @@ fn tree_keys<K: for<'a> Key<'a> + Hash + Eq + Clone, R: nebari::tree::Root>(
 
     Ok(ids
         .into_iter()
-        .map(|key| K::from_big_endian_bytes(&key).map_err(view::Error::key_serialization))
-        .collect::<Result<HashSet<_>, view::Error>>()?)
+        .map(|key| DocumentId::try_from(key.as_slice()))
+        .collect::<Result<HashSet<_>, bonsaidb_core::Error>>()?)
 }
 
 impl Keyed<Task> for IntegrityScanner {

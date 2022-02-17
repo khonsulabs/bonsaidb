@@ -1,16 +1,17 @@
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     admin::{group, role},
     connection::{Connection, SensitiveString},
     define_basic_unique_mapped_view,
-    document::{CollectionDocument, Document, KeyId},
+    document::{CollectionDocument, Emit, KeyId},
     permissions::Permissions,
-    schema::{Collection, NamedCollection},
+    schema::{Collection, NamedCollection, SerializedCollection},
 };
 
 /// A user that can authenticate with BonsaiDb.
-#[derive(Debug, Serialize, Deserialize, Default, Collection)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Collection)]
 #[collection(name = "user", authority = "khonsulabs", views = [ByName])]
 #[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = crate)]
 pub struct User {
@@ -49,40 +50,29 @@ impl User {
         let role_groups = if self.roles.is_empty() {
             Vec::default()
         } else {
-            let roles = admin.get_multiple::<role::Role>(&self.groups).await?;
-            let role_groups = roles
+            let roles = role::Role::get_multiple(self.groups.iter().copied(), admin).await?;
+            roles
                 .into_iter()
-                .map(|doc| doc.contents::<role::Role>().map(|role| role.groups))
-                .collect::<Result<Vec<Vec<u64>>, _>>()?;
-            role_groups
-                .into_iter()
-                .flat_map(Vec::into_iter)
-                .collect::<Vec<u64>>()
+                .flat_map(|doc| doc.contents.groups)
+                .unique()
+                .collect::<Vec<_>>()
         };
         // Retrieve all of the groups.
         let groups = if role_groups.is_empty() {
-            admin
-                .get_multiple::<group::PermissionGroup>(&self.groups)
-                .await?
+            group::PermissionGroup::get_multiple(self.groups.iter().copied(), admin).await?
         } else {
             let mut all_groups = role_groups;
             all_groups.extend(self.groups.iter().copied());
             all_groups.dedup();
-            admin
-                .get_multiple::<group::PermissionGroup>(&all_groups)
-                .await?
+            group::PermissionGroup::get_multiple(all_groups, admin).await?
         };
 
         // Combine the permissions from all the groups into one.
         let merged_permissions = Permissions::merged(
             groups
                 .into_iter()
-                .map(|group| {
-                    group
-                        .contents::<group::PermissionGroup>()
-                        .map(|group| Permissions::from(group.statements))
-                })
-                .collect::<Result<Vec<_>, _>>()?
+                .map(|group| Permissions::from(group.contents.statements))
+                .collect::<Vec<_>>()
                 .iter(),
         );
 

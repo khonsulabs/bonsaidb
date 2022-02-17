@@ -38,6 +38,9 @@ pub mod keyvalue;
 /// Traits for tailoring a server.
 pub mod custom_api;
 
+/// Key trait and related types.
+pub mod key;
+
 #[cfg(feature = "networking")]
 /// Types for implementing the BonsaiDb network protocol.
 pub mod networking;
@@ -58,7 +61,11 @@ use serde::{Deserialize, Serialize};
 pub use transmog;
 pub use transmog_pot;
 
-use crate::{document::Header, schema::InsertError};
+use crate::{
+    document::{DocumentId, Header, InvalidHexadecimal},
+    key::NextValueError,
+    schema::InsertError,
+};
 
 /// an enumeration of errors that this crate can produce
 #[derive(Clone, thiserror::Error, Debug, Serialize, Deserialize)]
@@ -149,13 +156,19 @@ pub enum Error {
 
     /// An attempt to update a document that doesn't exist.
     #[error("the requested document id {1} from collection {0} was not found")]
-    DocumentNotFound(CollectionName, u64),
+    DocumentNotFound(CollectionName, Box<DocumentId>),
+
+    /// A value provided as a [`DocumentId`] exceeded [`DocumentId::MAX_LENGTH`].
+    #[error(
+        "an value was provided for a `DocumentId` that was larger than `DocumentId::MAX_LENGTH`"
+    )]
+    DocumentIdTooLong,
 
     /// When updating a document, if a situation is detected where the contents
     /// have changed on the server since the `Revision` provided, a Conflict
     /// error will be returned.
     #[error("a conflict was detected while updating document {1} from collection {0}")]
-    DocumentConflict(CollectionName, Header),
+    DocumentConflict(CollectionName, Box<Header>),
 
     /// When saving a document in a collection with unique views, a document
     /// emits a key that is already emitted by an existing ocument, this error
@@ -165,10 +178,14 @@ pub enum Error {
         /// The name of the view that the unique key violation occurred.
         view: ViewName,
         /// The document that caused the violation.
-        conflicting_document: Header,
+        conflicting_document: Box<Header>,
         /// The document that already uses the same key.
-        existing_document: Header,
+        existing_document: Box<Header>,
     },
+
+    /// When pushing a document, an error occurred while generating the next unique id.
+    #[error("an error occurred generating a new unique id for {0}: {1}")]
+    DocumentPush(CollectionName, NextValueError),
 
     /// An invalid name was specified during schema creation.
     #[error("an invalid name was used in a schema: {0}")]
@@ -226,6 +243,12 @@ impl From<view::Error> for Error {
 impl From<FromUtf8Error> for Error {
     fn from(err: FromUtf8Error) -> Self {
         Self::InvalidUnicode(err.to_string())
+    }
+}
+
+impl From<InvalidHexadecimal> for Error {
+    fn from(err: InvalidHexadecimal) -> Self {
+        Self::Serialization(err.to_string())
     }
 }
 

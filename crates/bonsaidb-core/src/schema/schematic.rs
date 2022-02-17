@@ -2,16 +2,20 @@ use std::{
     any::TypeId,
     collections::{HashMap, HashSet},
     fmt::Debug,
+    marker::PhantomData,
 };
 
+use derive_where::derive_where;
+
 use crate::{
-    document::{BorrowedDocument, KeyId},
+    document::{BorrowedDocument, DocumentId, KeyId},
+    key::Key,
     schema::{
         collection::Collection,
         view::{
             self,
             map::{self, MappedValue},
-            Key, Serialized, SerializedView, ViewSchema,
+            Serialized, SerializedView, ViewSchema,
         },
         CollectionName, Schema, SchemaName, View, ViewName,
     },
@@ -26,6 +30,7 @@ pub struct Schematic {
     contained_collections: HashSet<CollectionName>,
     collections_by_type_id: HashMap<TypeId, CollectionName>,
     collection_encryption_keys: HashMap<CollectionName, KeyId>,
+    collection_id_generators: HashMap<CollectionName, Box<dyn IdGenerator>>,
     views: HashMap<TypeId, Box<dyn view::Serialized>>,
     views_by_name: HashMap<ViewName, TypeId>,
     views_by_collection: HashMap<CollectionName, Vec<TypeId>>,
@@ -40,6 +45,7 @@ impl Schematic {
             contained_collections: HashSet::new(),
             collections_by_type_id: HashMap::new(),
             collection_encryption_keys: HashMap::new(),
+            collection_id_generators: HashMap::new(),
             views: HashMap::new(),
             views_by_name: HashMap::new(),
             views_by_collection: HashMap::new(),
@@ -60,6 +66,8 @@ impl Schematic {
             if let Some(key) = C::encryption_key() {
                 self.collection_encryption_keys.insert(name.clone(), key);
             }
+            self.collection_id_generators
+                .insert(name.clone(), Box::new(KeyIdGenerator::<C>::default()));
             self.contained_collections.insert(name);
             C::define_views(self)
         }
@@ -115,6 +123,20 @@ impl Schematic {
     #[must_use]
     pub fn contains_collection_id(&self, collection: &CollectionName) -> bool {
         self.contained_collections.contains(collection)
+    }
+
+    /// Returns the next id in sequence for the collection, if the primary key
+    /// type supports the operation and the next id would not overflow.
+    pub fn next_id_for_collection(
+        &self,
+        collection: &CollectionName,
+        id: Option<DocumentId>,
+    ) -> Result<DocumentId, Error> {
+        if let Some(generator) = self.collection_id_generators.get(collection) {
+            generator.next_id(id)
+        } else {
+            Err(Error::CollectionNotFound)
+        }
     }
 
     /// Looks up a [`view::Serialized`] by name.
@@ -219,20 +241,45 @@ where
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, view::Error> {
         let mappings = mappings
             .iter()
-            .map(
-                |(key, value)| match <V::Key as Key>::from_big_endian_bytes(key) {
-                    Ok(key) => {
-                        let value = V::deserialize(value)?;
-                        Ok(MappedValue::new(key, value))
-                    }
-                    Err(err) => Err(view::Error::key_serialization(err)),
-                },
-            )
+            .map(|(key, value)| match <V::Key as Key>::from_ord_bytes(key) {
+                Ok(key) => {
+                    let value = V::deserialize(value)?;
+                    Ok(MappedValue::new(key, value))
+                }
+                Err(err) => Err(view::Error::key_serialization(err)),
+            })
             .collect::<Result<Vec<_>, view::Error>>()?;
 
         let reduced_value = self.schema.reduce(&mappings, rereduce)?;
 
         V::serialize(&reduced_value).map_err(view::Error::from)
+    }
+}
+
+pub trait IdGenerator: Debug + Send + Sync {
+    fn next_id(&self, id: Option<DocumentId>) -> Result<DocumentId, Error>;
+}
+
+#[derive(Debug)]
+#[derive_where(Default)]
+pub struct KeyIdGenerator<C: Collection>(PhantomData<C>);
+
+impl<C> IdGenerator for KeyIdGenerator<C>
+where
+    C: Collection,
+{
+    fn next_id(&self, id: Option<DocumentId>) -> Result<DocumentId, Error> {
+        let key = id.map(|id| id.deserialize::<C::PrimaryKey>()).transpose()?;
+        let key = if let Some(key) = key {
+            key
+        } else {
+            <C::PrimaryKey as Key<'_>>::first_value()
+                .map_err(|err| Error::DocumentPush(C::collection_name(), err))?
+        };
+        let next_value = key
+            .next_value()
+            .map_err(|err| Error::DocumentPush(C::collection_name(), err))?;
+        DocumentId::new(next_value)
     }
 }
 

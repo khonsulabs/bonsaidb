@@ -17,7 +17,7 @@ use crate::{
     jobs::{manager::Manager, task::Handle},
     tasks::compactor::Compactor,
     views::{
-        integrity_scanner::{IntegrityScan, IntegrityScanner},
+        integrity_scanner::{IntegrityScan, IntegrityScanner, OptionalViewMapHandle},
         mapper::{Map, Mapper},
     },
     Error,
@@ -125,7 +125,7 @@ impl TaskManager {
         &self,
         view: &dyn view::Serialized,
         database: &Database,
-    ) -> Result<Option<Handle<(), Error, Task>>, crate::Error> {
+    ) -> Result<Option<Handle<OptionalViewMapHandle, Error, Task>>, crate::Error> {
         let view_name = view.view_name();
         if !self
             .view_integrity_checked(

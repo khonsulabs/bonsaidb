@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     admin,
     connection::{Connection, Range, Sort, StorageConnection},
+    document::DocumentId,
     schema::{Collection, SchemaName},
     transaction::{Operation, Transaction},
     AnyError,
@@ -162,7 +163,12 @@ impl Storage {
                 .list_stored(&schema, database.name(), &collection_name)
                 .await?
                 .into_iter()
-                .filter_map(|id_string| id_string.parse::<u64>().ok().map(|id| (id, id_string)))
+                .filter_map(|id_string| {
+                    id_string
+                        .parse::<DocumentId>()
+                        .ok()
+                        .map(|id| (id, id_string))
+                })
             {
                 let contents = location
                     .load(&schema, database.name(), &collection_name, &id_string)
@@ -463,8 +469,8 @@ fn container_folder(
 mod tests {
     use bonsaidb_core::{
         connection::Connection as _,
-        document::Document,
         keyvalue::KeyValue,
+        schema::SerializedCollection,
         test_util::{Basic, TestDirectory},
     };
 
@@ -515,12 +521,10 @@ mod tests {
             .unwrap();
 
         let db = restored_storage.database::<Basic>("basic").await?;
-        let doc = db
-            .get::<Basic>(test_doc.id)
+        let doc = Basic::get(test_doc.id, &db)
             .await?
             .expect("Backed up document.not found");
-        let contents = doc.contents::<Basic>()?;
-        assert_eq!(contents.value, "somevalue");
+        assert_eq!(doc.contents.value, "somevalue");
         assert_eq!(db.get_key("key1").into_u64().await?, Some(1));
         assert_eq!(db.get_key("key2").into_u64().await?, Some(2));
         assert_eq!(db.get_key("key3").into_u64().await?, Some(3));

@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "=1.16.1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 bonsaidb = { path = "../../crates/bonsaidb", version = "0.2.0", features = [
     "local",

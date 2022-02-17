@@ -26,7 +26,7 @@ async fn main() -> anyhow::Result<()> {
     let server = setup_server().await?;
 
     // Create a database user, or get its ID if it already existed.
-    let user_id = match server.create_user("ecton").await {
+    let user_id = match dbg!(server.create_user("ecton").await) {
         Ok(id) => {
             // Set the user's password.
             server
@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Err(bonsaidb::core::Error::UniqueKeyViolation {
             existing_document, ..
-        }) => existing_document.id,
+        }) => existing_document.id.deserialize()?,
         Err(other) => anyhow::bail!(other),
     };
 
@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
                     existing_document, ..
                 },
             ..
-        }) => existing_document.id,
+        }) => existing_document.id.deserialize()?,
         Err(other) => anyhow::bail!(other),
     };
 

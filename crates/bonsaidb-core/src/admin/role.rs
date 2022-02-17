@@ -2,12 +2,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     define_basic_unique_mapped_view,
-    document::CollectionDocument,
+    document::{CollectionDocument, Emit},
     schema::{Collection, NamedCollection},
 };
 
 /// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::admin::PermissionGroup)s.
-#[derive(Debug, Serialize, Deserialize, Collection)]
+#[derive(Clone, Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "role", authority="khonsulabs", views = [ByName], core = crate)]
 pub struct Role {
     /// The name of the role. Must be unique.

@@ -18,7 +18,7 @@ use std::ops::Deref;
 use bonsaidb::{
     core::{
         connection::Connection,
-        document::CollectionDocument,
+        document::{CollectionDocument, Emit},
         schema::{
             view::CollectionViewSchema, Collection, ReduceResult, SerializedView, View,
             ViewMappedValue,
@@ -118,9 +118,9 @@ impl CollectionViewSchema for AsHistogram {
             histogram.record(*sample).unwrap();
         }
 
-        Ok(document
+        document
             .header
-            .emit_key_and_value(document.contents.timestamp, histogram.into_sync()))
+            .emit_key_and_value(document.contents.timestamp, histogram.into_sync())
     }
 
     fn reduce(

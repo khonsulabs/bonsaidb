@@ -4,7 +4,7 @@ use arc_bytes::serde::{Bytes, CowBytes};
 
 use crate::{
     connection::Connection,
-    document::{BorrowedDocument, Header, OwnedDocument},
+    document::{BorrowedDocument, CollectionHeader, DocumentId, Header, OwnedDocument},
     schema::SerializedCollection,
     Error,
 };
@@ -16,19 +16,10 @@ where
     C: SerializedCollection,
 {
     /// The header of the document, which contains the id and `Revision`.
-    pub header: Header,
+    pub header: CollectionHeader<C::PrimaryKey>,
 
     /// The document's contents.
     pub contents: C::Contents,
-}
-
-impl<C> AsRef<Header> for CollectionDocument<C>
-where
-    C: SerializedCollection,
-{
-    fn as_ref(&self) -> &Header {
-        &self.header
-    }
 }
 
 impl<'a, C> TryFrom<&'a BorrowedDocument<'a>> for CollectionDocument<C>
@@ -40,7 +31,7 @@ where
     fn try_from(value: &'a BorrowedDocument<'a>) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: C::deserialize(&value.contents)?,
-            header: value.header,
+            header: CollectionHeader::try_from(value.header.clone())?,
         })
     }
 }
@@ -54,7 +45,7 @@ where
     fn try_from(value: &'a OwnedDocument) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: C::deserialize(&value.contents)?,
-            header: value.header,
+            header: CollectionHeader::try_from(value.header.clone())?,
         })
     }
 }
@@ -68,7 +59,7 @@ where
     fn try_from(value: &'b CollectionDocument<C>) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: CowBytes::from(C::serialize(&value.contents)?),
-            header: value.header,
+            header: Header::try_from(value.header.clone())?,
         })
     }
 }
@@ -97,7 +88,7 @@ where
 
         connection.update::<C, _>(&mut doc).await?;
 
-        self.header = doc.header;
+        self.header = CollectionHeader::try_from(doc.header)?;
 
         Ok(())
     }
@@ -116,7 +107,10 @@ where
         &mut self,
         connection: &Cn,
         mut modifier: Modifier,
-    ) -> Result<(), Error> {
+    ) -> Result<(), Error>
+    where
+        C::Contents: Clone,
+    {
         let mut is_first_loop = true;
         // TODO this should have a retry-limit.
         loop {
@@ -126,9 +120,12 @@ where
             if is_first_loop {
                 is_first_loop = false;
             } else {
-                *self = C::get(self.header.id, connection)
+                *self = C::get(self.header.id.clone(), connection)
                     .await?
-                    .ok_or_else(|| Error::DocumentNotFound(C::collection_name(), self.header.id))?;
+                    .ok_or_else(|| match DocumentId::new(self.header.id.clone()) {
+                        Ok(id) => Error::DocumentNotFound(C::collection_name(), Box::new(id)),
+                        Err(err) => err,
+                    })?;
             }
             modifier(&mut *self);
             match self.update(connection).await {
@@ -161,7 +158,7 @@ where
     pub fn to_document(&self) -> Result<OwnedDocument, Error> {
         Ok(OwnedDocument {
             contents: Bytes::from(C::serialize(&self.contents)?),
-            header: self.header,
+            header: Header::try_from(self.header.clone())?,
         })
     }
 }

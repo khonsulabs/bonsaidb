@@ -8,14 +8,17 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 #[cfg(feature = "multiuser")]
-use crate::schema::NamedReference;
+use crate::schema::Nameable;
 use crate::{
-    document::{CollectionDocument, Document, Header, OwnedDocument},
+    document::{
+        AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, OwnedDocument,
+    },
+    key::Key,
     permissions::Permissions,
     schema::{
         self,
         view::{self, map::MappedDocuments},
-        Key, Map, MappedValue, Schema, SchemaName, SerializedCollection,
+        Map, MappedValue, Schema, SchemaName, SerializedCollection,
     },
     transaction::{self, OperationResult, Transaction},
     Error,
@@ -45,17 +48,25 @@ pub trait Connection: Send + Sync {
     /// - [`SerializedCollection::insert_into()`]
     /// - [`self.collection::<Collection>().insert()`](Collection::insert)
     /// - [`self.collection::<Collection>().push()`](Collection::push)
-    async fn insert<C: schema::Collection, B: Into<Bytes> + Send>(
+    async fn insert<
+        C: schema::Collection,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        B: Into<Bytes> + Send,
+    >(
         &self,
-        id: Option<u64>,
+        id: Option<PrimaryKey>,
         contents: B,
-    ) -> Result<Header, Error> {
+    ) -> Result<CollectionHeader<C::PrimaryKey>, Error> {
         let contents = contents.into();
         let results = self
-            .apply_transaction(Transaction::insert(C::collection_name(), id, contents))
+            .apply_transaction(Transaction::insert(
+                C::collection_name(),
+                id.map(|id| id.into().to_document_id()).transpose()?,
+                contents,
+            ))
             .await?;
-        if let OperationResult::DocumentUpdated { header, .. } = &results[0] {
-            Ok(*header)
+        if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
+            CollectionHeader::try_from(header)
         } else {
             unreachable!(
                 "apply_transaction on a single insert should yield a single DocumentUpdated entry"
@@ -72,19 +83,19 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`CollectionDocument::update()`]
     /// - [`self.collection::<Collection>().update()`](Collection::update)
-    async fn update<'a, C: schema::Collection, D: Document<'a> + Send + Sync>(
+    async fn update<C: schema::Collection, D: Document<C> + Send + Sync>(
         &self,
         doc: &mut D,
     ) -> Result<(), Error> {
         let results = self
             .apply_transaction(Transaction::update(
                 C::collection_name(),
-                *<D as AsRef<Header>>::as_ref(doc),
-                <D as AsRef<[u8]>>::as_ref(doc).to_vec(),
+                doc.header().into_header()?,
+                doc.bytes()?,
             ))
             .await?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            *<D as AsMut<Header>>::as_mut(doc) = header;
+            doc.set_header(header)?;
             Ok(())
         } else {
             unreachable!(
@@ -99,18 +110,27 @@ pub trait Connection: Send + Sync {
     /// This is the lower-level API. For better ergonomics, consider using
     /// one of:
     ///
-    /// - [`CollectionDocument::overwrite()`]
+    /// - [`SerializedCollection::overwrite()`]
+    /// - [`SerializedCollection::overwrite_into()`]
     /// - [`self.collection::<Collection>().overwrite()`](Collection::overwrite)
-    async fn overwrite<'a, C: schema::Collection>(
+    async fn overwrite<'a, C, PrimaryKey>(
         &self,
-        id: u64,
+        id: PrimaryKey,
         contents: Vec<u8>,
-    ) -> Result<Header, Error> {
+    ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
+    where
+        C: schema::Collection,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
         let results = self
-            .apply_transaction(Transaction::overwrite(C::collection_name(), id, contents))
+            .apply_transaction(Transaction::overwrite(
+                C::collection_name(),
+                id.into().to_document_id()?,
+                contents,
+            ))
             .await?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            Ok(header)
+            CollectionHeader::try_from(header)
         } else {
             unreachable!(
                 "apply_transaction on a single update should yield a single DocumentUpdated entry"
@@ -125,7 +145,10 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`SerializedCollection::get()`]
     /// - [`self.collection::<Collection>().get()`](Collection::get)
-    async fn get<C: schema::Collection>(&self, id: u64) -> Result<Option<OwnedDocument>, Error>;
+    async fn get<C, PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
+    where
+        C: schema::Collection,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
 
     /// Retrieves all documents matching `ids`. Documents that are not found
     /// are not returned, but no error will be generated.
@@ -135,10 +158,15 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`SerializedCollection::get_multiple()`]
     /// - [`self.collection::<Collection>().get_multiple()`](Collection::get_multiple)
-    async fn get_multiple<C: schema::Collection>(
+    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
         &self,
-        ids: &[u64],
-    ) -> Result<Vec<OwnedDocument>, Error>;
+        ids: DocumentIds,
+    ) -> Result<Vec<OwnedDocument>, Error>
+    where
+        C: schema::Collection,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync;
 
     /// Retrieves all documents within the range of `ids`. Documents that are
     /// not found are not returned, but no error will be generated. To retrieve
@@ -151,12 +179,16 @@ pub trait Connection: Send + Sync {
     /// - [`self.collection::<Collection>().all()`](Collection::all)
     /// - [`SerializedCollection::list()`]
     /// - [`self.collection::<Collection>().list()`](Collection::list)
-    async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
+    async fn list<C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<OwnedDocument>, Error>;
+    ) -> Result<Vec<OwnedDocument>, Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
 
     /// Removes a `Document` from the database.
     ///
@@ -165,12 +197,12 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`CollectionDocument::delete()`]
     /// - [`self.collection::<Collection>().delete()`](Collection::delete)
-    async fn delete<C: schema::Collection, H: AsRef<Header> + Send + Sync>(
+    async fn delete<C: schema::Collection, H: HasHeader + Send + Sync>(
         &self,
         doc: &H,
     ) -> Result<(), Error> {
         let results = self
-            .apply_transaction(Transaction::delete(C::collection_name(), *doc.as_ref()))
+            .apply_transaction(Transaction::delete(C::collection_name(), doc.header()?))
             .await?;
         if let OperationResult::DocumentDeleted { .. } = &results[0] {
             Ok(())
@@ -409,6 +441,14 @@ where
 
     /// Adds a new `Document<Cl>` with the contents `item`.
     ///
+    /// ## Automatic Id Assignment
+    ///
+    /// This function calls [`SerializedCollection::natural_id()`] to try to
+    /// retrieve a primary key value from `item`. If an id is returned, the item
+    /// is inserted with that id. If an id is not returned, an id will be
+    /// automatically assigned, if possible, by the storage backend, which uses the [`Key`]
+    /// trait to assign ids.
+    ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
@@ -428,15 +468,24 @@ where
     pub async fn push(
         &self,
         item: &<Cl as SerializedCollection>::Contents,
-    ) -> Result<Header, crate::Error>
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
     {
         let contents = Cl::serialize(item)?;
-        self.push_bytes(contents).await
+        if let Some(natural_id) = Cl::natural_id(item) {
+            self.insert_bytes(natural_id, contents).await
+        } else {
+            self.push_bytes(contents).await
+        }
     }
 
     /// Adds a new `Document<Cl>` with the `contents`.
+    ///
+    /// ## Automatic Id Assignment
+    ///
+    /// An id will be automatically assigned, if possible, by the storage backend, which uses
+    /// the [`Key`] trait to assign ids.
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
@@ -454,11 +503,13 @@ where
     pub async fn push_bytes<B: Into<Bytes> + Send>(
         &self,
         contents: B,
-    ) -> Result<Header, crate::Error>
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
     {
-        self.connection.insert::<Cl, B>(None, contents).await
+        self.connection
+            .insert::<Cl, _, B>(Option::<Cl::PrimaryKey>::None, contents)
+            .await
     }
 
     /// Adds a new `Document<Cl>` with the given `id` and contents `item`.
@@ -479,16 +530,17 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn insert(
+    pub async fn insert<PrimaryKey>(
         &self,
-        id: u64,
+        id: PrimaryKey,
         item: &<Cl as SerializedCollection>::Contents,
-    ) -> Result<Header, crate::Error>
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
+        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send + Sync,
     {
         let contents = Cl::serialize(item)?;
-        self.connection.insert::<Cl, _>(Some(id), contents).await
+        self.connection.insert::<Cl, _, _>(Some(id), contents).await
     }
 
     /// Adds a new `Document<Cl>` with the the given `id` and `contents`.
@@ -511,13 +563,13 @@ where
     /// ```
     pub async fn insert_bytes<B: Into<Bytes> + Send>(
         &self,
-        id: u64,
+        id: Cl::PrimaryKey, // TODO
         contents: B,
-    ) -> Result<Header, crate::Error>
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
     {
-        self.connection.insert::<Cl, B>(Some(id), contents).await
+        self.connection.insert::<Cl, _, B>(Some(id), contents).await
     }
 
     /// Updates an existing document. Upon success, `doc.revision` will be
@@ -536,10 +588,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn update<'d, D: Document<'d> + Send + Sync>(
-        &self,
-        doc: &mut D,
-    ) -> Result<(), Error> {
+    pub async fn update<D: Document<Cl> + Send + Sync>(&self, doc: &mut D) -> Result<(), Error> {
         self.connection.update::<Cl, D>(doc).await
     }
 
@@ -559,16 +608,13 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn overwrite<'d, D: Document<'d> + Send + Sync>(
-        &self,
-        doc: &mut D,
-    ) -> Result<(), Error> {
-        let contents = <D as AsRef<[u8]>>::as_ref(doc).to_vec();
-        *<D as AsMut<Header>>::as_mut(doc) = self
-            .connection
-            .overwrite::<Cl>(<D as AsRef<Header>>::as_ref(doc).id, contents)
-            .await?;
-        Ok(())
+    pub async fn overwrite<D: Document<Cl> + Send + Sync>(&self, doc: &mut D) -> Result<(), Error> {
+        let contents = doc.bytes()?;
+        doc.set_collection_header(
+            self.connection
+                .overwrite::<Cl, _>(doc.key(), contents)
+                .await?,
+        )
     }
 
     /// Retrieves a `Document<Cl>` with `id` from the connection.
@@ -582,15 +628,18 @@ where
     ///         "Retrieved bytes {:?} with revision {}",
     ///         doc.contents, doc.header.revision
     ///     );
-    ///     let deserialized = doc.contents::<MyCollection>()?;
+    ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
     /// # })
     /// # }
     /// ```
-    pub async fn get(&self, id: u64) -> Result<Option<OwnedDocument>, Error> {
-        self.connection.get::<Cl>(id).await
+    pub async fn get<PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
+    where
+        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send,
+    {
+        self.connection.get::<Cl, _>(id).await
     }
 
     /// Retrieves all documents matching `ids`. Documents that are not found
@@ -602,19 +651,27 @@ where
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for doc in db
     ///     .collection::<MyCollection>()
-    ///     .get_multiple(&[42, 43])
+    ///     .get_multiple([42, 43])
     ///     .await?
     /// {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
-    ///     let deserialized = doc.contents::<MyCollection>()?;
+    ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
     /// # })
     /// # }
     /// ```
-    pub async fn get_multiple(&self, ids: &[u64]) -> Result<Vec<OwnedDocument>, Error> {
-        self.connection.get_multiple::<Cl>(ids).await
+    pub async fn get_multiple<DocumentIds, PrimaryKey, I>(
+        &self,
+        ids: DocumentIds,
+    ) -> Result<Vec<OwnedDocument>, Error>
+    where
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send + Sync,
+    {
+        self.connection.get_multiple::<Cl, _, _, _>(ids).await
     }
 
     /// Retrieves all documents matching the range of `ids`.
@@ -631,15 +688,22 @@ where
     ///     .await?
     /// {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
-    ///     let deserialized = doc.contents::<MyCollection>()?;
+    ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
     /// # })
     /// # }
     /// ```
-    pub fn list<R: Into<Range<u64>>>(&'a self, ids: R) -> List<'a, Cn, Cl> {
-        List::new(PossiblyOwned::Borrowed(self), ids.into())
+    pub fn list<PrimaryKey, R>(&'a self, ids: R) -> List<'a, Cn, Cl>
+    where
+        R: Into<Range<PrimaryKey>>,
+        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>>,
+    {
+        List::new(
+            PossiblyOwned::Borrowed(self),
+            ids.into().map(PrimaryKey::into),
+        )
     }
 
     /// Retrieves all documents.
@@ -650,7 +714,7 @@ where
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for doc in db.collection::<MyCollection>().all().await? {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
-    ///     let deserialized = doc.contents::<MyCollection>()?;
+    ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
@@ -674,14 +738,17 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn delete<H: AsRef<Header> + Send + Sync>(&self, doc: &H) -> Result<(), Error> {
+    pub async fn delete<H: HasHeader + Send + Sync>(&self, doc: &H) -> Result<(), Error> {
         self.connection.delete::<Cl, H>(doc).await
     }
 }
 
-pub(crate) struct ListBuilder<'a, Cn, Cl> {
+pub(crate) struct ListBuilder<'a, Cn, Cl>
+where
+    Cl: schema::Collection,
+{
     collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-    range: Range<u64>,
+    range: Range<AnyDocumentId<Cl::PrimaryKey>>,
     sort: Sort,
     limit: Option<usize>,
 }
@@ -702,7 +769,10 @@ impl<'a, Cl> Deref for PossiblyOwned<'a, Cl> {
     }
 }
 
-pub(crate) enum ListState<'a, Cn, Cl> {
+pub(crate) enum ListState<'a, Cn, Cl>
+where
+    Cl: schema::Collection,
+{
     Pending(Option<ListBuilder<'a, Cn, Cl>>),
     Executing(BoxFuture<'a, Result<Vec<OwnedDocument>, Error>>),
 }
@@ -710,14 +780,20 @@ pub(crate) enum ListState<'a, Cn, Cl> {
 /// Executes [`Connection::list()`] when awaited. Also offers methods to
 /// customize the options for the operation.
 #[must_use]
-pub struct List<'a, Cn, Cl> {
+pub struct List<'a, Cn, Cl>
+where
+    Cl: schema::Collection,
+{
     state: ListState<'a, Cn, Cl>,
 }
 
-impl<'a, Cn, Cl> List<'a, Cn, Cl> {
-    pub(crate) const fn new(
+impl<'a, Cn, Cl> List<'a, Cn, Cl>
+where
+    Cl: schema::Collection,
+{
+    pub(crate) fn new(
         collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-        range: Range<u64>,
+        range: Range<AnyDocumentId<Cl::PrimaryKey>>,
     ) -> Self {
         Self {
             state: ListState::Pending(Some(ListBuilder {
@@ -760,6 +836,7 @@ impl<'a, Cn, Cl> Future for List<'a, Cn, Cl>
 where
     Cn: Connection,
     Cl: schema::Collection + Unpin,
+    Cl::PrimaryKey: Unpin,
 {
     type Output = Result<Vec<OwnedDocument>, Error>;
 
@@ -780,7 +857,7 @@ where
                 let future = async move {
                     collection
                         .connection
-                        .list::<Cl, _>(range, sort, limit)
+                        .list::<Cl, _, _>(range, sort, limit)
                         .await
                 }
                 .boxed();
@@ -803,7 +880,7 @@ where
 /// # use collection::MyCollection;
 /// use bonsaidb_core::{
 ///     define_basic_unique_mapped_view,
-///     document::CollectionDocument,
+///     document::{CollectionDocument, Emit},
 ///     schema::{
 ///         CollectionViewSchema, DefaultViewSerialization, Name, ReduceResult, View,
 ///         ViewMapResult, ViewMappedValue,
@@ -821,9 +898,9 @@ where
 ///         &self,
 ///         document: CollectionDocument<<Self::View as View>::Collection>,
 ///     ) -> ViewMapResult<Self::View> {
-///         Ok(document
+///         document
 ///             .header
-///             .emit_key_and_value(document.contents.rank, document.contents.score))
+///             .emit_key_and_value(document.contents.rank, document.contents.score)
 ///     }
 ///
 ///     fn reduce(
@@ -1191,17 +1268,17 @@ impl<K: for<'a> Key<'a>> QueryKey<K> {
     pub fn serialized(&self) -> Result<QueryKey<Bytes>, Error> {
         match self {
             Self::Matches(key) => key
-                .as_big_endian_bytes()
+                .as_ord_bytes()
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
                 .map(|v| QueryKey::Matches(Bytes::from(v.to_vec()))),
-            Self::Range(range) => Ok(QueryKey::Range(range.as_big_endian_bytes().map_err(
-                |err| Error::Database(view::Error::key_serialization(err).to_string()),
-            )?)),
+            Self::Range(range) => Ok(QueryKey::Range(range.as_ord_bytes().map_err(|err| {
+                Error::Database(view::Error::key_serialization(err).to_string())
+            })?)),
             Self::Multiple(keys) => {
                 let keys = keys
                     .iter()
                     .map(|key| {
-                        key.as_big_endian_bytes()
+                        key.as_ord_bytes()
                             .map(|key| Bytes::from(key.to_vec()))
                             .map_err(|err| {
                                 Error::Database(view::Error::key_serialization(err).to_string())
@@ -1223,7 +1300,7 @@ where
     /// Deserializes the bytes into `K` via the [`Key`] trait.
     pub fn deserialized<K: for<'k> Key<'k>>(&self) -> Result<QueryKey<K>, Error> {
         match self {
-            Self::Matches(key) => K::from_big_endian_bytes(key.as_ref())
+            Self::Matches(key) => K::from_ord_bytes(key.as_ref())
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
                 .map(QueryKey::Matches),
             Self::Range(range) => Ok(QueryKey::Range(range.deserialize().map_err(|err| {
@@ -1233,7 +1310,7 @@ where
                 let keys = keys
                     .iter()
                     .map(|key| {
-                        K::from_big_endian_bytes(key.as_ref()).map_err(|err| {
+                        K::from_ord_bytes(key.as_ref()).map_err(|err| {
                             Error::Database(view::Error::key_serialization(err).to_string())
                         })
                     })
@@ -1273,6 +1350,14 @@ impl<T> Range<T> {
             end: self.end.map(&map),
         }
     }
+    /// Maps each contained value with the function provided. The callback's
+    /// return type is a Result, unlike with `map`.
+    pub fn map_result<U, E, F: Fn(T) -> Result<U, E>>(self, map: F) -> Result<Range<U>, E> {
+        Ok(Range {
+            start: self.start.map_result(&map)?,
+            end: self.end.map_result(&map)?,
+        })
+    }
 
     /// Maps each contained value as a reference.
     pub fn map_ref<U: ?Sized, F: Fn(&T) -> &U>(&self, map: F) -> Range<&U> {
@@ -1285,10 +1370,10 @@ impl<T> Range<T> {
 
 impl<'a, T: Key<'a>> Range<T> {
     /// Serializes the range's contained values to big-endian bytes.
-    pub fn as_big_endian_bytes(&'a self) -> Result<Range<Bytes>, T::Error> {
+    pub fn as_ord_bytes(&'a self) -> Result<Range<Bytes>, T::Error> {
         Ok(Range {
-            start: self.start.as_big_endian_bytes()?,
-            end: self.end.as_big_endian_bytes()?,
+            start: self.start.as_ord_bytes()?,
+            end: self.end.as_ord_bytes()?,
         })
     }
 }
@@ -1316,6 +1401,16 @@ impl<T> Bound<T> {
         }
     }
 
+    /// Maps the contained value with the function provided. The callback's
+    /// return type is a Result, unlike with `map`.
+    pub fn map_result<U, E, F: Fn(T) -> Result<U, E>>(self, map: F) -> Result<Bound<U>, E> {
+        Ok(match self {
+            Bound::Unbounded => Bound::Unbounded,
+            Bound::Included(value) => Bound::Included(map(value)?),
+            Bound::Excluded(value) => Bound::Excluded(map(value)?),
+        })
+    }
+
     /// Maps each contained value as a reference.
     pub fn map_ref<U: ?Sized, F: Fn(&T) -> &U>(&self, map: F) -> Bound<&U> {
         match self {
@@ -1328,15 +1423,15 @@ impl<T> Bound<T> {
 
 impl<'a, T: Key<'a>> Bound<T> {
     /// Serializes the contained value to big-endian bytes.
-    pub fn as_big_endian_bytes(&'a self) -> Result<Bound<Bytes>, T::Error> {
+    pub fn as_ord_bytes(&'a self) -> Result<Bound<Bytes>, T::Error> {
         match self {
             Bound::Unbounded => Ok(Bound::Unbounded),
-            Bound::Included(value) => Ok(Bound::Included(Bytes::from(
-                value.as_big_endian_bytes()?.to_vec(),
-            ))),
-            Bound::Excluded(value) => Ok(Bound::Excluded(Bytes::from(
-                value.as_big_endian_bytes()?.to_vec(),
-            ))),
+            Bound::Included(value) => {
+                Ok(Bound::Included(Bytes::from(value.as_ord_bytes()?.to_vec())))
+            }
+            Bound::Excluded(value) => {
+                Ok(Bound::Excluded(Bytes::from(value.as_ord_bytes()?.to_vec())))
+            }
         }
     }
 }
@@ -1349,12 +1444,8 @@ where
     pub fn deserialize<T: for<'k> Key<'k>>(&'a self) -> Result<Bound<T>, <T as Key<'_>>::Error> {
         match self {
             Bound::Unbounded => Ok(Bound::Unbounded),
-            Bound::Included(value) => {
-                Ok(Bound::Included(T::from_big_endian_bytes(value.as_ref())?))
-            }
-            Bound::Excluded(value) => {
-                Ok(Bound::Excluded(T::from_big_endian_bytes(value.as_ref())?))
-            }
+            Bound::Included(value) => Ok(Bound::Included(T::from_ord_bytes(value.as_ref())?)),
+            Bound::Excluded(value) => Ok(Bound::Excluded(T::from_ord_bytes(value.as_ref())?)),
         }
     }
 }
@@ -1519,7 +1610,7 @@ pub trait StorageConnection: Send + Sync {
 
     /// Sets a user's password.
     #[cfg(feature = "password-hashing")]
-    async fn set_user_password<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         password: SensitiveString,
@@ -1527,7 +1618,7 @@ pub trait StorageConnection: Send + Sync {
 
     /// Authenticates as a user with a authentication method.
     #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
-    async fn authenticate<'user, U: Into<NamedReference<'user>> + Send + Sync>(
+    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         authentication: Authentication,
@@ -1538,8 +1629,8 @@ pub trait StorageConnection: Send + Sync {
     async fn add_permission_group_to_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -1551,8 +1642,8 @@ pub trait StorageConnection: Send + Sync {
     async fn remove_permission_group_from_user<
         'user,
         'group,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        G: Into<NamedReference<'group>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -1564,8 +1655,8 @@ pub trait StorageConnection: Send + Sync {
     async fn add_role_to_user<
         'user,
         'role,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        R: Into<NamedReference<'role>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        R: Nameable<'role, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -1577,8 +1668,8 @@ pub trait StorageConnection: Send + Sync {
     async fn remove_role_from_user<
         'user,
         'role,
-        U: Into<NamedReference<'user>> + Send + Sync,
-        R: Into<NamedReference<'role>> + Send + Sync,
+        U: Nameable<'user, u64> + Send + Sync,
+        R: Nameable<'role, u64> + Send + Sync,
     >(
         &self,
         user: U,
@@ -1643,8 +1734,9 @@ macro_rules! __doctest_prelude {
         use bonsaidb_core::{
             connection::{AccessPolicy, Connection},
             define_basic_unique_mapped_view,
-            document::{CollectionDocument, Document, OwnedDocument},
+            document::{CollectionDocument,Emit, Document, OwnedDocument},
             schema::{
+
                 Collection, CollectionName, CollectionViewSchema, DefaultSerialization,
                 DefaultViewSerialization, Name, NamedCollection, ReduceResult, Schema, SchemaName,
                 Schematic, SerializedCollection, View, ViewMapResult, ViewMappedValue,
@@ -1657,7 +1749,7 @@ macro_rules! __doctest_prelude {
         #[schema(name = "MySchema", collections = [MyCollection], core = $crate)]
         pub struct MySchema;
 
-        #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+        #[derive( Debug, Serialize, Deserialize, Default, Collection)]
         #[collection(name = "MyCollection", views = [MyCollectionByName], core = $crate)]
         pub struct MyCollection {
             pub name: String,
@@ -1693,9 +1785,9 @@ macro_rules! __doctest_prelude {
                 &self,
                 document: CollectionDocument<<Self::View as View>::Collection>,
             ) -> ViewMapResult<Self::View> {
-                Ok(document
+                document
                     .header
-                    .emit_key_and_value(document.contents.rank, document.contents.score))
+                    .emit_key_and_value(document.contents.rank, document.contents.score)
             }
 
             fn reduce(

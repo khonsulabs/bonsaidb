@@ -1,7 +1,7 @@
 use core::fmt::Debug;
 
 use bonsaidb::core::{
-    document::{CollectionDocument, KeyId},
+    document::{CollectionDocument, Emit, KeyId},
     schema::{
         Collection, CollectionViewSchema, DefaultSerialization, DefaultViewSerialization, Name,
         Schematic, SerializedCollection, View, ViewMapResult,
@@ -20,6 +20,7 @@ fn name_only() {
         bonsaidb::core::schema::CollectionName::private("Name")
     );
 }
+
 #[test]
 fn name_and_authority() {
     #[derive(Collection, Debug)]
@@ -31,9 +32,10 @@ fn name_and_authority() {
         bonsaidb::core::schema::CollectionName::new("Authority", "Name")
     );
 }
+
 #[test]
 fn views() {
-    #[derive(Collection, Debug, Serialize, Deserialize)]
+    #[derive(Clone, Collection, Debug, Serialize, Deserialize)]
     #[collection(name = "Name", authority = "Authority", views = [ShapesByNumberOfSides])]
     struct Shape {
         pub sides: u32,
@@ -59,9 +61,9 @@ fn views() {
         type View = Self;
 
         fn map(&self, document: CollectionDocument<Shape>) -> ViewMapResult<Self::View> {
-            Ok(document
+            document
                 .header
-                .emit_key_and_value(document.contents.sides, 1))
+                .emit_key_and_value(document.contents.sides, 1)
         }
     }
 
@@ -70,7 +72,7 @@ fn views() {
 
 #[test]
 fn serialization() {
-    #[derive(Collection, Debug, Deserialize, Serialize)]
+    #[derive(Collection, Clone, Debug, Deserialize, Serialize)]
     #[collection(
         name = "Name",
         authority = "Authority",
@@ -131,5 +133,29 @@ fn encryption_key() {
     #[derive(Collection, Debug, Deserialize, Serialize)]
     #[collection(name = "Name")]
     #[collection(encryption_key = Some(KeyId::Master))]
+    struct Test;
+}
+
+#[test]
+fn primary_key() {
+    #[derive(Collection, Debug, Deserialize, Serialize)]
+    #[collection(name = "Name")]
+    #[collection(primary_key = u32)]
+    struct Test;
+}
+
+#[test]
+fn primary_key_natural_id() {
+    #[derive(Collection, Debug, Deserialize, Serialize)]
+    #[collection(name = "Name")]
+    #[collection(primary_key = u32, natural_id = |_:&Self| Some(1_u32))]
+    struct Test;
+}
+
+#[test]
+fn natural_id() {
+    #[derive(Collection, Debug, Deserialize, Serialize)]
+    #[collection(name = "Name")]
+    #[collection( natural_id = |_:&Self| Some(1_u64))]
     struct Test;
 }

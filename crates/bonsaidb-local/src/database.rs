@@ -2,7 +2,7 @@ use std::{
     borrow::{Borrow, Cow},
     collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
-    ops::Deref,
+    ops::{self, Deref},
     sync::Arc,
     u8,
 };
@@ -16,8 +16,9 @@ use bonsaidb_core::{
         serde::{Bytes, CowBytes},
         ArcBytes,
     },
-    connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{BorrowedDocument, Document, Header, OwnedDocument, Revision},
+    connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
+    document::{AnyDocumentId, BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
+    key::Key,
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
@@ -27,23 +28,23 @@ use bonsaidb_core::{
             self,
             map::{MappedDocuments, MappedSerializedValue},
         },
-        Collection, CollectionName, Key, Map, MappedValue, Schema, Schematic, ViewName,
+        Collection, CollectionName, Map, MappedValue, Schema, Schematic, ViewName,
     },
     transaction::{
         self, ChangedDocument, Changes, Command, Operation, OperationResult, Transaction,
     },
 };
 use bonsaidb_utils::fast_async_lock;
-use byteorder::{BigEndian, ByteOrder};
 use itertools::Itertools;
 use nebari::{
     io::any::AnyFile,
     tree::{
-        AnyTreeRoot, BorrowByteRange, CompareSwap, KeyEvaluation, Root, TreeRoot, U64Range,
+        AnyTreeRoot, BorrowByteRange, BorrowedRange, CompareSwap, KeyEvaluation, Root, TreeRoot,
         Unversioned, Versioned,
     },
     AbortError, ExecutingTransaction, Roots, Tree,
 };
+use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 #[cfg(feature = "encryption")]
@@ -292,7 +293,7 @@ impl Database {
     #[doc(hidden)]
     pub async fn internal_get_from_collection_id(
         &self,
-        id: u64,
+        id: DocumentId,
         collection: &CollectionName,
     ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         self.get_from_collection_id(id, collection).await
@@ -302,7 +303,7 @@ impl Database {
     #[doc(hidden)]
     pub async fn list_from_collection(
         &self,
-        ids: Range<u64>,
+        ids: Range<DocumentId>,
         order: Sort,
         limit: Option<usize>,
         collection: &CollectionName,
@@ -314,7 +315,7 @@ impl Database {
     #[doc(hidden)]
     pub async fn internal_get_multiple_from_collection_id(
         &self,
-        ids: &[u64],
+        ids: &[DocumentId],
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.get_multiple_from_collection_id(ids, collection).await
@@ -453,7 +454,7 @@ impl Database {
 
     async fn get_from_collection_id(
         &self,
-        id: u64,
+        id: DocumentId,
         collection: &CollectionName,
     ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         let task_self = self.clone();
@@ -468,13 +469,7 @@ impl Database {
                     document_tree_name(&collection),
                 )?)
                 .map_err(Error::from)?;
-            if let Some(vec) = tree
-                .get(
-                    &id.as_big_endian_bytes()
-                        .map_err(view::Error::key_serialization)?,
-                )
-                .map_err(Error::from)?
-            {
+            if let Some(vec) = tree.get(id.as_ref()).map_err(Error::from)? {
                 Ok(Some(deserialize_document(&vec)?.into_owned()))
             } else {
                 Ok(None)
@@ -486,11 +481,11 @@ impl Database {
 
     async fn get_multiple_from_collection_id(
         &self,
-        ids: &[u64],
+        ids: &[DocumentId],
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         let task_self = self.clone();
-        let ids = ids.iter().map(|id| id.to_be_bytes()).collect::<Vec<_>>();
+        let ids = ids.to_vec();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
             let tree = task_self
@@ -502,22 +497,23 @@ impl Database {
                     document_tree_name(&collection),
                 )?)
                 .map_err(Error::from)?;
-            let mut ids = ids.iter().map(|id| &id[..]).collect::<Vec<_>>();
+            let mut ids = ids.iter().map(DocumentId::deref).collect::<Vec<_>>();
             ids.sort();
             let keys_and_values = tree.get_multiple(&ids).map_err(Error::from)?;
 
             keys_and_values
                 .into_iter()
                 .map(|(_, value)| deserialize_document(&value).map(BorrowedDocument::into_owned))
-                .collect()
+                .collect::<Result<Vec<_>, Error>>()
         })
         .await
         .unwrap()
+        .map_err(bonsaidb_core::Error::from)
     }
 
     pub(crate) async fn list(
         &self,
-        ids: Range<u64>,
+        ids: Range<DocumentId>,
         sort: Sort,
         limit: Option<usize>,
         collection: &CollectionName,
@@ -536,7 +532,7 @@ impl Database {
                 .map_err(Error::from)?;
             let mut found_docs = Vec::new();
             let mut keys_read = 0;
-            let ids = U64Range::new(ids);
+            let ids = DocumentIdRange(ids);
             tree.scan(
                 &ids.borrow_as_bytes(),
                 match sort {
@@ -565,7 +561,7 @@ impl Database {
             )
             .map_err(|err| match err {
                 AbortError::Other(err) => err,
-                AbortError::Nebari(err) => bonsaidb_core::Error::from(crate::Error::from(err)),
+                AbortError::Nebari(err) => crate::Error::from(err),
             })
             .unwrap();
 
@@ -727,10 +723,7 @@ impl Database {
                                         [&view_invalidated_docs_tree_name(&view_name)],
                                 )
                                 .unwrap();
-                            invalidated_docs.set(
-                                changed_document.id.as_big_endian_bytes().unwrap().to_vec(),
-                                b"",
-                            )?;
+                            invalidated_docs.set(changed_document.id.as_ref().to_vec(), b"")?;
                         }
                     }
                 }
@@ -778,14 +771,14 @@ impl Database {
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
-        id: u64,
+        id: DocumentId,
         check_revision: Option<&Revision>,
         contents: &[u8],
     ) -> Result<OperationResult, crate::Error> {
         let documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
-        let document_id = ArcBytes::from(id.as_big_endian_bytes().unwrap());
+        let document_id = ArcBytes::from(id.as_ref());
         let mut result = None;
         let mut updated = false;
         documents.modify(
@@ -798,7 +791,7 @@ impl Database {
                     let doc = match deserialize_document(&old) {
                         Ok(doc) => doc,
                         Err(err) => {
-                            result = Some(Err(Error::from(err)));
+                            result = Some(Err(err));
                             return nebari::tree::KeyOperation::Skip;
                         }
                     };
@@ -810,7 +803,7 @@ impl Database {
                                 revision: updated_revision,
                             };
                             let serialized_doc = match serialize_document(&BorrowedDocument {
-                                header: updated_header,
+                                header: updated_header.clone(),
                                 contents: CowBytes::from(contents),
                             }) {
                                 Ok(bytes) => bytes,
@@ -838,13 +831,13 @@ impl Database {
                     } else {
                         result = Some(Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
                             operation.collection.clone(),
-                            doc.header,
+                            Box::new(doc.header),
                         ))));
                     }
                 } else if check_revision.is_none() {
                     let doc = BorrowedDocument::new(id, contents);
-                    match serialize_document(&doc) {
-                        Ok(serialized) => {
+                    match serialize_document(&doc).map(|bytes| (doc, bytes)) {
+                        Ok((doc, serialized)) => {
                             result = Some(Ok(OperationResult::DocumentUpdated {
                                 collection: operation.collection.clone(),
                                 header: doc.header,
@@ -858,7 +851,7 @@ impl Database {
                 } else {
                     result = Some(Err(Error::Core(bonsaidb_core::Error::DocumentNotFound(
                         operation.collection.clone(),
-                        id,
+                        Box::new(id),
                     ))));
                 }
                 nebari::tree::KeyOperation::Skip
@@ -877,7 +870,7 @@ impl Database {
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
-        id: Option<u64>,
+        id: Option<DocumentId>,
         contents: &[u8],
     ) -> Result<OperationResult, Error> {
         let documents = transaction
@@ -885,22 +878,25 @@ impl Database {
             .unwrap();
         let id = if let Some(id) = id {
             id
+        } else if let Some(last_key) = documents.last_key()? {
+            let id = DocumentId::try_from(last_key.as_slice())?;
+            self.data
+                .schema
+                .next_id_for_collection(&operation.collection, Some(id))?
         } else {
-            let last_key = documents
-                .last_key()?
-                .map(|bytes| BigEndian::read_u64(&bytes))
-                .unwrap_or_default();
-            last_key + 1
+            self.data
+                .schema
+                .next_id_for_collection(&operation.collection, None)?
         };
 
         let doc = BorrowedDocument::new(id, contents);
         let serialized: Vec<u8> = serialize_document(&doc)?;
-        let document_id = ArcBytes::from(doc.header.id.as_big_endian_bytes().unwrap().to_vec());
+        let document_id = ArcBytes::from(doc.header.id.as_ref().to_vec());
         if let Some(document) = documents.replace(document_id.clone(), serialized)? {
             let doc = deserialize_document(&document)?;
             Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
                 operation.collection.clone(),
-                doc.header,
+                Box::new(doc.header),
             )))
         } else {
             self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
@@ -922,12 +918,11 @@ impl Database {
         let documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
-        let document_id = header.id.as_big_endian_bytes().unwrap();
-        if let Some(vec) = documents.remove(&document_id)? {
+        if let Some(vec) = documents.remove(header.id.as_ref())? {
             let doc = deserialize_document(&vec)?;
             if &doc.header == header {
                 self.update_unique_views(
-                    document_id.as_ref(),
+                    doc.header.id.as_ref(),
                     operation,
                     transaction,
                     tree_index_map,
@@ -940,13 +935,13 @@ impl Database {
             } else {
                 Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
                     operation.collection.clone(),
-                    *header,
+                    Box::new(header.clone()),
                 )))
             }
         } else {
             Err(Error::Core(bonsaidb_core::Error::DocumentNotFound(
                 operation.collection.clone(),
-                header.id,
+                Box::new(header.id),
             )))
         }
     }
@@ -1003,7 +998,7 @@ impl Database {
             match key {
                 QueryKey::Range(range) => {
                     let range = range
-                        .as_big_endian_bytes()
+                        .as_ord_bytes()
                         .map_err(view::Error::key_serialization)?;
                     view_entries.scan::<Infallible, _, _, _, _>(
                         &range.map_ref(|bytes| &bytes[..]),
@@ -1026,7 +1021,7 @@ impl Database {
                 }
                 QueryKey::Matches(key) => {
                     let key = key
-                        .as_big_endian_bytes()
+                        .as_ord_bytes()
                         .map_err(view::Error::key_serialization)?
                         .to_vec();
 
@@ -1036,7 +1031,7 @@ impl Database {
                     let mut list = list
                         .into_iter()
                         .map(|key| {
-                            key.as_big_endian_bytes()
+                            key.as_ord_bytes()
                                 .map(|bytes| bytes.to_vec())
                                 .map_err(view::Error::key_serialization)
                         })
@@ -1155,16 +1150,36 @@ impl Database {
             .await;
     }
 }
+#[derive(Serialize, Deserialize)]
+struct LegacyHeader {
+    id: u64,
+    revision: Revision,
+}
+#[derive(Serialize, Deserialize)]
+struct LegacyDocument<'a> {
+    header: LegacyHeader,
+    #[serde(borrow)]
+    contents: &'a [u8],
+}
 
-pub(crate) fn deserialize_document(
-    bytes: &[u8],
-) -> Result<BorrowedDocument<'_>, bonsaidb_core::Error> {
-    let document = bincode::deserialize::<BorrowedDocument<'_>>(bytes).map_err(Error::from)?;
-    Ok(document)
+pub(crate) fn deserialize_document(bytes: &[u8]) -> Result<BorrowedDocument<'_>, Error> {
+    match pot::from_slice::<BorrowedDocument<'_>>(bytes) {
+        Ok(document) => Ok(document),
+        Err(err) => match bincode::deserialize::<LegacyDocument<'_>>(bytes) {
+            Ok(legacy_doc) => Ok(BorrowedDocument {
+                header: Header {
+                    id: DocumentId::from_u64(legacy_doc.header.id),
+                    revision: legacy_doc.header.revision,
+                },
+                contents: CowBytes::from(legacy_doc.contents),
+            }),
+            Err(_) => Err(Error::from(err)),
+        },
+    }
 }
 
 fn serialize_document(document: &BorrowedDocument<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
-    bincode::serialize(document)
+    pot::to_vec(document)
         .map_err(Error::from)
         .map_err(bonsaidb_core::Error::from)
 }
@@ -1200,11 +1215,26 @@ impl Connection for Database {
                 }
             }
         }
+
+        let mut unique_view_mapping_tasks = Vec::new();
         for task in unique_view_tasks {
-            task.receive()
+            if let Some(spawned_task) = task
+                .receive()
                 .await
                 .map_err(Error::from)?
-                .map_err(Error::from)?;
+                .map_err(Error::from)?
+            {
+                unique_view_mapping_tasks.push(spawned_task);
+            }
+        }
+        for task in unique_view_mapping_tasks {
+            let mut task = fast_async_lock!(task);
+            if let Some(task) = task.take() {
+                task.receive()
+                    .await
+                    .map_err(Error::from)?
+                    .map_err(Error::from)?;
+            }
         }
 
         tokio::task::spawn_blocking(move || task_self.apply_transaction_to_roots(&transaction))
@@ -1214,31 +1244,57 @@ impl Connection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(id)))]
-    async fn get<C: schema::Collection>(
+    async fn get<C, PrimaryKey>(
         &self,
-        id: u64,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
-        self.get_from_collection_id(id, &C::collection_name()).await
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
-    async fn get_multiple<C: schema::Collection>(
-        &self,
-        ids: &[u64],
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        self.get_multiple_from_collection_id(ids, &C::collection_name())
+        id: PrimaryKey,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        self.get_from_collection_id(id.into().to_document_id()?, &C::collection_name())
             .await
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
+    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
+        &self,
+        ids: DocumentIds,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
+    {
+        self.get_multiple_from_collection_id(
+            &ids.into_iter()
+                .map(|id| id.into().to_document_id())
+                .collect::<Result<Vec<_>, _>>()?,
+            &C::collection_name(),
+        )
+        .await
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids, order, limit)))]
-    async fn list<C: schema::Collection, R: Into<Range<u64>> + Send>(
+    async fn list<C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        self.list(ids.into(), order, limit, &C::collection_name())
-            .await
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        self.list(
+            ids.into().map_result(|id| id.into().to_document_id())?,
+            order,
+            limit,
+            &C::collection_name(),
+        )
+        .await
     }
 
     #[cfg_attr(
@@ -1318,7 +1374,7 @@ impl Connection for Database {
         let mut results = Vec::new();
         self.for_each_view_entry::<V, _>(key, order, limit, access_policy, |collection| {
             let entry = ViewEntry::from(collection);
-            let key = <V::Key as Key>::from_big_endian_bytes(&entry.key)
+            let key = <V::Key as Key>::from_ord_bytes(&entry.key)
                 .map_err(view::Error::key_serialization)
                 .map_err(Error::from)?;
             for entry in entry.mappings {
@@ -1352,11 +1408,11 @@ impl Connection for Database {
         let results = Connection::query::<V>(self, key, order, limit, access_policy).await?;
 
         let documents = self
-            .get_multiple::<V::Collection>(&results.iter().map(|m| m.source.id).collect::<Vec<_>>())
+            .get_multiple::<V::Collection, _, _, _>(results.iter().map(|m| m.source.id))
             .await?
             .into_iter()
             .map(|doc| (doc.header.id, doc))
-            .collect::<BTreeMap<u64, _>>();
+            .collect::<BTreeMap<_, _>>();
 
         Ok(MappedDocuments {
             mappings: results,
@@ -1417,8 +1473,7 @@ impl Connection for Database {
             .into_iter()
             .map(|map| {
                 Ok(MappedValue::new(
-                    V::Key::from_big_endian_bytes(&map.key)
-                        .map_err(view::Error::key_serialization)?,
+                    V::Key::from_ord_bytes(&map.key).map_err(view::Error::key_serialization)?,
                     V::deserialize(&map.value)?,
                 ))
             })
@@ -1589,4 +1644,23 @@ impl Drop for ContextData {
 
 pub fn document_tree_name(collection: &CollectionName) -> String {
     format!("collection.{:#}", collection)
+}
+
+pub struct DocumentIdRange(Range<DocumentId>);
+
+impl<'a> BorrowByteRange<'a> for DocumentIdRange {
+    fn borrow_as_bytes(&'a self) -> BorrowedRange<'a> {
+        BorrowedRange {
+            start: match &self.0.start {
+                connection::Bound::Unbounded => ops::Bound::Unbounded,
+                connection::Bound::Included(docid) => ops::Bound::Included(docid.as_ref()),
+                connection::Bound::Excluded(docid) => ops::Bound::Excluded(docid.as_ref()),
+            },
+            end: match &self.0.end {
+                connection::Bound::Unbounded => ops::Bound::Unbounded,
+                connection::Bound::Included(docid) => ops::Bound::Included(docid.as_ref()),
+                connection::Bound::Excluded(docid) => ops::Bound::Excluded(docid.as_ref()),
+            },
+        }
+    }
 }

@@ -2,7 +2,7 @@ use actionable::{Action, Identifier, ResourceName};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::KeyId,
+    document::{DocumentId, KeyId},
     schema::{CollectionName, ViewName},
 };
 
@@ -33,11 +33,12 @@ pub fn collection_resource_name<'a>(
 pub fn document_resource_name<'a>(
     database: impl Into<Identifier<'a>>,
     collection: &CollectionName,
-    id: u64,
+    id: DocumentId,
 ) -> ResourceName<'a> {
+    // TODO this should borrow DocumentId
     collection_resource_name(database, collection)
         .and("document")
-        .and(id)
+        .and(id.to_string())
 }
 
 /// Creaets a resource name for a `view` within `database`.

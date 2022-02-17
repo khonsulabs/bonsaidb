@@ -8,7 +8,11 @@ use transmog_pot::Pot;
 
 use crate::{
     connection::{self, Connection, Range},
-    document::{BorrowedDocument, CollectionDocument, KeyId, OwnedDocument, OwnedDocuments},
+    document::{
+        AnyDocumentId, BorrowedDocument, CollectionDocument, Document, DocumentId, KeyId,
+        OwnedDocument, OwnedDocuments,
+    },
+    key::Key,
     schema::{CollectionName, Schematic},
     Error,
 };
@@ -85,6 +89,44 @@ use crate::{
 /// # }
 /// ```
 ///
+/// ### Selecting a Primary Key type
+///
+/// By default, the `#[collection]` macro will use `u64` for the
+/// [`Self::PrimaryKey`] type. Collections can use any type that implements the
+/// [`Key`] trait:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection", primary_key = u128)]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// If the data being stored has a ["natural key"][natural-key], a closure or a
+/// function can be provided to extract the value during a `push` operation:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection", natural_id = |item: &Self| Some(item.external_id))]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection {
+///     pub external_id: u64,
+/// }
+/// ```
+///
+/// Primary keys are not able to be updated. To update a document's primary key,
+/// the contents must be inserted at the new id and deleted from the previous
+/// id.
+///
+/// [natural-key]: https://en.wikipedia.org/wiki/Natural_key
+///
+///
 /// ### Specifying a Collection Encryption Key
 ///
 /// By default, encryption will be required if an `encryption_key` is provided:
@@ -157,8 +199,22 @@ use crate::{
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
 /// ```
-pub trait Collection: Debug + Send + Sync {
-    /// The `Id` of this collection.
+pub trait Collection: Debug + Send + Sync
+where
+    AnyDocumentId<Self::PrimaryKey>: From<Self::PrimaryKey>,
+{
+    /// The unique id type. Each document stored in a collection will be
+    /// uniquely identified by this type.
+    ///
+    /// ## Primary Key Limits
+    ///
+    /// The result of [`Key::as_ord_bytes()`] must be less than or equal
+    /// to [`DocumentId::MAX_LENGTH`]. This is currently 63 bytes.
+    type PrimaryKey: for<'k> Key<'k>;
+
+    /// The unique name of this collection. Each collection must be uniquely
+    /// named within the [`Schema`](crate::schema::Schema) it is registered
+    /// within.
     fn collection_name() -> CollectionName;
 
     /// Defines all `View`s in this collection in `schema`.
@@ -198,6 +254,17 @@ pub trait SerializedCollection: Collection {
     /// The serialization format for this collection.
     type Format: OwnedDeserializer<Self::Contents>;
 
+    /// Returns the natural identifier of `contents`. This is called when
+    /// pushing values into a collection, before attempting to automatically
+    /// assign a unique id.
+    #[allow(unused_variables)]
+    fn natural_id(contents: &Self::Contents) -> Option<Self::PrimaryKey>
+    where
+        Self: Sized,
+    {
+        None
+    }
+
     /// Returns the configured instance of [`Self::Format`].
     // TODO allow configuration to be passed here, such as max allocation bytes.
     fn format() -> Self::Format;
@@ -207,6 +274,25 @@ pub trait SerializedCollection: Collection {
         Self::format()
             .deserialize_owned(data)
             .map_err(|err| crate::Error::Serialization(err.to_string()))
+    }
+
+    /// Returns the deserialized contents of `doc`.
+    fn document_contents<D: Document<Self>>(doc: &D) -> Result<Self::Contents, Error>
+    where
+        Self: Sized,
+    {
+        doc.contents()
+    }
+
+    /// Sets the contents of `doc` to `contents`.
+    fn set_document_contents<D: Document<Self>>(
+        doc: &mut D,
+        contents: Self::Contents,
+    ) -> Result<(), Error>
+    where
+        Self: Sized,
+    {
+        doc.set_contents(contents)
     }
 
     /// Serialize `item` using this collection's format.
@@ -232,14 +318,16 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn get<C: Connection>(
-        id: u64,
+    async fn get<C, PrimaryKey>(
+        id: PrimaryKey,
         connection: &C,
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
+        C: Connection,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
         Self: Sized,
     {
-        let possible_doc = connection.get::<Self>(id).await?;
+        let possible_doc = connection.get::<Self, _>(id).await?;
         Ok(possible_doc.as_ref().map(TryInto::try_into).transpose()?)
     }
 
@@ -250,7 +338,7 @@ pub trait SerializedCollection: Collection {
     /// # bonsaidb_core::__doctest_prelude!();
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for doc in MyCollection::get_multiple(&[42, 43], &db).await? {
+    /// for doc in MyCollection::get_multiple([42, 43], &db).await? {
     ///     println!(
     ///         "Retrieved #{} with deserialized contents: {:?}",
     ///         doc.header.id, doc.contents
@@ -260,11 +348,15 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn get_multiple<C: Connection>(
-        ids: &[u64],
+    async fn get_multiple<C, DocumentIds, PrimaryKey, I>(
+        ids: DocumentIds,
         connection: &C,
     ) -> Result<Vec<CollectionDocument<Self>>, Error>
     where
+        C: Connection,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
         Self: Sized,
     {
         connection
@@ -290,13 +382,16 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    fn list<R: Into<Range<u64>>, C: Connection>(ids: R, connection: &'_ C) -> List<'_, C, Self>
+    fn list<R, PrimaryKey, C>(ids: R, connection: &'_ C) -> List<'_, C, Self>
     where
+        R: Into<Range<PrimaryKey>>,
+        C: Connection,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
         Self: Sized,
     {
         List(connection::List::new(
             connection::PossiblyOwned::Owned(connection.collection::<Self>()),
-            ids.into(),
+            ids.into().map(PrimaryKey::into),
         ))
     }
 
@@ -329,6 +424,14 @@ pub trait SerializedCollection: Collection {
     /// Pushes this value into the collection, returning the created document.
     /// This function is useful when `Self != Self::Contents`.
     ///
+    /// ## Automatic Id Assignment
+    ///
+    /// This function calls [`Self::natural_id()`] to try to retrieve a primary
+    /// key value from `contents`. If an id is returned, the item is inserted
+    /// with that id. If an id is not returned, an id will be automatically
+    /// assigned, if possible, by the storage backend, which uses the [`Key`]
+    /// trait to assign ids.
+    ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
@@ -358,6 +461,14 @@ pub trait SerializedCollection: Collection {
     }
 
     /// Pushes this value into the collection, returning the created document.
+    ///
+    /// ## Automatic Id Assignment
+    ///
+    /// This function calls [`Self::natural_id()`] to try to retrieve a primary
+    /// key value from `self`. If an id is returned, the item is inserted with
+    /// that id. If an id is not returned, an id will be automatically assigned,
+    /// if possible, by the storage backend, which uses the [`Key`] trait to
+    /// assign ids.
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
@@ -399,12 +510,14 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn insert<Cn: Connection>(
-        id: u64,
+    async fn insert<PrimaryKey, Cn>(
+        id: PrimaryKey,
         contents: Self::Contents,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        Cn: Connection,
         Self: Sized + 'static,
         Self::Contents: 'async_trait,
     {
@@ -432,12 +545,14 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn insert_into<Cn: Connection>(
+    async fn insert_into<PrimaryKey, Cn>(
         self,
-        id: u64,
+        id: PrimaryKey,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        Cn: Connection,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
         Self::insert(id, self, connection).await
@@ -460,17 +575,19 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn overwrite<Cn: Connection>(
-        id: u64,
+    async fn overwrite<PrimaryKey, Cn>(
+        id: PrimaryKey,
         contents: Self::Contents,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
+        Cn: Connection,
         Self: Sized + 'static,
         Self::Contents: 'async_trait,
     {
         let header = match Self::serialize(&contents) {
-            Ok(serialized) => match connection.overwrite::<Self>(id, serialized).await {
+            Ok(serialized) => match connection.overwrite::<Self, _>(id, serialized).await {
                 Ok(header) => header,
                 Err(error) => return Err(InsertError { contents, error }),
             },
@@ -496,12 +613,13 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn overwrite_into<Cn: Connection>(
+    async fn overwrite_into<Cn: Connection, PrimaryKey>(
         self,
-        id: u64,
+        id: PrimaryKey,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
         Self::overwrite(id, self, connection).await
@@ -509,7 +627,14 @@ pub trait SerializedCollection: Collection {
 }
 
 /// A convenience trait for easily storing Serde-compatible types in documents.
-pub trait DefaultSerialization: Collection {}
+pub trait DefaultSerialization: Collection {
+    /// Returns the natural identifier of `contents`. This is called when
+    /// pushing values into a collection, before attempting to automatically
+    /// assign a unique id.
+    fn natural_id(&self) -> Option<Self::PrimaryKey> {
+        None
+    }
+}
 
 impl<T> SerializedCollection for T
 where
@@ -520,6 +645,10 @@ where
 
     fn format() -> Self::Format {
         Pot::default()
+    }
+
+    fn natural_id(contents: &Self::Contents) -> Option<Self::PrimaryKey> {
+        T::natural_id(contents)
     }
 }
 
@@ -552,8 +681,8 @@ pub struct InsertError<T> {
 /// # }
 /// ```
 ///
-/// Load accepts either a string or a u64. This enables building methods that
-/// accept either the unique ID or the unique name:
+/// Load accepts either a string or a [`DocumentId`]. This enables building
+/// methods that accept either the unique ID or the unique name:
 ///
 /// ```rust
 /// # bonsaidb_core::__doctest_prelude!();
@@ -595,7 +724,7 @@ pub trait NamedCollection: Collection + Unpin {
     type ByNameView: crate::schema::SerializedView<Key = String>;
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
-    async fn load<'name, N: Into<NamedReference<'name>> + Send + Sync, C: Connection>(
+    async fn load<'name, N: Nameable<'name, Self::PrimaryKey> + Send + Sync, C: Connection>(
         id: N,
         connection: &C,
     ) -> Result<Option<CollectionDocument<Self>>, Error>
@@ -610,7 +739,12 @@ pub trait NamedCollection: Collection + Unpin {
     }
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
-    fn entry<'connection, 'name, N: Into<NamedReference<'name>> + Send + Sync, C: Connection>(
+    fn entry<
+        'connection,
+        'name,
+        N: Into<NamedReference<'name, Self::PrimaryKey>> + Send + Sync,
+        C: Connection,
+    >(
         id: N,
         connection: &'connection C,
     ) -> Entry<'connection, 'name, C, Self, (), ()>
@@ -633,15 +767,20 @@ pub trait NamedCollection: Collection + Unpin {
     /// Loads a document from this collection by name, if applicable. Return
     /// `Ok(None)` if unsupported.
     #[allow(unused_variables)]
-    async fn load_document<'name, N: Into<NamedReference<'name>> + Send + Sync, C: Connection>(
+    async fn load_document<
+        'name,
+        N: Nameable<'name, Self::PrimaryKey> + Send + Sync,
+        C: Connection,
+    >(
         name: N,
         connection: &C,
     ) -> Result<Option<OwnedDocument>, Error>
     where
         Self: SerializedCollection + Sized,
     {
-        match name.into() {
-            NamedReference::Id(id) => connection.get::<Self>(id).await,
+        match name.name()? {
+            NamedReference::Id(id) => connection.collection::<Self>().get(id).await,
+            NamedReference::Key(id) => connection.collection::<Self>().get(id).await,
             NamedReference::Name(name) => Ok(connection
                 .view::<Self::ByNameView>()
                 .with_key(name.as_ref().to_owned())
@@ -658,80 +797,148 @@ pub trait NamedCollection: Collection + Unpin {
 /// A reference to a collection that has a unique name view.
 #[derive(Clone, PartialEq, Deserialize, Serialize, Debug)]
 #[must_use]
-pub enum NamedReference<'a> {
+pub enum NamedReference<'a, Id> {
     /// An entity's name.
     Name(Cow<'a, str>),
     /// A document id.
-    Id(u64),
+    Id(DocumentId),
+    /// A document id.
+    Key(Id),
 }
 
-impl<'a> From<&'a str> for NamedReference<'a> {
+impl<'a, Id> From<&'a str> for NamedReference<'a, Id> {
     fn from(name: &'a str) -> Self {
         Self::Name(Cow::Borrowed(name))
     }
 }
 
-impl<'a> From<&'a String> for NamedReference<'a> {
+/// A type that can be used as a unique reference for a collection that
+/// implements [`NamedCollection`].
+pub trait Nameable<'a, Id> {
+    /// Returns this name as a [`NamedReference`].
+    fn name(self) -> Result<NamedReference<'a, Id>, crate::Error>;
+}
+
+impl<'a, Id> Nameable<'a, Id> for NamedReference<'a, Id> {
+    fn name(self) -> Result<NamedReference<'a, Id>, crate::Error> {
+        Ok(self)
+    }
+}
+
+impl<'a, Id> Nameable<'a, Id> for &'a str {
+    fn name(self) -> Result<NamedReference<'a, Id>, crate::Error> {
+        Ok(NamedReference::from(self))
+    }
+}
+
+impl<'a, Id> From<&'a String> for NamedReference<'a, Id> {
     fn from(name: &'a String) -> Self {
         Self::Name(Cow::Borrowed(name.as_str()))
     }
 }
 
-impl<'a, 'b, 'c> From<&'b BorrowedDocument<'b>> for NamedReference<'a> {
+impl<'a, Id> Nameable<'a, Id> for &'a String {
+    fn name(self) -> Result<NamedReference<'a, Id>, crate::Error> {
+        Ok(NamedReference::from(self))
+    }
+}
+
+impl<'a, 'b, 'c, Id> From<&'b BorrowedDocument<'b>> for NamedReference<'a, Id> {
     fn from(doc: &'b BorrowedDocument<'b>) -> Self {
         Self::Id(doc.header.id)
     }
 }
 
-impl<'a, 'c, C> From<&'c CollectionDocument<C>> for NamedReference<'a>
-where
-    C: SerializedCollection,
-{
-    fn from(doc: &'c CollectionDocument<C>) -> Self {
-        Self::Id(doc.header.id)
+impl<'a, 'b, Id> Nameable<'a, Id> for &'a BorrowedDocument<'b> {
+    fn name(self) -> Result<NamedReference<'a, Id>, crate::Error> {
+        Ok(NamedReference::from(self))
     }
 }
 
-impl<'a> From<String> for NamedReference<'a> {
+impl<'a, 'c, C> TryFrom<&'c CollectionDocument<C>> for NamedReference<'a, C::PrimaryKey>
+where
+    C: SerializedCollection,
+{
+    type Error = crate::Error;
+
+    fn try_from(doc: &'c CollectionDocument<C>) -> Result<Self, crate::Error> {
+        DocumentId::new(doc.header.id.clone()).map(Self::Id)
+    }
+}
+
+impl<'a, C> Nameable<'a, C::PrimaryKey> for &'a CollectionDocument<C>
+where
+    C: SerializedCollection,
+{
+    fn name(self) -> Result<NamedReference<'a, C::PrimaryKey>, crate::Error> {
+        NamedReference::try_from(self)
+    }
+}
+
+impl<'a, Id> From<String> for NamedReference<'a, Id> {
     fn from(name: String) -> Self {
         Self::Name(Cow::Owned(name))
     }
 }
 
-impl<'a> From<u64> for NamedReference<'a> {
-    fn from(id: u64) -> Self {
+impl<'a, Id> Nameable<'a, Id> for String {
+    fn name(self) -> Result<NamedReference<'a, Id>, crate::Error> {
+        Ok(NamedReference::from(self))
+    }
+}
+
+impl<'a, Id> From<DocumentId> for NamedReference<'a, Id> {
+    fn from(id: DocumentId) -> Self {
         Self::Id(id)
     }
 }
 
-impl<'a> NamedReference<'a> {
+impl<'a, Id> Nameable<'a, Id> for DocumentId {
+    fn name(self) -> Result<NamedReference<'a, Id>, crate::Error> {
+        Ok(NamedReference::from(self))
+    }
+}
+
+impl<'a> Nameable<'a, Self> for u64 {
+    fn name(self) -> Result<NamedReference<'a, Self>, crate::Error> {
+        Ok(NamedReference::Key(self))
+    }
+}
+
+impl<'a, Id> NamedReference<'a, Id>
+where
+    Id: for<'k> Key<'k>,
+{
     /// Converts this reference to an owned reference with a `'static` lifetime.
-    pub fn into_owned(self) -> NamedReference<'static> {
+    pub fn into_owned(self) -> NamedReference<'static, Id> {
         match self {
             Self::Name(name) => NamedReference::Name(match name {
                 Cow::Owned(string) => Cow::Owned(string),
                 Cow::Borrowed(borrowed) => Cow::Owned(borrowed.to_owned()),
             }),
             Self::Id(id) => NamedReference::Id(id),
+            Self::Key(key) => NamedReference::Key(key),
         }
     }
 
     /// Returns this reference's id. If the reference is a name, the
     /// [`NamedCollection::ByNameView`] is queried for the id.
-    pub async fn id<Col: NamedCollection, Cn: Connection>(
+    pub async fn id<Col: NamedCollection<PrimaryKey = Id>, Cn: Connection>(
         &self,
         connection: &Cn,
-    ) -> Result<Option<u64>, Error> {
+    ) -> Result<Option<Col::PrimaryKey>, Error> {
         match self {
-            Self::Name(name) => Ok(connection
+            Self::Name(name) => connection
                 .view::<Col::ByNameView>()
                 .with_key(name.as_ref().to_owned())
                 .query()
                 .await?
                 .into_iter()
                 .next()
-                .map(|e| e.source.id)),
-            Self::Id(id) => Ok(Some(*id)),
+                .map(|e| e.source.id.deserialize())
+                .transpose(),
+            Self::Id(id) => Ok(Some(id.deserialize()?)),
+            Self::Key(id) => Ok(Some(id.clone())),
         }
     }
 }
@@ -757,7 +964,7 @@ struct EntryBuilder<
 > where
     Col: SerializedCollection,
 {
-    name: NamedReference<'name>,
+    name: NamedReference<'name, Col::PrimaryKey>,
     connection: &'a Connection,
     insert: Option<EI>,
     update: Option<EU>,
@@ -774,7 +981,7 @@ where
     'name: 'a,
 {
     async fn execute(
-        name: NamedReference<'name>,
+        name: NamedReference<'name, Col::PrimaryKey>,
         connection: &'a Connection,
         insert: Option<EI>,
         update: Option<EU>,
@@ -940,6 +1147,7 @@ where
 impl<'a, 'name, Conn, Col, EI, EU> Future for Entry<'a, 'name, Conn, Col, EI, EU>
 where
     Col: NamedCollection + SerializedCollection + 'static,
+    <Col as Collection>::PrimaryKey: Unpin,
     Conn: Connection,
     EI: EntryInsert<Col> + 'a,
     EU: EntryUpdate<Col> + 'a,
@@ -987,9 +1195,14 @@ where
 /// Executes [`Connection::list()`] when awaited. Also offers methods to
 /// customize the options for the operation.
 #[must_use]
-pub struct List<'a, Cn, Cl>(connection::List<'a, Cn, Cl>);
+pub struct List<'a, Cn, Cl>(connection::List<'a, Cn, Cl>)
+where
+    Cl: Collection;
 
-impl<'a, Cn, Cl> List<'a, Cn, Cl> {
+impl<'a, Cn, Cl> List<'a, Cn, Cl>
+where
+    Cl: Collection,
+{
     /// Lists documents by id in ascending order.
     pub fn ascending(mut self) -> Self {
         self.0 = self.0.ascending();
@@ -1012,6 +1225,7 @@ impl<'a, Cn, Cl> List<'a, Cn, Cl> {
 impl<'a, Cn, Cl> Future for List<'a, Cn, Cl>
 where
     Cl: SerializedCollection + Unpin,
+    Cl::PrimaryKey: Unpin,
     Cn: Connection,
 {
     type Output = Result<Vec<CollectionDocument<Cl>>, Error>;

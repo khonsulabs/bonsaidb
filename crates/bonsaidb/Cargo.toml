@@ -123,13 +123,13 @@ bonsaidb-server = { path = "../bonsaidb-server", version = "=0.2.0", default-fea
 ], optional = true }
 bonsaidb-keystorage-s3 = { path = "../bonsaidb-keystorage-s3", version = "0.2.0", default-features = false, optional = true }
 
-tokio = { version = "1", features = ["full"], optional = true }
+tokio = { version = "=1.16.1", features = ["full"], optional = true }
 clap = { version = "3", optional = true, features = ["derive"] }
 anyhow = { version = "1", optional = true }
 url = { version = "2.2", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "=1.16.1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 anyhow = "1"
 bonsaidb-core = { path = "../bonsaidb-core", version = "=0.2.0", default-features = false, features = [
