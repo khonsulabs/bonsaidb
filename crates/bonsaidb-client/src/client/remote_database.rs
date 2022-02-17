@@ -5,6 +5,7 @@ use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort},
     custom_api::CustomApi,
     document::{AnyDocumentId, OwnedDocument},
+    key::Key,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
         view::{
@@ -12,7 +13,7 @@ use bonsaidb_core::{
             map::{self, MappedDocuments},
             SerializedView,
         },
-        Collection, Key, Map, MappedValue, Schematic,
+        Collection, Map, MappedValue, Schematic,
     },
     transaction::{Executed, OperationResult, Transaction},
 };

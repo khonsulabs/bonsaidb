@@ -2,9 +2,10 @@ use bonsaidb::{
     core::{
         connection::Connection,
         document::{BorrowedDocument, Emit},
+        key::EnumKey,
         schema::{
-            view::{map::ViewMappedValue, EnumKey},
-            Collection, ReduceResult, SerializedCollection, View, ViewMapResult, ViewSchema,
+            view::map::ViewMappedValue, Collection, ReduceResult, SerializedCollection, View,
+            ViewMapResult, ViewSchema,
         },
         Error,
     },

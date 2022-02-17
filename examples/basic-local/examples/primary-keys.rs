@@ -1,5 +1,8 @@
 use bonsaidb::{
-    core::schema::{view::NextValueError, Collection, Schema, SerializedCollection},
+    core::{
+        key::NextValueError,
+        schema::{Collection, Schema, SerializedCollection},
+    },
     local::{
         config::{Builder, StorageConfiguration},
         Database,

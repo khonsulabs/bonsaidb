@@ -9,12 +9,13 @@ use derive_where::derive_where;
 
 use crate::{
     document::{BorrowedDocument, DocumentId, KeyId},
+    key::Key,
     schema::{
         collection::Collection,
         view::{
             self,
             map::{self, MappedValue},
-            Key, Serialized, SerializedView, ViewSchema,
+            Serialized, SerializedView, ViewSchema,
         },
         CollectionName, Schema, SchemaName, View, ViewName,
     },

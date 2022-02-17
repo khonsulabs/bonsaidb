@@ -6,6 +6,7 @@ use transmog_pot::Pot;
 
 use crate::{
     document::{BorrowedDocument, CollectionDocument},
+    key::Key,
     schema::{
         view::map::{Mappings, ViewMappedValue},
         Collection, CollectionName, Name, SerializedCollection, ViewName,
@@ -15,9 +16,6 @@ use crate::{
 
 /// Types for defining a `Map` within a `View`.
 pub mod map;
-
-mod key;
-pub use self::key::*;
 
 /// Errors that arise when interacting with views.
 #[derive(thiserror::Error, Debug)]

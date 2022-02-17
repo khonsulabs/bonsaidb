@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{view::IncorrectByteLength, Key};
+use crate::key::{IncorrectByteLength, Key};
 
 /// A timestamp relative to [`UNIX_EPOCH`].
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default)]

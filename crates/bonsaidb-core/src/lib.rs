@@ -38,6 +38,9 @@ pub mod keyvalue;
 /// Traits for tailoring a server.
 pub mod custom_api;
 
+/// Key trait and related types.
+pub mod key;
+
 #[cfg(feature = "networking")]
 /// Types for implementing the BonsaiDb network protocol.
 pub mod networking;
@@ -60,7 +63,8 @@ pub use transmog_pot;
 
 use crate::{
     document::{DocumentId, Header, InvalidHexadecimal},
-    schema::{view::NextValueError, InsertError},
+    key::NextValueError,
+    schema::InsertError,
 };
 
 /// an enumeration of errors that this crate can produce

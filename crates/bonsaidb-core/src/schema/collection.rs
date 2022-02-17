@@ -12,7 +12,8 @@ use crate::{
         AnyDocumentId, BorrowedDocument, CollectionDocument, Document, DocumentId, KeyId,
         OwnedDocument, OwnedDocuments,
     },
-    schema::{view::Key, CollectionName, Schematic},
+    key::Key,
+    schema::{CollectionName, Schematic},
     Error,
 };
 

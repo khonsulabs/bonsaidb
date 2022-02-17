@@ -18,6 +18,7 @@ use bonsaidb_core::{
     },
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
     document::{AnyDocumentId, BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
+    key::Key,
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
@@ -27,7 +28,7 @@ use bonsaidb_core::{
             self,
             map::{MappedDocuments, MappedSerializedValue},
         },
-        Collection, CollectionName, Key, Map, MappedValue, Schema, Schematic, ViewName,
+        Collection, CollectionName, Map, MappedValue, Schema, Schematic, ViewName,
     },
     transaction::{
         self, ChangedDocument, Changes, Command, Operation, OperationResult, Transaction,

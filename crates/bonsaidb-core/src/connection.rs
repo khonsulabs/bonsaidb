@@ -13,11 +13,12 @@ use crate::{
     document::{
         AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, OwnedDocument,
     },
+    key::Key,
     permissions::Permissions,
     schema::{
         self,
         view::{self, map::MappedDocuments},
-        Key, Map, MappedValue, Schema, SchemaName, SerializedCollection,
+        Map, MappedValue, Schema, SchemaName, SerializedCollection,
     },
     transaction::{self, OperationResult, Transaction},
     Error,
