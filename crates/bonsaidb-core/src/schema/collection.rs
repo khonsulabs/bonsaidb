@@ -52,7 +52,7 @@ use crate::{
 /// use bonsaidb_core::schema::{Collection, View};
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Clone, Debug, Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection", views = [ScoresByRank])]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
@@ -281,7 +281,7 @@ pub trait SerializedCollection: Collection {
     /// # bonsaidb_core::__doctest_prelude!();
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for doc in MyCollection::get_multiple(&[42, 43], &db).await? {
+    /// for doc in MyCollection::get_multiple([42, 43], &db).await? {
     ///     println!(
     ///         "Retrieved #{} with deserialized contents: {:?}",
     ///         doc.header.id, doc.contents
@@ -540,12 +540,13 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn overwrite_into<Cn: Connection>(
+    async fn overwrite_into<Cn: Connection, PK>(
         self,
-        id: DocumentId,
+        id: PK,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
+        PK: Into<DocumentKey<Self::PrimaryKey>> + Send + Sync,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
         Self::overwrite(id, self, connection).await

@@ -43,6 +43,7 @@ use nebari::{
     },
     AbortError, ExecutingTransaction, Roots, Tree,
 };
+use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
 #[cfg(feature = "encryption")]
@@ -502,10 +503,11 @@ impl Database {
             keys_and_values
                 .into_iter()
                 .map(|(_, value)| deserialize_document(&value).map(BorrowedDocument::into_owned))
-                .collect()
+                .collect::<Result<Vec<_>, Error>>()
         })
         .await
         .unwrap()
+        .map_err(bonsaidb_core::Error::from)
     }
 
     pub(crate) async fn list(
@@ -558,7 +560,7 @@ impl Database {
             )
             .map_err(|err| match err {
                 AbortError::Other(err) => err,
-                AbortError::Nebari(err) => bonsaidb_core::Error::from(crate::Error::from(err)),
+                AbortError::Nebari(err) => crate::Error::from(err),
             })
             .unwrap();
 
@@ -788,7 +790,7 @@ impl Database {
                     let doc = match deserialize_document(&old) {
                         Ok(doc) => doc,
                         Err(err) => {
-                            result = Some(Err(Error::from(err)));
+                            result = Some(Err(err));
                             return nebari::tree::KeyOperation::Skip;
                         }
                     };
@@ -1147,12 +1149,32 @@ impl Database {
             .await;
     }
 }
+#[derive(Serialize, Deserialize)]
+struct LegacyHeader {
+    id: u64,
+    revision: Revision,
+}
+#[derive(Serialize, Deserialize)]
+struct LegacyDocument<'a> {
+    header: LegacyHeader,
+    #[serde(borrow)]
+    contents: &'a [u8],
+}
 
-pub(crate) fn deserialize_document(
-    bytes: &[u8],
-) -> Result<BorrowedDocument<'_>, bonsaidb_core::Error> {
-    let document = bincode::deserialize::<BorrowedDocument<'_>>(bytes).map_err(Error::from)?;
-    Ok(document)
+pub(crate) fn deserialize_document(bytes: &[u8]) -> Result<BorrowedDocument<'_>, Error> {
+    match bincode::deserialize::<BorrowedDocument<'_>>(bytes) {
+        Ok(document) => Ok(document),
+        Err(err) => match bincode::deserialize::<LegacyDocument<'_>>(bytes) {
+            Ok(legacy_doc) => Ok(BorrowedDocument {
+                header: Header {
+                    id: DocumentId::from_u64(legacy_doc.header.id),
+                    revision: legacy_doc.header.revision,
+                },
+                contents: CowBytes::from(legacy_doc.contents),
+            }),
+            Err(_) => Err(Error::from(err)),
+        },
+    }
 }
 
 fn serialize_document(document: &BorrowedDocument<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
@@ -1192,11 +1214,26 @@ impl Connection for Database {
                 }
             }
         }
+
+        let mut unique_view_mapping_tasks = Vec::new();
         for task in unique_view_tasks {
-            task.receive()
+            if let Some(spawned_task) = task
+                .receive()
                 .await
                 .map_err(Error::from)?
-                .map_err(Error::from)?;
+                .map_err(Error::from)?
+            {
+                unique_view_mapping_tasks.push(spawned_task);
+            }
+        }
+        for task in unique_view_mapping_tasks {
+            let mut task = fast_async_lock!(task);
+            if let Some(task) = task.take() {
+                task.receive()
+                    .await
+                    .map_err(Error::from)?
+                    .map_err(Error::from)?;
+            }
         }
 
         tokio::task::spawn_blocking(move || task_self.apply_transaction_to_roots(&transaction))

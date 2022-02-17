@@ -69,6 +69,15 @@ action: `DocumentAction::Overwrite`. The functions that have been added are:
   This may generate slightly more crate updates than absolutely necessary, but
   for a small team it seems like the most manageable approach.
 
+### Fixed
+
+- The view system now tracks an internal version number in addition to the
+  version specified in the view definiton. This allows internal structures to be
+  upgraded transparently.
+- Applying a transaction to a collection with a unique view now ensures a view
+  mapping job has finished if the view's integrity check spawns one before
+  allowing the transaction to begin.
+
 ## v0.1.2
 
 ### Fixed

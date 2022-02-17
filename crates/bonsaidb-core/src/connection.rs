@@ -609,7 +609,7 @@ where
     ///         "Retrieved bytes {:?} with revision {}",
     ///         doc.contents, doc.header.revision
     ///     );
-    ///     let deserialized = doc.contents::<MyCollection>()?;
+    ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
@@ -632,11 +632,11 @@ where
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for doc in db
     ///     .collection::<MyCollection>()
-    ///     .get_multiple(&[42, 43])
+    ///     .get_multiple([42, 43])
     ///     .await?
     /// {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
-    ///     let deserialized = doc.contents::<MyCollection>()?;
+    ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
@@ -669,7 +669,7 @@ where
     ///     .await?
     /// {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
-    ///     let deserialized = doc.contents::<MyCollection>()?;
+    ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
@@ -692,7 +692,7 @@ where
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for doc in db.collection::<MyCollection>().all().await? {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
-    ///     let deserialized = doc.contents::<MyCollection>()?;
+    ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
@@ -858,7 +858,7 @@ where
 /// # use collection::MyCollection;
 /// use bonsaidb_core::{
 ///     define_basic_unique_mapped_view,
-///     document::CollectionDocument,
+///     document::{CollectionDocument, Emit},
 ///     schema::{
 ///         CollectionViewSchema, DefaultViewSerialization, Name, ReduceResult, View,
 ///         ViewMapResult, ViewMappedValue,
@@ -876,9 +876,9 @@ where
 ///         &self,
 ///         document: CollectionDocument<<Self::View as View>::Collection>,
 ///     ) -> ViewMapResult<Self::View> {
-///         Ok(document
+///         document
 ///             .header
-///             .emit_key_and_value(document.contents.rank, document.contents.score))
+///             .emit_key_and_value(document.contents.rank, document.contents.score)
 ///     }
 ///
 ///     fn reduce(
@@ -1716,8 +1716,9 @@ macro_rules! __doctest_prelude {
         use bonsaidb_core::{
             connection::{AccessPolicy, Connection},
             define_basic_unique_mapped_view,
-            document::{CollectionDocument, Document, OwnedDocument},
+            document::{CollectionDocument,Emit, Document, OwnedDocument},
             schema::{
+
                 Collection, CollectionName, CollectionViewSchema, DefaultSerialization,
                 DefaultViewSerialization, Name, NamedCollection, ReduceResult, Schema, SchemaName,
                 Schematic, SerializedCollection, View, ViewMapResult, ViewMappedValue,
@@ -1730,7 +1731,7 @@ macro_rules! __doctest_prelude {
         #[schema(name = "MySchema", collections = [MyCollection], core = $crate)]
         pub struct MySchema;
 
-        #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+        #[derive(Clone, Debug, Serialize, Deserialize, Default, Collection)]
         #[collection(name = "MyCollection", views = [MyCollectionByName], core = $crate)]
         pub struct MyCollection {
             pub name: String,
@@ -1766,9 +1767,9 @@ macro_rules! __doctest_prelude {
                 &self,
                 document: CollectionDocument<<Self::View as View>::Collection>,
             ) -> ViewMapResult<Self::View> {
-                Ok(document
+                document
                     .header
-                    .emit_key_and_value(document.contents.rank, document.contents.score))
+                    .emit_key_and_value(document.contents.rank, document.contents.score)
             }
 
             fn reduce(

@@ -26,7 +26,7 @@ async fn main() -> anyhow::Result<()> {
     let server = setup_server().await?;
 
     // Create a database user, or get its ID if it already existed.
-    let user_id = match server.create_user("ecton").await {
+    let user_id = match dbg!(server.create_user("ecton").await) {
         Ok(id) => {
             // Set the user's password.
             server
