@@ -24,7 +24,7 @@ log = "0.4"
 http = "0.2"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "=1.16.1", features = ["full"] }
 dotenv = "0.15"
 bonsaidb-core = { version = "0.2.0", path = "../bonsaidb-core", features = [
     "test-util",

@@ -53,7 +53,7 @@ bonsaidb-core = { path = "../bonsaidb-core", version = "=0.2.0", features = [
 bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.2.0" }
 nebari = { version = "0.3.1" }
 thiserror = "1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "=1.16.1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 pot = "1.0.0"
 bincode = "1.3"
