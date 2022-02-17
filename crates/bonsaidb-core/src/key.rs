@@ -12,20 +12,25 @@ use serde::{Deserialize, Serialize};
 
 use crate::AnyError;
 
-/// A trait that enables a type to convert itself to a big-endian/network byte order.
+/// A trait that enables a type to convert itself into a `memcmp`-compatible
+/// sequence of bytes.
 pub trait Key<'k>: Clone + std::fmt::Debug + Send + Sync {
     /// The error type that can be produced by either serialization or
     /// deserialization.
     type Error: AnyError;
 
-    /// The size of the key, if constant.
+    /// The size of the key, if constant. If this type doesn't produce the same
+    /// number of bytes for each value, this should be `None`.
     const LENGTH: Option<usize>;
 
-    /// Convert `self` into a `Cow<[u8]>` containing bytes ordered in big-endian/network byte order.
-    fn as_big_endian_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error>;
+    /// Convert `self` into a `Cow<[u8]>` containing bytes that are able to be
+    /// compared via `memcmp` in a way that is comptaible with its own Ord
+    /// implementation.
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error>;
 
-    /// Convert a slice of bytes into `Self` by interpretting `bytes` in big-endian/network byte order.
-    fn from_big_endian_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error>;
+    /// Deserialize a sequence of bytes previously encoded with
+    /// [`Self::as_ord_bytes`].
+    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error>;
 
     /// Return the first value in sequence for this type. Not all types
     /// implement this.
@@ -56,11 +61,11 @@ impl<'k> Key<'k> for Cow<'k, [u8]> {
 
     const LENGTH: Option<usize> = None;
 
-    fn as_big_endian_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(self.clone())
     }
 
-    fn from_big_endian_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         Ok(Cow::Owned(bytes.to_vec()))
     }
 }
@@ -70,11 +75,11 @@ impl<'a> Key<'a> for Vec<u8> {
 
     const LENGTH: Option<usize> = None;
 
-    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 
-    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Ok(bytes.to_vec())
     }
 }
@@ -84,11 +89,11 @@ impl<'a> Key<'a> for ArcBytes<'a> {
 
     const LENGTH: Option<usize> = None;
 
-    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 
-    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Ok(Self::from(bytes))
     }
 }
@@ -98,11 +103,11 @@ impl<'a> Key<'a> for CowBytes<'a> {
 
     const LENGTH: Option<usize> = None;
 
-    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(self.0.clone())
     }
 
-    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Ok(Self::from(bytes))
     }
 }
@@ -112,11 +117,11 @@ impl<'a> Key<'a> for Bytes {
 
     const LENGTH: Option<usize> = None;
 
-    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
 
-    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Ok(Self::from(bytes))
     }
 }
@@ -126,11 +131,11 @@ impl<'a> Key<'a> for String {
 
     const LENGTH: Option<usize> = None;
 
-    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
 
-    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Self::from_utf8(bytes.to_vec())
     }
 }
@@ -140,11 +145,11 @@ impl<'a> Key<'a> for () {
 
     const LENGTH: Option<usize> = Some(0);
 
-    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(Cow::default())
     }
 
-    fn from_big_endian_bytes(_: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(_: &'a [u8]) -> Result<Self, Self::Error> {
         Ok(())
     }
 }
@@ -154,7 +159,7 @@ impl<'a> Key<'a> for bool {
 
     const LENGTH: Option<usize> = Some(1);
 
-    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         if *self {
             Ok(Cow::Borrowed(&[1_u8]))
         } else {
@@ -162,7 +167,7 @@ impl<'a> Key<'a> for bool {
         }
     }
 
-    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         if bytes.is_empty() || bytes[0] == 0 {
             Ok(false)
         } else {
@@ -184,7 +189,7 @@ macro_rules! impl_key_for_tuple {
                 _ => None,
             };
 
-            fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+            fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
                 let mut bytes = Vec::new();
 
                 $(encode_composite_key_field(&self.$index, &mut bytes)?;)+
@@ -192,7 +197,7 @@ macro_rules! impl_key_for_tuple {
                 Ok(Cow::Owned(bytes))
             }
 
-            fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+            fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
                 $(let ($varname, bytes) = decode_composite_key_field::<$generic>(bytes)?;)+
 
                 if bytes.is_empty() {
@@ -249,7 +254,7 @@ fn encode_composite_key_field<'a, T: Key<'a>>(
     value: &'a T,
     bytes: &mut Vec<u8>,
 ) -> Result<(), CompositeKeyError> {
-    let t2 = T::as_big_endian_bytes(value).map_err(CompositeKeyError::new)?;
+    let t2 = T::as_ord_bytes(value).map_err(CompositeKeyError::new)?;
     if T::LENGTH.is_none() {
         (t2.len() as u64)
             .encode_variable(bytes)
@@ -269,7 +274,7 @@ fn decode_composite_key_field<'a, T: Key<'a>>(
     };
     let (t2, remaining) = bytes.split_at(length);
     Ok((
-        T::from_big_endian_bytes(t2).map_err(CompositeKeyError::new)?,
+        T::from_ord_bytes(t2).map_err(CompositeKeyError::new)?,
         remaining,
     ))
 }
@@ -281,14 +286,14 @@ fn composite_key_tests() {
         let mut encoded = {
             cases
                 .iter()
-                .map(|tuple| tuple.as_big_endian_bytes().unwrap().to_vec())
+                .map(|tuple| tuple.as_ord_bytes().unwrap().to_vec())
                 .collect::<Vec<Vec<u8>>>()
         };
         cases.sort();
         encoded.sort();
         let decoded = encoded
             .iter()
-            .map(|encoded| T::from_big_endian_bytes(encoded).unwrap())
+            .map(|encoded| T::from_ord_bytes(encoded).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(cases, decoded);
     }
@@ -421,11 +426,11 @@ impl<'a> Key<'a> for Signed {
 
     const LENGTH: Option<usize> = None;
 
-    fn as_big_endian_bytes(&self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'a, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
 
-    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes)
     }
 
@@ -447,11 +452,11 @@ impl<'a> Key<'a> for Unsigned {
 
     const LENGTH: Option<usize> = None;
 
-    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
 
-    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes)
     }
 
@@ -474,11 +479,11 @@ impl<'k> Key<'k> for uuid::Uuid {
 
     const LENGTH: Option<usize> = Some(16);
 
-    fn as_big_endian_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
 
-    fn from_big_endian_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
         Ok(Self::from_bytes(bytes.try_into()?))
     }
 }
@@ -497,9 +502,9 @@ where
     // TODO consider removing this panic limitation by adding a single byte to
     // each key (at the end preferrably) so that we can distinguish between None
     // and a 0-byte type
-    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         if let Some(contents) = self {
-            let contents = contents.as_big_endian_bytes()?;
+            let contents = contents.as_ord_bytes()?;
             assert!(!contents.is_empty());
             Ok(contents)
         } else {
@@ -507,11 +512,11 @@ where
         }
     }
 
-    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         if bytes.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(T::from_big_endian_bytes(bytes)?))
+            Ok(Some(T::from_ord_bytes(bytes)?))
         }
     }
 
@@ -557,7 +562,7 @@ where
     type Error = std::io::Error;
     const LENGTH: Option<usize> = None;
 
-    fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         let integer = self
             .to_u64()
             .map(Unsigned::from)
@@ -565,7 +570,7 @@ where
         Ok(Cow::Owned(integer.to_variable_vec()?))
     }
 
-    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         let primitive = u64::decode_variable(bytes)?;
         Self::from_u64(primitive)
             .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, UnknownEnumVariant))
@@ -579,11 +584,11 @@ macro_rules! impl_key_for_primitive {
             type Error = IncorrectByteLength;
             const LENGTH: Option<usize> = Some(std::mem::size_of::<$type>());
 
-            fn as_big_endian_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+            fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
                 Ok(Cow::from(self.to_be_bytes().to_vec()))
             }
 
-            fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+            fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
                 Ok($type::from_be_bytes(bytes.try_into()?))
             }
 
@@ -616,15 +621,15 @@ fn primitive_key_encoding_tests() -> anyhow::Result<()> {
         ($type:ident) => {
             assert_eq!(
                 &$type::MAX.to_be_bytes(),
-                $type::MAX.as_big_endian_bytes()?.as_ref()
+                $type::MAX.as_ord_bytes()?.as_ref()
             );
             assert_eq!(
                 $type::MAX,
-                $type::from_big_endian_bytes(&$type::MAX.as_big_endian_bytes()?)?
+                $type::from_ord_bytes(&$type::MAX.as_ord_bytes()?)?
             );
             assert_eq!(
                 $type::MIN,
-                $type::from_big_endian_bytes(&$type::MIN.as_big_endian_bytes()?)?
+                $type::from_ord_bytes(&$type::MIN.as_ord_bytes()?)?
             );
         };
     }
@@ -645,10 +650,10 @@ fn primitive_key_encoding_tests() -> anyhow::Result<()> {
 
 #[test]
 fn optional_key_encoding_tests() -> anyhow::Result<()> {
-    assert!(Option::<i8>::None.as_big_endian_bytes()?.is_empty());
+    assert!(Option::<i8>::None.as_ord_bytes()?.is_empty());
     assert_eq!(
         Some(1_i8),
-        Option::from_big_endian_bytes(&Some(1_i8).as_big_endian_bytes()?)?
+        Option::from_ord_bytes(&Some(1_i8).as_ord_bytes()?)?
     );
     Ok(())
 }
@@ -656,18 +661,18 @@ fn optional_key_encoding_tests() -> anyhow::Result<()> {
 #[test]
 #[allow(clippy::unit_cmp)] // this is more of a compilation test
 fn unit_key_encoding_tests() -> anyhow::Result<()> {
-    assert!(().as_big_endian_bytes()?.is_empty());
-    assert_eq!((), <() as Key>::from_big_endian_bytes(&[])?);
+    assert!(().as_ord_bytes()?.is_empty());
+    assert_eq!((), <() as Key>::from_ord_bytes(&[])?);
     Ok(())
 }
 
 #[test]
 #[allow(clippy::unit_cmp)] // this is more of a compilation test
 fn bool_key_encoding_tests() -> anyhow::Result<()> {
-    let true_as_bytes = true.as_big_endian_bytes()?;
-    let false_as_bytes = false.as_big_endian_bytes()?;
-    assert!(bool::from_big_endian_bytes(&true_as_bytes)?);
-    assert!(!bool::from_big_endian_bytes(&false_as_bytes)?);
+    let true_as_bytes = true.as_ord_bytes()?;
+    let false_as_bytes = false.as_ord_bytes()?;
+    assert!(bool::from_ord_bytes(&true_as_bytes)?);
+    assert!(!bool::from_ord_bytes(&false_as_bytes)?);
     Ok(())
 }
 
@@ -675,10 +680,7 @@ fn bool_key_encoding_tests() -> anyhow::Result<()> {
 fn vec_key_encoding_tests() -> anyhow::Result<()> {
     const ORIGINAL_VALUE: &[u8] = b"bonsaidb";
     let vec = Cow::<'_, [u8]>::from(ORIGINAL_VALUE);
-    assert_eq!(
-        vec.clone(),
-        Cow::from_big_endian_bytes(&vec.as_big_endian_bytes()?)?
-    );
+    assert_eq!(vec.clone(), Cow::from_ord_bytes(&vec.as_ord_bytes()?)?);
     Ok(())
 }
 
@@ -693,12 +695,12 @@ fn enum_derive_tests() -> anyhow::Result<()> {
 
     impl EnumKey for SomeEnum {}
 
-    let encoded = SomeEnum::One.as_big_endian_bytes()?;
-    let value = SomeEnum::from_big_endian_bytes(&encoded)?;
+    let encoded = SomeEnum::One.as_ord_bytes()?;
+    let value = SomeEnum::from_ord_bytes(&encoded)?;
     assert!(matches!(value, SomeEnum::One));
 
-    let encoded = SomeEnum::NineNineNine.as_big_endian_bytes()?;
-    let value = SomeEnum::from_big_endian_bytes(&encoded)?;
+    let encoded = SomeEnum::NineNineNine.as_ord_bytes()?;
+    let value = SomeEnum::from_ord_bytes(&encoded)?;
     assert!(matches!(value, SomeEnum::NineNineNine));
 
     Ok(())

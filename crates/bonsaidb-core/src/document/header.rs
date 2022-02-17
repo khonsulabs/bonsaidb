@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// The header of a `Document`.
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Header {
     /// The id of the Document. Unique across the collection the document is
     /// contained within.
@@ -27,7 +27,7 @@ pub trait HasHeader {
 
 impl HasHeader for Header {
     fn header(&self) -> Result<Header, crate::Error> {
-        Ok(*self)
+        Ok(self.clone())
     }
 }
 
@@ -63,7 +63,7 @@ impl Emit for Header {
         key: K,
         value: Value,
     ) -> Result<Mappings<K, Value>, crate::Error> {
-        Ok(Mappings::Simple(Some(Map::new(*self, key, value))))
+        Ok(Mappings::Simple(Some(Map::new(self.clone(), key, value))))
     }
 }
 
@@ -157,7 +157,7 @@ where
 }
 
 /// A header with either a serialized or deserialized primary key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnyHeader<PrimaryKey> {
     /// A serialized header.
     Serialized(Header),
@@ -186,17 +186,17 @@ fn emissions_tests() -> Result<(), crate::Error> {
 
     assert_eq!(
         doc.header.emit()?,
-        Mappings::Simple(Some(Map::new(doc.header, (), ())))
+        Mappings::Simple(Some(Map::new(doc.header.clone(), (), ())))
     );
 
     assert_eq!(
         doc.header.emit_key(1)?,
-        Mappings::Simple(Some(Map::new(doc.header, 1, ())))
+        Mappings::Simple(Some(Map::new(doc.header.clone(), 1, ())))
     );
 
     assert_eq!(
         doc.header.emit_value(1)?,
-        Mappings::Simple(Some(Map::new(doc.header, (), 1)))
+        Mappings::Simple(Some(Map::new(doc.header.clone(), (), 1)))
     );
 
     assert_eq!(
@@ -216,7 +216,7 @@ fn chained_mappings_test() -> Result<(), crate::Error> {
     assert_eq!(
         doc.header.emit()?.and(doc.header.emit()?),
         Mappings::List(vec![
-            Map::new(doc.header, (), ()),
+            Map::new(doc.header.clone(), (), ()),
             Map::new(doc.header, (), ())
         ])
     );

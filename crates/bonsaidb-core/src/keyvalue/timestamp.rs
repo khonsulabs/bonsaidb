@@ -77,20 +77,20 @@ impl<'a> Key<'a> for Timestamp {
     type Error = IncorrectByteLength;
     const LENGTH: Option<usize> = Some(12);
 
-    fn as_big_endian_bytes(&'a self) -> Result<std::borrow::Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&'a self) -> Result<std::borrow::Cow<'a, [u8]>, Self::Error> {
         let seconds_bytes: &[u8] = &self.seconds.to_be_bytes();
         let nanos_bytes = &self.nanos.to_be_bytes();
         Ok(Cow::Owned([seconds_bytes, nanos_bytes].concat()))
     }
 
-    fn from_big_endian_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         if bytes.len() != 12 {
             return Err(IncorrectByteLength);
         }
 
         Ok(Self {
-            seconds: u64::from_big_endian_bytes(&bytes[0..8])?,
-            nanos: u32::from_big_endian_bytes(&bytes[8..12])?,
+            seconds: u64::from_ord_bytes(&bytes[0..8])?,
+            nanos: u32::from_ord_bytes(&bytes[8..12])?,
         })
     }
 }
@@ -99,7 +99,7 @@ impl<'a> Key<'a> for Timestamp {
 fn key_test() {
     let original = Timestamp::now();
     assert_eq!(
-        Timestamp::from_big_endian_bytes(&original.as_big_endian_bytes().unwrap()).unwrap(),
+        Timestamp::from_ord_bytes(&original.as_ord_bytes().unwrap()).unwrap(),
         original
     );
 }

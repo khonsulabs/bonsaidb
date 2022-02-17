@@ -1268,17 +1268,17 @@ impl<K: for<'a> Key<'a>> QueryKey<K> {
     pub fn serialized(&self) -> Result<QueryKey<Bytes>, Error> {
         match self {
             Self::Matches(key) => key
-                .as_big_endian_bytes()
+                .as_ord_bytes()
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
                 .map(|v| QueryKey::Matches(Bytes::from(v.to_vec()))),
-            Self::Range(range) => Ok(QueryKey::Range(range.as_big_endian_bytes().map_err(
-                |err| Error::Database(view::Error::key_serialization(err).to_string()),
-            )?)),
+            Self::Range(range) => Ok(QueryKey::Range(range.as_ord_bytes().map_err(|err| {
+                Error::Database(view::Error::key_serialization(err).to_string())
+            })?)),
             Self::Multiple(keys) => {
                 let keys = keys
                     .iter()
                     .map(|key| {
-                        key.as_big_endian_bytes()
+                        key.as_ord_bytes()
                             .map(|key| Bytes::from(key.to_vec()))
                             .map_err(|err| {
                                 Error::Database(view::Error::key_serialization(err).to_string())
@@ -1300,7 +1300,7 @@ where
     /// Deserializes the bytes into `K` via the [`Key`] trait.
     pub fn deserialized<K: for<'k> Key<'k>>(&self) -> Result<QueryKey<K>, Error> {
         match self {
-            Self::Matches(key) => K::from_big_endian_bytes(key.as_ref())
+            Self::Matches(key) => K::from_ord_bytes(key.as_ref())
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
                 .map(QueryKey::Matches),
             Self::Range(range) => Ok(QueryKey::Range(range.deserialize().map_err(|err| {
@@ -1310,7 +1310,7 @@ where
                 let keys = keys
                     .iter()
                     .map(|key| {
-                        K::from_big_endian_bytes(key.as_ref()).map_err(|err| {
+                        K::from_ord_bytes(key.as_ref()).map_err(|err| {
                             Error::Database(view::Error::key_serialization(err).to_string())
                         })
                     })
@@ -1370,10 +1370,10 @@ impl<T> Range<T> {
 
 impl<'a, T: Key<'a>> Range<T> {
     /// Serializes the range's contained values to big-endian bytes.
-    pub fn as_big_endian_bytes(&'a self) -> Result<Range<Bytes>, T::Error> {
+    pub fn as_ord_bytes(&'a self) -> Result<Range<Bytes>, T::Error> {
         Ok(Range {
-            start: self.start.as_big_endian_bytes()?,
-            end: self.end.as_big_endian_bytes()?,
+            start: self.start.as_ord_bytes()?,
+            end: self.end.as_ord_bytes()?,
         })
     }
 }
@@ -1423,15 +1423,15 @@ impl<T> Bound<T> {
 
 impl<'a, T: Key<'a>> Bound<T> {
     /// Serializes the contained value to big-endian bytes.
-    pub fn as_big_endian_bytes(&'a self) -> Result<Bound<Bytes>, T::Error> {
+    pub fn as_ord_bytes(&'a self) -> Result<Bound<Bytes>, T::Error> {
         match self {
             Bound::Unbounded => Ok(Bound::Unbounded),
-            Bound::Included(value) => Ok(Bound::Included(Bytes::from(
-                value.as_big_endian_bytes()?.to_vec(),
-            ))),
-            Bound::Excluded(value) => Ok(Bound::Excluded(Bytes::from(
-                value.as_big_endian_bytes()?.to_vec(),
-            ))),
+            Bound::Included(value) => {
+                Ok(Bound::Included(Bytes::from(value.as_ord_bytes()?.to_vec())))
+            }
+            Bound::Excluded(value) => {
+                Ok(Bound::Excluded(Bytes::from(value.as_ord_bytes()?.to_vec())))
+            }
         }
     }
 }
@@ -1444,12 +1444,8 @@ where
     pub fn deserialize<T: for<'k> Key<'k>>(&'a self) -> Result<Bound<T>, <T as Key<'_>>::Error> {
         match self {
             Bound::Unbounded => Ok(Bound::Unbounded),
-            Bound::Included(value) => {
-                Ok(Bound::Included(T::from_big_endian_bytes(value.as_ref())?))
-            }
-            Bound::Excluded(value) => {
-                Ok(Bound::Excluded(T::from_big_endian_bytes(value.as_ref())?))
-            }
+            Bound::Included(value) => Ok(Bound::Included(T::from_ord_bytes(value.as_ref())?)),
+            Bound::Excluded(value) => Ok(Bound::Excluded(T::from_ord_bytes(value.as_ref())?)),
         }
     }
 }

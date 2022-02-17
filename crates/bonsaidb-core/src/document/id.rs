@@ -247,7 +247,7 @@ impl DocumentId {
     /// Returns a new instance with `value` as the identifier..
     pub fn new<PrimaryKey: for<'a> Key<'a>>(value: PrimaryKey) -> Result<Self, crate::Error> {
         let bytes = value
-            .as_big_endian_bytes()
+            .as_ord_bytes()
             .map_err(|err| crate::Error::Serialization(err.to_string()))?;
         Self::try_from(&bytes[..])
     }
@@ -272,7 +272,7 @@ impl DocumentId {
 
     /// Returns the contained value, deserialized back to its original type.
     pub fn deserialize<'a, PrimaryKey: Key<'a>>(&'a self) -> Result<PrimaryKey, crate::Error> {
-        PrimaryKey::from_big_endian_bytes(self.as_ref())
+        PrimaryKey::from_ord_bytes(self.as_ref())
             .map_err(|err| crate::Error::Serialization(err.to_string()))
     }
 }

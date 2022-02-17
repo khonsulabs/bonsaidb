@@ -241,15 +241,13 @@ where
     fn reduce(&self, mappings: &[(&[u8], &[u8])], rereduce: bool) -> Result<Vec<u8>, view::Error> {
         let mappings = mappings
             .iter()
-            .map(
-                |(key, value)| match <V::Key as Key>::from_big_endian_bytes(key) {
-                    Ok(key) => {
-                        let value = V::deserialize(value)?;
-                        Ok(MappedValue::new(key, value))
-                    }
-                    Err(err) => Err(view::Error::key_serialization(err)),
-                },
-            )
+            .map(|(key, value)| match <V::Key as Key>::from_ord_bytes(key) {
+                Ok(key) => {
+                    let value = V::deserialize(value)?;
+                    Ok(MappedValue::new(key, value))
+                }
+                Err(err) => Err(view::Error::key_serialization(err)),
+            })
             .collect::<Result<Vec<_>, view::Error>>()?;
 
         let reduced_value = self.schema.reduce(&mappings, rereduce)?;

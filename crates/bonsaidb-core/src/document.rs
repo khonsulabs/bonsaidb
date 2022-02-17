@@ -97,7 +97,7 @@ where
     }
 
     fn header(&self) -> AnyHeader<C::PrimaryKey> {
-        AnyHeader::Serialized(self.header)
+        AnyHeader::Serialized(self.header.clone())
     }
 
     fn set_header(&mut self, header: Header) -> Result<(), crate::Error> {
@@ -140,7 +140,7 @@ where
     }
 
     fn header(&self) -> AnyHeader<C::PrimaryKey> {
-        AnyHeader::Serialized(self.header)
+        AnyHeader::Serialized(self.header.clone())
     }
 
     fn set_header(&mut self, header: Header) -> Result<(), crate::Error> {

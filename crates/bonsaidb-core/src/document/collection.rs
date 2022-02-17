@@ -31,7 +31,7 @@ where
     fn try_from(value: &'a BorrowedDocument<'a>) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: C::deserialize(&value.contents)?,
-            header: CollectionHeader::try_from(value.header)?,
+            header: CollectionHeader::try_from(value.header.clone())?,
         })
     }
 }
@@ -45,7 +45,7 @@ where
     fn try_from(value: &'a OwnedDocument) -> Result<Self, Self::Error> {
         Ok(Self {
             contents: C::deserialize(&value.contents)?,
-            header: CollectionHeader::try_from(value.header)?,
+            header: CollectionHeader::try_from(value.header.clone())?,
         })
     }
 }

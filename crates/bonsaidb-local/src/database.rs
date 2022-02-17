@@ -803,7 +803,7 @@ impl Database {
                                 revision: updated_revision,
                             };
                             let serialized_doc = match serialize_document(&BorrowedDocument {
-                                header: updated_header,
+                                header: updated_header.clone(),
                                 contents: CowBytes::from(contents),
                             }) {
                                 Ok(bytes) => bytes,
@@ -935,7 +935,7 @@ impl Database {
             } else {
                 Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
                     operation.collection.clone(),
-                    Box::new(*header),
+                    Box::new(header.clone()),
                 )))
             }
         } else {
@@ -998,7 +998,7 @@ impl Database {
             match key {
                 QueryKey::Range(range) => {
                     let range = range
-                        .as_big_endian_bytes()
+                        .as_ord_bytes()
                         .map_err(view::Error::key_serialization)?;
                     view_entries.scan::<Infallible, _, _, _, _>(
                         &range.map_ref(|bytes| &bytes[..]),
@@ -1021,7 +1021,7 @@ impl Database {
                 }
                 QueryKey::Matches(key) => {
                     let key = key
-                        .as_big_endian_bytes()
+                        .as_ord_bytes()
                         .map_err(view::Error::key_serialization)?
                         .to_vec();
 
@@ -1031,7 +1031,7 @@ impl Database {
                     let mut list = list
                         .into_iter()
                         .map(|key| {
-                            key.as_big_endian_bytes()
+                            key.as_ord_bytes()
                                 .map(|bytes| bytes.to_vec())
                                 .map_err(view::Error::key_serialization)
                         })
@@ -1374,7 +1374,7 @@ impl Connection for Database {
         let mut results = Vec::new();
         self.for_each_view_entry::<V, _>(key, order, limit, access_policy, |collection| {
             let entry = ViewEntry::from(collection);
-            let key = <V::Key as Key>::from_big_endian_bytes(&entry.key)
+            let key = <V::Key as Key>::from_ord_bytes(&entry.key)
                 .map_err(view::Error::key_serialization)
                 .map_err(Error::from)?;
             for entry in entry.mappings {
@@ -1473,8 +1473,7 @@ impl Connection for Database {
             .into_iter()
             .map(|map| {
                 Ok(MappedValue::new(
-                    V::Key::from_big_endian_bytes(&map.key)
-                        .map_err(view::Error::key_serialization)?,
+                    V::Key::from_ord_bytes(&map.key).map_err(view::Error::key_serialization)?,
                     V::deserialize(&map.value)?,
                 ))
             })

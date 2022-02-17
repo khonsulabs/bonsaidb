@@ -301,7 +301,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
                 .into_iter()
                 .map(|map| {
                     Ok(MappedValue::new(
-                        V::Key::from_big_endian_bytes(&map.key).map_err(|err| {
+                        V::Key::from_ord_bytes(&map.key).map_err(|err| {
                             bonsaidb_core::Error::Database(
                                 view::Error::key_serialization(err).to_string(),
                             )

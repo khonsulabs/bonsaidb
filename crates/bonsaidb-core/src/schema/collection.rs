@@ -89,6 +89,44 @@ use crate::{
 /// # }
 /// ```
 ///
+/// ### Selecting a Primary Key type
+///
+/// By default, the `#[collection]` macro will use `u64` for the
+/// [`Self::PrimaryKey`] type. Collections can use any type that implements the
+/// [`Key`] trait:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection", primary_key = u128)]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection;
+/// ```
+///
+/// If the data being stored has a ["natural key"][natural-key], a closure or a
+/// function can be provided to extract the value during a `push` operation:
+///
+/// ```rust
+/// use bonsaidb_core::schema::Collection;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+/// #[collection(name = "MyCollection", natural_id = |item: &Self| Some(item.external_id))]
+/// # #[collection(core = bonsaidb_core)]
+/// pub struct MyCollection {
+///     pub external_id: u64,
+/// }
+/// ```
+///
+/// Primary keys are not able to be updated. To update a document's primary key,
+/// the contents must be inserted at the new id and deleted from the previous
+/// id.
+///
+/// [natural-key]: https://en.wikipedia.org/wiki/Natural_key
+///
+///
 /// ### Specifying a Collection Encryption Key
 ///
 /// By default, encryption will be required if an `encryption_key` is provided:
@@ -167,6 +205,11 @@ where
 {
     /// The unique id type. Each document stored in a collection will be
     /// uniquely identified by this type.
+    ///
+    /// ## Primary Key Limits
+    ///
+    /// The result of [`Key::as_ord_bytes()`] must be less than or equal
+    /// to [`DocumentId::MAX_LENGTH`]. This is currently 63 bytes.
     type PrimaryKey: for<'k> Key<'k>;
 
     /// The unique name of this collection. Each collection must be uniquely
