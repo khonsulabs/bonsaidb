@@ -20,6 +20,7 @@ fn name_only() {
         bonsaidb::core::schema::CollectionName::private("Name")
     );
 }
+
 #[test]
 fn name_and_authority() {
     #[derive(Collection, Debug)]
@@ -31,6 +32,7 @@ fn name_and_authority() {
         bonsaidb::core::schema::CollectionName::new("Authority", "Name")
     );
 }
+
 #[test]
 fn views() {
     #[derive(Clone, Collection, Debug, Serialize, Deserialize)]
@@ -131,5 +133,29 @@ fn encryption_key() {
     #[derive(Collection, Debug, Deserialize, Serialize)]
     #[collection(name = "Name")]
     #[collection(encryption_key = Some(KeyId::Master))]
+    struct Test;
+}
+
+#[test]
+fn primary_key() {
+    #[derive(Collection, Debug, Deserialize, Serialize)]
+    #[collection(name = "Name")]
+    #[collection(primary_key = u32)]
+    struct Test;
+}
+
+#[test]
+fn primary_key_natural_id() {
+    #[derive(Collection, Debug, Deserialize, Serialize)]
+    #[collection(name = "Name")]
+    #[collection(primary_key = u32, natural_id = |_:&Self| Some(1_u32))]
+    struct Test;
+}
+
+#[test]
+fn natural_id() {
+    #[derive(Collection, Debug, Deserialize, Serialize)]
+    #[collection(name = "Name")]
+    #[collection( natural_id = |_:&Self| Some(1_u64))]
     struct Test;
 }
