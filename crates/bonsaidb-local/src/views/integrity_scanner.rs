@@ -2,7 +2,10 @@ use std::{borrow::Cow, collections::HashSet, convert::Infallible, hash::Hash, sy
 
 use async_lock::Mutex;
 use async_trait::async_trait;
-use bonsaidb_core::schema::{view, CollectionName, Key, ViewName};
+use bonsaidb_core::{
+    document::DocumentId,
+    schema::{CollectionName, ViewName},
+};
 use nebari::{
     io::any::AnyFile,
     tree::{KeyEvaluation, Operation, Unversioned, Versioned},
@@ -77,7 +80,7 @@ impl Job for IntegrityScanner {
         let roots = self.database.roots().clone();
 
         let needs_update = tokio::task::spawn_blocking::<_, Result<bool, Error>>(move || {
-            let document_ids = tree_keys::<u64, Versioned>(&documents)?;
+            let document_ids = tree_keys::<Versioned>(&documents)?;
             let view_is_current_version =
                 if let Some(version) = view_versions.get(view_name.to_string().as_bytes())? {
                     if let Ok(version) = ViewVersion::from_bytes(&version) {
@@ -90,7 +93,7 @@ impl Job for IntegrityScanner {
                 };
 
             let missing_entries = if view_is_current_version {
-                let stored_document_ids = tree_keys::<u64, Unversioned>(&document_map)?;
+                let stored_document_ids = tree_keys::<Unversioned>(&document_map)?;
 
                 document_ids
                     .difference(&stored_document_ids)
@@ -114,7 +117,7 @@ impl Job for IntegrityScanner {
                 let invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
                 let mut missing_entries = missing_entries
                     .into_iter()
-                    .map(|id| ArcBytes::from(id.to_be_bytes()))
+                    .map(|id| ArcBytes::from(id.to_vec()))
                     .collect::<Vec<_>>();
                 missing_entries.sort();
                 invalidated_entries.modify(missing_entries, Operation::Set(ArcBytes::default()))?;
@@ -203,9 +206,9 @@ impl ViewVersion {
     }
 }
 
-fn tree_keys<K: for<'a> Key<'a> + Hash + Eq + Clone, R: nebari::tree::Root>(
+fn tree_keys<R: nebari::tree::Root>(
     tree: &Tree<R, AnyFile>,
-) -> Result<HashSet<K>, crate::Error> {
+) -> Result<HashSet<DocumentId>, crate::Error> {
     let mut ids = Vec::new();
     tree.scan::<Infallible, _, _, _, _>(
         &(..),
@@ -220,8 +223,8 @@ fn tree_keys<K: for<'a> Key<'a> + Hash + Eq + Clone, R: nebari::tree::Root>(
 
     Ok(ids
         .into_iter()
-        .map(|key| K::from_big_endian_bytes(&key).map_err(view::Error::key_serialization))
-        .collect::<Result<HashSet<_>, view::Error>>()?)
+        .map(|key| DocumentId::try_from(key.as_slice()))
+        .collect::<Result<HashSet<_>, bonsaidb_core::Error>>()?)
 }
 
 impl Keyed<Task> for IntegrityScanner {
