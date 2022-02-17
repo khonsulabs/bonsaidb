@@ -4,7 +4,7 @@ use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     async_trait::async_trait,
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{DocumentKey, OwnedDocument},
+    document::{AnyDocumentId, OwnedDocument},
     schema::{
         view::map::MappedDocuments, Collection, Map, MappedValue, Nameable, Schema, SchemaName,
         SerializedView,
@@ -202,10 +202,13 @@ pub enum AnyDatabase<B: Backend = NoBackend> {
 
 #[async_trait]
 impl<B: Backend> Connection for AnyDatabase<B> {
-    async fn get<C, PK>(&self, id: PK) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
+    async fn get<C, PrimaryKey>(
+        &self,
+        id: PrimaryKey,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
     where
         C: Collection,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
         match self {
             Self::Local(server) => server.get::<C, _>(id).await,
@@ -213,15 +216,15 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         }
     }
 
-    async fn get_multiple<C, PK, DocumentIds, I>(
+    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
         &self,
         ids: DocumentIds,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
     where
         C: Collection,
-        DocumentIds: IntoIterator<Item = PK, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PK> + Send + Sync,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send + Sync,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
     {
         match self {
             Self::Local(server) => server.get_multiple::<C, _, _, _>(ids).await,
@@ -229,7 +232,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         }
     }
 
-    async fn list<C, R, PK>(
+    async fn list<C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
@@ -237,8 +240,8 @@ impl<B: Backend> Connection for AnyDatabase<B> {
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
     where
         C: Collection,
-        R: Into<Range<PK>> + Send,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
         match self {
             Self::Local(server) => server.list::<C, _, _>(ids, order, limit).await,

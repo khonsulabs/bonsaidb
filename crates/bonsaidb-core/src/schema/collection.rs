@@ -9,7 +9,7 @@ use transmog_pot::Pot;
 use crate::{
     connection::{self, Connection, Range},
     document::{
-        BorrowedDocument, CollectionDocument, Document, DocumentId, DocumentKey, KeyId,
+        AnyDocumentId, BorrowedDocument, CollectionDocument, Document, DocumentId, KeyId,
         OwnedDocument, OwnedDocuments,
     },
     schema::{view::Key, CollectionName, Schematic},
@@ -162,7 +162,7 @@ use crate::{
 /// ```
 pub trait Collection: Debug + Send + Sync
 where
-    DocumentKey<Self::PrimaryKey>: From<Self::PrimaryKey>,
+    AnyDocumentId<Self::PrimaryKey>: From<Self::PrimaryKey>,
 {
     /// The unique id type. Each document stored in a collection will be
     /// uniquely identified by this type.
@@ -274,10 +274,13 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn get<C, PK>(id: PK, connection: &C) -> Result<Option<CollectionDocument<Self>>, Error>
+    async fn get<C, PrimaryKey>(
+        id: PrimaryKey,
+        connection: &C,
+    ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
         C: Connection,
-        PK: Into<DocumentKey<Self::PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
         Self: Sized,
     {
         let possible_doc = connection.get::<Self, _>(id).await?;
@@ -301,15 +304,15 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn get_multiple<C, DocumentIds, PK, I>(
+    async fn get_multiple<C, DocumentIds, PrimaryKey, I>(
         ids: DocumentIds,
         connection: &C,
     ) -> Result<Vec<CollectionDocument<Self>>, Error>
     where
         C: Connection,
-        DocumentIds: IntoIterator<Item = PK, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PK> + Send + Sync,
-        PK: Into<DocumentKey<Self::PrimaryKey>> + Send + Sync,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
         Self: Sized,
     {
         connection
@@ -335,16 +338,16 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    fn list<R, PK, C>(ids: R, connection: &'_ C) -> List<'_, C, Self>
+    fn list<R, PrimaryKey, C>(ids: R, connection: &'_ C) -> List<'_, C, Self>
     where
-        R: Into<Range<PK>>,
+        R: Into<Range<PrimaryKey>>,
         C: Connection,
-        PK: Into<DocumentKey<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
         Self: Sized,
     {
         List(connection::List::new(
             connection::PossiblyOwned::Owned(connection.collection::<Self>()),
-            ids.into().map(PK::into),
+            ids.into().map(PrimaryKey::into),
         ))
     }
 
@@ -463,13 +466,13 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn insert<PK, Cn>(
-        id: PK,
+    async fn insert<PrimaryKey, Cn>(
+        id: PrimaryKey,
         contents: Self::Contents,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
-        PK: Into<DocumentKey<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
         Cn: Connection,
         Self: Sized + 'static,
         Self::Contents: 'async_trait,
@@ -498,13 +501,13 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn insert_into<PK, Cn>(
+    async fn insert_into<PrimaryKey, Cn>(
         self,
-        id: PK,
+        id: PrimaryKey,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
-        PK: Into<DocumentKey<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
         Cn: Connection,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
@@ -528,13 +531,13 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn overwrite<PK, Cn>(
-        id: PK,
+    async fn overwrite<PrimaryKey, Cn>(
+        id: PrimaryKey,
         contents: Self::Contents,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
-        PK: Into<DocumentKey<Self::PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
         Cn: Connection,
         Self: Sized + 'static,
         Self::Contents: 'async_trait,
@@ -566,13 +569,13 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn overwrite_into<Cn: Connection, PK>(
+    async fn overwrite_into<Cn: Connection, PrimaryKey>(
         self,
-        id: PK,
+        id: PrimaryKey,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
-        PK: Into<DocumentKey<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
         Self::overwrite(id, self, connection).await

@@ -17,7 +17,7 @@ use bonsaidb_core::{
         ArcBytes,
     },
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{BorrowedDocument, DocumentId, DocumentKey, Header, OwnedDocument, Revision},
+    document::{AnyDocumentId, BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::Permissions,
@@ -1243,25 +1243,28 @@ impl Connection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(id)))]
-    async fn get<C, PK>(&self, id: PK) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
+    async fn get<C, PrimaryKey>(
+        &self,
+        id: PrimaryKey,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
     where
         C: schema::Collection,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
         self.get_from_collection_id(id.into().to_document_id()?, &C::collection_name())
             .await
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
-    async fn get_multiple<C, PK, DocumentIds, I>(
+    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
         &self,
         ids: DocumentIds,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
     where
         C: schema::Collection,
-        DocumentIds: IntoIterator<Item = PK, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PK> + Send + Sync,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send + Sync,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
     {
         self.get_multiple_from_collection_id(
             &ids.into_iter()
@@ -1273,7 +1276,7 @@ impl Connection for Database {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids, order, limit)))]
-    async fn list<C, R, PK>(
+    async fn list<C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
@@ -1281,8 +1284,8 @@ impl Connection for Database {
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
     where
         C: schema::Collection,
-        R: Into<Range<PK>> + Send,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
         self.list(
             ids.into().map_result(|id| id.into().to_document_id())?,

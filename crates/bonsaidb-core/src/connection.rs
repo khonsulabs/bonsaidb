@@ -11,7 +11,7 @@ use zeroize::Zeroize;
 use crate::schema::Nameable;
 use crate::{
     document::{
-        CollectionDocument, CollectionHeader, Document, DocumentKey, HasHeader, OwnedDocument,
+        AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, OwnedDocument,
     },
     permissions::Permissions,
     schema::{
@@ -49,11 +49,11 @@ pub trait Connection: Send + Sync {
     /// - [`self.collection::<Collection>().push()`](Collection::push)
     async fn insert<
         C: schema::Collection,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
         B: Into<Bytes> + Send,
     >(
         &self,
-        id: Option<PK>,
+        id: Option<PrimaryKey>,
         contents: B,
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error> {
         let contents = contents.into();
@@ -112,14 +112,14 @@ pub trait Connection: Send + Sync {
     /// - [`SerializedCollection::overwrite()`]
     /// - [`SerializedCollection::overwrite_into()`]
     /// - [`self.collection::<Collection>().overwrite()`](Collection::overwrite)
-    async fn overwrite<'a, C, PK>(
+    async fn overwrite<'a, C, PrimaryKey>(
         &self,
-        id: PK,
+        id: PrimaryKey,
         contents: Vec<u8>,
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
     where
         C: schema::Collection,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
         let results = self
             .apply_transaction(Transaction::overwrite(
@@ -144,10 +144,10 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`SerializedCollection::get()`]
     /// - [`self.collection::<Collection>().get()`](Collection::get)
-    async fn get<C, PK>(&self, id: PK) -> Result<Option<OwnedDocument>, Error>
+    async fn get<C, PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send;
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
 
     /// Retrieves all documents matching `ids`. Documents that are not found
     /// are not returned, but no error will be generated.
@@ -157,15 +157,15 @@ pub trait Connection: Send + Sync {
     ///
     /// - [`SerializedCollection::get_multiple()`]
     /// - [`self.collection::<Collection>().get_multiple()`](Collection::get_multiple)
-    async fn get_multiple<C, PK, DocumentIds, I>(
+    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
         &self,
         ids: DocumentIds,
     ) -> Result<Vec<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        DocumentIds: IntoIterator<Item = PK, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PK> + Send + Sync,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send + Sync;
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync;
 
     /// Retrieves all documents within the range of `ids`. Documents that are
     /// not found are not returned, but no error will be generated. To retrieve
@@ -178,7 +178,7 @@ pub trait Connection: Send + Sync {
     /// - [`self.collection::<Collection>().all()`](Collection::all)
     /// - [`SerializedCollection::list()`]
     /// - [`self.collection::<Collection>().list()`](Collection::list)
-    async fn list<C, R, PK>(
+    async fn list<C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
@@ -186,8 +186,8 @@ pub trait Connection: Send + Sync {
     ) -> Result<Vec<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        R: Into<Range<PK>> + Send,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send;
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
 
     /// Removes a `Document` from the database.
     ///
@@ -529,14 +529,14 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn insert<PK>(
+    pub async fn insert<PrimaryKey>(
         &self,
-        id: PK,
+        id: PrimaryKey,
         item: &<Cl as SerializedCollection>::Contents,
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
-        PK: Into<DocumentKey<Cl::PrimaryKey>> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send + Sync,
     {
         let contents = Cl::serialize(item)?;
         self.connection.insert::<Cl, _, _>(Some(id), contents).await
@@ -634,9 +634,9 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn get<PK>(&self, id: PK) -> Result<Option<OwnedDocument>, Error>
+    pub async fn get<PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
-        PK: Into<DocumentKey<Cl::PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send,
     {
         self.connection.get::<Cl, _>(id).await
     }
@@ -661,14 +661,14 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn get_multiple<DocumentIds, PK, I>(
+    pub async fn get_multiple<DocumentIds, PrimaryKey, I>(
         &self,
         ids: DocumentIds,
     ) -> Result<Vec<OwnedDocument>, Error>
     where
-        DocumentIds: IntoIterator<Item = PK, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PK> + Send + Sync,
-        PK: Into<DocumentKey<Cl::PrimaryKey>> + Send + Sync,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send + Sync,
     {
         self.connection.get_multiple::<Cl, _, _, _>(ids).await
     }
@@ -694,12 +694,15 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn list<PK, R>(&'a self, ids: R) -> List<'a, Cn, Cl>
+    pub fn list<PrimaryKey, R>(&'a self, ids: R) -> List<'a, Cn, Cl>
     where
-        R: Into<Range<PK>>,
-        PK: Into<DocumentKey<Cl::PrimaryKey>>,
+        R: Into<Range<PrimaryKey>>,
+        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>>,
     {
-        List::new(PossiblyOwned::Borrowed(self), ids.into().map(PK::into))
+        List::new(
+            PossiblyOwned::Borrowed(self),
+            ids.into().map(PrimaryKey::into),
+        )
     }
 
     /// Retrieves all documents.
@@ -744,7 +747,7 @@ where
     Cl: schema::Collection,
 {
     collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-    range: Range<DocumentKey<Cl::PrimaryKey>>,
+    range: Range<AnyDocumentId<Cl::PrimaryKey>>,
     sort: Sort,
     limit: Option<usize>,
 }
@@ -789,7 +792,7 @@ where
 {
     pub(crate) fn new(
         collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-        range: Range<DocumentKey<Cl::PrimaryKey>>,
+        range: Range<AnyDocumentId<Cl::PrimaryKey>>,
     ) -> Self {
         Self {
             state: ListState::Pending(Some(ListBuilder {

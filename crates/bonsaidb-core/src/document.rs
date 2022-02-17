@@ -20,7 +20,8 @@ pub use revision::Revision;
 /// The header of a `Document`.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Header {
-    /// The id of the Document. Unique across the collection `C`
+    /// The id of the Document. Unique across the collection the document is
+    /// contained within.
     pub id: DocumentId,
 
     /// The revision of the stored document.
@@ -85,16 +86,16 @@ impl Display for Header {
 
 /// A header for a [`CollectionDocument`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CollectionHeader<PK> {
+pub struct CollectionHeader<PrimaryKey> {
     /// The unique id of the document.
-    pub id: PK,
+    pub id: PrimaryKey,
     /// The revision of the document.
     pub revision: Revision,
 }
 
-impl<PK> Emit for CollectionHeader<PK>
+impl<PrimaryKey> Emit for CollectionHeader<PrimaryKey>
 where
-    PK: for<'k> Key<'k>,
+    PrimaryKey: for<'k> Key<'k>,
 {
     fn emit_key_and_value<K: for<'a> Key<'a>, Value>(
         &self,
@@ -106,9 +107,9 @@ where
     }
 }
 
-impl<PK> HasHeader for CollectionHeader<PK>
+impl<PrimaryKey> HasHeader for CollectionHeader<PrimaryKey>
 where
-    PK: for<'k> Key<'k>,
+    PrimaryKey: for<'k> Key<'k>,
 {
     fn header(&self) -> Result<Header, crate::Error> {
         Header::try_from(self.clone())
@@ -136,27 +137,27 @@ where
     }
 }
 
-impl<PK> TryFrom<Header> for CollectionHeader<PK>
+impl<PrimaryKey> TryFrom<Header> for CollectionHeader<PrimaryKey>
 where
-    PK: for<'k> Key<'k>,
+    PrimaryKey: for<'k> Key<'k>,
 {
     type Error = crate::Error;
 
     fn try_from(value: Header) -> Result<Self, Self::Error> {
         Ok(Self {
-            id: value.id.deserialize::<PK>()?,
+            id: value.id.deserialize::<PrimaryKey>()?,
             revision: value.revision,
         })
     }
 }
 
-impl<PK> TryFrom<CollectionHeader<PK>> for Header
+impl<PrimaryKey> TryFrom<CollectionHeader<PrimaryKey>> for Header
 where
-    PK: for<'k> Key<'k>,
+    PrimaryKey: for<'k> Key<'k>,
 {
     type Error = crate::Error;
 
-    fn try_from(value: CollectionHeader<PK>) -> Result<Self, Self::Error> {
+    fn try_from(value: CollectionHeader<PrimaryKey>) -> Result<Self, Self::Error> {
         Ok(Self {
             id: DocumentId::new(value.id)?,
             revision: value.revision,
@@ -166,16 +167,16 @@ where
 
 /// A header with either a serialized or deserialized primary key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AnyHeader<K> {
+pub enum AnyHeader<PrimaryKey> {
     /// A serialized header.
     Serialized(Header),
     /// A deserialized header.
-    Collection(CollectionHeader<K>),
+    Collection(CollectionHeader<PrimaryKey>),
 }
 
-impl<K> AnyHeader<K>
+impl<PrimaryKey> AnyHeader<PrimaryKey>
 where
-    K: for<'k> Key<'k>,
+    PrimaryKey: for<'k> Key<'k>,
 {
     /// Returns the contained header as a [`Header`].
     pub fn into_header(self) -> Result<Header, crate::Error> {
@@ -186,7 +187,7 @@ where
     }
 }
 
-/// A document's ID that uniquely identifies it within its collection.
+/// The serialized representation of a document's unique ID.
 #[derive(Clone, Copy)]
 pub struct DocumentId {
     length: u8,
@@ -266,7 +267,7 @@ impl Display for DocumentId {
 
 impl Hash for DocumentId {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.as_ref().hash(state);
+        (&**self).hash(state);
     }
 }
 
@@ -421,7 +422,7 @@ impl DocumentId {
     pub const MAX_LENGTH: usize = 63;
 
     /// Returns a new instance with `value` as the identifier..
-    pub fn new<K: for<'a> Key<'a>>(value: K) -> Result<Self, crate::Error> {
+    pub fn new<PrimaryKey: for<'a> Key<'a>>(value: PrimaryKey) -> Result<Self, crate::Error> {
         let bytes = value
             .as_big_endian_bytes()
             .map_err(|err| crate::Error::Serialization(err.to_string()))?;
@@ -447,8 +448,8 @@ impl DocumentId {
     }
 
     /// Returns the contained value, deserialized back to its original type.
-    pub fn deserialize<'a, K: Key<'a>>(&'a self) -> Result<K, crate::Error> {
-        K::from_big_endian_bytes(self.as_ref())
+    pub fn deserialize<'a, PrimaryKey: Key<'a>>(&'a self) -> Result<PrimaryKey, crate::Error> {
+        PrimaryKey::from_big_endian_bytes(self.as_ref())
             .map_err(|err| crate::Error::Serialization(err.to_string()))
     }
 }
@@ -506,46 +507,46 @@ impl<'de> Visitor<'de> for DocumentIdVisitor {
 }
 
 /// A unique id for a document, either serialized or deserialized.
-pub enum DocumentKey<K> {
+pub enum AnyDocumentId<PrimaryKey> {
     /// A serialized id.
-    Id(DocumentId),
+    Serialized(DocumentId),
     /// A deserialized id.
-    Key(K),
+    Deserialized(PrimaryKey),
 }
 
-impl<K> DocumentKey<K>
+impl<PrimaryKey> AnyDocumentId<PrimaryKey>
 where
-    K: for<'k> Key<'k>,
+    PrimaryKey: for<'k> Key<'k>,
 {
     /// Converts this value to a document id.
     pub fn to_document_id(&self) -> Result<DocumentId, crate::Error> {
         match self {
-            Self::Id(id) => Ok(*id),
-            Self::Key(key) => DocumentId::new(key.clone()),
+            Self::Serialized(id) => Ok(*id),
+            Self::Deserialized(key) => DocumentId::new(key.clone()),
         }
     }
 
     /// Converts this value to the primary key type.
-    pub fn to_primary_key(&self) -> Result<K, crate::Error> {
+    pub fn to_primary_key(&self) -> Result<PrimaryKey, crate::Error> {
         match self {
-            Self::Id(id) => id.deserialize::<K>(),
-            Self::Key(key) => Ok(key.clone()),
+            Self::Serialized(id) => id.deserialize::<PrimaryKey>(),
+            Self::Deserialized(key) => Ok(key.clone()),
         }
     }
 }
 
-impl<K> From<K> for DocumentKey<K>
+impl<PrimaryKey> From<PrimaryKey> for AnyDocumentId<PrimaryKey>
 where
-    K: for<'k> Key<'k>,
+    PrimaryKey: for<'k> Key<'k>,
 {
-    fn from(key: K) -> Self {
-        Self::Key(key)
+    fn from(key: PrimaryKey) -> Self {
+        Self::Deserialized(key)
     }
 }
 
-impl<K> From<DocumentId> for DocumentKey<K> {
+impl<PrimaryKey> From<DocumentId> for AnyDocumentId<PrimaryKey> {
     fn from(id: DocumentId) -> Self {
-        Self::Id(id)
+        Self::Serialized(id)
     }
 }
 
@@ -579,7 +580,7 @@ where
     type Bytes;
 
     /// Returns the unique key for this document.
-    fn key(&self) -> DocumentKey<C::PrimaryKey>;
+    fn key(&self) -> AnyDocumentId<C::PrimaryKey>;
     /// Returns the header of this document.
     fn header(&self) -> AnyHeader<C::PrimaryKey>;
     /// Sets the header to the new header.
@@ -643,8 +644,8 @@ where
         Ok(self.contents.to_vec())
     }
 
-    fn key(&self) -> DocumentKey<C::PrimaryKey> {
-        DocumentKey::Id(self.header.id)
+    fn key(&self) -> AnyDocumentId<C::PrimaryKey> {
+        AnyDocumentId::Serialized(self.header.id)
     }
 }
 
@@ -669,8 +670,8 @@ where
         Ok(())
     }
 
-    fn key(&self) -> DocumentKey<C::PrimaryKey> {
-        DocumentKey::Id(self.header.id)
+    fn key(&self) -> AnyDocumentId<C::PrimaryKey> {
+        AnyDocumentId::Serialized(self.header.id)
     }
 
     fn header(&self) -> AnyHeader<C::PrimaryKey> {

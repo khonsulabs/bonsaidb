@@ -17,7 +17,7 @@ use crate::admin::{PermissionGroup, Role, User};
 use crate::{
     connection::{AccessPolicy, Connection, StorageConnection},
     document::{
-        BorrowedDocument, CollectionDocument, CollectionHeader, DocumentId, DocumentKey, Emit,
+        AnyDocumentId, BorrowedDocument, CollectionDocument, CollectionHeader, DocumentId, Emit,
         Header, KeyId,
     },
     keyvalue::KeyValue,
@@ -65,7 +65,7 @@ impl Basic {
     }
 
     #[must_use]
-    pub fn with_parent_id(mut self, parent_id: impl Into<DocumentKey<u64>>) -> Self {
+    pub fn with_parent_id(mut self, parent_id: impl Into<AnyDocumentId<u64>>) -> Self {
         self.parent_id = Some(parent_id.into().to_primary_key().unwrap());
         self
     }

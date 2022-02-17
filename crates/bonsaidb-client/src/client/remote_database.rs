@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort},
     custom_api::CustomApi,
-    document::{DocumentKey, OwnedDocument},
+    document::{AnyDocumentId, OwnedDocument},
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
         view::{
@@ -61,10 +61,13 @@ impl<A: CustomApi> RemoteDatabase<A> {
 
 #[async_trait]
 impl<A: CustomApi> Connection for RemoteDatabase<A> {
-    async fn get<C, PK>(&self, id: PK) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
+    async fn get<C, PrimaryKey>(
+        &self,
+        id: PrimaryKey,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
     where
         C: Collection,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
         match self
             .client
@@ -88,15 +91,15 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn get_multiple<C, PK, DocumentIds, I>(
+    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
         &self,
         ids: DocumentIds,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
     where
         C: Collection,
-        DocumentIds: IntoIterator<Item = PK, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PK> + Send + Sync,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send + Sync,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
     {
         match self
             .client
@@ -120,7 +123,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn list<C, R, PK>(
+    async fn list<C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
@@ -128,8 +131,8 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
     where
         C: Collection,
-        R: Into<Range<PK>> + Send,
-        PK: Into<DocumentKey<C::PrimaryKey>> + Send,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
         match self
             .client
