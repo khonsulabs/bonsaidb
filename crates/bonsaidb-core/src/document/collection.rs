@@ -2,10 +2,9 @@ use std::fmt::Debug;
 
 use arc_bytes::serde::{Bytes, CowBytes};
 
-use super::{AnyHeader, DocumentKey};
 use crate::{
     connection::Connection,
-    document::{BorrowedDocument, CollectionHeader, Document, DocumentId, Header, OwnedDocument},
+    document::{BorrowedDocument, CollectionHeader, DocumentId, Header, OwnedDocument},
     schema::SerializedCollection,
     Error,
 };
@@ -65,86 +64,6 @@ where
     }
 }
 
-impl<C> Document<C> for CollectionDocument<C>
-where
-    C: SerializedCollection,
-{
-    type Bytes = Vec<u8>;
-
-    fn key(&self) -> DocumentKey<C::PrimaryKey> {
-        DocumentKey::Key(self.header.id.clone())
-    }
-
-    fn header(&self) -> AnyHeader<C::PrimaryKey> {
-        AnyHeader::Collection(self.header.clone())
-    }
-
-    fn set_header(&mut self, header: Header) -> Result<(), crate::Error> {
-        self.set_collection_header(CollectionHeader::try_from(header)?)
-    }
-
-    fn set_collection_header(
-        &mut self,
-        header: CollectionHeader<C::PrimaryKey>,
-    ) -> Result<(), crate::Error> {
-        self.header = header;
-        Ok(())
-    }
-
-    fn bytes(&self) -> Result<Vec<u8>, crate::Error> {
-        C::serialize(&self.contents)
-    }
-
-    // fn new<Contents: Into<Self::Bytes>>(
-    //     id: C::PrimaryKey,
-    //     contents: Contents,
-    // ) -> Result<Self, crate::Error> {
-    //     let bytes = contents.into();
-    //     let contents = C::deserialize(&bytes)?;
-    //     Ok(Self {
-    //         header: CollectionHeader {
-    //             id,
-    //             revision: Revision::new(&bytes),
-    //         },
-    //         contents,
-    //     })
-    // }
-
-    // fn with_contents(id: C::PrimaryKey, contents: C::Contents) -> Result<Self, crate::Error>
-    // where
-    //     C: SerializedCollection,
-    // {
-    //     let bytes = C::serialize(&contents)?;
-    //     Ok(Self {
-    //         header: CollectionHeader {
-    //             id,
-    //             revision: Revision::new(&bytes),
-    //         },
-    //         contents,
-    //     })
-    // }
-
-    fn contents(&self) -> Result<C::Contents, crate::Error>
-    where
-        C: SerializedCollection,
-        <C as SerializedCollection>::Contents: Clone,
-    {
-        Ok(self.contents.clone())
-    }
-
-    fn set_contents(&mut self, contents: C::Contents) -> Result<(), crate::Error>
-    where
-        C: SerializedCollection,
-    {
-        let bytes = C::serialize(&contents)?;
-        if let Some(new_revision) = self.header.revision.next_revision(&bytes) {
-            self.header.revision = new_revision;
-        }
-        self.contents = contents;
-        Ok(())
-    }
-}
-
 impl<C> CollectionDocument<C>
 where
     C: SerializedCollection,
@@ -165,7 +84,11 @@ where
     /// # }
     /// ```
     pub async fn update<Cn: Connection>(&mut self, connection: &Cn) -> Result<(), Error> {
-        connection.update::<C, _>(self).await?;
+        let mut doc = self.to_document()?;
+
+        connection.update::<C, _>(&mut doc).await?;
+
+        self.header = CollectionHeader::try_from(doc.header)?;
 
         Ok(())
     }

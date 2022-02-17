@@ -109,7 +109,8 @@ pub trait Connection: Send + Sync {
     /// This is the lower-level API. For better ergonomics, consider using
     /// one of:
     ///
-    /// - [`CollectionDocument::overwrite()`]
+    /// - [`SerializedCollection::overwrite()`]
+    /// - [`SerializedCollection::overwrite_into()`]
     /// - [`self.collection::<Collection>().overwrite()`](Collection::overwrite)
     async fn overwrite<'a, C, PK>(
         &self,
@@ -1731,7 +1732,7 @@ macro_rules! __doctest_prelude {
         #[schema(name = "MySchema", collections = [MyCollection], core = $crate)]
         pub struct MySchema;
 
-        #[derive(Clone, Debug, Serialize, Deserialize, Default, Collection)]
+        #[derive( Debug, Serialize, Deserialize, Default, Collection)]
         #[collection(name = "MyCollection", views = [MyCollectionByName], core = $crate)]
         pub struct MyCollection {
             pub name: String,

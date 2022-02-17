@@ -52,7 +52,7 @@ use crate::{
 /// use bonsaidb_core::schema::{Collection, View};
 /// use serde::{Deserialize, Serialize};
 ///
-/// #[derive(Clone, Debug, Serialize, Deserialize, Default, Collection)]
+/// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
 /// #[collection(name = "MyCollection", views = [ScoresByRank])]
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
@@ -224,7 +224,6 @@ pub trait SerializedCollection: Collection {
     /// Returns the deserialized contents of `doc`.
     fn document_contents<D: Document<Self>>(doc: &D) -> Result<Self::Contents, Error>
     where
-        Self::Contents: Clone,
         Self: Sized,
     {
         doc.contents()
@@ -558,7 +557,7 @@ pub trait DefaultSerialization: Collection {}
 
 impl<T> SerializedCollection for T
 where
-    T: DefaultSerialization + Clone + Serialize + DeserializeOwned,
+    T: DefaultSerialization + Serialize + DeserializeOwned,
 {
     type Contents = Self;
     type Format = Pot;

@@ -270,20 +270,6 @@ impl Hash for DocumentId {
     }
 }
 
-// impl<'k> Key<'k> for DocumentId {
-//     type Error = crate::Error;
-
-//     const LENGTH: Option<usize> = None;
-
-//     fn as_big_endian_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
-//         Ok(Cow::Borrowed(self.as_ref()))
-//     }
-
-//     fn from_big_endian_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
-//         Self::try_from(bytes)
-//     }
-// }
-
 /// An invalid hexadecimal character was encountered.
 #[derive(thiserror::Error, Debug)]
 #[error("invalid hexadecimal bytes")]
@@ -431,7 +417,9 @@ impl<const N: usize> TryFrom<[u8; N]> for DocumentId {
 }
 
 impl DocumentId {
-    const MAX_LENGTH: usize = 63;
+    /// The maximum length, in bytes, that an id can contain.
+    pub const MAX_LENGTH: usize = 63;
+
     /// Returns a new instance with `value` as the identifier..
     pub fn new<K: for<'a> Key<'a>>(value: K) -> Result<Self, crate::Error> {
         let bytes = value
@@ -608,8 +596,7 @@ where
     /// Retrieves `contents` through deserialization into the type `D`.
     fn contents(&self) -> Result<C::Contents, crate::Error>
     where
-        C: SerializedCollection,
-        <C as SerializedCollection>::Contents: Clone;
+        C: SerializedCollection;
     /// Stores `contents` into this document.
     fn set_contents(&mut self, contents: C::Contents) -> Result<(), crate::Error>
     where
@@ -666,28 +653,6 @@ where
     C: Collection,
 {
     type Bytes = Vec<u8>;
-
-    // fn new<Contents: Into<Self::Bytes>>(
-    //     id: C::PrimaryKey,
-    //     contents: Contents,
-    // ) -> Result<Self, crate::Error> {
-    //     let contents = Bytes(contents.into());
-    //     Ok(Self {
-    //         header: Header {
-    //             id: DocumentId::new(id)?,
-    //             revision: Revision::new(&contents),
-    //         },
-    //         contents,
-    //     })
-    // }
-
-    // fn with_contents(id: C::PrimaryKey, contents: C::Contents) -> Result<Self, crate::Error>
-    // where
-    //     C: SerializedCollection,
-    // {
-    //     <BorrowedDocument<'_> as Document<C>>::with_contents(id, contents)
-    //         .map(BorrowedDocument::into_owned)
-    // }
 
     fn contents(&self) -> Result<C::Contents, crate::Error>
     where

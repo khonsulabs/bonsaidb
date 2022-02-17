@@ -7,7 +7,7 @@ mod bonsai;
 #[cfg(feature = "sqlite")]
 mod rusqlite;
 
-#[derive(Clone, Serialize, Deserialize, Debug, Collection)]
+#[derive(Serialize, Deserialize, Debug, Collection)]
 #[collection(name = "resizable-docs")]
 struct ResizableDocument {
     data: Bytes,

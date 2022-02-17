@@ -16,7 +16,7 @@ use bonsaidb::{
 use serde::{Deserialize, Serialize};
 
 // ANCHOR: struct
-#[derive(Clone, Serialize, Deserialize, Debug, Collection)]
+#[derive(Serialize, Deserialize, Debug, Collection)]
 #[collection(name = "blog-post", views = [BlogPostsByCategory])]
 pub struct BlogPost {
     pub title: String,
