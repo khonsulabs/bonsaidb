@@ -2,7 +2,7 @@ use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::{DocumentId, Header},
+    document::{CollectionHeader, DocumentId, Header},
     schema::{CollectionName, SerializedCollection},
     Error,
 };
@@ -111,9 +111,10 @@ impl Operation {
     /// an id is provided and a document already exists with that id, a conflict
     /// error will be returned.
     pub fn insert_serialized<C: SerializedCollection>(
-        id: Option<DocumentId>,
+        id: Option<C::PrimaryKey>,
         contents: &C::Contents,
     ) -> Result<Self, Error> {
+        let id = id.map(DocumentId::new).transpose()?;
         let contents = C::serialize(contents)?;
         Ok(Self::insert(C::collection_name(), id, contents))
     }
@@ -132,11 +133,15 @@ impl Operation {
     /// Updates a document with the serialized representation of `contents` in
     /// `collection`.
     pub fn update_serialized<C: SerializedCollection>(
-        header: Header,
+        header: CollectionHeader<C::PrimaryKey>,
         contents: &C::Contents,
     ) -> Result<Self, Error> {
         let contents = C::serialize(contents)?;
-        Ok(Self::update(C::collection_name(), header, contents))
+        Ok(Self::update(
+            C::collection_name(),
+            Header::try_from(header)?,
+            contents,
+        ))
     }
 
     /// Overwrites a document in `collection`. If a document with `id` exists,

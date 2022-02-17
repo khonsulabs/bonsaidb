@@ -1162,7 +1162,7 @@ struct LegacyDocument<'a> {
 }
 
 pub(crate) fn deserialize_document(bytes: &[u8]) -> Result<BorrowedDocument<'_>, Error> {
-    match bincode::deserialize::<BorrowedDocument<'_>>(bytes) {
+    match pot::from_slice::<BorrowedDocument<'_>>(bytes) {
         Ok(document) => Ok(document),
         Err(err) => match bincode::deserialize::<LegacyDocument<'_>>(bytes) {
             Ok(legacy_doc) => Ok(BorrowedDocument {
@@ -1178,7 +1178,7 @@ pub(crate) fn deserialize_document(bytes: &[u8]) -> Result<BorrowedDocument<'_>,
 }
 
 fn serialize_document(document: &BorrowedDocument<'_>) -> Result<Vec<u8>, bonsaidb_core::Error> {
-    bincode::serialize(document)
+    pot::to_vec(document)
         .map_err(Error::from)
         .map_err(bonsaidb_core::Error::from)
 }

@@ -8,7 +8,7 @@ use bonsaidb::{
         async_trait::async_trait,
         connection::{AccessPolicy, Connection, StorageConnection},
         define_basic_unique_mapped_view,
-        document::{CollectionDocument, CollectionHeader, DocumentId, Emit},
+        document::{CollectionDocument, CollectionHeader, Emit},
         schema::{
             view::map::Mappings, Collection, CollectionName, CollectionViewSchema,
             DefaultSerialization, InsertError, NamedCollection, ReduceResult, Schema, Schematic,
@@ -174,39 +174,21 @@ impl Operator<Load> for BonsaiOperator {
         let mut tx = Transaction::default();
         for (id, category) in &operation.initial_data.categories {
             tx.push(
-                transaction::Operation::insert_serialized::<Category>(
-                    Some(DocumentId::from_u32(*id)),
-                    category,
-                )
-                .unwrap(),
+                transaction::Operation::insert_serialized::<Category>(Some(*id), category).unwrap(),
             );
         }
         for (id, product) in &operation.initial_data.products {
             tx.push(
-                transaction::Operation::insert_serialized::<Product>(
-                    Some(DocumentId::from_u32(*id)),
-                    product,
-                )
-                .unwrap(),
+                transaction::Operation::insert_serialized::<Product>(Some(*id), product).unwrap(),
             );
         }
         for (id, customer) in &operation.initial_data.customers {
             tx.push(
-                transaction::Operation::insert_serialized::<Customer>(
-                    Some(DocumentId::from_u32(*id)),
-                    customer,
-                )
-                .unwrap(),
+                transaction::Operation::insert_serialized::<Customer>(Some(*id), customer).unwrap(),
             );
         }
         for (id, order) in &operation.initial_data.orders {
-            tx.push(
-                transaction::Operation::insert_serialized::<Order>(
-                    Some(DocumentId::from_u32(*id)),
-                    order,
-                )
-                .unwrap(),
-            );
+            tx.push(transaction::Operation::insert_serialized::<Order>(Some(*id), order).unwrap());
         }
         for review in &operation.initial_data.reviews {
             tx.push(
@@ -258,7 +240,7 @@ impl Operator<LookupProduct> for BonsaiOperator {
         measurements: &Measurements,
     ) -> OperationResult {
         let measurement = measurements.begin(self.label, Metric::LookupProduct);
-        let doc = Product::get(DocumentId::from_u32(operation.id), &self.database)
+        let doc = Product::get(operation.id, &self.database)
             .await
             .unwrap()
             .unwrap();
@@ -303,7 +285,7 @@ impl Operator<AddProductToCart> for BonsaiOperator {
         measurements: &Measurements,
     ) -> OperationResult {
         let cart = match &results[operation.cart.0] {
-            OperationResult::Cart { id } => DocumentId::from_u32(*id),
+            OperationResult::Cart { id } => *id,
             _ => unreachable!("Invalid operation result"),
         };
         let product = match &results[operation.product.0] {
@@ -330,7 +312,7 @@ impl Operator<Checkout> for BonsaiOperator {
         measurements: &Measurements,
     ) -> OperationResult {
         let cart = match &results[operation.cart.0] {
-            OperationResult::Cart { id } => DocumentId::from_u32(*id),
+            OperationResult::Cart { id } => *id,
             _ => unreachable!("Invalid operation result"),
         };
 

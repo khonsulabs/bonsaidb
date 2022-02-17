@@ -92,7 +92,7 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
 }
 
 /// A set of samples that were taken at a specific time.
-#[derive(Clone, Debug, Serialize, Deserialize, Collection)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "samples", views = [AsHistogram])]
 pub struct Samples {
     /// The timestamp of the samples.
