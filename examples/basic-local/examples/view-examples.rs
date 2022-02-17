@@ -15,7 +15,7 @@ use bonsaidb::{
 use serde::{Deserialize, Serialize};
 
 // begin rustme snippet: snippet-a
-#[derive(Clone, Debug, Serialize, Deserialize, Collection)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "shapes", views = [ShapesByNumberOfSides])]
 struct Shape {
     pub sides: u32,

@@ -15,7 +15,7 @@
 use attribute_derive::Attribute;
 use proc_macro2::{Span, TokenStream};
 use proc_macro_crate::{crate_name, FoundCrate};
-use proc_macro_error::{abort_call_site, proc_macro_error, ResultExt};
+use proc_macro_error::{abort, abort_call_site, proc_macro_error, ResultExt};
 use quote::{quote, ToTokens};
 use syn::{
     parse_macro_input, parse_quote, punctuated::Punctuated, token::Paren, DeriveInput, Expr, Ident,
@@ -53,7 +53,7 @@ fn core_path() -> Path {
 #[derive(Attribute)]
 #[attribute(ident = "collection")]
 #[attribute(
-    invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]`, `primary_key = u64`, `serialization = SerializationFormat` and `core = bonsaidb::core` are supported attributes"#
+    invalid_field = r#"Only `authority = "some-authority"`, `name = "some-name"`, `views = [SomeView, AnotherView]`, `primary_key = u64`, `natural_id = |contents: &Self| Some(contents.id)`, serialization = SerializationFormat` and `core = bonsaidb::core` are supported attributes"#
 )]
 struct CollectionAttribute {
     authority: Option<String>,
@@ -75,6 +75,10 @@ struct CollectionAttribute {
     encryption_optional: bool,
     #[attribute(expected = r#"Specify the `primary_key` like so: `primary_key = u64`"#)]
     primary_key: Option<Type>,
+    #[attribute(
+        expected = r#"Specify the `natural_id` like so: `natural_id = function_name` or `natural_id = |doc| { .. }`"#
+    )]
+    natural_id: Option<Expr>,
     #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
     core: Option<Path>,
 }
@@ -97,6 +101,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         views,
         serialization,
         primary_key,
+        natural_id,
         core,
         encryption_key,
         encryption_required,
@@ -114,20 +119,51 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     let primary_key = primary_key.unwrap_or_else(|| parse_quote!(u64));
 
     let serialization = match serialization {
-        Some(serialization) if serialization.is_ident("None") => TokenStream::new(),
-        Some(serialization) => quote! {
-            impl #impl_generics #core::schema::SerializedCollection for #ident #ty_generics #where_clause {
-                type Contents = #ident #ty_generics;
-                type Format = #serialization;
+        Some(serialization) if serialization.is_ident("None") => {
+            if let Some(natural_id) = natural_id {
+                abort!(
+                    natural_id,
+                    "`natural_id` must be manually implemented when using `serialization = None`"
+                );
+            }
 
-                fn format() -> Self::Format {
-                    #serialization::default()
+            TokenStream::new()
+        }
+        Some(serialization) => {
+            let natural_id = natural_id.map(|natural_id| {
+                quote!(
+                    fn natural_id(contents: &Self::Contents) -> Option<Self::PrimaryKey> {
+                        #natural_id(contents)
+                    }
+                )
+            });
+            quote! {
+                impl #impl_generics #core::schema::SerializedCollection for #ident #ty_generics #where_clause {
+                    type Contents = #ident #ty_generics;
+                    type Format = #serialization;
+
+                    fn format() -> Self::Format {
+                        #serialization::default()
+                    }
+
+                    #natural_id
                 }
             }
-        },
-        None => quote! {
-            impl #impl_generics #core::schema::DefaultSerialization for #ident #ty_generics #where_clause {}
-        },
+        }
+        None => {
+            let natural_id = natural_id.map(|natural_id| {
+                quote!(
+                    fn natural_id(&self) -> Option<Self::PrimaryKey> {
+                        (#natural_id)(self)
+                    }
+                )
+            });
+            quote! {
+                impl #impl_generics #core::schema::DefaultSerialization for #ident #ty_generics #where_clause {
+                    #natural_id
+                }
+            }
+        }
     };
 
     let name = authority.map_or_else(

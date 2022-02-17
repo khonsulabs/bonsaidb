@@ -6,7 +6,7 @@ use bonsaidb::core::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize, Collection)]
+#[derive(Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "shapes", views = [ShapesByNumberOfSides])]
 pub struct Shape {
     pub sides: u32,

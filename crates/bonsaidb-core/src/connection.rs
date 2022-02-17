@@ -440,6 +440,14 @@ where
 
     /// Adds a new `Document<Cl>` with the contents `item`.
     ///
+    /// ## Automatic Id Assignment
+    ///
+    /// This function calls [`SerializedCollection::natural_id()`] to try to
+    /// retrieve a primary key value from `item`. If an id is returned, the item
+    /// is inserted with that id. If an id is not returned, an id will be
+    /// automatically assigned, if possible, by the storage backend, which uses the [`Key`]
+    /// trait to assign ids.
+    ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
@@ -464,10 +472,19 @@ where
         Cl: schema::SerializedCollection,
     {
         let contents = Cl::serialize(item)?;
-        self.push_bytes(contents).await
+        if let Some(natural_id) = Cl::natural_id(item) {
+            self.insert_bytes(natural_id, contents).await
+        } else {
+            self.push_bytes(contents).await
+        }
     }
 
     /// Adds a new `Document<Cl>` with the `contents`.
+    ///
+    /// ## Automatic Id Assignment
+    ///
+    /// An id will be automatically assigned, if possible, by the storage backend, which uses
+    /// the [`Key`] trait to assign ids.
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();

@@ -210,6 +210,17 @@ pub trait SerializedCollection: Collection {
     /// The serialization format for this collection.
     type Format: OwnedDeserializer<Self::Contents>;
 
+    /// Returns the natural identifier of `contents`. This is called when
+    /// pushing values into a collection, before attempting to automatically
+    /// assign a unique id.
+    #[allow(unused_variables)]
+    fn natural_id(contents: &Self::Contents) -> Option<Self::PrimaryKey>
+    where
+        Self: Sized,
+    {
+        None
+    }
+
     /// Returns the configured instance of [`Self::Format`].
     // TODO allow configuration to be passed here, such as max allocation bytes.
     fn format() -> Self::Format;
@@ -366,6 +377,14 @@ pub trait SerializedCollection: Collection {
     /// Pushes this value into the collection, returning the created document.
     /// This function is useful when `Self != Self::Contents`.
     ///
+    /// ## Automatic Id Assignment
+    ///
+    /// This function calls [`Self::natural_id()`] to try to retrieve a primary
+    /// key value from `contents`. If an id is returned, the item is inserted
+    /// with that id. If an id is not returned, an id will be automatically
+    /// assigned, if possible, by the storage backend, which uses the [`Key`]
+    /// trait to assign ids.
+    ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
@@ -395,6 +414,14 @@ pub trait SerializedCollection: Collection {
     }
 
     /// Pushes this value into the collection, returning the created document.
+    ///
+    /// ## Automatic Id Assignment
+    ///
+    /// This function calls [`Self::natural_id()`] to try to retrieve a primary
+    /// key value from `self`. If an id is returned, the item is inserted with
+    /// that id. If an id is not returned, an id will be automatically assigned,
+    /// if possible, by the storage backend, which uses the [`Key`] trait to
+    /// assign ids.
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
@@ -553,7 +580,14 @@ pub trait SerializedCollection: Collection {
 }
 
 /// A convenience trait for easily storing Serde-compatible types in documents.
-pub trait DefaultSerialization: Collection {}
+pub trait DefaultSerialization: Collection {
+    /// Returns the natural identifier of `contents`. This is called when
+    /// pushing values into a collection, before attempting to automatically
+    /// assign a unique id.
+    fn natural_id(&self) -> Option<Self::PrimaryKey> {
+        None
+    }
+}
 
 impl<T> SerializedCollection for T
 where
@@ -564,6 +598,10 @@ where
 
     fn format() -> Self::Format {
         Pot::default()
+    }
+
+    fn natural_id(contents: &Self::Contents) -> Option<Self::PrimaryKey> {
+        T::natural_id(contents)
     }
 }
 
