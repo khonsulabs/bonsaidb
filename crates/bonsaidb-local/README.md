@@ -3,8 +3,8 @@
 BonsaiDb's offline database implementation.
 
 This crate exposes BonsaiDb's local database implementation. The
-[`Storage`](https://dev.bonsaidb.io/main/docs/bonsaidb_local/struct.Storage.html) type provides its most common functionality by
-implementing the [`StorageConnection`](https://dev.bonsaidb.io/main/docs/bonsaidb/core/connection/trait.StorageConnection.html).
+[`Storage`](https://docs.rs/bonsaidb-client/*/bonsaidb_local/struct.Storage.html) type provides its most common functionality by
+implementing the [`StorageConnection`](https://docs.rs/bonsaidb-core/*/bonsaidb_core/connection/trait.StorageConnection.html).
 
 ## Minimum Supported Rust Version (MSRV)
 
