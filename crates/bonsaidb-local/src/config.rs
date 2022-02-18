@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -22,7 +23,7 @@ mod argon;
 pub use argon::*;
 
 /// Configuration options for [`Storage`](crate::storage::Storage).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct StorageConfiguration {
     /// The path to the database. Defaults to `db.bonsaidb` if not specified.
@@ -49,7 +50,7 @@ pub struct StorageConfiguration {
     /// hardware as the encrypted content, anyone with access to the disk will
     /// be able to decrypt the stored data.
     #[cfg(feature = "encryption")]
-    pub vault_key_storage: Option<Box<dyn AnyVaultKeyStorage>>,
+    pub vault_key_storage: Option<Arc<dyn AnyVaultKeyStorage>>,
 
     /// The default encryption key for the database. If specified, all documents
     /// will be stored encrypted at-rest using the key specified. Having this
@@ -67,11 +68,15 @@ pub struct StorageConfiguration {
     /// Controls how the key-value store persists keys, on a per-database basis.
     pub key_value_persistence: KeyValuePersistence,
 
+    /// Sets the default compression algorithm.
+    #[cfg(feature = "compression")]
+    pub default_compression: Option<Compression>,
+
     /// Password hashing configuration.
     #[cfg(feature = "password-hashing")]
     pub argon: ArgonConfiguration,
 
-    pub(crate) initial_schemas: HashMap<SchemaName, Box<dyn DatabaseOpener>>,
+    pub(crate) initial_schemas: HashMap<SchemaName, Arc<dyn DatabaseOpener>>,
 }
 
 impl Default for StorageConfiguration {
@@ -87,6 +92,8 @@ impl Default for StorageConfiguration {
             vault_key_storage: None,
             #[cfg(feature = "encryption")]
             default_encryption_key: None,
+            #[cfg(feature = "compression")]
+            default_compression: None,
             workers: Tasks::default_for(&system),
             views: Views::default(),
             key_value_persistence: KeyValuePersistence::default(),
@@ -101,13 +108,13 @@ impl StorageConfiguration {
     /// Registers the schema provided.
     pub fn register_schema<S: Schema>(&mut self) -> Result<(), Error> {
         self.initial_schemas
-            .insert(S::schema_name(), Box::new(StorageSchemaOpener::<S>::new()?));
+            .insert(S::schema_name(), Arc::new(StorageSchemaOpener::<S>::new()?));
         Ok(())
     }
 }
 
 /// Configuration options for background tasks.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tasks {
     /// Defines how many workers should be spawned to process tasks. This
     /// defaults to the 2x the number of cpu cores available to the system or 4, whichever is larger.
@@ -320,6 +327,9 @@ pub trait Builder: Default {
     fn tasks_worker_count(self, worker_count: usize) -> Self;
     /// Sets [`Views::check_integrity_on_open`] to `check` and returns self.
     fn check_view_integrity_on_open(self, check: bool) -> Self;
+    /// Sets [`StorageConfiguration::default_compression`](StorageConfiguration#structfield.default_compression) to `path` and returns self.
+    #[cfg(feature = "compression")]
+    fn default_compression(self, compression: Compression) -> Self;
 
     /// Sets [`StorageConfiguration::key_value_persistence`](StorageConfiguration#structfield.key_value_persistence) to `persistence` and returns self.
     fn key_value_persistence(self, persistence: KeyValuePersistence) -> Self;
@@ -351,13 +361,19 @@ impl Builder for StorageConfiguration {
         mut self,
         key_storage: VaultKeyStorage,
     ) -> Self {
-        self.vault_key_storage = Some(Box::new(key_storage));
+        self.vault_key_storage = Some(Arc::new(key_storage));
         self
     }
 
     #[cfg(feature = "encryption")]
     fn default_encryption_key(mut self, key: KeyId) -> Self {
         self.default_encryption_key = Some(key);
+        self
+    }
+
+    #[cfg(feature = "compression")]
+    fn default_compression(mut self, compression: Compression) -> Self {
+        self.default_compression = Some(compression);
         self
     }
 
@@ -384,5 +400,26 @@ pub(crate) trait SystemDefault: Sized {
         let mut system = System::new_with_specifics(system_specs);
         system.refresh_specifics(system_specs);
         Self::default_for(&system)
+    }
+}
+
+/// All available compression algorithms.
+#[derive(Debug, Clone, Copy)]
+pub enum Compression {
+    /// Compress data using the
+    /// [lz4](https://en.wikipedia.org/wiki/LZ4_(compression_algorithm))
+    /// algorithm. This is powered by
+    /// [lz4_flex](https://crates.io/crates/lz4_flex).
+    Lz4 = 1,
+}
+
+impl Compression {
+    #[must_use]
+    #[cfg(feature = "compression")]
+    pub(crate) fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            1 => Some(Self::Lz4),
+            _ => None,
+        }
     }
 }

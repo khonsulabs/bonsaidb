@@ -65,7 +65,10 @@ impl CommandLine for CliBackend {
         match command {
             Cli::Add { sides } => {
                 let new_shape = Shape::new(sides).push_into(&database).await?;
-                println!("Shape #{} inserted with {} sides", new_shape.id, sides);
+                println!(
+                    "Shape #{} inserted with {} sides",
+                    new_shape.header.id, sides
+                );
             }
             Cli::Count { sides } => {
                 if let Some(sides) = sides {

@@ -2,7 +2,7 @@ use actionable::{Action, Identifier, ResourceName};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::KeyId,
+    document::{DocumentId, KeyId},
     schema::{CollectionName, ViewName},
 };
 
@@ -33,7 +33,7 @@ pub fn collection_resource_name<'a>(
 pub fn document_resource_name<'a>(
     database: impl Into<Identifier<'a>>,
     collection: &CollectionName,
-    id: u64,
+    id: &'a DocumentId,
 ) -> ResourceName<'a> {
     collection_resource_name(database, collection)
         .and("document")
@@ -178,6 +178,11 @@ pub enum DocumentAction {
     /// See [`document_resource_name()`] for the format of document resource
     /// names.
     Update,
+    /// Allows overwriting a document by id with
+    /// [`Connection::apply_transaction()`](crate::connection::Connection::apply_transaction).
+    /// No revision information will be checked. See
+    /// [`document_resource_name()`] for the format of document resource names.
+    Overwrite,
     /// Allows deleting a document through
     /// [`Connection::apply_transaction()`](crate::connection::Connection::apply_transaction).
     /// See [`document_resource_name()`] for the format of document resource

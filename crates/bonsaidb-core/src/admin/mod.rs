@@ -18,9 +18,8 @@ pub use self::{group::PermissionGroup, role::Role, user::User};
 
 /// The BonsaiDb administration schema.
 #[derive(Debug, Schema)]
-#[schema(name = "bonsaidb-admin", authority = "khonsulabs", core = crate)]
-#[cfg_attr(feature = "multiuser", schema(collections = [Database, PermissionGroup, Role, User]))]
-#[cfg_attr(not(feature = "multiuser"), schema(collections = [Database]))]
+#[schema(name = "bonsaidb-admin", authority = "khonsulabs", collections = [Database], core = crate)]
+#[cfg_attr(feature = "multiuser", schema(collections = [PermissionGroup, Role, User]))]
 pub struct Admin;
 
 /// The name of the admin database.

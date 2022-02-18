@@ -6,14 +6,14 @@ use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     connection::Connection,
     define_basic_unique_mapped_view,
-    document::{CollectionDocument, KeyId},
+    document::{CollectionDocument, Emit, KeyId},
     schema::{Collection, SerializedCollection},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{Backend, CustomServer, Error};
 
-#[derive(Debug, Serialize, Deserialize, Collection)]
+#[derive(Clone, Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "acme-accounts", authority = "khonsulabs", views = [AcmeAccountByContacts])]
 #[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = bonsaidb_core)]
 pub struct AcmeAccount {

@@ -4,7 +4,7 @@ use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::{Header, OwnedDocument},
+    document::{DocumentId, Header, OwnedDocument},
     schema::view::{self, Key, SerializedView, View},
 };
 
@@ -30,7 +30,7 @@ impl<K: for<'a> Key<'a>, V> Map<K, V> {
             source: self.source.clone(),
             key: Bytes::from(
                 self.key
-                    .as_big_endian_bytes()
+                    .as_ord_bytes()
                     .map_err(view::Error::key_serialization)?
                     .to_vec(),
             ),
@@ -159,7 +159,7 @@ pub struct MappedDocuments<D, V: View> {
     /// All associated documents by ID.
     ///
     /// Documents can appear in a mapping query multiple times. As a result, they are stored separately to avoid duplication.
-    pub documents: BTreeMap<u64, D>,
+    pub documents: BTreeMap<DocumentId, D>,
 }
 
 impl<D, V: View> MappedDocuments<D, V> {
@@ -255,7 +255,7 @@ impl Serialized {
     ) -> Result<Map<View::Key, View::Value>, view::Error> {
         Ok(Map::new(
             self.source.clone(),
-            <View::Key as Key>::from_big_endian_bytes(&self.key)
+            <View::Key as Key>::from_ord_bytes(&self.key)
                 .map_err(view::Error::key_serialization)?,
             View::deserialize(&self.value)?,
         ))
@@ -268,7 +268,7 @@ pub struct MappedSerializedDocuments {
     /// The serialized mapped value.
     pub mappings: Vec<Serialized>,
     /// The source document.
-    pub documents: BTreeMap<u64, OwnedDocument>,
+    pub documents: BTreeMap<DocumentId, OwnedDocument>,
 }
 
 impl MappedSerializedDocuments {

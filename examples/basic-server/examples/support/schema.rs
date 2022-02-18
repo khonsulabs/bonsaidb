@@ -1,5 +1,5 @@
 use bonsaidb::core::{
-    document::CollectionDocument,
+    document::{CollectionDocument, Emit},
     schema::{
         view::CollectionViewSchema, Collection, ReduceResult, View, ViewMapResult, ViewMappedValue,
     },
@@ -29,7 +29,9 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
     ) -> ViewMapResult<Self::View> {
-        Ok(document.emit_key_and_value(document.contents.sides, 1))
+        document
+            .header
+            .emit_key_and_value(document.contents.sides, 1)
     }
 
     fn reduce(

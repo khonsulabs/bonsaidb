@@ -16,7 +16,10 @@ use transmog_pot::Pot;
 use crate::admin::{PermissionGroup, Role, User};
 use crate::{
     connection::{AccessPolicy, Connection, StorageConnection},
-    document::{BorrowedDocument, CollectionDocument, Document, KeyId},
+    document::{
+        AnyDocumentId, BorrowedDocument, CollectionDocument, CollectionHeader, DocumentId, Emit,
+        Header, KeyId,
+    },
     keyvalue::KeyValue,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
@@ -62,8 +65,8 @@ impl Basic {
     }
 
     #[must_use]
-    pub const fn with_parent_id(mut self, parent_id: u64) -> Self {
-        self.parent_id = Some(parent_id);
+    pub fn with_parent_id(mut self, parent_id: impl Into<AnyDocumentId<u64>>) -> Self {
+        self.parent_id = Some(parent_id.into().to_primary_key().unwrap());
         self
     }
 }
@@ -76,7 +79,7 @@ impl ViewSchema for BasicCount {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        Ok(document.emit_key_and_value((), 1))
+        document.header.emit_key_and_value((), 1)
     }
 
     fn reduce(
@@ -100,8 +103,8 @@ impl ViewSchema for BasicByParentId {
     }
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        let contents = document.contents::<Basic>()?;
-        Ok(document.emit_key_and_value(contents.parent_id, 1))
+        let contents = Basic::document_contents(document)?;
+        document.header.emit_key_and_value(contents.parent_id, 1)
     }
 
     fn reduce(
@@ -121,9 +124,11 @@ impl ViewSchema for BasicByCategory {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        let contents = document.contents::<Basic>()?;
+        let contents = Basic::document_contents(document)?;
         if let Some(category) = &contents.category {
-            Ok(document.emit_key_and_value(category.to_lowercase(), 1))
+            document
+                .header
+                .emit_key_and_value(category.to_lowercase(), 1)
         } else {
             Ok(Mappings::none())
         }
@@ -146,13 +151,12 @@ impl ViewSchema for BasicByTag {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        let contents = document.contents::<Basic>()?;
-
-        Ok(contents
+        let contents = Basic::document_contents(document)?;
+        contents
             .tags
             .iter()
-            .map(|tag| document.emit_key_and_value(tag.clone(), 1))
-            .collect())
+            .map(|tag| document.header.emit_key_and_value(tag.clone(), 1))
+            .collect()
     }
 
     fn reduce(
@@ -172,7 +176,7 @@ impl ViewSchema for BasicByBrokenParentId {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        Ok(document.emit())
+        document.header.emit()
     }
 }
 
@@ -214,7 +218,7 @@ impl ViewSchema for EncryptedBasicCount {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        Ok(document.emit_key_and_value((), 1))
+        document.header.emit_key_and_value((), 1)
     }
 
     fn reduce(
@@ -234,8 +238,8 @@ impl ViewSchema for EncryptedBasicByParentId {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        let contents = document.contents::<EncryptedBasic>()?;
-        Ok(document.emit_key_and_value(contents.parent_id, 1))
+        let contents = EncryptedBasic::document_contents(document)?;
+        document.header.emit_key_and_value(contents.parent_id, 1)
     }
 
     fn reduce(
@@ -255,9 +259,11 @@ impl ViewSchema for EncryptedBasicByCategory {
     type View = Self;
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        let contents = document.contents::<EncryptedBasic>()?;
+        let contents = EncryptedBasic::document_contents(document)?;
         if let Some(category) = &contents.category {
-            Ok(document.emit_key_and_value(category.to_lowercase(), 1))
+            document
+                .header
+                .emit_key_and_value(category.to_lowercase(), 1)
         } else {
             Ok(Mappings::none())
         }
@@ -276,7 +282,7 @@ impl ViewSchema for EncryptedBasicByCategory {
 #[schema(name = "basic", collections = [Basic, EncryptedBasic, Unique], core = crate)]
 pub struct BasicSchema;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Default, Collection)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Default, Collection)]
 #[collection(name = "unique", authority = "khonsulabs", views = [UniqueValue], core = crate)]
 pub struct Unique {
     pub value: String,
@@ -302,8 +308,8 @@ impl ViewSchema for UniqueValue {
     }
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        let entry = document.contents::<Unique>()?;
-        Ok(document.emit_key(entry.value))
+        let entry = Unique::document_contents(document)?;
+        document.header.emit_key(entry.value)
     }
 }
 
@@ -351,6 +357,8 @@ impl Deref for TestDirectory {
 pub struct BasicCollectionWithNoViews;
 
 impl Collection for BasicCollectionWithNoViews {
+    type PrimaryKey = u64;
+
     fn collection_name() -> CollectionName {
         Basic::collection_name()
     }
@@ -373,6 +381,8 @@ impl SerializedCollection for BasicCollectionWithNoViews {
 pub struct BasicCollectionWithOnlyBrokenParentId;
 
 impl Collection for BasicCollectionWithOnlyBrokenParentId {
+    type PrimaryKey = u64;
+
     fn collection_name() -> CollectionName {
         Basic::collection_name()
     }
@@ -382,7 +392,7 @@ impl Collection for BasicCollectionWithOnlyBrokenParentId {
     }
 }
 
-#[derive(Debug, Collection)]
+#[derive(Serialize, Deserialize, Clone, Debug, Collection)]
 #[collection(name = "unassociated", authority = "khonsulabs", core = crate)]
 pub struct UnassociatedCollection;
 
@@ -648,13 +658,13 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .get(header.id)
         .await?
         .expect("couldn't retrieve stored item");
-    let mut value = doc.contents::<Basic>()?;
+    let mut value = Basic::document_contents(&doc)?;
     assert_eq!(original_value, value);
-    let old_revision = doc.header.revision.clone();
+    let old_revision = doc.header.revision;
 
     // Update the value
     value.value = String::from("updated_value");
-    doc.set_contents(&value)?;
+    Basic::set_document_contents(&mut doc, value.clone())?;
     db.update::<Basic, _>(&mut doc).await?;
 
     // update should cause the revision to be changed
@@ -665,7 +675,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .get(header.id)
         .await?
         .expect("couldn't retrieve stored item");
-    assert_eq!(doc.contents::<Basic>()?, value);
+    assert_eq!(Basic::document_contents(&doc)?, value);
 
     // These operations should have created two transactions with one change each
     let transactions = db.list_executed_transactions(None, None).await?;
@@ -678,7 +688,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
             .expect("incorrect transaction type");
         assert_eq!(changed_documents.len(), 1);
         assert_eq!(changed_documents[0].collection, Basic::collection_name());
-        assert_eq!(changed_documents[0].id, header.id);
+        assert_eq!(header.id, changed_documents[0].id.deserialize()?);
         assert!(!changed_documents[0].deleted);
     }
 
@@ -695,7 +705,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .expect("incorrect transaction type");
     assert_eq!(changed_documents.len(), 1);
     assert_eq!(changed_documents[0].collection, Basic::collection_name());
-    assert_eq!(changed_documents[0].id, header.id);
+    assert_eq!(header.id, changed_documents[0].id.deserialize()?);
     assert!(changed_documents[0].deleted);
 
     // Use the Collection interface
@@ -706,13 +716,13 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     assert_eq!(doc.contents, reloaded.contents);
 
     // Test Connection::insert with a specified id
-    let doc = BorrowedDocument::with_contents(42, &Basic::new("42"))?;
+    let doc = BorrowedDocument::with_contents::<Basic>(42, &Basic::new("42"))?;
     let document_42 = db
-        .insert::<Basic, _>(Some(doc.id), doc.contents.into_vec())
+        .insert::<Basic, _, _>(Some(doc.header.id), doc.contents.into_vec())
         .await?;
     assert_eq!(document_42.id, 42);
     let document_43 = Basic::new("43").insert_into(43, db).await?;
-    assert_eq!(document_43.id, 43);
+    assert_eq!(document_43.header.id, 43);
 
     // Test that inserting a document with the same ID results in a conflict:
     let conflict_err = Basic::new("43")
@@ -720,6 +730,13 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .await
         .unwrap_err();
     assert!(matches!(conflict_err.error, Error::DocumentConflict(..)));
+
+    // Test that overwriting works
+    let overwritten = Basic::new("43")
+        .overwrite_into(doc.header.id, db)
+        .await
+        .unwrap();
+    assert!(overwritten.header.revision.id > doc.header.revision.id);
 
     Ok(())
 }
@@ -741,25 +758,29 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         .get(header.id)
         .await?
         .expect("couldn't retrieve stored item");
-    let mut value = doc.contents::<Basic>()?;
+    let mut value = Basic::document_contents(&doc)?;
     value.value = String::from("updated_value");
-    doc.set_contents(&value)?;
+    Basic::set_document_contents(&mut doc, value.clone())?;
     db.update::<Basic, _>(&mut doc).await?;
 
     // To generate a conflict, let's try to do the same update again by
     // reverting the header
-    doc.header = header;
+    doc.header = Header::try_from(header).unwrap();
     match db
         .update::<Basic, _>(&mut doc)
         .await
         .expect_err("conflict should have generated an error")
     {
-        Error::DocumentConflict(collection, id) => {
+        Error::DocumentConflict(collection, header) => {
             assert_eq!(collection, Basic::collection_name());
-            assert_eq!(id, doc.header.id);
+            assert_eq!(header.id, doc.header.id);
         }
         other => return Err(anyhow::Error::from(other)),
     }
+
+    // Let's force an update through overwrite. After this succeeds, the header
+    // is updated to the new revision.
+    db.collection::<Basic>().overwrite(&mut doc).await.unwrap();
 
     // Now, let's use the CollectionDocument API to modify the document through a refetch.
     let mut doc = CollectionDocument::<Basic>::try_from(&doc)?;
@@ -768,18 +789,18 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     })
     .await?;
     assert_eq!(doc.contents.value, "modify worked");
-    let doc = Basic::get(doc.id, db).await?.unwrap();
+    let doc = Basic::get(doc.header.id, db).await?.unwrap();
     assert_eq!(doc.contents.value, "modify worked");
 
     Ok(())
 }
 
 pub async fn bad_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    let mut doc = BorrowedDocument::with_contents(1, &Basic::default())?;
+    let mut doc = BorrowedDocument::with_contents::<Basic>(1, &Basic::default())?;
     match db.update::<Basic, _>(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
             assert_eq!(collection, Basic::collection_name());
-            assert_eq!(id, 1);
+            assert_eq!(id.as_ref(), &DocumentId::from_u64(1));
             Ok(())
         }
         other => panic!("expected DocumentNotFound from update but got: {:?}", other),
@@ -797,7 +818,7 @@ pub async fn no_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         .expect("couldn't retrieve stored item");
     db.update::<Basic, _>(&mut doc).await?;
 
-    assert_eq!(doc.header, header);
+    assert_eq!(CollectionHeader::try_from(doc.header)?, header);
 
     Ok(())
 }
@@ -810,10 +831,10 @@ pub async fn get_multiple_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let doc2_value = Basic::new("second_value");
     let doc2 = collection.push(&doc2_value).await?;
 
-    let both_docs = Basic::get_multiple(&[doc1.id, doc2.id], db).await?;
+    let both_docs = Basic::get_multiple([doc1.id, doc2.id], db).await?;
     assert_eq!(both_docs.len(), 2);
 
-    let out_of_order = Basic::get_multiple(&[doc2.id, doc1.id], db).await?;
+    let out_of_order = Basic::get_multiple([doc2.id, doc1.id], db).await?;
     assert_eq!(out_of_order.len(), 2);
 
     // The order of get_multiple isn't guaranteed, so these two checks are done
@@ -1009,7 +1030,8 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 
 pub async fn unassociated_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let result = db
-        .insert::<UnassociatedCollection, _>(None, Vec::new())
+        .collection::<UnassociatedCollection>()
+        .push(&UnassociatedCollection)
         .await;
     match result {
         Err(Error::CollectionNotFound) => {}
@@ -1077,9 +1099,9 @@ pub async fn view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 
     // Test updating the record and the view being updated appropriately
     let mut doc = db.collection::<Basic>().get(a_child.id).await?.unwrap();
-    let mut basic = doc.contents::<Basic>()?;
+    let mut basic = Basic::document_contents(&doc)?;
     basic.parent_id = None;
-    doc.set_contents(&basic)?;
+    Basic::set_document_contents(&mut doc, basic)?;
     db.update::<Basic, _>(&mut doc).await?;
 
     let a_children = db
@@ -1278,7 +1300,7 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     }) = db.collection::<Unique>().push(&Unique::new("1")).await
     {
         assert_eq!(view, UniqueValue.view_name());
-        assert_eq!(existing_document.id, first_doc.id);
+        assert_eq!(first_doc.id, existing_document.id.deserialize()?);
         // We can't predict the conflicting document id since it's generated
         // inside of the transaction, but we can assert that it's different than
         // the document that was previously stored.
@@ -1289,9 +1311,9 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 
     let second_doc = db.collection::<Unique>().push(&Unique::new("2")).await?;
     let mut second_doc = db.collection::<Unique>().get(second_doc.id).await?.unwrap();
-    let mut contents = second_doc.contents::<Unique>()?;
+    let mut contents = Unique::document_contents(&second_doc)?;
     contents.value = String::from("1");
-    second_doc.set_contents(&contents)?;
+    Unique::set_document_contents(&mut second_doc, contents)?;
     if let Err(Error::UniqueKeyViolation {
         view,
         existing_document,
@@ -1299,7 +1321,7 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     }) = db.update::<Unique, _>(&mut second_doc).await
     {
         assert_eq!(view, UniqueValue.view_name());
-        assert_eq!(existing_document.id, first_doc.id);
+        assert_eq!(first_doc.id, existing_document.id.deserialize()?);
         assert_eq!(conflicting_document.id, second_doc.header.id);
     } else {
         unreachable!("unique key violation not triggered");
@@ -1323,7 +1345,7 @@ pub async fn named_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()>
         .or_insert_with(|| unreachable!())
         .await?
         .unwrap();
-    assert_eq!(original_entry.id, updated.id);
+    assert_eq!(original_entry.header.id, updated.header.id);
     assert_ne!(original_entry.contents.value, updated.contents.value);
 
     let retrieved = Unique::entry("2", db).await?.unwrap();
@@ -1378,14 +1400,19 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
 
     let role = Role::named(format!("role-{}", server_name))
         .push_into(admin)
-        .await?;
+        .await
+        .unwrap();
     let group = PermissionGroup::named(format!("group-{}", server_name))
         .push_into(admin)
-        .await?;
+        .await
+        .unwrap();
 
     // Add the role and group.
-    server.add_permission_group_to_user(user_id, &group).await?;
-    server.add_role_to_user(user_id, &role).await?;
+    server
+        .add_permission_group_to_user(user_id, &group)
+        .await
+        .unwrap();
+    server.add_role_to_user(user_id, &role).await.unwrap();
 
     // Test the results
     {
@@ -1400,10 +1427,10 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
     // Add the same things again (should not do anything). With names this time.
     server
         .add_permission_group_to_user(&username, &group)
-        .await?;
-    server.add_role_to_user(&username, &role).await?;
+        .await
+        .unwrap();
+    server.add_role_to_user(&username, &role).await.unwrap();
     {
-        // TODO this is what's failing.
         let user = User::load(&username, admin)
             .await
             .unwrap()
@@ -1415,8 +1442,9 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
     // Remove the group.
     server
         .remove_permission_group_from_user(user_id, &group)
-        .await?;
-    server.remove_role_from_user(user_id, &role).await?;
+        .await
+        .unwrap();
+    server.remove_role_from_user(user_id, &role).await.unwrap();
     {
         let user = User::get(user_id, admin)
             .await

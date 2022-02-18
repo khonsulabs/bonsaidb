@@ -215,8 +215,7 @@ impl HashingThread {
                 Err(error) => return Err(Error::PasswordHash(error.to_string())),
             };
 
-        let id = request.id.to_be_bytes();
-        params.data(&id)?;
+        params.data(&request.id.to_be_bytes())?;
 
         let params = params.params()?;
         self.allocate_blocks(&params);

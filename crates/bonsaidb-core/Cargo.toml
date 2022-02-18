@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-core"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Core functionality and types for BonsaiDb."
@@ -10,6 +10,7 @@ keywords = ["document-database", "database"]
 categories = ["database-implementations"]
 readme = "./README.md"
 homepage = "https://bonsaidb.io/"
+rust-version = "1.58"
 
 [features]
 default = []
@@ -27,7 +28,7 @@ included-from-local = ["bonsaidb-macros/local-path"]
 included-from-client = ["bonsaidb-macros/client-path"]
 
 [dependencies]
-bonsaidb-macros = { path = "../bonsaidb-macros", version = "0.1.1" }
+bonsaidb-macros = { path = "../bonsaidb-macros", version = "=0.2.0" }
 circulate = { version = "0.2.1" }
 serde = { version = "1", features = ["derive"] }
 pot = "1.0.0"
@@ -36,21 +37,21 @@ uuid = { version = "0.8", features = ["v4", "serde"], optional = true }
 thiserror = "1"
 sha2 = "0.10"
 futures = { version = "0.3" }
-tokio = { version = "1", features = ["time"], optional = true }
+tokio = { version = "=1.16.1", features = ["time"], optional = true }
 num-traits = "0.2"
-actionable = "0.1"
+actionable = "0.2.0"
 anyhow = { version = "1", optional = true }
 itertools = "0.10"
 ordered-varint = "1.0.0"
 derive-where = "=1.0.0-rc.2"
 transmog = "0.1.0"
 transmog-pot = "0.1.0"
-arc-bytes = { version = "0.3.1", features = ["serde"] }
+arc-bytes = { version = "0.3.3", features = ["serde"] }
 zeroize = { version = "1", optional = true, features = ["zeroize_derive"] }
 
 [dev-dependencies]
 hex-literal = "0.3"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "=1.16.1", features = ["full"] }
 futures = { version = "0.3" }
 num-derive = "0.3"
 anyhow = "1"

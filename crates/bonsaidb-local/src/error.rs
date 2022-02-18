@@ -35,6 +35,11 @@ pub enum Error {
     #[cfg(feature = "encryption")]
     Vault(#[from] crate::vault::Error),
 
+    /// An error occurred decompressing a stored value.
+    #[error("a vault error occurred: {0}")]
+    #[cfg(feature = "compression")]
+    Compression(#[from] lz4_flex::block::DecompressError),
+
     /// A collection requested to be encrypted, but encryption is disabled.
     #[error("encryption is disabled, but a collection is requesting encryption")]
     #[cfg(not(feature = "encryption"))]

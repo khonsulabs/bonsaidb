@@ -51,7 +51,9 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
     type View = Self;
 
     fn map(&self, document: CollectionDocument<Shape>) -> ViewMapResult<Self::View> {
-        Ok(document.emit_key_and_value(document.contents.sides, 1))
+        document
+            .header
+            .emit_key_and_value(document.contents.sides, 1)
     }
 
     fn reduce(
@@ -89,6 +91,14 @@ You can review the [full example in the repository][view-examples], or see all a
 [view-examples]: https://github.com/khonsulabs/bonsaidb/blob/release/examples/basic-local/examples/view-examples.rs
 [examples-readme]: https://github.com/khonsulabs/bonsaidb/blob/release/examples/README.md
 
+## Minimum Supported Rust Version (MSRV)
+
+While this project is alpha, we are actively adopting the current version of
+Rust. The current minimum version is `1.58`, and we plan on updating the MSRV to
+implement [namespaced
+Features](https://github.com/khonsulabs/bonsaidb/issues/178) as soon as the
+feature is released.
+
 ## Feature Flags
 
 No feature flags are enabled by default in the `bonsaidb` crate. This is
@@ -118,6 +128,7 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
   `bonsaidb-local`.
 - `local-cli`: Enables the `clap` structures for embedding database
   management commands into your own command-line interface.
+- `local-compression`: Enables support for compressed storage using lz4.
 - `local-encryption`: Enables at-rest encryption.
 - `local-instrument`: Enables instrumenting with `tracing`.
 - `local-multiuser`: Enables multi-user support.
@@ -136,6 +147,7 @@ bonsaidb = { version = "*", default-features = false, features = "server-full" }
   `bonsaidb-server`.
 - `server-acme`: Enables automtic certificate acquisition through ACME/LetsEncrypt.
 - `server-cli`: Enables the `cli` module.
+- `server-compression`: Enables support for compressed storage using lz4.
 - `server-encryption`: Enables at-rest encryption.
 - `server-hyper`: Enables convenience functions for upgrading websockets using `hyper`.
 - `server-instrument`: Enables instrumenting with `tracing`.

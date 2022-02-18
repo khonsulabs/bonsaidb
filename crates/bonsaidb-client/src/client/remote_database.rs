@@ -4,7 +4,8 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort},
     custom_api::CustomApi,
-    document::OwnedDocument,
+    document::{AnyDocumentId, OwnedDocument},
+    key::Key,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
         view::{
@@ -12,7 +13,7 @@ use bonsaidb_core::{
             map::{self, MappedDocuments},
             SerializedView,
         },
-        Collection, Key, Map, MappedValue, Schematic,
+        Collection, Map, MappedValue, Schematic,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -61,17 +62,21 @@ impl<A: CustomApi> RemoteDatabase<A> {
 
 #[async_trait]
 impl<A: CustomApi> Connection for RemoteDatabase<A> {
-    async fn get<C: Collection>(
+    async fn get<C, PrimaryKey>(
         &self,
-        id: u64,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
+        id: PrimaryKey,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: Collection,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
         match self
             .client
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Get {
                     collection: C::collection_name(),
-                    id,
+                    id: id.into().to_document_id()?,
                 },
             })
             .await?
@@ -87,17 +92,26 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn get_multiple<C: Collection>(
+    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
         &self,
-        ids: &[u64],
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        ids: DocumentIds,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: Collection,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
+    {
         match self
             .client
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::GetMultiple {
                     collection: C::collection_name(),
-                    ids: ids.to_vec(),
+                    ids: ids
+                        .into_iter()
+                        .map(|id| id.into().to_document_id())
+                        .collect::<Result<Vec<_>, _>>()?,
                 },
             })
             .await?
@@ -110,19 +124,24 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
-    async fn list<C: Collection, R: Into<Range<u64>> + Send>(
+    async fn list<C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
         match self
             .client
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::List {
                     collection: C::collection_name(),
-                    ids: ids.into(),
+                    ids: ids.into().map_result(|id| id.into().to_document_id())?,
                     order,
                     limit,
                 },
@@ -282,7 +301,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
                 .into_iter()
                 .map(|map| {
                     Ok(MappedValue::new(
-                        V::Key::from_big_endian_bytes(&map.key).map_err(|err| {
+                        V::Key::from_ord_bytes(&map.key).map_err(|err| {
                             bonsaidb_core::Error::Database(
                                 view::Error::key_serialization(err).to_string(),
                             )

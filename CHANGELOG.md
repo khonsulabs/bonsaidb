@@ -5,6 +5,186 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Breaking Changes
+
+- `bonsaidb::core::Error::DocumentConflict` now contains a `Header` instead of
+  just the document's ID. This allows an application to re-submit an update with
+  the updated header without another request to the database.
+- `StorageConfiguratation::vault_key_storage` now uses an `Arc` instead of a
+  `Box`. This change allows `StorageConfiguration` and `ServerConfiguration` to
+  implement `Clone`.
+- `Document::create_new_revision` has been removed. It was meant to be an
+  internal function.
+- `Document` now requires `AsRef<Header>` and `AsMut<Header>` instead of
+  `Deref<Header>`/`DerefMut`. The publicly visible change is that the shortcut
+  of accessing `document.header.emit_*` through deref by using `document.emit_*`
+  will no longer work. This impacts `CollectionDocument`, `OwnedDocument`, and
+  `BorrowedDocument`.
+
+  This removes a little magic, but in some code flows, it was impossible to use
+  Deref anyways due to Deref borrowing the entire document, not just the header.
+- `Collection::PrimaryKey` is a new associated type that allows customizing the
+  type that uniquely identifies documents inside of a `Collection`. Users of the
+  derive macro will be unaffected by this change. If you're upgrading existing
+  collections and wish to maintain backwards compatibility, use `u64` as the
+  type.
+
+  A `natural_id()` function can now be implemented on `SerializedCollection` or `DefaultSerialization` which allows extracting a primary key value from a new document being pushed
+  
+  A new example, `primary-keys.rs`, as been added showing basic usage of
+  changing the primary key type. This change resulted in a sequnce of breaking
+  changes that will be listed independently.
+- `Key` has been moved from `bonsaidb::core::schema::view` to
+  `bonsaidb::core::key`.
+- `Key::as/from_big_endian_bytes` have been renamed to `Key::as/from_ord_bytes`.
+- `Key::first_value()` and `Key::next_value()` are new provided functions. By
+  default, these functions return `NextValueError::Unsupported`.
+
+  `Key::first_value()` allows a `Key` type to define the first value in its
+  sequence. For example, `0_u64` is the result of `u64::first_value()`.
+
+  `Key::next_value()` allows a `Key` type to find the next value in sequence
+  from the current value. Implementors should never wrap, and should instead
+  return `NextValueError::WouldWrap`.
+
+  Sensible defaults have been implemented for all numeric types.
+- `Connection` and its related types have had all previously hard-coded
+  primary keys pf `u64` changed to generic parameters that can accept either a
+  `DocumentId` or `Collection::PrimaryKey`. The affected methods are:
+
+  - `Connection::insert`
+  - `Connection::overwrite`
+  - `Connection::get`
+  - `Connection::get_multiple`
+  - `Connection::list`
+  - `connection::Collection::insert`
+  - `connection::Collection::overwrite`
+  - `connection::Collection::get`
+  - `connection::Collection::get_multiple`
+  - `connection::Collection::list`
+  - `SerializedCollection::insert`
+  - `SerializedCollection::insert_into`
+  - `SerializedCollection::overwrite`
+  - `SerializedCollection::overwrite_into`
+  - `SerializedCollection::get`
+  - `SerializedCollection::get_multiple`
+  - `SerializedCollection::list`
+  - `transaction::Operation::insert_serialized`
+  - `transaction::Operation::overwrite_serialized`
+
+- `Header::id` has changed from `u64` to `DocumentId`, and
+  `CollectionHeader<PrimaryKey>` has been added which contains
+  `Collection::PrimaryKey` deserialized.
+
+  These previous usages of `Header` have been changed to `CollectionHeader`:
+
+  - `Connection::insert` result type
+  - `Connection::overwrite` result type
+  - `connection::Collection::insert` result type
+  - `connection::Collection::insert_bytes` result type
+  - `connection::Collection::push` result type
+  - `connection::Collection::push_bytes` result type
+  - `CollectionDocument::header`
+  
+  The `Header::emit*` functions have been moved to a new trait, `Emit`. This
+  trait is implemented by both `Header` and `CollectionHeader`. The functions moved are:
+
+  - `emit()`
+  - `emit_key()`
+  - `emit_value()`
+  - `emit_key_and_value()`
+
+  These functions now return a `Result`, as encoding a primary key value can
+  fail if it is larger than `DocumentId::MAX_LENGTH`.
+- `HasHeader` is a new trait that allows accessing a `Header` generically from
+  many types. This type is used in `Connection::delete` and
+  `connection::Collection::delete`.
+- Types and functions that used `u64` as a document ID have been replaced with
+  `DocumentId`s. The number of locations are too many to list. If you need to
+  convert from a u64 to a `DocumentId`, you can use `DocumentId::from_u64()`.
+- `Document::contents` and `Document::set_contents` are now ore "painful" to
+  access due to the generic parameter added to `Document`.
+  `SerializedCollection::document_contents(doc)` and
+  `SerializedCollection::set_document_contents(doc, new_contents)` have been
+  provided as easier ways to invoke the same functionality. For example:
+
+  ```rust
+  let contents = doc.contents::<MyCollection>()?;
+  ```
+
+  Becomes:
+
+  ```rust
+  let contents = MyCollection::document_contents(&doc)?;
+  ```
+
+- Backups made prior to `0.2.0` will not be able to be restored with this
+  updated version. The document IDs are encoded differently than in prior
+  versions.
+
+### Added
+
+- Optional compression is now available, using the LZ4 algorithm.
+  `StorageConfiguration::default_compression` controls the setting. When using
+  the `bonsaidb` crate, the feature can be made available using either
+  `local-compression` or `server-compression`. When using `bonsaidb-server` or
+  `bonsaidb-local` directly, the feature name is `compression`.
+
+  This compression is currently applied on all chunks of data written to
+  BonsaiDb that are larger than a hardcoded threshold. This includes the
+  Key-Value store. The threshold may be configurable in the future.
+
+  Some of the benchmark suite has been expanded to include comparisons between
+  local storage with and without compression.
+  
+- Added ability to "overwrite" documents without checking the stored revision
+information. Because this removes a layer of safety, it has its own permissible
+action: `DocumentAction::Overwrite`. The functions that have been added are:
+
+  - `connection::Connection::overwrite`
+  - `connection::Collection::overwrite`
+  - `schema::SerializedCollection::overwrite`
+  - `schema::SerializedCollection::overwrite_into`
+  - `document::CollectionDocument::overwrite`
+  - `transaction::Transaction::overwrite`
+  - `transaction::Operation::overwrite`
+
+### Changed
+
+- Internal dependencies between crates are now pinned based on their needs. This
+  means that `bonsaidb-sever` will require a matching verison of
+  `bonsaidb-local` when compiling. A simple example of a change that is a
+  breaking compilation change but is not breaking from a compatibility
+  standpoint is a change to a structure where `#[serde(rename)]` is used to
+  remap an old value to a new value.
+
+  The only crate currently not pinning its dependencies is
+  `bonsaidb-keystorage-s3`. This crate, and hopefully many crates to come, are
+  only tying themselves to the public API of BonsaiDb.
+
+  This may generate slightly more crate updates than absolutely necessary, but
+  for a small team it seems like the most manageable approach.
+
+### Fixed
+
+- The view system now tracks an internal version number in addition to the
+  version specified in the view definiton. This allows internal structures to be
+  upgraded transparently.
+- Applying a transaction to a collection with a unique view now ensures a view
+  mapping job has finished if the view's integrity check spawns one before
+  allowing the transaction to begin.
+
+## v0.1.2
+
+### Fixed
+
+- [#196][196]: Fixed a panic a user reported relating to an undocumented panic
+      within `tokio::time::sleep()`.
+
+[196]: https://github.com/khonsulabs/bonsaidb/pull/196
+
 ## v0.1.1
 
 ### Added
@@ -33,6 +213,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   #[view(collection = Shape, key = u32, value = usize, name = "by-number-of-sides")]
   struct ShapesByNumberOfSides;
   ```
+
+- Memory-only instances of Storage can be created now. This is primarily intended for testing purposes.
 
 ### Changed
 

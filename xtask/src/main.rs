@@ -76,7 +76,7 @@ impl publish::Config for Config {
             String::from("crates/bonsaidb-server"),
             String::from("crates/bonsaidb-client"),
             String::from("crates/bonsaidb-keystorage-s3"),
-            String::from("crates/bonsaidb-bonsaidb"),
+            String::from("crates/bonsaidb"),
         ]
     }
 }
@@ -106,6 +106,12 @@ fn all_tests() -> &'static [TestSuite] {
             cargo_args: "--package bonsaidb-local --no-default-features --features encryption",
         },
         TestSuite {
+            cargo_args: "--package bonsaidb-local --no-default-features --features compression",
+        },
+        TestSuite {
+            cargo_args: "--package bonsaidb-local --no-default-features --features encryption,compression",
+        },
+        TestSuite {
             cargo_args: "--package bonsaidb-local --no-default-features --features multiuser",
         },
         TestSuite {
@@ -121,6 +127,12 @@ fn all_tests() -> &'static [TestSuite] {
             cargo_args: "--package bonsaidb-server --no-default-features --features encryption",
         },
         TestSuite {
+            cargo_args: "--package bonsaidb-server --no-default-features --features encryption,compression",
+        },
+        TestSuite {
+            cargo_args: "--package bonsaidb-server --no-default-features --features compression",
+        },
+        TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features --features websockets",
         },
         TestSuite {
@@ -130,10 +142,16 @@ fn all_tests() -> &'static [TestSuite] {
             cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util",
         },
         TestSuite {
-            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,websockets",
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,websockets",
         },
         TestSuite {
-            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-acme",
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,server-acme",
+        },
+        TestSuite {
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,server-compression",
+        },
+        TestSuite {
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,server-encryption",
         },
         TestSuite {
             cargo_args:

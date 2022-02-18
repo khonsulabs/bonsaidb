@@ -2,15 +2,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     define_basic_unique_mapped_view,
-    document::CollectionDocument,
+    document::{CollectionDocument, Emit},
     permissions::Statement,
     schema::{Collection, NamedCollection},
 };
 
 /// A named group of permissions statements.
-#[derive(Debug, Serialize, Deserialize, Collection)]
+#[derive(Clone, Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "permission-group", authority="khonsulabs", views = [ByName], core = crate)]
-
 pub struct PermissionGroup {
     /// The name of the group. Must be unique.
     pub name: String,

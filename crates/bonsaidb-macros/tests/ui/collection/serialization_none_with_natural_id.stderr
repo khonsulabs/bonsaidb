@@ -1,0 +1,5 @@
+error: `natural_id` must be manually implemented when using `serialization = None`
+ --> tests/ui/collection/serialization_none_with_natural_id.rs:4:64
+  |
+4 | #[collection(name = "name", serialization = None, natural_id = |t: &Self| None)]
+  |                                                                ^^^^^^^^^^^^^^^

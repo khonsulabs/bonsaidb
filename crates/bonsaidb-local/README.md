@@ -6,6 +6,14 @@ This crate exposes BonsaiDb's local database implementation. The
 [`Storage`](https://dev.bonsaidb.io/main/docs/bonsaidb_local/struct.Storage.html) type provides its most common functionality by
 implementing the [`StorageConnection`](https://dev.bonsaidb.io/main/docs/bonsaidb/core/connection/trait.StorageConnection.html).
 
+## Minimum Supported Rust Version (MSRV)
+
+While this project is alpha, we are actively adopting the current version of
+Rust. The current minimum version is `1.58`, and we plan on updating the MSRV to
+implement [namespaced
+Features](https://github.com/khonsulabs/bonsaidb/issues/178) as soon as the
+feature is released.
+
 ## Feature Flags
 
 By default, the `full` feature is enabled. These features are prefixed by

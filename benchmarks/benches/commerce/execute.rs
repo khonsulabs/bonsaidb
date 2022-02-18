@@ -27,7 +27,7 @@ use crate::{
         AddProductToCart, Checkout, CreateCart, FindProduct, Load, LookupProduct, Operation,
         OperationResult, Plan, ReviewProduct, ShopperPlanConfig,
     },
-    plot::{BACKGROUND_COLOR, TEXT_COLOR},
+    plot::{label_to_color, BACKGROUND_COLOR, TEXT_COLOR},
     utils::{current_timestamp_string, local_git_rev},
 };
 
@@ -45,6 +45,19 @@ pub fn execute_plans_for_all_backends(
         println!("Executing bonsaidb-local");
         BonsaiBackend::execute_async(
             Bonsai::Local,
+            plans,
+            initial_data,
+            number_of_agents,
+            measurements,
+        );
+    }
+    if name_filter.is_empty()
+        || name_filter == "bonsaidb"
+        || name_filter.starts_with("bonsaidb-local+lz4")
+    {
+        println!("Executing bonsaidb-local+lz4");
+        BonsaiBackend::execute_async(
+            Bonsai::LocalLz4,
             plans,
             initial_data,
             number_of_agents,
@@ -490,30 +503,6 @@ impl DiscreteRanged for NanosRange {
         Some(Nanos(self.0.start().0 + index as u64))
     }
 }
-
-fn label_to_color(label: &str) -> RGBColor {
-    match label {
-        "bonsaidb-local" => COLORS[0],
-        "bonsaidb-quic" => COLORS[1],
-        "bonsaidb-ws" => COLORS[2],
-        "postgresql" => COLORS[3],
-        "sqlite" => COLORS[4],
-        _ => panic!("Unknown label: {}", label),
-    }
-}
-
-// https://coolors.co/dc0ab4-50e991-00bfa0-3355ff-9b19f5-ffa300-e60049-0bb4ff-e6d800
-const COLORS: [RGBColor; 9] = [
-    RGBColor(220, 10, 180),
-    RGBColor(80, 233, 145),
-    RGBColor(0, 191, 160),
-    RGBColor(51, 85, 255),
-    RGBColor(155, 25, 245),
-    RGBColor(255, 163, 0),
-    RGBColor(230, 0, 73),
-    RGBColor(11, 180, 255),
-    RGBColor(230, 216, 0),
-];
 
 fn stats_thread(
     label: String,

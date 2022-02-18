@@ -2,7 +2,7 @@ use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    document::Header,
+    document::{CollectionHeader, DocumentId, Header},
     schema::{CollectionName, SerializedCollection},
     Error,
 };
@@ -47,13 +47,28 @@ impl Transaction {
     /// Inserts a new document with `contents` into `collection`.  If `id` is
     /// `None` a unique id will be generated. If an id is provided and a
     /// document already exists with that id, a conflict error will be returned.
-    pub fn insert(collection: CollectionName, id: Option<u64>, contents: impl Into<Bytes>) -> Self {
+    pub fn insert(
+        collection: CollectionName,
+        id: Option<DocumentId>,
+        contents: impl Into<Bytes>,
+    ) -> Self {
         Self::from(Operation::insert(collection, id, contents))
     }
 
     /// Updates a document in `collection`.
     pub fn update(collection: CollectionName, header: Header, contents: impl Into<Bytes>) -> Self {
         Self::from(Operation::update(collection, header, contents))
+    }
+
+    /// Overwrites a document in `collection`. If a document with `id` exists,
+    /// it will be overwritten. If a document with `id` doesn't exist, it will
+    /// be created.
+    pub fn overwrite(
+        collection: CollectionName,
+        id: DocumentId,
+        contents: impl Into<Bytes>,
+    ) -> Self {
+        Self::from(Operation::overwrite(collection, id, contents))
     }
 
     /// Deletes a document from a `collection`.
@@ -77,7 +92,11 @@ impl Operation {
     /// Inserts a new document with `contents` into `collection`.  If `id` is
     /// `None` a unique id will be generated. If an id is provided and a
     /// document already exists with that id, a conflict error will be returned.
-    pub fn insert(collection: CollectionName, id: Option<u64>, contents: impl Into<Bytes>) -> Self {
+    pub fn insert(
+        collection: CollectionName,
+        id: Option<DocumentId>,
+        contents: impl Into<Bytes>,
+    ) -> Self {
         Self {
             collection,
             command: Command::Insert {
@@ -92,9 +111,10 @@ impl Operation {
     /// an id is provided and a document already exists with that id, a conflict
     /// error will be returned.
     pub fn insert_serialized<C: SerializedCollection>(
-        id: Option<u64>,
+        id: Option<C::PrimaryKey>,
         contents: &C::Contents,
     ) -> Result<Self, Error> {
+        let id = id.map(DocumentId::new).transpose()?;
         let contents = C::serialize(contents)?;
         Ok(Self::insert(C::collection_name(), id, contents))
     }
@@ -113,11 +133,47 @@ impl Operation {
     /// Updates a document with the serialized representation of `contents` in
     /// `collection`.
     pub fn update_serialized<C: SerializedCollection>(
-        header: Header,
+        header: CollectionHeader<C::PrimaryKey>,
         contents: &C::Contents,
     ) -> Result<Self, Error> {
         let contents = C::serialize(contents)?;
-        Ok(Self::update(C::collection_name(), header, contents))
+        Ok(Self::update(
+            C::collection_name(),
+            Header::try_from(header)?,
+            contents,
+        ))
+    }
+
+    /// Overwrites a document in `collection`. If a document with `id` exists,
+    /// it will be overwritten. If a document with `id` doesn't exist, it will
+    /// be created.
+    pub fn overwrite(
+        collection: CollectionName,
+        id: DocumentId,
+        contents: impl Into<Bytes>,
+    ) -> Self {
+        Self {
+            collection,
+            command: Command::Overwrite {
+                id,
+                contents: contents.into(),
+            },
+        }
+    }
+
+    /// Overwrites a document with the serialized representation of `contents`
+    /// in `collection`. If a document with `id` exists, it will be overwritten.
+    /// If a document with `id` doesn't exist, it will be created.
+    pub fn overwrite_serialized<C: SerializedCollection>(
+        id: C::PrimaryKey,
+        contents: &C::Contents,
+    ) -> Result<Self, Error> {
+        let contents = C::serialize(contents)?;
+        Ok(Self::overwrite(
+            C::collection_name(),
+            DocumentId::new(id)?,
+            contents,
+        ))
     }
 
     /// Deletes a document from a `collection`.
@@ -137,18 +193,29 @@ pub enum Command {
         /// An optional id for the document. If this is `None`, a unique id will
         /// be generated. If this is `Some()` and a document already exists with
         /// that id, a conflict error will be returned.
-        id: Option<u64>,
+        id: Option<DocumentId>,
         /// The initial contents of the document.
         contents: Bytes,
     },
 
-    /// Update an existing `Document` identified by `id`. `revision` must match
+    /// Update an existing `Document` identified by `header`. `header.revision` must match
     /// the currently stored revision on the `Document`. If it does not, the
     /// command fill fail with a `DocumentConflict` error.
     Update {
         /// The header of the `Document`. The revision must match the current
         /// document.
         header: Header,
+
+        /// The new contents to store within the `Document`.
+        contents: Bytes,
+    },
+
+    /// Overwrite an existing `Document` identified by `id`. The revision will
+    /// not be checked before the document is updated. If the document does not
+    /// exist, it will be created.
+    Overwrite {
+        /// The id of the document to overwrite.
+        id: DocumentId,
 
         /// The new contents to store within the `Document`.
         contents: Bytes,
@@ -184,7 +251,7 @@ pub enum OperationResult {
         collection: CollectionName,
 
         /// The id of the deleted `Document`.
-        id: u64,
+        id: DocumentId,
     },
 }
 
@@ -238,7 +305,7 @@ pub struct ChangedDocument {
     pub collection: CollectionName,
 
     /// The id of the changed `Document`.
-    pub id: u64,
+    pub id: DocumentId,
 
     /// If the `Document` has been deleted, this will be `true`.
     pub deleted: bool,

@@ -1,73 +1,20 @@
-use std::{
-    borrow::Cow,
-    fmt::{Display, Write},
-    ops::{Deref, DerefMut},
-};
+use std::borrow::Cow;
 
 use arc_bytes::serde::{Bytes, CowBytes};
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{view::map::Mappings, Key, Map, SerializedCollection};
+use crate::schema::{Collection, SerializedCollection};
 
 mod collection;
+mod header;
+mod id;
 mod revision;
-pub use collection::*;
-pub use revision::Revision;
-
-/// The header of a `Document`.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct Header {
-    /// The id of the Document. Unique across the collection `C`
-    pub id: u64,
-
-    /// The revision of the stored document.
-    pub revision: Revision,
-}
-
-impl AsRef<Self> for Header {
-    fn as_ref(&self) -> &Self {
-        self
-    }
-}
-
-impl Header {
-    /// Creates a `Map` result with an empty key and value.
-    #[must_use]
-    pub fn emit(&self) -> Mappings<(), ()> {
-        self.emit_key_and_value((), ())
-    }
-
-    /// Creates a `Map` result with a `key` and an empty value.
-    #[must_use]
-    pub fn emit_key<K: for<'a> Key<'a>>(&self, key: K) -> Mappings<K, ()> {
-        self.emit_key_and_value(key, ())
-    }
-
-    /// Creates a `Map` result with `value` and an empty key.
-    #[must_use]
-    pub fn emit_value<Value>(&self, value: Value) -> Mappings<(), Value> {
-        self.emit_key_and_value((), value)
-    }
-
-    /// Creates a `Map` result with a `key` and `value`.
-    #[must_use]
-    pub fn emit_key_and_value<K: for<'a> Key<'a>, Value>(
-        &self,
-        key: K,
-        value: Value,
-    ) -> Mappings<K, Value> {
-        Mappings::Simple(Some(Map::new(self.clone(), key, value)))
-    }
-}
-
-impl Display for Header {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.id.fmt(f)?;
-        f.write_char('@')?;
-        self.revision.fmt(f)
-    }
-}
-
+pub use self::{
+    collection::{CollectionDocument, OwnedDocuments},
+    header::{AnyHeader, CollectionHeader, Emit, HasHeader, Header},
+    id::{AnyDocumentId, DocumentId, InvalidHexadecimal},
+    revision::Revision,
+};
 /// Contains a serialized document in the database.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BorrowedDocument<'a> {
@@ -90,36 +37,36 @@ pub struct OwnedDocument {
 }
 
 /// Common interface of a document in BonsaiDb.
-pub trait Document<'a>:
-    Deref<Target = Header> + DerefMut + AsRef<Header> + AsRef<[u8]> + Sized
+pub trait Document<C>: Sized
+where
+    C: Collection,
 {
     /// The bytes type used in the interface.
     type Bytes;
 
-    /// Creates a new document with `contents`.
-    #[must_use]
-    fn new(id: u64, contents: impl Into<Self::Bytes>) -> Self;
-    /// Creates a new document with serialized bytes from `contents`.
-    fn with_contents<S: SerializedCollection<Contents = S>>(
-        id: u64,
-        contents: &S,
-    ) -> Result<Self, crate::Error>;
-    /// Retrieves `contents` through deserialization into the type `D`.
-    fn contents<D>(&self) -> Result<D::Contents, crate::Error>
-    where
-        D: SerializedCollection<Contents = D>;
-    /// Serializes and stores `contents` into this document.
-    fn set_contents<S: SerializedCollection<Contents = S>>(
+    /// Returns the unique key for this document.
+    fn key(&self) -> AnyDocumentId<C::PrimaryKey>;
+    /// Returns the header of this document.
+    fn header(&self) -> AnyHeader<C::PrimaryKey>;
+    /// Sets the header to the new header.
+    fn set_header(&mut self, header: Header) -> Result<(), crate::Error>;
+    /// Sets the header to the new collection header.
+    fn set_collection_header(
         &mut self,
-        contents: &S,
-    ) -> Result<(), crate::Error>;
-    /// Creates a new revision.
-    ///
-    /// **WARNING: This normally should not be used** outside of implementing a
-    /// backend for BonsaiDb. To update a document, use `set_contents()` and
-    /// send the document with the existing `Revision` information.
-    #[must_use]
-    fn create_new_revision(&self, contents: impl Into<Self::Bytes>) -> Option<Self>;
+        header: CollectionHeader<C::PrimaryKey>,
+    ) -> Result<(), crate::Error> {
+        self.set_header(Header::try_from(header)?)
+    }
+    /// Returns the contents of this document, serialized.
+    fn bytes(&self) -> Result<Vec<u8>, crate::Error>;
+    /// Retrieves `contents` through deserialization into the type `D`.
+    fn contents(&self) -> Result<C::Contents, crate::Error>
+    where
+        C: SerializedCollection;
+    /// Stores `contents` into this document.
+    fn set_contents(&mut self, contents: C::Contents) -> Result<(), crate::Error>
+    where
+        C: SerializedCollection;
 }
 
 impl<'a> AsRef<[u8]> for BorrowedDocument<'a> {
@@ -128,103 +75,81 @@ impl<'a> AsRef<[u8]> for BorrowedDocument<'a> {
     }
 }
 
-impl<'a> Document<'a> for BorrowedDocument<'a> {
+impl<'a, C> Document<C> for BorrowedDocument<'a>
+where
+    C: Collection,
+{
     type Bytes = CowBytes<'a>;
-    fn new(id: u64, contents: impl Into<CowBytes<'a>>) -> Self {
-        let contents = contents.into();
-        let revision = Revision::new(&contents);
-        Self {
-            header: Header { id, revision },
-            contents,
-        }
-    }
 
-    fn with_contents<S: SerializedCollection<Contents = S>>(
-        id: u64,
-        contents: &S,
-    ) -> Result<Self, crate::Error> {
-        let contents = <S as SerializedCollection>::serialize(contents)?;
-        Ok(Self::new(id, contents))
-    }
-
-    fn contents<D>(&self) -> Result<D::Contents, crate::Error>
+    fn contents(&self) -> Result<C::Contents, crate::Error>
     where
-        D: SerializedCollection<Contents = D>,
+        C: SerializedCollection,
     {
-        <D as SerializedCollection>::deserialize(&self.contents)
+        <C as SerializedCollection>::deserialize(&self.contents)
     }
 
-    fn set_contents<S: SerializedCollection<Contents = S>>(
-        &mut self,
-        contents: &S,
-    ) -> Result<(), crate::Error> {
-        self.contents = CowBytes::from(<S as SerializedCollection>::serialize(contents)?);
+    fn set_contents(&mut self, contents: C::Contents) -> Result<(), crate::Error>
+    where
+        C: SerializedCollection,
+    {
+        self.contents = CowBytes::from(<C as SerializedCollection>::serialize(&contents)?);
         Ok(())
     }
 
-    fn create_new_revision(&self, contents: impl Into<Self::Bytes>) -> Option<Self> {
-        let contents = contents.into();
-        self.header
-            .revision
-            .next_revision(&contents)
-            .map(|revision| Self {
-                header: Header {
-                    id: self.header.id,
-                    revision,
-                },
-                contents,
-            })
+    fn header(&self) -> AnyHeader<C::PrimaryKey> {
+        AnyHeader::Serialized(self.header.clone())
+    }
+
+    fn set_header(&mut self, header: Header) -> Result<(), crate::Error> {
+        self.header = header;
+        Ok(())
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, crate::Error> {
+        Ok(self.contents.to_vec())
+    }
+
+    fn key(&self) -> AnyDocumentId<C::PrimaryKey> {
+        AnyDocumentId::Serialized(self.header.id)
     }
 }
 
-impl Document<'static> for OwnedDocument {
+impl<'a, C> Document<C> for OwnedDocument
+where
+    C: Collection,
+{
     type Bytes = Vec<u8>;
 
-    fn new(id: u64, contents: impl Into<Self::Bytes>) -> Self {
-        let contents = Bytes(contents.into());
-        Self {
-            header: Header {
-                id,
-                revision: Revision::new(&contents),
-            },
-            contents,
-        }
-    }
-
-    fn with_contents<S: SerializedCollection<Contents = S>>(
-        id: u64,
-        contents: &S,
-    ) -> Result<Self, crate::Error> {
-        BorrowedDocument::with_contents(id, contents).map(BorrowedDocument::into_owned)
-    }
-
-    fn contents<D>(&self) -> Result<D::Contents, crate::Error>
+    fn contents(&self) -> Result<C::Contents, crate::Error>
     where
-        D: SerializedCollection<Contents = D>,
+        C: SerializedCollection,
     {
-        <D as SerializedCollection>::deserialize(&self.contents)
+        <C as SerializedCollection>::deserialize(&self.contents)
     }
 
-    fn set_contents<S: SerializedCollection<Contents = S>>(
-        &mut self,
-        contents: &S,
-    ) -> Result<(), crate::Error> {
-        self.contents = Bytes::from(<S as SerializedCollection>::serialize(contents)?);
+    fn set_contents(&mut self, contents: C::Contents) -> Result<(), crate::Error>
+    where
+        C: SerializedCollection,
+    {
+        self.contents = Bytes::from(<C as SerializedCollection>::serialize(&contents)?);
         Ok(())
     }
 
-    fn create_new_revision(&self, contents: impl Into<Self::Bytes>) -> Option<Self> {
-        let contents = Bytes(contents.into());
-        self.header
-            .revision
-            .next_revision(&contents)
-            .map(|revision| Self {
-                header: Header {
-                    id: self.header.id,
-                    revision,
-                },
-                contents,
-            })
+    fn key(&self) -> AnyDocumentId<C::PrimaryKey> {
+        AnyDocumentId::Serialized(self.header.id)
+    }
+
+    fn header(&self) -> AnyHeader<C::PrimaryKey> {
+        AnyHeader::Serialized(self.header.clone())
+    }
+
+    fn set_header(&mut self, header: Header) -> Result<(), crate::Error> {
+        self.header = header;
+        Ok(())
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, crate::Error> {
+        Ok(self.contents.to_vec())
     }
 }
 
@@ -234,16 +159,8 @@ impl AsRef<Header> for OwnedDocument {
     }
 }
 
-impl Deref for OwnedDocument {
-    type Target = Header;
-
-    fn deref(&self) -> &Self::Target {
-        &self.header
-    }
-}
-
-impl DerefMut for OwnedDocument {
-    fn deref_mut(&mut self) -> &mut Self::Target {
+impl AsMut<Header> for OwnedDocument {
+    fn as_mut(&mut self) -> &mut Header {
         &mut self.header
     }
 }
@@ -255,6 +172,25 @@ impl AsRef<[u8]> for OwnedDocument {
 }
 
 impl<'a> BorrowedDocument<'a> {
+    /// Returns a new instance with the id and content bytes.
+    pub fn new<Contents: Into<CowBytes<'a>>>(id: DocumentId, contents: Contents) -> Self {
+        let contents = contents.into();
+        let revision = Revision::new(&contents);
+        Self {
+            header: Header { id, revision },
+            contents,
+        }
+    }
+
+    /// Returns a new instance with `contents`, after serializing.
+    pub fn with_contents<C>(id: C::PrimaryKey, contents: &C::Contents) -> Result<Self, crate::Error>
+    where
+        C: SerializedCollection,
+    {
+        let contents = <C as SerializedCollection>::serialize(contents)?;
+        Ok(Self::new(DocumentId::new(id)?, contents))
+    }
+
     /// Converts this document to an owned document.
     #[must_use]
     pub fn into_owned(self) -> OwnedDocument {
@@ -271,16 +207,8 @@ impl<'a> AsRef<Header> for BorrowedDocument<'a> {
     }
 }
 
-impl<'a> Deref for BorrowedDocument<'a> {
-    type Target = Header;
-
-    fn deref(&self) -> &Self::Target {
-        &self.header
-    }
-}
-
-impl<'a> DerefMut for BorrowedDocument<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
+impl<'a> AsMut<Header> for BorrowedDocument<'a> {
+    fn as_mut(&mut self) -> &mut Header {
         &mut self.header
     }
 }
@@ -294,61 +222,4 @@ pub enum KeyId {
     Master,
     /// A specific named key in the vault.
     Id(Cow<'static, str>),
-}
-
-#[test]
-fn emissions_tests() -> Result<(), crate::Error> {
-    use crate::{schema::Map, test_util::Basic};
-
-    let doc = BorrowedDocument::with_contents(1, &Basic::default())?;
-
-    assert_eq!(
-        doc.emit(),
-        Mappings::Simple(Some(Map::new(doc.header.clone(), (), ())))
-    );
-
-    assert_eq!(
-        doc.emit_key(1),
-        Mappings::Simple(Some(Map::new(doc.header.clone(), 1, ())))
-    );
-
-    assert_eq!(
-        doc.emit_value(1),
-        Mappings::Simple(Some(Map::new(doc.header.clone(), (), 1)))
-    );
-
-    assert_eq!(
-        doc.emit_key_and_value(1, 2),
-        Mappings::Simple(Some(Map::new(doc.header.clone(), 1, 2)))
-    );
-
-    Ok(())
-}
-
-#[test]
-fn chained_mappings_test() -> Result<(), crate::Error> {
-    use crate::{schema::Map, test_util::Basic};
-
-    let doc = BorrowedDocument::with_contents(1, &Basic::default())?;
-
-    assert_eq!(
-        doc.emit().and(doc.emit()),
-        Mappings::List(vec![
-            Map::new(doc.header.clone(), (), ()),
-            Map::new(doc.header.clone(), (), ())
-        ])
-    );
-
-    Ok(())
-}
-
-#[test]
-fn header_display_test() {
-    let original_contents = b"one";
-    let revision = Revision::new(original_contents);
-    let header = Header { id: 42, revision };
-    assert_eq!(
-        header.to_string(),
-        "42@0-7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed"
-    );
 }

@@ -1,12 +1,14 @@
 use std::{path::Path, time::Duration};
 
+#[cfg(feature = "compression")]
+use bonsaidb::local::config::Compression;
 use bonsaidb::{
     client::{url::Url, Client},
     core::{
         async_trait::async_trait,
         connection::{AccessPolicy, Connection, StorageConnection},
         define_basic_unique_mapped_view,
-        document::CollectionDocument,
+        document::{CollectionDocument, CollectionHeader, Emit},
         schema::{
             view::map::Mappings, Collection, CollectionName, CollectionViewSchema,
             DefaultSerialization, InsertError, NamedCollection, ReduceResult, Schema, Schematic,
@@ -32,6 +34,7 @@ use crate::{
 
 pub enum Bonsai {
     Local,
+    LocalLz4,
     Quic,
     WebSockets,
 }
@@ -40,6 +43,7 @@ impl Bonsai {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Local => "bonsaidb-local",
+            Self::LocalLz4 => "bonsaidb-local+lz4",
             Self::Quic => "bonsaidb-quic",
             Self::WebSockets => "bonsaidb-ws",
         }
@@ -69,19 +73,25 @@ impl Backend for BonsaiBackend {
         self.kind.label()
     }
 
+    #[cfg_attr(not(feature = "compression"), allow(unused_mut))]
     async fn new(config: Self::Config) -> Self {
         let path = Path::new("commerce-benchmarks.bonsaidb");
         if path.exists() {
             std::fs::remove_dir_all(path).unwrap();
         }
-        let server = Server::open(
-            ServerConfiguration::new(path)
-                .default_permissions(DefaultPermissions::AllowAll)
-                .with_schema::<Commerce>()
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+        let mut server_config = ServerConfiguration::new(path)
+            .default_permissions(DefaultPermissions::AllowAll)
+            .with_schema::<Commerce>()
+            .unwrap();
+
+        #[cfg(feature = "compression")]
+        {
+            if matches!(config, Bonsai::LocalLz4) {
+                server_config = server_config.default_compression(Compression::Lz4);
+            }
+        }
+
+        let server = Server::open(server_config).await.unwrap();
         server.install_self_signed_certificate(false).await.unwrap();
         server
             .create_database::<Commerce>("commerce", false)
@@ -104,7 +114,7 @@ impl Backend for BonsaiBackend {
                         .unwrap();
                 });
             }
-            Bonsai::Local => {}
+            Bonsai::Local | Bonsai::LocalLz4 => {}
         }
         // Allow the server time to start listening
         tokio::time::sleep(Duration::from_millis(1000)).await;
@@ -117,7 +127,7 @@ impl Backend for BonsaiBackend {
 
     async fn new_operator_async(&self) -> Self::Operator {
         let database = match self.kind {
-            Bonsai::Local => {
+            Bonsai::Local | Bonsai::LocalLz4 => {
                 AnyDatabase::Local(self.server.database::<Commerce>("commerce").await.unwrap())
             }
 
@@ -164,33 +174,21 @@ impl Operator<Load> for BonsaiOperator {
         let mut tx = Transaction::default();
         for (id, category) in &operation.initial_data.categories {
             tx.push(
-                transaction::Operation::insert_serialized::<Category>(
-                    Some(u64::from(*id)),
-                    category,
-                )
-                .unwrap(),
+                transaction::Operation::insert_serialized::<Category>(Some(*id), category).unwrap(),
             );
         }
         for (id, product) in &operation.initial_data.products {
             tx.push(
-                transaction::Operation::insert_serialized::<Product>(Some(u64::from(*id)), product)
-                    .unwrap(),
+                transaction::Operation::insert_serialized::<Product>(Some(*id), product).unwrap(),
             );
         }
         for (id, customer) in &operation.initial_data.customers {
             tx.push(
-                transaction::Operation::insert_serialized::<Customer>(
-                    Some(u64::from(*id)),
-                    customer,
-                )
-                .unwrap(),
+                transaction::Operation::insert_serialized::<Customer>(Some(*id), customer).unwrap(),
             );
         }
         for (id, order) in &operation.initial_data.orders {
-            tx.push(
-                transaction::Operation::insert_serialized::<Order>(Some(u64::from(*id)), order)
-                    .unwrap(),
-            );
+            tx.push(transaction::Operation::insert_serialized::<Order>(Some(*id), order).unwrap());
         }
         for review in &operation.initial_data.reviews {
             tx.push(
@@ -219,14 +217,14 @@ impl Operator<FindProduct> for BonsaiOperator {
         let rating = self
             .database
             .view::<ProductReviewsByProduct>()
-            .with_key(doc.id as u32)
+            .with_key(doc.header.id)
             .with_access_policy(AccessPolicy::NoUpdate)
             .reduce()
             .await
             .unwrap();
         measurement.finish();
         OperationResult::Product {
-            id: doc.id as u32,
+            id: doc.header.id,
             product: doc.contents,
             rating: rating.average(),
         }
@@ -242,21 +240,21 @@ impl Operator<LookupProduct> for BonsaiOperator {
         measurements: &Measurements,
     ) -> OperationResult {
         let measurement = measurements.begin(self.label, Metric::LookupProduct);
-        let doc = Product::get(operation.id as u64, &self.database)
+        let doc = Product::get(operation.id, &self.database)
             .await
             .unwrap()
             .unwrap();
         let rating = self
             .database
             .view::<ProductReviewsByProduct>()
-            .with_key(doc.id as u32)
+            .with_key(doc.header.id)
             .with_access_policy(AccessPolicy::NoUpdate)
             .reduce()
             .await
             .unwrap();
         measurement.finish();
         OperationResult::Product {
-            id: doc.id as u32,
+            id: doc.header.id,
             product: doc.contents,
             rating: rating.average(),
         }
@@ -274,7 +272,7 @@ impl Operator<CreateCart> for BonsaiOperator {
         let measurement = measurements.begin(self.label, Metric::CreateCart);
         let cart = Cart::default().push_into(&self.database).await.unwrap();
         measurement.finish();
-        OperationResult::Cart { id: cart.id as u32 }
+        OperationResult::Cart { id: cart.header.id }
     }
 }
 
@@ -287,7 +285,7 @@ impl Operator<AddProductToCart> for BonsaiOperator {
         measurements: &Measurements,
     ) -> OperationResult {
         let cart = match &results[operation.cart.0] {
-            OperationResult::Cart { id } => *id as u64,
+            OperationResult::Cart { id } => *id,
             _ => unreachable!("Invalid operation result"),
         };
         let product = match &results[operation.product.0] {
@@ -314,7 +312,7 @@ impl Operator<Checkout> for BonsaiOperator {
         measurements: &Measurements,
     ) -> OperationResult {
         let cart = match &results[operation.cart.0] {
-            OperationResult::Cart { id } => *id as u64,
+            OperationResult::Cart { id } => *id,
             _ => unreachable!("Invalid operation result"),
         };
 
@@ -355,6 +353,7 @@ impl Operator<ReviewProduct> for BonsaiOperator {
             review: operation.review.clone(),
             rating: operation.rating,
         };
+        // https://github.com/khonsulabs/bonsaidb/issues/189
         match review.push_into(&self.database).await {
             Ok(_) => {}
             Err(InsertError {
@@ -365,7 +364,7 @@ impl Operator<ReviewProduct> for BonsaiOperator {
                 contents,
             }) => {
                 CollectionDocument::<ProductReview> {
-                    header: existing_document,
+                    header: CollectionHeader::try_from(*existing_document).unwrap(),
                     contents,
                 }
                 .update(&self.database)
@@ -390,6 +389,8 @@ impl Operator<ReviewProduct> for BonsaiOperator {
 }
 
 impl Collection for Product {
+    type PrimaryKey = u32;
+
     fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "products")
     }
@@ -410,9 +411,7 @@ define_basic_unique_mapped_view!(
     "by-name",
     String,
     (),
-    |document: CollectionDocument<Product>| {
-        document.header.emit_key(document.contents.name.clone())
-    },
+    |document: CollectionDocument<Product>| { document.header.emit_key(document.contents.name) },
 );
 
 #[derive(Debug, Clone, View)]
@@ -428,7 +427,7 @@ impl CollectionViewSchema for ProductsByCategoryId {
     ) -> ViewMapResult<Self::View> {
         let mut mappings = Mappings::default();
         for &id in &document.contents.category_ids {
-            mappings = mappings.and(document.emit_key_and_value(id, 1));
+            mappings = mappings.and(document.header.emit_key_and_value(id, 1)?);
         }
         Ok(mappings)
     }
@@ -439,6 +438,8 @@ impl NamedCollection for Product {
 }
 
 impl Collection for ProductReview {
+    type PrimaryKey = u32;
+
     fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "reviews")
     }
@@ -462,13 +463,13 @@ impl CollectionViewSchema for ProductReviewsByProduct {
         &self,
         document: CollectionDocument<<Self as View>::Collection>,
     ) -> ViewMapResult<Self::View> {
-        Ok(document.emit_key_and_value(
+        document.header.emit_key_and_value(
             document.contents.product_id,
             ProductRatings {
                 total_score: document.contents.rating as u32,
                 ratings: 1,
             },
-        ))
+        )
     }
 
     fn reduce(
@@ -504,6 +505,8 @@ impl ProductRatings {
 }
 
 impl Collection for Category {
+    type PrimaryKey = u32;
+
     fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "categories")
     }
@@ -516,6 +519,8 @@ impl Collection for Category {
 impl DefaultSerialization for Category {}
 
 impl Collection for Customer {
+    type PrimaryKey = u32;
+
     fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "customers")
     }
@@ -528,6 +533,8 @@ impl Collection for Customer {
 impl DefaultSerialization for Customer {}
 
 impl Collection for Order {
+    type PrimaryKey = u32;
+
     fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "orders")
     }
@@ -540,6 +547,8 @@ impl Collection for Order {
 impl DefaultSerialization for Order {}
 
 impl Collection for Cart {
+    type PrimaryKey = u32;
+
     fn collection_name() -> CollectionName {
         CollectionName::new("benchmarks", "carts")
     }

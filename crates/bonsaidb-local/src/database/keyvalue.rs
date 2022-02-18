@@ -223,7 +223,7 @@ pub struct KeyValueState {
     roots: Roots<AnyFile>,
     persistence: KeyValuePersistence,
     last_commit: Timestamp,
-    background_worker_target: watch::Sender<Option<Timestamp>>,
+    background_worker_target: watch::Sender<BackgroundWorkerProcessTarget>,
     expiring_keys: BTreeMap<String, Timestamp>,
     expiration_order: VecDeque<String>,
     dirty_keys: BTreeMap<String, Option<Entry>>,
@@ -235,7 +235,7 @@ impl KeyValueState {
     pub fn new(
         persistence: KeyValuePersistence,
         roots: Roots<AnyFile>,
-        background_worker_target: watch::Sender<Option<Timestamp>>,
+        background_worker_target: watch::Sender<BackgroundWorkerProcessTarget>,
     ) -> Self {
         Self {
             roots,
@@ -592,18 +592,33 @@ impl KeyValueState {
                     *expiration_timeout
                 });
         let now = Timestamp::now();
-        let duration_until_commit = if self.keys_being_persisted.is_some() {
-            Duration::MAX
+        if self.keys_being_persisted.is_some() {
+            drop(
+                self.background_worker_target
+                    .send(BackgroundWorkerProcessTarget::Never),
+            );
+            return;
+        }
+        let duration_until_commit = self.persistence.duration_until_next_commit(
+            self.dirty_keys.len(),
+            (now - self.last_commit).unwrap_or_default(),
+        );
+        if duration_until_commit == Duration::ZERO {
+            drop(
+                self.background_worker_target
+                    .send(BackgroundWorkerProcessTarget::Now),
+            );
         } else {
-            self.persistence.duration_until_next_commit(
-                self.dirty_keys.len(),
-                (now - self.last_commit).unwrap_or_default(),
-            )
-        };
-        let commit_target = now + duration_until_commit;
-        let closest_target = key_expiration_target.min(commit_target);
-        if *self.background_worker_target.borrow() != Some(closest_target) {
-            drop(self.background_worker_target.send(Some(closest_target)));
+            let commit_target = now + duration_until_commit;
+            let closest_target = key_expiration_target.min(commit_target);
+            if *self.background_worker_target.borrow()
+                != BackgroundWorkerProcessTarget::Timestamp(closest_target)
+            {
+                drop(
+                    self.background_worker_target
+                        .send(BackgroundWorkerProcessTarget::Timestamp(closest_target)),
+                );
+            }
         }
     }
 
@@ -729,13 +744,14 @@ impl KeyValueState {
 
 pub async fn background_worker(
     key_value_state: Arc<Mutex<KeyValueState>>,
-    mut timestamp_receiver: watch::Receiver<Option<Timestamp>>,
+    mut timestamp_receiver: watch::Receiver<BackgroundWorkerProcessTarget>,
 ) -> Result<(), Error> {
     loop {
         let mut perform_operations = false;
         let current_timestamp = *timestamp_receiver.borrow_and_update();
         let changed_result = match current_timestamp {
-            Some(target) => {
+            BackgroundWorkerProcessTarget::Never => timestamp_receiver.changed().await,
+            BackgroundWorkerProcessTarget::Timestamp(target) => {
                 let remaining = target - Timestamp::now();
                 if let Some(remaining) = remaining {
                     tokio::select! {
@@ -750,7 +766,10 @@ pub async fn background_worker(
                     Ok(())
                 }
             }
-            None => timestamp_receiver.changed().await,
+            BackgroundWorkerProcessTarget::Now => {
+                perform_operations = true;
+                Ok(())
+            }
         };
 
         if changed_result.is_err() {
@@ -769,6 +788,13 @@ pub async fn background_worker(
     }
 
     Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum BackgroundWorkerProcessTarget {
+    Now,
+    Timestamp(Timestamp),
+    Never,
 }
 
 #[derive(Debug)]

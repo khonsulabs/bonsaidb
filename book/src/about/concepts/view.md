@@ -40,7 +40,7 @@ For views to function, the Value type must able to be serialized and deserialize
 
 ## Map
 
-The first line of the `map` function calls [`Document::contents()`]({{DOCS_BASE_URL}}/bonsaidb/core/document/trait.Document.html#method.contents) to deserialize the stored `BlogPost`. The second line returns an emitted Key and Value -- in our case a clone of the post's category and the value `1_u32`. With the map function, we're able to use [`query()`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/struct.View.html#method.query) and [`query_with_docs()`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/struct.View.html#method.query_with_docs):
+The first line of the `map` function calls [`SerializedCollection::document_contents()`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.SerializedCollection.html#method.document_contents) to deserialize the stored `BlogPost`. The second line returns an emitted Key and Value -- in our case a clone of the post's category and the value `1_u32`. With the map function, we're able to use [`query()`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/struct.View.html#method.query) and [`query_with_docs()`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/struct.View.html#method.query_with_docs):
 
 ```rust,noplayground,no_run
 {{#include ../../../book-examples/tests/view-example-string.rs:query_with_docs}}
@@ -141,17 +141,17 @@ BonsaiDb will convert the enum to a u64 and use that value as the Key. A u64 was
 
 ### Implementing the `Key` trait
 
-The [`Key`][key] trait declares two functions: [`as_big_endian_bytes()`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Key.html#tymethod.as_big_endian_bytes) and [`from_big_endian_bytes`]({{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Key.html#tymethod.from_big_endian_bytes). The intention is to convert the type to bytes using a network byte order for numerical types, and for non-numerical types, the bytes need to be stored in binary-sortable order.
+The [`Key`][key] trait declares two functions: [`as_ord_bytes()`]({{DOCS_BASE_URL}}/bonsaidb/core/key/trait.Key.html#tymethod.as_ord_bytes) and [`from_ord_bytes`]({{DOCS_BASE_URL}}/bonsaidb/core/key/trait.Key.html#tymethod.from_ord_bytes). The intention is to convert the type to bytes using a network byte order for numerical types, and for non-numerical types, the bytes need to be stored in binary-sortable order.
 
 Here is how BonsaiDb implements Key for `EnumKey`:
 
 ```rust,noplayground,no_run
-{{#include ../../../../crates/bonsaidb-core/src/schema/view/key.rs:impl_key_for_enumkey}}
+{{#include ../../../../crates/bonsaidb-core/src/key.rs:impl_key_for_enumkey}}
 ```
 
 By implementing `Key` you can take full control of converting your view keys.
 
-[key]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.Key.html
+[key]: {{DOCS_BASE_URL}}/bonsaidb/core/key/trait.Key.html
 [view-trait]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.View.html
 [viewschema-trait]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.ViewSchema.html
 [viewschema-version]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.ViewSchema.html#method.version

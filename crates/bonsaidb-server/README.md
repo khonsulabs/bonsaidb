@@ -17,6 +17,14 @@ WebSockets are an established protocol built atop TCP and HTTP.
 Our user's guide has a section covering [setting up and accessing a BonsaiDb
 server](https://dev.bonsaidb.io/release/guide/integration/server.html).
 
+## Minimum Supported Rust Version (MSRV)
+
+While this project is alpha, we are actively adopting the current version of
+Rust. The current minimum version is `1.58`, and we plan on updating the MSRV to
+implement [namespaced
+Features](https://github.com/khonsulabs/bonsaidb/issues/178) as soon as the
+feature is released.
+
 ## Feature Flags
 
 By default, the `full` feature is enabled. These features are prefixed by
