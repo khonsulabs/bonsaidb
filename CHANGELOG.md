@@ -101,7 +101,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `HasHeader` is a new trait that allows accessing a `Header` generically from
   many types. This type is used in `Connection::delete` and
   `connection::Collection::delete`.
-- Types that used `u64` as a document ID have been replaced with `DocumentId`s.
+- Types and functions that used `u64` as a document ID have been replaced with
+  `DocumentId`s. The number of locations are too many to list. If you need to
+  convert from a u64 to a `DocumentId`, you can use `DocumentId::from_u64()`.
 - `Document::contents` and `Document::set_contents` are now ore "painful" to
   access due to the generic parameter added to `Document`.
   `SerializedCollection::document_contents(doc)` and

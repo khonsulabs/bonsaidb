@@ -1431,7 +1431,6 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
         .unwrap();
     server.add_role_to_user(&username, &role).await.unwrap();
     {
-        // TODO this is what's failing.
         let user = User::load(&username, admin)
             .await
             .unwrap()

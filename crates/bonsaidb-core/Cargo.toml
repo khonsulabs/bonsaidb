@@ -39,7 +39,7 @@ sha2 = "0.10"
 futures = { version = "0.3" }
 tokio = { version = "=1.16.1", features = ["time"], optional = true }
 num-traits = "0.2"
-actionable = "0.1.1"
+actionable = "0.2.0"
 anyhow = { version = "1", optional = true }
 itertools = "0.10"
 ordered-varint = "1.0.0"

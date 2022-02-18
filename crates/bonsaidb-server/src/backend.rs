@@ -29,7 +29,6 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
     #[allow(unused_variables)]
     async fn initialize(server: &CustomServer<Self>) {}
 
-    // TODO: add client connections events, client errors, etc.
     /// A client disconnected from the server. This is invoked before authentication has been performed.
     #[allow(unused_variables)]
     #[must_use]

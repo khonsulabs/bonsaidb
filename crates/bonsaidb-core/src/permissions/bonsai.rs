@@ -33,12 +33,11 @@ pub fn collection_resource_name<'a>(
 pub fn document_resource_name<'a>(
     database: impl Into<Identifier<'a>>,
     collection: &CollectionName,
-    id: DocumentId,
+    id: &'a DocumentId,
 ) -> ResourceName<'a> {
-    // TODO this should borrow DocumentId
     collection_resource_name(database, collection)
         .and("document")
-        .and(id.to_string())
+        .and(id)
 }
 
 /// Creaets a resource name for a `view` within `database`.

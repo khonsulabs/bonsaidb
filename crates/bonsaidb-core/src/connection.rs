@@ -563,7 +563,7 @@ where
     /// ```
     pub async fn insert_bytes<B: Into<Bytes> + Send>(
         &self,
-        id: Cl::PrimaryKey, // TODO
+        id: Cl::PrimaryKey,
         contents: B,
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where

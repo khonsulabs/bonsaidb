@@ -6,6 +6,7 @@ use std::{
     str::FromStr,
 };
 
+use actionable::Identifier;
 use serde::{de::Visitor, Deserialize, Serialize};
 
 use crate::key::Key;
@@ -92,6 +93,30 @@ impl Hash for DocumentId {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         (&**self).hash(state);
     }
+}
+
+impl<'a> From<DocumentId> for Identifier<'a> {
+    fn from(id: DocumentId) -> Self {
+        Identifier::from(id.to_vec())
+    }
+}
+
+impl<'a> From<&'a DocumentId> for Identifier<'a> {
+    fn from(id: &'a DocumentId) -> Self {
+        Identifier::from(&**id)
+    }
+}
+
+#[test]
+fn document_id_identifier_tests() {
+    assert_eq!(
+        Identifier::from(DocumentId::new(String::from("hello")).unwrap()),
+        Identifier::from("hello")
+    );
+    assert_eq!(
+        Identifier::from(DocumentId::from_u64(1)),
+        Identifier::from(1)
+    );
 }
 
 /// An invalid hexadecimal character was encountered.

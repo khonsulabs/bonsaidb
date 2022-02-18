@@ -102,7 +102,6 @@ fn serialization_none() {
     );
 }
 
-// TODO actually test the functionality
 // This could be done through using the macro in the tests for encryption
 #[test]
 // Pretty pointless, maybe also error?

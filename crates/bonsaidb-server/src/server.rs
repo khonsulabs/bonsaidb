@@ -1426,7 +1426,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatche
         collection: &'a CollectionName,
         id: &'a DocumentId,
     ) -> Result<ResourceName<'a>, Error> {
-        Ok(document_resource_name(&self.name, collection, *id))
+        Ok(document_resource_name(&self.name, collection, id))
     }
 
     fn action() -> Self::Action {
@@ -1463,7 +1463,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseD
         collection: &CollectionName,
         ids: &Vec<DocumentId>,
     ) -> Result<(), Error> {
-        for &id in ids {
+        for id in ids {
             let document_name = document_resource_name(&self.name, collection, id);
             let action = BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get));
             permissions.check(&document_name, &action)?;
@@ -1630,15 +1630,15 @@ impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
                     BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Insert)),
                 ),
                 Command::Update { header, .. } => (
-                    document_resource_name(&self.name, &op.collection, header.id),
+                    document_resource_name(&self.name, &op.collection, &header.id),
                     BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Update)),
                 ),
                 Command::Overwrite { id, .. } => (
-                    document_resource_name(&self.name, &op.collection, *id),
+                    document_resource_name(&self.name, &op.collection, id),
                     BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Overwrite)),
                 ),
                 Command::Delete { header } => (
-                    document_resource_name(&self.name, &op.collection, header.id),
+                    document_resource_name(&self.name, &op.collection, &header.id),
                     BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
                 ),
             };
