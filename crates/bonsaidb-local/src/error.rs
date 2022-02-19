@@ -26,6 +26,10 @@ pub enum Error {
     #[error("error while communicating internally")]
     InternalCommunication,
 
+    /// A transaction was too large to execute.
+    #[error("transaction is too large")]
+    TransactionTooLarge,
+
     /// An error occurred while executing a view
     #[error("error from view: {0}")]
     View(#[from] view::Error),

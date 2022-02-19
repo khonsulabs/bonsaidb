@@ -269,7 +269,12 @@ pub struct Executed {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Changes {
     /// A list of changed documents.
-    Documents(Vec<ChangedDocument>),
+    Documents {
+        /// All of the collections changed.
+        collections: Vec<CollectionName>,
+        /// The individual document changes.
+        changes: Vec<ChangedDocument>,
+    },
     /// A list of changed keys.
     Keys(Vec<ChangedKey>),
 }
@@ -278,9 +283,13 @@ impl Changes {
     /// Returns the list of documents changed in this transaction, or None if
     /// the transaction was not a document transaction.
     #[must_use]
-    pub fn documents(&self) -> Option<&[ChangedDocument]> {
-        if let Self::Documents(docs) = self {
-            Some(docs)
+    pub fn documents(&self) -> Option<(&[CollectionName], &[ChangedDocument])> {
+        if let Self::Documents {
+            collections,
+            changes,
+        } = self
+        {
+            Some((collections, changes))
         } else {
             None
         }
@@ -301,8 +310,8 @@ impl Changes {
 /// A record of a changed document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChangedDocument {
-    /// The id of the `Collection` of the changed `Document`.
-    pub collection: CollectionName,
+    /// The index of the `CollectionName` within the `collections` field of [`Changes::Documents`].
+    pub collection: u16,
 
     /// The id of the changed `Document`.
     pub id: DocumentId,
