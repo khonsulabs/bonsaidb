@@ -1,3 +1,5 @@
+mod compatibility;
+
 use std::time::Duration;
 
 #[cfg(feature = "encryption")]

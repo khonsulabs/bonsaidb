@@ -320,6 +320,13 @@ impl NamedCollection for Unique {
 pub struct TestDirectory(pub PathBuf);
 
 impl TestDirectory {
+    pub fn absolute<S: AsRef<Path>>(path: S) -> Self {
+        let path = path.as_ref().to_owned();
+        if path.exists() {
+            std::fs::remove_dir_all(&path).expect("error clearing temporary directory");
+        }
+        Self(path)
+    }
     pub fn new<S: AsRef<Path>>(name: S) -> Self {
         let path = std::env::temp_dir().join(name);
         if path.exists() {
