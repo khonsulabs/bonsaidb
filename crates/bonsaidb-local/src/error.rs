@@ -7,6 +7,8 @@ use bonsaidb_core::{
 };
 use nebari::AbortError;
 
+use crate::database::compat::UnknownVersion;
+
 /// Errors that can occur from interacting with storage.
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -16,7 +18,7 @@ pub enum Error {
 
     /// An error occurred serializing the underlying database structures.
     #[error("error while serializing internal structures: {0}")]
-    InternalSerialization(#[from] bincode::Error),
+    InternalSerialization(String),
 
     /// An error occurred serializing the contents of a `Document` or results of a `View`.
     #[error("error while serializing: {0}")]
@@ -78,6 +80,18 @@ pub enum Error {
 impl From<flume::RecvError> for Error {
     fn from(_: flume::RecvError) -> Self {
         Self::InternalCommunication
+    }
+}
+
+impl From<bincode::Error> for Error {
+    fn from(err: bincode::Error) -> Self {
+        Self::InternalSerialization(err.to_string())
+    }
+}
+
+impl<T> From<UnknownVersion<T>> for Error {
+    fn from(err: UnknownVersion<T>) -> Self {
+        Self::InternalSerialization(err.to_string())
     }
 }
 

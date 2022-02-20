@@ -64,7 +64,7 @@ use crate::{
 
 pub mod keyvalue;
 
-mod legacy;
+pub(crate) mod compat;
 pub mod pubsub;
 
 /// A local, file-based database.
@@ -728,10 +728,12 @@ impl Database {
 
         roots_transaction
             .entry_mut()
-            .set_data(pot::to_vec(&Changes::Documents {
-                collections,
-                changes: changed_documents,
-            })?)?;
+            .set_data(compat::serialize_executed_transaction_changes(
+                &Changes::Documents {
+                    collections,
+                    changes: changed_documents,
+                },
+            )?)?;
 
         roots_transaction.commit()?;
 
@@ -1355,14 +1357,7 @@ impl Connection for Database {
                     .into_iter()
                     .map(|entry| {
                         if let Some(data) = entry.data() {
-                            let changes = match pot::from_slice(data) {
-                                Ok(changes) => changes,
-                                Err(pot::Error::NotAPot) => {
-                                    todo!()
-                                    // Changes::Documents(bincode::deserialize(entry.data().unwrap())?)
-                                }
-                                other => other?,
-                            };
+                            let changes = compat::deserialize_executed_transaction_changes(data)?;
                             Ok(Some(transaction::Executed {
                                 id: entry.id,
                                 changes,

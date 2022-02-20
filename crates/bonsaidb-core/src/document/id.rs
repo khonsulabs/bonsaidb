@@ -344,14 +344,6 @@ impl<'de> Visitor<'de> for DocumentIdVisitor {
             Err(E::invalid_length(v.len(), &"< 64 bytes"))
         }
     }
-
-    // Provided for backwards compatibility. No new data is written with this.
-    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(DocumentId::from_u64(v))
-    }
 }
 
 /// A unique id for a document, either serialized or deserialized.
