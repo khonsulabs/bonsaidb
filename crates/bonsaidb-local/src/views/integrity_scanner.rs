@@ -19,8 +19,7 @@ use super::{
 };
 use crate::{
     database::{document_tree_name, Database},
-    jobs::{task, Job, Keyed},
-    tasks::Task,
+    tasks::{handle::Handle, Job, Keyed, Task},
     Error,
 };
 
@@ -38,7 +37,7 @@ pub struct IntegrityScan {
     pub view_name: ViewName,
 }
 
-pub type OptionalViewMapHandle = Option<Arc<Mutex<Option<task::Handle<u64, Error, Task>>>>>;
+pub type OptionalViewMapHandle = Option<Arc<Mutex<Option<Handle<u64, Error>>>>>;
 
 #[async_trait]
 impl Job for IntegrityScanner {

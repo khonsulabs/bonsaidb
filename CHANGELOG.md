@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Breaking Changes
+
+- `bonsaidb::local::jobs` is now private. It used to be a separate, public crate
+  in the PliantDb days. After thinking about the job scheduler more, this
+  initial implementation is better suited for the internal task management than
+  the higher-level jobs system. As such, it has been internalized.
+
 ## v0.2.0
 
 ### Breaking Changes

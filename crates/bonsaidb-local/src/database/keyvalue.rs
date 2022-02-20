@@ -28,8 +28,7 @@ use tokio::{
 
 use crate::{
     config::KeyValuePersistence,
-    jobs::{Job, Keyed},
-    tasks::Task,
+    tasks::{Job, Keyed, Task},
     Database, Error,
 };
 

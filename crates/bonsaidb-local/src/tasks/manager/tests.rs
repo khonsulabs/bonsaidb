@@ -3,7 +3,7 @@ use std::{convert::Infallible, fmt::Debug, hash::Hash};
 use async_trait::async_trait;
 
 use super::Manager;
-use crate::jobs::{Job, Keyed};
+use crate::tasks::{Job, Keyed};
 
 #[derive(Debug)]
 struct Echo<T>(T);
@@ -51,7 +51,7 @@ async fn keyed_simple() -> Result<(), tokio::sync::oneshot::error::RecvError> {
     let handle2 = manager.lookup_or_enqueue(Echo(1)).await;
     // Tests that they received the same job id
     assert_eq!(handle.id, handle2.id);
-    let mut handle3 = handle.clone().await;
+    let mut handle3 = manager.lookup_or_enqueue(Echo(1)).await;
     assert_eq!(handle3.id, handle.id);
 
     manager.spawn_worker();

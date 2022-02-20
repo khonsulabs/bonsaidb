@@ -14,14 +14,21 @@ use bonsaidb_utils::{fast_async_read, fast_async_write};
 
 use crate::{
     database::{keyvalue::ExpirationLoader, Database},
-    jobs::{manager::Manager, task::Handle},
-    tasks::compactor::Compactor,
+    tasks::{compactor::Compactor, handle::Handle, manager::Manager},
     views::{
         integrity_scanner::{IntegrityScan, IntegrityScanner, OptionalViewMapHandle},
         mapper::{Map, Mapper},
     },
     Error,
 };
+
+/// Types related to defining [`Job`]s.
+pub mod handle;
+/// Types related to the job [`Manager`](manager::Manager).
+pub mod manager;
+mod traits;
+
+pub use self::traits::{Job, Keyed};
 
 mod compactor;
 mod task;
@@ -125,7 +132,7 @@ impl TaskManager {
         &self,
         view: &dyn view::Serialized,
         database: &Database,
-    ) -> Result<Option<Handle<OptionalViewMapHandle, Error, Task>>, crate::Error> {
+    ) -> Result<Option<Handle<OptionalViewMapHandle, Error>>, crate::Error> {
         let view_name = view.view_name();
         if !self
             .view_integrity_checked(
@@ -186,7 +193,7 @@ impl TaskManager {
     pub async fn spawn_key_value_expiration_loader(
         &self,
         database: &crate::Database,
-    ) -> Option<Handle<(), Error, Task>> {
+    ) -> Option<Handle<(), Error>> {
         if self.key_value_expiration_loaded(&database.data.name).await {
             None
         } else {

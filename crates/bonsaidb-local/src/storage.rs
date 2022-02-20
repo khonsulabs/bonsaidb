@@ -51,8 +51,7 @@ use crate::vault::{self, LocalVaultKeyStorage, Vault};
 use crate::{
     config::{KeyValuePersistence, StorageConfiguration},
     database::Context,
-    jobs::manager::Manager,
-    tasks::TaskManager,
+    tasks::{manager::Manager, TaskManager},
     Database, Error,
 };
 

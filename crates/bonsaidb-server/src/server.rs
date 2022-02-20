@@ -46,11 +46,7 @@ use bonsaidb_core::{
     connection::{Authenticated, Authentication},
     permissions::bonsai::AuthenticationMethod,
 };
-use bonsaidb_local::{
-    config::Builder,
-    jobs::{manager::Manager, Job},
-    Database, Storage,
-};
+use bonsaidb_local::{config::Builder, Database, Storage};
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::derive_where;
 use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
@@ -61,7 +57,7 @@ use schema::SchemaName;
 #[cfg(not(windows))]
 use signal_hook::consts::SIGQUIT;
 use signal_hook::consts::{SIGINT, SIGTERM};
-use tokio::sync::Notify;
+use tokio::sync::{oneshot, Notify};
 
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
@@ -106,7 +102,7 @@ pub type Server = CustomServer<NoBackend>;
 struct Data<B: Backend = NoBackend> {
     storage: Storage,
     clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
-    request_processor: Manager,
+    request_processor: flume::Sender<ClientRequest<B>>,
     default_permissions: Permissions,
     authenticated_permissions: Permissions,
     endpoint: RwLock<Option<Endpoint>>,
@@ -143,9 +139,25 @@ impl Deref for CachedCertifiedKey {
 impl<B: Backend> CustomServer<B> {
     /// Opens a server using `directory` for storage.
     pub async fn open(configuration: ServerConfiguration) -> Result<Self, Error> {
-        let request_processor = Manager::default();
+        let (request_sender, request_receiver) = flume::unbounded::<ClientRequest<B>>();
         for _ in 0..configuration.request_workers {
-            request_processor.spawn_worker();
+            let request_receiver = request_receiver.clone();
+            tokio::task::spawn(async move {
+                while let Ok(mut client_request) = request_receiver.recv_async().await {
+                    let request = client_request.request.take().unwrap();
+                    let result = ServerDispatcher {
+                        server: &client_request.server,
+                        client: &client_request.client,
+                        subscribers: &client_request.subscribers,
+                        response_sender: &client_request.sender,
+                    }
+                    .dispatch(&client_request.client.permissions().await, request)
+                    .await;
+                    let result = result
+                        .unwrap_or_else(|err| Response::Error(bonsaidb_core::Error::from(err)));
+                    drop(client_request.result_sender.send(result));
+                }
+            });
         }
 
         let storage = Storage::open(configuration.storage.with_schema::<Hosted>()?).await?;
@@ -160,7 +172,7 @@ impl<B: Backend> CustomServer<B> {
                 clients: RwLock::default(),
                 storage,
                 endpoint: RwLock::default(),
-                request_processor,
+                request_processor: request_sender,
                 default_permissions,
                 authenticated_permissions,
                 client_simultaneous_request_limit: configuration.client_simultaneous_request_limit,
@@ -587,27 +599,26 @@ impl<B: Backend> CustomServer<B> {
         subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
         response_sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
     ) -> Result<(), Error> {
-        let job = self
-            .data
+        let (result_sender, result_receiver) = oneshot::channel();
+        self.data
             .request_processor
-            .enqueue(ClientRequest::<B>::new(
+            .send(ClientRequest::<B>::new(
                 request,
                 self.clone(),
                 client,
                 subscribers,
                 response_sender,
+                result_sender,
             ))
-            .await;
+            .map_err(|_| Error::InternalCommunication)?;
         tokio::spawn(async move {
-            let result = job.receive().await?;
+            let result = result_receiver.await?;
             // Map the error into a Response::Error. The jobs system supports
             // multiple receivers receiving output, and wraps Err to avoid
             // requiring the error to be cloneable. As such, we have to unwrap
             // it. Thankfully, we can guarantee nothing else is waiting on a
             // response to a request than the original requestor, so this can be
             // safely unwrapped.
-            let result =
-                result.unwrap_or_else(|err| Response::Error(Arc::try_unwrap(err).unwrap().into()));
             callback(result).await?;
             Result::<(), Error>::Ok(())
         });
@@ -877,6 +888,7 @@ struct ClientRequest<B: Backend> {
     server: CustomServer<B>,
     subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
     sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
+    result_sender: oneshot::Sender<Response<CustomApiResult<B::CustomApi>>>,
 }
 
 impl<B: Backend> ClientRequest<B> {
@@ -886,6 +898,7 @@ impl<B: Backend> ClientRequest<B> {
         client: ConnectedClient<B>,
         subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
         sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
+        result_sender: oneshot::Sender<Response<CustomApiResult<B::CustomApi>>>,
     ) -> Self {
         Self {
             request: Some(request),
@@ -893,26 +906,8 @@ impl<B: Backend> ClientRequest<B> {
             client,
             subscribers,
             sender,
+            result_sender,
         }
-    }
-}
-
-#[async_trait]
-impl<B: Backend> Job for ClientRequest<B> {
-    type Output = Response<CustomApiResult<B::CustomApi>>;
-    type Error = Error;
-
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
-        let request = self.request.take().unwrap();
-        ServerDispatcher {
-            server: &self.server,
-            client: &self.client,
-            subscribers: &self.subscribers,
-            response_sender: &self.sender,
-        }
-        .dispatch(&self.client.permissions().await, request)
-        .await
     }
 }
 

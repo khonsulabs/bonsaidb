@@ -3,9 +3,9 @@ use std::{any::Any, collections::HashMap, fmt::Debug, sync::Arc};
 use flume::{Receiver, Sender};
 use tokio::sync::oneshot;
 
-use crate::jobs::{
+use crate::tasks::{
+    handle::{Handle, Id},
     manager::{ManagedJob, Manager},
-    task::{Handle, Id},
     traits::Executable,
     Job, Keyed,
 };
@@ -60,45 +60,40 @@ where
         job: J,
         key: Option<Key>,
         manager: Manager<Key>,
-    ) -> Handle<J::Output, J::Error, Key> {
+    ) -> Handle<J::Output, J::Error> {
         self.last_task_id = self.last_task_id.wrapping_add(1);
         let id = Id(self.last_task_id);
         self.queuer
             .send(Box::new(ManagedJob {
                 id,
                 job,
+                manager,
                 key,
-                manager: manager.clone(),
             }))
             .unwrap();
 
-        self.create_new_task_handle(id, manager)
+        self.create_new_task_handle(id)
     }
 
     pub fn create_new_task_handle<T: Send + Sync + 'static, E: Send + Sync + 'static>(
         &mut self,
         id: Id,
-        manager: Manager<Key>,
-    ) -> Handle<T, E, Key> {
+    ) -> Handle<T, E> {
         let (sender, receiver) = oneshot::channel();
         let senders = self.result_senders.entry(id).or_insert_with(Vec::default);
         senders.push(Box::new(Some(sender)));
 
-        Handle {
-            id,
-            manager,
-            receiver,
-        }
+        Handle { id, receiver }
     }
 
     pub fn lookup_or_enqueue<J: Keyed<Key>>(
         &mut self,
         job: J,
         manager: Manager<Key>,
-    ) -> Handle<<J as Job>::Output, <J as Job>::Error, Key> {
+    ) -> Handle<<J as Job>::Output, <J as Job>::Error> {
         let key = job.key();
         if let Some(&id) = self.keyed_jobs.get(&key) {
-            self.create_new_task_handle(id, manager)
+            self.create_new_task_handle(id)
         } else {
             let handle = self.enqueue(job, Some(key.clone()), manager);
             self.keyed_jobs.insert(key, handle.id);

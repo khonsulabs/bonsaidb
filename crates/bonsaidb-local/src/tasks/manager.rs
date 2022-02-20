@@ -4,8 +4,8 @@ use async_lock::RwLock;
 use bonsaidb_utils::{fast_async_read, fast_async_write};
 use derive_where::derive_where;
 
-use crate::jobs::{
-    task::{Handle, Id},
+use crate::tasks::{
+    handle::{Handle, Id},
     Job, Keyed,
 };
 
@@ -30,7 +30,8 @@ where
 {
     /// Pushes a `job` into the queue. Pushing the same job definition twice
     /// will yield two tasks in the queue.
-    pub async fn enqueue<J: Job + 'static>(&self, job: J) -> Handle<J::Output, J::Error, Key> {
+    #[cfg(test)]
+    pub async fn enqueue<J: Job + 'static>(&self, job: J) -> Handle<J::Output, J::Error> {
         let mut jobs = fast_async_write!(self.jobs);
         jobs.enqueue(job, None, self.clone())
     }
@@ -42,7 +43,7 @@ where
     pub async fn lookup_or_enqueue<J: Keyed<Key>>(
         &self,
         job: J,
-    ) -> Handle<<J as Job>::Output, <J as Job>::Error, Key> {
+    ) -> Handle<<J as Job>::Output, <J as Job>::Error> {
         let mut jobs = fast_async_write!(self.jobs);
         jobs.lookup_or_enqueue(job, self.clone())
     }
