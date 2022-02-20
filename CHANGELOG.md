@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.2.0
 
 ### Breaking Changes
 
@@ -31,7 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collections and wish to maintain backwards compatibility, use `u64` as the
   type.
 
-  A `natural_id()` function can now be implemented on `SerializedCollection` or `DefaultSerialization` which allows extracting a primary key value from a new document being pushed
+  A `natural_id()` function can now be implemented on `SerializedCollection` or
+  `DefaultSerialization` which allows extracting a primary key value from a new
+  document being pushed
   
   A new example, `primary-keys.rs`, as been added showing basic usage of
   changing the primary key type. This change resulted in a sequnce of breaking
