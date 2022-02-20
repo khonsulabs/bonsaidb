@@ -90,6 +90,7 @@ bonsaidb-core = { path = "../bonsaidb-core", version = "=0.2.0", features = [
 ] }
 futures = "0.3"
 anyhow = "1"
+fs_extra = "1.2.0"
 
 [package.metadata.docs.rs]
 features = ["full"]

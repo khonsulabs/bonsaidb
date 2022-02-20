@@ -5,7 +5,7 @@ use std::{
 
 use bonsaidb_core::{
     connection::{Connection, StorageConnection},
-    document::CollectionDocument,
+    document::{CollectionDocument, Emit},
     keyvalue::KeyValue,
     schema::{
         Collection, CollectionViewSchema, ReduceResult, Schema, SerializedCollection, View,
@@ -13,6 +13,7 @@ use bonsaidb_core::{
     },
     test_util::TestDirectory,
 };
+use fs_extra::dir;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -49,7 +50,7 @@ impl CollectionViewSchema for UniqueView {
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
     ) -> bonsaidb_core::schema::ViewMapResult<Self::View> {
-        Ok(document.header.emit_key(document.contents.name))
+        document.header.emit_key(document.contents.name)
     }
 }
 
@@ -71,9 +72,9 @@ impl CollectionViewSchema for Scores {
         &self,
         document: CollectionDocument<<Self::View as View>::Collection>,
     ) -> bonsaidb_core::schema::ViewMapResult<Self::View> {
-        Ok(document
+        document
             .header
-            .emit_key_and_value(document.contents.key, document.contents.value))
+            .emit_key_and_value(document.contents.key, document.contents.value)
     }
 
     fn reduce(
@@ -212,7 +213,7 @@ async fn test_basic(db: Database) {
         Some("test")
     );
 
-    let all_docs = Basic::list(.., &db).await.unwrap();
+    let all_docs = Basic::all(&db).await.unwrap();
     assert_eq!(all_docs.len(), 5);
 
     let a_scores = db
@@ -233,6 +234,35 @@ async fn test_basic(db: Database) {
         };
         assert_eq!(mapping.value, expected_value);
     }
+
+    // This was written in the tx-log-optimization branch, but brought back
+    // temporarily to allow creating a v0.2 database for testing against.
+    //
+    // let transactions = db.list_executed_transactions(None, None).await.unwrap();
+    // let kv_transactions = transactions
+    //     .iter()
+    //     .filter_map(|t| t.changes.keys())
+    //     .collect::<Vec<_>>();
+    // assert_eq!(kv_transactions.len(), 2);
+    // let keys = kv_transactions
+    //     .iter()
+    //     .flat_map(|changed_keys| {
+    //         changed_keys
+    //             .iter()
+    //             .map(|changed_key| changed_key.key.as_str())
+    //     })
+    //     .collect::<HashSet<_>>();
+    // assert_eq!(keys.len(), 2);
+    // assert!(keys.contains("string"));
+    // assert!(keys.contains("integer"));
+    // let basic_transactions = transactions.iter().filter_map(|t| {
+    //     t.changes.documents().and_then(|(collections, documents)| {
+    //         collections
+    //             .contains(&Basic::collection_name())
+    //             .then(|| documents)
+    //     })
+    // });
+    // assert_eq!(basic_transactions.count(), 5);
 }
 
 async fn test_unique(db: Database) {
@@ -257,8 +287,7 @@ async fn test_unique(db: Database) {
 
 #[tokio::test]
 async fn self_compatibility() {
-    let project_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let dir = TestDirectory::absolute(project_dir.join(".self-compatibiltiy.bonsaidb"));
+    let dir = TestDirectory::new("self-compatibiltiy.bonsaidb");
     create_databases(&dir).await;
     test_databases(&dir).await;
     if std::env::var("UPDATE_COMPATIBILITY")
@@ -279,23 +308,50 @@ async fn self_compatibility() {
         if version_path.exists() {
             std::fs::remove_dir_all(&version_path).unwrap();
         }
-        std::fs::rename(&dir, version_path).unwrap();
+        dir::copy(
+            &dir,
+            version_path,
+            &dir::CopyOptions {
+                content_only: true,
+                copy_inside: true,
+                ..dir::CopyOptions::default()
+            },
+        )
+        .unwrap();
     }
 }
 
-#[tokio::test]
-async fn compatible_with_0_1_x() {
+async fn test_compatibility(dir: &str) {
     let project_dir = PathBuf::from(
         std::env::var("CARGO_MANIFEST_DIR")
             .unwrap_or_else(|_| String::from("./crates/bonsaidb-local")),
     );
 
-    test_databases(
+    let test_dir = TestDirectory::new(format!("v{}-compatibility.nebari", dir));
+    dir::copy(
         project_dir
             .join("src")
             .join("tests")
             .join("compatibility")
-            .join("0.1"),
+            .join(dir),
+        &test_dir,
+        &dir::CopyOptions {
+            content_only: true,
+            copy_inside: true,
+            ..dir::CopyOptions::default()
+        },
     )
-    .await;
+    .unwrap();
+
+    test_databases(&test_dir).await;
+}
+
+#[tokio::test]
+async fn compatible_with_0_1_x() {
+    test_compatibility("0.1").await;
+}
+
+#[tokio::test]
+async fn compatible_with_0_2_x() {
+    test_compatibility("0.2").await;
 }
