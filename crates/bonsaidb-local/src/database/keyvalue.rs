@@ -28,6 +28,7 @@ use tokio::{
 
 use crate::{
     config::KeyValuePersistence,
+    database::compat,
     tasks::{Job, Keyed, Task},
     Database, Error,
 };
@@ -709,7 +710,9 @@ impl KeyValueState {
         if !changed_keys.is_empty() {
             transaction
                 .entry_mut()
-                .set_data(pot::to_vec(&Changes::Keys(changed_keys))?)
+                .set_data(compat::serialize_executed_transaction_changes(
+                    &Changes::Keys(changed_keys),
+                )?)
                 .map_err(Error::from)?;
             transaction.commit().map_err(Error::from)?;
         }

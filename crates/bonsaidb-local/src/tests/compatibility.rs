@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -235,34 +236,33 @@ async fn test_basic(db: Database) {
         assert_eq!(mapping.value, expected_value);
     }
 
-    // This was written in the tx-log-optimization branch, but brought back
-    // temporarily to allow creating a v0.2 database for testing against.
-    //
-    // let transactions = db.list_executed_transactions(None, None).await.unwrap();
-    // let kv_transactions = transactions
-    //     .iter()
-    //     .filter_map(|t| t.changes.keys())
-    //     .collect::<Vec<_>>();
-    // assert_eq!(kv_transactions.len(), 2);
-    // let keys = kv_transactions
-    //     .iter()
-    //     .flat_map(|changed_keys| {
-    //         changed_keys
-    //             .iter()
-    //             .map(|changed_key| changed_key.key.as_str())
-    //     })
-    //     .collect::<HashSet<_>>();
-    // assert_eq!(keys.len(), 2);
-    // assert!(keys.contains("string"));
-    // assert!(keys.contains("integer"));
-    // let basic_transactions = transactions.iter().filter_map(|t| {
-    //     t.changes.documents().and_then(|(collections, documents)| {
-    //         collections
-    //             .contains(&Basic::collection_name())
-    //             .then(|| documents)
-    //     })
-    // });
-    // assert_eq!(basic_transactions.count(), 5);
+    let transactions = db.list_executed_transactions(None, None).await.unwrap();
+    let kv_transactions = transactions
+        .iter()
+        .filter_map(|t| t.changes.keys())
+        .collect::<Vec<_>>();
+    assert_eq!(kv_transactions.len(), 2);
+    let keys = kv_transactions
+        .iter()
+        .flat_map(|changed_keys| {
+            changed_keys
+                .iter()
+                .map(|changed_key| changed_key.key.as_str())
+        })
+        .collect::<HashSet<_>>();
+    assert_eq!(keys.len(), 2);
+    assert!(keys.contains("string"));
+    assert!(keys.contains("integer"));
+
+    let basic_transactions = transactions.iter().filter_map(|t| {
+        t.changes.documents().and_then(|changes| {
+            changes
+                .collections
+                .contains(&Basic::collection_name())
+                .then(|| &changes.documents)
+        })
+    });
+    assert_eq!(basic_transactions.count(), 5);
 }
 
 async fn test_unique(db: Database) {

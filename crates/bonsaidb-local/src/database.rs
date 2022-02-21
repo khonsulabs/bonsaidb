@@ -31,7 +31,8 @@ use bonsaidb_core::{
         Collection, CollectionName, Map, MappedValue, Schema, Schematic, ViewName,
     },
     transaction::{
-        self, ChangedDocument, Changes, Command, Operation, OperationResult, Transaction,
+        self, ChangedDocument, Changes, Command, DocumentChanges, Operation, OperationResult,
+        Transaction,
     },
 };
 use bonsaidb_utils::fast_async_lock;
@@ -64,6 +65,7 @@ use crate::{
 
 pub mod keyvalue;
 
+pub(crate) mod compat;
 pub mod pubsub;
 
 /// A local, file-based database.
@@ -679,6 +681,8 @@ impl Database {
 
         let mut results = Vec::new();
         let mut changed_documents = Vec::new();
+        let mut collection_indexes = HashMap::new();
+        let mut collections = Vec::new();
         for op in &transaction.operations {
             let result = self.execute_operation(
                 op,
@@ -686,57 +690,83 @@ impl Database {
                 &open_trees.trees_index_by_name,
             )?;
 
-            match &result {
+            if let Some((collection, id, deleted)) = match &result {
                 OperationResult::DocumentUpdated { header, collection } => {
-                    changed_documents.push(ChangedDocument {
-                        collection: collection.clone(),
-                        id: header.id,
-                        deleted: false,
-                    });
+                    Some((collection, header.id, false))
                 }
                 OperationResult::DocumentDeleted { id, collection } => {
-                    changed_documents.push(ChangedDocument {
-                        collection: collection.clone(),
-                        id: *id,
-                        deleted: true,
-                    });
+                    Some((collection, *id, true))
                 }
-                OperationResult::Success => {}
+                OperationResult::Success => None,
+            } {
+                let collection = match collection_indexes.get(collection) {
+                    Some(index) => *index,
+                    None => {
+                        if let Ok(id) = u16::try_from(collections.len()) {
+                            collection_indexes.insert(collection.clone(), id);
+                            collections.push(collection.clone());
+                            id
+                        } else {
+                            return Err(Error::TransactionTooLarge);
+                        }
+                    }
+                };
+                changed_documents.push(ChangedDocument {
+                    collection,
+                    id,
+                    deleted,
+                });
             }
             results.push(result);
         }
 
-        // Insert invalidations for each record changed
-        for (collection, changed_documents) in &changed_documents
-            .iter()
-            .group_by(|doc| doc.collection.clone())
-        {
-            if let Some(views) = self.data.schema.views_in_collection(&collection) {
-                let changed_documents = changed_documents.collect::<Vec<_>>();
-                for view in views {
-                    if !view.unique() {
-                        let view_name = view.view_name();
-                        for changed_document in &changed_documents {
-                            let invalidated_docs = roots_transaction
-                                .tree::<Unversioned>(
-                                    open_trees.trees_index_by_name
-                                        [&view_invalidated_docs_tree_name(&view_name)],
-                                )
-                                .unwrap();
-                            invalidated_docs.set(changed_document.id.as_ref().to_vec(), b"")?;
-                        }
-                    }
-                }
-            }
-        }
+        self.invalidate_changed_documents(
+            &mut roots_transaction,
+            &open_trees,
+            &collections,
+            &changed_documents,
+        )?;
 
         roots_transaction
             .entry_mut()
-            .set_data(pot::to_vec(&Changes::Documents(changed_documents))?)?;
+            .set_data(compat::serialize_executed_transaction_changes(
+                &Changes::Documents(DocumentChanges {
+                    collections,
+                    documents: changed_documents,
+                }),
+            )?)?;
 
         roots_transaction.commit()?;
 
         Ok(results)
+    }
+
+    fn invalidate_changed_documents(
+        &self,
+        roots_transaction: &mut ExecutingTransaction<AnyFile>,
+        open_trees: &OpenTrees,
+        collections: &[CollectionName],
+        changed_documents: &[ChangedDocument],
+    ) -> Result<(), Error> {
+        for (collection, changed_documents) in &changed_documents
+            .iter()
+            .group_by(|doc| &collections[usize::from(doc.collection)])
+        {
+            if let Some(views) = self.data.schema.views_in_collection(collection) {
+                let changed_documents = changed_documents.collect::<Vec<_>>();
+                for view in views.into_iter().filter(|view| !view.unique()) {
+                    let view_name = view.view_name();
+                    let tree_name = view_invalidated_docs_tree_name(&view_name);
+                    for changed_document in &changed_documents {
+                        let invalidated_docs = roots_transaction
+                            .tree::<Unversioned>(open_trees.trees_index_by_name[&tree_name])
+                            .unwrap();
+                        invalidated_docs.set(changed_document.id.as_ref().to_vec(), b"")?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn execute_operation(
@@ -1328,13 +1358,7 @@ impl Connection for Database {
                     .into_iter()
                     .map(|entry| {
                         if let Some(data) = entry.data() {
-                            let changes = match pot::from_slice(data) {
-                                Ok(changes) => changes,
-                                Err(pot::Error::NotAPot) => {
-                                    Changes::Documents(bincode::deserialize(entry.data().unwrap())?)
-                                }
-                                other => other?,
-                            };
+                            let changes = compat::deserialize_executed_transaction_changes(data)?;
                             Ok(Some(transaction::Executed {
                                 id: entry.id,
                                 changes,

@@ -689,14 +689,16 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     assert_eq!(transactions.len(), 2);
     assert!(transactions[0].id < transactions[1].id);
     for transaction in &transactions {
-        let changed_documents = transaction
+        let changes = transaction
             .changes
             .documents()
             .expect("incorrect transaction type");
-        assert_eq!(changed_documents.len(), 1);
-        assert_eq!(changed_documents[0].collection, Basic::collection_name());
-        assert_eq!(header.id, changed_documents[0].id.deserialize()?);
-        assert!(!changed_documents[0].deleted);
+        assert_eq!(changes.documents.len(), 1);
+        assert_eq!(changes.collections.len(), 1);
+        assert_eq!(changes.collections[0], Basic::collection_name());
+        assert_eq!(changes.documents[0].collection, 0);
+        assert_eq!(header.id, changes.documents[0].id.deserialize()?);
+        assert!(!changes.documents[0].deleted);
     }
 
     db.collection::<Basic>().delete(&doc).await?;
@@ -706,14 +708,14 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .await?;
     assert_eq!(transactions.len(), 1);
     let transaction = transactions.first().unwrap();
-    let changed_documents = transaction
+    let changes = transaction
         .changes
         .documents()
         .expect("incorrect transaction type");
-    assert_eq!(changed_documents.len(), 1);
-    assert_eq!(changed_documents[0].collection, Basic::collection_name());
-    assert_eq!(header.id, changed_documents[0].id.deserialize()?);
-    assert!(changed_documents[0].deleted);
+    assert_eq!(changes.documents.len(), 1);
+    assert_eq!(changes.collections[0], Basic::collection_name());
+    assert_eq!(header.id, changes.documents[0].id.deserialize()?);
+    assert!(changes.documents[0].deleted);
 
     // Use the Collection interface
     let mut doc = original_value.clone().push_into(db).await?;

@@ -13,6 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the PliantDb days. After thinking about the job scheduler more, this
   initial implementation is better suited for the internal task management than
   the higher-level jobs system. As such, it has been internalized.
+- `bonsaidb::core::transaction::Changes::Documents` has been changed to store
+  the `CollectionName`s separately from the `ChangedDocument`s. This makes the
+  transaction log entries smaller, as collection names aren't copied for each
+  document.
+
+  The storage layer is fully backwards compatible and will automatically convert
+  existing transactions to the new format.
+
+### Fixed
+
+- Listing executed transactions that were written in `v0.1` was broken in
+  `v0.2`. Backwards compatibility is now automatically tested to help ensure
+  this sort of issue won't happen in the future again.
 
 ## v0.2.0
 
