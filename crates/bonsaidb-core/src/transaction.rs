@@ -269,12 +269,7 @@ pub struct Executed {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Changes {
     /// A list of changed documents.
-    Documents {
-        /// All of the collections changed.
-        collections: Vec<CollectionName>,
-        /// The individual document changes.
-        changes: Vec<ChangedDocument>,
-    },
+    Documents(DocumentChanges),
     /// A list of changed keys.
     Keys(Vec<ChangedKey>),
 }
@@ -283,13 +278,9 @@ impl Changes {
     /// Returns the list of documents changed in this transaction, or None if
     /// the transaction was not a document transaction.
     #[must_use]
-    pub fn documents(&self) -> Option<(&[CollectionName], &[ChangedDocument])> {
-        if let Self::Documents {
-            collections,
-            changes,
-        } = self
-        {
-            Some((collections, changes))
+    pub const fn documents(&self) -> Option<&DocumentChanges> {
+        if let Self::Documents(changes) = self {
+            Some(changes)
         } else {
             None
         }
@@ -305,6 +296,163 @@ impl Changes {
             None
         }
     }
+}
+
+/// A list of changed documents.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DocumentChanges {
+    /// All of the collections changed.
+    pub collections: Vec<CollectionName>,
+    /// The individual document changes.
+    pub documents: Vec<ChangedDocument>,
+}
+
+impl DocumentChanges {
+    /// Returns the changed document and the name of the collection the change
+    /// happened to.
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<(&CollectionName, &ChangedDocument)> {
+        self.documents.get(index).and_then(|doc| {
+            self.collections
+                .get(usize::from(doc.collection))
+                .map(|collection| (collection, doc))
+        })
+    }
+
+    /// Returns the number of changes in this collection.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.documents.len()
+    }
+
+    /// Returns true if there are no changes.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.documents.is_empty()
+    }
+
+    /// Returns an interator over all of the changed documents.
+    pub const fn iter(&self) -> DocumentChangesIter<'_> {
+        DocumentChangesIter {
+            changes: self,
+            index: Some(0),
+        }
+    }
+}
+
+/// An iterator over [`DocumentChanges`].
+#[must_use]
+pub struct DocumentChangesIter<'a> {
+    changes: &'a DocumentChanges,
+    index: Option<usize>,
+}
+
+impl<'a> Iterator for DocumentChangesIter<'a> {
+    type Item = (&'a CollectionName, &'a ChangedDocument);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.index.and_then(|index| {
+            let result = self.changes.get(index);
+            if result.is_some() {
+                self.index = index.checked_add(1);
+            }
+            result
+        })
+    }
+}
+
+/// A draining iterator over [`ChangedDocument`]s.
+#[must_use]
+pub struct DocumentChangesIntoIter {
+    collections: Vec<CollectionName>,
+    documents: std::vec::IntoIter<ChangedDocument>,
+}
+
+impl Iterator for DocumentChangesIntoIter {
+    type Item = (CollectionName, ChangedDocument);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.documents.next().and_then(|doc| {
+            self.collections
+                .get(usize::from(doc.collection))
+                .map(|collection| (collection.clone(), doc))
+        })
+    }
+}
+
+impl IntoIterator for DocumentChanges {
+    type Item = (CollectionName, ChangedDocument);
+
+    type IntoIter = DocumentChangesIntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        DocumentChangesIntoIter {
+            collections: self.collections,
+            documents: self.documents.into_iter(),
+        }
+    }
+}
+
+#[test]
+fn document_changes_iter() {
+    let changes = DocumentChanges {
+        collections: vec![CollectionName::private("a"), CollectionName::private("b")],
+        documents: vec![
+            ChangedDocument {
+                collection: 0,
+                id: DocumentId::from_u64(0),
+                deleted: false,
+            },
+            ChangedDocument {
+                collection: 0,
+                id: DocumentId::from_u64(1),
+                deleted: false,
+            },
+            ChangedDocument {
+                collection: 1,
+                id: DocumentId::from_u64(2),
+                deleted: false,
+            },
+            ChangedDocument {
+                collection: 2,
+                id: DocumentId::from_u64(3),
+                deleted: false,
+            },
+        ],
+    };
+
+    assert_eq!(changes.len(), 4);
+    assert!(!changes.is_empty());
+
+    let mut a_changes = 0;
+    let mut b_changes = 0;
+    let mut ids = Vec::new();
+    for (collection, document) in changes.iter() {
+        assert!(!ids.contains(&document.id));
+        ids.push(document.id);
+        match collection.name.as_ref() {
+            "a" => a_changes += 1,
+            "b" => b_changes += 1,
+            _ => unreachable!("invalid collection name {collection}"),
+        }
+    }
+    assert_eq!(a_changes, 2);
+    assert_eq!(b_changes, 1);
+
+    let mut a_changes = 0;
+    let mut b_changes = 0;
+    let mut ids = Vec::new();
+    for (collection, document) in changes {
+        assert!(!ids.contains(&document.id));
+        ids.push(document.id);
+        match collection.name.as_ref() {
+            "a" => a_changes += 1,
+            "b" => b_changes += 1,
+            _ => unreachable!("invalid collection name {collection}"),
+        }
+    }
+    assert_eq!(a_changes, 2);
+    assert_eq!(b_changes, 1);
 }
 
 /// A record of a changed document.

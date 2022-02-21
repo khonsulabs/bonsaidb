@@ -255,10 +255,11 @@ async fn test_basic(db: Database) {
     assert!(keys.contains("integer"));
 
     let basic_transactions = transactions.iter().filter_map(|t| {
-        t.changes.documents().and_then(|(collections, documents)| {
-            collections
+        t.changes.documents().and_then(|changes| {
+            changes
+                .collections
                 .contains(&Basic::collection_name())
-                .then(|| documents)
+                .then(|| &changes.documents)
         })
     });
     assert_eq!(basic_transactions.count(), 5);

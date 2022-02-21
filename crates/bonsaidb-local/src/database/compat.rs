@@ -4,7 +4,7 @@ use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     document::DocumentId,
     schema::CollectionName,
-    transaction::{ChangedDocument, ChangedKey, Changes},
+    transaction::{ChangedDocument, ChangedKey, Changes, DocumentChanges},
 };
 use serde::{Deserialize, Serialize};
 use transmog_versions::Versioned;
@@ -110,10 +110,10 @@ impl TryFrom<ChangesV0> for Changes {
                         deleted: changed.deleted,
                     });
                 }
-                Ok(Self::Documents {
+                Ok(Self::Documents(DocumentChanges {
                     collections,
-                    changes: changed_documents,
-                })
+                    documents: changed_documents,
+                }))
             }
             ChangesV0::Keys(changes) => Ok(Self::Keys(changes)),
         }

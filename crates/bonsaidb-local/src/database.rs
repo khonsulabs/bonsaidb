@@ -31,7 +31,8 @@ use bonsaidb_core::{
         Collection, CollectionName, Map, MappedValue, Schema, Schematic, ViewName,
     },
     transaction::{
-        self, ChangedDocument, Changes, Command, Operation, OperationResult, Transaction,
+        self, ChangedDocument, Changes, Command, DocumentChanges, Operation, OperationResult,
+        Transaction,
     },
 };
 use bonsaidb_utils::fast_async_lock;
@@ -729,10 +730,10 @@ impl Database {
         roots_transaction
             .entry_mut()
             .set_data(compat::serialize_executed_transaction_changes(
-                &Changes::Documents {
+                &Changes::Documents(DocumentChanges {
                     collections,
-                    changes: changed_documents,
-                },
+                    documents: changed_documents,
+                }),
             )?)?;
 
         roots_transaction.commit()?;
