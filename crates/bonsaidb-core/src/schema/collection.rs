@@ -12,7 +12,7 @@ use crate::{
         AnyDocumentId, BorrowedDocument, CollectionDocument, Document, DocumentId, KeyId,
         OwnedDocument, OwnedDocuments,
     },
-    key::Key,
+    key::{IntoPrefixRange, Key},
     schema::{CollectionName, Schematic},
     Error,
 };
@@ -234,7 +234,7 @@ where
 ///
 /// ```rust
 /// use bonsaidb_core::{
-///     schema::{Collection, CollectionName, DefaultSerialization, Schematic},
+///     schema::{Collection, DefaultSerialization, Schematic},
 ///     Error,
 /// };
 /// use serde::{Deserialize, Serialize};
@@ -392,6 +392,40 @@ pub trait SerializedCollection: Collection {
         List(connection::List::new(
             connection::PossiblyOwned::Owned(connection.collection::<Self>()),
             ids.into().map(PrimaryKey::into),
+        ))
+    }
+
+    /// Retrieves all documents with ids that start with `prefix`.
+    ///
+    /// ```rust
+    /// use bonsaidb_core::{
+    ///     connection::Connection,
+    ///     document::CollectionDocument,
+    ///     schema::{Collection, Schematic, SerializedCollection},
+    ///     Error,
+    /// };
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+    /// #[collection(name = "MyCollection", primary_key = String)]
+    /// # #[collection(core = bonsaidb_core)]
+    /// pub struct MyCollection;
+    ///
+    /// async fn starts_with_a<C: Connection>(
+    ///     db: &C,
+    /// ) -> Result<Vec<CollectionDocument<MyCollection>>, Error> {
+    ///     MyCollection::list_with_prefix(String::from("a"), db).await
+    /// }
+    /// ```
+    fn list_with_prefix<C>(prefix: Self::PrimaryKey, connection: &'_ C) -> List<'_, C, Self>
+    where
+        C: Connection,
+        Self: Sized,
+        Self::PrimaryKey: IntoPrefixRange,
+    {
+        List(connection::List::new(
+            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
+            prefix.into_prefix_range().map(AnyDocumentId::Deserialized),
         ))
     }
 

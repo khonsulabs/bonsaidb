@@ -13,7 +13,7 @@ use crate::{
     document::{
         AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, OwnedDocument,
     },
-    key::Key,
+    key::{IntoPrefixRange, Key},
     permissions::Permissions,
     schema::{
         self,
@@ -706,6 +706,38 @@ where
         )
     }
 
+    /// Retrieves all documents with ids that start with `prefix`.
+    ///
+    /// ```rust
+    /// use bonsaidb_core::{
+    ///     connection::Connection,
+    ///     document::OwnedDocument,
+    ///     schema::{Collection, Schematic, SerializedCollection},
+    ///     Error,
+    /// };
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+    /// #[collection(name = "MyCollection", primary_key = String)]
+    /// # #[collection(core = bonsaidb_core)]
+    /// pub struct MyCollection;
+    ///
+    /// async fn starts_with_a<C: Connection>(db: &C) -> Result<Vec<OwnedDocument>, Error> {
+    ///     db.collection::<MyCollection>()
+    ///         .list_with_prefix(String::from("a"))
+    ///         .await
+    /// }
+    /// ```
+    pub fn list_with_prefix(&'a self, prefix: Cl::PrimaryKey) -> List<'a, Cn, Cl>
+    where
+        Cl::PrimaryKey: IntoPrefixRange,
+    {
+        List::new(
+            PossiblyOwned::Borrowed(self),
+            prefix.into_prefix_range().map(AnyDocumentId::Deserialized),
+        )
+    }
+
     /// Retrieves all documents.
     ///
     /// ```rust
@@ -1016,6 +1048,39 @@ where
     #[must_use]
     pub fn with_key_range<R: Into<Range<V::Key>>>(mut self, range: R) -> Self {
         self.key = Some(QueryKey::Range(range.into()));
+        self
+    }
+
+    /// Filters for entries in the view with keys that begin with `prefix`.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// #[derive(View, Debug, Clone)]
+    /// #[view(name = "by-name", key = String, collection = MyCollection)]
+    /// # #[view(core = bonsaidb_core)]
+    /// struct ByName;
+    ///
+    /// // score is an f32 in this example
+    /// for mapping in db
+    ///     .view::<ByName>()
+    ///     .with_key_prefix(String::from("a"))
+    ///     .query()
+    ///     .await?
+    /// {
+    ///     assert!(mapping.key.starts_with("a"));
+    ///     println!("{} in document {:?}", mapping.key, mapping.source);
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub fn with_key_prefix(mut self, prefix: V::Key) -> Self
+    where
+        V::Key: IntoPrefixRange,
+    {
+        self.key = Some(QueryKey::Range(prefix.into_prefix_range()));
         self
     }
 

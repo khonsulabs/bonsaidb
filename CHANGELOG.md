@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `v0.2`. Backwards compatibility is now automatically tested to help ensure
   this sort of issue won't happen in the future again.
 
+### Added
+
+- `SerializedCollection::list_with_prefix`,
+  `connection::Collection::list_with_prefix`, and
+  `connection::View::with_key_prefix` have been added as an easy way to filter
+  results based on whether the key starts with the given prefix.
+
+  This is supported by a new trait, `IntoPrefixRange`. This trait has been
+  implemented for all byte-based key implementations as well as for `String`.
+
 ## v0.2.0
 
 ### Breaking Changes
