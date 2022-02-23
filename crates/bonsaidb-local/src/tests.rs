@@ -94,8 +94,14 @@ define_local_suite!(persisted);
 define_local_suite!(memory);
 
 #[test]
+#[cfg_attr(not(feature = "compression"), allow(unused_mut))]
 fn integrity_checks() -> anyhow::Result<()> {
     let path = TestDirectory::new("integrity-checks");
+    let mut config = StorageConfiguration::new(&path);
+    #[cfg(feature = "compression")]
+    {
+        config = config.default_compression(crate::config::Compression::Lz4);
+    }
     // To ensure full cleanup between each block, each runs in its own runtime;
 
     // Add a doc with no views installed
@@ -105,9 +111,7 @@ fn integrity_checks() -> anyhow::Result<()> {
             .build()?;
         rt.block_on(async {
             {
-                let db =
-                    Database::open::<BasicCollectionWithNoViews>(StorageConfiguration::new(&path))
-                        .await?;
+                let db = Database::open::<BasicCollectionWithNoViews>(config.clone()).await?;
                 let collection = db.collection::<BasicCollectionWithNoViews>();
                 collection
                     .push(&Basic::default().with_parent_id(DocumentId::from_u64(1)))
@@ -123,10 +127,8 @@ fn integrity_checks() -> anyhow::Result<()> {
             .enable_all()
             .build()?;
         rt.block_on(async {
-            let db = Database::open::<BasicCollectionWithOnlyBrokenParentId>(
-                StorageConfiguration::new(&path),
-            )
-            .await?;
+            let db =
+                Database::open::<BasicCollectionWithOnlyBrokenParentId>(config.clone()).await?;
             // Give the integrity scanner time to run if it were to run (it shouldn't in this configuration).
             tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -152,10 +154,7 @@ fn integrity_checks() -> anyhow::Result<()> {
             .enable_all()
             .build()?;
         rt.block_on(async {
-            let db = Database::open::<Basic>(
-                StorageConfiguration::new(&path).check_view_integrity_on_open(true),
-            )
-            .await?;
+            let db = Database::open::<Basic>(config.check_view_integrity_on_open(true)).await?;
             for _ in 0_u8..100 {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
                 if db
