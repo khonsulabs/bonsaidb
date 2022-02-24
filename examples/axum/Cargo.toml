@@ -14,7 +14,7 @@ bonsaidb = { path = "../../crates/bonsaidb", version = "0.2.0", features = [
     "websockets",
 ] }
 
-tokio = { version = "=1.16.1", features = ["full"] }
+tokio = { version = "1.16.1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 axum = { version = "0.4" }
 async-trait = "0.1"

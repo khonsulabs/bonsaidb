@@ -37,7 +37,7 @@ uuid = { version = "0.8", features = ["v4", "serde"], optional = true }
 thiserror = "1"
 sha2 = "0.10"
 futures = { version = "0.3" }
-tokio = { version = "=1.16.1", features = ["time"], optional = true }
+tokio = { version = "1.16.1", features = ["time"], optional = true }
 num-traits = "0.2"
 actionable = "0.2.0"
 anyhow = { version = "1", optional = true }
@@ -51,7 +51,7 @@ zeroize = { version = "1", optional = true, features = ["zeroize_derive"] }
 
 [dev-dependencies]
 hex-literal = "0.3"
-tokio = { version = "=1.16.1", features = ["full"] }
+tokio = { version = "1.16.1", features = ["full"] }
 futures = { version = "0.3" }
 num-derive = "0.3"
 anyhow = "1"
