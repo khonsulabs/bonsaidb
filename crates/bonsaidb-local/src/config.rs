@@ -126,7 +126,9 @@ impl SystemDefault for Tasks {
         Self {
             worker_count: system
                 .physical_core_count()
-                .unwrap_or_else(|| system.processors().len())
+                .unwrap_or(0)
+                .max(system.processors().len())
+                .max(1)
                 * 2,
         }
     }
