@@ -37,6 +37,7 @@ use crate::{
 // This collection purposely uses names with characters that need
 // escaping, since it's used in backup/restore.
 #[collection(name = "_basic", authority = "khonsulabs_", views = [BasicCount, BasicByParentId, BasicByTag, BasicByCategory], core = crate)]
+#[must_use]
 pub struct Basic {
     pub value: String,
     pub category: Option<String>,
@@ -64,7 +65,6 @@ impl Basic {
         self
     }
 
-    #[must_use]
     pub fn with_parent_id(mut self, parent_id: impl Into<AnyDocumentId<u64>>) -> Self {
         self.parent_id = Some(parent_id.into().to_primary_key().unwrap());
         self
@@ -183,6 +183,7 @@ impl ViewSchema for BasicByBrokenParentId {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Collection)]
 #[collection(name = "encrypted-basic", authority = "khonsulabs", views = [EncryptedBasicCount, EncryptedBasicByParentId, EncryptedBasicByCategory])]
 #[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = crate)]
+#[must_use]
 pub struct EncryptedBasic {
     pub value: String,
     pub category: Option<String>,
@@ -203,7 +204,6 @@ impl EncryptedBasic {
         self
     }
 
-    #[must_use]
     pub const fn with_parent_id(mut self, parent_id: u64) -> Self {
         self.parent_id = Some(parent_id);
         self

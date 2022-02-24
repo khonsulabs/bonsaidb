@@ -122,7 +122,7 @@ async fn test() {
             Err(err) if err.is_connect() => {
                 return None;
             }
-            Err(other) => unreachable!(other),
+            Err(other) => unreachable!("{}", other),
         };
 
         assert_eq!(response.status(), 200);

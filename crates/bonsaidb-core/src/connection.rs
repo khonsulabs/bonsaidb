@@ -214,7 +214,6 @@ pub trait Connection: Send + Sync {
     }
 
     /// Initializes [`View`] for [`schema::View`] `V`.
-    #[must_use]
     fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V>
     where
         Self: Sized,
@@ -228,7 +227,6 @@ pub trait Connection: Send + Sync {
     /// the view using [`self.view::<View>().query()`](View::query) instead.
     /// The parameters for the query can be customized on the builder returned
     /// from [`Self::view()`].
-    #[must_use]
     async fn query<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
@@ -948,6 +946,7 @@ where
 ///     }
 /// }
 /// ```
+#[must_use]
 pub struct View<'a, Cn, V: schema::SerializedView> {
     connection: &'a Cn,
 
@@ -994,7 +993,6 @@ where
     /// # })
     /// # }
     /// ```
-    #[must_use]
     pub fn with_key(mut self, key: V::Key) -> Self {
         self.key = Some(QueryKey::Matches(key));
         self
@@ -1019,7 +1017,6 @@ where
     /// # })
     /// # }
     /// ```
-    #[must_use]
     pub fn with_keys<IntoIter: IntoIterator<Item = V::Key>>(mut self, keys: IntoIter) -> Self {
         self.key = Some(QueryKey::Multiple(keys.into_iter().collect()));
         self
@@ -1045,7 +1042,6 @@ where
     /// # })
     /// # }
     /// ```
-    #[must_use]
     pub fn with_key_range<R: Into<Range<V::Key>>>(mut self, range: R) -> Self {
         self.key = Some(QueryKey::Range(range.into()));
         self

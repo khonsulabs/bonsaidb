@@ -66,13 +66,12 @@ impl InitialDataSetConfig {
         let products_available_to_rate = data
             .orders
             .values()
-            .map(|order| {
+            .flat_map(|order| {
                 order
                     .product_ids
                     .iter()
                     .map(|&product_id| (order.customer_id, product_id))
             })
-            .flatten()
             .collect::<Vec<_>>();
         let mut rated_products = HashSet::new();
         if !products_available_to_rate.is_empty() {

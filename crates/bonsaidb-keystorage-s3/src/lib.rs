@@ -60,6 +60,7 @@ pub use http;
 
 /// S3-compatible [`VaultKeyStorage`] implementor.
 #[derive(Debug, Default)]
+#[must_use]
 pub struct S3VaultKeyStorage {
     bucket: String,
     /// The S3 endpoint to use. If not specified, the endpoint will be
