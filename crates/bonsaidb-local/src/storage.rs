@@ -1011,8 +1011,8 @@ impl nebari::Vault for TreeVault {
     type Error = Error;
 
     fn encrypt(&self, payload: &[u8]) -> Result<Vec<u8>, Error> {
-        Ok(match self.compression {
-            Some(Compression::Lz4) => {
+        Ok(match (payload.len(), self.compression) {
+            (128..=usize::MAX, Some(Compression::Lz4)) => {
                 let mut destination =
                     vec![0; lz4_flex::block::get_maximum_output_size(payload.len()) + 8];
                 let compressed_length =
@@ -1027,7 +1027,7 @@ impl nebari::Vault for TreeVault {
                 destination
             }
             // TODO this shouldn't copy
-            None => payload.to_vec(),
+            (_, None) => payload.to_vec(),
         })
     }
 
