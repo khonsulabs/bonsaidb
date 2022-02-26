@@ -60,43 +60,6 @@ struct Author {
     pub last_modified: TypedValue,
 }
 
-#[derive(View, Debug, Clone)]
-#[view(name = "by-author", collection = Work, key = String, value = u32)]
-struct WorksByAuthor;
-
-impl CollectionViewSchema for WorksByAuthor {
-    type View = Self;
-
-    fn version(&self) -> u64 {
-        1
-    }
-
-    fn map(
-        &self,
-        document: CollectionDocument<<Self::View as View>::Collection>,
-    ) -> ViewMapResult<Self::View> {
-        document
-            .contents
-            .authors
-            .into_iter()
-            .filter_map(|role| role.author)
-            .map(|author| {
-                document
-                    .header
-                    .emit_key_and_value(author.into_key().replace("/a/", "/authors/"), 1)
-            })
-            .collect()
-    }
-
-    fn reduce(
-        &self,
-        mappings: &[ViewMappedValue<Self::View>],
-        _rereduce: bool,
-    ) -> ReduceResult<Self::View> {
-        Ok(mappings.iter().map(|map| map.value).sum())
-    }
-}
-
 #[async_trait]
 impl LibraryEntity for Author {
     const ID_PREFIX: &'static str = "authors";
@@ -128,6 +91,7 @@ impl LibraryEntity for Author {
 
 #[derive(Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "editions", primary_key = String, natural_id = |edition: &Self| Some(edition.key.clone()))]
+#[collection(views = [EditionsByWork])]
 struct Edition {
     pub key: String,
     pub title: Option<String>,
@@ -190,17 +154,64 @@ struct Edition {
     pub last_modified: TypedValue,
 }
 
+#[derive(View, Debug, Clone)]
+#[view(name = "by-work", collection = Edition, key = String, value = u32)]
+struct EditionsByWork;
+
+impl CollectionViewSchema for EditionsByWork {
+    type View = Self;
+
+    fn map(
+        &self,
+        document: CollectionDocument<<Self::View as View>::Collection>,
+    ) -> ViewMapResult<Self::View> {
+        document
+            .contents
+            .works
+            .into_iter()
+            .map(|work| {
+                document
+                    .header
+                    .emit_key_and_value(work.into_key().replace("/b/", "/books/"), 1)
+            })
+            .collect()
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[ViewMappedValue<Self::View>],
+        _rereduce: bool,
+    ) -> ReduceResult<Self::View> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
 #[async_trait]
 impl LibraryEntity for Edition {
-    const ID_PREFIX: &'static str = "editions";
+    const ID_PREFIX: &'static str = "books";
 
     async fn summarize(&self, database: &Database) -> anyhow::Result<()> {
-        // let mut table = Vec::new();
-        // if let Some(title) = &self.title {
-        //     table.push(vec!["title".cell(), title.cell()]);
-        // }
-
-        // print_stdout(table.table().title(vec!["Field".cell(), "Value".cell()]))?;
+        if let Some(title) = &self.title {
+            println!("Title: {}", title);
+        }
+        if let Some(subtitle) = &self.subtitle {
+            println!("Subtitle: {}", subtitle);
+        }
+        let works = Work::get_multiple(
+            self.works
+                .iter()
+                .map(|w| w.to_key().replace("/b/", "/books/")),
+            database,
+        )
+        .await?;
+        if !works.is_empty() {
+            println!("Works:");
+            for work in works {
+                if let Some(title) = &work.contents.title {
+                    println!("{}: {}", work.contents.key, title)
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -230,16 +241,67 @@ struct Work {
     pub last_modified: TypedValue,
 }
 
+#[derive(View, Debug, Clone)]
+#[view(name = "by-author", collection = Work, key = String, value = u32)]
+struct WorksByAuthor;
+
+impl CollectionViewSchema for WorksByAuthor {
+    type View = Self;
+
+    fn version(&self) -> u64 {
+        1
+    }
+
+    fn map(
+        &self,
+        document: CollectionDocument<<Self::View as View>::Collection>,
+    ) -> ViewMapResult<Self::View> {
+        document
+            .contents
+            .authors
+            .into_iter()
+            .filter_map(|role| role.author)
+            .map(|author| {
+                document
+                    .header
+                    .emit_key_and_value(author.into_key().replace("/a/", "/authors/"), 1)
+            })
+            .collect()
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[ViewMappedValue<Self::View>],
+        _rereduce: bool,
+    ) -> ReduceResult<Self::View> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
 #[async_trait]
 impl LibraryEntity for Work {
     const ID_PREFIX: &'static str = "works";
 
     async fn summarize(&self, database: &Database) -> anyhow::Result<()> {
-        // let mut table = Vec::new();
-        // if let Some(title) = &self.title {
-        //     table.push(vec!["title".cell(), title.cell()]);
-        // }
-        // print_stdout(table.table().title(vec!["Field".cell(), "Value".cell()]))?;
+        if let Some(title) = &self.title {
+            println!("Title: {}", title);
+        }
+        if let Some(subtitle) = &self.subtitle {
+            println!("Subtitle: {}", subtitle);
+        }
+        let editions = database
+            .view::<EditionsByWork>()
+            .with_key(self.key.clone())
+            .query_with_collection_docs()
+            .await?;
+        if !editions.is_empty() {
+            println!("Editions:");
+            for edition in editions.documents.values() {
+                if let Some(title) = &edition.contents.title {
+                    println!("{}: {}", edition.contents.key, title)
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -273,6 +335,22 @@ enum Reference {
     Key(String),
 }
 
+impl Reference {
+    pub fn to_key(&self) -> &str {
+        match self {
+            Reference::Typed(TypedReference { key, .. }) => key.to_key(),
+            Reference::Key(key) => key,
+        }
+    }
+
+    pub fn into_key(self) -> String {
+        match self {
+            Reference::Typed(typed) => typed.key.into_key(),
+            Reference::Key(key) => key,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct TypedReference {
     pub r#type: Option<String>,
@@ -287,6 +365,13 @@ enum ExternalKey {
 }
 
 impl ExternalKey {
+    pub fn to_key(&self) -> &str {
+        match self {
+            ExternalKey::Tagged { key } => key,
+            ExternalKey::Untagged(key) => key,
+        }
+    }
+
     fn into_key(self) -> String {
         match self {
             ExternalKey::Tagged { key } => key,
