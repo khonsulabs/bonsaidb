@@ -1,9 +1,15 @@
-use std::{self, collections::BTreeMap, fs::File, io::Read, mem, path::Path};
+use std::{self, collections::BTreeMap, fmt::Debug, fs::File, io::Read, mem, path::Path};
 
 use bonsaidb::{
     core::{
+        async_trait::async_trait,
         connection::{Bound, Connection, Range},
-        schema::{Collection, Schema, SerializedCollection},
+        document::{CollectionDocument, Emit},
+        keyvalue::Timestamp,
+        schema::{
+            Collection, CollectionViewSchema, ReduceResult, Schema, SerializedCollection, View,
+            ViewMapResult, ViewMappedValue,
+        },
         transaction::{Operation, Transaction},
     },
     local::{
@@ -11,6 +17,7 @@ use bonsaidb::{
         Database,
     },
 };
+use clap::Parser;
 use futures::{Future, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use time::{Date, Month};
@@ -18,6 +25,16 @@ use time::{Date, Month};
 #[derive(Debug, Schema)]
 #[schema(name = "open-library", collections = [Author, Work, Edition, Rating, ReadingLog])]
 struct OpenLibrary;
+
+#[async_trait]
+pub trait LibraryEntity: SerializedCollection<PrimaryKey = String, Contents = Self> {
+    const ID_PREFIX: &'static str;
+    fn full_id(id: &str) -> String {
+        format!("/{}/{}", Self::ID_PREFIX, id)
+    }
+
+    async fn summarize(&self, database: &Database) -> anyhow::Result<()>;
+}
 
 #[derive(Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "authors", primary_key = String, natural_id = |author: &Self| Some(author.key.clone()))]
@@ -41,6 +58,72 @@ struct Author {
     pub links: Vec<Link>,
     pub created: Option<TypedValue>,
     pub last_modified: TypedValue,
+}
+
+#[derive(View, Debug, Clone)]
+#[view(name = "by-author", collection = Work, key = String, value = u32)]
+struct WorksByAuthor;
+
+impl CollectionViewSchema for WorksByAuthor {
+    type View = Self;
+
+    fn version(&self) -> u64 {
+        1
+    }
+
+    fn map(
+        &self,
+        document: CollectionDocument<<Self::View as View>::Collection>,
+    ) -> ViewMapResult<Self::View> {
+        document
+            .contents
+            .authors
+            .into_iter()
+            .filter_map(|role| role.author)
+            .map(|author| {
+                document
+                    .header
+                    .emit_key_and_value(author.into_key().replace("/a/", "/authors/"), 1)
+            })
+            .collect()
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[ViewMappedValue<Self::View>],
+        _rereduce: bool,
+    ) -> ReduceResult<Self::View> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
+#[async_trait]
+impl LibraryEntity for Author {
+    const ID_PREFIX: &'static str = "authors";
+
+    async fn summarize(&self, database: &Database) -> anyhow::Result<()> {
+        if let Some(name) = &self.name {
+            println!("Name: {}", name);
+        }
+        if let Some(bio) = &self.bio {
+            println!("Biography:\n{}", bio.value())
+        }
+        let works = database
+            .view::<WorksByAuthor>()
+            .with_key(self.key.clone())
+            .query_with_collection_docs()
+            .await?;
+        if !works.is_empty() {
+            println!("Works:");
+            for work in works.documents.values() {
+                if let Some(title) = &work.contents.title {
+                    println!("{}: {}", work.contents.key, title)
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Collection)]
@@ -107,8 +190,24 @@ struct Edition {
     pub last_modified: TypedValue,
 }
 
+#[async_trait]
+impl LibraryEntity for Edition {
+    const ID_PREFIX: &'static str = "editions";
+
+    async fn summarize(&self, database: &Database) -> anyhow::Result<()> {
+        // let mut table = Vec::new();
+        // if let Some(title) = &self.title {
+        //     table.push(vec!["title".cell(), title.cell()]);
+        // }
+
+        // print_stdout(table.table().title(vec!["Field".cell(), "Value".cell()]))?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "works", primary_key = String, natural_id = |work: &Self| Some(work.key.clone()))]
+#[collection(views = [WorksByAuthor])]
 struct Work {
     pub key: String,
     pub title: Option<String>,
@@ -131,11 +230,33 @@ struct Work {
     pub last_modified: TypedValue,
 }
 
+#[async_trait]
+impl LibraryEntity for Work {
+    const ID_PREFIX: &'static str = "works";
+
+    async fn summarize(&self, database: &Database) -> anyhow::Result<()> {
+        // let mut table = Vec::new();
+        // if let Some(title) = &self.title {
+        //     table.push(vec!["title".cell(), title.cell()]);
+        // }
+        // print_stdout(table.table().title(vec!["Field".cell(), "Value".cell()]))?;
+        Ok(())
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 enum TypedValue {
     TypeValue { r#type: String, value: String },
     Value(String),
+}
+
+impl TypedValue {
+    fn value(&self) -> &str {
+        match self {
+            TypedValue::TypeValue { value, .. } | TypedValue::Value(value) => value,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -163,6 +284,15 @@ struct TypedReference {
 enum ExternalKey {
     Tagged { key: String },
     Untagged(String),
+}
+
+impl ExternalKey {
+    fn into_key(self) -> String {
+        match self {
+            ExternalKey::Tagged { key } => key,
+            ExternalKey::Untagged(key) => key,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -381,27 +511,60 @@ where
     Ok(count)
 }
 
+#[derive(Debug, Parser)]
+enum Cli {
+    Import,
+    Compact,
+    Count,
+    Author { id: String },
+    Edition { id: String },
+    Work { id: String },
+}
+
+async fn get_entity<S>(id: &str, database: &Database) -> anyhow::Result<()>
+where
+    S: LibraryEntity<Contents = S> + Debug,
+{
+    match S::get(S::full_id(id), database).await? {
+        Some(doc) => doc.contents.summarize(database).await,
+        None => {
+            anyhow::bail!("not found");
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let db = Database::open::<OpenLibrary>(
         StorageConfiguration::new("open-library.bonsaidb").default_compression(Compression::Lz4),
     )
     .await?;
+    match Cli::parse() {
+        Cli::Import => {
+            let primary_import = import_primary_data(&db);
+            let ratings_import = import_ratings(&db);
+            tokio::try_join!(primary_import, ratings_import)?;
+            Ok(())
+        }
+        Cli::Compact => {
+            println!("Beginning: {:?}", Timestamp::now());
+            db.compact().await?;
+            println!("Done: {:?}", Timestamp::now());
 
-    let primary_import = import_primary_data(&db);
-    let ratings_import = import_ratings(&db);
-    tokio::try_join!(primary_import, ratings_import)?;
+            Ok(())
+        }
+        Cli::Count => {
+            println!("Total authors: {}", count::<Author>(&db).await?);
+            println!("Total works: {}", count::<Work>(&db).await?);
+            println!("Total editions: {}", count::<Edition>(&db).await?);
+            println!("Total ratings: {}", count::<Rating>(&db).await?);
 
-    println!("Compacting");
-    db.compact().await?;
-    println!("Done compacting");
-
-    println!("Total authors: {}", count::<Author>(&db).await?);
-    println!("Total works: {}", count::<Work>(&db).await?);
-    println!("Total editions: {}", count::<Edition>(&db).await?);
-    println!("Total ratings: {}", count::<Rating>(&db).await?);
-
-    Ok(())
+            Ok(())
+        }
+        Cli::Work { id } => get_entity::<Work>(&id, &db).await,
+        Cli::Author { id } => get_entity::<Author>(&id, &db).await,
+        Cli::Edition { id } => get_entity::<Edition>(&id, &db).await,
+    }
 }
 
 #[test]

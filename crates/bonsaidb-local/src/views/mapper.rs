@@ -1,26 +1,24 @@
 use std::{
     borrow::Cow,
-    collections::HashSet,
-    ops::{Deref, DerefMut},
+    collections::{hash_map::RandomState, BTreeMap, BTreeSet, HashSet, VecDeque},
     sync::Arc,
 };
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    arc_bytes::{serde::Bytes, ArcBytes},
+    arc_bytes::{serde::Bytes, ArcBytes, OwnedBytes},
     connection::Connection,
-    document::{DocumentId, Header},
     schema::{
         view::{self, map, Serialized},
         CollectionName, ViewName,
     },
 };
+use easy_parallel::Parallel;
 use nebari::{
     io::any::AnyFile,
-    tree::{AnyTreeRoot, Unversioned, Versioned},
+    tree::{AnyTreeRoot, CompareSwap, KeyOperation, Operation, Unversioned, Versioned},
     ExecutingTransaction, Tree,
 };
-use serde::{Deserialize, Serialize};
 
 use crate::{
     database::{deserialize_document, document_tree_name, Database},
@@ -139,13 +137,14 @@ fn map_view(
     database: &Database,
     map_request: &Map,
 ) -> Result<(), Error> {
+    const CHUNK_SIZE: usize = 100_000;
     // Only do any work if there are invalidated documents to process
-    let invalidated_ids = invalidated_entries
+    let mut invalidated_ids = invalidated_entries
         .get_range(&(..))?
         .into_iter()
         .map(|(key, _)| key)
         .collect::<Vec<_>>();
-    if !invalidated_ids.is_empty() {
+    while !invalidated_ids.is_empty() {
         let mut transaction = database
             .roots()
             .transaction::<_, dyn AnyTreeRoot<AnyFile>>(&[
@@ -160,22 +159,27 @@ fn map_view(
             .schema
             .view_by_name(&map_request.view_name)
             .unwrap();
-        for document_id in &invalidated_ids {
-            DocumentRequest {
-                document_id,
-                map_request,
-                database,
-                transaction: &mut transaction,
-                document_map_index: 1,
-                documents_index: 2,
-                omitted_entries_index: 3,
-                view_entries_index: 4,
-                view,
-            }
-            .map()?;
-            let invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
-            invalidated_entries.remove(document_id)?;
+
+        // todo reuse these vecs
+        let document_ids = invalidated_ids
+            .drain(invalidated_ids.len().saturating_sub(CHUNK_SIZE)..)
+            .collect::<Vec<_>>();
+
+        DocumentRequest {
+            document_ids: document_ids.clone(),
+            map_request,
+            database,
+            transaction: &mut transaction,
+            document_map_index: 1,
+            documents_index: 2,
+            omitted_entries_index: 3,
+            view_entries_index: 4,
+            view,
         }
+        .map()?;
+
+        let invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
+        invalidated_entries.modify(document_ids, nebari::tree::Operation::Remove)?;
         transaction.commit()?;
     }
 
@@ -183,7 +187,7 @@ fn map_view(
 }
 
 pub struct DocumentRequest<'a> {
-    pub document_id: &'a [u8],
+    pub document_ids: Vec<ArcBytes<'static>>,
     pub map_request: &'a Map,
     pub database: &'a Database,
 
@@ -196,239 +200,277 @@ pub struct DocumentRequest<'a> {
 }
 
 impl<'a> DocumentRequest<'a> {
+    #[allow(clippy::too_many_lines)]
     pub fn map(&mut self) -> Result<(), Error> {
-        let documents = self
-            .transaction
-            .tree::<Versioned>(self.documents_index)
-            .unwrap();
-        let (doc_still_exists, map_result) =
-            if let Some(document) = documents.get(self.document_id)? {
-                let document = deserialize_document(&document)?;
+        for chunk in self.document_ids.chunks(1024) {
+            let (document_id_sender, document_id_receiver) = flume::bounded(chunk.len());
+            let mut document_maps = BTreeMap::new();
+            let mut document_keys = BTreeMap::new();
+            let mut document_statuses = BTreeMap::new();
+            let mut new_mappings = BTreeMap::new();
+            let mut all_keys = BTreeSet::new();
+            for result in Parallel::new()
+                .add(|| {
+                    let documents = self
+                        .transaction
+                        .tree::<Versioned>(self.documents_index)
+                        .unwrap();
+                    let mut documents =
+                        documents.get_multiple(chunk.iter().map(ArcBytes::as_slice))?;
+                    documents.sort_by(|a, b| a.0.cmp(&b.0));
 
-                // Call the schema map function
-                (
-                    true,
-                    self.view
-                        .map(&document)
-                        .map_err(bonsaidb_core::Error::from)?,
-                )
-            } else {
-                (false, Vec::new())
-            };
+                    for document_id in chunk.iter().rev() {
+                        let document = documents
+                            .last()
+                            .map_or(false, |(key, _)| (key == document_id))
+                            .then(|| documents.pop().unwrap().1);
 
-        // We need to store a record of all the mappings this document produced.
-        let keys: HashSet<Cow<'_, [u8]>> = map_result
-            .iter()
-            .map(|map| Cow::Borrowed(map.key.as_slice()))
-            .collect();
-        let encrypted_entry = bincode::serialize(&keys)?;
-        let document_map = self
-            .transaction
-            .tree::<Unversioned>(self.document_map_index)
-            .unwrap();
-        if let Some(existing_map) =
-            document_map.replace(self.document_id.to_vec(), encrypted_entry)?
-        {
-            // This document previously had been mapped. We will update any keys
-            // that match, but we need to remove any that are no longer present.
-            self.remove_existing_view_entries_for_keys(&keys, &existing_map)?;
-        }
+                        document_id_sender
+                            .send((document_id.clone(), document))
+                            .unwrap();
+                    }
 
-        if map_result.is_empty() {
-            self.omit_document(doc_still_exists)?;
-        } else {
-            let mut has_reduce = true;
-            for map::Serialized { source, key, value } in map_result {
-                has_reduce = self.save_mapping(source, &key, value, has_reduce)?;
+                    drop(document_id_sender);
+                    Ok(Vec::new())
+                })
+                .each(1..=16, |_| -> Result<_, Error> {
+                    let mut results = Vec::new();
+                    while let Ok((document_id, document)) = document_id_receiver.recv() {
+                        let (document_is_present, map_result) = if let Some(document) = document {
+                            let document = deserialize_document(&document)?;
+
+                            // Call the schema map function
+                            (
+                                true,
+                                self.view
+                                    .map(&document)
+                                    .map_err(bonsaidb_core::Error::from)?,
+                            )
+                        } else {
+                            // Get multiple didn't return this document ID.
+                            (false, Vec::new())
+                        };
+                        let keys: HashSet<OwnedBytes> = map_result
+                            .iter()
+                            .map(|map| OwnedBytes::from(map.key.as_slice()))
+                            .collect();
+                        let new_keys = ArcBytes::from(bincode::serialize(&keys)?);
+
+                        results.push((
+                            document_id,
+                            document_is_present,
+                            new_keys,
+                            keys,
+                            map_result,
+                        ));
+                    }
+                    Ok(results)
+                })
+                .run()
+            {
+                for (document_id, document_is_present, new_keys, keys, map_result) in result? {
+                    for key in &keys {
+                        all_keys.insert(key.0.clone());
+                    }
+                    document_maps.insert(document_id.clone(), new_keys);
+                    document_keys.insert(document_id.clone(), keys);
+                    for mapping in map_result {
+                        let key_mappings = new_mappings
+                            .entry(ArcBytes::from(mapping.key.to_vec()))
+                            .or_insert_with(Vec::default);
+                        key_mappings.push(mapping);
+                    }
+                    document_statuses.insert(document_id, document_is_present);
+                }
             }
-        }
 
-        Ok(())
-    }
-
-    fn omit_document(&mut self, doc_still_exists: bool) -> Result<(), Error> {
-        if doc_still_exists {
-            let omitted_entries = self
+            // We need to store a record of all the mappings this document produced.
+            let document_map = self
                 .transaction
-                .tree::<Unversioned>(self.omitted_entries_index)
+                .tree::<Unversioned>(self.document_map_index)
                 .unwrap();
-            omitted_entries.set(self.document_id.to_vec(), b"")?;
-        }
-        Ok(())
-    }
+            let mut maps_to_clear = Vec::new();
+            document_map.modify(
+                chunk.to_vec(),
+                nebari::tree::Operation::CompareSwap(CompareSwap::new(&mut |key, value| {
+                    if let Some(existing_map) = value {
+                        maps_to_clear.push((key.to_owned(), existing_map));
+                    }
+                    let new_map = document_maps.get(key).unwrap();
+                    KeyOperation::Set(new_map.clone())
+                })),
+            )?;
+            let mut view_entries_to_clean = BTreeMap::new();
+            for (document_id, existing_map) in maps_to_clear {
+                let existing_keys = bincode::deserialize::<HashSet<OwnedBytes>>(&existing_map)?;
+                let new_keys = document_keys.remove(&document_id).unwrap();
+                for key in existing_keys.difference(&new_keys) {
+                    all_keys.insert(key.clone().0);
+                    let key_documents = view_entries_to_clean
+                        .entry(key.clone().0)
+                        .or_insert_with(HashSet::<_, RandomState>::default);
+                    key_documents.insert(document_id.clone());
+                }
+            }
 
-    fn load_entry_for_key(&mut self, key: &[u8]) -> Result<Option<ViewEntryCollection>, Error> {
-        load_entry_for_key(key, |key| {
+            let mut has_reduce = true;
+            let mut error = None;
             self.transaction
                 .tree::<Unversioned>(self.view_entries_index)
                 .unwrap()
-                .get(key)
-                .map_err(Error::from)
-        })
-    }
+                .modify(
+                    all_keys.into_iter().collect(),
+                    Operation::CompareSwap(CompareSwap::new(&mut |key,
+                                                                  view_entries: Option<
+                        ArcBytes<'static>,
+                    >| {
+                        let mut view_entry = view_entries
+                            .and_then(|view_entries| {
+                                bincode::deserialize::<ViewEntry>(&view_entries).ok()
+                            })
+                            .unwrap_or_else(|| ViewEntry {
+                                key: Bytes::from(key.to_vec()),
+                                view_version: self.view.version(),
+                                mappings: vec![],
+                                reduced_value: Bytes::default(),
+                            });
+                        let key = key.to_owned();
+                        if let Some(document_ids) = view_entries_to_clean.remove(&key) {
+                            view_entry
+                                .mappings
+                                .retain(|m| !document_ids.contains(m.source.id.as_ref()));
 
-    fn save_entry_for_key(&mut self, key: &[u8], entry: &ViewEntryCollection) -> Result<(), Error> {
-        let bytes = bincode::serialize(entry)?;
-        let view_entries = self
-            .transaction
-            .tree::<Unversioned>(self.view_entries_index)
-            .unwrap();
-        view_entries.set(key.to_vec(), bytes)?;
-        Ok(())
-    }
+                            if view_entry.mappings.is_empty() {
+                                return KeyOperation::Remove;
+                            } else if has_reduce {
+                                let mappings = view_entry
+                                    .mappings
+                                    .iter()
+                                    .map(|m| (&key[..], m.value.as_slice()))
+                                    .collect::<Vec<_>>();
 
-    fn save_mapping(
-        &mut self,
-        source: Header,
-        key: &[u8],
-        value: Bytes,
-        mut has_reduce: bool,
-    ) -> Result<bool, Error> {
-        // Before altering any data, verify that the key is unique if this is a unique view.
-        if self.view.unique() {
-            if let Ok(Some(existing_entry)) = self.load_entry_for_key(key) {
-                if existing_entry.mappings[0].source.id != source.id {
-                    return Err(Error::Core(bonsaidb_core::Error::UniqueKeyViolation {
-                        view: self.map_request.view_name.clone(),
-                        conflicting_document: Box::new(source),
-                        existing_document: Box::new(existing_entry.mappings[0].source.clone()),
-                    }));
-                }
-            }
-        }
-        let omitted_entries = self
-            .transaction
-            .tree::<Unversioned>(self.omitted_entries_index)
-            .unwrap();
-        omitted_entries.remove(self.document_id)?;
-
-        let entry_mapping = EntryMapping { source, value };
-
-        // Add a new ViewEntry or update an existing
-        // ViewEntry for the key given
-        let view_entry = if let Ok(Some(mut entry)) = self.load_entry_for_key(key) {
-            // attempt to update an existing
-            // entry for this document, if
-            // present
-            let mut found = false;
-            for mapping in &mut entry.mappings {
-                if mapping.source.id == entry_mapping.source.id {
-                    found = true;
-                    mapping.value = entry_mapping.value.clone();
-                    break;
-                }
-            }
-
-            // If an existing mapping wasn't
-            // found, add it
-            if !found {
-                entry.mappings.push(entry_mapping);
-            }
-
-            // There was a choice to be made here of whether to call
-            // reduce()  with all of the existing values, or call it with
-            // rereduce=true passing only the new value and the old stored
-            // value. In this implementation, it's technically less
-            // efficient, but we can guarantee that every value has only
-            // been reduced once, and potentially re-reduced a single-time.
-            // If we constantly try to update the value to optimize the size
-            // of `mappings`, the fear is that the value computed may lose
-            // precision in some contexts over time. Thus, the decision was
-            // made to always call reduce() with all the mappings within a
-            // single ViewEntry.
-            if has_reduce {
-                let mappings = entry
-                    .mappings
-                    .iter()
-                    .map(|m| (key, m.value.as_slice()))
-                    .collect::<Vec<_>>();
-
-                match self.view.reduce(&mappings, false) {
-                    Ok(reduced) => {
-                        entry.reduced_value = Bytes::from(reduced);
-                    }
-                    Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
-                        has_reduce = false;
-                    }
-                    Err(other) => return Err(Error::from(other)),
-                }
-            }
-
-            entry
-        } else {
-            let reduced_value = if has_reduce {
-                match self.view.reduce(&[(key, &entry_mapping.value)], false) {
-                    Ok(reduced_value) => reduced_value,
-                    Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
-                        has_reduce = false;
-                        Vec::default()
-                    }
-                    Err(other) => return Err(Error::from(other)),
-                }
-            } else {
-                Vec::default()
-            };
-            ViewEntryCollection::from(ViewEntry {
-                key: Bytes::from(key),
-                view_version: self.view.version(),
-                mappings: vec![entry_mapping],
-                reduced_value: Bytes::from(reduced_value),
-            })
-        };
-        self.save_entry_for_key(key, &view_entry)?;
-        Ok(has_reduce)
-    }
-
-    fn remove_existing_view_entries_for_keys(
-        &mut self,
-        keys: &HashSet<Cow<'_, [u8]>>,
-        existing_map: &[u8],
-    ) -> Result<(), Error> {
-        let existing_keys = bincode::deserialize::<HashSet<Cow<'_, [u8]>>>(existing_map)?;
-        let mut has_reduce = true;
-        for key_to_remove_from in existing_keys.difference(keys) {
-            if let Ok(Some(mut entry_collection)) = self.load_entry_for_key(key_to_remove_from) {
-                let document_id = DocumentId::try_from(self.document_id).unwrap();
-                entry_collection
-                    .mappings
-                    .retain(|m| m.source.id != document_id);
-
-                if entry_collection.mappings.is_empty() {
-                    entry_collection.remove_active_entry();
-                    if entry_collection.is_empty() {
-                        // Remove the key
-                        let view_entries = self
-                            .transaction
-                            .tree::<Unversioned>(self.view_entries_index)
-                            .unwrap();
-                        view_entries.remove(key_to_remove_from)?;
-                        continue;
-                    }
-                } else if has_reduce {
-                    let mappings = entry_collection
-                        .mappings
-                        .iter()
-                        .map(|m| (&key_to_remove_from[..], m.value.as_slice()))
-                        .collect::<Vec<_>>();
-
-                    match self.view.reduce(&mappings, false) {
-                        Ok(reduced) => {
-                            entry_collection.reduced_value = Bytes::from(reduced);
+                                match self.view.reduce(&mappings, false) {
+                                    Ok(reduced) => {
+                                        view_entry.reduced_value = Bytes::from(reduced);
+                                    }
+                                    Err(view::Error::Core(
+                                        bonsaidb_core::Error::ReduceUnimplemented,
+                                    )) => {
+                                        has_reduce = false;
+                                    }
+                                    Err(other) => {
+                                        error = Some(Error::from(other));
+                                        return KeyOperation::Skip;
+                                    }
+                                }
+                            }
                         }
-                        Err(view::Error::Core(bonsaidb_core::Error::ReduceUnimplemented)) => {
-                            has_reduce = false;
-                        }
-                        Err(other) => return Err(Error::from(other)),
-                    }
-                }
 
-                let value = bincode::serialize(&entry_collection)?;
-                let view_entries = self
-                    .transaction
-                    .tree::<Unversioned>(self.view_entries_index)
-                    .unwrap();
-                view_entries.set(key_to_remove_from.to_vec(), value)?;
+                        if let Some(new_mappings) = new_mappings.remove(&key[..]) {
+                            for map::Serialized { source, value, .. } in new_mappings {
+                                // Before altering any data, verify that the key is unique if this is a unique view.
+                                if self.view.unique()
+                                    && !view_entry.mappings.is_empty()
+                                    && view_entry.mappings[0].source.id != source.id
+                                {
+                                    error = Some(Error::Core(
+                                        bonsaidb_core::Error::UniqueKeyViolation {
+                                            view: self.map_request.view_name.clone(),
+                                            conflicting_document: Box::new(source),
+                                            existing_document: Box::new(
+                                                view_entry.mappings[0].source.clone(),
+                                            ),
+                                        },
+                                    ));
+                                    return KeyOperation::Skip;
+                                }
+                                let entry_mapping = EntryMapping { source, value };
+
+                                // attempt to update an existing
+                                // entry for this document, if
+                                // present
+                                let mut found = false;
+                                for mapping in &mut view_entry.mappings {
+                                    if mapping.source.id == entry_mapping.source.id {
+                                        found = true;
+                                        mapping.value = entry_mapping.value.clone();
+                                        break;
+                                    }
+                                }
+
+                                // If an existing mapping wasn't
+                                // found, add it
+                                if !found {
+                                    view_entry.mappings.push(entry_mapping);
+                                }
+                            }
+
+                            // There was a choice to be made here of whether to call
+                            // reduce()  with all of the existing values, or call it with
+                            // rereduce=true passing only the new value and the old stored
+                            // value. In this implementation, it's technically less
+                            // efficient, but we can guarantee that every value has only
+                            // been reduced once, and potentially re-reduced a single-time.
+                            // If we constantly try to update the value to optimize the size
+                            // of `mappings`, the fear is that the value computed may lose
+                            // precision in some contexts over time. Thus, the decision was
+                            // made to always call reduce() with all the mappings within a
+                            // single ViewEntry.
+                            if has_reduce {
+                                let mappings = view_entry
+                                    .mappings
+                                    .iter()
+                                    .map(|m| (key.as_slice(), m.value.as_slice()))
+                                    .collect::<Vec<_>>();
+
+                                match self.view.reduce(&mappings, false) {
+                                    Ok(reduced) => {
+                                        view_entry.reduced_value = Bytes::from(reduced);
+                                    }
+                                    Err(view::Error::Core(
+                                        bonsaidb_core::Error::ReduceUnimplemented,
+                                    )) => {
+                                        has_reduce = false;
+                                    }
+                                    Err(other) => {
+                                        error = Some(Error::from(other));
+                                        return KeyOperation::Skip;
+                                    }
+                                }
+                            }
+                        }
+
+                        let value = bincode::serialize(&view_entry).unwrap();
+                        KeyOperation::Set(ArcBytes::from(value))
+                    })),
+                )?;
+
+            // TODO allow CompareSwap to return an AbortError
+            if let Some(err) = error {
+                return Err(err);
             }
+
+            let (document_ids, mut is_present): (Vec<_>, VecDeque<_>) =
+                document_statuses.into_iter().unzip();
+            self.transaction
+                .tree::<Unversioned>(self.omitted_entries_index)
+                .unwrap()
+                .modify(
+                    document_ids,
+                    Operation::CompareSwap(CompareSwap::new(&mut |_,
+                                                                  value: Option<
+                        ArcBytes<'static>,
+                    >| {
+                        let is_present = is_present.pop_front().unwrap();
+                        if is_present {
+                            KeyOperation::Remove
+                        } else if value.is_some() {
+                            KeyOperation::Skip
+                        } else {
+                            KeyOperation::Set(ArcBytes::default())
+                        }
+                    })),
+                )?;
         }
 
         Ok(())
@@ -439,63 +481,4 @@ impl Keyed<Task> for Mapper {
     fn key(&self) -> Task {
         Task::ViewMap(self.map.clone())
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ViewEntryCollection {
-    entries: Vec<ViewEntry>,
-    #[serde(skip)]
-    active_index: usize,
-}
-
-impl From<ViewEntry> for ViewEntryCollection {
-    fn from(entry: ViewEntry) -> Self {
-        Self {
-            entries: vec![entry],
-            active_index: 0,
-        }
-    }
-}
-
-impl From<ViewEntryCollection> for ViewEntry {
-    fn from(collection: ViewEntryCollection) -> Self {
-        collection
-            .entries
-            .into_iter()
-            .nth(collection.active_index)
-            .unwrap()
-    }
-}
-
-impl Deref for ViewEntryCollection {
-    type Target = ViewEntry;
-
-    fn deref(&self) -> &Self::Target {
-        &self.entries[self.active_index]
-    }
-}
-
-impl DerefMut for ViewEntryCollection {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.entries[self.active_index]
-    }
-}
-
-impl ViewEntryCollection {
-    pub fn remove_active_entry(&mut self) {
-        self.entries.remove(self.active_index);
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
-
-fn load_entry_for_key<F: FnOnce(&[u8]) -> Result<Option<ArcBytes<'static>>, Error>>(
-    key: &[u8],
-    get_entry_fn: F,
-) -> Result<Option<ViewEntryCollection>, Error> {
-    get_entry_fn(key)?
-        .map(|bytes| bincode::deserialize(&bytes).map_err(Error::from))
-        .transpose()
 }

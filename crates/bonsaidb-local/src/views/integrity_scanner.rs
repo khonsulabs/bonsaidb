@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     mapper::{Map, Mapper},
-    view_document_map_tree_name, view_invalidated_docs_tree_name, view_versions_tree_name,
+    view_invalidated_docs_tree_name, view_versions_tree_name,
 };
 use crate::{
     database::{document_tree_name, Database},
@@ -61,13 +61,13 @@ impl Job for IntegrityScanner {
         )?;
         let view_versions = self.database.roots().tree(view_versions_tree.clone())?;
 
-        let document_map =
-            self.database
-                .roots()
-                .tree(self.database.collection_tree::<Unversioned, _>(
-                    &self.scan.collection,
-                    view_document_map_tree_name(&self.scan.view_name),
-                )?)?;
+        // let document_map =
+        //     self.database
+        //         .roots()
+        //         .tree(self.database.collection_tree::<Unversioned, _>(
+        //             &self.scan.collection,
+        //             view_document_map_tree_name(&self.scan.view_name),
+        //         )?)?;
 
         let invalidated_entries_tree = self.database.collection_tree::<Unversioned, _>(
             &self.scan.collection,
@@ -79,7 +79,6 @@ impl Job for IntegrityScanner {
         let roots = self.database.roots().clone();
 
         let needs_update = tokio::task::spawn_blocking::<_, Result<bool, Error>>(move || {
-            let document_ids = tree_keys::<Versioned>(&documents)?;
             let view_is_current_version =
                 if let Some(version) = view_versions.get(view_name.to_string().as_bytes())? {
                     if let Ok(version) = ViewVersion::from_bytes(&version) {
@@ -92,15 +91,19 @@ impl Job for IntegrityScanner {
                 };
 
             let missing_entries = if view_is_current_version {
-                let stored_document_ids = tree_keys::<Unversioned>(&document_map)?;
+                HashSet::new()
+                // TODO this is still a useful check, but given the
+                // transactional nature of view mapping, this is unnecessary.
 
-                document_ids
-                    .difference(&stored_document_ids)
-                    .copied()
-                    .collect::<HashSet<_>>()
+                // let stored_document_ids =
+                // tree_keys::<Unversioned>(&document_map)?;
+                // document_ids
+                //     .difference(&stored_document_ids)
+                //     .copied()
+                //     .collect::<HashSet<_>>()
             } else {
                 // The view isn't the current version, queue up all documents.
-                document_ids
+                tree_keys::<Versioned>(&documents)?
             };
 
             if !missing_entries.is_empty() {
@@ -172,7 +175,7 @@ pub struct ViewVersion {
 }
 
 impl ViewVersion {
-    const CURRENT_VERSION: u8 = 1;
+    const CURRENT_VERSION: u8 = 2;
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
         match pot::from_slice(bytes) {
             Ok(version) => Ok(version),
