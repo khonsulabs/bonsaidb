@@ -61,14 +61,6 @@ impl Job for IntegrityScanner {
         )?;
         let view_versions = self.database.roots().tree(view_versions_tree.clone())?;
 
-        // let document_map =
-        //     self.database
-        //         .roots()
-        //         .tree(self.database.collection_tree::<Unversioned, _>(
-        //             &self.scan.collection,
-        //             view_document_map_tree_name(&self.scan.view_name),
-        //         )?)?;
-
         let invalidated_entries_tree = self.database.collection_tree::<Unversioned, _>(
             &self.scan.collection,
             view_invalidated_docs_tree_name(&self.scan.view_name),
@@ -90,23 +82,11 @@ impl Job for IntegrityScanner {
                     false
                 };
 
-            let missing_entries = if view_is_current_version {
-                HashSet::new()
-                // TODO this is still a useful check, but given the
-                // transactional nature of view mapping, this is unnecessary.
-
-                // let stored_document_ids =
-                // tree_keys::<Unversioned>(&document_map)?;
-                // document_ids
-                //     .difference(&stored_document_ids)
-                //     .copied()
-                //     .collect::<HashSet<_>>()
+            if view_is_current_version {
+                Ok(false)
             } else {
                 // The view isn't the current version, queue up all documents.
-                tree_keys::<Versioned>(&documents)?
-            };
-
-            if !missing_entries.is_empty() {
+                let missing_entries = tree_keys::<Versioned>(&documents)?;
                 // Add all missing entries to the invalidated list. The view
                 // mapping job will update them on the next pass.
                 let mut transaction =
@@ -125,10 +105,8 @@ impl Job for IntegrityScanner {
                 invalidated_entries.modify(missing_entries, Operation::Set(ArcBytes::default()))?;
                 transaction.commit()?;
 
-                return Ok(true);
+                Ok(true)
             }
-
-            Ok(false)
         })
         .await??;
 
