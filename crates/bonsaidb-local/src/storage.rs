@@ -1027,7 +1027,7 @@ impl nebari::Vault for TreeVault {
                 destination
             }
             // TODO this shouldn't copy
-            (_, None) => payload.to_vec(),
+            _ => payload.to_vec(),
         })
     }
 
