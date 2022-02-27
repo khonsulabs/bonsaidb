@@ -10,10 +10,7 @@ use nebari::{
 use crate::storage::TreeVault;
 use crate::{
     database::document_tree_name,
-    views::{
-        view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        view_omitted_docs_tree_name,
-    },
+    views::{view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name},
 };
 
 #[derive(Default)]
@@ -61,11 +58,6 @@ impl OpenTrees {
             for view in views {
                 let view_name = view.view_name();
                 if view.unique() {
-                    self.open_tree::<Unversioned>(
-                        &view_omitted_docs_tree_name(&view_name),
-                        #[cfg(any(feature = "encryption", feature = "compression"))]
-                        vault.clone(),
-                    );
                     self.open_tree::<Unversioned>(
                         &view_document_map_tree_name(&view_name),
                         #[cfg(any(feature = "encryption", feature = "compression"))]

@@ -653,6 +653,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 #[test]
+#[ignore]
 fn runs() {
     main().unwrap()
 }

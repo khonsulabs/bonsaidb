@@ -58,7 +58,7 @@ use crate::{
     views::{
         mapper::{self},
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        view_omitted_docs_tree_name, ViewEntry,
+        ViewEntry,
     },
     Storage,
 };
@@ -755,7 +755,7 @@ impl Database {
                     let view_name = view.view_name();
                     let tree_name = view_invalidated_docs_tree_name(&view_name);
                     for changed_document in &changed_documents {
-                        let invalidated_docs = roots_transaction
+                        let mut invalidated_docs = roots_transaction
                             .tree::<Unversioned>(open_trees.trees_index_by_name[&tree_name])
                             .unwrap();
                         invalidated_docs.set(changed_document.id.as_ref().to_vec(), b"")?;
@@ -802,7 +802,7 @@ impl Database {
         check_revision: Option<&Revision>,
         contents: &[u8],
     ) -> Result<OperationResult, crate::Error> {
-        let documents = transaction
+        let mut documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let document_id = ArcBytes::from(id.to_vec());
@@ -884,6 +884,7 @@ impl Database {
                 nebari::tree::KeyOperation::Skip
             })),
         )?;
+        drop(documents);
 
         if updated {
             self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
@@ -900,7 +901,7 @@ impl Database {
         id: Option<DocumentId>,
         contents: &[u8],
     ) -> Result<OperationResult, Error> {
-        let documents = transaction
+        let mut documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let id = if let Some(id) = id {
@@ -926,6 +927,7 @@ impl Database {
                 Box::new(doc.header),
             )))
         } else {
+            drop(documents);
             self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
 
             Ok(OperationResult::DocumentUpdated {
@@ -942,10 +944,11 @@ impl Database {
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
     ) -> Result<OperationResult, Error> {
-        let documents = transaction
+        let mut documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         if let Some(vec) = documents.remove(header.id.as_ref())? {
+            drop(documents);
             let doc = deserialize_document(&vec)?;
             if &doc.header == header {
                 self.update_unique_views(
@@ -985,8 +988,17 @@ impl Database {
             .schema
             .unique_views_in_collection(&operation.collection)
         {
+            let documents = transaction
+                .unlocked_tree(tree_index_map[&document_tree_name(&operation.collection)])
+                .unwrap();
             for view in unique_views {
                 let name = view.view_name();
+                let document_map = transaction
+                    .unlocked_tree(tree_index_map[&view_document_map_tree_name(&name)])
+                    .unwrap();
+                let view_entries = transaction
+                    .unlocked_tree(tree_index_map[&view_entries_tree_name(&name)])
+                    .unwrap();
                 mapper::DocumentRequest {
                     database: self,
                     document_ids: vec![document_id.clone()],
@@ -995,11 +1007,9 @@ impl Database {
                         collection: operation.collection.clone(),
                         view_name: name.clone(),
                     },
-                    transaction,
-                    document_map_index: tree_index_map[&view_document_map_tree_name(&name)],
-                    documents_index: tree_index_map[&document_tree_name(&operation.collection)],
-                    omitted_entries_index: tree_index_map[&view_omitted_docs_tree_name(&name)],
-                    view_entries_index: tree_index_map[&view_entries_tree_name(&name)],
+                    document_map,
+                    documents,
+                    view_entries,
                     view,
                 }
                 .map()?;

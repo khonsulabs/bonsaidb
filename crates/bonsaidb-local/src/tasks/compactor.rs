@@ -10,7 +10,7 @@ use crate::{
     tasks::{Job, Keyed, Task},
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        view_omitted_docs_tree_name, view_versions_tree_name,
+        view_versions_tree_name,
     },
     Database, Error,
 };
@@ -159,7 +159,6 @@ fn compact_view(database: &Database, name: &ViewName) -> Result<(), Error> {
     compact_tree::<Unversioned, _>(database, view_entries_tree_name(name))?;
     compact_tree::<Unversioned, _>(database, view_document_map_tree_name(name))?;
     compact_tree::<Unversioned, _>(database, view_invalidated_docs_tree_name(name))?;
-    compact_tree::<Unversioned, _>(database, view_omitted_docs_tree_name(name))?;
 
     Ok(())
 }
