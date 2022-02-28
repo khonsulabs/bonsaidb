@@ -230,6 +230,7 @@ impl<'a> DocumentRequest<'a> {
         batch_receiver: &flume::Receiver<BatchPayload>,
         mapped_sender: flume::Sender<Batch>,
         view: &dyn Serialized,
+        parallelization: usize,
     ) -> Result<(), Error> {
         // Process batches
         while let Ok((document_ids, document_id_receiver)) = batch_receiver.recv() {
@@ -238,7 +239,7 @@ impl<'a> DocumentRequest<'a> {
                 ..Batch::default()
             };
             for result in Parallel::new()
-                .each(1..=16, |_| -> Result<_, Error> {
+                .each(1..=parallelization, |_| -> Result<_, Error> {
                     let mut results = Vec::new();
                     while let Ok((document_id, document)) = document_id_receiver.recv() {
                         let map_result = if let Some(document) = document {
@@ -386,7 +387,14 @@ impl<'a> DocumentRequest<'a> {
 
         for result in Parallel::new()
             .add(|| Self::generate_batches(batch_sender, &self.document_ids, self.documents))
-            .add(|| Self::map_batches(&batch_receiver, mapped_sender, self.view))
+            .add(|| {
+                Self::map_batches(
+                    &batch_receiver,
+                    mapped_sender,
+                    self.view,
+                    self.database.storage().parallelization(),
+                )
+            })
             .add(|| {
                 let mut document_map = self.document_map.lock();
                 let mut view_entries = self.view_entries.lock();

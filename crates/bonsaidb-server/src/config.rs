@@ -201,6 +201,11 @@ impl Builder for ServerConfiguration {
         self
     }
 
+    fn tasks_parallelization(mut self, parallelization: usize) -> Self {
+        self.storage.workers.parallelization = parallelization;
+        self
+    }
+
     fn check_view_integrity_on_open(mut self, check: bool) -> Self {
         self.storage.views.check_integrity_on_open = check;
         self

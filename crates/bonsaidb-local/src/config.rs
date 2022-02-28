@@ -117,19 +117,26 @@ impl StorageConfiguration {
 #[derive(Debug, Clone)]
 pub struct Tasks {
     /// Defines how many workers should be spawned to process tasks. This
-    /// defaults to the 2x the number of cpu cores available to the system or 4, whichever is larger.
+    /// defaults to the 2x the number of cpu cores available to the system or 2,
+    /// whichever is larger.
     pub worker_count: usize,
+
+    /// Defines how many simultaneous threads should be used when a task is
+    /// parallelizable. This defaults to the nuber of cpu cores available to the
+    /// system.
+    pub parallelization: usize,
 }
 
 impl SystemDefault for Tasks {
     fn default_for(system: &System) -> Self {
+        let num_cpus = system
+            .physical_core_count()
+            .unwrap_or(0)
+            .max(system.processors().len())
+            .max(1);
         Self {
-            worker_count: system
-                .physical_core_count()
-                .unwrap_or(0)
-                .max(system.processors().len())
-                .max(1)
-                * 2,
+            worker_count: num_cpus * 2,
+            parallelization: num_cpus,
         }
     }
 }
@@ -307,13 +314,12 @@ pub trait Builder: Default {
         Self::default().path(path)
     }
 
-    /// Sets [`StorageConfiguration::path`](StorageConfiguration#structfield.memory_only) to true and returns self.
-    #[must_use]
-    fn memory_only(self) -> Self;
-
     /// Registers the schema and returns self.
     fn with_schema<S: Schema>(self) -> Result<Self, Error>;
 
+    /// Sets [`StorageConfiguration::path`](StorageConfiguration#structfield.memory_only) to true and returns self.
+    #[must_use]
+    fn memory_only(self) -> Self;
     /// Sets [`StorageConfiguration::path`](StorageConfiguration#structfield.path) to `path` and returns self.
     #[must_use]
     fn path<P: AsRef<Path>>(self, path: P) -> Self;
@@ -334,6 +340,9 @@ pub trait Builder: Default {
     /// Sets [`Tasks::worker_count`] to `worker_count` and returns self.
     #[must_use]
     fn tasks_worker_count(self, worker_count: usize) -> Self;
+    /// Sets [`Tasks::parallelization`] to `parallelization` and returns self.
+    #[must_use]
+    fn tasks_parallelization(self, parallelization: usize) -> Self;
     /// Sets [`Views::check_integrity_on_open`] to `check` and returns self.
     #[must_use]
     fn check_view_integrity_on_open(self, check: bool) -> Self;
@@ -341,7 +350,6 @@ pub trait Builder: Default {
     #[cfg(feature = "compression")]
     #[must_use]
     fn default_compression(self, compression: Compression) -> Self;
-
     /// Sets [`StorageConfiguration::key_value_persistence`](StorageConfiguration#structfield.key_value_persistence) to `persistence` and returns self.
     #[must_use]
     fn key_value_persistence(self, persistence: KeyValuePersistence) -> Self;
@@ -391,6 +399,11 @@ impl Builder for StorageConfiguration {
 
     fn tasks_worker_count(mut self, worker_count: usize) -> Self {
         self.workers.worker_count = worker_count;
+        self
+    }
+
+    fn tasks_parallelization(mut self, parallelization: usize) -> Self {
+        self.workers.parallelization = parallelization;
         self
     }
 

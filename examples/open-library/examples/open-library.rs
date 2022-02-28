@@ -17,7 +17,7 @@ use bonsaidb::{
         Database,
     },
 };
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use futures::{Future, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use time::{Date, Month};
@@ -597,7 +597,15 @@ where
 }
 
 #[derive(Debug, Parser)]
-enum Cli {
+struct Cli {
+    #[clap(long, short('z'))]
+    lz4: bool,
+    #[clap(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
     Import,
     Compact,
     Count,
@@ -620,25 +628,28 @@ where
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let db = Database::open::<OpenLibrary>(
-        StorageConfiguration::new("open-library.bonsaidb").default_compression(Compression::Lz4),
-    )
-    .await?;
-    match Cli::parse() {
-        Cli::Import => {
+    let args = Cli::parse();
+    let config = if args.lz4 {
+        StorageConfiguration::new("open-library-lz4.bonsaidb").default_compression(Compression::Lz4)
+    } else {
+        StorageConfiguration::new("open-library.bonsaidb")
+    };
+    let db = Database::open::<OpenLibrary>(config).await?;
+    match args.command {
+        Command::Import => {
             let primary_import = import_primary_data(&db);
             let ratings_import = import_ratings(&db);
             tokio::try_join!(primary_import, ratings_import)?;
             Ok(())
         }
-        Cli::Compact => {
+        Command::Compact => {
             println!("Beginning: {:?}", Timestamp::now());
             db.compact().await?;
             println!("Done: {:?}", Timestamp::now());
 
             Ok(())
         }
-        Cli::Count => {
+        Command::Count => {
             println!("Total authors: {}", count::<Author>(&db).await?);
             println!("Total works: {}", count::<Work>(&db).await?);
             println!("Total editions: {}", count::<Edition>(&db).await?);
@@ -646,9 +657,9 @@ async fn main() -> anyhow::Result<()> {
 
             Ok(())
         }
-        Cli::Work { id } => get_entity::<Work>(&id, &db).await,
-        Cli::Author { id } => get_entity::<Author>(&id, &db).await,
-        Cli::Edition { id } => get_entity::<Edition>(&id, &db).await,
+        Command::Work { id } => get_entity::<Work>(&id, &db).await,
+        Command::Author { id } => get_entity::<Author>(&id, &db).await,
+        Command::Edition { id } => get_entity::<Edition>(&id, &db).await,
     }
 }
 

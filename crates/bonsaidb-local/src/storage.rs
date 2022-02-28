@@ -157,6 +157,7 @@ pub struct Storage {
 struct Data {
     id: StorageId,
     path: PathBuf,
+    parallelization: usize,
     threadpool: ThreadPool<AnyFile>,
     file_manager: AnyFileManager,
     pub(crate) tasks: TaskManager,
@@ -214,6 +215,7 @@ impl Storage {
             Arc::new(Vault::initialize(id, &owned_path, vault_key_storage).await?)
         };
 
+        let parallelization = configuration.workers.parallelization;
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
         let key_value_persistence = configuration.key_value_persistence;
         #[cfg(feature = "password-hashing")]
@@ -236,6 +238,7 @@ impl Storage {
                 data: Arc::new(Data {
                     id,
                     tasks,
+                    parallelization,
                     #[cfg(feature = "password-hashing")]
                     argon,
                     #[cfg(feature = "encryption")]
@@ -247,7 +250,7 @@ impl Storage {
                     path: owned_path,
                     file_manager,
                     chunk_cache: ChunkCache::new(10000, 160_384),
-                    threadpool: ThreadPool::default(),
+                    threadpool: ThreadPool::new(parallelization),
                     schemas: RwLock::new(configuration.initial_schemas),
                     available_databases: RwLock::default(),
                     open_roots: Mutex::default(),
@@ -362,6 +365,11 @@ impl Storage {
     #[must_use]
     pub fn unique_id(&self) -> StorageId {
         self.data.id
+    }
+
+    #[must_use]
+    pub(crate) fn parallelization(&self) -> usize {
+        self.data.parallelization
     }
 
     #[must_use]
