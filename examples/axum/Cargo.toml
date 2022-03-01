@@ -16,7 +16,7 @@ bonsaidb = { path = "../../crates/bonsaidb", version = "0.2.0", features = [
 
 tokio = { version = "1.16.1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
-axum = { version = "0.4" }
+axum = { version = "0.4.7" }
 async-trait = "0.1"
 hyper = { version = "0.14", features = ["http1", "server"] }
 env_logger = "0.9"
