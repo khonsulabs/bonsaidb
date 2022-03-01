@@ -1,5 +1,9 @@
 # open-library
 
+This example was created to begin testing BonsaiDb with a larger dataset. The
+dataset is very large (50gb uncompressed), and the process of building the
+databases requires significantly more free space.
+
 Data source: <https://openlibrary.org/developers/dumps>
 
 Download:
@@ -13,6 +17,56 @@ Decompress the files and place them next to this README, named:
 - ol_dump_all.txt
 - ol_dump_ratingx.txt
 - ol_dump_reading-log.txt
+
+## Commands
+
+For all commands, `-z` enables LZ4 compression and stores the database to a separate path.
+
+### Importing data
+
+```text
+cargo run -p open-library --example open-library --release -- -z import
+```
+
+### Compacting
+
+```text
+cargo run -p open-library --example open-library --release -- -z compact
+```
+
+### Finding an Author
+
+```text
+$ cargo run -p open-library --example open-library --release -- -z author OL1394865A
+Name: Brandon Sanderson
+Biography:
+I'm Brandon Sanderson, and I write stories of the fantastic: fantasy, science fiction, and thrillers.
+...
+Works:
+/works/OL14909011W: Alcatraz versus the Shattered Lens
+/works/OL15358691W: The Way of Kings
+...
+/works/OL5738149W: Warbreaker
+...
+```
+
+### Finding a Work (Book)
+
+```text
+$ cargo run -p open-library --example open-library --release -- -z work OL5738149W
+Title: Warbreaker
+Editions:
+/books/OL23147839M: Warbreaker
+```
+
+### Finding an Edition
+
+```text
+$ cargo run -p open-library --example open-library --release -- -z edition OL23147839M
+Title: Warbreaker
+Works:
+/works/OL5738149W: Warbreaker
+```
 
 ## Data Sizes
 
