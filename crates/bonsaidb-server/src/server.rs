@@ -1516,6 +1516,36 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
 }
 
 #[async_trait]
+impl<'s, B: Backend> bonsaidb_core::networking::CountHandler for DatabaseDispatcher<'s, B> {
+    type Action = BonsaiAction;
+
+    async fn resource_name<'a>(
+        &'a self,
+        collection: &'a CollectionName,
+        _ids: &'a Range<DocumentId>,
+    ) -> Result<ResourceName<'a>, Error> {
+        Ok(collection_resource_name(&self.name, collection))
+    }
+
+    fn action() -> Self::Action {
+        BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Count))
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        collection: CollectionName,
+        ids: Range<DocumentId>,
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
+        let documents = self
+            .database
+            .count_from_collection(ids, &collection)
+            .await?;
+        Ok(Response::Database(DatabaseResponse::Count(documents)))
+    }
+}
+
+#[async_trait]
 impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatcher<'s, B> {
     type Action = BonsaiAction;
 
@@ -1683,9 +1713,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::DeleteDocsHandler for DatabaseDi
             .database
             .delete_docs_by_name(&view, key, access_policy)
             .await?;
-        Ok(Response::Database(DatabaseResponse::DocumentsDeleted(
-            count,
-        )))
+        Ok(Response::Database(DatabaseResponse::Count(count)))
     }
 }
 

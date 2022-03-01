@@ -162,6 +162,14 @@ pub enum DatabaseRequest {
         /// The maximum number of results to return.
         limit: Option<usize>,
     },
+    /// Counts the number of documents in the specified range.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    Count {
+        /// The collection of the documents.
+        collection: CollectionName,
+        /// The range of ids to count.
+        ids: Range<DocumentId>,
+    },
     /// Queries a view.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
     Query {
@@ -327,8 +335,8 @@ pub enum ServerResponse {
 pub enum DatabaseResponse {
     /// One or more documents.
     Documents(Vec<OwnedDocument>),
-    /// A number of documents were deleted.
-    DocumentsDeleted(u64),
+    /// A result count.
+    Count(u64),
     /// Results of [`DatabaseRequest::ApplyTransaction`].
     TransactionResults(Vec<OperationResult>),
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is false.

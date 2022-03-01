@@ -168,6 +168,11 @@ pub enum DocumentAction {
     /// [`collection_resource_name()`] for the format of collection resource
     /// names.
     List,
+    /// Allows counting documents through
+    /// [`Connection::count()`](crate::connection::Connection::count). See
+    /// [`collection_resource_name()`] for the format of collection resource
+    /// names.
+    Count,
     /// Allows inserting a document through
     /// [`Connection::apply_transaction()`](crate::connection::Connection::apply_transaction).
     /// See [`collection_resource_name()`] for the format of collection resource

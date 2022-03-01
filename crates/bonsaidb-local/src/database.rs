@@ -315,6 +315,16 @@ impl Database {
 
     #[cfg(feature = "internal-apis")]
     #[doc(hidden)]
+    pub async fn count_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        collection: &CollectionName,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        self.count(ids, collection).await
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
     pub async fn internal_get_multiple_from_collection_id(
         &self,
         ids: &[DocumentId],
@@ -566,6 +576,48 @@ impl Database {
             .unwrap();
 
             Ok(found_docs)
+        })
+        .await
+        .unwrap()
+    }
+
+    pub(crate) async fn count(
+        &self,
+        ids: Range<DocumentId>,
+        collection: &CollectionName,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        let collection = collection.clone();
+        // TODO this should be able to use a reduce operation from Nebari https://github.com/khonsulabs/nebari/issues/23
+        tokio::task::spawn_blocking(move || {
+            let tree = task_self
+                .data
+                .context
+                .roots
+                .tree(task_self.collection_tree::<Versioned, _>(
+                    &collection,
+                    document_tree_name(&collection),
+                )?)
+                .map_err(Error::from)?;
+            let mut keys_found = 0;
+            let ids = DocumentIdRange(ids);
+            tree.scan(
+                &ids.borrow_as_bytes(),
+                true,
+                |_, _, _| true,
+                |_, _| {
+                    keys_found += 1;
+                    KeyEvaluation::Skip
+                },
+                |_, _, _| unreachable!(),
+            )
+            .map_err(|err| match err {
+                AbortError::Other(err) => err,
+                AbortError::Nebari(err) => crate::Error::from(err),
+            })
+            .unwrap();
+
+            Ok(keys_found)
         })
         .await
         .unwrap()
@@ -1329,6 +1381,20 @@ impl Connection for Database {
             ids.into().map_result(|id| id.into().to_document_id())?,
             order,
             limit,
+            &C::collection_name(),
+        )
+        .await
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
+    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        self.count(
+            ids.into().map_result(|id| id.into().to_document_id())?,
             &C::collection_name(),
         )
         .await

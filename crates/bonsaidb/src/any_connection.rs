@@ -249,6 +249,18 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         }
     }
 
+    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
+    where
+        C: Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        match self {
+            Self::Local(server) => server.count::<C, _, _>(ids).await,
+            Self::Networked(client) => client.count::<C, _, _>(ids).await,
+        }
+    }
+
     async fn query<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,

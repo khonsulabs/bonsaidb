@@ -168,12 +168,11 @@ pub trait Connection: Send + Sync {
         I: Iterator<Item = PrimaryKey> + Send + Sync,
         PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync;
 
-    /// Retrieves all documents within the range of `ids`. Documents that are
-    /// not found are not returned, but no error will be generated. To retrieve
-    /// all documents, pass in `..` for `ids`.
+    /// Retrieves all documents within the range of `ids`. To retrieve all
+    /// documents, pass in `..` for `ids`.
     ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
+    /// This is the lower-level API. For better ergonomics, consider using one
+    /// of:
     ///
     /// - [`SerializedCollection::all()`]
     /// - [`self.collection::<Collection>().all()`](Collection::all)
@@ -185,6 +184,21 @@ pub trait Connection: Send + Sync {
         order: Sort,
         limit: Option<usize>,
     ) -> Result<Vec<OwnedDocument>, Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
+
+    /// Counts the number of documents within the range of `ids`.
+    ///
+    /// This is the lower-level API. For better ergonomics, consider using
+    /// one of:
+    ///
+    /// - [`SerializedCollection::all().count()`](schema::List::count)
+    /// - [`self.collection::<Collection>().all().count()`](List::count)
+    /// - [`SerializedCollection::list().count()`](schema::List::count)
+    /// - [`self.collection::<Collection>().list().count()`](List::count)
+    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, Error>
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
@@ -820,6 +834,7 @@ where
 impl<'a, Cn, Cl> List<'a, Cn, Cl>
 where
     Cl: schema::Collection,
+    Cn: Connection,
 {
     pub(crate) fn new(
         collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
@@ -859,6 +874,35 @@ where
     pub fn limit(mut self, maximum_results: usize) -> Self {
         self.builder().limit = Some(maximum_results);
         self
+    }
+
+    /// Returns the number of documents contained within the range.
+    ///
+    /// Order and limit are ignored if they were set.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// println!(
+    ///     "Number of documents with id 42 or larger: {}",
+    ///     db.collection::<MyCollection>().list(42..).count().await?
+    /// );
+    /// println!(
+    ///     "Number of documents in MyCollection: {}",
+    ///     db.collection::<MyCollection>().all().count().await?
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub async fn count(self) -> Result<u64, Error> {
+        match self.state {
+            ListState::Pending(Some(ListBuilder {
+                collection, range, ..
+            })) => collection.connection.count::<Cl, _, _>(range).await,
+            _ => unreachable!("Attempted to use after retrieving the result"),
+        }
     }
 }
 

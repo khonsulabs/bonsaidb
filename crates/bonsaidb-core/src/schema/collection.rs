@@ -1236,6 +1236,7 @@ where
 impl<'a, Cn, Cl> List<'a, Cn, Cl>
 where
     Cl: Collection,
+    Cn: Connection,
 {
     /// Lists documents by id in ascending order.
     pub fn ascending(mut self) -> Self {
@@ -1253,6 +1254,30 @@ where
     pub fn limit(mut self, maximum_results: usize) -> Self {
         self.0 = self.0.limit(maximum_results);
         self
+    }
+
+    /// Returns the number of documents contained within the range.
+    ///
+    /// Order and limit are ignored if they were set.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// println!(
+    ///     "Number of documents with id 42 or larger: {}",
+    ///     MyCollection::list(42.., db).count().await?
+    /// );
+    /// println!(
+    ///     "Number of documents in MyCollection: {}",
+    ///     MyCollection::all(db).count().await?
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub async fn count(self) -> Result<u64, Error> {
+        self.0.count().await
     }
 }
 

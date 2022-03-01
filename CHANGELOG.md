@@ -42,6 +42,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   added as a way to control how many threads can be used by any given
   task/worker. This is automatically configured to be the number of cpu cores
   detected.
+- `count()` is a new function on the list builders, available via:
+
+  - `SerializedCollection::all(db).count().await`
+  - `SerializedCollection::list(42.., db).count().await`
+  - `db.collection::<Collection>().all().count().await`
+  - `db.collection::<Collection>().list(42..).count().await`
+
+  The performance of this call is not as good as it will eventually be, as it is
+  currently doing more work than strictly necessary.
+  
+### Changed
+
+- The view map/reduce system has been optimized to take advantage of some
+  parallelism. The view system is still not hightly optimized, but this change
+  makes a significant improvement on performance.
 
 ## v0.2.0
 

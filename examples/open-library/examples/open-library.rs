@@ -3,7 +3,7 @@ use std::{self, collections::BTreeMap, fmt::Debug, fs::File, io::Read, mem, path
 use bonsaidb::{
     core::{
         async_trait::async_trait,
-        connection::{Bound, Connection, Range},
+        connection::Connection,
         document::{CollectionDocument, Emit},
         keyvalue::Timestamp,
         schema::{
@@ -564,38 +564,6 @@ async fn import_from_tsv<
     Ok(())
 }
 
-/// A paginated version of counting entries. For when you have more data stored
-/// than you have ram...
-// TODO implement an actual count function to avoid loading all the documents
-// https://github.com/khonsulabs/bonsaidb/issues/176
-async fn count<C>(db: &Database) -> anyhow::Result<usize>
-where
-    C: Collection + Unpin,
-    C::PrimaryKey: Default + Unpin,
-{
-    let mut last_id = <C::PrimaryKey as Default>::default();
-    let mut count = 0;
-    loop {
-        let batch = db
-            .collection::<C>()
-            .list(Range {
-                start: Bound::Excluded(last_id),
-                end: Bound::Unbounded,
-            })
-            .limit(1_000_000)
-            .await?;
-        match batch.len() {
-            0 => break,
-            batch_length => {
-                count += batch_length;
-            }
-        }
-
-        last_id = batch.last().unwrap().header.id.deserialize()?;
-    }
-    Ok(count)
-}
-
 #[derive(Debug, Parser)]
 struct Cli {
     #[clap(long, short('z'))]
@@ -650,10 +618,10 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Command::Count => {
-            println!("Total authors: {}", count::<Author>(&db).await?);
-            println!("Total works: {}", count::<Work>(&db).await?);
-            println!("Total editions: {}", count::<Edition>(&db).await?);
-            println!("Total ratings: {}", count::<Rating>(&db).await?);
+            println!("Total authors: {}", Author::all(&db).count().await?);
+            println!("Total works: {}", Work::all(&db).count().await?);
+            println!("Total editions: {}", Edition::all(&db).count().await?);
+            println!("Total ratings: {}", Rating::all(&db).count().await?);
 
             Ok(())
         }
