@@ -151,7 +151,6 @@ fn map_view(
                 .view_by_name(&map_request.view_name)
                 .unwrap();
 
-            // todo reuse these vecs
             let document_ids = invalidated_ids
                 .drain(invalidated_ids.len().saturating_sub(CHUNK_SIZE)..)
                 .collect::<Vec<_>>();
@@ -183,7 +182,6 @@ pub struct DocumentRequest<'a> {
     pub map_request: &'a Map,
     pub database: &'a Database,
 
-    // pub transaction: &'a mut ExecutingTransaction<AnyFile>,
     pub document_map: &'a UnlockedTransactionTree<AnyFile>,
     pub documents: &'a UnlockedTransactionTree<AnyFile>,
     pub view_entries: &'a UnlockedTransactionTree<AnyFile>,
