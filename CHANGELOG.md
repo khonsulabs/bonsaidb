@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   This is supported by a new trait, `IntoPrefixRange`. This trait has been
   implemented for all byte-based key implementations as well as for `String`.
+- `Operation::push_serialized` has been added, which calls `natural_id` before
+  creating an `Operation::Insert` variant.
+- `Tasks::parallelization` and `Builder::workers_parallelization` have been
+  added as a way to control how many threads can be used by any given
+  task/worker. This is automatically configured to be the number of cpu cores
+  detected.
 
 ## v0.2.0
 

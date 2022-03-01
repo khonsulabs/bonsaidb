@@ -107,13 +107,30 @@ impl Operation {
     }
 
     /// Inserts a new document with the serialized representation of `contents`
-    /// into `collection`.  If `id` is `None` a unique id will be generated. If
+    /// into `collection`. If `id` is `None` a unique id will be generated. If
     /// an id is provided and a document already exists with that id, a conflict
     /// error will be returned.
     pub fn insert_serialized<C: SerializedCollection>(
         id: Option<C::PrimaryKey>,
         contents: &C::Contents,
     ) -> Result<Self, Error> {
+        let id = id.map(DocumentId::new).transpose()?;
+        let contents = C::serialize(contents)?;
+        Ok(Self::insert(C::collection_name(), id, contents))
+    }
+
+    /// Pushes a new document with the serialized representation of `contents`
+    /// into `collection`.
+    ///
+    /// ## Automatic Id Assignment
+    ///
+    /// This function calls [`SerializedCollection::natural_id()`] to try to
+    /// retrieve a primary key value from `contents`. If an id is returned, the
+    /// item is inserted with that id. If an id is not returned, an id will be
+    /// automatically assigned, if possible, by the storage backend, which uses
+    /// the [`Key`](crate::key::Key) trait to assign ids.
+    pub fn push_serialized<C: SerializedCollection>(contents: &C::Contents) -> Result<Self, Error> {
+        let id = C::natural_id(contents);
         let id = id.map(DocumentId::new).transpose()?;
         let contents = C::serialize(contents)?;
         Ok(Self::insert(C::collection_name(), id, contents))

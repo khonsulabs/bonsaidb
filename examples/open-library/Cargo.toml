@@ -1,0 +1,19 @@
+[package]
+name = "open-library"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tokio = { version = "1.16.1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+bonsaidb = { path = "../../crates/bonsaidb", version = "0.2.0", features = [
+    "local",
+    "local-compression",
+] }
+anyhow = "1.0.55"
+time = { version = "0.3.7", features = ["serde", "parsing"] }
+flume = "0.10.11"
+futures = '0.3'
+serde_json = "1"
+clap = { version = "3.0.14", features = ["derive"] }

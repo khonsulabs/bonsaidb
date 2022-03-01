@@ -1,10 +1,10 @@
-use std::fmt::{Display, Write};
+use std::fmt::{Debug, Display, Write};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// Information about a `Document`'s revision history.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Revision {
     /// The current revision id of the document. This value is sequentially incremented on each document update.
     pub id: u32,
@@ -51,9 +51,15 @@ impl Revision {
     }
 }
 
+impl Debug for Revision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Revision({})", self)
+    }
+}
+
 impl Display for Revision {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.id.fmt(f)?;
+        <u32 as Display>::fmt(&self.id, f)?;
         f.write_char('-')?;
         for byte in self.sha256 {
             f.write_fmt(format_args!("{:02x}", byte))?;
@@ -114,5 +120,9 @@ fn revision_display_test() {
     assert_eq!(
         first_revision.to_string(),
         "0-7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed"
+    );
+    assert_eq!(
+        format!("{:?}", first_revision),
+        "Revision(0-7692c3ad3540bb803c020b3aee66cd8887123234ea0c6e7143c0add73ff431ed)"
     );
 }

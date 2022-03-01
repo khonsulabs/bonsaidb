@@ -10,7 +10,7 @@ use crate::{
     tasks::{Job, Keyed, Task},
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        view_omitted_docs_tree_name, view_versions_tree_name,
+        view_versions_tree_name,
     },
     Database, Error,
 };
@@ -69,8 +69,7 @@ impl Target {
         match self {
             Target::Collection(collection) => {
                 let database = database.clone();
-                tokio::task::spawn_blocking(move || compact_collection(&database, &collection))
-                    .await?
+                compact_collection(database.clone(), &collection).await
             }
             Target::KeyValue => {
                 let database = database.clone();
@@ -123,17 +122,36 @@ impl Keyed<Task> for Compactor {
         Task::Compaction(self.compaction.clone())
     }
 }
-fn compact_collection(database: &Database, collection: &CollectionName) -> Result<(), Error> {
+async fn compact_collection(database: Database, collection: &CollectionName) -> Result<(), Error> {
     // Compact the main database file
-    compact_tree::<Versioned, _>(database, document_tree_name(collection))?;
+    let mut handles = FuturesUnordered::new();
+    let task_db = database.clone();
+    let document_tree_name = document_tree_name(collection);
+    handles.push(tokio::task::spawn_blocking(move || {
+        compact_tree::<Versioned, _>(&task_db, document_tree_name)
+    }));
 
     // Compact the views
     if let Some(views) = database.data.schema.views_in_collection(collection) {
         for view in views {
-            compact_view(database, &view.view_name())?;
+            let task_db = database.clone();
+            let view_name = view.view_name();
+            handles.push(tokio::task::spawn_blocking(move || {
+                compact_view(&task_db, &view_name)
+            }));
         }
     }
-    compact_tree::<Unversioned, _>(database, view_versions_tree_name(collection))?;
+
+    let task_db = database.clone();
+    let view_versions_tree_name = view_versions_tree_name(collection);
+    handles.push(tokio::task::spawn_blocking(move || {
+        compact_tree::<Unversioned, _>(&task_db, view_versions_tree_name)
+    }));
+
+    while let Some(result) = handles.next().await {
+        result??;
+    }
+
     Ok(())
 }
 
@@ -141,7 +159,6 @@ fn compact_view(database: &Database, name: &ViewName) -> Result<(), Error> {
     compact_tree::<Unversioned, _>(database, view_entries_tree_name(name))?;
     compact_tree::<Unversioned, _>(database, view_document_map_tree_name(name))?;
     compact_tree::<Unversioned, _>(database, view_invalidated_docs_tree_name(name))?;
-    compact_tree::<Unversioned, _>(database, view_omitted_docs_tree_name(name))?;
 
     Ok(())
 }

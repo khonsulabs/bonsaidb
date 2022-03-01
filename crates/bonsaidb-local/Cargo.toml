@@ -52,7 +52,7 @@ bonsaidb-core = { path = "../bonsaidb-core", version = "=0.2.0", features = [
     "included-from-local",
 ] }
 bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.2.0" }
-nebari = { version = "0.3.1" }
+nebari = { version = "0.4.0" }
 thiserror = "1"
 tokio = { version = "1.16.1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -84,6 +84,7 @@ argon2 = { version = "^0.3.3", optional = true, features = ["parallel"] }
 sysinfo = { version = "0.23", default-features = false }
 once_cell = { version = "1", optional = true }
 lz4_flex = { version = "0.9.2", optional = true }
+easy-parallel = "3.2.0"
 
 [dev-dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "=0.2.0", features = [

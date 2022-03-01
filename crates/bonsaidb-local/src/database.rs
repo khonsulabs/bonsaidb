@@ -56,9 +56,9 @@ use crate::{
     error::Error,
     open_trees::OpenTrees,
     views::{
-        mapper::{self, ViewEntryCollection},
+        mapper::{self},
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        view_omitted_docs_tree_name, ViewEntry,
+        ViewEntry,
     },
     Storage,
 };
@@ -211,7 +211,7 @@ impl Database {
     }
 
     async fn for_each_in_view<
-        F: FnMut(ViewEntryCollection) -> Result<(), bonsaidb_core::Error> + Send + Sync,
+        F: FnMut(ViewEntry) -> Result<(), bonsaidb_core::Error> + Send + Sync,
     >(
         &self,
         view: &dyn view::Serialized,
@@ -265,7 +265,7 @@ impl Database {
 
     async fn for_each_view_entry<
         V: schema::View,
-        F: FnMut(ViewEntryCollection) -> Result<(), bonsaidb_core::Error> + Send + Sync,
+        F: FnMut(ViewEntry) -> Result<(), bonsaidb_core::Error> + Send + Sync,
     >(
         &self,
         key: Option<QueryKey<V::Key>>,
@@ -348,8 +348,7 @@ impl Database {
     ) -> Result<Vec<bonsaidb_core::schema::view::map::Serialized>, bonsaidb_core::Error> {
         if let Some(view) = self.schematic().view_by_name(view) {
             let mut results = Vec::new();
-            self.for_each_in_view(view, key, order, limit, access_policy, |collection| {
-                let entry = ViewEntry::from(collection);
+            self.for_each_in_view(view, key, order, limit, access_policy, |entry| {
                 for mapping in entry.mappings {
                     results.push(bonsaidb_core::schema::view::map::Serialized {
                         source: mapping.source,
@@ -439,8 +438,6 @@ impl Database {
         let collection = view.collection();
         let mut transaction = Transaction::default();
         self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
-            let entry = ViewEntry::from(entry);
-
             for mapping in entry.mappings {
                 transaction.push(Operation::delete(collection.clone(), mapping.source));
             }
@@ -487,7 +484,7 @@ impl Database {
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         let task_self = self.clone();
-        let ids = ids.to_vec();
+        let mut ids = ids.to_vec();
         let collection = collection.clone();
         tokio::task::spawn_blocking(move || {
             let tree = task_self
@@ -499,9 +496,10 @@ impl Database {
                     document_tree_name(&collection),
                 )?)
                 .map_err(Error::from)?;
-            let mut ids = ids.iter().map(DocumentId::deref).collect::<Vec<_>>();
             ids.sort();
-            let keys_and_values = tree.get_multiple(&ids).map_err(Error::from)?;
+            let keys_and_values = tree
+                .get_multiple(ids.iter().map(|id| id.as_ref()))
+                .map_err(Error::from)?;
 
             keys_and_values
                 .into_iter()
@@ -617,7 +615,6 @@ impl Database {
             .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
         let mut mappings = Vec::new();
         self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
-            let entry = ViewEntry::from(entry);
             mappings.push(MappedSerializedValue {
                 key: entry.key,
                 value: entry.reduced_value,
@@ -758,7 +755,7 @@ impl Database {
                     let view_name = view.view_name();
                     let tree_name = view_invalidated_docs_tree_name(&view_name);
                     for changed_document in &changed_documents {
-                        let invalidated_docs = roots_transaction
+                        let mut invalidated_docs = roots_transaction
                             .tree::<Unversioned>(open_trees.trees_index_by_name[&tree_name])
                             .unwrap();
                         invalidated_docs.set(changed_document.id.as_ref().to_vec(), b"")?;
@@ -805,10 +802,10 @@ impl Database {
         check_revision: Option<&Revision>,
         contents: &[u8],
     ) -> Result<OperationResult, crate::Error> {
-        let documents = transaction
+        let mut documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
-        let document_id = ArcBytes::from(id.as_ref());
+        let document_id = ArcBytes::from(id.to_vec());
         let mut result = None;
         let mut updated = false;
         documents.modify(
@@ -887,6 +884,7 @@ impl Database {
                 nebari::tree::KeyOperation::Skip
             })),
         )?;
+        drop(documents);
 
         if updated {
             self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
@@ -903,7 +901,7 @@ impl Database {
         id: Option<DocumentId>,
         contents: &[u8],
     ) -> Result<OperationResult, Error> {
-        let documents = transaction
+        let mut documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         let id = if let Some(id) = id {
@@ -929,6 +927,7 @@ impl Database {
                 Box::new(doc.header),
             )))
         } else {
+            drop(documents);
             self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
 
             Ok(OperationResult::DocumentUpdated {
@@ -945,14 +944,15 @@ impl Database {
         tree_index_map: &HashMap<String, usize>,
         header: &Header,
     ) -> Result<OperationResult, Error> {
-        let documents = transaction
+        let mut documents = transaction
             .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
             .unwrap();
         if let Some(vec) = documents.remove(header.id.as_ref())? {
+            drop(documents);
             let doc = deserialize_document(&vec)?;
             if &doc.header == header {
                 self.update_unique_views(
-                    doc.header.id.as_ref(),
+                    &ArcBytes::from(doc.header.id.to_vec()),
                     operation,
                     transaction,
                     tree_index_map,
@@ -978,7 +978,7 @@ impl Database {
 
     fn update_unique_views(
         &self,
-        document_id: &[u8],
+        document_id: &ArcBytes<'static>,
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
@@ -988,21 +988,28 @@ impl Database {
             .schema
             .unique_views_in_collection(&operation.collection)
         {
+            let documents = transaction
+                .unlocked_tree(tree_index_map[&document_tree_name(&operation.collection)])
+                .unwrap();
             for view in unique_views {
                 let name = view.view_name();
+                let document_map = transaction
+                    .unlocked_tree(tree_index_map[&view_document_map_tree_name(&name)])
+                    .unwrap();
+                let view_entries = transaction
+                    .unlocked_tree(tree_index_map[&view_entries_tree_name(&name)])
+                    .unwrap();
                 mapper::DocumentRequest {
                     database: self,
-                    document_id,
+                    document_ids: vec![document_id.clone()],
                     map_request: &mapper::Map {
                         database: self.data.name.clone(),
                         collection: operation.collection.clone(),
                         view_name: name.clone(),
                     },
-                    transaction,
-                    document_map_index: tree_index_map[&view_document_map_tree_name(&name)],
-                    documents_index: tree_index_map[&document_tree_name(&operation.collection)],
-                    omitted_entries_index: tree_index_map[&view_omitted_docs_tree_name(&name)],
-                    view_entries_index: tree_index_map[&view_entries_tree_name(&name)],
+                    document_map,
+                    documents,
+                    view_entries,
                     view,
                 }
                 .map()?;
@@ -1017,7 +1024,7 @@ impl Database {
         key: Option<QueryKey<K>>,
         order: Sort,
         limit: Option<usize>,
-    ) -> Result<Vec<ViewEntryCollection>, Error> {
+    ) -> Result<Vec<ViewEntry>, Error> {
         let mut values = Vec::new();
         let forwards = match order {
             Sort::Ascending => true,
@@ -1071,7 +1078,7 @@ impl Database {
 
                     values.extend(
                         view_entries
-                            .get_multiple(&list.iter().map(Vec::as_slice).collect::<Vec<_>>())?
+                            .get_multiple(list.iter().map(Vec::as_slice))?
                             .into_iter()
                             .map(|(_, value)| value),
                     );
@@ -1396,8 +1403,7 @@ impl Connection for Database {
         Self: Sized,
     {
         let mut results = Vec::new();
-        self.for_each_view_entry::<V, _>(key, order, limit, access_policy, |collection| {
-            let entry = ViewEntry::from(collection);
+        self.for_each_view_entry::<V, _>(key, order, limit, access_policy, |entry| {
             let key = <V::Key as Key>::from_ord_bytes(&entry.key)
                 .map_err(view::Error::key_serialization)
                 .map_err(Error::from)?;
@@ -1514,21 +1520,13 @@ impl Connection for Database {
     {
         let collection = <V::Collection as Collection>::collection_name();
         let mut transaction = Transaction::default();
-        self.for_each_view_entry::<V, _>(
-            key,
-            Sort::Ascending,
-            None,
-            access_policy,
-            |entry_collection| {
-                let entry = ViewEntry::from(entry_collection);
+        self.for_each_view_entry::<V, _>(key, Sort::Ascending, None, access_policy, |entry| {
+            for mapping in entry.mappings {
+                transaction.push(Operation::delete(collection.clone(), mapping.source));
+            }
 
-                for mapping in entry.mappings {
-                    transaction.push(Operation::delete(collection.clone(), mapping.source));
-                }
-
-                Ok(())
-            },
-        )
+            Ok(())
+        })
         .await?;
 
         let results = Connection::apply_transaction(self, transaction).await?;
@@ -1577,7 +1575,7 @@ struct ViewEntryCollectionIterator<'a> {
 }
 
 impl<'a> Iterator for ViewEntryCollectionIterator<'a> {
-    type Item = Result<ViewEntryCollection, crate::Error>;
+    type Item = Result<ViewEntry, crate::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.iterator.next().map(|item| {

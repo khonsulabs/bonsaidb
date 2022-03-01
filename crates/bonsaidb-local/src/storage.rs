@@ -157,6 +157,7 @@ pub struct Storage {
 struct Data {
     id: StorageId,
     path: PathBuf,
+    parallelization: usize,
     threadpool: ThreadPool<AnyFile>,
     file_manager: AnyFileManager,
     pub(crate) tasks: TaskManager,
@@ -214,6 +215,7 @@ impl Storage {
             Arc::new(Vault::initialize(id, &owned_path, vault_key_storage).await?)
         };
 
+        let parallelization = configuration.workers.parallelization;
         let check_view_integrity_on_database_open = configuration.views.check_integrity_on_open;
         let key_value_persistence = configuration.key_value_persistence;
         #[cfg(feature = "password-hashing")]
@@ -236,6 +238,7 @@ impl Storage {
                 data: Arc::new(Data {
                     id,
                     tasks,
+                    parallelization,
                     #[cfg(feature = "password-hashing")]
                     argon,
                     #[cfg(feature = "encryption")]
@@ -247,7 +250,7 @@ impl Storage {
                     path: owned_path,
                     file_manager,
                     chunk_cache: ChunkCache::new(2000, 160_384),
-                    threadpool: ThreadPool::default(),
+                    threadpool: ThreadPool::new(parallelization),
                     schemas: RwLock::new(configuration.initial_schemas),
                     available_databases: RwLock::default(),
                     open_roots: Mutex::default(),
@@ -362,6 +365,11 @@ impl Storage {
     #[must_use]
     pub fn unique_id(&self) -> StorageId {
         self.data.id
+    }
+
+    #[must_use]
+    pub(crate) fn parallelization(&self) -> usize {
+        self.data.parallelization
     }
 
     #[must_use]
@@ -1011,8 +1019,8 @@ impl nebari::Vault for TreeVault {
     type Error = Error;
 
     fn encrypt(&self, payload: &[u8]) -> Result<Vec<u8>, Error> {
-        Ok(match self.compression {
-            Some(Compression::Lz4) => {
+        Ok(match (payload.len(), self.compression) {
+            (128..=usize::MAX, Some(Compression::Lz4)) => {
                 let mut destination =
                     vec![0; lz4_flex::block::get_maximum_output_size(payload.len()) + 8];
                 let compressed_length =
@@ -1027,7 +1035,7 @@ impl nebari::Vault for TreeVault {
                 destination
             }
             // TODO this shouldn't copy
-            None => payload.to_vec(),
+            _ => payload.to_vec(),
         })
     }
 
