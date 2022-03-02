@@ -119,6 +119,8 @@ pub enum ServerAction {
     DeleteDatabase,
     /// Permits [`StorageConnection::create_user`](crate::connection::StorageConnection::create_user).
     CreateUser,
+    /// Permits [`StorageConnection::delete_user`](crate::connection::StorageConnection::delete_user).
+    DeleteUser,
     /// Permits [`StorageConnection::set_user_password`](crate::connection::StorageConnection::set_user_password).
     SetPassword,
     /// Permits the ability to log in with a password.

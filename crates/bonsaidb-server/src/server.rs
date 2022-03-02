@@ -954,6 +954,13 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         self.data.storage.create_user(username).await
     }
 
+    async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
+        &self,
+        user: U,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.data.storage.delete_user(user).await
+    }
+
     #[cfg(feature = "password-hashing")]
     async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
@@ -1223,6 +1230,31 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateUserHandler for ServerDisp
         Ok(Response::Server(ServerResponse::UserCreated {
             id: self.server.create_user(&username).await?,
         }))
+    }
+}
+
+#[async_trait]
+impl<'s, B: Backend> bonsaidb_core::networking::DeleteUserHandler for ServerDispatcher<'s, B> {
+    type Action = BonsaiAction;
+
+    async fn resource_name<'a>(
+        &'a self,
+        _primary_key: &'a NamedReference<'static, u64>,
+    ) -> Result<ResourceName<'a>, Error> {
+        Ok(bonsaidb_resource_name())
+    }
+
+    fn action() -> Self::Action {
+        BonsaiAction::Server(ServerAction::DeleteUser)
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        user: NamedReference<'static, u64>,
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
+        self.server.delete_user(user).await?;
+        Ok(Response::Ok)
     }
 }
 
