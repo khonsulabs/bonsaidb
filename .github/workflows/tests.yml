@@ -57,6 +57,7 @@ jobs:
 
       - name: Run unit tests
         run: |
+          echo ${{ secrets.S3_ENDPOINT }}
           cargo test --all-targets ${{ matrix.options.cargo_args }} -- --nocapture
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
