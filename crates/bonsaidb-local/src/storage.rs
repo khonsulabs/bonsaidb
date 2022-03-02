@@ -721,6 +721,30 @@ impl StorageConnection for Storage {
         Ok(result.id)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(primary_key)))]
+    #[cfg(feature = "multiuser")]
+    async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
+        &self,
+        primary_key: U,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let admin = self.admin().await;
+        let doc = User::load(primary_key, &admin)
+            .await?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
+
+        // // Retrieve a user to delete
+        // let doc = self
+        //     .admin()
+        //     .await
+        //     .collection::<User>()
+        //     .get(primary_key)
+        //     .await?;
+        // // Delete a user
+        self.admin().await.collection::<User>().delete(&doc).await?;
+
+        Ok(())
+    }
+
     #[cfg(feature = "password-hashing")]
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password)))]
     async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(

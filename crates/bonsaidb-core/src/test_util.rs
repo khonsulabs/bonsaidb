@@ -1471,6 +1471,14 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
         .await?;
     server.remove_role_from_user(user_id, &role).await?;
 
+    // Remove the user
+    server.delete_user(user_id).await?;
+    // Test if user is removed.
+    {
+        let user = User::get(user_id, admin).await.unwrap();
+        assert_eq!(user.is_none(), true);
+    }
+
     Ok(())
 }
 

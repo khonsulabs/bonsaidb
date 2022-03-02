@@ -84,6 +84,12 @@ pub enum ServerRequest {
         /// The unique username of the user to create.
         username: String,
     },
+    /// Deletes a user.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    DeleteUser {
+        /// The unique primary key of the user to be deleted.
+        primary_key: NamedReference<'static, u64>,
+    },
     /// Set's a user's password.
     #[cfg(feature = "password-hashing")]
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
@@ -326,6 +332,8 @@ pub enum ServerResponse {
         /// The id of the user created.
         id: u64,
     },
+    /// A user was deleted.
+    UserDeleted,
     /// Successfully authenticated.
     Authenticated(Authenticated),
 }

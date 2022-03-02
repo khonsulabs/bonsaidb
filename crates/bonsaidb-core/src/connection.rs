@@ -1713,6 +1713,13 @@ pub trait StorageConnection: Send + Sync {
     #[cfg(feature = "multiuser")]
     async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
 
+    /// Deletes a user.
+    #[cfg(feature = "multiuser")]
+    async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
+        &self,
+        primary_key: U,
+    ) -> Result<(), crate::Error>;
+
     /// Sets a user's password.
     #[cfg(feature = "password-hashing")]
     async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(

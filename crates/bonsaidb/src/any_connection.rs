@@ -86,6 +86,16 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
         }
     }
 
+    async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
+        &self,
+        primary_key: U,
+    ) -> Result<(), bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.delete_user(primary_key).await,
+            Self::Networked(client) => client.delete_user(primary_key).await,
+        }
+    }
+
     #[cfg(feature = "password-hashing")]
     async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,

@@ -609,6 +609,24 @@ impl<A: CustomApi> StorageConnection for Client<A> {
         }
     }
 
+    async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
+        &self,
+        primary_key: U,
+    ) -> Result<(), bonsaidb_core::Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::DeleteUser {
+                primary_key: primary_key.name()?.into_owned(),
+            }))
+            .await?
+        {
+            Response::Server(ServerResponse::UserDeleted) => Ok(()),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
     #[cfg(feature = "password-hashing")]
     async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
