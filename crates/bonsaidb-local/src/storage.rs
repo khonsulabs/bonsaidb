@@ -731,7 +731,7 @@ impl StorageConnection for Storage {
         let doc = User::load(user, &admin)
             .await?
             .ok_or(bonsaidb_core::Error::UserNotFound)?;
-        self.admin().await.collection::<User>().delete(&doc).await?;
+        doc.delete(&admin).await?;
 
         Ok(())
     }

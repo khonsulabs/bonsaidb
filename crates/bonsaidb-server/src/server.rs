@@ -1251,8 +1251,9 @@ impl<'s, B: Backend> bonsaidb_core::networking::DeleteUserHandler for ServerDisp
     async fn handle_protected(
         &self,
         _permissions: &Permissions,
-        _primary_key: NamedReference<'static, u64>,
+        user: NamedReference<'static, u64>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
+        self.server.delete_user(user).await?;
         Ok(Response::Ok)
     }
 }
