@@ -956,9 +956,9 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
 
     async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
-        primary_key: U,
+        user: U,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.delete_user(primary_key).await
+        self.data.storage.delete_user(user).await
     }
 
     #[cfg(feature = "password-hashing")]
@@ -1253,7 +1253,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::DeleteUserHandler for ServerDisp
         _permissions: &Permissions,
         _primary_key: NamedReference<'static, u64>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        Ok(Response::Server(ServerResponse::UserDeleted))
+        Ok(Response::Ok)
     }
 }
 

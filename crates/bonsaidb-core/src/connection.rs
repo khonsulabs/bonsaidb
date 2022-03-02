@@ -1717,7 +1717,7 @@ pub trait StorageConnection: Send + Sync {
     #[cfg(feature = "multiuser")]
     async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
-        primary_key: U,
+        user: U,
     ) -> Result<(), crate::Error>;
 
     /// Sets a user's password.

@@ -611,15 +611,15 @@ impl<A: CustomApi> StorageConnection for Client<A> {
 
     async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
-        primary_key: U,
+        user: U,
     ) -> Result<(), bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::DeleteUser {
-                primary_key: primary_key.name()?.into_owned(),
+                user: user.name()?.into_owned(),
             }))
             .await?
         {
-            Response::Server(ServerResponse::UserDeleted) => Ok(()),
+            Response::Ok => Ok(()),
             Response::Error(err) => Err(err),
             other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
