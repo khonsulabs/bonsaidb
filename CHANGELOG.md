@@ -51,7 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The performance of this call is not as good as it will eventually be, as it is
   currently doing more work than strictly necessary.
-  
+- [#215][215]: `StorageConnection::delete_user` has been added, enabling
+  deletions of users without directly interacting with the `admin` database.
+
+[215]: https://github.com/khonsulabs/bonsaidb/pull/215
+
 ### Changed
 
 - The view map/reduce system has been optimized to take advantage of some
