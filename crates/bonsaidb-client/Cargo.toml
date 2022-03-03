@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-client"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Client for accessing BonsaiDb servers."
@@ -23,11 +23,11 @@ password-hashing = ["bonsaidb-core/password-hashing"]
 included-from-omnibus = []
 
 [dependencies]
-bonsaidb-core = { path = "../bonsaidb-core", version = "=0.2.0", default-features = false, features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "=0.3.0", default-features = false, features = [
     "networking",
     "included-from-client",
 ] }
-bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.2.0" }
+bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.3.0" }
 thiserror = "1"
 url = "2.2"
 flume = "0.10"

@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-core"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Core functionality and types for BonsaiDb."
@@ -28,7 +28,7 @@ included-from-local = ["bonsaidb-macros/local-path"]
 included-from-client = ["bonsaidb-macros/client-path"]
 
 [dependencies]
-bonsaidb-macros = { path = "../bonsaidb-macros", version = "=0.2.0" }
+bonsaidb-macros = { path = "../bonsaidb-macros", version = "=0.3.0" }
 circulate = { version = "0.2.1" }
 serde = { version = "1", features = ["derive"] }
 pot = "1.0.0"
