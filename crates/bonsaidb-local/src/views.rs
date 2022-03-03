@@ -34,10 +34,6 @@ pub fn view_invalidated_docs_tree_name(view_name: &impl Display) -> String {
     format!("view.{:#}.invalidated", view_name)
 }
 
-pub fn view_omitted_docs_tree_name(view_name: &impl Display) -> String {
-    format!("view.{:#}.omitted", view_name)
-}
-
 pub fn view_versions_tree_name(collection: &CollectionName) -> String {
     format!("view-versions.{:#}", collection)
 }

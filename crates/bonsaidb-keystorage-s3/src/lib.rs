@@ -51,7 +51,7 @@ use std::fmt::Display;
 use async_trait::async_trait;
 use aws_config::meta::region::RegionProviderChain;
 pub use aws_sdk_s3;
-use aws_sdk_s3::{error::GetObjectErrorKind, Client, Endpoint, Region};
+use aws_sdk_s3::{types::ByteStream, Client, Endpoint, Region};
 use bonsaidb_local::{
     vault::{KeyPair, VaultKeyStorage},
     StorageId,
@@ -60,6 +60,7 @@ pub use http;
 
 /// S3-compatible [`VaultKeyStorage`] implementor.
 #[derive(Debug, Default)]
+#[must_use]
 pub struct S3VaultKeyStorage {
     bucket: String,
     /// The S3 endpoint to use. If not specified, the endpoint will be
@@ -110,8 +111,7 @@ impl S3VaultKeyStorage {
             .or_else(Region::new("us-east-1"));
         let config = aws_config::from_env().load().await;
         if let Some(endpoint) = self.endpoint.clone() {
-            Client::with_config(
-                aws_smithy_client::Client::dyn_https(),
+            Client::from_conf(
                 aws_sdk_s3::Config::builder()
                     .endpoint_resolver(endpoint)
                     .region(region_provider.region().await)
@@ -119,7 +119,7 @@ impl S3VaultKeyStorage {
                     .build(),
             )
         } else {
-            aws_sdk_s3::Client::new(&config)
+            Client::new(&config)
         }
     }
 }
@@ -139,7 +139,7 @@ impl VaultKeyStorage for S3VaultKeyStorage {
             .put_object()
             .bucket(&self.bucket)
             .key(self.path_for_id(storage_id))
-            .body(aws_sdk_s3::ByteStream::from(key.to_vec()))
+            .body(ByteStream::from(key.to_vec()))
             .send()
             .await?;
         Ok(())
@@ -160,10 +160,10 @@ impl VaultKeyStorage for S3VaultKeyStorage {
                     KeyPair::from_bytes(&bytes).map_err(|err| anyhow::anyhow!(err.to_string()))?;
                 Ok(Some(key))
             }
-            Err(aws_sdk_s3::SdkError::ServiceError {
+            Err(aws_smithy_client::SdkError::ServiceError {
                 err:
                     aws_sdk_s3::error::GetObjectError {
-                        kind: GetObjectErrorKind::NoSuchKey(_),
+                        kind: aws_sdk_s3::error::GetObjectErrorKind::NoSuchKey(_),
                         ..
                     },
                 ..

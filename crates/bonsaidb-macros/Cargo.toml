@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-macros"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Macros for use in BonsaiDb"

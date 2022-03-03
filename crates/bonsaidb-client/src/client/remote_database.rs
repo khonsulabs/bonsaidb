@@ -156,6 +156,31 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         }
     }
 
+    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
+    where
+        C: Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        match self
+            .client
+            .send_request(Request::Database {
+                database: self.name.to_string(),
+                request: DatabaseRequest::Count {
+                    collection: C::collection_name(),
+                    ids: ids.into().map_result(|id| id.into().to_document_id())?,
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::Count(count)) => Ok(count),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
     async fn query<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
@@ -341,7 +366,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
             })
             .await?
         {
-            Response::Database(DatabaseResponse::DocumentsDeleted(count)) => Ok(count),
+            Response::Database(DatabaseResponse::Count(count)) => Ok(count),
             Response::Error(err) => Err(err),
             other => Err(bonsaidb_core::Error::Networking(
                 bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),

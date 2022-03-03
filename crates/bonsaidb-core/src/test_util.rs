@@ -37,6 +37,7 @@ use crate::{
 // This collection purposely uses names with characters that need
 // escaping, since it's used in backup/restore.
 #[collection(name = "_basic", authority = "khonsulabs_", views = [BasicCount, BasicByParentId, BasicByTag, BasicByCategory], core = crate)]
+#[must_use]
 pub struct Basic {
     pub value: String,
     pub category: Option<String>,
@@ -64,7 +65,6 @@ impl Basic {
         self
     }
 
-    #[must_use]
     pub fn with_parent_id(mut self, parent_id: impl Into<AnyDocumentId<u64>>) -> Self {
         self.parent_id = Some(parent_id.into().to_primary_key().unwrap());
         self
@@ -183,6 +183,7 @@ impl ViewSchema for BasicByBrokenParentId {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Collection)]
 #[collection(name = "encrypted-basic", authority = "khonsulabs", views = [EncryptedBasicCount, EncryptedBasicByParentId, EncryptedBasicByCategory])]
 #[collection(encryption_key = Some(KeyId::Master), encryption_optional, core = crate)]
+#[must_use]
 pub struct EncryptedBasic {
     pub value: String,
     pub category: Option<String>,
@@ -203,7 +204,6 @@ impl EncryptedBasic {
         self
     }
 
-    #[must_use]
     pub const fn with_parent_id(mut self, parent_id: u64) -> Self {
         self.parent_id = Some(parent_id);
         self
@@ -320,6 +320,13 @@ impl NamedCollection for Unique {
 pub struct TestDirectory(pub PathBuf);
 
 impl TestDirectory {
+    pub fn absolute<S: AsRef<Path>>(path: S) -> Self {
+        let path = path.as_ref().to_owned();
+        if path.exists() {
+            std::fs::remove_dir_all(&path).expect("error clearing temporary directory");
+        }
+        Self(path)
+    }
     pub fn new<S: AsRef<Path>>(name: S) -> Self {
         let path = std::env::temp_dir().join(name);
         if path.exists() {
@@ -682,14 +689,16 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     assert_eq!(transactions.len(), 2);
     assert!(transactions[0].id < transactions[1].id);
     for transaction in &transactions {
-        let changed_documents = transaction
+        let changes = transaction
             .changes
             .documents()
             .expect("incorrect transaction type");
-        assert_eq!(changed_documents.len(), 1);
-        assert_eq!(changed_documents[0].collection, Basic::collection_name());
-        assert_eq!(header.id, changed_documents[0].id.deserialize()?);
-        assert!(!changed_documents[0].deleted);
+        assert_eq!(changes.documents.len(), 1);
+        assert_eq!(changes.collections.len(), 1);
+        assert_eq!(changes.collections[0], Basic::collection_name());
+        assert_eq!(changes.documents[0].collection, 0);
+        assert_eq!(header.id, changes.documents[0].id.deserialize()?);
+        assert!(!changes.documents[0].deleted);
     }
 
     db.collection::<Basic>().delete(&doc).await?;
@@ -699,14 +708,14 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .await?;
     assert_eq!(transactions.len(), 1);
     let transaction = transactions.first().unwrap();
-    let changed_documents = transaction
+    let changes = transaction
         .changes
         .documents()
         .expect("incorrect transaction type");
-    assert_eq!(changed_documents.len(), 1);
-    assert_eq!(changed_documents[0].collection, Basic::collection_name());
-    assert_eq!(header.id, changed_documents[0].id.deserialize()?);
-    assert!(changed_documents[0].deleted);
+    assert_eq!(changes.documents.len(), 1);
+    assert_eq!(changes.collections[0], Basic::collection_name());
+    assert_eq!(header.id, changes.documents[0].id.deserialize()?);
+    assert!(changes.documents[0].deleted);
 
     // Use the Collection interface
     let mut doc = original_value.clone().push_into(db).await?;
@@ -863,9 +872,11 @@ pub async fn list_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 
     let all_docs = Basic::all(db).await?;
     assert_eq!(all_docs.len(), 2);
+    assert_eq!(Basic::all(db).count().await?, 2);
 
     let both_docs = Basic::list(doc1.id..=doc2.id, db).await?;
     assert_eq!(both_docs.len(), 2);
+    assert_eq!(Basic::list(doc1.id..=doc2.id, db).count().await?, 2);
 
     assert_eq!(both_docs[0].contents.value, doc1_value.value);
     assert_eq!(both_docs[1].contents.value, doc2_value.value);
@@ -1459,6 +1470,11 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
         .remove_permission_group_from_user(user_id, &group)
         .await?;
     server.remove_role_from_user(user_id, &role).await?;
+
+    // Remove the user
+    server.delete_user(user_id).await?;
+    // Test if user is removed.
+    assert!(User::get(user_id, admin).await.unwrap().is_none());
 
     Ok(())
 }

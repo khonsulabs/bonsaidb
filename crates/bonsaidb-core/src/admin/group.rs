@@ -10,6 +10,7 @@ use crate::{
 /// A named group of permissions statements.
 #[derive(Clone, Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "permission-group", authority="khonsulabs", views = [ByName], core = crate)]
+#[must_use]
 pub struct PermissionGroup {
     /// The name of the group. Must be unique.
     pub name: String,

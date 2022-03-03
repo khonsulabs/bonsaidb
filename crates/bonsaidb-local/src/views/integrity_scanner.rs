@@ -9,18 +9,17 @@ use bonsaidb_core::{
 use nebari::{
     io::any::AnyFile,
     tree::{KeyEvaluation, Operation, Unversioned, Versioned},
-    ArcBytes, Tree,
+    ArcBytes, Roots, Tree,
 };
 use serde::{Deserialize, Serialize};
 
 use super::{
     mapper::{Map, Mapper},
-    view_document_map_tree_name, view_invalidated_docs_tree_name, view_versions_tree_name,
+    view_invalidated_docs_tree_name, view_versions_tree_name,
 };
 use crate::{
     database::{document_tree_name, Database},
-    jobs::{task, Job, Keyed},
-    tasks::Task,
+    tasks::{handle::Handle, Job, Keyed, Task},
     Error,
 };
 
@@ -38,7 +37,7 @@ pub struct IntegrityScan {
     pub view_name: ViewName,
 }
 
-pub type OptionalViewMapHandle = Option<Arc<Mutex<Option<task::Handle<u64, Error, Task>>>>>;
+pub type OptionalViewMapHandle = Option<Arc<Mutex<Option<Handle<u64, Error>>>>>;
 
 #[async_trait]
 impl Job for IntegrityScanner {
@@ -62,14 +61,6 @@ impl Job for IntegrityScanner {
         )?;
         let view_versions = self.database.roots().tree(view_versions_tree.clone())?;
 
-        let document_map =
-            self.database
-                .roots()
-                .tree(self.database.collection_tree::<Unversioned, _>(
-                    &self.scan.collection,
-                    view_document_map_tree_name(&self.scan.view_name),
-                )?)?;
-
         let invalidated_entries_tree = self.database.collection_tree::<Unversioned, _>(
             &self.scan.collection,
             view_invalidated_docs_tree_name(&self.scan.view_name),
@@ -80,53 +71,40 @@ impl Job for IntegrityScanner {
         let roots = self.database.roots().clone();
 
         let needs_update = tokio::task::spawn_blocking::<_, Result<bool, Error>>(move || {
-            let document_ids = tree_keys::<Versioned>(&documents)?;
-            let view_is_current_version =
-                if let Some(version) = view_versions.get(view_name.to_string().as_bytes())? {
-                    if let Ok(version) = ViewVersion::from_bytes(&version) {
-                        version.is_current(view_version)
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                };
+            let version = view_versions
+                .get(view_name.to_string().as_bytes())?
+                .and_then(|version| ViewVersion::from_bytes(&version).ok())
+                .unwrap_or_default();
+            version.cleanup(&roots, &view_name)?;
 
-            let missing_entries = if view_is_current_version {
-                let stored_document_ids = tree_keys::<Unversioned>(&document_map)?;
-
-                document_ids
-                    .difference(&stored_document_ids)
-                    .copied()
-                    .collect::<HashSet<_>>()
+            if version.is_current(view_version) {
+                Ok(false)
             } else {
                 // The view isn't the current version, queue up all documents.
-                document_ids
-            };
-
-            if !missing_entries.is_empty() {
+                let missing_entries = tree_keys::<Versioned>(&documents)?;
                 // Add all missing entries to the invalidated list. The view
                 // mapping job will update them on the next pass.
-                let mut transaction =
+                let transaction =
                     roots.transaction(&[invalidated_entries_tree, view_versions_tree])?;
-                let view_versions = transaction.tree::<Unversioned>(1).unwrap();
-                view_versions.set(
-                    view_name.to_string().as_bytes().to_vec(),
-                    ViewVersion::current_for(view_version).to_vec()?,
-                )?;
-                let invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
-                let mut missing_entries = missing_entries
-                    .into_iter()
-                    .map(|id| ArcBytes::from(id.to_vec()))
-                    .collect::<Vec<_>>();
-                missing_entries.sort();
-                invalidated_entries.modify(missing_entries, Operation::Set(ArcBytes::default()))?;
+                {
+                    let mut view_versions = transaction.tree::<Unversioned>(1).unwrap();
+                    view_versions.set(
+                        view_name.to_string().as_bytes().to_vec(),
+                        ViewVersion::current_for(view_version).to_vec()?,
+                    )?;
+                    let mut invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
+                    let mut missing_entries = missing_entries
+                        .into_iter()
+                        .map(|id| ArcBytes::from(id.to_vec()))
+                        .collect::<Vec<_>>();
+                    missing_entries.sort();
+                    invalidated_entries
+                        .modify(missing_entries, Operation::Set(ArcBytes::default()))?;
+                }
                 transaction.commit()?;
 
-                return Ok(true);
+                Ok(true)
             }
-
-            Ok(false)
         })
         .await??;
 
@@ -166,14 +144,14 @@ impl Job for IntegrityScanner {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct ViewVersion {
     internal_version: u8,
     schema_version: u64,
 }
 
 impl ViewVersion {
-    const CURRENT_VERSION: u8 = 1;
+    const CURRENT_VERSION: u8 = 2;
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
         match pot::from_slice(bytes) {
             Ok(version) => Ok(version),
@@ -203,6 +181,14 @@ impl ViewVersion {
 
     pub fn is_current(&self, schema_version: u64) -> bool {
         self.internal_version == Self::CURRENT_VERSION && self.schema_version == schema_version
+    }
+
+    pub fn cleanup(&self, roots: &Roots<AnyFile>, view: &ViewName) -> Result<(), crate::Error> {
+        if self.internal_version < 2 {
+            // omitted entries was removed
+            roots.delete_tree(format!("view.{:#}.omitted", view))?;
+        }
+        Ok(())
     }
 }
 

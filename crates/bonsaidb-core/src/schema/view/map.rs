@@ -48,6 +48,7 @@ impl<K: for<'a> Key<'a>, V> Map<K, V> {
 
 /// A collection of [`Map`]s.
 #[derive(Debug, PartialEq)]
+#[must_use]
 pub enum Mappings<K: for<'a> Key<'a> = (), V = ()> {
     /// Zero or one mappings.
     Simple(Option<Map<K, V>>),

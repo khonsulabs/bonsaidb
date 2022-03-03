@@ -5,7 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.3.0
+
+### Breaking Changes
+
+- `bonsaidb::local::jobs` is now private. It used to be a separate, public crate
+  in the PliantDb days. After thinking about the job scheduler more, this
+  initial implementation is better suited for the internal task management than
+  the higher-level jobs system. As such, it has been internalized.
+- `bonsaidb::core::transaction::Changes::Documents` has been changed to store
+  the `CollectionName`s separately from the `ChangedDocument`s. This makes the
+  transaction log entries smaller, as collection names aren't copied for each
+  document.
+
+  The storage layer is fully backwards compatible and will automatically convert
+  existing transactions to the new format.
+
+### Fixed
+
+- Listing executed transactions that were written in `v0.1` was broken in
+  `v0.2`. Backwards compatibility is now automatically tested to help ensure
+  this sort of issue won't happen in the future again.
+
+### Added
+
+- `SerializedCollection::list_with_prefix`,
+  `connection::Collection::list_with_prefix`, and
+  `connection::View::with_key_prefix` have been added as an easy way to filter
+  results based on whether the key starts with the given prefix.
+
+  This is supported by a new trait, `IntoPrefixRange`. This trait has been
+  implemented for all byte-based key implementations as well as for `String`.
+- `Operation::push_serialized` has been added, which calls `natural_id` before
+  creating an `Operation::Insert` variant.
+- `Tasks::parallelization` and `Builder::workers_parallelization` have been
+  added as a way to control how many threads can be used by any given
+  task/worker. This is automatically configured to be the number of cpu cores
+  detected.
+- `count()` is a new function on the list builders, available via:
+
+  - `SerializedCollection::all(db).count().await`
+  - `SerializedCollection::list(42.., db).count().await`
+  - `db.collection::<Collection>().all().count().await`
+  - `db.collection::<Collection>().list(42..).count().await`
+
+  The performance of this call is not as good as it will eventually be, as it is
+  currently doing more work than strictly necessary.
+- [#215][215]: `StorageConnection::delete_user` has been added, enabling
+  deletions of users without directly interacting with the `admin` database.
+
+[215]: https://github.com/khonsulabs/bonsaidb/pull/215
+
+### Changed
+
+- The view map/reduce system has been optimized to take advantage of some
+  parallelism. The view system is still not hightly optimized, but this change
+  makes a significant improvement on performance.
+
+## v0.2.0
 
 ### Breaking Changes
 
@@ -31,7 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collections and wish to maintain backwards compatibility, use `u64` as the
   type.
 
-  A `natural_id()` function can now be implemented on `SerializedCollection` or `DefaultSerialization` which allows extracting a primary key value from a new document being pushed
+  A `natural_id()` function can now be implemented on `SerializedCollection` or
+  `DefaultSerialization` which allows extracting a primary key value from a new
+  document being pushed
   
   A new example, `primary-keys.rs`, as been added showing basic usage of
   changing the primary key type. This change resulted in a sequnce of breaking

@@ -13,7 +13,7 @@ use crate::{
     document::{
         AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, OwnedDocument,
     },
-    key::Key,
+    key::{IntoPrefixRange, Key},
     permissions::Permissions,
     schema::{
         self,
@@ -168,12 +168,11 @@ pub trait Connection: Send + Sync {
         I: Iterator<Item = PrimaryKey> + Send + Sync,
         PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync;
 
-    /// Retrieves all documents within the range of `ids`. Documents that are
-    /// not found are not returned, but no error will be generated. To retrieve
-    /// all documents, pass in `..` for `ids`.
+    /// Retrieves all documents within the range of `ids`. To retrieve all
+    /// documents, pass in `..` for `ids`.
     ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
+    /// This is the lower-level API. For better ergonomics, consider using one
+    /// of:
     ///
     /// - [`SerializedCollection::all()`]
     /// - [`self.collection::<Collection>().all()`](Collection::all)
@@ -185,6 +184,21 @@ pub trait Connection: Send + Sync {
         order: Sort,
         limit: Option<usize>,
     ) -> Result<Vec<OwnedDocument>, Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
+
+    /// Counts the number of documents within the range of `ids`.
+    ///
+    /// This is the lower-level API. For better ergonomics, consider using
+    /// one of:
+    ///
+    /// - [`SerializedCollection::all().count()`](schema::List::count)
+    /// - [`self.collection::<Collection>().all().count()`](List::count)
+    /// - [`SerializedCollection::list().count()`](schema::List::count)
+    /// - [`self.collection::<Collection>().list().count()`](List::count)
+    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, Error>
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
@@ -214,7 +228,6 @@ pub trait Connection: Send + Sync {
     }
 
     /// Initializes [`View`] for [`schema::View`] `V`.
-    #[must_use]
     fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V>
     where
         Self: Sized,
@@ -228,7 +241,6 @@ pub trait Connection: Send + Sync {
     /// the view using [`self.view::<View>().query()`](View::query) instead.
     /// The parameters for the query can be customized on the builder returned
     /// from [`Self::view()`].
-    #[must_use]
     async fn query<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
@@ -706,6 +718,38 @@ where
         )
     }
 
+    /// Retrieves all documents with ids that start with `prefix`.
+    ///
+    /// ```rust
+    /// use bonsaidb_core::{
+    ///     connection::Connection,
+    ///     document::OwnedDocument,
+    ///     schema::{Collection, Schematic, SerializedCollection},
+    ///     Error,
+    /// };
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+    /// #[collection(name = "MyCollection", primary_key = String)]
+    /// # #[collection(core = bonsaidb_core)]
+    /// pub struct MyCollection;
+    ///
+    /// async fn starts_with_a<C: Connection>(db: &C) -> Result<Vec<OwnedDocument>, Error> {
+    ///     db.collection::<MyCollection>()
+    ///         .list_with_prefix(String::from("a"))
+    ///         .await
+    /// }
+    /// ```
+    pub fn list_with_prefix(&'a self, prefix: Cl::PrimaryKey) -> List<'a, Cn, Cl>
+    where
+        Cl::PrimaryKey: IntoPrefixRange,
+    {
+        List::new(
+            PossiblyOwned::Borrowed(self),
+            prefix.into_prefix_range().map(AnyDocumentId::Deserialized),
+        )
+    }
+
     /// Retrieves all documents.
     ///
     /// ```rust
@@ -790,6 +834,7 @@ where
 impl<'a, Cn, Cl> List<'a, Cn, Cl>
 where
     Cl: schema::Collection,
+    Cn: Connection,
 {
     pub(crate) fn new(
         collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
@@ -829,6 +874,35 @@ where
     pub fn limit(mut self, maximum_results: usize) -> Self {
         self.builder().limit = Some(maximum_results);
         self
+    }
+
+    /// Returns the number of documents contained within the range.
+    ///
+    /// Order and limit are ignored if they were set.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// println!(
+    ///     "Number of documents with id 42 or larger: {}",
+    ///     db.collection::<MyCollection>().list(42..).count().await?
+    /// );
+    /// println!(
+    ///     "Number of documents in MyCollection: {}",
+    ///     db.collection::<MyCollection>().all().count().await?
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub async fn count(self) -> Result<u64, Error> {
+        match self.state {
+            ListState::Pending(Some(ListBuilder {
+                collection, range, ..
+            })) => collection.connection.count::<Cl, _, _>(range).await,
+            _ => unreachable!("Attempted to use after retrieving the result"),
+        }
     }
 }
 
@@ -916,6 +990,7 @@ where
 ///     }
 /// }
 /// ```
+#[must_use]
 pub struct View<'a, Cn, V: schema::SerializedView> {
     connection: &'a Cn,
 
@@ -962,7 +1037,6 @@ where
     /// # })
     /// # }
     /// ```
-    #[must_use]
     pub fn with_key(mut self, key: V::Key) -> Self {
         self.key = Some(QueryKey::Matches(key));
         self
@@ -987,7 +1061,6 @@ where
     /// # })
     /// # }
     /// ```
-    #[must_use]
     pub fn with_keys<IntoIter: IntoIterator<Item = V::Key>>(mut self, keys: IntoIter) -> Self {
         self.key = Some(QueryKey::Multiple(keys.into_iter().collect()));
         self
@@ -1013,9 +1086,41 @@ where
     /// # })
     /// # }
     /// ```
-    #[must_use]
     pub fn with_key_range<R: Into<Range<V::Key>>>(mut self, range: R) -> Self {
         self.key = Some(QueryKey::Range(range.into()));
+        self
+    }
+
+    /// Filters for entries in the view with keys that begin with `prefix`.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// #[derive(View, Debug, Clone)]
+    /// #[view(name = "by-name", key = String, collection = MyCollection)]
+    /// # #[view(core = bonsaidb_core)]
+    /// struct ByName;
+    ///
+    /// // score is an f32 in this example
+    /// for mapping in db
+    ///     .view::<ByName>()
+    ///     .with_key_prefix(String::from("a"))
+    ///     .query()
+    ///     .await?
+    /// {
+    ///     assert!(mapping.key.starts_with("a"));
+    ///     println!("{} in document {:?}", mapping.key, mapping.source);
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub fn with_key_prefix(mut self, prefix: V::Key) -> Self
+    where
+        V::Key: IntoPrefixRange,
+    {
+        self.key = Some(QueryKey::Range(prefix.into_prefix_range()));
         self
     }
 
@@ -1607,6 +1712,13 @@ pub trait StorageConnection: Send + Sync {
     /// Creates a user.
     #[cfg(feature = "multiuser")]
     async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
+
+    /// Deletes a user.
+    #[cfg(feature = "multiuser")]
+    async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
+        &self,
+        user: U,
+    ) -> Result<(), crate::Error>;
 
     /// Sets a user's password.
     #[cfg(feature = "password-hashing")]

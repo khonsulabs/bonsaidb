@@ -9,6 +9,7 @@ use crate::{
 /// An assignable role, which grants permissions based on the associated [`PermissionGroup`](crate::admin::PermissionGroup)s.
 #[derive(Clone, Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "role", authority="khonsulabs", views = [ByName], core = crate)]
+#[must_use]
 pub struct Role {
     /// The name of the role. Must be unique.
     pub name: String,

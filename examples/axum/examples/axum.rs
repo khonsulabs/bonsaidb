@@ -2,7 +2,7 @@
 //! framework should be usable.
 
 use async_trait::async_trait;
-use axum::{extract, routing::get, AddExtensionLayer, Router};
+use axum::{extract, extract::Extension, routing::get, Router};
 use bonsaidb::{
     core::{connection::StorageConnection, keyvalue::KeyValue},
     local::config::Builder,
@@ -33,8 +33,8 @@ impl HttpService for AxumService {
             .route("/", get(uptime_handler))
             .route("/ws", get(upgrade_websocket))
             // Attach the server and the remote address as extractable data for the /ws route
-            .layer(AddExtensionLayer::new(server))
-            .layer(AddExtensionLayer::new(peer.address));
+            .layer(Extension(server))
+            .layer(Extension(peer.address));
 
         if let Err(err) = Http::new()
             .serve_connection(connection, app)
@@ -122,7 +122,7 @@ async fn test() {
             Err(err) if err.is_connect() => {
                 return None;
             }
-            Err(other) => unreachable!(other),
+            Err(other) => unreachable!("{}", other),
         };
 
         assert_eq!(response.status(), 200);

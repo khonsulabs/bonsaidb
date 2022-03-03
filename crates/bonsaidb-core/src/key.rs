@@ -10,7 +10,7 @@ use num_traits::{FromPrimitive, ToPrimitive};
 use ordered_varint::{Signed, Unsigned, Variable};
 use serde::{Deserialize, Serialize};
 
-use crate::AnyError;
+use crate::{connection::Range, AnyError};
 
 /// A trait that enables a type to convert itself into a `memcmp`-compatible
 /// sequence of bytes.
@@ -56,6 +56,27 @@ pub enum NextValueError {
     WouldWrap,
 }
 
+/// A type that can be used as a prefix range in range-based queries.
+pub trait IntoPrefixRange: Sized {
+    /// Returns the value as a prefix-range, which will match all values that
+    /// start with `self`.
+    fn into_prefix_range(self) -> Range<Self>;
+}
+
+fn next_byte_sequence(start: &[u8]) -> Option<Vec<u8>> {
+    let mut end = start.to_vec();
+    // Modify the last byte by adding one. If it would wrap, we proceed to the
+    // next byte.
+    while let Some(last_byte) = end.pop() {
+        if let Some(next) = last_byte.checked_add(1) {
+            end.push(next);
+            return Some(end);
+        }
+    }
+
+    None
+}
+
 impl<'k> Key<'k> for Cow<'k, [u8]> {
     type Error = Infallible;
 
@@ -68,6 +89,33 @@ impl<'k> Key<'k> for Cow<'k, [u8]> {
     fn from_ord_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
         Ok(Cow::Owned(bytes.to_vec()))
     }
+}
+
+impl<'k> IntoPrefixRange for Cow<'k, [u8]> {
+    fn into_prefix_range(self) -> Range<Self> {
+        if let Some(next) = next_byte_sequence(&self) {
+            Range::from(self..Cow::Owned(next))
+        } else {
+            Range::from(self..)
+        }
+    }
+}
+
+#[test]
+fn cow_prefix_range_tests() {
+    use std::ops::RangeBounds;
+    assert!(Cow::<'_, [u8]>::Borrowed(b"a")
+        .into_prefix_range()
+        .contains(&Cow::Borrowed(b"aa")));
+    assert!(!Cow::<'_, [u8]>::Borrowed(b"a")
+        .into_prefix_range()
+        .contains(&Cow::Borrowed(b"b")));
+    assert!(Cow::<'_, [u8]>::Borrowed(b"\xff")
+        .into_prefix_range()
+        .contains(&Cow::Borrowed(b"\xff\xff")));
+    assert!(!Cow::<'_, [u8]>::Borrowed(b"\xff")
+        .into_prefix_range()
+        .contains(&Cow::Borrowed(b"\xfe")));
 }
 
 impl<'a> Key<'a> for Vec<u8> {
@@ -84,6 +132,31 @@ impl<'a> Key<'a> for Vec<u8> {
     }
 }
 
+impl<'k> IntoPrefixRange for Vec<u8> {
+    fn into_prefix_range(self) -> Range<Self> {
+        if let Some(next) = next_byte_sequence(&self) {
+            Range::from(self..next)
+        } else {
+            Range::from(self..)
+        }
+    }
+}
+
+#[test]
+fn vec_prefix_range_tests() {
+    use std::ops::RangeBounds;
+    assert!(b"a".to_vec().into_prefix_range().contains(&b"aa".to_vec()));
+    assert!(!b"a".to_vec().into_prefix_range().contains(&b"b".to_vec()));
+    assert!(b"\xff"
+        .to_vec()
+        .into_prefix_range()
+        .contains(&b"\xff\xff".to_vec()));
+    assert!(!b"\xff"
+        .to_vec()
+        .into_prefix_range()
+        .contains(&b"\xfe".to_vec()));
+}
+
 impl<'a> Key<'a> for ArcBytes<'a> {
     type Error = Infallible;
 
@@ -96,6 +169,33 @@ impl<'a> Key<'a> for ArcBytes<'a> {
     fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Ok(Self::from(bytes))
     }
+}
+
+impl<'k> IntoPrefixRange for ArcBytes<'k> {
+    fn into_prefix_range(self) -> Range<Self> {
+        if let Some(next) = next_byte_sequence(&self) {
+            Range::from(self..Self::owned(next))
+        } else {
+            Range::from(self..)
+        }
+    }
+}
+
+#[test]
+fn arcbytes_prefix_range_tests() {
+    use std::ops::RangeBounds;
+    assert!(ArcBytes::from(b"a")
+        .into_prefix_range()
+        .contains(&ArcBytes::from(b"aa")));
+    assert!(!ArcBytes::from(b"a")
+        .into_prefix_range()
+        .contains(&ArcBytes::from(b"b")));
+    assert!(ArcBytes::from(b"\xff")
+        .into_prefix_range()
+        .contains(&ArcBytes::from(b"\xff\xff")));
+    assert!(!ArcBytes::from(b"\xff")
+        .into_prefix_range()
+        .contains(&ArcBytes::from(b"\xfe")));
 }
 
 impl<'a> Key<'a> for CowBytes<'a> {
@@ -112,6 +212,33 @@ impl<'a> Key<'a> for CowBytes<'a> {
     }
 }
 
+impl<'k> IntoPrefixRange for CowBytes<'k> {
+    fn into_prefix_range(self) -> Range<Self> {
+        if let Some(next) = next_byte_sequence(&self) {
+            Range::from(self..Self::from(next))
+        } else {
+            Range::from(self..)
+        }
+    }
+}
+
+#[test]
+fn cowbytes_prefix_range_tests() {
+    use std::ops::RangeBounds;
+    assert!(CowBytes::from(&b"a"[..])
+        .into_prefix_range()
+        .contains(&CowBytes::from(&b"aa"[..])));
+    assert!(!CowBytes::from(&b"a"[..])
+        .into_prefix_range()
+        .contains(&CowBytes::from(&b"b"[..])));
+    assert!(CowBytes::from(&b"\xff"[..])
+        .into_prefix_range()
+        .contains(&CowBytes::from(&b"\xff\xff"[..])));
+    assert!(!CowBytes::from(&b"\xff"[..])
+        .into_prefix_range()
+        .contains(&CowBytes::from(&b"\xfe"[..])));
+}
+
 impl<'a> Key<'a> for Bytes {
     type Error = Infallible;
 
@@ -126,6 +253,33 @@ impl<'a> Key<'a> for Bytes {
     }
 }
 
+impl IntoPrefixRange for Bytes {
+    fn into_prefix_range(self) -> Range<Self> {
+        if let Some(next) = next_byte_sequence(&self) {
+            Range::from(self..Self::from(next))
+        } else {
+            Range::from(self..)
+        }
+    }
+}
+
+#[test]
+fn bytes_prefix_range_tests() {
+    use std::ops::RangeBounds;
+    assert!(Bytes::from(b"a".to_vec())
+        .into_prefix_range()
+        .contains(&Bytes::from(b"aa".to_vec())));
+    assert!(!Bytes::from(b"a".to_vec())
+        .into_prefix_range()
+        .contains(&Bytes::from(b"b".to_vec())));
+    assert!(Bytes::from(b"\xff".to_vec())
+        .into_prefix_range()
+        .contains(&Bytes::from(b"\xff\xff".to_vec())));
+    assert!(!Bytes::from(b"\xff".to_vec())
+        .into_prefix_range()
+        .contains(&Bytes::from(b"\xfe".to_vec())));
+}
+
 impl<'a> Key<'a> for String {
     type Error = FromUtf8Error;
 
@@ -138,6 +292,55 @@ impl<'a> Key<'a> for String {
     fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Self::from_utf8(bytes.to_vec())
     }
+}
+
+impl IntoPrefixRange for String {
+    fn into_prefix_range(self) -> Range<Self> {
+        let mut bytes = self.as_bytes().to_vec();
+        for (index, char) in self.char_indices().rev() {
+            let mut next_char = u32::from(char) + 1;
+            if next_char == 0xd800 {
+                next_char = 0xE000;
+            } else if next_char > u32::from(char::MAX) {
+                continue;
+            }
+
+            let mut char_bytes = [0; 6];
+            bytes.splice(
+                index..,
+                char::try_from(next_char)
+                    .unwrap()
+                    .encode_utf8(&mut char_bytes)
+                    .bytes(),
+            );
+            return Range::from(self..Self::from_utf8(bytes).unwrap());
+        }
+
+        Range::from(self..)
+    }
+}
+
+#[test]
+fn string_prefix_range_tests() {
+    use std::ops::RangeBounds;
+    assert!(String::from("a")
+        .into_prefix_range()
+        .contains(&String::from("aa")));
+    assert!(!String::from("a")
+        .into_prefix_range()
+        .contains(&String::from("b")));
+    assert!(String::from("\u{d799}")
+        .into_prefix_range()
+        .contains(&String::from("\u{d799}a")));
+    assert!(!String::from("\u{d799}")
+        .into_prefix_range()
+        .contains(&String::from("\u{e000}")));
+    assert!(String::from("\u{10ffff}")
+        .into_prefix_range()
+        .contains(&String::from("\u{10ffff}a")));
+    assert!(!String::from("\u{10ffff}")
+        .into_prefix_range()
+        .contains(&String::from("\u{10fffe}")));
 }
 
 impl<'a> Key<'a> for () {

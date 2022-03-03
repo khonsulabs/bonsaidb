@@ -84,6 +84,12 @@ pub enum ServerRequest {
         /// The unique username of the user to create.
         username: String,
     },
+    /// Deletes a user.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    DeleteUser {
+        /// The unique primary key of the user to be deleted.
+        user: NamedReference<'static, u64>,
+    },
     /// Set's a user's password.
     #[cfg(feature = "password-hashing")]
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
@@ -161,6 +167,14 @@ pub enum DatabaseRequest {
         order: Sort,
         /// The maximum number of results to return.
         limit: Option<usize>,
+    },
+    /// Counts the number of documents in the specified range.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    Count {
+        /// The collection of the documents.
+        collection: CollectionName,
+        /// The range of ids to count.
+        ids: Range<DocumentId>,
     },
     /// Queries a view.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
@@ -327,8 +341,8 @@ pub enum ServerResponse {
 pub enum DatabaseResponse {
     /// One or more documents.
     Documents(Vec<OwnedDocument>),
-    /// A number of documents were deleted.
-    DocumentsDeleted(u64),
+    /// A result count.
+    Count(u64),
     /// Results of [`DatabaseRequest::ApplyTransaction`].
     TransactionResults(Vec<OperationResult>),
     /// Results of [`DatabaseRequest::Query`] when `with_docs` is false.

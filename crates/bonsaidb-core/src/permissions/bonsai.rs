@@ -119,6 +119,8 @@ pub enum ServerAction {
     DeleteDatabase,
     /// Permits [`StorageConnection::create_user`](crate::connection::StorageConnection::create_user).
     CreateUser,
+    /// Permits [`StorageConnection::delete_user`](crate::connection::StorageConnection::delete_user).
+    DeleteUser,
     /// Permits [`StorageConnection::set_user_password`](crate::connection::StorageConnection::set_user_password).
     SetPassword,
     /// Permits the ability to log in with a password.
@@ -168,6 +170,11 @@ pub enum DocumentAction {
     /// [`collection_resource_name()`] for the format of collection resource
     /// names.
     List,
+    /// Allows counting documents through
+    /// [`Connection::count()`](crate::connection::Connection::count). See
+    /// [`collection_resource_name()`] for the format of collection resource
+    /// names.
+    Count,
     /// Allows inserting a document through
     /// [`Connection::apply_transaction()`](crate::connection::Connection::apply_transaction).
     /// See [`collection_resource_name()`] for the format of collection resource

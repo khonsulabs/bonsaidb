@@ -135,6 +135,15 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         self.db.list::<C, R, PrimaryKey>(ids, order, limit).await
     }
 
+    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        self.db.count::<C, R, PrimaryKey>(ids).await
+    }
+
     async fn query<V: SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
