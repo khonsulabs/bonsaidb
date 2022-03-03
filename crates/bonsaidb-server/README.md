@@ -3,9 +3,9 @@
 BonsaiDb's networked database implementation.
 
 This crate implements BonsaiDb's networked database implementation. The
-[`Server`](https://dev.bonsaidb.io/main/docs/bonsaidb_server/type.Server.html) and [`CustomServer<Backend>`](https://dev.bonsaidb.io/main/docs/bonsaidb_server/struct.CustomServer.html)
+[`Server`](https://docs.rs/bonsaidb-server/*/bonsaidb_server/type.Server.html) and [`CustomServer<Backend>`](https://docs.rs/bonsaidb-server/*/bonsaidb_server/struct.CustomServer.html)
 types provide their most common functionality by implementing the
-[`StorageConnection`](https://dev.bonsaidb.io/main/docs/bonsaidb/core/connection/trait.StorageConnection.html).
+[`StorageConnection`](https://docs.rs/bonsaidb-core/*/bonsaidb_core/connection/trait.StorageConnection.html).
 
 This crate supports two methods for exposing a BonsaiDb server: QUIC and
 WebSockets.
@@ -15,7 +15,7 @@ reliably than TCP, and features TLS built-in at the protocol level.
 WebSockets are an established protocol built atop TCP and HTTP.
 
 Our user's guide has a section covering [setting up and accessing a BonsaiDb
-server](https://dev.bonsaidb.io/release/guide/integration/server.html).
+server](https://dev.bonsaidb.io/v0.3.0/guide/integration/server.html).
 
 ## Minimum Supported Rust Version (MSRV)
 
