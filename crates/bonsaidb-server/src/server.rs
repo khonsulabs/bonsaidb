@@ -1548,6 +1548,42 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
 }
 
 #[async_trait]
+impl<'s, B: Backend> bonsaidb_core::networking::ListHeadersHandler for DatabaseDispatcher<'s, B> {
+    type Action = BonsaiAction;
+
+    async fn resource_name<'a>(
+        &'a self,
+        collection: &'a CollectionName,
+        _ids: &'a Range<DocumentId>,
+        _order: &'a Sort,
+        _limit: &'a Option<usize>,
+    ) -> Result<ResourceName<'a>, Error> {
+        Ok(collection_resource_name(&self.name, collection))
+    }
+
+    fn action() -> Self::Action {
+        BonsaiAction::Database(DatabaseAction::Document(DocumentAction::ListHeaders))
+    }
+
+    async fn handle_protected(
+        &self,
+        _permissions: &Permissions,
+        collection: CollectionName,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<usize>,
+    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
+        let documents = self
+            .database
+            .list_headers_from_collection(ids, order, limit, &collection)
+            .await?;
+        Ok(Response::Database(DatabaseResponse::DocumentHeaders(
+            documents,
+        )))
+    }
+}
+
+#[async_trait]
 impl<'s, B: Backend> bonsaidb_core::networking::CountHandler for DatabaseDispatcher<'s, B> {
     type Action = BonsaiAction;
 

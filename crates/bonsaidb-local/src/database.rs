@@ -328,6 +328,18 @@ impl Database {
 
     #[cfg(feature = "internal-apis")]
     #[doc(hidden)]
+    pub async fn list_headers_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<usize>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
+        self.list_headers(ids, order, limit, collection).await
+    }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
     pub async fn count_from_collection(
         &self,
         ids: Range<DocumentId>,
@@ -589,6 +601,67 @@ impl Database {
             .unwrap();
 
             Ok(found_docs)
+        })
+        .await
+        .unwrap()
+    }
+
+    pub(crate) async fn list_headers(
+        &self,
+        ids: Range<DocumentId>,
+        sort: Sort,
+        limit: Option<usize>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        let collection = collection.clone();
+        tokio::task::spawn_blocking(move || {
+            let tree = task_self
+                .data
+                .context
+                .roots
+                .tree(task_self.collection_tree::<Versioned, _>(
+                    &collection,
+                    document_tree_name(&collection),
+                )?)
+                .map_err(Error::from)?;
+            let mut found_headers = Vec::new();
+            let mut keys_read = 0;
+            let ids = DocumentIdRange(ids);
+            tree.scan(
+                &ids.borrow_as_bytes(),
+                match sort {
+                    Sort::Ascending => true,
+                    Sort::Descending => false,
+                },
+                |_, _, _| true,
+                |_, _| {
+                    if let Some(limit) = limit {
+                        if keys_read >= limit {
+                            return KeyEvaluation::Stop;
+                        }
+
+                        keys_read += 1;
+                    }
+                    KeyEvaluation::ReadData
+                },
+                |_, _, doc| {
+                    found_headers.push(
+                        deserialize_document(&doc)
+                            .map(BorrowedDocument::into_owned)
+                            .map(|doc| doc.header.clone())
+                            .map_err(AbortError::Other)?,
+                    );
+                    Ok(())
+                },
+            )
+            .map_err(|err| match err {
+                AbortError::Other(err) => err,
+                AbortError::Nebari(err) => crate::Error::from(err),
+            })
+            .unwrap();
+
+            Ok(found_headers)
         })
         .await
         .unwrap()
@@ -1376,6 +1449,27 @@ impl Connection for Database {
         PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
         self.list(
+            ids.into().map_result(|id| id.into().to_document_id())?,
+            order,
+            limit,
+            &C::collection_name(),
+        )
+        .await
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids, order, limit)))]
+    async fn list_headers<C, R, PrimaryKey>(
+        &self,
+        ids: R,
+        order: Sort,
+        limit: Option<usize>,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        self.list_headers(
             ids.into().map_result(|id| id.into().to_document_id())?,
             order,
             limit,

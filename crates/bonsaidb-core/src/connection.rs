@@ -11,7 +11,8 @@ use zeroize::Zeroize;
 use crate::schema::Nameable;
 use crate::{
     document::{
-        AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, OwnedDocument,
+        AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, Header,
+        OwnedDocument,
     },
     key::{IntoPrefixRange, Key},
     permissions::Permissions,
@@ -184,6 +185,27 @@ pub trait Connection: Send + Sync {
         order: Sort,
         limit: Option<u32>,
     ) -> Result<Vec<OwnedDocument>, Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
+
+    /// Retrieves all documents within the range of `ids`. To retrieve all
+    /// documents, pass in `..` for `ids`.
+    ///
+    /// This is the lower-level API. For better ergonomics, consider using one
+    /// of:
+    ///
+    /// - [`SerializedCollection::all()`]
+    /// - [`self.collection::<Collection>().all()`](Collection::all)
+    /// - [`SerializedCollection::list_headers()`]
+    /// - [`self.collection::<Collection>().list_headers()`](Collection::list_headers)
+    async fn list_headers<C, R, PrimaryKey>(
+        &self,
+        ids: R,
+        order: Sort,
+        limit: Option<usize>,
+    ) -> Result<Vec<Header>, Error>
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,

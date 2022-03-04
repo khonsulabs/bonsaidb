@@ -4,7 +4,7 @@ use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     async_trait::async_trait,
     connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{AnyDocumentId, OwnedDocument},
+    document::{AnyDocumentId, Header, OwnedDocument},
     schema::{
         view::map::MappedDocuments, Collection, Map, MappedValue, Nameable, Schema, SchemaName,
         SerializedView,
@@ -256,6 +256,23 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         match self {
             Self::Local(server) => server.list::<C, _, _>(ids, order, limit).await,
             Self::Networked(client) => client.list::<C, _, _>(ids, order, limit).await,
+        }
+    }
+
+    async fn list_headers<C, R, PrimaryKey>(
+        &self,
+        ids: R,
+        order: Sort,
+        limit: Option<usize>,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error>
+    where
+        C: Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        match self {
+            Self::Local(server) => server.list_headers::<C, _, _>(ids, order, limit).await,
+            Self::Networked(client) => client.list_headers::<C, _, _>(ids, order, limit).await,
         }
     }
 

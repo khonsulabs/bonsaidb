@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     connection::{AccessPolicy, Authenticated, Database, QueryKey, Range, Sort},
-    document::{DocumentId, OwnedDocument},
+    document::{DocumentId, Header, OwnedDocument},
     keyvalue::{KeyOperation, Output},
     schema::{
         self,
@@ -167,6 +167,18 @@ pub enum DatabaseRequest {
         order: Sort,
         /// The maximum number of results to return.
         limit: Option<u32>,
+    },
+    /// Retrieve headers of multiple documents.
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    ListHeaders {
+        /// The collection of the documents.
+        collection: CollectionName,
+        /// The range of ids to list.
+        ids: Range<DocumentId>,
+        /// The order for the query into the collection.
+        order: Sort,
+        /// The maximum number of results to return.
+        limit: Option<usize>,
     },
     /// Counts the number of documents in the specified range.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
@@ -341,6 +353,8 @@ pub enum ServerResponse {
 pub enum DatabaseResponse {
     /// One or more documents.
     Documents(Vec<OwnedDocument>),
+    /// One or more document headers.
+    DocumentHeaders(Vec<Header>),
     /// A result count.
     Count(u64),
     /// Results of [`DatabaseRequest::ApplyTransaction`].
