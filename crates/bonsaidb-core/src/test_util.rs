@@ -907,13 +907,19 @@ pub async fn list_transactions_tests<C: Connection>(db: &C) -> anyhow::Result<()
 
     // Test defaults
     let transactions = db.list_executed_transactions(None, None).await?;
-    assert_eq!(transactions.len(), LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT);
+    assert_eq!(
+        u32::try_from(transactions.len()).unwrap(),
+        LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT
+    );
 
     // Test max results limit
     let transactions = db
         .list_executed_transactions(None, Some(LIST_TRANSACTIONS_MAX_RESULTS + 1))
         .await?;
-    assert_eq!(transactions.len(), LIST_TRANSACTIONS_MAX_RESULTS);
+    assert_eq!(
+        u32::try_from(transactions.len()).unwrap(),
+        LIST_TRANSACTIONS_MAX_RESULTS
+    );
 
     // Test requesting 0 items
     let transactions = db.list_executed_transactions(None, Some(0)).await?;
@@ -935,7 +941,10 @@ pub async fn list_transactions_tests<C: Connection>(db: &C) -> anyhow::Result<()
         transactions.extend(chunk);
     }
 
-    assert_eq!(transactions.len(), LIST_TRANSACTIONS_MAX_RESULTS + 1);
+    assert_eq!(
+        u32::try_from(transactions.len()).unwrap(),
+        LIST_TRANSACTIONS_MAX_RESULTS + 1
+    );
 
     Ok(())
 }

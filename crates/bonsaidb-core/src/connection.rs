@@ -182,7 +182,7 @@ pub trait Connection: Send + Sync {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<OwnedDocument>, Error>
     where
         C: schema::Collection,
@@ -245,7 +245,7 @@ pub trait Connection: Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, Error>
     where
@@ -262,7 +262,7 @@ pub trait Connection: Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
     where
@@ -279,7 +279,7 @@ pub trait Connection: Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
@@ -364,7 +364,7 @@ pub trait Connection: Send + Sync {
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Vec<transaction::Executed>, Error>;
 
     /// Fetches the last transaction id that has been committed, if any.
@@ -794,7 +794,7 @@ where
     collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
     range: Range<AnyDocumentId<Cl::PrimaryKey>>,
     sort: Sort,
-    limit: Option<usize>,
+    limit: Option<u32>,
 }
 
 pub(crate) enum PossiblyOwned<'a, Cl> {
@@ -871,7 +871,7 @@ where
     }
 
     /// Sets the maximum number of results to return.
-    pub fn limit(mut self, maximum_results: usize) -> Self {
+    pub fn limit(mut self, maximum_results: u32) -> Self {
         self.builder().limit = Some(maximum_results);
         self
     }
@@ -1004,7 +1004,7 @@ pub struct View<'a, Cn, V: schema::SerializedView> {
     pub sort: Sort,
 
     /// The maximum number of results to return.
-    pub limit: Option<usize>,
+    pub limit: Option<u32>,
 }
 
 impl<'a, Cn, V> View<'a, Cn, V>
@@ -1200,7 +1200,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn limit(mut self, maximum_results: usize) -> Self {
+    pub fn limit(mut self, maximum_results: u32) -> Self {
         self.limit = Some(maximum_results);
         self
     }

@@ -128,7 +128,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
     where
         C: Collection,
@@ -185,7 +185,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
@@ -226,7 +226,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
     where
@@ -397,7 +397,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Vec<Executed>, bonsaidb_core::Error> {
         match self
             .client

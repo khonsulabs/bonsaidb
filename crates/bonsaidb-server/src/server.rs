@@ -1522,7 +1522,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
         collection: &'a CollectionName,
         _ids: &'a Range<DocumentId>,
         _order: &'a Sort,
-        _limit: &'a Option<usize>,
+        _limit: &'a Option<u32>,
     ) -> Result<ResourceName<'a>, Error> {
         Ok(collection_resource_name(&self.name, collection))
     }
@@ -1537,7 +1537,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
         collection: CollectionName,
         ids: Range<DocumentId>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let documents = self
             .database
@@ -1586,7 +1586,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
         view: &'a ViewName,
         _key: &'a Option<QueryKey<Bytes>>,
         _order: &'a Sort,
-        _limit: &'a Option<usize>,
+        _limit: &'a Option<u32>,
         _access_policy: &'a AccessPolicy,
         _with_docs: &'a bool,
     ) -> Result<ResourceName<'a>, Error> {
@@ -1603,7 +1603,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
         view: ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
         with_docs: bool,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
@@ -1758,7 +1758,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
     async fn resource_name<'a>(
         &'a self,
         _starting_id: &'a Option<u64>,
-        _result_limit: &'a Option<usize>,
+        _result_limit: &'a Option<u32>,
     ) -> Result<ResourceName<'a>, Error> {
         Ok(database_resource_name(&self.name))
     }
@@ -1771,7 +1771,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
         &self,
         _permissions: &Permissions,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
             self.database

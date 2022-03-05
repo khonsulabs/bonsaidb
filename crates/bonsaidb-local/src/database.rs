@@ -217,7 +217,7 @@ impl Database {
         view: &dyn view::Serialized,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
         mut callback: F,
     ) -> Result<(), bonsaidb_core::Error> {
@@ -270,7 +270,7 @@ impl Database {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
         callback: F,
     ) -> Result<(), bonsaidb_core::Error> {
@@ -307,7 +307,7 @@ impl Database {
         &self,
         ids: Range<DocumentId>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.list(ids, order, limit, collection).await
@@ -353,7 +353,7 @@ impl Database {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<bonsaidb_core::schema::view::map::Serialized>, bonsaidb_core::Error> {
         if let Some(view) = self.schematic().view_by_name(view) {
@@ -383,7 +383,7 @@ impl Database {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<bonsaidb_core::schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error>
     {
@@ -525,7 +525,7 @@ impl Database {
         &self,
         ids: Range<DocumentId>,
         sort: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         let task_self = self.clone();
@@ -1075,7 +1075,7 @@ impl Database {
         view_entries: &'a Tree<Unversioned, AnyFile>,
         key: Option<QueryKey<K>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<ViewEntry>, Error> {
         let mut values = Vec::new();
         let forwards = match order {
@@ -1370,7 +1370,7 @@ impl Connection for Database {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
     where
         C: schema::Collection,
@@ -1407,11 +1407,14 @@ impl Connection for Database {
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Vec<transaction::Executed>, bonsaidb_core::Error> {
-        let result_limit = result_limit
-            .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
-            .min(LIST_TRANSACTIONS_MAX_RESULTS);
+        let result_limit = usize::try_from(
+            result_limit
+                .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
+                .min(LIST_TRANSACTIONS_MAX_RESULTS),
+        )
+        .unwrap();
         if result_limit > 0 {
             let task_self = self.clone();
             tokio::task::spawn_blocking::<_, Result<Vec<transaction::Executed>, Error>>(move || {
@@ -1462,7 +1465,7 @@ impl Connection for Database {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
@@ -1495,7 +1498,7 @@ impl Connection for Database {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
     where
