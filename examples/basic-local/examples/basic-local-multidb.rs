@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use bonsaidb::{
     core::{
-        connection::{Connection, StorageConnection},
+        connection::{AsyncConnection, AsyncStorageConnection},
         schema::{Collection, SerializedCollection},
     },
     local::{
@@ -40,7 +40,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
 }
 
 // ANCHOR: reusable-code
-async fn insert_a_message<C: Connection>(
+async fn insert_a_message<C: AsyncConnection>(
     connection: &C,
     value: &str,
 ) -> Result<(), bonsaidb::core::Error> {

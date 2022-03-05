@@ -1,6 +1,6 @@
 use bonsaidb_core::{
     actionable::{Permissions, Statement},
-    connection::StorageConnection,
+    connection::AsyncStorageConnection,
     test_util::{self, BasicSchema, HarnessTest, TestDirectory},
 };
 

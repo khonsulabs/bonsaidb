@@ -11,7 +11,6 @@ use argon2::{
 use bonsaidb_core::connection::SensitiveString;
 use once_cell::sync::OnceCell;
 use rand::{thread_rng, CryptoRng, Rng};
-use tokio::sync::oneshot;
 
 use crate::{
     config::{ArgonConfiguration, ArgonParams},
@@ -38,13 +37,18 @@ impl Hasher {
         let mut threads = Vec::with_capacity(config.hashers as usize);
         for _ in 0..config.hashers.max(1) {
             let thread = thread.clone();
-            threads.push(std::thread::spawn(move || thread.process_requests()));
+            threads.push(
+                std::thread::Builder::new()
+                    .name(String::from("argon2"))
+                    .spawn(move || thread.process_requests())
+                    .unwrap(),
+            );
         }
         Hasher { sender, threads }
     }
 
-    pub async fn hash(&self, id: u64, password: SensitiveString) -> Result<SensitiveString, Error> {
-        let (result_sender, result_receiver) = oneshot::channel();
+    pub fn hash(&self, id: u64, password: SensitiveString) -> Result<SensitiveString, Error> {
+        let (result_sender, result_receiver) = flume::bounded(1);
         if self
             .sender
             .send(HashRequest {
@@ -55,7 +59,7 @@ impl Hasher {
             })
             .is_ok()
         {
-            match result_receiver.await?.map_err(Error::from) {
+            match result_receiver.recv()?.map_err(Error::from) {
                 Ok(HashResponse::Hash(hash)) => Ok(hash),
                 Ok(HashResponse::Verified) => unreachable!(),
                 Err(err) => Err(err),
@@ -65,13 +69,13 @@ impl Hasher {
         }
     }
 
-    pub async fn verify(
+    pub fn verify(
         &self,
         id: u64,
         password: SensitiveString,
         saved_hash: SensitiveString,
     ) -> Result<(), Error> {
-        let (result_sender, result_receiver) = oneshot::channel();
+        let (result_sender, result_receiver) = flume::bounded(1);
         if self
             .sender
             .send(HashRequest {
@@ -82,7 +86,7 @@ impl Hasher {
             })
             .is_ok()
         {
-            match result_receiver.await?.map_err(Error::from) {
+            match result_receiver.recv()?.map_err(Error::from) {
                 Ok(_) => Ok(()),
                 Err(err) => {
                     eprintln!("Error validating password for user {}: {:?}", id, err);
@@ -263,7 +267,7 @@ pub struct HashRequest {
     id: u64,
     password: SensitiveString,
     verify_against: Option<SensitiveString>,
-    result_sender: oneshot::Sender<Result<HashResponse, Error>>,
+    result_sender: flume::Sender<Result<HashResponse, Error>>,
 }
 
 #[derive(Debug)]
@@ -291,17 +295,14 @@ fn ceil_divide(dividend: u128, divisor: u128) -> u128 {
     }
 }
 
-#[tokio::test]
-async fn basic_test() {
+#[test]
+fn basic_test() {
     use crate::config::SystemDefault;
     let hasher = Hasher::new(ArgonConfiguration::default());
 
     let password = SensitiveString(String::from("hunter2"));
-    let hash = hasher.hash(1, password.clone()).await.unwrap();
-    hasher
-        .verify(1, password.clone(), hash.clone())
-        .await
-        .unwrap();
+    let hash = hasher.hash(1, password.clone()).unwrap();
+    hasher.verify(1, password, hash).unwrap();
 
     let Hasher { sender, threads } = hasher;
     drop(sender);

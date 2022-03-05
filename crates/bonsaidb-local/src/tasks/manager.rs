@@ -1,8 +1,7 @@
 use std::{fmt::Debug, sync::Arc};
 
-use async_lock::RwLock;
-use bonsaidb_utils::{fast_async_read, fast_async_write};
 use derive_where::derive_where;
+use parking_lot::RwLock;
 
 use crate::tasks::{
     handle::{Handle, Id},
@@ -31,8 +30,8 @@ where
     /// Pushes a `job` into the queue. Pushing the same job definition twice
     /// will yield two tasks in the queue.
     #[cfg(test)]
-    pub async fn enqueue<J: Job + 'static>(&self, job: J) -> Handle<J::Output, J::Error> {
-        let mut jobs = fast_async_write!(self.jobs);
+    pub fn enqueue<J: Job + 'static>(&self, job: J) -> Handle<J::Output, J::Error> {
+        let mut jobs = self.jobs.write();
         jobs.enqueue(job, None, self.clone())
     }
 
@@ -40,21 +39,21 @@ where
     /// currently running. If another job is already running that matches, a
     /// clone of that [`Handle`] will be returned. When the job finishes, all
     /// [`Handle`] clones will be notified with a copy of the result.
-    pub async fn lookup_or_enqueue<J: Keyed<Key>>(
+    pub fn lookup_or_enqueue<J: Keyed<Key>>(
         &self,
         job: J,
     ) -> Handle<<J as Job>::Output, <J as Job>::Error> {
-        let mut jobs = fast_async_write!(self.jobs);
+        let mut jobs = self.jobs.write();
         jobs.lookup_or_enqueue(job, self.clone())
     }
 
-    async fn job_completed<T: Clone + Send + Sync + 'static, E: Send + Sync + 'static>(
+    fn job_completed<T: Clone + Send + Sync + 'static, E: Send + Sync + 'static>(
         &self,
         id: Id,
         key: Option<&Key>,
         result: Result<T, E>,
     ) {
-        let mut jobs = fast_async_write!(self.jobs);
+        let mut jobs = self.jobs.write();
         jobs.job_completed(id, key, result);
     }
 
@@ -62,18 +61,21 @@ where
     /// directly.
     pub fn spawn_worker(&self) {
         let manager = self.clone();
-        tokio::spawn(async move {
-            manager.execute_jobs().await;
-        });
+        std::thread::Builder::new()
+            .name(String::from("bonsaidb-tasks"))
+            .spawn(move || {
+                manager.execute_jobs();
+            })
+            .unwrap();
     }
 
-    async fn execute_jobs(&self) {
+    fn execute_jobs(&self) {
         let receiver = {
-            let jobs = fast_async_read!(self.jobs);
+            let jobs = self.jobs.read();
             jobs.queue()
         };
-        while let Ok(mut job) = receiver.recv_async().await {
-            job.execute().await;
+        while let Ok(mut job) = receiver.recv() {
+            job.execute();
         }
     }
 }

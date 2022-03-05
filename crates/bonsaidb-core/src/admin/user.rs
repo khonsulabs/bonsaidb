@@ -42,7 +42,7 @@ impl User {
 
     /// Calculates the effective permissions based on the groups and roles this
     /// user is assigned.
-    pub async fn effective_permissions<C: Connection>(
+    pub fn effective_permissions<C: Connection>(
         &self,
         admin: &C,
     ) -> Result<Permissions, crate::Error> {
@@ -50,7 +50,7 @@ impl User {
         let role_groups = if self.roles.is_empty() {
             Vec::default()
         } else {
-            let roles = role::Role::get_multiple(self.groups.iter().copied(), admin).await?;
+            let roles = role::Role::get_multiple(self.groups.iter().copied(), admin)?;
             roles
                 .into_iter()
                 .flat_map(|doc| doc.contents.groups)
@@ -59,12 +59,12 @@ impl User {
         };
         // Retrieve all of the groups.
         let groups = if role_groups.is_empty() {
-            group::PermissionGroup::get_multiple(self.groups.iter().copied(), admin).await?
+            group::PermissionGroup::get_multiple(self.groups.iter().copied(), admin)?
         } else {
             let mut all_groups = role_groups;
             all_groups.extend(self.groups.iter().copied());
             all_groups.dedup();
-            group::PermissionGroup::get_multiple(all_groups, admin).await?
+            group::PermissionGroup::get_multiple(all_groups, admin)?
         };
 
         // Combine the permissions from all the groups into one.

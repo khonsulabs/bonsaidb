@@ -96,7 +96,7 @@ impl<B: Backend> Subscriber for ServerSubscriber<B> {
 
 /// Pass-through implementation
 #[async_trait]
-impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
+impl<B: Backend> bonsaidb_core::connection::AsyncConnection for ServerDatabase<B> {
     async fn get<C, PrimaryKey>(
         &self,
         id: PrimaryKey,

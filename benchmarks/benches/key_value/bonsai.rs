@@ -2,7 +2,7 @@ use std::{path::Path, time::Duration};
 
 use bonsaidb::{
     client::{url::Url, Client, RemoteDatabase},
-    core::{connection::StorageConnection, keyvalue::KeyValue},
+    core::{connection::AsyncStorageConnection, keyvalue::KeyValue},
     local::config::{Builder, KeyValuePersistence, PersistenceThreshold},
     server::{DefaultPermissions, Server, ServerConfiguration},
 };

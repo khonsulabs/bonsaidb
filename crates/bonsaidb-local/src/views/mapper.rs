@@ -4,7 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::{serde::Bytes, ArcBytes, OwnedBytes},
     connection::Connection,
@@ -43,14 +42,13 @@ pub struct Map {
     pub view_name: ViewName,
 }
 
-#[async_trait]
 impl Job for Mapper {
     type Output = u64;
     type Error = Error;
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
     #[allow(clippy::too_many_lines)]
-    async fn execute(&mut self) -> Result<Self::Output, Error> {
+    fn execute(&mut self) -> Result<Self::Output, Error> {
         let documents =
             self.database
                 .roots()
@@ -85,36 +83,27 @@ impl Job for Mapper {
 
         let transaction_id = self
             .database
-            .last_transaction_id()
-            .await?
+            .last_transaction_id()?
             .expect("no way to have documents without a transaction");
 
         let storage = self.database.clone();
         let map_request = self.map.clone();
 
-        tokio::task::spawn_blocking(move || {
-            map_view(
-                &invalidated_entries,
-                &document_map,
-                &documents,
-                &view_entries,
-                &storage,
-                &map_request,
-            )
-        })
-        .await??;
+        map_view(
+            &invalidated_entries,
+            &document_map,
+            &documents,
+            &view_entries,
+            &storage,
+            &map_request,
+        )?;
 
-        self.database
-            .data
-            .storage
-            .tasks()
-            .mark_view_updated(
-                self.map.database.clone(),
-                self.map.collection.clone(),
-                self.map.view_name.clone(),
-                transaction_id,
-            )
-            .await;
+        self.database.data.storage.tasks().mark_view_updated(
+            self.map.database.clone(),
+            self.map.collection.clone(),
+            self.map.view_name.clone(),
+            transaction_id,
+        );
 
         Ok(transaction_id)
     }

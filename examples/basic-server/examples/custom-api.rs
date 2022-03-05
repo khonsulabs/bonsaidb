@@ -9,7 +9,7 @@ use bonsaidb::{
     core::{
         actionable::{Actionable, Dispatcher, Permissions},
         async_trait::async_trait,
-        connection::{Authentication, SensitiveString, StorageConnection},
+        connection::{AsyncStorageConnection, Authentication, SensitiveString},
         custom_api::{CustomApi, Infallible},
         permissions::{
             bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},

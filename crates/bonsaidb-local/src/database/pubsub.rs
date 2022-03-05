@@ -8,18 +8,17 @@ use bonsaidb_core::{
     Error,
 };
 
-#[async_trait]
 impl PubSub for super::Database {
     type Subscriber = Subscriber;
 
-    async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
+    fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
         Ok(Subscriber {
             database_name: self.data.name.to_string(),
-            subscriber: self.data.storage.relay().create_subscriber().await,
+            subscriber: self.data.storage.relay().create_subscriber(),
         })
     }
 
-    async fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
+    fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
         &self,
         topic: S,
         payload: &P,
@@ -27,27 +26,22 @@ impl PubSub for super::Database {
         self.data
             .storage
             .relay()
-            .publish(database_topic(&self.data.name, &topic.into()), payload)
-            .await?;
+            .publish(database_topic(&self.data.name, &topic.into()), payload)?;
         Ok(())
     }
 
-    async fn publish_to_all<P: serde::Serialize + Sync>(
+    fn publish_to_all<P: serde::Serialize + Sync>(
         &self,
         topics: Vec<String>,
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data
-            .storage
-            .relay()
-            .publish_to_all(
-                topics
-                    .iter()
-                    .map(|topic| database_topic(&self.data.name, topic))
-                    .collect(),
-                payload,
-            )
-            .await?;
+        self.data.storage.relay().publish_to_all(
+            topics
+                .iter()
+                .map(|topic| database_topic(&self.data.name, topic))
+                .collect(),
+            payload,
+        )?;
         Ok(())
     }
 }
@@ -60,16 +54,15 @@ pub struct Subscriber {
 
 #[async_trait]
 impl pubsub::Subscriber for Subscriber {
-    async fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error> {
+    fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error> {
         self.subscriber
-            .subscribe_to(database_topic(&self.database_name, &topic.into()))
-            .await;
+            .subscribe_to(database_topic(&self.database_name, &topic.into()));
         Ok(())
     }
 
-    async fn unsubscribe_from(&self, topic: &str) -> Result<(), Error> {
-        let topic = format!("{}\u{0}{}", self.database_name, topic);
-        self.subscriber.unsubscribe_from(&topic).await;
+    fn unsubscribe_from(&self, topic: &str) -> Result<(), Error> {
+        self.subscriber
+            .unsubscribe_from(&database_topic(&self.database_name, topic));
         Ok(())
     }
 

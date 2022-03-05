@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use bonsaidb_core::{connection::StorageConnection, test_util::BasicSchema};
+use bonsaidb_core::{connection::AsyncStorageConnection, test_util::BasicSchema};
 use bonsaidb_local::config::Builder;
 
 use crate::{config::DefaultPermissions, Error, Server, ServerConfiguration};

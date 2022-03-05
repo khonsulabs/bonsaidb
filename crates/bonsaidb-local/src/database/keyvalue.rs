@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use async_lock::Mutex;
 use async_trait::async_trait;
 use bonsaidb_core::{
     keyvalue::{
@@ -14,17 +13,14 @@ use bonsaidb_core::{
     },
     transaction::{ChangedKey, Changes},
 };
-use bonsaidb_utils::fast_async_lock;
 use nebari::{
     io::any::AnyFile,
     tree::{CompareSwap, KeyEvaluation, Operation, Root, Unversioned},
     AbortError, ArcBytes, Roots,
 };
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tokio::{
-    runtime::Handle,
-    sync::{oneshot, watch},
-};
+use tokio::sync::watch;
 
 use crate::{
     config::KeyValuePersistence,
@@ -42,74 +38,65 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub(crate) async fn restore(
+    pub(crate) fn restore(
         self,
         namespace: Option<String>,
         key: String,
         database: &Database,
     ) -> Result<(), bonsaidb_core::Error> {
-        database
-            .execute_key_operation(KeyOperation {
-                namespace,
-                key,
-                command: Command::Set(SetCommand {
-                    value: self.value,
-                    expiration: self.expiration,
-                    keep_existing_expiration: false,
-                    check: None,
-                    return_previous_value: false,
-                }),
-            })
-            .await?;
+        database.execute_key_operation(KeyOperation {
+            namespace,
+            key,
+            command: Command::Set(SetCommand {
+                value: self.value,
+                expiration: self.expiration,
+                keep_existing_expiration: false,
+                check: None,
+                return_previous_value: false,
+            }),
+        })?;
         Ok(())
     }
 }
 
 #[async_trait]
 impl KeyValue for Database {
-    async fn execute_key_operation(
-        &self,
-        op: KeyOperation,
-    ) -> Result<Output, bonsaidb_core::Error> {
-        self.data.context.perform_kv_operation(op).await
+    fn execute_key_operation(&self, op: KeyOperation) -> Result<Output, bonsaidb_core::Error> {
+        self.data.context.perform_kv_operation(op)
     }
 }
 
 impl Database {
-    pub(crate) async fn all_key_value_entries(
+    pub(crate) fn all_key_value_entries(
         &self,
     ) -> Result<BTreeMap<(Option<String>, String), Entry>, Error> {
         // Lock the state so that new new modifications can be made while we gather this snapshot.
-        let state = fast_async_lock!(self.data.context.key_value_state);
+        let state = self.data.context.key_value_state.lock();
         let database = self.clone();
         // Initialize our entries with any dirty keys and any keys that are about to be persisted.
         let mut all_entries = BTreeMap::new();
-        let mut all_entries = tokio::task::spawn_blocking(move || {
-            database
-                .roots()
-                .tree(Unversioned::tree(KEY_TREE))?
-                .scan::<Error, _, _, _, _>(
-                    &(..),
-                    true,
-                    |_, _, _| true,
-                    |_, _| KeyEvaluation::ReadData,
-                    |key, _, entry: ArcBytes<'static>| {
-                        let entry = bincode::deserialize::<Entry>(&entry)
-                            .map_err(|err| AbortError::Other(Error::from(err)))?;
-                        let full_key = std::str::from_utf8(&key)
-                            .map_err(|err| AbortError::Other(Error::from(err)))?;
+        database
+            .roots()
+            .tree(Unversioned::tree(KEY_TREE))?
+            .scan::<Error, _, _, _, _>(
+                &(..),
+                true,
+                |_, _, _| true,
+                |_, _| KeyEvaluation::ReadData,
+                |key, _, entry: ArcBytes<'static>| {
+                    let entry = bincode::deserialize::<Entry>(&entry)
+                        .map_err(|err| AbortError::Other(Error::from(err)))?;
+                    let full_key = std::str::from_utf8(&key)
+                        .map_err(|err| AbortError::Other(Error::from(err)))?;
 
-                        if let Some(split_key) = split_key(full_key) {
-                            // Do not overwrite the existing key
-                            all_entries.entry(split_key).or_insert(entry);
-                        }
+                    if let Some(split_key) = split_key(full_key) {
+                        // Do not overwrite the existing key
+                        all_entries.entry(split_key).or_insert(entry);
+                    }
 
-                        Ok(())
-                    },
-                )?;
-            Result::<_, Error>::Ok(all_entries)
-        })
-        .await??;
+                    Ok(())
+                },
+            )?;
 
         // Apply the pending writes first
         if let Some(pending_keys) = &state.keys_being_persisted {
@@ -228,7 +215,7 @@ pub struct KeyValueState {
     expiration_order: VecDeque<String>,
     dirty_keys: BTreeMap<String, Option<Entry>>,
     keys_being_persisted: Option<Arc<BTreeMap<String, Option<Entry>>>>,
-    shutdown: Option<oneshot::Sender<()>>,
+    shutdown: Option<flume::Sender<()>>,
 }
 
 impl KeyValueState {
@@ -250,19 +237,17 @@ impl KeyValueState {
         }
     }
 
-    pub async fn shutdown(
-        &mut self,
-        state: &Arc<Mutex<KeyValueState>>,
-    ) -> Result<(), oneshot::error::RecvError> {
-        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
-        self.shutdown = Some(shutdown_sender);
-        if self.keys_being_persisted.is_none() {
-            self.commit_dirty_keys(state);
+    pub fn shutdown(&mut self, state: &Arc<Mutex<KeyValueState>>) -> Option<flume::Receiver<()>> {
+        if self.keys_being_persisted.is_none() && self.commit_dirty_keys(state) {
+            let (shutdown_sender, shutdown_receiver) = flume::bounded(1);
+            self.shutdown = Some(shutdown_sender);
+            Some(shutdown_receiver)
+        } else {
+            None
         }
-        shutdown_receiver.await
     }
 
-    pub async fn perform_kv_operation(
+    pub fn perform_kv_operation(
         &mut self,
         op: KeyOperation,
         state: &Arc<Mutex<KeyValueState>>,
@@ -652,13 +637,18 @@ impl KeyValueState {
         }
     }
 
-    fn commit_dirty_keys(&mut self, state: &Arc<Mutex<KeyValueState>>) {
+    fn commit_dirty_keys(&mut self, state: &Arc<Mutex<KeyValueState>>) -> bool {
         if let Some(keys) = self.stage_dirty_keys() {
             let roots = self.roots.clone();
             let state = state.clone();
-            let tokio = Handle::current();
-            tokio::task::spawn_blocking(move || Self::persist_keys(&state, &roots, &keys, &tokio));
+            std::thread::Builder::new()
+                .name(String::from("keyvalue-persist"))
+                .spawn(move || Self::persist_keys(&state, &roots, &keys))
+                .unwrap();
             self.last_commit = Timestamp::now();
+            true
+        } else {
+            false
         }
     }
 
@@ -666,7 +656,6 @@ impl KeyValueState {
         key_value_state: &Arc<Mutex<KeyValueState>>,
         roots: &Roots<AnyFile>,
         keys: &BTreeMap<String, Option<Entry>>,
-        runtime: &Handle,
     ) -> Result<(), bonsaidb_core::Error> {
         let mut transaction = roots
             .transaction(&[Unversioned::tree(KEY_TREE)])
@@ -718,8 +707,8 @@ impl KeyValueState {
         }
 
         // If we are shutting down, check if we still have dirty keys.
-        if let Some(final_keys) = runtime.block_on(async {
-            let mut state = fast_async_lock!(key_value_state);
+        let final_keys = {
+            let mut state = key_value_state.lock();
             state.keys_being_persisted = None;
             state.update_background_worker_target();
             // This block is a little ugly to avoid having to acquire the lock
@@ -732,13 +721,17 @@ impl KeyValueState {
                 if staged_keys.is_none() {
                     let shutdown = state.shutdown.take().unwrap();
                     let _ = shutdown.send(());
+                    println!("Shutting down");
+                } else {
+                    println!("Keys found while shuttin down.");
                 }
                 staged_keys
             } else {
                 None
             }
-        }) {
-            Self::persist_keys(key_value_state, roots, &final_keys, runtime)?;
+        };
+        if let Some(final_keys) = final_keys {
+            Self::persist_keys(key_value_state, roots, &final_keys)?;
         }
         Ok(())
     }
@@ -779,7 +772,7 @@ pub async fn background_worker(
         }
 
         if perform_operations {
-            let mut state = fast_async_lock!(key_value_state);
+            let mut state = key_value_state.lock();
             let now = Timestamp::now();
             state.remove_expired_keys(now);
             if state.needs_commit(now) {
@@ -817,26 +810,21 @@ impl Job for ExpirationLoader {
     type Error = Error;
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
+    fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         let database = self.database.clone();
         let launched_at = self.launched_at;
 
-        for ((namespace, key), entry) in database.all_key_value_entries().await? {
+        for ((namespace, key), entry) in database.all_key_value_entries()? {
             if entry.last_updated < launched_at && entry.expiration.is_some() {
                 self.database
-                    .update_key_expiration_async(
-                        full_key(namespace.as_deref(), &key),
-                        entry.expiration,
-                    )
-                    .await;
+                    .update_key_expiration(full_key(namespace.as_deref(), &key), entry.expiration);
             }
         }
 
         self.database
             .storage()
             .tasks()
-            .mark_key_value_expiration_loaded(self.database.data.name.clone())
-            .await;
+            .mark_key_value_expiration_loaded(self.database.data.name.clone());
 
         Ok(())
     }
@@ -894,12 +882,10 @@ mod tests {
                 let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
                 tree.set(b"atree\0akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender
-                    .update_key_expiration_async(
-                        full_key(Some("atree"), "akey"),
-                        Some(Timestamp::now() + Duration::from_millis(100)),
-                    )
-                    .await;
+                sender.update_key_expiration(
+                    full_key(Some("atree"), "akey"),
+                    Some(Timestamp::now() + Duration::from_millis(100)),
+                );
                 if !timing.wait_until(Duration::from_secs(1)).await {
                     println!("basic_expiration restarting due to timing discrepency");
                     continue;
@@ -921,18 +907,14 @@ mod tests {
                 let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
                 tree.set(b"atree\0akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender
-                    .update_key_expiration_async(
-                        full_key(Some("atree"), "akey"),
-                        Some(Timestamp::now() + Duration::from_millis(100)),
-                    )
-                    .await;
-                sender
-                    .update_key_expiration_async(
-                        full_key(Some("atree"), "akey"),
-                        Some(Timestamp::now() + Duration::from_secs(1)),
-                    )
-                    .await;
+                sender.update_key_expiration(
+                    full_key(Some("atree"), "akey"),
+                    Some(Timestamp::now() + Duration::from_millis(100)),
+                );
+                sender.update_key_expiration(
+                    full_key(Some("atree"), "akey"),
+                    Some(Timestamp::now() + Duration::from_secs(1)),
+                );
                 if timing.elapsed() > Duration::from_millis(100)
                     || !timing.wait_until(Duration::from_millis(500)).await
                 {
@@ -960,18 +942,14 @@ mod tests {
                 tree.set(b"atree\0bkey", b"somevalue")?;
 
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender
-                    .update_key_expiration_async(
-                        full_key(Some("atree"), "akey"),
-                        Some(Timestamp::now() + Duration::from_millis(100)),
-                    )
-                    .await;
-                sender
-                    .update_key_expiration_async(
-                        full_key(Some("atree"), "bkey"),
-                        Some(Timestamp::now() + Duration::from_secs(1)),
-                    )
-                    .await;
+                sender.update_key_expiration(
+                    full_key(Some("atree"), "akey"),
+                    Some(Timestamp::now() + Duration::from_millis(100)),
+                );
+                sender.update_key_expiration(
+                    full_key(Some("atree"), "bkey"),
+                    Some(Timestamp::now() + Duration::from_secs(1)),
+                );
 
                 if !timing.wait_until(Duration::from_millis(200)).await {
                     continue;
@@ -998,15 +976,11 @@ mod tests {
                 let tree = sled.tree(Unversioned::tree(KEY_TREE))?;
                 tree.set(b"atree\0akey", b"somevalue")?;
                 let timing = TimingTest::new(Duration::from_millis(100));
-                sender
-                    .update_key_expiration_async(
-                        full_key(Some("atree"), "akey"),
-                        Some(Timestamp::now() + Duration::from_millis(100)),
-                    )
-                    .await;
-                sender
-                    .update_key_expiration_async(full_key(Some("atree"), "akey"), None)
-                    .await;
+                sender.update_key_expiration(
+                    full_key(Some("atree"), "akey"),
+                    Some(Timestamp::now() + Duration::from_millis(100)),
+                );
+                sender.update_key_expiration(full_key(Some("atree"), "akey"), None);
                 if timing.elapsed() > Duration::from_millis(100) {
                     // Restart, took too long.
                     continue;
@@ -1028,24 +1002,18 @@ mod tests {
             tree.set(b"atree\0akey", b"somevalue")?;
             tree.set(b"atree\0bkey", b"somevalue")?;
             tree.set(b"atree\0ckey", b"somevalue")?;
-            sender
-                .update_key_expiration_async(
-                    full_key(Some("atree"), "akey"),
-                    Some(Timestamp::now() + Duration::from_secs(3)),
-                )
-                .await;
-            sender
-                .update_key_expiration_async(
-                    full_key(Some("atree"), "ckey"),
-                    Some(Timestamp::now() + Duration::from_secs(1)),
-                )
-                .await;
-            sender
-                .update_key_expiration_async(
-                    full_key(Some("atree"), "bkey"),
-                    Some(Timestamp::now() + Duration::from_secs(2)),
-                )
-                .await;
+            sender.update_key_expiration(
+                full_key(Some("atree"), "akey"),
+                Some(Timestamp::now() + Duration::from_secs(3)),
+            );
+            sender.update_key_expiration(
+                full_key(Some("atree"), "ckey"),
+                Some(Timestamp::now() + Duration::from_secs(1)),
+            );
+            sender.update_key_expiration(
+                full_key(Some("atree"), "bkey"),
+                Some(Timestamp::now() + Duration::from_secs(2)),
+            );
             tokio::time::sleep(Duration::from_millis(1200)).await;
             assert!(tree.get(b"atree\0akey")?.is_some());
             assert!(tree.get(b"atree\0bkey")?.is_some());
@@ -1088,7 +1056,6 @@ mod tests {
                                 return_previous_value: false,
                             }),
                         })
-                        .await
                         .unwrap();
                     sender
                         .perform_kv_operation(KeyOperation {
@@ -1102,7 +1069,6 @@ mod tests {
                                 return_previous_value: false,
                             }),
                         })
-                        .await
                         .unwrap();
                     sender
                         .perform_kv_operation(KeyOperation {
@@ -1116,7 +1082,6 @@ mod tests {
                                 return_previous_value: false,
                             }),
                         })
-                        .await
                         .unwrap();
                     // Persisting is handled in the background. Sleep for a bit
                     // to give it a chance to happen, but not long enough to
@@ -1168,7 +1133,6 @@ mod tests {
                     return_previous_value: false,
                 }),
             })
-            .await
             .unwrap();
         assert!(tree.get(b"\0key1").unwrap().is_none());
         drop(context);

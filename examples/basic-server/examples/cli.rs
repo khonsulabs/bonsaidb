@@ -4,7 +4,7 @@ use bonsaidb::{
     cli::CommandLine,
     core::{
         actionable::async_trait,
-        connection::{Connection, StorageConnection},
+        connection::{AsyncConnection, AsyncStorageConnection},
         schema::SerializedCollection,
     },
     local::config::Builder,

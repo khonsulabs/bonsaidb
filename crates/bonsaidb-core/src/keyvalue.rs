@@ -29,7 +29,6 @@ mod implementation {
     use namespaced::Namespaced;
 
     use super::{IncompatibleTypeError, Numeric, Value};
-
     /// Key-Value store methods. The Key-Value store is designed to be a
     /// high-performance, lightweight storage mechanism.
     ///
@@ -51,10 +50,9 @@ mod implementation {
     /// comparison operations.
     ///
     /// [nan]: https://en.wikipedia.org/wiki/NaN
-    #[async_trait]
     pub trait KeyValue: Sized + Send + Sync {
         /// Executes a single [`KeyOperation`].
-        async fn execute_key_operation(&self, op: KeyOperation) -> Result<Output, Error>;
+        fn execute_key_operation(&self, op: KeyOperation) -> Result<Output, Error>;
 
         /// Sets `key` to `value`. This function returns a builder that is also a
         /// Future. Awaiting the builder will execute [`Command::Set`] with the options
@@ -154,6 +152,157 @@ mod implementation {
         /// given.
         fn get_key<S: Into<String>>(&'_ self, key: S) -> get::Builder<'_, Self> {
             get::Builder::new(self, self.key_namespace().map(Into::into), key.into())
+        }
+
+        /// Deletes the value stored at `key`.
+        fn delete_key<S: Into<String> + Send>(&'_ self, key: S) -> Result<KeyStatus, Error> {
+            match self.execute_key_operation(KeyOperation {
+                namespace: self.key_namespace().map(ToOwned::to_owned),
+                key: key.into(),
+                command: Command::Delete,
+            })? {
+                Output::Status(status) => Ok(status),
+                Output::Value(_) => unreachable!("invalid output from delete operation"),
+            }
+        }
+
+        /// The current namespace.
+        fn key_namespace(&self) -> Option<&'_ str> {
+            None
+        }
+
+        /// Access this Key-Value store within a namespace. When using the returned
+        /// [`Namespaced`] instance, all keys specified will be separated into their
+        /// own storage designated by `namespace`.
+        fn with_key_namespace(&'_ self, namespace: &str) -> Namespaced<'_, Self> {
+            Namespaced::new(namespace.to_string(), self)
+        }
+    }
+
+    /// Key-Value store methods. The Key-Value store is designed to be a
+    /// high-performance, lightweight storage mechanism.
+    ///
+    /// When compared to Collections, the Key-Value store does not offer
+    /// ACID-compliant transactions. Instead, the Key-Value store is made more
+    /// efficient by periodically flushing the store to disk rather than during
+    /// each operation. As such, the Key-Value store is intended to be used as a
+    /// lightweight caching layer. However, because each of the operations it
+    /// supports are executed atomically, the Key-Value store can also be
+    /// utilized for synchronized locking.
+    ///
+    /// ## Floating Point Operations
+    ///
+    /// When using [`KeyValue::set_numeric_key()`] or any numeric operations, if
+    /// a [Not a Number (NaN) value][nan] is encountered, [`Error::NotANumber`]
+    /// will be returned without allowing the operation to succeed.
+    ///
+    /// Positive and negative infinity values are allowed, as they do not break
+    /// comparison operations.
+    ///
+    /// [nan]: https://en.wikipedia.org/wiki/NaN
+    #[async_trait]
+    pub trait AsyncKeyValue: Sized + Send + Sync {
+        /// Executes a single [`KeyOperation`].
+        async fn execute_key_operation(&self, op: KeyOperation) -> Result<Output, Error>;
+
+        /// Sets `key` to `value`. This function returns a builder that is also a
+        /// Future. Awaiting the builder will execute [`Command::Set`] with the options
+        /// given.
+        fn set_key<'a, S: Into<String>, V: Serialize + Send + Sync>(
+            &'a self,
+            key: S,
+            value: &'a V,
+        ) -> set::AsyncBuilder<'a, Self, V> {
+            set::AsyncBuilder::new(
+                self,
+                self.key_namespace().map(Into::into),
+                key.into(),
+                PendingValue::Serializeable(value),
+            )
+        }
+
+        /// Sets `key` to `bytes`. This function returns a builder that is also
+        /// a Future. Awaiting the builder will execute [`Command::Set`] with
+        /// the options given.
+        fn set_binary_key<'a, S: Into<String>>(
+            &'a self,
+            key: S,
+            bytes: &'a [u8],
+        ) -> set::AsyncBuilder<'a, Self, ()> {
+            set::AsyncBuilder::new(
+                self,
+                self.key_namespace().map(Into::into),
+                key.into(),
+                PendingValue::Bytes(bytes),
+            )
+        }
+
+        /// Sets `key` to `value`. This stores the value as a `Numeric`,
+        /// enabling atomic math operations to be performed on this key. This
+        /// function returns a builder that is also a Future. Awaiting the
+        /// builder will execute [`Command::Set`] with the options given.
+        fn set_numeric_key<S: Into<String>, V: Into<Numeric>>(
+            &self,
+            key: S,
+            value: V,
+        ) -> set::AsyncBuilder<'_, Self, ()> {
+            set::AsyncBuilder::new(
+                self,
+                self.key_namespace().map(Into::into),
+                key.into(),
+                PendingValue::Numeric(value.into()),
+            )
+        }
+
+        /// Increments `key` by `value`. The value stored must be a `Numeric`,
+        /// otherwise an error will be returned. The result of the increment
+        /// will be the `value`'s type. For example, if the stored value is
+        /// currently a `u64`, but `value` is a `f64`, the current value will be
+        /// converted to an `f64`, and the stored value will be an `f64`.
+        fn increment_key_by<
+            S: Into<String> + Send + Sync,
+            V: Into<Numeric> + TryFrom<Numeric, Error = IncompatibleTypeError> + Send + Sync,
+        >(
+            &self,
+            key: S,
+            value: V,
+        ) -> increment::AsyncBuilder<'_, Self, V> {
+            increment::AsyncBuilder::new(
+                self,
+                self.key_namespace().map(Into::into),
+                true,
+                key.into(),
+                value.into(),
+            )
+        }
+
+        /// Decrements `key` by `value`. The value stored must be a `Numeric`,
+        /// otherwise an error will be returned. The result of the decrement
+        /// will be the `value`'s type. For example, if the stored value is
+        /// currently a `u64`, but `value` is a `f64`, the current value will be
+        /// converted to an `f64`, and the stored value will be an `f64`.
+        fn decrement_key_by<
+            S: Into<String> + Send + Sync,
+            V: Into<Numeric> + TryFrom<Numeric, Error = IncompatibleTypeError> + Send + Sync,
+        >(
+            &self,
+            key: S,
+            value: V,
+        ) -> increment::AsyncBuilder<'_, Self, V> {
+            increment::AsyncBuilder::new(
+                self,
+                self.key_namespace().map(Into::into),
+                false,
+                key.into(),
+                value.into(),
+            )
+        }
+
+        /// Gets the value stored at `key`. This function returns a builder that is also a
+        /// Future. Awaiting the builder will execute [`Command::Get`] with the options
+        /// given.
+        fn get_key<S: Into<String>>(&'_ self, key: S) -> get::AsyncBuilder<'_, Self> {
+            get::AsyncBuilder::new(self, self.key_namespace().map(Into::into), key.into())
         }
 
         /// Deletes the value stored at `key`.

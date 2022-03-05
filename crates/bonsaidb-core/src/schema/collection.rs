@@ -7,7 +7,7 @@ use transmog::{Format, OwnedDeserializer};
 use transmog_pot::Pot;
 
 use crate::{
-    connection::{self, Connection, Range},
+    connection::{self, AsyncConnection, Connection, Range},
     document::{
         AnyDocumentId, BorrowedDocument, CollectionDocument, Document, DocumentId, KeyId,
         OwnedDocument, OwnedDocuments,
@@ -318,12 +318,41 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn get<C, PrimaryKey>(
+    fn get<C, PrimaryKey>(
         id: PrimaryKey,
         connection: &C,
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
         C: Connection,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
+        Self: Sized,
+    {
+        let possible_doc = connection.get::<Self, _>(id)?;
+        possible_doc.as_ref().map(TryInto::try_into).transpose()
+    }
+
+    /// Gets a [`CollectionDocument`] with `id` from `connection`.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// if let Some(doc) = MyCollection::get(42, &db).await? {
+    ///     println!(
+    ///         "Retrieved revision {} with deserialized contents: {:?}",
+    ///         doc.header.revision, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    async fn get_async<C, PrimaryKey>(
+        id: PrimaryKey,
+        connection: &C,
+    ) -> Result<Option<CollectionDocument<Self>>, Error>
+    where
+        C: AsyncConnection,
         PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
         Self: Sized,
     {
@@ -348,12 +377,46 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn get_multiple<C, DocumentIds, PrimaryKey, I>(
+    fn get_multiple<C, DocumentIds, PrimaryKey, I>(
         ids: DocumentIds,
         connection: &C,
     ) -> Result<Vec<CollectionDocument<Self>>, Error>
     where
         C: Connection,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        Self: Sized,
+    {
+        connection
+            .collection::<Self>()
+            .get_multiple(ids)
+            .and_then(|docs| docs.collection_documents())
+    }
+
+    /// Retrieves all documents matching `ids`. Documents that are not found
+    /// are not returned, but no error will be generated.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// for doc in MyCollection::get_multiple([42, 43], &db).await? {
+    ///     println!(
+    ///         "Retrieved #{} with deserialized contents: {:?}",
+    ///         doc.header.id, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    async fn get_multiple_async<C, DocumentIds, PrimaryKey, I>(
+        ids: DocumentIds,
+        connection: &C,
+    ) -> Result<Vec<CollectionDocument<Self>>, Error>
+    where
+        C: AsyncConnection,
         DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = PrimaryKey> + Send + Sync,
         PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
@@ -395,6 +458,35 @@ pub trait SerializedCollection: Collection {
         ))
     }
 
+    /// Retrieves all documents matching the range of `ids`.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// for doc in MyCollection::list(42.., &db).descending().limit(20).await? {
+    ///     println!(
+    ///         "Retrieved #{} with deserialized contents: {:?}",
+    ///         doc.header.id, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    fn list_async<R, PrimaryKey, C>(ids: R, connection: &'_ C) -> AsyncList<'_, C, Self>
+    where
+        R: Into<Range<PrimaryKey>>,
+        C: AsyncConnection,
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        Self: Sized,
+    {
+        AsyncList(connection::AsyncList::new(
+            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
+            ids.into().map(PrimaryKey::into),
+        ))
+    }
+
     /// Retrieves all documents with ids that start with `prefix`.
     ///
     /// ```rust
@@ -429,6 +521,43 @@ pub trait SerializedCollection: Collection {
         ))
     }
 
+    /// Retrieves all documents with ids that start with `prefix`.
+    ///
+    /// ```rust
+    /// use bonsaidb_core::{
+    ///     connection::Connection,
+    ///     document::CollectionDocument,
+    ///     schema::{Collection, Schematic, SerializedCollection},
+    ///     Error,
+    /// };
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Debug, Serialize, Deserialize, Default, Collection)]
+    /// #[collection(name = "MyCollection", primary_key = String)]
+    /// # #[collection(core = bonsaidb_core)]
+    /// pub struct MyCollection;
+    ///
+    /// async fn starts_with_a<C: Connection>(
+    ///     db: &C,
+    /// ) -> Result<Vec<CollectionDocument<MyCollection>>, Error> {
+    ///     MyCollection::list_with_prefix(String::from("a"), db).await
+    /// }
+    /// ```
+    fn list_with_prefix_async<C>(
+        prefix: Self::PrimaryKey,
+        connection: &'_ C,
+    ) -> AsyncList<'_, C, Self>
+    where
+        C: AsyncConnection,
+        Self: Sized,
+        Self::PrimaryKey: IntoPrefixRange,
+    {
+        AsyncList(connection::AsyncList::new(
+            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
+            prefix.into_prefix_range().map(AnyDocumentId::Deserialized),
+        ))
+    }
+
     /// Retrieves all documents.
     ///
     /// ```rust
@@ -450,6 +579,32 @@ pub trait SerializedCollection: Collection {
         Self: Sized,
     {
         List(connection::List::new(
+            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
+            Range::from(..),
+        ))
+    }
+
+    /// Retrieves all documents.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// for doc in MyCollection::all(&db).await? {
+    ///     println!(
+    ///         "Retrieved #{} with deserialized contents: {:?}",
+    ///         doc.header.id, doc.contents
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    fn all_async<C: AsyncConnection>(connection: &C) -> AsyncList<'_, C, Self>
+    where
+        Self: Sized,
+    {
+        AsyncList(connection::AsyncList::new(
             connection::PossiblyOwned::Owned(connection.collection::<Self>()),
             Range::from(..),
         ))
@@ -479,7 +634,45 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn push<Cn: Connection>(
+    fn push<Cn: Connection>(
+        contents: Self::Contents,
+        connection: &Cn,
+    ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
+    where
+        Self: Sized + 'static,
+    {
+        let header = match connection.collection::<Self>().push(&contents) {
+            Ok(header) => header,
+            Err(error) => return Err(InsertError { contents, error }),
+        };
+        Ok(CollectionDocument { header, contents })
+    }
+
+    /// Pushes this value into the collection, returning the created document.
+    /// This function is useful when `Self != Self::Contents`.
+    ///
+    /// ## Automatic Id Assignment
+    ///
+    /// This function calls [`Self::natural_id()`] to try to retrieve a primary
+    /// key value from `contents`. If an id is returned, the item is inserted
+    /// with that id. If an id is not returned, an id will be automatically
+    /// assigned, if possible, by the storage backend, which uses the [`Key`]
+    /// trait to assign ids.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::push(MyCollection::default(), &db).await?;
+    /// println!(
+    ///     "Inserted {:?} with id {} with revision {}",
+    ///     document.contents, document.header.id, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    async fn push_async<Cn: AsyncConnection>(
         contents: Self::Contents,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
@@ -517,14 +710,47 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn push_into<Cn: Connection>(
+    fn push_into<Cn: Connection>(
         self,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
-        Self::push(self, connection).await
+        Self::push(self, connection)
+    }
+
+    /// Pushes this value into the collection, returning the created document.
+    ///
+    /// ## Automatic Id Assignment
+    ///
+    /// This function calls [`Self::natural_id()`] to try to retrieve a primary
+    /// key value from `self`. If an id is returned, the item is inserted with
+    /// that id. If an id is not returned, an id will be automatically assigned,
+    /// if possible, by the storage backend, which uses the [`Key`] trait to
+    /// assign ids.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::default().push_into(&db).await?;
+    /// println!(
+    ///     "Inserted {:?} with id {} with revision {}",
+    ///     document.contents, document.header.id, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    async fn push_into_async<Cn: AsyncConnection>(
+        self,
+        connection: &Cn,
+    ) -> Result<CollectionDocument<Self>, InsertError<Self>>
+    where
+        Self: SerializedCollection<Contents = Self> + Sized + 'static,
+    {
+        Self::push_async(self, connection).await
     }
 
     /// Inserts this value into the collection with the specified id, returning
@@ -544,7 +770,7 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn insert<PrimaryKey, Cn>(
+    fn insert<PrimaryKey, Cn>(
         id: PrimaryKey,
         contents: Self::Contents,
         connection: &Cn,
@@ -552,6 +778,40 @@ pub trait SerializedCollection: Collection {
     where
         PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
         Cn: Connection,
+        Self: Sized + 'static,
+    {
+        let header = match connection.collection::<Self>().insert(id, &contents) {
+            Ok(header) => header,
+            Err(error) => return Err(InsertError { contents, error }),
+        };
+        Ok(CollectionDocument { header, contents })
+    }
+
+    /// Inserts this value into the collection with the specified id, returning
+    /// the created document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::insert(42, MyCollection::default(), &db).await?;
+    /// assert_eq!(document.header.id, 42);
+    /// println!(
+    ///     "Inserted {:?} with revision {}",
+    ///     document.contents, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    async fn insert_async<PrimaryKey, Cn>(
+        id: PrimaryKey,
+        contents: Self::Contents,
+        connection: &Cn,
+    ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
+    where
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        Cn: AsyncConnection,
         Self: Sized + 'static,
         Self::Contents: 'async_trait,
     {
@@ -579,7 +839,7 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn insert_into<PrimaryKey, Cn>(
+    fn insert_into<PrimaryKey, Cn>(
         self,
         id: PrimaryKey,
         connection: &Cn,
@@ -589,7 +849,37 @@ pub trait SerializedCollection: Collection {
         Cn: Connection,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
-        Self::insert(id, self, connection).await
+        Self::insert(id, self, connection)
+    }
+
+    /// Inserts this value into the collection with the given `id`, returning
+    /// the created document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::default().insert_into(42, &db).await?;
+    /// assert_eq!(document.header.id, 42);
+    /// println!(
+    ///     "Inserted {:?} with revision {}",
+    ///     document.contents, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    async fn insert_into_async<PrimaryKey, Cn>(
+        self,
+        id: PrimaryKey,
+        connection: &Cn,
+    ) -> Result<CollectionDocument<Self>, InsertError<Self>>
+    where
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        Cn: AsyncConnection,
+        Self: SerializedCollection<Contents = Self> + Sized + 'static,
+    {
+        Self::insert_async(id, self, connection).await
     }
 
     /// Overwrites this value into the collection with the specified id, returning
@@ -609,7 +899,7 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn overwrite<PrimaryKey, Cn>(
+    fn overwrite<PrimaryKey, Cn>(
         id: PrimaryKey,
         contents: Self::Contents,
         connection: &Cn,
@@ -617,6 +907,43 @@ pub trait SerializedCollection: Collection {
     where
         PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
         Cn: Connection,
+        Self: Sized + 'static,
+    {
+        let header = match Self::serialize(&contents) {
+            Ok(serialized) => match connection.overwrite::<Self, _>(id, serialized) {
+                Ok(header) => header,
+                Err(error) => return Err(InsertError { contents, error }),
+            },
+            Err(error) => return Err(InsertError { contents, error }),
+        };
+        Ok(CollectionDocument { header, contents })
+    }
+
+    /// Overwrites this value into the collection with the specified id, returning
+    /// the created or updated document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::overwrite(42, MyCollection::default(), &db).await?;
+    /// assert_eq!(document.header.id, 42);
+    /// println!(
+    ///     "Overwrote {:?} with revision {}",
+    ///     document.contents, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    async fn overwrite_async<PrimaryKey, Cn>(
+        id: PrimaryKey,
+        contents: Self::Contents,
+        connection: &Cn,
+    ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
+    where
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
+        Cn: AsyncConnection,
         Self: Sized + 'static,
         Self::Contents: 'async_trait,
     {
@@ -647,7 +974,7 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn overwrite_into<Cn: Connection, PrimaryKey>(
+    fn overwrite_into<Cn: Connection, PrimaryKey>(
         self,
         id: PrimaryKey,
         connection: &Cn,
@@ -656,7 +983,36 @@ pub trait SerializedCollection: Collection {
         PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
-        Self::overwrite(id, self, connection).await
+        Self::overwrite(id, self, connection)
+    }
+
+    /// Overwrites this value into the collection with the given `id`, returning
+    /// the created or updated document.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let document = MyCollection::default().overwrite_into(42, &db).await?;
+    /// assert_eq!(document.header.id, 42);
+    /// println!(
+    ///     "Overwrote {:?} with revision {}",
+    ///     document.contents, document.header.revision
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    async fn overwrite_into_async<Cn: AsyncConnection, PrimaryKey>(
+        self,
+        id: PrimaryKey,
+        connection: &Cn,
+    ) -> Result<CollectionDocument<Self>, InsertError<Self>>
+    where
+        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        Self: SerializedCollection<Contents = Self> + Sized + 'static,
+    {
+        Self::overwrite_async(id, self, connection).await
     }
 }
 
@@ -758,14 +1114,33 @@ pub trait NamedCollection: Collection + Unpin {
     type ByNameView: crate::schema::SerializedView<Key = String>;
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.
-    async fn load<'name, N: Nameable<'name, Self::PrimaryKey> + Send + Sync, C: Connection>(
+    fn load<'name, N: Nameable<'name, Self::PrimaryKey> + Send + Sync, C: Connection>(
         id: N,
         connection: &C,
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
         Self: SerializedCollection + Sized + 'static,
     {
-        let possible_doc = Self::load_document(id, connection).await?;
+        let possible_doc = Self::load_document(id, connection)?;
+        possible_doc
+            .as_ref()
+            .map(CollectionDocument::try_from)
+            .transpose()
+    }
+
+    /// Gets a [`CollectionDocument`] with `id` from `connection`.
+    async fn load_async<
+        'name,
+        N: Nameable<'name, Self::PrimaryKey> + Send + Sync,
+        C: AsyncConnection,
+    >(
+        id: N,
+        connection: &C,
+    ) -> Result<Option<CollectionDocument<Self>>, Error>
+    where
+        Self: SerializedCollection + Sized + 'static,
+    {
+        let possible_doc = Self::load_document_async(id, connection).await?;
         Ok(possible_doc
             .as_ref()
             .map(CollectionDocument::try_from)
@@ -787,6 +1162,30 @@ pub trait NamedCollection: Collection + Unpin {
     {
         let name = id.into();
         Entry {
+            name,
+            connection,
+            insert: None,
+            update: None,
+            retry_limit: 0,
+            _collection: PhantomData,
+        }
+    }
+
+    /// Gets a [`CollectionDocument`] with `id` from `connection`.
+    fn entry_async<
+        'connection,
+        'name,
+        N: Into<NamedReference<'name, Self::PrimaryKey>> + Send + Sync,
+        C: AsyncConnection,
+    >(
+        id: N,
+        connection: &'connection C,
+    ) -> AsyncEntry<'connection, 'name, C, Self, (), ()>
+    where
+        Self: SerializedCollection + Sized,
+    {
+        let name = id.into();
+        AsyncEntry {
             state: EntryState::Pending(Some(EntryBuilder {
                 name,
                 connection,
@@ -801,10 +1200,34 @@ pub trait NamedCollection: Collection + Unpin {
     /// Loads a document from this collection by name, if applicable. Return
     /// `Ok(None)` if unsupported.
     #[allow(unused_variables)]
-    async fn load_document<
+    fn load_document<'name, N: Nameable<'name, Self::PrimaryKey> + Send + Sync, C: Connection>(
+        name: N,
+        connection: &C,
+    ) -> Result<Option<OwnedDocument>, Error>
+    where
+        Self: SerializedCollection + Sized,
+    {
+        match name.name()? {
+            NamedReference::Id(id) => connection.collection::<Self>().get(id),
+            NamedReference::Key(id) => connection.collection::<Self>().get(id),
+            NamedReference::Name(name) => Ok(connection
+                .view::<Self::ByNameView>()
+                .with_key(name.as_ref().to_owned())
+                .query_with_docs()?
+                .documents
+                .into_iter()
+                .next()
+                .map(|(_, document)| document)),
+        }
+    }
+
+    /// Loads a document from this collection by name, if applicable. Return
+    /// `Ok(None)` if unsupported.
+    #[allow(unused_variables)]
+    async fn load_document_async<
         'name,
         N: Nameable<'name, Self::PrimaryKey> + Send + Sync,
-        C: Connection,
+        C: AsyncConnection,
     >(
         name: N,
         connection: &C,
@@ -957,7 +1380,27 @@ where
 
     /// Returns this reference's id. If the reference is a name, the
     /// [`NamedCollection::ByNameView`] is queried for the id.
-    pub async fn id<Col: NamedCollection<PrimaryKey = Id>, Cn: Connection>(
+    pub fn id<Col: NamedCollection<PrimaryKey = Id>, Cn: Connection>(
+        &self,
+        connection: &Cn,
+    ) -> Result<Option<Col::PrimaryKey>, Error> {
+        match self {
+            Self::Name(name) => connection
+                .view::<Col::ByNameView>()
+                .with_key(name.as_ref().to_owned())
+                .query()?
+                .into_iter()
+                .next()
+                .map(|e| e.source.id.deserialize())
+                .transpose(),
+            Self::Id(id) => Ok(Some(id.deserialize()?)),
+            Self::Key(id) => Ok(Some(id.clone())),
+        }
+    }
+
+    /// Returns this reference's id. If the reference is a name, the
+    /// [`NamedCollection::ByNameView`] is queried for the id.
+    pub async fn id_async<Col: NamedCollection<PrimaryKey = Id>, Cn: AsyncConnection>(
         &self,
         connection: &Cn,
     ) -> Result<Option<Col::PrimaryKey>, Error> {
@@ -985,6 +1428,115 @@ where
     EI: EntryInsert<Col>,
     EU: EntryUpdate<Col>,
 {
+    name: NamedReference<'name, Col::PrimaryKey>,
+    connection: &'a Connection,
+    insert: Option<EI>,
+    update: Option<EU>,
+    retry_limit: usize,
+    _collection: PhantomData<Col>,
+}
+
+impl<'a, 'name, Connection, Col, EI, EU> Entry<'a, 'name, Connection, Col, EI, EU>
+where
+    Col: NamedCollection + SerializedCollection + 'static + Unpin,
+    Connection: crate::connection::Connection,
+    EI: EntryInsert<Col> + 'a + Unpin,
+    EU: EntryUpdate<Col> + 'a + Unpin,
+    'name: 'a,
+{
+    pub fn execute(self) -> Result<Option<CollectionDocument<Col>>, Error> {
+        let Self {
+            name,
+            connection,
+            insert,
+            update,
+            mut retry_limit,
+            ..
+        } = self;
+        if let Some(mut existing) = Col::load(name, connection)? {
+            if let Some(update) = update {
+                loop {
+                    update.call(&mut existing.contents);
+                    match existing.update(connection) {
+                        Ok(()) => return Ok(Some(existing)),
+                        Err(Error::DocumentConflict(collection, header)) => {
+                            // Another client has updated the document underneath us.
+                            if retry_limit > 0 {
+                                retry_limit -= 1;
+                                existing = match Col::load(header.id, connection)? {
+                                    Some(doc) => doc,
+                                    // Another client deleted the document before we could reload it.
+                                    None => break Ok(None),
+                                }
+                            } else {
+                                break Err(Error::DocumentConflict(collection, header));
+                            }
+                        }
+                        Err(other) => break Err(other),
+                    }
+                }
+            } else {
+                Ok(Some(existing))
+            }
+        } else if let Some(insert) = insert {
+            let new_document = insert.call();
+            Ok(Some(Col::push(new_document, connection)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// If an entry with the key doesn't exist, `cb` will be executed to provide
+    /// an initial document. This document will be saved before being returned.
+    pub fn or_insert_with<F: EntryInsert<Col> + 'a + Unpin>(
+        self,
+        cb: F,
+    ) -> Entry<'a, 'name, Connection, Col, F, EU> {
+        Entry {
+            name: self.name,
+            connection: self.connection,
+            insert: Some(cb),
+            update: self.update,
+            retry_limit: self.retry_limit,
+            _collection: PhantomData,
+        }
+    }
+
+    /// If an entry with the keys exists, `cb` will be executed with the stored
+    /// value, allowing an opportunity to update the value. This new value will
+    /// be saved to the database before returning. If an error occurs during
+    /// update, `cb` may be invoked multiple times, up to the
+    /// [`retry_limit`](Self::retry_limit()).
+    pub fn update_with<F: EntryUpdate<Col> + 'a + Unpin>(
+        self,
+        cb: F,
+    ) -> Entry<'a, 'name, Connection, Col, EI, F> {
+        Entry {
+            name: self.name,
+            connection: self.connection,
+            update: Some(cb),
+            insert: self.insert,
+            retry_limit: self.retry_limit,
+            _collection: PhantomData,
+        }
+    }
+
+    /// The number of attempts to attempt updating the document using
+    /// `update_with` before returning an error.
+    pub fn retry_limit(mut self, attempts: usize) -> Self {
+        self.retry_limit = attempts;
+        self
+    }
+}
+
+/// A future that resolves to an entry in a [`NamedCollection`].
+#[must_use]
+pub struct AsyncEntry<'a, 'name, Connection, Col, EI, EU>
+where
+    Col: NamedCollection + SerializedCollection,
+    EI: EntryInsert<Col>,
+    EU: EntryUpdate<Col>,
+{
     state: EntryState<'a, 'name, Connection, Col, EI, EU>,
 }
 
@@ -1006,10 +1558,10 @@ struct EntryBuilder<
     _collection: PhantomData<Col>,
 }
 
-impl<'a, 'name, Connection, Col, EI, EU> Entry<'a, 'name, Connection, Col, EI, EU>
+impl<'a, 'name, Connection, Col, EI, EU> AsyncEntry<'a, 'name, Connection, Col, EI, EU>
 where
     Col: NamedCollection + SerializedCollection + 'static + Unpin,
-    Connection: crate::connection::Connection,
+    Connection: crate::connection::AsyncConnection,
     EI: EntryInsert<Col> + 'a + Unpin,
     EU: EntryUpdate<Col> + 'a + Unpin,
     'name: 'a,
@@ -1021,17 +1573,17 @@ where
         update: Option<EU>,
         mut retry_limit: usize,
     ) -> Result<Option<CollectionDocument<Col>>, Error> {
-        if let Some(mut existing) = Col::load(name, connection).await? {
+        if let Some(mut existing) = Col::load_async(name, connection).await? {
             if let Some(update) = update {
                 loop {
                     update.call(&mut existing.contents);
-                    match existing.update(connection).await {
+                    match existing.update_async(connection).await {
                         Ok(()) => return Ok(Some(existing)),
                         Err(Error::DocumentConflict(collection, header)) => {
                             // Another client has updated the document underneath us.
                             if retry_limit > 0 {
                                 retry_limit -= 1;
-                                existing = match Col::load(header.id, connection).await? {
+                                existing = match Col::load_async(header.id, connection).await? {
                                     Some(doc) => doc,
                                     // Another client deleted the document before we could reload it.
                                     None => break Ok(None),
@@ -1048,7 +1600,7 @@ where
             }
         } else if let Some(insert) = insert {
             let new_document = insert.call();
-            Ok(Some(Col::push(new_document, connection).await?))
+            Ok(Some(Col::push_async(new_document, connection).await?))
         } else {
             Ok(None)
         }
@@ -1065,8 +1617,8 @@ where
     pub fn or_insert_with<F: EntryInsert<Col> + 'a + Unpin>(
         self,
         cb: F,
-    ) -> Entry<'a, 'name, Connection, Col, F, EU> {
-        Entry {
+    ) -> AsyncEntry<'a, 'name, Connection, Col, F, EU> {
+        AsyncEntry {
             state: match self.state {
                 EntryState::Pending(Some(EntryBuilder {
                     name,
@@ -1097,8 +1649,8 @@ where
     pub fn update_with<F: EntryUpdate<Col> + 'a + Unpin>(
         self,
         cb: F,
-    ) -> Entry<'a, 'name, Connection, Col, EI, F> {
-        Entry {
+    ) -> AsyncEntry<'a, 'name, Connection, Col, EI, F> {
+        AsyncEntry {
             state: match self.state {
                 EntryState::Pending(Some(EntryBuilder {
                     name,
@@ -1178,11 +1730,11 @@ where
     }
 }
 
-impl<'a, 'name, Conn, Col, EI, EU> Future for Entry<'a, 'name, Conn, Col, EI, EU>
+impl<'a, 'name, Conn, Col, EI, EU> Future for AsyncEntry<'a, 'name, Conn, Col, EI, EU>
 where
     Col: NamedCollection + SerializedCollection + 'static,
     <Col as Collection>::PrimaryKey: Unpin,
-    Conn: Connection,
+    Conn: AsyncConnection,
     EI: EntryInsert<Col> + 'a,
     EU: EntryUpdate<Col> + 'a,
     'name: 'a,
@@ -1235,8 +1787,67 @@ where
 
 impl<'a, Cn, Cl> List<'a, Cn, Cl>
 where
-    Cl: Collection,
+    Cl: SerializedCollection,
     Cn: Connection,
+{
+    /// Lists documents by id in ascending order.
+    pub fn ascending(mut self) -> Self {
+        self.0 = self.0.ascending();
+        self
+    }
+
+    /// Lists documents by id in descending order.
+    pub fn descending(mut self) -> Self {
+        self.0 = self.0.descending();
+        self
+    }
+
+    /// Sets the maximum number of results to return.
+    pub fn limit(mut self, maximum_results: usize) -> Self {
+        self.0 = self.0.limit(maximum_results);
+        self
+    }
+
+    /// Returns the number of documents contained within the range.
+    ///
+    /// Order and limit are ignored if they were set.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// println!(
+    ///     "Number of documents with id 42 or larger: {}",
+    ///     MyCollection::list(42.., db).count().await?
+    /// );
+    /// println!(
+    ///     "Number of documents in MyCollection: {}",
+    ///     MyCollection::all(db).count().await?
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub fn count(self) -> Result<u64, Error> {
+        self.0.count()
+    }
+
+    pub fn query(self) -> Result<Vec<CollectionDocument<Cl>>, Error> {
+        self.0.query().and_then(|docs| docs.collection_documents())
+    }
+}
+
+/// Executes [`Connection::list()`] when awaited. Also offers methods to
+/// customize the options for the operation.
+#[must_use]
+pub struct AsyncList<'a, Cn, Cl>(connection::AsyncList<'a, Cn, Cl>)
+where
+    Cl: Collection;
+
+impl<'a, Cn, Cl> AsyncList<'a, Cn, Cl>
+where
+    Cl: Collection,
+    Cn: AsyncConnection,
 {
     /// Lists documents by id in ascending order.
     pub fn ascending(mut self) -> Self {
@@ -1281,11 +1892,11 @@ where
     }
 }
 
-impl<'a, Cn, Cl> Future for List<'a, Cn, Cl>
+impl<'a, Cn, Cl> Future for AsyncList<'a, Cn, Cl>
 where
     Cl: SerializedCollection + Unpin,
     Cl::PrimaryKey: Unpin,
-    Cn: Connection,
+    Cn: AsyncConnection,
 {
     type Output = Result<Vec<CollectionDocument<Cl>>, Error>;
 

@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use bonsaidb_core::{
     custom_api::CustomApi,
-    keyvalue::KeyValue,
+    keyvalue::AsyncKeyValue,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
 };
 
 #[async_trait]
-impl<A> KeyValue for super::RemoteDatabase<A>
+impl<A> AsyncKeyValue for super::RemoteDatabase<A>
 where
     A: CustomApi,
 {

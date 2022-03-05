@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use bonsaidb::{
     client::{url::Url, Client},
-    core::connection::StorageConnection,
+    core::connection::AsyncStorageConnection,
     local::config::Builder,
     server::{DefaultPermissions, Server, ServerConfiguration, LETS_ENCRYPT_STAGING_DIRECTORY},
 };

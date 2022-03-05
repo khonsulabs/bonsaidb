@@ -6,14 +6,14 @@ use bonsaidb_core::{
     circulate::Message,
     custom_api::CustomApi,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
-    pubsub::{PubSub, Subscriber},
+    pubsub::{AsyncPubSub, AsyncSubscriber},
 };
 use serde::Serialize;
 
 use crate::Client;
 
 #[async_trait]
-impl<A> PubSub for super::RemoteDatabase<A>
+impl<A> AsyncPubSub for super::RemoteDatabase<A>
 where
     A: CustomApi,
 {
@@ -106,7 +106,7 @@ pub struct RemoteSubscriber<A: CustomApi> {
 }
 
 #[async_trait]
-impl<A: CustomApi> Subscriber for RemoteSubscriber<A> {
+impl<A: CustomApi> AsyncSubscriber for RemoteSubscriber<A> {
     async fn subscribe_to<S: Into<String> + Send>(
         &self,
         topic: S,

@@ -6,7 +6,7 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         async_trait::async_trait,
-        connection::{AccessPolicy, Connection, StorageConnection},
+        connection::{AccessPolicy, AsyncConnection, AsyncStorageConnection},
         define_basic_unique_mapped_view,
         document::{CollectionDocument, CollectionHeader, Emit},
         schema::{

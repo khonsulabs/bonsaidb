@@ -1,8 +1,7 @@
 use std::borrow::Cow;
 
 use async_trait::async_trait;
-use bonsaidb_core::schema::{CollectionName, ViewName};
-use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
+use bonsaidb_core::schema::CollectionName;
 use nebari::tree::{Root, Unversioned, Versioned};
 
 use crate::{
@@ -22,32 +21,26 @@ pub struct Compactor {
 }
 
 impl Compactor {
+    pub fn target(database: Database, target: Target) -> Self {
+        Self {
+            compaction: Compaction {
+                database_name: database.name().to_string(),
+                target,
+            },
+            database,
+        }
+    }
+
     pub fn collection(database: Database, collection: CollectionName) -> Self {
-        Self {
-            compaction: Compaction {
-                database_name: database.name().to_string(),
-                target: Target::Collection(collection),
-            },
-            database,
-        }
+        Self::target(database, Target::Collection(collection))
     }
+
     pub fn database(database: Database) -> Self {
-        Self {
-            compaction: Compaction {
-                database_name: database.name().to_string(),
-                target: Target::Database,
-            },
-            database,
-        }
+        Self::target(database, Target::Database)
     }
+
     pub fn keyvalue(database: Database) -> Self {
-        Self {
-            compaction: Compaction {
-                database_name: database.name().to_string(),
-                target: Target::KeyValue,
-            },
-            database,
-        }
+        Self::target(database, Target::KeyValue)
     }
 }
 
@@ -58,48 +51,32 @@ pub struct Compaction {
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
-enum Target {
+pub enum Target {
+    VersionedTree(String),
+    UnversionedTree(String),
     Collection(CollectionName),
     KeyValue,
     Database,
 }
 
 impl Target {
-    async fn compact(self, database: &Database) -> Result<(), Error> {
+    fn compact(self, database: &Database) -> Result<(), Error> {
         match self {
+            Target::UnversionedTree(name) => compact_tree::<Unversioned, _>(database, name),
+            Target::VersionedTree(name) => compact_tree::<Versioned, _>(database, name),
             Target::Collection(collection) => {
-                let database = database.clone();
-                compact_collection(database.clone(), &collection).await
+                let mut trees = Vec::new();
+                gather_collection_trees(database, &collection, &mut trees);
+                compact_trees(database, trees)
             }
-            Target::KeyValue => {
-                let database = database.clone();
-                tokio::task::spawn_blocking(move || {
-                    compact_tree::<Unversioned, _>(&database, KEY_TREE)
-                })
-                .await?
-            }
+            Target::KeyValue => compact_tree::<Unversioned, _>(database, KEY_TREE),
             Target::Database => {
-                let mut handles = FuturesUnordered::new();
+                let mut trees = Vec::new();
                 for collection in database.schematic().collections() {
-                    handles.push(
-                        database
-                            .storage()
-                            .tasks()
-                            .compact_collection(database.clone(), collection)
-                            .boxed(),
-                    );
+                    gather_collection_trees(database, &collection, &mut trees);
                 }
-                handles.push(
-                    database
-                        .storage()
-                        .tasks()
-                        .compact_key_value_store(database.clone())
-                        .boxed(),
-                );
-                while let Some(result) = handles.next().await {
-                    result?;
-                }
-                Ok(())
+                trees.push(Target::KeyValue);
+                compact_trees(database, trees)
             }
         }
     }
@@ -112,8 +89,8 @@ impl Job for Compactor {
     type Error = Error;
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn execute(&mut self) -> Result<Self::Output, Error> {
-        self.compaction.target.clone().compact(&self.database).await
+    fn execute(&mut self) -> Result<Self::Output, Error> {
+        self.compaction.target.clone().compact(&self.database)
     }
 }
 
@@ -122,44 +99,42 @@ impl Keyed<Task> for Compactor {
         Task::Compaction(self.compaction.clone())
     }
 }
-async fn compact_collection(database: Database, collection: &CollectionName) -> Result<(), Error> {
-    // Compact the main database file
-    let mut handles = FuturesUnordered::new();
-    let task_db = database.clone();
-    let document_tree_name = document_tree_name(collection);
-    handles.push(tokio::task::spawn_blocking(move || {
-        compact_tree::<Versioned, _>(&task_db, document_tree_name)
-    }));
 
-    // Compact the views
+fn gather_collection_trees(
+    database: &Database,
+    collection: &CollectionName,
+    trees: &mut Vec<Target>,
+) {
+    trees.push(Target::VersionedTree(document_tree_name(collection)));
+    trees.push(Target::UnversionedTree(view_versions_tree_name(collection)));
+
     if let Some(views) = database.data.schema.views_in_collection(collection) {
         for view in views {
-            let task_db = database.clone();
-            let view_name = view.view_name();
-            handles.push(tokio::task::spawn_blocking(move || {
-                compact_view(&task_db, &view_name)
-            }));
+            let name = view.view_name();
+            trees.push(Target::UnversionedTree(view_entries_tree_name(&name)));
+            trees.push(Target::UnversionedTree(view_document_map_tree_name(&name)));
+            trees.push(Target::UnversionedTree(view_invalidated_docs_tree_name(
+                &name,
+            )));
         }
     }
-
-    let task_db = database.clone();
-    let view_versions_tree_name = view_versions_tree_name(collection);
-    handles.push(tokio::task::spawn_blocking(move || {
-        compact_tree::<Unversioned, _>(&task_db, view_versions_tree_name)
-    }));
-
-    while let Some(result) = handles.next().await {
-        result??;
-    }
-
-    Ok(())
 }
 
-fn compact_view(database: &Database, name: &ViewName) -> Result<(), Error> {
-    compact_tree::<Unversioned, _>(database, view_entries_tree_name(name))?;
-    compact_tree::<Unversioned, _>(database, view_document_map_tree_name(name))?;
-    compact_tree::<Unversioned, _>(database, view_invalidated_docs_tree_name(name))?;
-
+fn compact_trees(database: &Database, targets: Vec<Target>) -> Result<(), Error> {
+    // Enqueue all the jobs
+    let handles = targets
+        .into_iter()
+        .map(|target| {
+            database
+                .storage()
+                .tasks()
+                .spawn_compact_target(database.clone(), target)
+        })
+        .collect::<Vec<_>>();
+    // Wait for them to finish.
+    for handle in handles {
+        handle.receive()??;
+    }
     Ok(())
 }
 

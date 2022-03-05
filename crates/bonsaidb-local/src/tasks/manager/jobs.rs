@@ -1,7 +1,6 @@
 use std::{any::Any, collections::HashMap, fmt::Debug, sync::Arc};
 
 use flume::{Receiver, Sender};
-use tokio::sync::oneshot;
 
 use crate::tasks::{
     handle::{Handle, Id},
@@ -79,9 +78,9 @@ where
         &mut self,
         id: Id,
     ) -> Handle<T, E> {
-        let (sender, receiver) = oneshot::channel();
+        let (sender, receiver) = flume::bounded(1);
         let senders = self.result_senders.entry(id).or_insert_with(Vec::default);
-        senders.push(Box::new(Some(sender)));
+        senders.push(Box::new(sender));
 
         Handle { id, receiver }
     }
@@ -113,28 +112,26 @@ where
 
         if let Some(senders) = self.result_senders.remove(&id) {
             let result = result.map_err(Arc::new);
-            for mut sender_handle in senders {
+            for sender_handle in senders {
                 let sender = sender_handle
-                    .as_any_mut()
-                    .downcast_mut::<Option<oneshot::Sender<Result<T, Arc<E>>>>>()
+                    .as_any()
+                    .downcast_ref::<flume::Sender<Result<T, Arc<E>>>>()
                     .unwrap();
-                if let Some(sender) = sender.take() {
-                    drop(sender.send(result.clone()));
-                }
+                drop(sender.send(result.clone()));
             }
         }
     }
 }
 
 pub trait AnySender: Any + Send + Sync {
-    fn as_any_mut(&mut self) -> &'_ mut dyn Any;
+    fn as_any(&self) -> &'_ dyn Any;
 }
 
-impl<T> AnySender for Option<oneshot::Sender<T>>
+impl<T> AnySender for flume::Sender<T>
 where
     T: Send + Sync + 'static,
 {
-    fn as_any_mut(&mut self) -> &'_ mut dyn Any {
+    fn as_any(&self) -> &'_ dyn Any {
         self
     }
 }

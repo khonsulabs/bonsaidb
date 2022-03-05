@@ -18,7 +18,9 @@ use bonsaidb_core::{
     admin::User,
     arc_bytes::serde::Bytes,
     circulate::{Message, Relay, Subscriber},
-    connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
+    connection::{
+        self, AccessPolicy, AsyncConnection, AsyncStorageConnection, QueryKey, Range, Sort,
+    },
     custom_api::{CustomApi, CustomApiResult},
     document::DocumentId,
     keyvalue::{KeyOperation, KeyValue},
@@ -912,7 +914,7 @@ impl<B: Backend> ClientRequest<B> {
 }
 
 #[async_trait]
-impl<B: Backend> StorageConnection for CustomServer<B> {
+impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
     type Database = ServerDatabase<B>;
 
     async fn create_database_with_schema(

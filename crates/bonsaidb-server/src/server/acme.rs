@@ -4,7 +4,7 @@ use async_acme::cache::AcmeCache;
 use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
-    connection::Connection,
+    connection::AsyncConnection,
     define_basic_unique_mapped_view,
     document::{CollectionDocument, Emit, KeyId},
     schema::{Collection, SerializedCollection},

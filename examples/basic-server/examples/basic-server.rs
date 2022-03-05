@@ -5,7 +5,7 @@ use std::time::Duration;
 use bonsaidb::{
     client::{url::Url, Client},
     core::{
-        connection::{Connection, StorageConnection},
+        connection::{AsyncConnection, AsyncStorageConnection},
         schema::SerializedCollection,
     },
     local::config::Builder,
@@ -94,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn do_some_database_work<'a, C: Connection>(
+async fn do_some_database_work<'a, C: AsyncConnection>(
     database: C,
     client_name: &str,
 ) -> Result<(), bonsaidb::core::Error> {

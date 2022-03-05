@@ -1,4 +1,4 @@
-use bonsaidb_core::connection::StorageConnection;
+use bonsaidb_core::connection::AsyncStorageConnection;
 use clap::Subcommand;
 
 #[derive(Subcommand, Debug)]
@@ -15,7 +15,7 @@ pub enum UserCommand {
 }
 
 impl Command {
-    pub async fn execute<SC: StorageConnection>(self, server: SC) -> anyhow::Result<()> {
+    pub async fn execute<SC: AsyncStorageConnection>(self, server: SC) -> anyhow::Result<()> {
         match self {
             Command::User(user) => match user {
                 UserCommand::Create { username } => {

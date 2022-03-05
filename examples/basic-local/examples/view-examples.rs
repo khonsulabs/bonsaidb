@@ -1,6 +1,6 @@
 use bonsaidb::{
     core::{
-        connection::Connection,
+        connection::AsyncConnection,
         document::{CollectionDocument, Emit},
         schema::{
             view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection, View,

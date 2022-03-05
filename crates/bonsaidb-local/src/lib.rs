@@ -40,5 +40,9 @@ pub use self::{
     storage::{BackupLocation, Storage, StorageId},
 };
 
+mod r#async;
+
+pub use r#async::*;
+
 #[cfg(test)]
 mod tests;

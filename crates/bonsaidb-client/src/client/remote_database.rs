@@ -2,7 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    connection::{AccessPolicy, Connection, QueryKey, Range, Sort},
+    connection::{AccessPolicy, AsyncConnection, QueryKey, Range, Sort},
     custom_api::CustomApi,
     document::{AnyDocumentId, OwnedDocument},
     key::Key,
@@ -61,7 +61,7 @@ impl<A: CustomApi> RemoteDatabase<A> {
 }
 
 #[async_trait]
-impl<A: CustomApi> Connection for RemoteDatabase<A> {
+impl<A: CustomApi> AsyncConnection for RemoteDatabase<A> {
     async fn get<C, PrimaryKey>(
         &self,
         id: PrimaryKey,

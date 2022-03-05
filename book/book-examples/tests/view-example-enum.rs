@@ -1,6 +1,6 @@
 use bonsaidb::{
     core::{
-        connection::Connection,
+        connection::AsyncConnection,
         document::{BorrowedDocument, Emit},
         key::EnumKey,
         schema::{

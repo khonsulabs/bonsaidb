@@ -5,7 +5,7 @@ use std::time::Duration;
 #[cfg(feature = "encryption")]
 use bonsaidb_core::test_util::EncryptedBasic;
 use bonsaidb_core::{
-    connection::{AccessPolicy, Connection, StorageConnection},
+    connection::{AccessPolicy, AsyncConnection, AsyncStorageConnection},
     document::DocumentId,
     permissions::{Permissions, Statement},
     test_util::{
@@ -16,7 +16,7 @@ use bonsaidb_core::{
 use config::StorageConfiguration;
 
 use super::*;
-use crate::{config::Builder, Database};
+use crate::{config::Builder, AsyncDatabase, Database};
 
 macro_rules! define_local_suite {
     ($name:ident) => {
@@ -24,7 +24,8 @@ macro_rules! define_local_suite {
             use super::*;
             struct TestHarness {
                 _directory: TestDirectory,
-                db: Database,
+                db: AsyncDatabase,
+                storage: AsyncStorage,
             }
 
             impl TestHarness {
@@ -41,7 +42,7 @@ macro_rules! define_local_suite {
                         config = config.default_compression(crate::config::Compression::Lz4);
                     }
 
-                    let storage = Storage::open(config).await?;
+                    let storage = AsyncStorage::open(config).await?;
                     storage
                         .create_database::<BasicSchema>("tests", false)
                         .await?;
@@ -49,6 +50,7 @@ macro_rules! define_local_suite {
 
                     Ok(Self {
                         _directory: directory,
+                        storage,
                         db,
                     })
                 }
@@ -57,8 +59,8 @@ macro_rules! define_local_suite {
                     stringify!($name)
                 }
 
-                fn server(&self) -> &'_ Storage {
-                    self.db.storage()
+                fn server(&self) -> &'_ AsyncStorage {
+                    &self.storage
                 }
 
                 #[allow(dead_code)]
@@ -66,13 +68,13 @@ macro_rules! define_local_suite {
                     &self,
                     permissions: Vec<Statement>,
                     _label: &str,
-                ) -> anyhow::Result<Database> {
+                ) -> anyhow::Result<AsyncDatabase> {
                     Ok(self
                         .db
                         .with_effective_permissions(Permissions::from(permissions)))
                 }
 
-                async fn connect(&self) -> anyhow::Result<Database> {
+                async fn connect(&self) -> anyhow::Result<AsyncDatabase> {
                     Ok(self.db.clone())
                 }
 
@@ -111,7 +113,7 @@ fn integrity_checks() -> anyhow::Result<()> {
             .build()?;
         rt.block_on(async {
             {
-                let db = Database::open::<BasicCollectionWithNoViews>(config.clone()).await?;
+                let db = AsyncDatabase::open::<BasicCollectionWithNoViews>(config.clone()).await?;
                 let collection = db.collection::<BasicCollectionWithNoViews>();
                 collection
                     .push(&Basic::default().with_parent_id(DocumentId::from_u64(1)))
@@ -127,8 +129,8 @@ fn integrity_checks() -> anyhow::Result<()> {
             .enable_all()
             .build()?;
         rt.block_on(async {
-            let db =
-                Database::open::<BasicCollectionWithOnlyBrokenParentId>(config.clone()).await?;
+            let db = AsyncDatabase::open::<BasicCollectionWithOnlyBrokenParentId>(config.clone())
+                .await?;
             // Give the integrity scanner time to run if it were to run (it shouldn't in this configuration).
             tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -154,7 +156,8 @@ fn integrity_checks() -> anyhow::Result<()> {
             .enable_all()
             .build()?;
         rt.block_on(async {
-            let db = Database::open::<Basic>(config.check_view_integrity_on_open(true)).await?;
+            let db =
+                AsyncDatabase::open::<Basic>(config.check_view_integrity_on_open(true)).await?;
             for _ in 0_u8..100 {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
                 if db
@@ -186,7 +189,7 @@ fn encryption() -> anyhow::Result<()> {
     let document_header = {
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async {
-            let db = Database::open::<BasicSchema>(StorageConfiguration::new(&path)).await?;
+            let db = AsyncDatabase::open::<BasicSchema>(StorageConfiguration::new(&path)).await?;
 
             let document_header = db
                 .collection::<EncryptedBasic>()
@@ -213,7 +216,7 @@ fn encryption() -> anyhow::Result<()> {
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
-        let db = Database::open::<BasicSchema>(StorageConfiguration::new(&path)).await?;
+        let db = AsyncDatabase::open::<BasicSchema>(StorageConfiguration::new(&path)).await?;
 
         // Try retrieving the document, but expect an error decrypting.
         if let Err(bonsaidb_core::Error::Database(err)) = db
@@ -234,7 +237,7 @@ fn encryption() -> anyhow::Result<()> {
 
 #[test]
 fn expiration_after_close() -> anyhow::Result<()> {
-    use bonsaidb_core::{keyvalue::KeyValue, test_util::TimingTest};
+    use bonsaidb_core::{keyvalue::AsyncKeyValue, test_util::TimingTest};
     loop {
         let path = TestDirectory::new("expiration-after-close");
         // To ensure full cleanup between each block, each runs in its own runtime;
@@ -244,7 +247,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
-                let db = Database::open::<()>(StorageConfiguration::new(&path)).await?;
+                let db = AsyncDatabase::open::<()>(StorageConfiguration::new(&path)).await?;
 
                 // TODO This is a workaroun for the key-value expiration task
                 // taking ownership of an instance of Database. If this async
@@ -265,7 +268,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             let retry = rt.block_on(async {
-                let db = Database::open::<()>(StorageConfiguration::new(&path)).await?;
+                let db = AsyncDatabase::open::<()>(StorageConfiguration::new(&path)).await?;
 
                 let key = db.get_key("a").await?;
                 // Due to not having a reliable way to shut down the database,

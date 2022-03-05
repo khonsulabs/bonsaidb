@@ -1,7 +1,7 @@
 #[cfg(feature = "compression")]
 use bonsaidb::local::config::Compression;
 use bonsaidb::{
-    core::{connection::Connection, test_util::TestDirectory},
+    core::{connection::AsyncConnection, test_util::TestDirectory},
     local::{
         config::{Builder, StorageConfiguration},
         Database,

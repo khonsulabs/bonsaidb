@@ -1,13 +1,13 @@
 use std::{
     collections::HashMap,
     fmt::{Debug, Display},
+    fs::{self, File},
+    io::{Read, Write},
     marker::PhantomData,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use async_lock::{Mutex, RwLock};
-use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::connection::{Authenticated, Authentication};
@@ -28,8 +28,6 @@ use bonsaidb_core::{
     document::CollectionDocument,
     schema::{Nameable, NamedCollection},
 };
-use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
-use futures::TryFutureExt;
 use itertools::Itertools;
 use nebari::{
     io::{
@@ -38,11 +36,8 @@ use nebari::{
     },
     ChunkCache, ThreadPool,
 };
+use parking_lot::{Mutex, RwLock};
 use rand::{thread_rng, Rng};
-use tokio::{
-    fs::{self, File},
-    io::{AsyncReadExt, AsyncWriteExt},
-};
 
 #[cfg(feature = "compression")]
 use crate::config::Compression;
@@ -59,7 +54,7 @@ use crate::{
 mod argon;
 
 mod backup;
-pub use backup::BackupLocation;
+pub use backup::{AnyBackupLocation, BackupLocation};
 
 /// A file-based, multi-database, multi-user database engine.
 ///
@@ -180,7 +175,7 @@ struct Data {
 
 impl Storage {
     /// Creates or opens a multi-database [`Storage`] with its data stored in `directory`.
-    pub async fn open(configuration: StorageConfiguration) -> Result<Self, Error> {
+    pub fn open(configuration: StorageConfiguration) -> Result<Self, Error> {
         let owned_path = configuration
             .path
             .clone()
@@ -197,9 +192,9 @@ impl Storage {
         }
         let tasks = TaskManager::new(manager);
 
-        fs::create_dir_all(&owned_path).await?;
+        fs::create_dir_all(&owned_path)?;
 
-        let id = Self::lookup_or_create_id(&configuration, &owned_path).await?;
+        let id = Self::lookup_or_create_id(&configuration, &owned_path)?;
 
         #[cfg(feature = "encryption")]
         let vault = {
@@ -207,12 +202,11 @@ impl Storage {
                 Some(storage) => storage,
                 None => Arc::new(
                     LocalVaultKeyStorage::new(owned_path.join("vault-keys"))
-                        .await
                         .map_err(|err| Error::Vault(vault::Error::Initializing(err.to_string())))?,
                 ),
             };
 
-            Arc::new(Vault::initialize(id, &owned_path, vault_key_storage).await?)
+            Arc::new(Vault::initialize(id, &owned_path, vault_key_storage)?)
         };
 
         let parallelization = configuration.workers.parallelization;
@@ -233,38 +227,35 @@ impl Storage {
         #[cfg(all(feature = "compression", not(feature = "encryption")))]
         let tree_vault = TreeVault::new_if_needed(configuration.default_compression);
 
-        let storage = tokio::task::spawn_blocking::<_, Result<Self, Error>>(move || {
-            Ok(Self {
-                data: Arc::new(Data {
-                    id,
-                    tasks,
-                    parallelization,
-                    #[cfg(feature = "password-hashing")]
-                    argon,
-                    #[cfg(feature = "encryption")]
-                    vault,
-                    #[cfg(feature = "encryption")]
-                    default_encryption_key,
-                    #[cfg(any(feature = "compression", feature = "encryption"))]
-                    tree_vault,
-                    path: owned_path,
-                    file_manager,
-                    chunk_cache: ChunkCache::new(2000, 160_384),
-                    threadpool: ThreadPool::new(parallelization),
-                    schemas: RwLock::new(configuration.initial_schemas),
-                    available_databases: RwLock::default(),
-                    open_roots: Mutex::default(),
-                    key_value_persistence,
-                    check_view_integrity_on_database_open,
-                    relay: Relay::default(),
-                }),
-            })
-        })
-        .await??;
+        let storage = Self {
+            data: Arc::new(Data {
+                id,
+                tasks,
+                parallelization,
+                #[cfg(feature = "password-hashing")]
+                argon,
+                #[cfg(feature = "encryption")]
+                vault,
+                #[cfg(feature = "encryption")]
+                default_encryption_key,
+                #[cfg(any(feature = "compression", feature = "encryption"))]
+                tree_vault,
+                path: owned_path,
+                file_manager,
+                chunk_cache: ChunkCache::new(2000, 160_384),
+                threadpool: ThreadPool::new(parallelization),
+                schemas: RwLock::new(configuration.initial_schemas),
+                available_databases: RwLock::default(),
+                open_roots: Mutex::default(),
+                key_value_persistence,
+                check_view_integrity_on_database_open,
+                relay: Relay::default(),
+            }),
+        };
 
-        storage.cache_available_databases().await?;
+        storage.cache_available_databases()?;
 
-        storage.create_admin_database_if_needed().await?;
+        storage.create_admin_database_if_needed()?;
 
         Ok(storage)
     }
@@ -275,7 +266,7 @@ impl Storage {
         &self.data.path
     }
 
-    async fn lookup_or_create_id(
+    fn lookup_or_create_id(
         configuration: &StorageConfiguration,
         path: &Path,
     ) -> Result<StorageId, Error> {
@@ -296,11 +287,10 @@ impl Storage {
                 // server if the file can't be read or contains unexpected data.
                 let existing_id = String::from_utf8(
                     File::open(id_path)
-                        .and_then(|mut f| async move {
+                        .and_then(|mut f| {
                             let mut bytes = Vec::new();
-                            f.read_to_end(&mut bytes).await.map(|_| bytes)
+                            f.read_to_end(&mut bytes).map(|_| bytes)
                         })
-                        .await
                         .expect("error reading server-id file"),
                 )
                 .expect("server-id contains invalid data");
@@ -309,12 +299,10 @@ impl Storage {
             } else {
                 let id = { thread_rng().gen::<u64>() };
                 File::create(id_path)
-                    .and_then(|mut file| async move {
+                    .and_then(|mut file| {
                         let id = id.to_string();
-                        file.write_all(id.as_bytes()).await?;
-                        file.shutdown().await
+                        file.write_all(id.as_bytes())
                     })
-                    .await
                     .map_err(|err| {
                         Error::Core(bonsaidb_core::Error::Configuration(format!(
                             "Error writing server-id file: {}",
@@ -326,28 +314,25 @@ impl Storage {
         }))
     }
 
-    async fn cache_available_databases(&self) -> Result<(), Error> {
+    fn cache_available_databases(&self) -> Result<(), Error> {
         let available_databases = self
             .admin()
-            .await
             .view::<ByName>()
-            .query()
-            .await?
+            .query()?
             .into_iter()
             .map(|map| (map.key, map.value))
             .collect();
-        let mut storage_databases = fast_async_write!(self.data.available_databases);
+        let mut storage_databases = self.data.available_databases.write();
         *storage_databases = available_databases;
         Ok(())
     }
 
-    async fn create_admin_database_if_needed(&self) -> Result<(), Error> {
-        self.register_schema::<Admin>().await?;
-        match self.database::<Admin>(ADMIN_DATABASE_NAME).await {
+    fn create_admin_database_if_needed(&self) -> Result<(), Error> {
+        self.register_schema::<Admin>()?;
+        match self.database::<Admin>(ADMIN_DATABASE_NAME) {
             Ok(_) => {}
             Err(bonsaidb_core::Error::DatabaseNotFound(_)) => {
-                self.create_database::<Admin>(ADMIN_DATABASE_NAME, true)
-                    .await?;
+                self.create_database::<Admin>(ADMIN_DATABASE_NAME, true)?;
             }
             Err(err) => return Err(Error::Core(err)),
         }
@@ -398,8 +383,8 @@ impl Storage {
     }
 
     /// Registers a schema for use within the server.
-    pub async fn register_schema<DB: Schema>(&self) -> Result<(), Error> {
-        let mut schemas = fast_async_write!(self.data.schemas);
+    pub fn register_schema<DB: Schema>(&self) -> Result<(), Error> {
+        let mut schemas = self.data.schemas.write();
         if schemas
             .insert(
                 DB::schema_name(),
@@ -419,28 +404,25 @@ impl Storage {
         not(any(feature = "encryption", feature = "compression")),
         allow(unused_mut)
     )]
-    pub(crate) async fn open_roots(&self, name: &str) -> Result<Context, Error> {
-        let mut open_roots = fast_async_lock!(self.data.open_roots);
+    pub(crate) fn open_roots(&self, name: &str) -> Result<Context, Error> {
+        let mut open_roots = self.data.open_roots.lock();
         if let Some(roots) = open_roots.get(name) {
             Ok(roots.clone())
         } else {
             let task_self = self.clone();
             let task_name = name.to_string();
-            let roots = tokio::task::spawn_blocking(move || {
-                let mut config = nebari::Config::new(task_self.data.path.join(task_name))
-                    .file_manager(task_self.data.file_manager.clone())
-                    .cache(task_self.data.chunk_cache.clone())
-                    .shared_thread_pool(&task_self.data.threadpool);
 
-                #[cfg(any(feature = "encryption", feature = "compression"))]
-                if let Some(vault) = task_self.data.tree_vault.clone() {
-                    config = config.vault(vault);
-                }
+            let mut config = nebari::Config::new(task_self.data.path.join(task_name))
+                .file_manager(task_self.data.file_manager.clone())
+                .cache(task_self.data.chunk_cache.clone())
+                .shared_thread_pool(&task_self.data.threadpool);
 
-                config.open().map_err(Error::from)
-            })
-            .await
-            .unwrap()?;
+            #[cfg(any(feature = "encryption", feature = "compression"))]
+            if let Some(vault) = task_self.data.tree_vault.clone() {
+                config = config.vault(vault);
+            }
+
+            let roots = config.open().map_err(Error::from)?;
             let context = Context::new(roots, self.data.key_value_persistence.clone());
 
             open_roots.insert(name.to_owned(), context.clone());
@@ -477,20 +459,21 @@ impl Storage {
 
     /// Returns the administration database.
     #[allow(clippy::missing_panics_doc)]
-    pub async fn admin(&self) -> Database {
+    // TODO this should probably move to StorageConnection instaed of creating an async version
+    pub fn admin(&self) -> Database {
         Database::new::<Admin, _>(
             ADMIN_DATABASE_NAME,
-            self.open_roots(ADMIN_DATABASE_NAME).await.unwrap(),
-            self.clone(),
+            self.open_roots(ADMIN_DATABASE_NAME).unwrap(),
+            self,
         )
-        .await
         .unwrap()
     }
 
     /// Opens a database through a generic-free trait.
-    pub(crate) async fn database_without_schema(&self, name: &str) -> Result<Database, Error> {
+    pub(crate) fn database_without_schema(&self, name: &str) -> Result<Database, Error> {
+        // TODO switch to upgradable read now that we are on parking_lot
         let schema = {
-            let available_databases = fast_async_read!(self.data.available_databases);
+            let available_databases = self.data.available_databases.read();
             available_databases
                 .get(name)
                 .ok_or_else(|| {
@@ -499,9 +482,9 @@ impl Storage {
                 .clone()
         };
 
-        let mut schemas = fast_async_write!(self.data.schemas);
+        let mut schemas = self.data.schemas.write();
         if let Some(schema) = schemas.get_mut(&schema) {
-            let db = schema.open(name.to_string(), self.clone()).await?;
+            let db = schema.open(name.to_string(), self)?;
             Ok(db)
         } else {
             Err(Error::Core(bonsaidb_core::Error::SchemaNotRegistered(
@@ -513,12 +496,12 @@ impl Storage {
     #[cfg(feature = "internal-apis")]
     #[doc(hidden)]
     /// Opens a database through a generic-free trait.
-    pub async fn database_without_schema_internal(&self, name: &str) -> Result<Database, Error> {
-        self.database_without_schema(name).await
+    pub fn database_without_schema_internal(&self, name: &str) -> Result<Database, Error> {
+        self.database_without_schema(name)
     }
 
     #[cfg(feature = "multiuser")]
-    async fn update_user_with_named_id<
+    fn update_user_with_named_id<
         'user,
         'other,
         Col: NamedCollection<PrimaryKey = u64>,
@@ -531,14 +514,14 @@ impl Storage {
         other: O,
         callback: F,
     ) -> Result<(), bonsaidb_core::Error> {
-        let admin = self.admin().await;
+        let admin = self.admin();
         let other = other.name()?;
-        let (user, other) =
-            futures::try_join!(User::load(user.name()?, &admin), other.id::<Col, _>(&admin),)?;
+        let user = User::load(user.name()?, &admin)?;
+        let other = other.id::<Col, _>(&admin)?;
         match (user, other) {
             (Some(mut user), Some(other)) => {
                 if callback(&mut user, other) {
-                    user.update(&admin).await?;
+                    user.update(&admin)?;
                 }
                 Ok(())
             }
@@ -548,10 +531,9 @@ impl Storage {
     }
 }
 
-#[async_trait]
 pub trait DatabaseOpener: Send + Sync + Debug {
     fn schematic(&self) -> &'_ Schematic;
-    async fn open(&self, name: String, storage: Storage) -> Result<Database, Error>;
+    fn open(&self, name: String, storage: &Storage) -> Result<Database, Error>;
 }
 
 #[derive(Debug)]
@@ -573,7 +555,6 @@ where
     }
 }
 
-#[async_trait]
 impl<DB> DatabaseOpener for StorageSchemaOpener<DB>
 where
     DB: Schema,
@@ -582,14 +563,13 @@ where
         &self.schematic
     }
 
-    async fn open(&self, name: String, storage: Storage) -> Result<Database, Error> {
-        let roots = storage.open_roots(&name).await?;
-        let db = Database::new::<DB, _>(name, roots, storage).await?;
+    fn open(&self, name: String, storage: &Storage) -> Result<Database, Error> {
+        let roots = storage.open_roots(&name)?;
+        let db = Database::new::<DB, _>(name, roots, storage)?;
         Ok(db)
     }
 }
 
-#[async_trait]
 impl StorageConnection for Storage {
     type Database = Database;
 
@@ -597,7 +577,7 @@ impl StorageConnection for Storage {
         feature = "tracing",
         tracing::instrument(skip(name, schema, only_if_needed))
     )]
-    async fn create_database_with_schema(
+    fn create_database_with_schema(
         &self,
         name: &str,
         schema: SchemaName,
@@ -605,20 +585,20 @@ impl StorageConnection for Storage {
     ) -> Result<(), bonsaidb_core::Error> {
         Self::validate_name(name)?;
 
+        // TODO upgrade read
         {
-            let schemas = fast_async_read!(self.data.schemas);
+            let schemas = self.data.schemas.read();
             if !schemas.contains_key(&schema) {
                 return Err(bonsaidb_core::Error::SchemaNotRegistered(schema));
             }
         }
 
-        let mut available_databases = fast_async_write!(self.data.available_databases);
-        let admin = self.admin().await;
+        let mut available_databases = self.data.available_databases.write();
+        let admin = self.admin();
         if !admin
             .view::<database::ByName>()
             .with_key(name.to_ascii_lowercase())
-            .query()
-            .await?
+            .query()?
             .is_empty()
         {
             if only_if_needed {
@@ -635,18 +615,14 @@ impl StorageConnection for Storage {
             .push(&admin::Database {
                 name: name.to_string(),
                 schema: schema.clone(),
-            })
-            .await?;
+            })?;
         available_databases.insert(name.to_string(), schema);
 
         Ok(())
     }
 
-    async fn database<DB: Schema>(
-        &self,
-        name: &str,
-    ) -> Result<Self::Database, bonsaidb_core::Error> {
-        let db = self.database_without_schema(name).await?;
+    fn database<DB: Schema>(&self, name: &str) -> Result<Self::Database, bonsaidb_core::Error> {
+        let db = self.database_without_schema(name)?;
         if db.data.schema.name == DB::schema_name() {
             Ok(db)
         } else {
@@ -659,41 +635,39 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(name)))]
-    async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
-        let admin = self.admin().await;
-        let mut available_databases = fast_async_write!(self.data.available_databases);
+    fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
+        let admin = self.admin();
+        let mut available_databases = self.data.available_databases.write();
         available_databases.remove(name);
 
-        let mut open_roots = fast_async_lock!(self.data.open_roots);
+        let mut open_roots = self.data.open_roots.lock();
         open_roots.remove(name);
 
         let database_folder = self.path().join(name);
         if database_folder.exists() {
             let file_manager = self.data.file_manager.clone();
-            tokio::task::spawn_blocking(move || file_manager.delete_directory(&database_folder))
-                .await
-                .unwrap()
+            file_manager
+                .delete_directory(&database_folder)
                 .map_err(Error::Nebari)?;
         }
 
         if let Some(entry) = admin
             .view::<database::ByName>()
             .with_key(name.to_ascii_lowercase())
-            .query()
-            .await?
+            .query()?
             .first()
         {
-            admin.delete::<DatabaseRecord, _>(&entry.source).await?;
+            admin.delete::<DatabaseRecord, _>(&entry.source)?;
 
             Ok(())
         } else {
-            return Err(bonsaidb_core::Error::DatabaseNotFound(name.to_string()));
+            Err(bonsaidb_core::Error::DatabaseNotFound(name.to_string()))
         }
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
-        let available_databases = fast_async_read!(self.data.available_databases);
+    fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
+        let available_databases = self.data.available_databases.read();
         Ok(available_databases
             .iter()
             .map(|(name, schema)| connection::Database {
@@ -704,64 +678,56 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
-        let available_databases = fast_async_read!(self.data.available_databases);
+    fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
+        let available_databases = self.data.available_databases.read();
         Ok(available_databases.values().unique().cloned().collect())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
     #[cfg(feature = "multiuser")]
-    async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
+    fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         let result = self
             .admin()
-            .await
             .collection::<User>()
-            .push(&User::default_with_username(username))
-            .await?;
+            .push(&User::default_with_username(username))?;
         Ok(result.id)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
     #[cfg(feature = "multiuser")]
-    async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
+    fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
     ) -> Result<(), bonsaidb_core::Error> {
-        let admin = self.admin().await;
-        let doc = User::load(user, &admin)
-            .await?
-            .ok_or(bonsaidb_core::Error::UserNotFound)?;
-        doc.delete(&admin).await?;
+        let admin = self.admin();
+        let doc = User::load(user, &admin)?.ok_or(bonsaidb_core::Error::UserNotFound)?;
+        doc.delete(&admin)?;
 
         Ok(())
     }
 
     #[cfg(feature = "password-hashing")]
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password)))]
-    async fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
+    fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<(), bonsaidb_core::Error> {
-        let admin = self.admin().await;
-        let mut user = User::load(user, &admin)
-            .await?
-            .ok_or(bonsaidb_core::Error::UserNotFound)?;
-        user.contents.argon_hash = Some(self.data.argon.hash(user.header.id, password).await?);
-        user.update(&admin).await
+        let admin = self.admin();
+        let mut user = User::load(user, &admin)?.ok_or(bonsaidb_core::Error::UserNotFound)?;
+        user.contents.argon_hash = Some(self.data.argon.hash(user.header.id, password)?);
+        user.update(&admin)
     }
 
     #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
-    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
+    fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         authentication: Authentication,
     ) -> Result<Authenticated, bonsaidb_core::Error> {
-        let admin = self.admin().await;
-        let user = User::load(user, &admin)
-            .await?
-            .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+        let admin = self.admin();
+        let user = User::load(user, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
         match authentication {
             Authentication::Password(password) => {
                 let saved_hash = user
@@ -772,9 +738,8 @@ impl StorageConnection for Storage {
 
                 self.data
                     .argon
-                    .verify(user.header.id, password, saved_hash)
-                    .await?;
-                let permissions = user.contents.effective_permissions(&admin).await?;
+                    .verify(user.header.id, password, saved_hash)?;
+                let permissions = user.contents.effective_permissions(&admin)?;
                 Ok(Authenticated {
                     user_id: user.header.id,
                     permissions,
@@ -785,7 +750,7 @@ impl StorageConnection for Storage {
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
     #[cfg(feature = "multiuser")]
-    async fn add_permission_group_to_user<
+    fn add_permission_group_to_user<
         'user,
         'group,
         U: Nameable<'user, u64> + Send + Sync,
@@ -807,12 +772,11 @@ impl StorageConnection for Storage {
                 }
             },
         )
-        .await
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
     #[cfg(feature = "multiuser")]
-    async fn remove_permission_group_from_user<
+    fn remove_permission_group_from_user<
         'user,
         'group,
         U: Nameable<'user, u64> + Send + Sync,
@@ -831,12 +795,11 @@ impl StorageConnection for Storage {
                 old_len != user.contents.groups.len()
             },
         )
-        .await
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
     #[cfg(feature = "multiuser")]
-    async fn add_role_to_user<
+    fn add_role_to_user<
         'user,
         'group,
         U: Nameable<'user, u64> + Send + Sync,
@@ -854,12 +817,11 @@ impl StorageConnection for Storage {
                 true
             }
         })
-        .await
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
     #[cfg(feature = "multiuser")]
-    async fn remove_role_from_user<
+    fn remove_role_from_user<
         'user,
         'group,
         U: Nameable<'user, u64> + Send + Sync,
@@ -874,7 +836,6 @@ impl StorageConnection for Storage {
             user.contents.roles.retain(|id| id != &role_id);
             old_len != user.contents.roles.len()
         })
-        .await
     }
 }
 

@@ -59,9 +59,10 @@ use bonsaidb_local::{
 pub use http;
 
 /// S3-compatible [`VaultKeyStorage`] implementor.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 #[must_use]
 pub struct S3VaultKeyStorage {
+    runtime: tokio::runtime::Handle,
     bucket: String,
     /// The S3 endpoint to use. If not specified, the endpoint will be
     /// determined automatically. This field can be used to support non-AWS S3
@@ -74,11 +75,31 @@ pub struct S3VaultKeyStorage {
     pub path: String,
 }
 
+impl Default for S3VaultKeyStorage {
+    fn default() -> Self {
+        Self {
+            runtime: tokio::runtime::Handle::current(),
+            bucket: String::default(),
+            endpoint: None,
+            region: None,
+            path: String::default(),
+        }
+    }
+}
+
 impl S3VaultKeyStorage {
-    /// Creates a new key storage instance for `bucket`.
+    /// Creates a new key storage instance for `bucket`. This function requires
+    /// a global `tokio` runtime to be installed.
     pub fn new(bucket: impl Display) -> Self {
+        Self::new_with_runtime(bucket, tokio::runtime::Handle::current())
+    }
+
+    /// Creates a new key storage instance for `bucket`, which performs its
+    /// networking operations on `runtime`.
+    pub fn new_with_runtime(bucket: impl Display, runtime: tokio::runtime::Handle) -> Self {
         Self {
             bucket: bucket.to_string(),
+            runtime,
             ..Self::default()
         }
     }
@@ -128,48 +149,48 @@ impl S3VaultKeyStorage {
 impl VaultKeyStorage for S3VaultKeyStorage {
     type Error = anyhow::Error;
 
-    async fn set_vault_key_for(
-        &self,
-        storage_id: StorageId,
-        key: KeyPair,
-    ) -> Result<(), Self::Error> {
-        let client = self.client().await;
-        let key = key.to_bytes()?;
-        client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(self.path_for_id(storage_id))
-            .body(ByteStream::from(key.to_vec()))
-            .send()
-            .await?;
-        Ok(())
+    fn set_vault_key_for(&self, storage_id: StorageId, key: KeyPair) -> Result<(), Self::Error> {
+        self.runtime.block_on(async {
+            let client = self.client().await;
+            let key = key.to_bytes()?;
+            client
+                .put_object()
+                .bucket(&self.bucket)
+                .key(self.path_for_id(storage_id))
+                .body(ByteStream::from(key.to_vec()))
+                .send()
+                .await?;
+            Ok(())
+        })
     }
 
-    async fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<KeyPair>, Self::Error> {
-        let client = self.client().await;
-        match client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(self.path_for_id(storage_id))
-            .send()
-            .await
-        {
-            Ok(response) => {
-                let bytes = response.body.collect().await?.into_bytes();
-                let key =
-                    KeyPair::from_bytes(&bytes).map_err(|err| anyhow::anyhow!(err.to_string()))?;
-                Ok(Some(key))
+    fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<KeyPair>, Self::Error> {
+        self.runtime.block_on(async {
+            let client = self.client().await;
+            match client
+                .get_object()
+                .bucket(&self.bucket)
+                .key(self.path_for_id(storage_id))
+                .send()
+                .await
+            {
+                Ok(response) => {
+                    let bytes = response.body.collect().await?.into_bytes();
+                    let key = KeyPair::from_bytes(&bytes)
+                        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+                    Ok(Some(key))
+                }
+                Err(aws_smithy_client::SdkError::ServiceError {
+                    err:
+                        aws_sdk_s3::error::GetObjectError {
+                            kind: aws_sdk_s3::error::GetObjectErrorKind::NoSuchKey(_),
+                            ..
+                        },
+                    ..
+                }) => Ok(None),
+                Err(err) => Err(anyhow::anyhow!(err)),
             }
-            Err(aws_smithy_client::SdkError::ServiceError {
-                err:
-                    aws_sdk_s3::error::GetObjectError {
-                        kind: aws_sdk_s3::error::GetObjectErrorKind::NoSuchKey(_),
-                        ..
-                    },
-                ..
-            }) => Ok(None),
-            Err(err) => Err(anyhow::anyhow!(err)),
-        }
+        })
     }
 }
 
@@ -177,14 +198,14 @@ impl VaultKeyStorage for S3VaultKeyStorage {
 #[tokio::test]
 async fn basic_test() {
     use bonsaidb_core::{
-        connection::StorageConnection,
+        connection::AsyncStorageConnection,
         document::KeyId,
         schema::SerializedCollection,
         test_util::{Basic, BasicSchema, TestDirectory},
     };
     use bonsaidb_local::{
         config::{Builder, StorageConfiguration},
-        Storage,
+        AsyncStorage,
     };
     use http::Uri;
     drop(dotenv::dotenv());
@@ -226,21 +247,21 @@ async fn basic_test() {
             .unwrap()
     };
     let document = {
-        let bonsai = Storage::open(configuration(None)).await.unwrap();
+        let bonsai = AsyncStorage::open(configuration(None)).await.unwrap();
         bonsai
             .create_database::<BasicSchema>("test", false)
             .await
             .unwrap();
         let db = bonsai.database::<BasicSchema>("test").await.unwrap();
-        Basic::new("test").push_into(&db).await.unwrap()
+        Basic::new("test").push_into_async(&db).await.unwrap()
     };
 
     {
         // Should be able to access the storage again
-        let bonsai = Storage::open(configuration(None)).await.unwrap();
+        let bonsai = AsyncStorage::open(configuration(None)).await.unwrap();
 
         let db = bonsai.database::<BasicSchema>("test").await.unwrap();
-        let retrieved = Basic::get(document.header.id, &db)
+        let retrieved = Basic::get_async(document.header.id, &db)
             .await
             .unwrap()
             .expect("document not found");
@@ -249,7 +270,7 @@ async fn basic_test() {
 
     // Verify that we can't access the storage again without the vault
     assert!(
-        Storage::open(configuration(Some(String::from("path-prefix"))))
+        AsyncStorage::open(configuration(Some(String::from("path-prefix"))))
             .await
             .is_err()
     );

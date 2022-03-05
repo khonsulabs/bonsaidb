@@ -6,7 +6,7 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         admin::PermissionGroup,
-        connection::{Authentication, SensitiveString, StorageConnection},
+        connection::{AsyncStorageConnection, Authentication, SensitiveString},
         permissions::{
             bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
             Permissions, Statement,

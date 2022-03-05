@@ -3,7 +3,9 @@ use bonsaidb_client::{Client, RemoteDatabase};
 use bonsaidb_core::connection::{Authenticated, Authentication};
 use bonsaidb_core::{
     async_trait::async_trait,
-    connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
+    connection::{
+        self, AccessPolicy, AsyncConnection, AsyncStorageConnection, QueryKey, Range, Sort,
+    },
     document::{AnyDocumentId, OwnedDocument},
     schema::{
         view::map::MappedDocuments, Collection, Map, MappedValue, Nameable, Schema, SchemaName,
@@ -22,7 +24,7 @@ pub enum AnyServerConnection<B: Backend> {
 }
 
 #[async_trait]
-impl<B: Backend> StorageConnection for AnyServerConnection<B> {
+impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
     type Database = AnyDatabase<B>;
 
     async fn database<DB: Schema>(
@@ -211,7 +213,7 @@ pub enum AnyDatabase<B: Backend = NoBackend> {
 }
 
 #[async_trait]
-impl<B: Backend> Connection for AnyDatabase<B> {
+impl<B: Backend> AsyncConnection for AnyDatabase<B> {
     async fn get<C, PrimaryKey>(
         &self,
         id: PrimaryKey,

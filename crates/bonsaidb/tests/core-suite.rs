@@ -6,7 +6,7 @@ use bonsaidb::{
         actionable::Permissions,
         admin::{Admin, PermissionGroup, ADMIN_DATABASE_NAME},
         circulate::flume,
-        connection::StorageConnection,
+        connection::AsyncStorageConnection,
         keyvalue::KeyValue,
         permissions::{
             bonsai::{BonsaiAction, ServerAction},

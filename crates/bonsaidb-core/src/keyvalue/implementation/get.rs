@@ -2,12 +2,164 @@ use futures::{Future, FutureExt};
 use serde::Deserialize;
 
 use super::{BuilderState, Command, KeyOperation, KeyValue, Output};
-use crate::{keyvalue::Value, Error};
+use crate::{
+    keyvalue::{AsyncKeyValue, Value},
+    Error,
+};
+
+/// Executes [`Command::Get`] when awaited. Also offers methods to customize the
+/// options for the operation.
+#[must_use]
+pub struct Builder<'a, KeyValue> {
+    kv: &'a KeyValue,
+    namespace: Option<String>,
+    key: String,
+    delete: bool,
+}
+impl<'a, K> Builder<'a, K>
+where
+    K: KeyValue,
+{
+    pub(crate) fn new(kv: &'a K, namespace: Option<String>, key: String) -> Self {
+        Self {
+            key,
+            kv,
+            namespace,
+            delete: false,
+        }
+    }
+
+    /// Delete the key after retrieving the value.
+    pub fn and_delete(mut self) -> Self {
+        self.delete = true;
+        self
+    }
+
+    /// Deserializes the [`Value`] before returning. If the value is a
+    /// [`Numeric`](crate::keyvalue::Numeric), an error will be returned.
+    pub fn into<V: for<'de> Deserialize<'de>>(self) -> Result<Option<V>, Error> {
+        self.query()?.map(|value| value.deserialize()).transpose()
+    }
+
+    /// Converts the [`Value`] to an `u64` before returning. If the value is not
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned. If the conversion to `u64`
+    /// cannot be done without losing data, an error will be returned.
+    #[allow(clippy::cast_sign_loss)]
+    pub fn into_u64(self) -> Result<Option<u64>, Error> {
+        match self.query()? {
+            Some(value) => value.as_u64().map_or_else(
+                || {
+                    Err(Error::Database(String::from(
+                        "value not an u64 or would lose precision when converted to an u64",
+                    )))
+                },
+                |value| Ok(Some(value)),
+            ),
+            None => Ok(None),
+        }
+    }
+
+    /// Converts the [`Value`] to an `i64` before returning. If the value is not
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned. If the conversion to `i64`
+    /// cannot be done without losing data, an error will be returned.
+    #[allow(clippy::cast_possible_wrap)]
+    pub fn into_i64(self) -> Result<Option<i64>, Error> {
+        match self.query()? {
+            Some(value) => value.as_i64().map_or_else(
+                || {
+                    Err(Error::Database(String::from(
+                        "value not an i64 or would lose precision when converted to an i64",
+                    )))
+                },
+                |value| Ok(Some(value)),
+            ),
+            None => Ok(None),
+        }
+    }
+
+    /// Converts the [`Value`] to an `f64` before returning. If the value is not
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned. If the conversion to `f64`
+    /// cannot be done without losing data, an error will be returned.
+    #[allow(clippy::cast_precision_loss)]
+    pub fn into_f64(self) -> Result<Option<f64>, Error> {
+        match self.query()? {
+            Some(value) => value.as_f64().map_or_else(
+                || {
+                    Err(Error::Database(String::from(
+                        "value not an f64 or would lose precision when converted to an f64",
+                    )))
+                },
+                |value| Ok(Some(value)),
+            ),
+            None => Ok(None),
+        }
+    }
+
+    /// Converts the [`Value`] to an `u64` before returning. If the value is not
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned. If `saturating` is true, no
+    /// overflows will be allowed during conversion.
+    #[allow(clippy::cast_sign_loss)]
+    pub fn into_u64_lossy(self, saturating: bool) -> Result<Option<u64>, Error> {
+        match self.query()? {
+            Some(value) => value.as_u64_lossy(saturating).map_or_else(
+                || Err(Error::Database(String::from("value not numeric"))),
+                |value| Ok(Some(value)),
+            ),
+            None => Ok(None),
+        }
+    }
+
+    /// Converts the [`Value`] to an `i64` before returning. If the value is not
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned. If `saturating` is true, no
+    /// overflows will be allowed during conversion.
+    #[allow(clippy::cast_possible_wrap)]
+    pub fn into_i64_lossy(self, saturating: bool) -> Result<Option<i64>, Error> {
+        match self.query()? {
+            Some(value) => value.as_i64_lossy(saturating).map_or_else(
+                || Err(Error::Database(String::from("value not numeric"))),
+                |value| Ok(Some(value)),
+            ),
+            None => Ok(None),
+        }
+    }
+
+    /// Converts the [`Value`] to an `f64` before returning. If the value is not
+    /// a [`Numeric`](crate::keyvalue::Numeric), an error will be returned.
+    #[allow(clippy::cast_precision_loss)]
+    pub fn into_f64_lossy(self) -> Result<Option<f64>, Error> {
+        match self.query()? {
+            Some(value) => value.as_f64_lossy().map_or_else(
+                || Err(Error::Database(String::from("value not numeric"))),
+                |value| Ok(Some(value)),
+            ),
+            None => Ok(None),
+        }
+    }
+
+    pub fn query(self) -> Result<Option<Value>, Error> {
+        let Self {
+            kv,
+            namespace,
+            key,
+            delete,
+        } = self;
+        let result = kv.execute_key_operation(KeyOperation {
+            namespace,
+            key,
+            command: Command::Get { delete },
+        })?;
+        if let Output::Value(value) = result {
+            Ok(value)
+        } else {
+            unreachable!("Unexpected result from get")
+        }
+    }
+}
 
 /// Executes [`Command::Get`] when awaited. Also offers methods to customize the
 /// options for the operation.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct Builder<'a, KeyValue> {
+pub struct AsyncBuilder<'a, KeyValue> {
     state: BuilderState<'a, Options<'a, KeyValue>, Result<Option<Value>, Error>>,
 }
 
@@ -18,9 +170,9 @@ struct Options<'a, KeyValue> {
     delete: bool,
 }
 
-impl<'a, K> Builder<'a, K>
+impl<'a, K> AsyncBuilder<'a, K>
 where
-    K: KeyValue,
+    K: AsyncKeyValue,
 {
     pub(crate) fn new(kv: &'a K, namespace: Option<String>, key: String) -> Self {
         Self {
@@ -149,9 +301,9 @@ where
     }
 }
 
-impl<'a, K> Future for Builder<'a, K>
+impl<'a, K> Future for AsyncBuilder<'a, K>
 where
-    K: KeyValue,
+    K: AsyncKeyValue,
 {
     type Output = Result<Option<Value>, Error>;
 
