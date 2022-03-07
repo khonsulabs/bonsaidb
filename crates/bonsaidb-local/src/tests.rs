@@ -16,7 +16,7 @@ use bonsaidb_core::{
 use config::StorageConfiguration;
 
 use super::*;
-use crate::{config::Builder, AsyncDatabase, Database};
+use crate::{config::Builder, AsyncDatabase};
 
 macro_rules! define_local_suite {
     ($name:ident) => {
@@ -71,7 +71,7 @@ macro_rules! define_local_suite {
                 ) -> anyhow::Result<AsyncDatabase> {
                     Ok(self
                         .db
-                        .with_effective_permissions(Permissions::from(permissions)))
+                        .with_effective_permissions(&Permissions::from(permissions)))
                 }
 
                 async fn connect(&self) -> anyhow::Result<AsyncDatabase> {

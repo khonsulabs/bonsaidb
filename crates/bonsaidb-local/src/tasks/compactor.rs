@@ -5,7 +5,7 @@ use bonsaidb_core::schema::CollectionName;
 use nebari::tree::{Root, Unversioned, Versioned};
 
 use crate::{
-    database::{document_tree_name, keyvalue::KEY_TREE},
+    database::{document_tree_name, keyvalue::KEY_TREE, DatabaseNonBlocking},
     tasks::{Job, Keyed, Task},
     views::{
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
@@ -127,6 +127,7 @@ fn compact_trees(database: &Database, targets: Vec<Target>) -> Result<(), Error>
         .map(|target| {
             database
                 .storage()
+                .instance
                 .tasks()
                 .spawn_compact_target(database.clone(), target)
         })

@@ -365,14 +365,14 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
         _ => unreachable!("should not have permission to create another user before logging in"),
     }
 
-    client
+    let authenticated_client = client
         .authenticate(
             "ecton",
             Authentication::Password(SensitiveString(String::from("hunter2"))),
         )
         .await
         .unwrap();
-    client
+    authenticated_client
         .create_user("otheruser")
         .await
         .expect("should be able to create user after logging in");

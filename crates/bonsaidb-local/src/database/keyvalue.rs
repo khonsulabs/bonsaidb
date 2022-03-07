@@ -11,6 +11,9 @@ use bonsaidb_core::{
         Command, KeyCheck, KeyOperation, KeyStatus, KeyValue, Numeric, Output, SetCommand,
         Timestamp, Value,
     },
+    permissions::bonsai::{
+        keyvalue_key_resource_name, BonsaiAction, DatabaseAction, KeyValueAction,
+    },
     transaction::{ChangedKey, Changes},
 };
 use nebari::{
@@ -20,13 +23,12 @@ use nebari::{
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
 
 use crate::{
     config::KeyValuePersistence,
     database::compat,
     tasks::{Job, Keyed, Task},
-    Database, Error,
+    Database, DatabaseNonBlocking, Error,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -62,6 +64,10 @@ impl Entry {
 #[async_trait]
 impl KeyValue for Database {
     fn execute_key_operation(&self, op: KeyOperation) -> Result<Output, bonsaidb_core::Error> {
+        self.check_permission(
+            keyvalue_key_resource_name(self.name(), op.namespace.as_deref(), &op.key),
+            &BonsaiAction::Database(DatabaseAction::KeyValue(KeyValueAction::ExecuteOperation)),
+        )?;
         self.data.context.perform_kv_operation(op)
     }
 }
@@ -210,7 +216,8 @@ pub struct KeyValueState {
     roots: Roots<AnyFile>,
     persistence: KeyValuePersistence,
     last_commit: Timestamp,
-    background_worker_target: watch::Sender<BackgroundWorkerProcessTarget>,
+    last_background_worker_target: BackgroundWorkerProcessTarget,
+    background_worker_target: flume::Sender<BackgroundWorkerProcessTarget>,
     expiring_keys: BTreeMap<String, Timestamp>,
     expiration_order: VecDeque<String>,
     dirty_keys: BTreeMap<String, Option<Entry>>,
@@ -222,13 +229,14 @@ impl KeyValueState {
     pub fn new(
         persistence: KeyValuePersistence,
         roots: Roots<AnyFile>,
-        background_worker_target: watch::Sender<BackgroundWorkerProcessTarget>,
+        background_worker_target: flume::Sender<BackgroundWorkerProcessTarget>,
     ) -> Self {
         Self {
             roots,
             persistence,
             last_commit: Timestamp::now(),
             expiring_keys: BTreeMap::new(),
+            last_background_worker_target: BackgroundWorkerProcessTarget::Never,
             background_worker_target,
             expiration_order: VecDeque::new(),
             dirty_keys: BTreeMap::new(),
@@ -569,19 +577,18 @@ impl KeyValueState {
     }
 
     fn update_background_worker_target(&mut self) {
-        let key_expiration_target =
-            self.expiration_order
-                .get(0)
-                .map_or_else(Timestamp::max, |key| {
-                    let expiration_timeout = self.expiring_keys.get(key).unwrap();
-                    *expiration_timeout
-                });
+        let key_expiration_target = self.expiration_order.get(0).map_or(Timestamp::MAX, |key| {
+            let expiration_timeout = self.expiring_keys.get(key).unwrap();
+            *expiration_timeout
+        });
         let now = Timestamp::now();
         if self.keys_being_persisted.is_some() {
-            drop(
-                self.background_worker_target
-                    .send(BackgroundWorkerProcessTarget::Never),
-            );
+            if self.last_background_worker_target != BackgroundWorkerProcessTarget::Never {
+                self.last_background_worker_target = BackgroundWorkerProcessTarget::Never;
+                let _ = self
+                    .background_worker_target
+                    .send(BackgroundWorkerProcessTarget::Never);
+            }
             return;
         }
         let duration_until_commit = self.persistence.duration_until_next_commit(
@@ -589,20 +596,20 @@ impl KeyValueState {
             (now - self.last_commit).unwrap_or_default(),
         );
         if duration_until_commit == Duration::ZERO {
-            drop(
-                self.background_worker_target
-                    .send(BackgroundWorkerProcessTarget::Now),
-            );
+            if self.last_background_worker_target != BackgroundWorkerProcessTarget::Now {
+                self.last_background_worker_target = BackgroundWorkerProcessTarget::Now;
+                let _ = self
+                    .background_worker_target
+                    .send(BackgroundWorkerProcessTarget::Now);
+            }
         } else {
             let commit_target = now + duration_until_commit;
             let closest_target = key_expiration_target.min(commit_target);
-            if *self.background_worker_target.borrow()
-                != BackgroundWorkerProcessTarget::Timestamp(closest_target)
-            {
-                drop(
-                    self.background_worker_target
-                        .send(BackgroundWorkerProcessTarget::Timestamp(closest_target)),
-                );
+            let new_target = BackgroundWorkerProcessTarget::Timestamp(closest_target);
+            if self.last_background_worker_target != new_target {
+                self.last_background_worker_target = new_target;
+
+                let _ = self.background_worker_target.send(new_target);
             }
         }
     }
@@ -737,38 +744,55 @@ impl KeyValueState {
     }
 }
 
-pub async fn background_worker(
-    key_value_state: Arc<Mutex<KeyValueState>>,
-    mut timestamp_receiver: watch::Receiver<BackgroundWorkerProcessTarget>,
-) -> Result<(), Error> {
+pub fn background_worker(
+    key_value_state: &Arc<Mutex<KeyValueState>>,
+    timestamp_receiver: &flume::Receiver<BackgroundWorkerProcessTarget>,
+) {
+    let mut current_timestamp = BackgroundWorkerProcessTarget::Never;
     loop {
         let mut perform_operations = false;
-        let current_timestamp = *timestamp_receiver.borrow_and_update();
-        let changed_result = match current_timestamp {
-            BackgroundWorkerProcessTarget::Never => timestamp_receiver.changed().await,
+        let mut new_timestamp = match current_timestamp {
+            // With no target, sleep until we receive a target.
+            BackgroundWorkerProcessTarget::Never => timestamp_receiver.recv().map(Some),
             BackgroundWorkerProcessTarget::Timestamp(target) => {
+                // With a target, we need to wait to receive a target only as
+                // long as there is time remaining.
                 let remaining = target - Timestamp::now();
                 if let Some(remaining) = remaining {
-                    tokio::select! {
-                        changed = timestamp_receiver.changed() => changed,
-                        _ = tokio::time::sleep(remaining) => {
+                    // recv_timeout panics if Instant::checked_add(remaining)
+                    // fails. So, we will cap the sleep time at 1 day.
+                    let remaining = remaining.min(Duration::from_secs(60 * 60 * 24));
+                    match timestamp_receiver.recv_timeout(remaining) {
+                        Ok(timestamp) => Ok(Some(timestamp)),
+                        Err(flume::RecvTimeoutError::Timeout) => {
                             perform_operations = true;
-                            Ok(())
-                        },
+                            Ok(None)
+                        }
+                        Err(flume::RecvTimeoutError::Disconnected) => {
+                            Err(flume::RecvError::Disconnected)
+                        }
                     }
                 } else {
                     perform_operations = true;
-                    Ok(())
+                    Ok(None)
                 }
             }
             BackgroundWorkerProcessTarget::Now => {
                 perform_operations = true;
-                Ok(())
+                Ok(None)
             }
         };
 
-        if changed_result.is_err() {
-            break;
+        // It's possible there's a queue of new target timestamps. Drop all the
+        // pending ones, and only use the latest one.
+        while let Ok(in_queue) = timestamp_receiver.try_recv() {
+            new_timestamp = Ok(Some(in_queue));
+        }
+
+        match new_timestamp {
+            Ok(Some(new_timestamp)) => current_timestamp = new_timestamp,
+            Ok(None) => {}
+            Err(_) => break,
         }
 
         if perform_operations {
@@ -776,13 +800,11 @@ pub async fn background_worker(
             let now = Timestamp::now();
             state.remove_expired_keys(now);
             if state.needs_commit(now) {
-                state.commit_dirty_keys(&key_value_state);
+                state.commit_dirty_keys(key_value_state);
             }
             state.update_background_worker_target();
         }
     }
-
-    Ok(())
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -823,6 +845,7 @@ impl Job for ExpirationLoader {
 
         self.database
             .storage()
+            .instance
             .tasks()
             .mark_key_value_expiration_loaded(self.database.data.name.clone());
 

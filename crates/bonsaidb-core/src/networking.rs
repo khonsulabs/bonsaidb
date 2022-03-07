@@ -4,7 +4,7 @@ use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    connection::{AccessPolicy, Authenticated, Database, QueryKey, Range, Sort},
+    connection::{AccessPolicy, Database, QueryKey, Range, Session, Sort},
     document::{DocumentId, OwnedDocument},
     keyvalue::{KeyOperation, Output},
     schema::{
@@ -21,6 +21,8 @@ pub const CURRENT_PROTOCOL_VERSION: &str = "bonsai/pre/0";
 /// A payload with an associated id.
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Payload<T> {
+    /// The authentication session id for this payload.
+    pub session_id: Option<u64>,
     /// The unique id for this payload.
     pub id: Option<u32>,
     /// The wrapped payload.
@@ -59,7 +61,7 @@ pub enum Request<T> {
 #[cfg_attr(feature = "actionable-traits", derive(actionable::Actionable))]
 pub enum ServerRequest {
     /// Creates a database.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     CreateDatabase {
         /// The database to create.
         database: Database,
@@ -67,7 +69,7 @@ pub enum ServerRequest {
         only_if_needed: bool,
     },
     /// Deletes the database named `name`
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     DeleteDatabase {
         /// The name of the database to delete.
         name: String,
@@ -333,7 +335,7 @@ pub enum ServerResponse {
         id: u64,
     },
     /// Successfully authenticated.
-    Authenticated(Authenticated),
+    Authenticated(Session),
 }
 
 /// A response to a [`DatabaseRequest`].

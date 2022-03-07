@@ -97,13 +97,16 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Now, log in and try again.
-    client
+    let authenticated_client = client
         .authenticate(
             "ecton",
             Authentication::Password(SensitiveString(String::from("hunter2"))),
         )
         .await
         .unwrap();
+    let db = authenticated_client
+        .database::<Shape>("my-database")
+        .await?;
     let shape_doc = Shape::new(3).push_into(&db).await?;
     log::info!("Successully inserted document {:?}", shape_doc);
 

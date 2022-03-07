@@ -14,12 +14,21 @@ use bonsaidb_core::{
         serde::{Bytes, CowBytes},
         ArcBytes,
     },
-    connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
+    connection::{
+        self, AccessPolicy, Connection, QueryKey, Range, Session, Sort, StorageConnection,
+    },
     document::{AnyDocumentId, BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
     key::Key,
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    permissions::Permissions,
+    permissions::{
+        bonsai::{
+            collection_resource_name, database_resource_name, document_resource_name,
+            kv_resource_name, view_resource_name, BonsaiAction, DatabaseAction, DocumentAction,
+            TransactionAction, ViewAction,
+        },
+        Action, Identifier, Permissions,
+    },
     schema::{
         self,
         view::{
@@ -44,16 +53,13 @@ use nebari::{
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
 
 #[cfg(feature = "encryption")]
 use crate::storage::TreeVault;
 use crate::{
     config::{Builder, KeyValuePersistence, StorageConfiguration},
-    database::keyvalue::BackgroundWorkerProcessTarget,
     error::Error,
     open_trees::OpenTrees,
-    r#async::AsyncDatabase,
     views::{
         mapper::{self},
         view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
@@ -115,8 +121,6 @@ pub struct Data {
     context: Context,
     pub(crate) storage: Storage,
     pub(crate) schema: Arc<Schematic>,
-    #[allow(dead_code)] // This code was previously used, it works, but is currently unused.
-    pub(crate) effective_permissions: Option<Permissions>,
 }
 impl Clone for Database {
     fn clone(&self) -> Self {
@@ -141,43 +145,36 @@ impl Database {
                 context,
                 storage: storage.clone(),
                 schema,
-                effective_permissions: None,
             }),
         };
 
-        if db.data.storage.check_view_integrity_on_database_open() {
+        if storage.instance.check_view_integrity_on_database_open() {
             for view in db.data.schema.views() {
-                db.data.storage.tasks().spawn_integrity_check(view, &db);
+                storage.instance.tasks().spawn_integrity_check(view, &db);
             }
         }
 
-        storage.tasks().spawn_key_value_expiration_loader(&db);
+        storage
+            .instance
+            .tasks()
+            .spawn_key_value_expiration_loader(&db);
 
         Ok(db)
     }
 
     /// Returns a clone with `effective_permissions`. Replaces any previously applied permissions.
-    ///
-    /// # Unstable
-    ///
-    /// See [this issue](https://github.com/khonsulabs/bonsaidb/issues/68).
-    #[doc(hidden)]
-    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Self {
+    pub fn with_effective_permissions(&self, effective_permissions: &Permissions) -> Self {
         Self {
             data: Arc::new(Data {
                 name: self.data.name.clone(),
                 context: self.data.context.clone(),
-                storage: self.data.storage.clone(),
+                storage: self
+                    .data
+                    .storage
+                    .with_effective_permissions(effective_permissions),
                 schema: self.data.schema.clone(),
-                effective_permissions: Some(effective_permissions),
             }),
         }
-    }
-
-    /// Returns the name of the database.
-    #[must_use]
-    pub fn name(&self) -> &str {
-        self.data.name.as_ref()
     }
 
     /// Creates a `Storage` with a single-database named "default" with its data stored at `path`.
@@ -190,7 +187,6 @@ impl Database {
     }
 
     /// Returns the [`Storage`] that this database belongs to.
-    #[must_use]
     pub fn storage(&self) -> &'_ Storage {
         &self.data.storage
     }
@@ -205,6 +201,21 @@ impl Database {
         &self.data.context.roots
     }
 
+    fn check_permission<'a, R: AsRef<[Identifier<'a>]>, P: Action>(
+        &self,
+        resource_name: R,
+        action: &P,
+    ) -> Result<(), Error> {
+        self.session().map_or_else(
+            || Ok(()),
+            |session| {
+                session
+                    .check_permission(resource_name, action)
+                    .map_err(Error::from)
+            },
+        )
+    }
+
     fn for_each_in_view<F: FnMut(ViewEntry) -> Result<(), bonsaidb_core::Error> + Send + Sync>(
         &self,
         view: &dyn view::Serialized,
@@ -217,6 +228,7 @@ impl Database {
         if matches!(access_policy, AccessPolicy::UpdateBefore) {
             self.data
                 .storage
+                .instance
                 .tasks()
                 .update_view_if_needed(view, self)?;
         }
@@ -243,7 +255,11 @@ impl Database {
                 .schema
                 .view_by_name(&view_name)
                 .expect("query made with view that isn't registered with this database");
-            db.data.storage.tasks().update_view_if_needed(view, &db)?;
+            db.data
+                .storage
+                .instance
+                .tasks()
+                .update_view_if_needed(view, &db)?;
         }
 
         Ok(())
@@ -325,6 +341,7 @@ impl Database {
         collection: CollectionName,
     ) -> Result<(), bonsaidb_core::Error> {
         self.storage()
+            .instance
             .tasks()
             .compact_collection(self.clone(), collection)?;
         Ok(())
@@ -445,18 +462,15 @@ impl Database {
         id: DocumentId,
         collection: &CollectionName,
     ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
-        let task_self = self.clone();
         let collection = collection.clone();
-        let tree =
-            task_self
-                .data
-                .context
-                .roots
-                .tree(task_self.collection_tree::<Versioned, _>(
-                    &collection,
-                    document_tree_name(&collection),
-                )?)
-                .map_err(Error::from)?;
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(
+                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
+            )
+            .map_err(Error::from)?;
         if let Some(vec) = tree.get(id.as_ref()).map_err(Error::from)? {
             Ok(Some(deserialize_document(&vec)?.into_owned()))
         } else {
@@ -469,19 +483,16 @@ impl Database {
         ids: &[DocumentId],
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        let task_self = self.clone();
         let mut ids = ids.to_vec();
         let collection = collection.clone();
-        let tree =
-            task_self
-                .data
-                .context
-                .roots
-                .tree(task_self.collection_tree::<Versioned, _>(
-                    &collection,
-                    document_tree_name(&collection),
-                )?)
-                .map_err(Error::from)?;
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(
+                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
+            )
+            .map_err(Error::from)?;
         ids.sort();
         let keys_and_values = tree
             .get_multiple(ids.iter().map(|id| id.as_ref()))
@@ -501,18 +512,15 @@ impl Database {
         limit: Option<usize>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        let task_self = self.clone();
         let collection = collection.clone();
-        let tree =
-            task_self
-                .data
-                .context
-                .roots
-                .tree(task_self.collection_tree::<Versioned, _>(
-                    &collection,
-                    document_tree_name(&collection),
-                )?)
-                .map_err(Error::from)?;
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(
+                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
+            )
+            .map_err(Error::from)?;
         let mut found_docs = Vec::new();
         let mut keys_read = 0;
         let ids = DocumentIdRange(ids);
@@ -555,19 +563,16 @@ impl Database {
         ids: Range<DocumentId>,
         collection: &CollectionName,
     ) -> Result<u64, bonsaidb_core::Error> {
-        let task_self = self.clone();
         let collection = collection.clone();
         // TODO this should be able to use a reduce operation from Nebari https://github.com/khonsulabs/nebari/issues/23
-        let tree =
-            task_self
-                .data
-                .context
-                .roots
-                .tree(task_self.collection_tree::<Versioned, _>(
-                    &collection,
-                    document_tree_name(&collection),
-                )?)
-                .map_err(Error::from)?;
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(
+                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
+            )
+            .map_err(Error::from)?;
         let mut keys_found = 0;
         let ids = DocumentIdRange(ids);
         tree.scan(
@@ -1235,6 +1240,10 @@ fn serialize_document(document: &BorrowedDocument<'_>) -> Result<Vec<u8>, bonsai
 }
 
 impl Connection for Database {
+    fn session(&self) -> Option<&Session> {
+        self.storage().session()
+    }
+
     fn get<C, PrimaryKey>(
         &self,
         id: PrimaryKey,
@@ -1243,7 +1252,12 @@ impl Connection for Database {
         C: schema::Collection,
         PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
-        self.get_from_collection_id(id.into().to_document_id()?, &C::collection_name())
+        let id = id.into().to_document_id()?;
+        self.check_permission(
+            document_resource_name(self.name(), &C::collection_name(), &id),
+            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
+        )?;
+        self.get_from_collection_id(id, &C::collection_name())
     }
 
     fn get_multiple<C, PrimaryKey, DocumentIds, I>(
@@ -1256,12 +1270,18 @@ impl Connection for Database {
         I: Iterator<Item = PrimaryKey> + Send + Sync,
         PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
     {
-        self.get_multiple_from_collection_id(
-            &ids.into_iter()
-                .map(|id| id.into().to_document_id())
-                .collect::<Result<Vec<_>, _>>()?,
-            &C::collection_name(),
-        )
+        let collection = C::collection_name();
+        let mut document_ids = Vec::default();
+        for id in ids {
+            let id = id.into().to_document_id()?;
+            self.check_permission(
+                document_resource_name(self.name(), &collection, &id),
+                &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
+            )?;
+            document_ids.push(id);
+        }
+
+        self.get_multiple_from_collection_id(&document_ids, &collection)
     }
 
     fn list<C, R, PrimaryKey>(
@@ -1275,11 +1295,16 @@ impl Connection for Database {
         R: Into<Range<PrimaryKey>> + Send,
         PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
+        let collection = C::collection_name();
+        self.check_permission(
+            collection_resource_name(self.name(), &collection),
+            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::List)),
+        )?;
         self.list(
             ids.into().map_result(|id| id.into().to_document_id())?,
             order,
             limit,
-            &C::collection_name(),
+            &collection,
         )
     }
 
@@ -1289,9 +1314,15 @@ impl Connection for Database {
         R: Into<Range<PrimaryKey>> + Send,
         PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
+        let collection = C::collection_name();
+        self.check_permission(
+            collection_resource_name(self.name(), &collection),
+            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Count)),
+        )?;
+
         self.count(
             ids.into().map_result(|id| id.into().to_document_id())?,
-            &C::collection_name(),
+            &collection,
         )
     }
 
@@ -1305,6 +1336,15 @@ impl Connection for Database {
     where
         Self: Sized,
     {
+        let view = self
+            .data
+            .schema
+            .view::<V>()
+            .expect("query made with view that isn't registered with this database");
+        self.check_permission(
+            view_resource_name(self.name(), &view.view_name()),
+            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Query)),
+        )?;
         let mut results = Vec::new();
         self.for_each_view_entry::<V, _>(key, order, limit, access_policy, |entry| {
             let key = <V::Key as Key>::from_ord_bytes(&entry.key)
@@ -1333,10 +1373,22 @@ impl Connection for Database {
     where
         Self: Sized,
     {
+        // Query permission is checked by the query call
         let results = Connection::query::<V>(self, key, order, limit, access_policy)?;
 
+        // Verify that there is permission to fetch each document
+        let mut ids = Vec::with_capacity(results.len());
+        let collection = <V::Collection as Collection>::collection_name();
+        for id in results.iter().map(|m| m.source.id) {
+            self.check_permission(
+                document_resource_name(self.name(), &collection, &id),
+                &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
+            )?;
+            ids.push(id);
+        }
+
         let documents = self
-            .get_multiple::<V::Collection, _, _, _>(results.iter().map(|m| m.source.id))?
+            .get_multiple::<V::Collection, _, _, _>(ids)?
             .into_iter()
             .map(|doc| (doc.header.id, doc))
             .collect::<BTreeMap<_, _>>();
@@ -1360,6 +1412,10 @@ impl Connection for Database {
             .schema
             .view::<V>()
             .expect("query made with view that isn't registered with this database");
+        self.check_permission(
+            view_resource_name(self.name(), &view.view_name()),
+            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Reduce)),
+        )?;
 
         let result = self.reduce_in_view(
             &view.view_name(),
@@ -1384,6 +1440,10 @@ impl Connection for Database {
             .schema
             .view::<V>()
             .expect("query made with view that isn't registered with this database");
+        self.check_permission(
+            view_resource_name(self.name(), &view.view_name()),
+            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Reduce)),
+        )?;
 
         let results = self.grouped_reduce_in_view(
             &view.view_name(),
@@ -1409,10 +1469,23 @@ impl Connection for Database {
     where
         Self: Sized,
     {
+        let view = self
+            .data
+            .schema
+            .view::<V>()
+            .expect("query made with view that isn't registered with this database");
+        self.check_permission(
+            view_resource_name(self.name(), &view.view_name()),
+            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Query)),
+        )?;
         let collection = <V::Collection as Collection>::collection_name();
         let mut transaction = Transaction::default();
         self.for_each_view_entry::<V, _>(key, Sort::Ascending, None, access_policy, |entry| {
             for mapping in entry.mappings {
+                self.check_permission(
+                    document_resource_name(self.name(), &collection, &mapping.source.id),
+                    &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
+                )?;
                 transaction.push(Operation::delete(collection.clone(), mapping.source));
             }
 
@@ -1428,6 +1501,28 @@ impl Connection for Database {
         &self,
         transaction: Transaction,
     ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
+        for op in &transaction.operations {
+            let (resource, action) = match &op.command {
+                Command::Insert { .. } => (
+                    collection_resource_name(self.name(), &op.collection),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Insert)),
+                ),
+                Command::Update { header, .. } => (
+                    document_resource_name(self.name(), &op.collection, &header.id),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Update)),
+                ),
+                Command::Overwrite { id, .. } => (
+                    document_resource_name(self.name(), &op.collection, id),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Overwrite)),
+                ),
+                Command::Delete { header } => (
+                    document_resource_name(self.name(), &op.collection, &header.id),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
+                ),
+            };
+            self.check_permission(&resource, &action)?;
+        }
+
         let mut unique_view_tasks = Vec::new();
         for collection_name in transaction
             .operations
@@ -1438,8 +1533,12 @@ impl Connection for Database {
             if let Some(views) = self.data.schema.views_in_collection(collection_name) {
                 for view in views {
                     if view.unique() {
-                        if let Some(task) =
-                            self.data.storage.tasks().spawn_integrity_check(view, self)
+                        if let Some(task) = self
+                            .data
+                            .storage
+                            .instance
+                            .tasks()
+                            .spawn_integrity_check(view, self)
                         {
                             unique_view_tasks.push(task);
                         }
@@ -1471,6 +1570,10 @@ impl Connection for Database {
         starting_id: Option<u64>,
         result_limit: Option<usize>,
     ) -> Result<Vec<transaction::Executed>, bonsaidb_core::Error> {
+        self.check_permission(
+            database_resource_name(self.name()),
+            &BonsaiAction::Database(DatabaseAction::Transaction(TransactionAction::ListExecuted)),
+        )?;
         let result_limit = result_limit
             .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
             .min(LIST_TRANSACTIONS_MAX_RESULTS);
@@ -1514,23 +1617,45 @@ impl Connection for Database {
     }
 
     fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
+        self.check_permission(
+            database_resource_name(self.name()),
+            &BonsaiAction::Database(DatabaseAction::Transaction(TransactionAction::GetLastId)),
+        )?;
         Ok(self.roots().transactions().current_transaction_id())
     }
 
     fn compact(&self) -> Result<(), bonsaidb_core::Error> {
-        self.storage().tasks().compact_database(self.clone())?;
+        self.check_permission(
+            database_resource_name(self.name()),
+            &BonsaiAction::Database(DatabaseAction::Compact),
+        )?;
+        self.storage()
+            .instance
+            .tasks()
+            .compact_database(self.clone())?;
         Ok(())
     }
 
     fn compact_collection<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
+        let collection = C::collection_name();
+        self.check_permission(
+            collection_resource_name(self.name(), &collection),
+            &BonsaiAction::Database(DatabaseAction::Compact),
+        )?;
         self.storage()
+            .instance
             .tasks()
             .compact_collection(self.clone(), C::collection_name())?;
         Ok(())
     }
 
     fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
+        self.check_permission(
+            kv_resource_name(self.name()),
+            &BonsaiAction::Database(DatabaseAction::Compact),
+        )?;
         self.storage()
+            .instance
             .tasks()
             .compact_key_value_store(self.clone())?;
         Ok(())
@@ -1582,8 +1707,7 @@ impl Borrow<Roots<AnyFile>> for Context {
 
 impl Context {
     pub(crate) fn new(roots: Roots<AnyFile>, key_value_persistence: KeyValuePersistence) -> Self {
-        let (background_sender, background_receiver) =
-            watch::channel(BackgroundWorkerProcessTarget::Never);
+        let (background_sender, background_receiver) = flume::unbounded();
         let key_value_state = Arc::new(Mutex::new(keyvalue::KeyValueState::new(
             key_value_persistence,
             roots.clone(),
@@ -1595,10 +1719,10 @@ impl Context {
                 key_value_state: key_value_state.clone(),
             }),
         };
-        tokio::task::spawn(keyvalue::background_worker(
-            key_value_state,
-            background_receiver,
-        ));
+        std::thread::Builder::new()
+            .name(String::from("keyvalue-worker"))
+            .spawn(move || keyvalue::background_worker(&key_value_state, &background_receiver))
+            .unwrap();
         context
     }
 
@@ -1652,5 +1776,17 @@ impl<'a> BorrowByteRange<'a> for DocumentIdRange {
                 connection::Bound::Excluded(docid) => ops::Bound::Excluded(docid.as_ref()),
             },
         }
+    }
+}
+
+pub trait DatabaseNonBlocking {
+    /// Returns the name of the database.
+    #[must_use]
+    fn name(&self) -> &str;
+}
+
+impl DatabaseNonBlocking for Database {
+    fn name(&self) -> &str {
+        self.data.name.as_ref()
     }
 }

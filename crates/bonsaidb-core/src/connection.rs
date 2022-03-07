@@ -1,5 +1,6 @@
-use std::{collections::BTreeMap, marker::PhantomData, ops::Deref};
+use std::{collections::BTreeMap, marker::PhantomData, ops::Deref, sync::Arc};
 
+use actionable::{Action, Identifier};
 use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
 use futures::{future::BoxFuture, Future, FutureExt};
@@ -24,12 +25,11 @@ use crate::{
     Error,
 };
 
-pub trait Connection: Send + Sync {
+pub trait Connection: Sized + Send + Sync {
+    fn session(&self) -> Option<&Session>;
+
     /// Accesses a collection for the connected [`schema::Schema`].
-    fn collection<C: schema::Collection>(&self) -> Collection<'_, Self, C>
-    where
-        Self: Sized,
-    {
+    fn collection<C: schema::Collection>(&self) -> Collection<'_, Self, C> {
         Collection::new(self)
     }
     /// Inserts a newly created document into the connected [`schema::Schema`]
@@ -217,10 +217,7 @@ pub trait Connection: Send + Sync {
     }
 
     /// Initializes [`View`] for [`schema::View`] `V`.
-    fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V>
-    where
-        Self: Sized,
-    {
+    fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V> {
         View::new(self)
     }
 
@@ -236,9 +233,7 @@ pub trait Connection: Send + Sync {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, Error>
-    where
-        Self: Sized;
+    ) -> Result<Vec<Map<V::Key, V::Value>>, Error>;
 
     /// Queries for view entries matching [`View`] with their source documents.
     ///
@@ -252,9 +247,7 @@ pub trait Connection: Send + Sync {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
-    where
-        Self: Sized;
+    ) -> Result<MappedDocuments<OwnedDocument, V>, Error>;
 
     /// Queries for view entries matching [`View`] with their source documents, deserialized.
     ///
@@ -273,7 +266,6 @@ pub trait Connection: Send + Sync {
         V: schema::SerializedView,
         V::Collection: SerializedCollection,
         <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
-        Self: Sized,
     {
         let mapped_docs = self.query_with_docs::<V>(key, order, limit, access_policy)?;
         let mut collection_docs = BTreeMap::new();
@@ -296,9 +288,7 @@ pub trait Connection: Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<V::Value, Error>
-    where
-        Self: Sized;
+    ) -> Result<V::Value, Error>;
 
     /// Reduces the view entries matching [`View`], reducing the values by each
     /// unique key.
@@ -312,9 +302,7 @@ pub trait Connection: Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error>
-    where
-        Self: Sized;
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error>;
 
     /// Deletes all of the documents associated with this view.
     ///
@@ -326,9 +314,7 @@ pub trait Connection: Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<u64, Error>
-    where
-        Self: Sized;
+    ) -> Result<u64, Error>;
 
     /// Applies a [`Transaction`] to the [`schema::Schema`]. If any operation in the
     /// [`Transaction`] fails, none of the operations will be applied to the
@@ -1248,12 +1234,9 @@ where
 /// Defines all interactions with a [`schema::Schema`], regardless of whether it
 /// is local or remote.
 #[async_trait]
-pub trait AsyncConnection: Send + Sync {
+pub trait AsyncConnection: Sized + Send + Sync {
     /// Accesses a collection for the connected [`schema::Schema`].
-    fn collection<C: schema::Collection>(&self) -> AsyncCollection<'_, Self, C>
-    where
-        Self: Sized,
-    {
+    fn collection<C: schema::Collection>(&self) -> AsyncCollection<'_, Self, C> {
         AsyncCollection::new(self)
     }
 
@@ -1449,10 +1432,7 @@ pub trait AsyncConnection: Send + Sync {
     }
 
     /// Initializes [`View`] for [`schema::View`] `V`.
-    fn view<V: schema::SerializedView>(&'_ self) -> AsyncView<'_, Self, V>
-    where
-        Self: Sized,
-    {
+    fn view<V: schema::SerializedView>(&'_ self) -> AsyncView<'_, Self, V> {
         AsyncView::new(self)
     }
 
@@ -1468,9 +1448,7 @@ pub trait AsyncConnection: Send + Sync {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, Error>
-    where
-        Self: Sized;
+    ) -> Result<Vec<Map<V::Key, V::Value>>, Error>;
 
     /// Queries for view entries matching [`View`] with their source documents.
     ///
@@ -1485,9 +1463,7 @@ pub trait AsyncConnection: Send + Sync {
         order: Sort,
         limit: Option<usize>,
         access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
-    where
-        Self: Sized;
+    ) -> Result<MappedDocuments<OwnedDocument, V>, Error>;
 
     /// Queries for view entries matching [`View`] with their source documents, deserialized.
     ///
@@ -1507,7 +1483,6 @@ pub trait AsyncConnection: Send + Sync {
         V: schema::SerializedView,
         V::Collection: SerializedCollection,
         <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
-        Self: Sized,
     {
         let mapped_docs = self
             .query_with_docs::<V>(key, order, limit, access_policy)
@@ -1533,9 +1508,7 @@ pub trait AsyncConnection: Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<V::Value, Error>
-    where
-        Self: Sized;
+    ) -> Result<V::Value, Error>;
 
     /// Reduces the view entries matching [`View`], reducing the values by each
     /// unique key.
@@ -1550,9 +1523,7 @@ pub trait AsyncConnection: Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error>
-    where
-        Self: Sized;
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error>;
 
     /// Deletes all of the documents associated with this view.
     ///
@@ -1565,9 +1536,7 @@ pub trait AsyncConnection: Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<u64, Error>
-    where
-        Self: Sized;
+    ) -> Result<u64, Error>;
 
     /// Applies a [`Transaction`] to the [`schema::Schema`]. If any operation in the
     /// [`Transaction`] fails, none of the operations will be applied to the
@@ -2873,9 +2842,14 @@ pub enum AccessPolicy {
 
 /// Functions for interacting with a multi-database BonsaiDb instance.
 #[async_trait]
-pub trait StorageConnection: Send + Sync {
+pub trait StorageConnection: Sized + Send + Sync {
     /// The type that represents a database for this implementation.
     type Database: Connection;
+    type Authenticated: StorageConnection;
+
+    fn session(&self) -> Option<&Session>;
+
+    fn admin(&self) -> Self::Database;
 
     /// Creates a database named `name` with the `Schema` provided.
     ///
@@ -2954,7 +2928,7 @@ pub trait StorageConnection: Send + Sync {
         &self,
         user: U,
         authentication: Authentication,
-    ) -> Result<Authenticated, crate::Error>;
+    ) -> Result<Self::Authenticated, crate::Error>;
 
     /// Adds a user to a permission group.
     #[cfg(feature = "multiuser")]
@@ -3011,10 +2985,14 @@ pub trait StorageConnection: Send + Sync {
 
 /// Functions for interacting with a multi-database BonsaiDb instance.
 #[async_trait]
-pub trait AsyncStorageConnection: Send + Sync {
+pub trait AsyncStorageConnection: Sized + Send + Sync {
     /// The type that represents a database for this implementation.
     type Database: AsyncConnection;
+    type Authenticated: AsyncStorageConnection;
 
+    fn session(&self) -> Option<&Session>;
+
+    async fn admin(&self) -> Self::Database;
     /// Creates a database named `name` with the `Schema` provided.
     ///
     /// ## Errors
@@ -3093,7 +3071,7 @@ pub trait AsyncStorageConnection: Send + Sync {
         &self,
         user: U,
         authentication: Authentication,
-    ) -> Result<Authenticated, crate::Error>;
+    ) -> Result<Self::Authenticated, crate::Error>;
 
     /// Adds a user to a permission group.
     #[cfg(feature = "multiuser")]
@@ -3189,15 +3167,6 @@ pub enum Authentication {
     Password(crate::connection::SensitiveString),
 }
 
-/// Information about the authenticated session.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Authenticated {
-    /// The user id logged in as.
-    pub user_id: u64,
-    /// The effective permissions granted.
-    pub permissions: Permissions,
-}
-
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __doctest_prelude {
@@ -3286,4 +3255,82 @@ macro_rules! __doctest_prelude {
             },
         );
     };
+}
+
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+#[must_use]
+pub struct Session {
+    pub id: Option<u64>,
+    pub identity: Option<Arc<Identity>>,
+    pub permissions: Permissions,
+}
+
+impl Session {
+    pub fn restricted_by(&self, permissions: &Permissions) -> Self {
+        Self {
+            id: self.id,
+            identity: self.identity.clone(),
+            permissions: Permissions::merged([&self.permissions, permissions]),
+        }
+    }
+
+    pub fn allowed_to<'a, R: AsRef<[Identifier<'a>]>, P: Action>(
+        &self,
+        resource_name: R,
+        action: &P,
+    ) -> bool {
+        self.permissions.allowed_to(resource_name, action)
+    }
+
+    pub fn check_permission<'a, R: AsRef<[Identifier<'a>]>, P: Action>(
+        &self,
+        resource_name: R,
+        action: &P,
+    ) -> Result<(), Error> {
+        self.permissions
+            .check(resource_name, action)
+            .map_err(Error::from)
+    }
+}
+
+impl Eq for Session {}
+
+impl PartialEq for Session {
+    fn eq(&self, other: &Self) -> bool {
+        self.identity == other.identity
+    }
+}
+
+impl std::hash::Hash for Session {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.identity.hash(state);
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum Identity {
+    User { id: u64, username: String },
+    // for role assumption someday: Role{ id: u64, name: String } ,
+}
+
+impl Eq for Identity {}
+
+impl PartialEq for Identity {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::User { id: l_id, .. }, Self::User { id: r_id, .. }) => l_id == r_id,
+        }
+    }
+}
+
+impl std::hash::Hash for Identity {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Identity::User { id, .. } => {
+                0_u8.hash(state); // "Tag" for the variant
+                id.hash(state);
+            }
+        }
+    }
 }

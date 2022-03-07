@@ -5,23 +5,33 @@ use bonsaidb_core::{
     circulate::Message,
     connection::{AccessPolicy, QueryKey, Range, Sort},
     document::{AnyDocumentId, OwnedDocument},
-    keyvalue::KeyValue,
-    pubsub::{PubSub, Subscriber},
+    keyvalue::AsyncKeyValue,
+    permissions::Permissions,
+    pubsub::{AsyncPubSub, AsyncSubscriber, PubSub, Subscriber},
     schema::{self, view::map::MappedDocuments, Map, MappedValue, SerializedView},
     transaction::Transaction,
 };
-use bonsaidb_local::Database;
+use bonsaidb_local::{AsyncDatabase, Database, DatabaseNonBlocking};
 
 use crate::{Backend, CustomServer, NoBackend};
 
 /// A database belonging to a [`CustomServer`].
 pub struct ServerDatabase<B: Backend = NoBackend> {
     pub(crate) server: CustomServer<B>,
-    pub(crate) db: Database,
+    pub(crate) db: AsyncDatabase,
+}
+
+impl<B: Backend> ServerDatabase<B> {
+    pub fn with_effective_permissions(&self, permissions: Permissions) -> Self {
+        Self {
+            db: self.db.with_effective_permissions(permissions),
+            server: self.server.clone(),
+        }
+    }
 }
 
 impl<B: Backend> Deref for ServerDatabase<B> {
-    type Target = Database;
+    type Target = AsyncDatabase;
 
     fn deref(&self) -> &Self::Target {
         &self.db
@@ -30,7 +40,7 @@ impl<B: Backend> Deref for ServerDatabase<B> {
 
 /// Uses `CustomServer`'s `PubSub` relay.
 #[async_trait]
-impl<B: Backend> PubSub for ServerDatabase<B> {
+impl<B: Backend> AsyncPubSub for ServerDatabase<B> {
     type Subscriber = ServerSubscriber<B>;
 
     async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
@@ -73,7 +83,7 @@ pub struct ServerSubscriber<B: Backend> {
 }
 
 #[async_trait]
-impl<B: Backend> Subscriber for ServerSubscriber<B> {
+impl<B: Backend> AsyncSubscriber for ServerSubscriber<B> {
     async fn subscribe_to<S: Into<String> + Send>(
         &self,
         topic: S,
@@ -241,7 +251,7 @@ impl<B: Backend> bonsaidb_core::connection::AsyncConnection for ServerDatabase<B
 
 /// Pass-through implementation
 #[async_trait]
-impl<B: Backend> KeyValue for ServerDatabase<B> {
+impl<B: Backend> AsyncKeyValue for ServerDatabase<B> {
     async fn execute_key_operation(
         &self,
         op: bonsaidb_core::keyvalue::KeyOperation,

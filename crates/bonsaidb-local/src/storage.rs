@@ -1,16 +1,17 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
     fmt::{Debug, Display},
     fs::{self, File},
     io::{Read, Write},
     marker::PhantomData,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Weak},
 };
 
 pub use bonsaidb_core::circulate::Relay;
 #[cfg(feature = "password-hashing")]
-use bonsaidb_core::connection::{Authenticated, Authentication};
+use bonsaidb_core::connection::Authentication;
 #[cfg(any(feature = "encryption", feature = "compression"))]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
@@ -19,13 +20,19 @@ use bonsaidb_core::{
         database::{self, ByName, Database as DatabaseRecord},
         Admin, ADMIN_DATABASE_NAME,
     },
-    connection::{self, Connection, StorageConnection},
+    connection::{self, Connection, Session, StorageConnection},
+    permissions::{
+        bonsai::{bonsaidb_resource_name, database_resource_name, BonsaiAction, ServerAction},
+        Action, Identifier, Permissions,
+    },
     schema::{Schema, SchemaName, Schematic},
 };
 #[cfg(feature = "multiuser")]
 use bonsaidb_core::{
     admin::{user::User, PermissionGroup, Role},
+    connection::Identity,
     document::CollectionDocument,
+    permissions::bonsai::{user_resource_name, AuthenticationMethod},
     schema::{Nameable, NamedCollection},
 };
 use itertools::Itertools;
@@ -144,8 +151,51 @@ pub use backup::{AnyBackupLocation, BackupLocation};
 /// # }
 /// ```
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Storage {
+    pub(crate) instance: StorageInstance,
+    authentication: Option<Arc<AuthenticatedSession>>,
+    effective_session: Session,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthenticatedSession {
+    // TODO: client_data,
+    storage: Weak<Data>,
+    pub session: Session,
+}
+
+impl Drop for AuthenticatedSession {
+    fn drop(&mut self) {
+        // Deregister the session id once dropped.
+        if let Some(id) = self.session.id.take() {
+            if let Some(storage) = self.storage.upgrade() {
+                let mut sessions = storage.sessions.write();
+                sessions.sessions.remove(&id);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct AuthenticatedSessions {
+    sessions: HashMap<u64, Arc<AuthenticatedSession>>,
+    last_session_id: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct StorageInstance {
     data: Arc<Data>,
+}
+
+impl From<StorageInstance> for Storage {
+    fn from(instance: StorageInstance) -> Self {
+        Self {
+            instance,
+            authentication: None,
+            effective_session: Session::default(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -159,6 +209,9 @@ struct Data {
     schemas: RwLock<HashMap<SchemaName, Arc<dyn DatabaseOpener>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
     open_roots: Mutex<HashMap<String, Context>>,
+    // cfg check matches `Connection::authenticate`
+    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+    sessions: RwLock<AuthenticatedSessions>,
     #[cfg(feature = "password-hashing")]
     argon: argon::Hasher,
     #[cfg(feature = "encryption")]
@@ -228,29 +281,35 @@ impl Storage {
         let tree_vault = TreeVault::new_if_needed(configuration.default_compression);
 
         let storage = Self {
-            data: Arc::new(Data {
-                id,
-                tasks,
-                parallelization,
-                #[cfg(feature = "password-hashing")]
-                argon,
-                #[cfg(feature = "encryption")]
-                vault,
-                #[cfg(feature = "encryption")]
-                default_encryption_key,
-                #[cfg(any(feature = "compression", feature = "encryption"))]
-                tree_vault,
-                path: owned_path,
-                file_manager,
-                chunk_cache: ChunkCache::new(2000, 160_384),
-                threadpool: ThreadPool::new(parallelization),
-                schemas: RwLock::new(configuration.initial_schemas),
-                available_databases: RwLock::default(),
-                open_roots: Mutex::default(),
-                key_value_persistence,
-                check_view_integrity_on_database_open,
-                relay: Relay::default(),
-            }),
+            instance: StorageInstance {
+                data: Arc::new(Data {
+                    id,
+                    tasks,
+                    parallelization,
+                    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+                    sessions: RwLock::default(),
+                    #[cfg(feature = "password-hashing")]
+                    argon,
+                    #[cfg(feature = "encryption")]
+                    vault,
+                    #[cfg(feature = "encryption")]
+                    default_encryption_key,
+                    #[cfg(any(feature = "compression", feature = "encryption"))]
+                    tree_vault,
+                    path: owned_path,
+                    file_manager,
+                    chunk_cache: ChunkCache::new(2000, 160_384),
+                    threadpool: ThreadPool::new(parallelization),
+                    schemas: RwLock::new(configuration.initial_schemas),
+                    available_databases: RwLock::default(),
+                    open_roots: Mutex::default(),
+                    key_value_persistence,
+                    check_view_integrity_on_database_open,
+                    relay: Relay::default(),
+                }),
+            },
+            authentication: None,
+            effective_session: Session::default(),
         };
 
         storage.cache_available_databases()?;
@@ -258,12 +317,6 @@ impl Storage {
         storage.create_admin_database_if_needed()?;
 
         Ok(storage)
-    }
-
-    /// Returns the path of the database storage.
-    #[must_use]
-    pub fn path(&self) -> &Path {
-        &self.data.path
     }
 
     fn lookup_or_create_id(
@@ -322,7 +375,7 @@ impl Storage {
             .into_iter()
             .map(|map| (map.key, map.value))
             .collect();
-        let mut storage_databases = self.data.available_databases.write();
+        let mut storage_databases = self.instance.data.available_databases.write();
         *storage_databases = available_databases;
         Ok(())
     }
@@ -349,30 +402,30 @@ impl Storage {
     /// with the new server ID.
     #[must_use]
     pub fn unique_id(&self) -> StorageId {
-        self.data.id
+        self.instance.data.id
     }
 
     #[must_use]
     pub(crate) fn parallelization(&self) -> usize {
-        self.data.parallelization
+        self.instance.data.parallelization
     }
 
     #[must_use]
     #[cfg(feature = "encryption")]
     pub(crate) fn vault(&self) -> &Arc<Vault> {
-        &self.data.vault
+        &self.instance.data.vault
     }
 
     #[must_use]
     #[cfg(any(feature = "encryption", feature = "compression"))]
     pub(crate) fn tree_vault(&self) -> Option<&TreeVault> {
-        self.data.tree_vault.as_ref()
+        self.instance.data.tree_vault.as_ref()
     }
 
     #[must_use]
     #[cfg(feature = "encryption")]
     pub(crate) fn default_encryption_key(&self) -> Option<&KeyId> {
-        self.data.default_encryption_key.as_ref()
+        self.instance.data.default_encryption_key.as_ref()
     }
 
     #[must_use]
@@ -384,7 +437,7 @@ impl Storage {
 
     /// Registers a schema for use within the server.
     pub fn register_schema<DB: Schema>(&self) -> Result<(), Error> {
-        let mut schemas = self.data.schemas.write();
+        let mut schemas = self.instance.data.schemas.write();
         if schemas
             .insert(
                 DB::schema_name(),
@@ -400,6 +453,51 @@ impl Storage {
         }
     }
 
+    fn validate_name(name: &str) -> Result<(), Error> {
+        if name.chars().enumerate().all(|(index, c)| {
+            c.is_ascii_alphanumeric()
+                || (index == 0 && c == '_')
+                || (index > 0 && (c == '.' || c == '-'))
+        }) {
+            Ok(())
+        } else {
+            Err(Error::Core(bonsaidb_core::Error::InvalidDatabaseName(
+                name.to_owned(),
+            )))
+        }
+    }
+
+    fn check_permission<'a, R: AsRef<[Identifier<'a>]>, P: Action>(
+        &self,
+        resource_name: R,
+        action: &P,
+    ) -> Result<(), Error> {
+        self.session().map_or_else(
+            || Ok(()),
+            |session| {
+                session
+                    .check_permission(resource_name, action)
+                    .map_err(Error::from)
+            },
+        )
+    }
+
+    /// Returns a clone with `effective_permissions`.
+    ///
+    /// # Unstable
+    ///
+    /// See [this issue](https://github.com/khonsulabs/bonsaidb/issues/68).
+    #[doc(hidden)]
+    pub fn with_effective_permissions(&self, effective_permissions: &Permissions) -> Self {
+        Self {
+            instance: self.instance.clone(),
+            authentication: self.authentication.clone(),
+            effective_session: self.effective_session.restricted_by(effective_permissions),
+        }
+    }
+}
+
+impl StorageInstance {
     #[cfg_attr(
         not(any(feature = "encryption", feature = "compression")),
         allow(unused_mut)
@@ -409,16 +507,15 @@ impl Storage {
         if let Some(roots) = open_roots.get(name) {
             Ok(roots.clone())
         } else {
-            let task_self = self.clone();
             let task_name = name.to_string();
 
-            let mut config = nebari::Config::new(task_self.data.path.join(task_name))
-                .file_manager(task_self.data.file_manager.clone())
-                .cache(task_self.data.chunk_cache.clone())
-                .shared_thread_pool(&task_self.data.threadpool);
+            let mut config = nebari::Config::new(self.data.path.join(task_name))
+                .file_manager(self.data.file_manager.clone())
+                .cache(self.data.chunk_cache.clone())
+                .shared_thread_pool(&self.data.threadpool);
 
             #[cfg(any(feature = "encryption", feature = "compression"))]
-            if let Some(vault) = task_self.data.tree_vault.clone() {
+            if let Some(vault) = self.data.tree_vault.clone() {
                 config = config.vault(vault);
             }
 
@@ -443,34 +540,12 @@ impl Storage {
         &self.data.relay
     }
 
-    fn validate_name(name: &str) -> Result<(), Error> {
-        if name.chars().enumerate().all(|(index, c)| {
-            c.is_ascii_alphanumeric()
-                || (index == 0 && c == '_')
-                || (index > 0 && (c == '.' || c == '-'))
-        }) {
-            Ok(())
-        } else {
-            Err(Error::Core(bonsaidb_core::Error::InvalidDatabaseName(
-                name.to_owned(),
-            )))
-        }
-    }
-
-    /// Returns the administration database.
-    #[allow(clippy::missing_panics_doc)]
-    // TODO this should probably move to StorageConnection instaed of creating an async version
-    pub fn admin(&self) -> Database {
-        Database::new::<Admin, _>(
-            ADMIN_DATABASE_NAME,
-            self.open_roots(ADMIN_DATABASE_NAME).unwrap(),
-            self,
-        )
-        .unwrap()
-    }
-
     /// Opens a database through a generic-free trait.
-    pub(crate) fn database_without_schema(&self, name: &str) -> Result<Database, Error> {
+    pub(crate) fn database_without_schema(
+        &self,
+        name: &str,
+        storage: Option<&Storage>,
+    ) -> Result<Database, Error> {
         // TODO switch to upgradable read now that we are on parking_lot
         let schema = {
             let available_databases = self.data.available_databases.read();
@@ -483,21 +558,16 @@ impl Storage {
         };
 
         let mut schemas = self.data.schemas.write();
+        let storage =
+            storage.map_or_else(|| Cow::Owned(Storage::from(self.clone())), Cow::Borrowed);
         if let Some(schema) = schemas.get_mut(&schema) {
-            let db = schema.open(name.to_string(), self)?;
+            let db = schema.open(name.to_string(), storage.as_ref())?;
             Ok(db)
         } else {
             Err(Error::Core(bonsaidb_core::Error::SchemaNotRegistered(
                 schema,
             )))
         }
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    /// Opens a database through a generic-free trait.
-    pub fn database_without_schema_internal(&self, name: &str) -> Result<Database, Error> {
-        self.database_without_schema(name)
     }
 
     #[cfg(feature = "multiuser")]
@@ -507,7 +577,7 @@ impl Storage {
         Col: NamedCollection<PrimaryKey = u64>,
         U: Nameable<'user, u64> + Send + Sync,
         O: Nameable<'other, u64> + Send + Sync,
-        F: FnOnce(&mut CollectionDocument<User>, u64) -> bool,
+        F: FnOnce(&mut CollectionDocument<User>, u64) -> Result<bool, bonsaidb_core::Error>,
     >(
         &self,
         user: U,
@@ -520,7 +590,7 @@ impl Storage {
         let other = other.id::<Col, _>(&admin)?;
         match (user, other) {
             (Some(mut user), Some(other)) => {
-                if callback(&mut user, other) {
+                if callback(&mut user, other)? {
                     user.update(&admin)?;
                 }
                 Ok(())
@@ -528,6 +598,92 @@ impl Storage {
             // TODO make this a generic not found with a name parameter.
             _ => Err(bonsaidb_core::Error::UserNotFound),
         }
+    }
+
+    #[cfg(feature = "multiuser")]
+    fn authenticate_inner(
+        &self,
+        user: CollectionDocument<User>,
+        authentication: Authentication,
+        admin: &Database,
+    ) -> Result<Storage, bonsaidb_core::Error> {
+        match authentication {
+            Authentication::Password(password) => {
+                let saved_hash = user
+                    .contents
+                    .argon_hash
+                    .clone()
+                    .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+
+                self.data
+                    .argon
+                    .verify(user.header.id, password, saved_hash)?;
+                let permissions = user.contents.effective_permissions(admin)?;
+
+                let mut sessions = self.data.sessions.write();
+                sessions.last_session_id += 1;
+                let session_id = sessions.last_session_id;
+                let session = Session {
+                    id: Some(session_id),
+                    identity: Some(Arc::new(Identity::User {
+                        id: user.header.id,
+                        username: user.contents.username,
+                    })),
+                    permissions,
+                };
+                let authentication = Arc::new(AuthenticatedSession {
+                    storage: Arc::downgrade(&self.data),
+                    session: session.clone(),
+                });
+                sessions.sessions.insert(session_id, authentication.clone());
+
+                Ok(Storage {
+                    instance: self.clone(),
+                    authentication: Some(authentication),
+                    effective_session: session,
+                })
+            }
+        }
+    }
+
+    #[cfg(feature = "multiuser")]
+    fn add_permission_group_to_user_inner(
+        user: &mut CollectionDocument<User>,
+        permission_group_id: u64,
+    ) -> bool {
+        if user.contents.groups.contains(&permission_group_id) {
+            false
+        } else {
+            user.contents.groups.push(permission_group_id);
+            true
+        }
+    }
+
+    #[cfg(feature = "multiuser")]
+    fn remove_permission_group_from_user_inner(
+        user: &mut CollectionDocument<User>,
+        permission_group_id: u64,
+    ) -> bool {
+        let old_len = user.contents.groups.len();
+        user.contents.groups.retain(|id| id != &permission_group_id);
+        old_len != user.contents.groups.len()
+    }
+
+    #[cfg(feature = "multiuser")]
+    fn add_role_to_user_inner(user: &mut CollectionDocument<User>, role_id: u64) -> bool {
+        if user.contents.roles.contains(&role_id) {
+            false
+        } else {
+            user.contents.roles.push(role_id);
+            true
+        }
+    }
+
+    #[cfg(feature = "multiuser")]
+    fn remove_role_from_user_inner(user: &mut CollectionDocument<User>, role_id: u64) -> bool {
+        let old_len = user.contents.roles.len();
+        user.contents.roles.retain(|id| id != &role_id);
+        old_len != user.contents.roles.len()
     }
 }
 
@@ -564,14 +720,28 @@ where
     }
 
     fn open(&self, name: String, storage: &Storage) -> Result<Database, Error> {
-        let roots = storage.open_roots(&name)?;
+        let roots = storage.instance.open_roots(&name)?;
         let db = Database::new::<DB, _>(name, roots, storage)?;
         Ok(db)
     }
 }
 
-impl StorageConnection for Storage {
+impl StorageConnection for StorageInstance {
     type Database = Database;
+    type Authenticated = Storage;
+
+    fn session(&self) -> Option<&Session> {
+        None
+    }
+
+    fn admin(&self) -> Self::Database {
+        Database::new::<Admin, _>(
+            ADMIN_DATABASE_NAME,
+            self.open_roots(ADMIN_DATABASE_NAME).unwrap(),
+            &Storage::from(self.clone()),
+        )
+        .unwrap()
+    }
 
     #[cfg_attr(
         feature = "tracing",
@@ -583,7 +753,7 @@ impl StorageConnection for Storage {
         schema: SchemaName,
         only_if_needed: bool,
     ) -> Result<(), bonsaidb_core::Error> {
-        Self::validate_name(name)?;
+        Storage::validate_name(name)?;
 
         // TODO upgrade read
         {
@@ -622,7 +792,7 @@ impl StorageConnection for Storage {
     }
 
     fn database<DB: Schema>(&self, name: &str) -> Result<Self::Database, bonsaidb_core::Error> {
-        let db = self.database_without_schema(name)?;
+        let db = self.database_without_schema(name, None)?;
         if db.data.schema.name == DB::schema_name() {
             Ok(db)
         } else {
@@ -643,7 +813,7 @@ impl StorageConnection for Storage {
         let mut open_roots = self.data.open_roots.lock();
         open_roots.remove(name);
 
-        let database_folder = self.path().join(name);
+        let database_folder = self.data.path.join(name);
         if database_folder.exists() {
             let file_manager = self.data.file_manager.clone();
             file_manager
@@ -700,8 +870,8 @@ impl StorageConnection for Storage {
         user: U,
     ) -> Result<(), bonsaidb_core::Error> {
         let admin = self.admin();
-        let doc = User::load(user, &admin)?.ok_or(bonsaidb_core::Error::UserNotFound)?;
-        doc.delete(&admin)?;
+        let user = User::load(user, &admin)?.ok_or(bonsaidb_core::Error::UserNotFound)?;
+        user.delete(&admin)?;
 
         Ok(())
     }
@@ -725,27 +895,11 @@ impl StorageConnection for Storage {
         &self,
         user: U,
         authentication: Authentication,
-    ) -> Result<Authenticated, bonsaidb_core::Error> {
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let admin = self.admin();
         let user = User::load(user, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
-        match authentication {
-            Authentication::Password(password) => {
-                let saved_hash = user
-                    .contents
-                    .argon_hash
-                    .clone()
-                    .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
-
-                self.data
-                    .argon
-                    .verify(user.header.id, password, saved_hash)?;
-                let permissions = user.contents.effective_permissions(&admin)?;
-                Ok(Authenticated {
-                    user_id: user.header.id,
-                    permissions,
-                })
-            }
-        }
+        self.authenticate_inner(user, authentication, &admin)
+            .map(Storage::from)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
@@ -764,12 +918,10 @@ impl StorageConnection for Storage {
             user,
             permission_group,
             |user, permission_group_id| {
-                if user.contents.groups.contains(&permission_group_id) {
-                    false
-                } else {
-                    user.contents.groups.push(permission_group_id);
-                    true
-                }
+                Ok(StorageInstance::add_permission_group_to_user_inner(
+                    user,
+                    permission_group_id,
+                ))
             },
         )
     }
@@ -790,9 +942,10 @@ impl StorageConnection for Storage {
             user,
             permission_group,
             |user, permission_group_id| {
-                let old_len = user.contents.groups.len();
-                user.contents.groups.retain(|id| id != &permission_group_id);
-                old_len != user.contents.groups.len()
+                Ok(StorageInstance::remove_permission_group_from_user_inner(
+                    user,
+                    permission_group_id,
+                ))
             },
         )
     }
@@ -810,12 +963,7 @@ impl StorageConnection for Storage {
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
         self.update_user_with_named_id::<PermissionGroup, _, _, _>(user, role, |user, role_id| {
-            if user.contents.roles.contains(&role_id) {
-                false
-            } else {
-                user.contents.roles.push(role_id);
-                true
-            }
+            Ok(StorageInstance::add_role_to_user_inner(user, role_id))
         })
     }
 
@@ -832,10 +980,243 @@ impl StorageConnection for Storage {
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
         self.update_user_with_named_id::<Role, _, _, _>(user, role, |user, role_id| {
-            let old_len = user.contents.roles.len();
-            user.contents.roles.retain(|id| id != &role_id);
-            old_len != user.contents.roles.len()
+            Ok(StorageInstance::remove_role_from_user_inner(user, role_id))
         })
+    }
+}
+
+impl StorageConnection for Storage {
+    type Database = Database;
+    type Authenticated = Self;
+
+    fn session(&self) -> Option<&Session> {
+        self.instance.session()
+    }
+
+    fn admin(&self) -> Self::Database {
+        self.instance.admin()
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(name, schema, only_if_needed))
+    )]
+    fn create_database_with_schema(
+        &self,
+        name: &str,
+        schema: SchemaName,
+        only_if_needed: bool,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.check_permission(
+            database_resource_name(name),
+            &BonsaiAction::Server(ServerAction::CreateDatabase),
+        )?;
+        self.instance
+            .create_database_with_schema(name, schema, only_if_needed)
+    }
+
+    fn database<DB: Schema>(&self, name: &str) -> Result<Self::Database, bonsaidb_core::Error> {
+        self.instance.database::<DB>(name)
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(name)))]
+    fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
+        self.check_permission(
+            database_resource_name(name),
+            &BonsaiAction::Server(ServerAction::DeleteDatabase),
+        )?;
+        self.instance.delete_database(name)
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
+        self.check_permission(
+            bonsaidb_resource_name(),
+            &BonsaiAction::Server(ServerAction::ListDatabases),
+        )?;
+        self.instance.list_databases()
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
+        self.check_permission(
+            bonsaidb_resource_name(),
+            &BonsaiAction::Server(ServerAction::ListAvailableSchemas),
+        )?;
+        self.instance.list_available_schemas()
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
+    #[cfg(feature = "multiuser")]
+    fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
+        self.check_permission(
+            bonsaidb_resource_name(),
+            &BonsaiAction::Server(ServerAction::CreateUser),
+        )?;
+        self.instance.create_user(username)
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
+    #[cfg(feature = "multiuser")]
+    fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
+        &self,
+        user: U,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let admin = self.admin();
+        let user = user.name()?;
+        let user_id = user
+            .id::<User, _>(&admin)?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
+        self.check_permission(
+            user_resource_name(user_id),
+            &BonsaiAction::Server(ServerAction::DeleteUser),
+        )?;
+        self.instance.delete_user(user)
+    }
+
+    #[cfg(feature = "password-hashing")]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password)))]
+    fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
+        &self,
+        user: U,
+        password: bonsaidb_core::connection::SensitiveString,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let admin = self.admin();
+        let user = user.name()?;
+        let user_id = user
+            .id::<User, _>(&admin)?
+            .ok_or(bonsaidb_core::Error::UserNotFound)?;
+        self.check_permission(
+            user_resource_name(user_id),
+            &BonsaiAction::Server(ServerAction::SetPassword),
+        )?;
+        self.instance.set_user_password(user, password)
+    }
+
+    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
+    fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
+        &self,
+        user: U,
+        authentication: Authentication,
+    ) -> Result<Self, bonsaidb_core::Error> {
+        let admin = self.admin();
+        let user = User::load(user, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+        match &authentication {
+            Authentication::Password(_) => {
+                self.check_permission(
+                    user_resource_name(user.header.id),
+                    &BonsaiAction::Server(ServerAction::Authenticate(
+                        AuthenticationMethod::PasswordHash,
+                    )),
+                )?;
+            }
+        }
+        // TODO merge session permissions
+        self.instance
+            .authenticate_inner(user, authentication, &admin)
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
+    #[cfg(feature = "multiuser")]
+    fn add_permission_group_to_user<
+        'user,
+        'group,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        permission_group: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.instance
+            .update_user_with_named_id::<PermissionGroup, _, _, _>(
+                user,
+                permission_group,
+                |user, permission_group_id| {
+                    self.check_permission(
+                        user_resource_name(user.header.id),
+                        &BonsaiAction::Server(ServerAction::ModifyUserPermissionGroups),
+                    )?;
+                    Ok(StorageInstance::add_permission_group_to_user_inner(
+                        user,
+                        permission_group_id,
+                    ))
+                },
+            )
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
+    #[cfg(feature = "multiuser")]
+    fn remove_permission_group_from_user<
+        'user,
+        'group,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        permission_group: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.instance
+            .update_user_with_named_id::<PermissionGroup, _, _, _>(
+                user,
+                permission_group,
+                |user, permission_group_id| {
+                    self.check_permission(
+                        user_resource_name(user.header.id),
+                        &BonsaiAction::Server(ServerAction::ModifyUserPermissionGroups),
+                    )?;
+                    Ok(StorageInstance::remove_permission_group_from_user_inner(
+                        user,
+                        permission_group_id,
+                    ))
+                },
+            )
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
+    #[cfg(feature = "multiuser")]
+    fn add_role_to_user<
+        'user,
+        'group,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        role: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.instance
+            .update_user_with_named_id::<PermissionGroup, _, _, _>(user, role, |user, role_id| {
+                self.check_permission(
+                    user_resource_name(user.header.id),
+                    &BonsaiAction::Server(ServerAction::ModifyUserRoles),
+                )?;
+                Ok(StorageInstance::add_role_to_user_inner(user, role_id))
+            })
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
+    #[cfg(feature = "multiuser")]
+    fn remove_role_from_user<
+        'user,
+        'group,
+        U: Nameable<'user, u64> + Send + Sync,
+        G: Nameable<'group, u64> + Send + Sync,
+    >(
+        &self,
+        user: U,
+        role: G,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.instance
+            .update_user_with_named_id::<Role, _, _, _>(user, role, |user, role_id| {
+                self.check_permission(
+                    user_resource_name(user.header.id),
+                    &BonsaiAction::Server(ServerAction::ModifyUserRoles),
+                )?;
+                Ok(StorageInstance::remove_role_from_user_inner(user, role_id))
+            })
     }
 }
 
@@ -928,8 +1309,6 @@ impl nebari::Vault for TreeVault {
     type Error = Error;
 
     fn encrypt(&self, payload: &[u8]) -> Result<Vec<u8>, Error> {
-        use std::borrow::Cow;
-
         // TODO this allocates too much. The vault should be able to do an
         // in-place encryption operation so that we can use a single buffer.
         let mut includes_compression = false;
@@ -957,8 +1336,6 @@ impl nebari::Vault for TreeVault {
     }
 
     fn decrypt(&self, payload: &[u8]) -> Result<Vec<u8>, Error> {
-        use std::borrow::Cow;
-
         if payload.len() >= 4 && &payload[0..3] == b"trv" {
             let header = payload[3];
             let payload = &payload[4..];
@@ -978,6 +1355,24 @@ impl nebari::Vault for TreeVault {
             });
         }
         self.vault.decrypt_payload(payload, None)
+    }
+}
+
+pub trait StorageNonBlocking {
+    /// Returns the path of the database storage.
+    #[must_use]
+    fn path(&self) -> &Path;
+}
+
+impl StorageNonBlocking for Storage {
+    fn path(&self) -> &Path {
+        self.instance.data.path()
+    }
+}
+
+impl StorageNonBlocking for Data {
+    fn path(&self) -> &Path {
+        &self.path
     }
 }
 

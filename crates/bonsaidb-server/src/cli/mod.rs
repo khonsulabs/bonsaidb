@@ -30,7 +30,7 @@ impl<B: Backend> Command<B> {
         match self {
             Self::Certificate(command) => command.execute(&server).await,
             Self::Serve(command) => command.execute(&server).await,
-            Self::Storage(command) => command.execute_on(&server).await.map_err(Error::from),
+            Self::Storage(command) => command.execute_on_async(&server).await.map_err(Error::from),
         }
     }
 }

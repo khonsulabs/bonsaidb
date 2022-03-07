@@ -14,7 +14,10 @@ use bonsaidb_core::{
     AnyError,
 };
 
-use crate::{database::keyvalue::Entry, Database, Error, Storage};
+use crate::{
+    database::{keyvalue::Entry, DatabaseNonBlocking},
+    Database, Error, Storage,
+};
 
 /// A location to store and restore a database from.
 pub trait BackupLocation: Send + Sync {
@@ -59,7 +62,8 @@ impl Storage {
     /// Stores a copy of all data in this instance to `location`.
     pub fn backup<L: AnyBackupLocation>(&self, location: &L) -> Result<(), Error> {
         let databases = {
-            self.data
+            self.instance
+                .data
                 .available_databases
                 .read()
                 .keys()
@@ -68,7 +72,7 @@ impl Storage {
         };
 
         for name in databases {
-            let database = self.database_without_schema(&name)?;
+            let database = self.instance.database_without_schema(&name, Some(self))?;
             Self::backup_database(&database, location)?;
         }
 
@@ -88,7 +92,9 @@ impl Storage {
                 // The admin database is already going to be created by the process of creating a database.
                 self.create_database_with_schema(&database, schema.clone(), true)?;
 
-                let database = self.database_without_schema(&database)?;
+                let database = self
+                    .instance
+                    .database_without_schema(&database, Some(self))?;
                 Self::restore_database(&database, location)?;
             }
         }
@@ -480,10 +486,7 @@ mod tests {
             // This key will not be persisted right away.
             db.set_numeric_key("key3", 3_u64).await?;
 
-            storage
-                .backup_async(backup_destination.0.clone())
-                .await
-                .unwrap();
+            storage.backup(backup_destination.0.clone()).await.unwrap();
 
             test_doc
         };
@@ -495,7 +498,7 @@ mod tests {
         )
         .await?;
         restored_storage
-            .restore_async(backup_destination.0.clone())
+            .restore(backup_destination.0.clone())
             .await
             .unwrap();
 
@@ -510,7 +513,7 @@ mod tests {
 
         // Calling restore again should generate an error.
         assert!(restored_storage
-            .restore_async(backup_destination.0.clone())
+            .restore(backup_destination.0.clone())
             .await
             .is_err());
 

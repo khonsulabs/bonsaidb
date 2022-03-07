@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 #[cfg(feature = "password-hashing")]
-use bonsaidb_core::connection::{Authenticated, Authentication};
+use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     circulate,
     connection::{
         self, AccessPolicy, AsyncConnection, AsyncStorageConnection, Connection, QueryKey, Range,
-        Sort, StorageConnection,
+        Session, Sort, StorageConnection,
     },
     document::{AnyDocumentId, OwnedDocument},
     keyvalue::{AsyncKeyValue, KeyOperation, KeyValue, Output},
@@ -18,7 +18,10 @@ use bonsaidb_core::{
 };
 
 use crate::{
-    config::StorageConfiguration, storage::AnyBackupLocation, Database, Error, Storage, Subscriber,
+    config::StorageConfiguration,
+    database::DatabaseNonBlocking,
+    storage::{AnyBackupLocation, StorageNonBlocking},
+    Database, Error, Storage, Subscriber,
 };
 
 #[derive(Clone, Debug)]
@@ -36,10 +39,7 @@ impl AsyncStorage {
     }
 
     /// Restores all data from a previously stored backup `location`.
-    pub async fn restore_async<L: AnyBackupLocation + 'static>(
-        &self,
-        location: L,
-    ) -> Result<(), Error> {
+    pub async fn restore<L: AnyBackupLocation + 'static>(&self, location: L) -> Result<(), Error> {
         let task_self = self.clone();
         self.runtime
             .spawn_blocking(move || task_self.storage.restore(&location))
@@ -47,10 +47,7 @@ impl AsyncStorage {
     }
 
     /// Stores a copy of all data in this instance to `location`.
-    pub async fn backup_async<L: AnyBackupLocation + 'static>(
-        &self,
-        location: L,
-    ) -> Result<(), Error> {
+    pub async fn backup<L: AnyBackupLocation + 'static>(&self, location: L) -> Result<(), Error> {
         let task_self = self.clone();
         self.runtime
             .spawn_blocking(move || task_self.storage.backup(&location))
@@ -70,6 +67,12 @@ impl From<Storage> for AsyncStorage {
 impl From<AsyncStorage> for Storage {
     fn from(storage: AsyncStorage) -> Self {
         storage.storage
+    }
+}
+
+impl StorageNonBlocking for AsyncStorage {
+    fn path(&self) -> &std::path::Path {
+        self.storage.path()
     }
 }
 
@@ -98,7 +101,7 @@ impl AsyncDatabase {
     ///
     /// See [this issue](https://github.com/khonsulabs/bonsaidb/issues/68).
     #[doc(hidden)]
-    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Self {
+    pub fn with_effective_permissions(&self, effective_permissions: &Permissions) -> Self {
         Self::from(
             self.database
                 .with_effective_permissions(effective_permissions),
@@ -121,9 +124,30 @@ impl From<AsyncDatabase> for Database {
     }
 }
 
+impl DatabaseNonBlocking for AsyncDatabase {
+    fn name(&self) -> &str {
+        self.database.name()
+    }
+}
+
 #[async_trait]
 impl AsyncStorageConnection for AsyncStorage {
     type Database = AsyncDatabase;
+    type Authenticated = Self;
+
+    async fn admin(&self) -> Self::Database {
+        let task_self = self.clone();
+        AsyncDatabase::from(
+            self.runtime
+                .spawn_blocking(move || task_self.storage.admin())
+                .await
+                .unwrap(),
+        )
+    }
+
+    fn session(&self) -> Option<&Session> {
+        self.storage.session()
+    }
 
     async fn create_database_with_schema(
         &self,
@@ -224,11 +248,16 @@ impl AsyncStorageConnection for AsyncStorage {
         &self,
         user: U,
         authentication: Authentication,
-    ) -> Result<Authenticated, bonsaidb_core::Error> {
+    ) -> Result<Self, bonsaidb_core::Error> {
         let task_self = self.clone();
         let user = user.name()?.into_owned();
         self.runtime
-            .spawn_blocking(move || task_self.storage.authenticate(user, authentication))
+            .spawn_blocking(move || {
+                task_self
+                    .storage
+                    .authenticate(user, authentication)
+                    .map(Self::from)
+            })
             .await
             .unwrap()
     }

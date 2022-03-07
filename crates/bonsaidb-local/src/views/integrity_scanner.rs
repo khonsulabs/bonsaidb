@@ -103,6 +103,7 @@ impl Job for IntegrityScanner {
                 self.database
                     .data
                     .storage
+                    .instance
                     .tasks()
                     .jobs
                     .lookup_or_enqueue(Mapper {
@@ -119,6 +120,7 @@ impl Job for IntegrityScanner {
         self.database
             .data
             .storage
+            .instance
             .tasks()
             .mark_integrity_check_complete(
                 self.database.data.name.clone(),

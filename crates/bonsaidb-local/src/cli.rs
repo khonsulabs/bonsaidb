@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Subcommand;
 
-use crate::{config::StorageConfiguration, Error, Storage};
+use crate::{config::StorageConfiguration, AsyncStorage, Error, Storage};
 
 /// Commands operating on local database storage.
 #[derive(Subcommand, Debug)]
@@ -39,6 +39,14 @@ impl StorageCommand {
             StorageCommand::Restore(location) => location.restore(storage),
         }
     }
+
+    /// Executes the command on `storage`.
+    pub async fn execute_on_async(&self, storage: &AsyncStorage) -> Result<(), Error> {
+        match self {
+            StorageCommand::Backup(location) => location.backup_async(storage).await,
+            StorageCommand::Restore(location) => location.restore_async(storage).await,
+        }
+    }
 }
 
 impl Location {
@@ -53,6 +61,19 @@ impl Location {
     pub fn restore(&self, storage: &Storage) -> Result<(), Error> {
         match self {
             Location::Path { path } => storage.restore(path),
+        }
+    }
+    /// Backs-up `storage` to `self`.
+    pub async fn backup_async(&self, storage: &AsyncStorage) -> Result<(), Error> {
+        match self {
+            Location::Path { path } => storage.backup(path.clone()).await,
+        }
+    }
+
+    /// Restores `storage` from `self`.
+    pub async fn restore_async(&self, storage: &AsyncStorage) -> Result<(), Error> {
+        match self {
+            Location::Path { path } => storage.restore(path.clone()).await,
         }
     }
 }

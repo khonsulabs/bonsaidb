@@ -4,17 +4,27 @@ use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
 use bonsaidb_core::{
     circulate,
+    permissions::bonsai::{
+        database_resource_name, pubsub_topic_resource_name, BonsaiAction, DatabaseAction,
+        PubSubAction,
+    },
     pubsub::{self, database_topic, PubSub},
     Error,
 };
+
+use crate::{Database, DatabaseNonBlocking};
 
 impl PubSub for super::Database {
     type Subscriber = Subscriber;
 
     fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
+        self.check_permission(
+            database_resource_name(self.name()),
+            &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::CreateSuscriber)),
+        )?;
         Ok(Subscriber {
-            database_name: self.data.name.to_string(),
-            subscriber: self.data.storage.relay().create_subscriber(),
+            database: self.clone(),
+            subscriber: self.data.storage.instance.relay().create_subscriber(),
         })
     }
 
@@ -23,10 +33,16 @@ impl PubSub for super::Database {
         topic: S,
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
+        let topic = topic.into();
+        self.check_permission(
+            pubsub_topic_resource_name(self.name(), &topic),
+            &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish)),
+        )?;
         self.data
             .storage
+            .instance
             .relay()
-            .publish(database_topic(&self.data.name, &topic.into()), payload)?;
+            .publish(database_topic(&self.data.name, &topic), payload)?;
         Ok(())
     }
 
@@ -35,11 +51,17 @@ impl PubSub for super::Database {
         topics: Vec<String>,
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.relay().publish_to_all(
+        self.data.storage.instance.relay().publish_to_all(
             topics
                 .iter()
-                .map(|topic| database_topic(&self.data.name, topic))
-                .collect(),
+                .map(|topic| {
+                    self.check_permission(
+                        pubsub_topic_resource_name(self.name(), topic),
+                        &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish)),
+                    )
+                    .map(|_| database_topic(&self.data.name, topic))
+                })
+                .collect::<Result<_, _>>()?,
             payload,
         )?;
         Ok(())
@@ -48,21 +70,30 @@ impl PubSub for super::Database {
 
 /// A subscriber for `PubSub` messages.
 pub struct Subscriber {
-    database_name: String,
+    database: Database,
     subscriber: circulate::Subscriber,
 }
 
 #[async_trait]
 impl pubsub::Subscriber for Subscriber {
     fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error> {
+        let topic = topic.into();
+        self.database.check_permission(
+            pubsub_topic_resource_name(self.database.name(), &topic),
+            &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::SubscribeTo)),
+        )?;
         self.subscriber
-            .subscribe_to(database_topic(&self.database_name, &topic.into()));
+            .subscribe_to(database_topic(self.database.name(), &topic));
         Ok(())
     }
 
     fn unsubscribe_from(&self, topic: &str) -> Result<(), Error> {
+        self.database.check_permission(
+            pubsub_topic_resource_name(self.database.name(), topic),
+            &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::UnsubscribeFrom)),
+        )?;
         self.subscriber
-            .unsubscribe_from(&database_topic(&self.database_name, topic));
+            .unsubscribe_from(&database_topic(self.database.name(), topic));
         Ok(())
     }
 

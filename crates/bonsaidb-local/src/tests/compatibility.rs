@@ -98,73 +98,73 @@ fn create_databases(path: impl AsRef<Path>) {
     .unwrap();
 
     storage.create_database::<SchemaA>("a-1", false).unwrap();
-    write_basic(storage.database::<SchemaA>("a-1").unwrap());
+    write_basic(&storage.database::<SchemaA>("a-1").unwrap());
 
     storage.create_database::<SchemaA>("a-2", false).unwrap();
-    write_basic(storage.database::<SchemaA>("a-2").unwrap());
+    write_basic(&storage.database::<SchemaA>("a-2").unwrap());
 
     storage.create_database::<SchemaB>("b-1", false).unwrap();
-    write_unique(storage.database::<SchemaB>("b-1").unwrap());
-    write_basic(storage.database::<SchemaB>("b-1").unwrap());
+    write_unique(&storage.database::<SchemaB>("b-1").unwrap());
+    write_basic(&storage.database::<SchemaB>("b-1").unwrap());
 
     storage.create_database::<SchemaB>("b-2", false).unwrap();
-    write_unique(storage.database::<SchemaB>("b-2").unwrap());
-    write_basic(storage.database::<SchemaB>("b-2").unwrap());
+    write_unique(&storage.database::<SchemaB>("b-2").unwrap());
+    write_basic(&storage.database::<SchemaB>("b-2").unwrap());
     drop(storage);
 }
 
-fn write_basic(db: Database) {
+fn write_basic(db: &Database) {
     db.set_numeric_key("integer", 1_u64).execute().unwrap();
     db.set_key("string", &"test").execute().unwrap();
     // Give the kv-store time to persist
-    tokio::time::sleep(Duration::from_millis(10));
+    std::thread::sleep(Duration::from_millis(10));
 
     Basic {
         key: String::from("a"),
         value: 1,
     }
-    .push_into(&db)
+    .push_into(db)
     .unwrap();
     Basic {
         key: String::from("a"),
         value: 2,
     }
-    .push_into(&db)
+    .push_into(db)
     .unwrap();
     Basic {
         key: String::from("b"),
         value: 3,
     }
-    .push_into(&db)
+    .push_into(db)
     .unwrap();
     Basic {
         key: String::from("b"),
         value: 4,
     }
-    .push_into(&db)
+    .push_into(db)
     .unwrap();
     Basic {
         key: String::from("c"),
         value: 5,
     }
-    .push_into(&db)
+    .push_into(db)
     .unwrap();
 }
 
-async fn write_unique(db: Database) {
+fn write_unique(db: &Database) {
     Unique {
         name: String::from("jon"),
     }
-    .push_into(&db)
+    .push_into(db)
     .unwrap();
     Unique {
         name: String::from("jane"),
     }
-    .push_into(&db)
+    .push_into(db)
     .unwrap();
 }
 
-async fn test_databases(path: impl AsRef<Path>) {
+fn test_databases(path: impl AsRef<Path>) {
     let storage = Storage::open(
         StorageConfiguration::new(path)
             .with_schema::<SchemaA>()
@@ -174,22 +174,22 @@ async fn test_databases(path: impl AsRef<Path>) {
     )
     .unwrap();
 
-    test_basic(storage.database::<SchemaA>("a-1").unwrap());
-    test_basic(storage.database::<SchemaA>("a-2").unwrap());
-    test_unique(storage.database::<SchemaB>("b-1").unwrap());
-    test_basic(storage.database::<SchemaB>("b-1").unwrap());
-    test_unique(storage.database::<SchemaB>("b-2").unwrap());
-    test_basic(storage.database::<SchemaB>("b-2").unwrap());
+    test_basic(&storage.database::<SchemaA>("a-1").unwrap());
+    test_basic(&storage.database::<SchemaA>("a-2").unwrap());
+    test_unique(&storage.database::<SchemaB>("b-1").unwrap());
+    test_basic(&storage.database::<SchemaB>("b-1").unwrap());
+    test_unique(&storage.database::<SchemaB>("b-2").unwrap());
+    test_basic(&storage.database::<SchemaB>("b-2").unwrap());
 }
 
-async fn test_basic(db: Database) {
+fn test_basic(db: &Database) {
     assert_eq!(db.get_key("integer").into_u64().unwrap(), Some(1));
     assert_eq!(
         db.get_key("string").into::<String>().unwrap().as_deref(),
         Some("test")
     );
 
-    let all_docs = Basic::all(&db).query().unwrap();
+    let all_docs = Basic::all(db).query().unwrap();
     assert_eq!(all_docs.len(), 5);
 
     let a_scores = db
@@ -239,13 +239,13 @@ async fn test_basic(db: Database) {
     assert_eq!(basic_transactions.count(), 5);
 }
 
-async fn test_unique(db: Database) {
+fn test_unique(db: &Database) {
     // Attempt to violate a unique key violation before accessing the view. This
     // tests the upgrade fpath for view verisons, if things have changed.
     Unique {
         name: String::from("jon"),
     }
-    .push_into(&db)
+    .push_into(db)
     .unwrap_err();
     let mappings = db
         .view::<UniqueView>()

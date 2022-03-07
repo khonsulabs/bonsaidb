@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Breaking Changes
+
+- `Connection::query_with_docs`/`Connection::query_with_connection_docs` now
+  verify the user has permission to `DocumentAction::Get`. This allows schema
+  authors to allow querying views without allowing the documents themselves to
+  be fetched.
+- `ViewAction::DeleteDocs` has been removed. Delete docs is now composed of two
+  permissions checks: `ViewAction::Query` to retrieve the list of documents to
+  delete, and `DocumentAction::Delete` for each document retrieved. This ensures
+  if permission is denied to delete a specific document, it still cannot be
+  deleted through `delete_docs()`.
+
 ## v0.3.0
 
 ### Breaking Changes

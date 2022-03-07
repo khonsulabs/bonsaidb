@@ -15,10 +15,10 @@ use std::{
 use async_lock::Mutex;
 use async_trait::async_trait;
 #[cfg(feature = "password-hashing")]
-use bonsaidb_core::connection::{Authenticated, Authentication};
+use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     arc_bytes::OwnedBytes,
-    connection::{AsyncStorageConnection, Database},
+    connection::{AsyncStorageConnection, Database, Session},
     custom_api::{CustomApi, CustomApiResult},
     networking::{
         self, Payload, Request, Response, ServerRequest, ServerResponse, CURRENT_PROTOCOL_VERSION,
@@ -222,6 +222,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 #[derive_where(Clone)]
 pub struct Client<A: CustomApi = ()> {
     pub(crate) data: Arc<Data<A>>,
+    session: Session,
 }
 
 impl<A> PartialEq for Client<A>
@@ -355,6 +356,7 @@ impl<A: CustomApi> Client<A> {
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
+            session: Session::default(),
         }
     }
 
@@ -395,6 +397,7 @@ impl<A: CustomApi> Client<A> {
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
+            session: Session::default(),
         };
 
         Ok(client)
@@ -437,6 +440,7 @@ impl<A: CustomApi> Client<A> {
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
+            session: Session::default(),
         };
 
         Ok(client)
@@ -450,6 +454,7 @@ impl<A: CustomApi> Client<A> {
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
             request: Payload {
+                session_id: self.session.id,
                 id: Some(id),
                 wrapped: request,
             },
@@ -654,7 +659,7 @@ impl<A: CustomApi> AsyncStorageConnection for Client<A> {
         &self,
         user: U,
         authentication: Authentication,
-    ) -> Result<Authenticated, bonsaidb_core::Error> {
+    ) -> Result<Self, bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::Authenticate {
                 user: user.name()?.into_owned(),
@@ -662,7 +667,10 @@ impl<A: CustomApi> AsyncStorageConnection for Client<A> {
             }))
             .await?
         {
-            Response::Server(ServerResponse::Authenticated(response)) => Ok(response),
+            Response::Server(ServerResponse::Authenticated(session)) => Ok(Self {
+                data: self.data.clone(),
+                session,
+            }),
             Response::Error(err) => Err(err),
             other => Err(bonsaidb_core::Error::Networking(
                 networking::Error::UnexpectedResponse(format!("{:?}", other)),
