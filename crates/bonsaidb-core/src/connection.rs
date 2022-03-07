@@ -772,6 +772,22 @@ where
         )
     }
 
+    pub async fn list_headers<C, PrimaryKey, R>(
+        &'a self,
+        ids: R,
+        order: Sort,
+        limit: Option<usize>,
+    ) -> Result<Vec<Header>, Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        self.connection
+            .list_headers::<C, R, PrimaryKey>(ids, order, limit)
+            .await
+    }
+
     /// Retrieves all documents.
     ///
     /// ```rust
@@ -923,6 +939,44 @@ where
             ListState::Pending(Some(ListBuilder {
                 collection, range, ..
             })) => collection.connection.count::<Cl, _, _>(range).await,
+            _ => unreachable!("Attempted to use after retrieving the result"),
+        }
+    }
+
+    /// Returns the list of headers for documents contained within the range.
+    ///
+    /// Order and limit are ignored if they were set.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// println!(
+    ///     "Number of documents with id 42 or larger: {}",
+    ///     db.collection::<MyCollection>().list(42..).headers().await?
+    /// );
+    /// println!(
+    ///     "Number of documents in MyCollection: {}",
+    ///     db.collection::<MyCollection>().all().headers().await?
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub async fn headers(self) -> Result<Vec<Header>, Error> {
+        match self.state {
+            ListState::Pending(Some(ListBuilder {
+                collection,
+                range,
+                sort,
+                limit,
+                ..
+            })) => {
+                collection
+                    .connection
+                    .list_headers::<Cl, _, _>(range, sort, limit)
+                    .await
+            }
             _ => unreachable!("Attempted to use after retrieving the result"),
         }
     }
