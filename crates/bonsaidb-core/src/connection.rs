@@ -772,19 +772,22 @@ where
         )
     }
 
-    pub async fn list_headers<C, PrimaryKey, R>(
+    // pub fn list<PrimaryKey, R>(&'a self, ids: R) -> List<'a, Cn, Cl>
+    // where
+    //     R: Into<Range<PrimaryKey>>,
+    //     PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>>,
+    pub async fn list_headers<PrimaryKey, R>(
         &'a self,
         ids: R,
         order: Sort,
         limit: Option<usize>,
     ) -> Result<Vec<Header>, Error>
     where
-        C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send,
     {
         self.connection
-            .list_headers::<C, R, PrimaryKey>(ids, order, limit)
+            .list_headers::<Cl, R, PrimaryKey>(ids, order, limit)
             .await
     }
 
