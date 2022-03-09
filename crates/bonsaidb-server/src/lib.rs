@@ -33,7 +33,8 @@ pub use config::{
 
 pub use self::{
     backend::{
-        Backend, BackendError, ConnectionHandling, CustomApiDispatcher, NoBackend, NoDispatcher,
+        BackendError, ConnectionHandling, CustomApiDispatcher, NoBackend, NoDispatcher,
+        ServerBackend,
     },
     config::{DefaultPermissions, ServerConfiguration},
     error::Error,

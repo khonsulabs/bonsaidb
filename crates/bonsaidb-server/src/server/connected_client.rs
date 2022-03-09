@@ -11,7 +11,7 @@ use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::derive_where;
 use flume::Sender;
 
-use crate::{Backend, CustomServer, NoBackend};
+use crate::{CustomServer, NoBackend, ServerBackend};
 
 /// The ways a client can be connected to the server.
 #[derive(Debug, PartialEq, Eq)]
@@ -26,12 +26,12 @@ pub enum Transport {
 /// A connected database client.
 #[derive(Debug)]
 #[derive_where(Clone)]
-pub struct ConnectedClient<B: Backend = NoBackend> {
+pub struct ConnectedClient<B: ServerBackend = NoBackend> {
     data: Arc<Data<B>>,
 }
 
 #[derive(Debug)]
-struct Data<B: Backend = NoBackend> {
+struct Data<B: ServerBackend = NoBackend> {
     id: u32,
     address: SocketAddr,
     transport: Transport,
@@ -47,7 +47,7 @@ struct AuthenticationState {
     permissions: Permissions,
 }
 
-impl<B: Backend> ConnectedClient<B> {
+impl<B: ServerBackend> ConnectedClient<B> {
     /// Returns the address of the connected client.
     #[must_use]
     pub fn address(&self) -> &SocketAddr {
@@ -133,13 +133,13 @@ impl<'client, ClientData> DerefMut for LockedClientDataGuard<'client, ClientData
 }
 
 #[derive(Debug)]
-pub struct OwnedClient<B: Backend> {
+pub struct OwnedClient<B: ServerBackend> {
     client: ConnectedClient<B>,
     runtime: tokio::runtime::Handle,
     server: Option<CustomServer<B>>,
 }
 
-impl<B: Backend> OwnedClient<B> {
+impl<B: ServerBackend> OwnedClient<B> {
     pub(crate) fn new(
         id: u32,
         address: SocketAddr,
@@ -172,7 +172,7 @@ impl<B: Backend> OwnedClient<B> {
     }
 }
 
-impl<B: Backend> Drop for OwnedClient<B> {
+impl<B: ServerBackend> Drop for OwnedClient<B> {
     fn drop(&mut self) {
         let id = self.client.data.id;
         let server = self.server.take().unwrap();
@@ -182,7 +182,7 @@ impl<B: Backend> Drop for OwnedClient<B> {
     }
 }
 
-impl<B: Backend> Deref for OwnedClient<B> {
+impl<B: ServerBackend> Deref for OwnedClient<B> {
     type Target = ConnectedClient<B>;
 
     fn deref(&self) -> &Self::Target {

@@ -8,12 +8,12 @@ use bonsaidb_core::{
     schema::{InsertError, InvalidNameError},
 };
 
-use crate::{server::ConnectedClient, CustomServer, Error};
+use crate::{AsyncStorage, Error, Storage};
 
-/// Tailors the behavior of a server to your needs.
+/// Tailors the behavior of [`Storage`] to your needs.
 #[async_trait]
-pub trait ServerBackend: Debug + Send + Sync + Sized + 'static {
-    /// The custom API definition. If you do not wish to have an API, `()` may be provided.
+pub trait Backend: Debug + Send + Sync + Sized + 'static {
+    /// The custom API definition. If you do not wish to have an API, [`NoBackend`] may be provided.
     type CustomApi: CustomApi;
 
     /// The type of data that can be stored in
@@ -27,53 +27,28 @@ pub trait ServerBackend: Debug + Send + Sync + Sized + 'static {
 
     /// Invoked once upon the server starting up.
     #[allow(unused_variables)]
-    async fn initialize(server: &CustomServer<Self>) {}
+    async fn initialize(server: &Storage<Self>) {}
 
-    /// A client disconnected from the server. This is invoked before authentication has been performed.
-    #[allow(unused_variables)]
-    #[must_use]
-    async fn client_connected(
-        client: &ConnectedClient<Self>,
-        server: &CustomServer<Self>,
-    ) -> ConnectionHandling {
-        log::info!(
-            "{:?} client connected from {:?}",
-            client.transport(),
-            client.address()
-        );
-
-        ConnectionHandling::Accept
-    }
-
-    /// A client disconnected from the server.
-    #[allow(unused_variables)]
-    async fn client_disconnected(client: ConnectedClient<Self>, server: &CustomServer<Self>) {
-        log::info!(
-            "{:?} client disconnected ({:?})",
-            client.transport(),
-            client.address()
-        );
-    }
-
-    /// A client successfully authenticated.
-    #[allow(unused_variables)]
-    async fn client_authenticated(client: ConnectedClient<Self>, server: &CustomServer<Self>) {
-        log::info!(
-            "{:?} client authenticated as user: {}",
-            client.transport(),
-            client.user_id().await.unwrap()
-        );
-    }
+    // TODO replace with session_created or something similar.
+    // /// A client successfully authenticated.
+    // #[allow(unused_variables)]
+    // async fn client_authenticated(client: ConnectedClient<Self>, server: &Storage<Self>) {
+    //     log::info!(
+    //         "{:?} client authenticated as user: {}",
+    //         client.transport(),
+    //         client.user_id().await.unwrap()
+    //     );
+    // }
 }
 
 /// A trait that can dispatch requests for a [`CustomApi`].
-pub trait CustomApiDispatcher<B: ServerBackend>:
+pub trait CustomApiDispatcher<B: Backend>:
     Dispatcher<<B::CustomApi as CustomApi>::Request, Result = BackendApiResult<B::CustomApi>> + Debug
 {
-    /// Returns a dispatcher to handle custom api requests. The `server` and
-    /// `client` parameters are provided to allow the dispatcher to have access
-    /// to them when handling the individual actions.
-    fn new(server: &CustomServer<B>, client: &ConnectedClient<B>) -> Self;
+    /// Returns a dispatcher to handle custom api requests. The `storage`
+    /// instance is provided to allow the dispatcher to have access during
+    /// dispatched calls.
+    fn new(storage: &AsyncStorage<B>) -> Self;
 }
 
 /// A [`Backend`] with no custom functionality.
@@ -81,7 +56,7 @@ pub trait CustomApiDispatcher<B: ServerBackend>:
 #[derive(Debug)]
 pub enum NoBackend {}
 
-impl ServerBackend for NoBackend {
+impl Backend for NoBackend {
     type CustomApi = ();
     type CustomApiDispatcher = NoDispatcher<Self>;
     type ClientData = ();
@@ -89,16 +64,16 @@ impl ServerBackend for NoBackend {
 
 /// Defines a no-op dispatcher for a backend with no custom api.
 #[derive(Debug)]
-pub struct NoDispatcher<B: ServerBackend>(PhantomData<B>);
+pub struct NoDispatcher<B: Backend>(PhantomData<B>);
 
-impl<B: ServerBackend<CustomApi = ()>> CustomApiDispatcher<B> for NoDispatcher<B> {
-    fn new(_server: &CustomServer<B>, _client: &ConnectedClient<B>) -> Self {
+impl<B: Backend<CustomApi = ()>> CustomApiDispatcher<B> for NoDispatcher<B> {
+    fn new(_server: &AsyncStorage<B>) -> Self {
         Self(PhantomData)
     }
 }
 
 #[async_trait]
-impl<B: ServerBackend<CustomApi = ()>> actionable::Dispatcher<()> for NoDispatcher<B> {
+impl<B: Backend<CustomApi = ()>> actionable::Dispatcher<()> for NoDispatcher<B> {
     type Result = Result<(), BackendError>;
 
     async fn dispatch(&self, _permissions: &actionable::Permissions, _request: ()) -> Self::Result {
@@ -122,24 +97,24 @@ pub enum BackendError<E: CustomApiError = Infallible> {
     Backend(E),
     /// A server-related error.
     #[error("server error: {0}")]
-    Server(#[from] Error),
+    Storage(#[from] Error),
 }
 
 impl<E: CustomApiError> From<PermissionDenied> for BackendError<E> {
     fn from(permission_denied: PermissionDenied) -> Self {
-        Self::Server(Error::from(permission_denied))
+        Self::Storage(Error::from(permission_denied))
     }
 }
 
 impl<E: CustomApiError> From<bonsaidb_core::Error> for BackendError<E> {
     fn from(err: bonsaidb_core::Error) -> Self {
-        Self::Server(Error::from(err))
+        Self::Storage(Error::from(err))
     }
 }
 
 impl<E: CustomApiError> From<InvalidNameError> for BackendError<E> {
     fn from(err: InvalidNameError) -> Self {
-        Self::Server(Error::from(err))
+        Self::Storage(Error::from(err))
     }
 }
 
@@ -152,7 +127,7 @@ impl<E: CustomApiError> From<bincode::Error> for BackendError<E> {
 
 impl<E: CustomApiError> From<pot::Error> for BackendError<E> {
     fn from(other: pot::Error) -> Self {
-        Self::Server(Error::from(bonsaidb_local::Error::from(other)))
+        BackendError::Storage(Error::from(other))
     }
 }
 
@@ -161,7 +136,7 @@ where
     E: CustomApiError,
 {
     fn from(error: InsertError<T>) -> Self {
-        Self::Server(Error::from(error.error))
+        Self::Storage(Error::from(error.error))
     }
 }
 

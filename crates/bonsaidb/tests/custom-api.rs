@@ -10,8 +10,8 @@ use bonsaidb::{
     },
     local::config::Builder,
     server::{
-        Backend, BackendError, ConnectedClient, CustomApiDispatcher, CustomServer,
-        DefaultPermissions, ServerConfiguration,
+        BackendError, ConnectedClient, CustomApiDispatcher, CustomServer, DefaultPermissions,
+        ServerBackend, ServerConfiguration,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,7 @@ struct CustomBackend {
     client: ConnectedClient<Self>,
 }
 
-impl Backend for CustomBackend {
+impl ServerBackend for CustomBackend {
     type CustomApi = Self;
     type CustomApiDispatcher = Self;
     type ClientData = u64;

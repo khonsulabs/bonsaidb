@@ -51,6 +51,14 @@ where
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
         let payload = pot::to_vec(&payload)?;
+        self.publish_bytes(topic, payload).await
+    }
+
+    async fn publish_bytes<S: Into<String> + Send>(
+        &self,
+        topic: S,
+        payload: Vec<u8>,
+    ) -> Result<(), bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
@@ -76,13 +84,21 @@ where
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
         let payload = pot::to_vec(&payload)?;
+        self.publish_bytes_to_all(topics, payload).await
+    }
+
+    async fn publish_bytes_to_all(
+        &self,
+        topics: Vec<String>,
+        payload: Vec<u8>,
+    ) -> Result<(), bonsaidb_core::Error> {
         match self
             .client
             .send_request(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::PublishToAll {
                     topics,
-                    payload: Bytes::from(payload),
+                    payload: Bytes::from(payload.to_vec()),
                 },
             })
             .await?

@@ -8,11 +8,13 @@ use std::{
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::schema::{Schema, SchemaName};
+use derive_where::derive_where;
 use sysinfo::{RefreshKind, System, SystemExt};
 
 #[cfg(feature = "encryption")]
 use crate::vault::AnyVaultKeyStorage;
 use crate::{
+    backend::{self, NoBackend},
     storage::{DatabaseOpener, StorageSchemaOpener},
     Error,
 };
@@ -23,9 +25,10 @@ mod argon;
 pub use argon::*;
 
 /// Configuration options for [`Storage`](crate::storage::Storage).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
+#[derive_where(Clone)]
 #[non_exhaustive]
-pub struct StorageConfiguration {
+pub struct StorageConfiguration<Backend: backend::Backend = NoBackend> {
     /// The path to the database. Defaults to `db.bonsaidb` if not specified.
     pub path: Option<PathBuf>,
 
@@ -76,10 +79,10 @@ pub struct StorageConfiguration {
     #[cfg(feature = "password-hashing")]
     pub argon: ArgonConfiguration,
 
-    pub(crate) initial_schemas: HashMap<SchemaName, Arc<dyn DatabaseOpener>>,
+    pub(crate) initial_schemas: HashMap<SchemaName, Arc<dyn DatabaseOpener<Backend>>>,
 }
 
-impl Default for StorageConfiguration {
+impl<Backend: backend::Backend> Default for StorageConfiguration<Backend> {
     fn default() -> Self {
         let system_specs = RefreshKind::new().with_cpu().with_memory();
         let mut system = System::new_with_specifics(system_specs);
@@ -104,7 +107,22 @@ impl Default for StorageConfiguration {
     }
 }
 
-impl StorageConfiguration {
+impl StorageConfiguration<NoBackend> {
+    /// Creates a default configuration with `path` set and no
+    /// [`Backend`][backend::Backend].
+    #[must_use]
+    pub fn default_with_path<P: AsRef<Path>>(path: P) -> Self {
+        Self::new(path)
+    }
+}
+
+impl<Backend: backend::Backend> StorageConfiguration<Backend> {
+    /// Creates a default configuration with `path` set.
+    #[must_use]
+    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+        Self::default().path(path)
+    }
+
     /// Registers the schema provided.
     pub fn register_schema<S: Schema>(&mut self) -> Result<(), Error> {
         self.initial_schemas
@@ -307,13 +325,7 @@ impl PersistenceThreshold {
 }
 
 /// Storage configuration builder methods.
-pub trait Builder: Default {
-    /// Creates a default configuration with `path` set.
-    #[must_use]
-    fn new<P: AsRef<Path>>(path: P) -> Self {
-        Self::default().path(path)
-    }
-
+pub trait Builder: Sized {
     /// Registers the schema and returns self.
     fn with_schema<S: Schema>(self) -> Result<Self, Error>;
 
@@ -355,7 +367,7 @@ pub trait Builder: Default {
     fn key_value_persistence(self, persistence: KeyValuePersistence) -> Self;
 }
 
-impl Builder for StorageConfiguration {
+impl<Backend: backend::Backend> Builder for StorageConfiguration<Backend> {
     fn with_schema<S: Schema>(mut self) -> Result<Self, Error> {
         self.register_schema::<S>()?;
         Ok(self)

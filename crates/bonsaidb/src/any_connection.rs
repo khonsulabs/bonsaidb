@@ -13,10 +13,10 @@ use bonsaidb_core::{
     },
     transaction::{Executed, OperationResult, Transaction},
 };
-use bonsaidb_server::{Backend, CustomServer, NoBackend, ServerDatabase};
+use bonsaidb_server::{CustomServer, NoBackend, ServerBackend, ServerDatabase};
 
 /// A local server or a server over a network connection.
-pub enum AnyServerConnection<B: Backend> {
+pub enum AnyServerConnection<B: ServerBackend> {
     /// A local server.
     Local(CustomServer<B>),
     /// A server accessed with a [`Client`].
@@ -24,7 +24,7 @@ pub enum AnyServerConnection<B: Backend> {
 }
 
 #[async_trait]
-impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
+impl<B: ServerBackend> AsyncStorageConnection for AnyServerConnection<B> {
     type Database = AnyDatabase<B>;
 
     async fn database<DB: Schema>(
@@ -205,7 +205,7 @@ impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
 
 /// A database connection that can be either from a local server or a server
 /// over a network connection.
-pub enum AnyDatabase<B: Backend = NoBackend> {
+pub enum AnyDatabase<B: ServerBackend = NoBackend> {
     /// A local database.
     Local(ServerDatabase<B>),
     /// A networked database accessed with a [`Client`].
@@ -213,7 +213,7 @@ pub enum AnyDatabase<B: Backend = NoBackend> {
 }
 
 #[async_trait]
-impl<B: Backend> AsyncConnection for AnyDatabase<B> {
+impl<B: ServerBackend> AsyncConnection for AnyDatabase<B> {
     async fn get<C, PrimaryKey>(
         &self,
         id: PrimaryKey,

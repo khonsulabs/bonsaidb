@@ -17,6 +17,7 @@ use async_trait::async_trait;
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
+    admin::{Admin, ADMIN_DATABASE_NAME},
     arc_bytes::OwnedBytes,
     connection::{AsyncStorageConnection, Database, Session},
     custom_api::{CustomApi, CustomApiResult},
@@ -514,6 +515,15 @@ impl<A: CustomApi> Client<A> {
 #[async_trait]
 impl<A: CustomApi> AsyncStorageConnection for Client<A> {
     type Database = RemoteDatabase<A>;
+    type Authenticated = Self;
+
+    fn session(&self) -> Option<&Session> {
+        Some(&self.session)
+    }
+
+    async fn admin(&self) -> Self::Database {
+        self.database::<Admin>(ADMIN_DATABASE_NAME).await.unwrap()
+    }
 
     async fn create_database_with_schema(
         &self,
@@ -659,7 +669,7 @@ impl<A: CustomApi> AsyncStorageConnection for Client<A> {
         &self,
         user: U,
         authentication: Authentication,
-    ) -> Result<Self, bonsaidb_core::Error> {
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         match self
             .send_request(Request::Server(ServerRequest::Authenticate {
                 user: user.name()?.into_owned(),

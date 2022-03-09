@@ -75,26 +75,26 @@ pub enum ServerRequest {
         name: String,
     },
     /// Lists all databases.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     ListDatabases,
     /// Lists available schemas.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     ListAvailableSchemas,
     /// Creates a user.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     CreateUser {
         /// The unique username of the user to create.
         username: String,
     },
     /// Deletes a user.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     DeleteUser {
         /// The unique primary key of the user to be deleted.
         user: NamedReference<'static, u64>,
     },
     /// Set's a user's password.
     #[cfg(feature = "password-hashing")]
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     SetUserPassword {
         /// The username or id of the user.
         user: NamedReference<'static, u64>,
@@ -103,7 +103,7 @@ pub enum ServerRequest {
     },
     /// Authenticate as a user.
     #[cfg(feature = "password-hashing")]
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     Authenticate {
         /// The username or id of the user.
         user: NamedReference<'static, u64>,
@@ -112,7 +112,7 @@ pub enum ServerRequest {
     },
 
     /// Alter's a user's membership in a permission group.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     AlterUserPermissionGroupMembership {
         /// The username or id of the user.
         user: NamedReference<'static, u64>,
@@ -125,7 +125,7 @@ pub enum ServerRequest {
     },
 
     /// Alter's a user's role
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     AlterUserRoleMembership {
         /// The username or id of the user.
         user: NamedReference<'static, u64>,
@@ -143,7 +143,7 @@ pub enum ServerRequest {
 #[cfg_attr(feature = "actionable-traits", derive(actionable::Actionable))]
 pub enum DatabaseRequest {
     /// Retrieve a single document.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     Get {
         /// The collection of the document.
         collection: CollectionName,
@@ -151,7 +151,7 @@ pub enum DatabaseRequest {
         id: DocumentId,
     },
     /// Retrieve multiple documents.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     GetMultiple {
         /// The collection of the documents.
         collection: CollectionName,
@@ -159,7 +159,7 @@ pub enum DatabaseRequest {
         ids: Vec<DocumentId>,
     },
     /// Retrieve multiple documents.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     List {
         /// The collection of the documents.
         collection: CollectionName,
@@ -171,7 +171,7 @@ pub enum DatabaseRequest {
         limit: Option<usize>,
     },
     /// Counts the number of documents in the specified range.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     Count {
         /// The collection of the documents.
         collection: CollectionName,
@@ -179,7 +179,7 @@ pub enum DatabaseRequest {
         ids: Range<DocumentId>,
     },
     /// Queries a view.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     Query {
         /// The name of the view.
         view: ViewName,
@@ -197,7 +197,7 @@ pub enum DatabaseRequest {
         with_docs: bool,
     },
     /// Reduces a view.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     Reduce {
         /// The name of the view.
         view: ViewName,
@@ -211,7 +211,7 @@ pub enum DatabaseRequest {
         grouped: bool,
     },
     /// Deletes the associated documents resulting from the view query.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     DeleteDocs {
         /// The name of the view.
         view: ViewName,
@@ -221,13 +221,13 @@ pub enum DatabaseRequest {
         access_policy: AccessPolicy,
     },
     /// Applies a transaction.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     ApplyTransaction {
         /// The trasnaction to apply.
         transaction: Transaction,
     },
     /// Lists executed transactions.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     ListExecutedTransactions {
         /// The starting transaction id.
         starting_id: Option<u64>,
@@ -235,13 +235,13 @@ pub enum DatabaseRequest {
         result_limit: Option<usize>,
     },
     /// Queries the last transaction id.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     LastTransactionId,
     /// Creates a `PubSub` [`Subscriber`](crate::pubsub::Subscriber)
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     CreateSubscriber,
     /// Publishes `payload` to all subscribers of `topic`.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     Publish {
         /// The topics to publish to.
         topic: String,
@@ -249,7 +249,7 @@ pub enum DatabaseRequest {
         payload: Bytes,
     },
     /// Publishes `payload` to all subscribers of all `topics`.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "custom"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     PublishToAll {
         /// The topics to publish to.
         topics: Vec<String>,
@@ -257,7 +257,7 @@ pub enum DatabaseRequest {
         payload: Bytes,
     },
     /// Subscribes `subscriber_id` to messages for `topic`.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     SubscribeTo {
         /// The id of the [`Subscriber`](crate::pubsub::Subscriber).
         subscriber_id: u64,
@@ -265,7 +265,7 @@ pub enum DatabaseRequest {
         topic: String,
     },
     /// Unsubscribes `subscriber_id` from messages for `topic`.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     UnsubscribeFrom {
         /// The id of the [`Subscriber`](crate::pubsub::Subscriber).
         subscriber_id: u64,
@@ -279,19 +279,19 @@ pub enum DatabaseRequest {
         subscriber_id: u64,
     },
     /// Excutes a key-value store operation.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     ExecuteKeyOperation(KeyOperation),
     /// Compacts the collection.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     CompactCollection {
         /// The name of the collection to compact.
         name: CollectionName,
     },
     /// Compacts the key-value store.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     CompactKeyValueStore,
     /// Compacts the entire database.
-    #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     Compact,
 }
 

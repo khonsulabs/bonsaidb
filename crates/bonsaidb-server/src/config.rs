@@ -154,7 +154,7 @@ impl From<Permissions> for DefaultPermissions {
     }
 }
 
-impl Builder for ServerConfiguration {
+impl<Backend: backend::Backend> Builder for ServerConfiguration<Backend> {
     fn with_schema<S: Schema>(mut self) -> Result<Self, bonsaidb_local::Error> {
         self.storage.register_schema::<S>()?;
         Ok(self)

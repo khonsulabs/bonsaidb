@@ -5,6 +5,7 @@ use bonsaidb_core::schema::CollectionName;
 use nebari::tree::{Root, Unversioned, Versioned};
 
 use crate::{
+    backend,
     database::{document_tree_name, keyvalue::KEY_TREE, DatabaseNonBlocking},
     tasks::{Job, Keyed, Task},
     views::{
@@ -15,13 +16,13 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Compactor {
-    pub database: Database,
+pub struct Compactor<Backend: backend::Backend> {
+    pub database: Database<Backend>,
     pub compaction: Compaction,
 }
 
-impl Compactor {
-    pub fn target(database: Database, target: Target) -> Self {
+impl<Backend: backend::Backend> Compactor<Backend> {
+    pub fn target(database: Database<Backend>, target: Target) -> Self {
         Self {
             compaction: Compaction {
                 database_name: database.name().to_string(),
@@ -31,15 +32,15 @@ impl Compactor {
         }
     }
 
-    pub fn collection(database: Database, collection: CollectionName) -> Self {
+    pub fn collection(database: Database<Backend>, collection: CollectionName) -> Self {
         Self::target(database, Target::Collection(collection))
     }
 
-    pub fn database(database: Database) -> Self {
+    pub fn database(database: Database<Backend>) -> Self {
         Self::target(database, Target::Database)
     }
 
-    pub fn keyvalue(database: Database) -> Self {
+    pub fn keyvalue(database: Database<Backend>) -> Self {
         Self::target(database, Target::KeyValue)
     }
 }
@@ -60,16 +61,16 @@ pub enum Target {
 }
 
 impl Target {
-    fn compact(self, database: &Database) -> Result<(), Error> {
+    fn compact<Backend: backend::Backend>(self, database: &Database<Backend>) -> Result<(), Error> {
         match self {
-            Target::UnversionedTree(name) => compact_tree::<Unversioned, _>(database, name),
-            Target::VersionedTree(name) => compact_tree::<Versioned, _>(database, name),
+            Target::UnversionedTree(name) => compact_tree::<Unversioned, _, _>(database, name),
+            Target::VersionedTree(name) => compact_tree::<Versioned, _, _>(database, name),
             Target::Collection(collection) => {
                 let mut trees = Vec::new();
                 gather_collection_trees(database, &collection, &mut trees);
                 compact_trees(database, trees)
             }
-            Target::KeyValue => compact_tree::<Unversioned, _>(database, KEY_TREE),
+            Target::KeyValue => compact_tree::<Unversioned, _, _>(database, KEY_TREE),
             Target::Database => {
                 let mut trees = Vec::new();
                 for collection in database.schematic().collections() {
@@ -83,7 +84,7 @@ impl Target {
 }
 
 #[async_trait]
-impl Job for Compactor {
+impl<Backend: backend::Backend> Job for Compactor<Backend> {
     type Output = ();
 
     type Error = Error;
@@ -94,14 +95,14 @@ impl Job for Compactor {
     }
 }
 
-impl Keyed<Task> for Compactor {
+impl<Backend: backend::Backend> Keyed<Task> for Compactor<Backend> {
     fn key(&self) -> Task {
         Task::Compaction(self.compaction.clone())
     }
 }
 
-fn gather_collection_trees(
-    database: &Database,
+fn gather_collection_trees<Backend: backend::Backend>(
+    database: &Database<Backend>,
     collection: &CollectionName,
     trees: &mut Vec<Target>,
 ) {
@@ -120,7 +121,10 @@ fn gather_collection_trees(
     }
 }
 
-fn compact_trees(database: &Database, targets: Vec<Target>) -> Result<(), Error> {
+fn compact_trees<Backend: backend::Backend>(
+    database: &Database<Backend>,
+    targets: Vec<Target>,
+) -> Result<(), Error> {
     // Enqueue all the jobs
     let handles = targets
         .into_iter()
@@ -139,8 +143,8 @@ fn compact_trees(database: &Database, targets: Vec<Target>) -> Result<(), Error>
     Ok(())
 }
 
-fn compact_tree<R: Root, S: Into<Cow<'static, str>>>(
-    database: &Database,
+fn compact_tree<R: Root, S: Into<Cow<'static, str>>, Backend: backend::Backend>(
+    database: &Database<Backend>,
     name: S,
 ) -> Result<(), Error> {
     let documents = database.roots().tree(R::tree(name))?;

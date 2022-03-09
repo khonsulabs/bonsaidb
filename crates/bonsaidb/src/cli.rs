@@ -4,7 +4,7 @@ use std::{ffi::OsString, fmt::Debug, marker::PhantomData, path::PathBuf};
 
 use bonsaidb_client::{fabruic::Certificate, Client};
 use bonsaidb_core::async_trait::async_trait;
-use bonsaidb_server::{Backend, CustomServer, NoBackend, ServerConfiguration};
+use bonsaidb_server::{CustomServer, NoBackend, ServerBackend, ServerConfiguration};
 use clap::{Parser, Subcommand};
 use url::Url;
 
@@ -49,7 +49,8 @@ where
             other => {
                 let connection = if let Some(server_url) = server_url {
                     let mut client = Client::build(server_url)
-                        .with_custom_api::<<Cli::Backend as Backend>::CustomApi>();
+                        .with_custom_api::<<Cli::Backend as ServerBackend>::CustomApi>(
+                    );
 
                     if let Some(certificate) = pinned_certificate {
                         client = client.with_certificate(certificate);
@@ -106,7 +107,7 @@ impl<Cli: CommandLine> Args<Cli> {
 #[async_trait]
 pub trait CommandLine: Sized + Send + Sync {
     /// The Backend for this command line.
-    type Backend: Backend;
+    type Backend: ServerBackend;
     /// The [`Subcommand`] which is embedded next to the built-in BonsaiDb
     /// commands.
     type Subcommand: Subcommand + Send + Sync + Debug;
@@ -163,7 +164,7 @@ impl CommandLine for NoBackend {
 
 /// Runs the command-line interface with only the built-in commands, using
 /// `configuration` to launch a server if running a local command.
-pub async fn run<B: Backend>(configuration: ServerConfiguration) -> anyhow::Result<()> {
+pub async fn run<B: ServerBackend>(configuration: ServerConfiguration) -> anyhow::Result<()> {
     Args::parse()
         .execute(NoCommandLine::<B> {
             configuration: Some(configuration),
@@ -173,13 +174,13 @@ pub async fn run<B: Backend>(configuration: ServerConfiguration) -> anyhow::Resu
 }
 
 #[derive(Debug)]
-struct NoCommandLine<B: Backend> {
+struct NoCommandLine<B: ServerBackend> {
     configuration: Option<ServerConfiguration>,
     _backend: PhantomData<B>,
 }
 
 #[async_trait]
-impl<B: Backend> CommandLine for NoCommandLine<B> {
+impl<B: ServerBackend> CommandLine for NoCommandLine<B> {
     type Backend = B;
     type Subcommand = NoBackend;
 

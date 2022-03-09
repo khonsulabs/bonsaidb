@@ -1,9 +1,9 @@
 use bonsaidb_core::networking::CURRENT_PROTOCOL_VERSION;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::{Backend, CustomServer, Error};
+use crate::{CustomServer, Error, ServerBackend};
 
-impl<B: Backend> CustomServer<B> {
+impl<B: ServerBackend> CustomServer<B> {
     /// Listens for websocket connections on `addr`.
     pub async fn listen_for_websockets_on<T: tokio::net::ToSocketAddrs + Send + Sync>(
         &self,

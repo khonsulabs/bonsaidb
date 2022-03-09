@@ -12,10 +12,10 @@ use bonsaidb_core::{
     Error,
 };
 
-use crate::{Database, DatabaseNonBlocking};
+use crate::{backend, Database, DatabaseNonBlocking};
 
-impl PubSub for super::Database {
-    type Subscriber = Subscriber;
+impl<Backend: backend::Backend> PubSub for super::Database<Backend> {
+    type Subscriber = Subscriber<Backend>;
 
     fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
         self.check_permission(
@@ -66,16 +66,55 @@ impl PubSub for super::Database {
         )?;
         Ok(())
     }
+
+    fn publish_bytes<S: Into<String> + Send>(
+        &self,
+        topic: S,
+        payload: Vec<u8>,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let topic = topic.into();
+        self.check_permission(
+            pubsub_topic_resource_name(self.name(), &topic),
+            &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish)),
+        )?;
+        self.data
+            .storage
+            .instance
+            .relay()
+            .publish_raw(database_topic(&self.data.name, &topic), payload);
+        Ok(())
+    }
+
+    fn publish_bytes_to_all(
+        &self,
+        topics: Vec<String>,
+        payload: Vec<u8>,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.data.storage.instance.relay().publish_raw_to_all(
+            topics
+                .iter()
+                .map(|topic| {
+                    self.check_permission(
+                        pubsub_topic_resource_name(self.name(), topic),
+                        &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish)),
+                    )
+                    .map(|_| database_topic(&self.data.name, topic))
+                })
+                .collect::<Result<_, _>>()?,
+            payload,
+        );
+        Ok(())
+    }
 }
 
 /// A subscriber for `PubSub` messages.
-pub struct Subscriber {
-    database: Database,
+pub struct Subscriber<Backend: backend::Backend> {
+    database: Database<Backend>,
     subscriber: circulate::Subscriber,
 }
 
 #[async_trait]
-impl pubsub::Subscriber for Subscriber {
+impl<Backend: backend::Backend> pubsub::Subscriber for Subscriber<Backend> {
     fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error> {
         let topic = topic.into();
         self.database.check_permission(

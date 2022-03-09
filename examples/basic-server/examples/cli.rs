@@ -8,7 +8,7 @@ use bonsaidb::{
         schema::SerializedCollection,
     },
     local::config::Builder,
-    server::{Backend, CustomServer, DefaultPermissions, NoDispatcher, ServerConfiguration},
+    server::{CustomServer, DefaultPermissions, NoDispatcher, ServerBackend, ServerConfiguration},
     AnyServerConnection,
 };
 use clap::Subcommand;
@@ -32,7 +32,7 @@ enum Cli {
 }
 
 #[async_trait]
-impl Backend for CliBackend {
+impl ServerBackend for CliBackend {
     type CustomApi = ();
     type ClientData = ();
     type CustomApiDispatcher = NoDispatcher<Self>;

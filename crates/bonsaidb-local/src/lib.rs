@@ -15,12 +15,14 @@
     clippy::module_name_repetitions,
 )]
 
+mod backend;
 /// Command-line interface helpers.
 #[cfg(feature = "cli")]
 pub mod cli;
 /// Configuration options.
 pub mod config;
 mod database;
+mod dispatch;
 mod error;
 mod open_trees;
 mod storage;

@@ -12,6 +12,7 @@ use bonsaidb_core::{
 use parking_lot::RwLock;
 
 use crate::{
+    backend,
     database::{keyvalue::ExpirationLoader, Database},
     tasks::{compactor::Compactor, handle::Handle, manager::Manager},
     views::{
@@ -57,10 +58,10 @@ impl TaskManager {
         }
     }
 
-    pub fn update_view_if_needed(
+    pub fn update_view_if_needed<Backend: backend::Backend>(
         &self,
         view: &dyn view::Serialized,
-        database: &Database,
+        database: &Database<Backend>,
     ) -> Result<(), crate::Error> {
         let view_name = view.view_name();
         if let Some(job) = self.spawn_integrity_check(view, database) {
@@ -124,10 +125,10 @@ impl TaskManager {
             .contains(&(database, collection, view_name))
     }
 
-    pub fn spawn_integrity_check(
+    pub fn spawn_integrity_check<Backend: backend::Backend>(
         &self,
         view: &dyn view::Serialized,
-        database: &Database,
+        database: &Database<Backend>,
     ) -> Option<Handle<OptionalViewMapHandle, Error>> {
         let view_name = view.view_name();
         if self.view_integrity_checked(
@@ -180,9 +181,9 @@ impl TaskManager {
             .insert((database, collection, view_name), transaction_id);
     }
 
-    pub fn spawn_key_value_expiration_loader(
+    pub fn spawn_key_value_expiration_loader<Backend: backend::Backend>(
         &self,
-        database: &crate::Database,
+        database: &Database<Backend>,
     ) -> Option<Handle<(), Error>> {
         if self.key_value_expiration_loaded(&database.data.name) {
             None
@@ -194,18 +195,18 @@ impl TaskManager {
         }
     }
 
-    pub fn spawn_compact_target(
+    pub fn spawn_compact_target<Backend: backend::Backend>(
         &self,
-        database: crate::Database,
+        database: Database<Backend>,
         target: compactor::Target,
     ) -> Handle<(), Error> {
         self.jobs
             .lookup_or_enqueue(Compactor::target(database, target))
     }
 
-    pub fn compact_collection(
+    pub fn compact_collection<Backend: backend::Backend>(
         &self,
-        database: crate::Database,
+        database: Database<Backend>,
         collection_name: CollectionName,
     ) -> Result<(), Error> {
         Ok(self
@@ -214,14 +215,20 @@ impl TaskManager {
             .receive()??)
     }
 
-    pub fn compact_key_value_store(&self, database: crate::Database) -> Result<(), Error> {
+    pub fn compact_key_value_store<Backend: backend::Backend>(
+        &self,
+        database: Database<Backend>,
+    ) -> Result<(), Error> {
         Ok(self
             .jobs
             .lookup_or_enqueue(Compactor::keyvalue(database))
             .receive()??)
     }
 
-    pub fn compact_database(&self, database: crate::Database) -> Result<(), Error> {
+    pub fn compact_database<Backend: backend::Backend>(
+        &self,
+        database: Database<Backend>,
+    ) -> Result<(), Error> {
         Ok(self
             .jobs
             .lookup_or_enqueue(Compactor::database(database))

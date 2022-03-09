@@ -11,7 +11,7 @@ use bonsaidb_core::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{Backend, CustomServer, Error};
+use crate::{CustomServer, Error, ServerBackend};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Collection)]
 #[collection(name = "acme-accounts", authority = "khonsulabs", views = [AcmeAccountByContacts])]
@@ -35,7 +35,7 @@ define_basic_unique_mapped_view!(
 );
 
 #[async_trait]
-impl<B: Backend> AcmeCache for CustomServer<B> {
+impl<B: ServerBackend> AcmeCache for CustomServer<B> {
     type Error = Error;
 
     async fn read_account(&self, contacts: &[&str]) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -93,7 +93,7 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
     }
 }
 
-impl<B: Backend> CustomServer<B> {
+impl<B: ServerBackend> CustomServer<B> {
     pub(crate) async fn update_acme_certificates(&self) -> Result<(), Error> {
         loop {
             {

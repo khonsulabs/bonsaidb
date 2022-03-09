@@ -17,14 +17,15 @@ use super::{
     view_invalidated_docs_tree_name, view_versions_tree_name,
 };
 use crate::{
+    backend,
     database::{document_tree_name, Database},
     tasks::{handle::Handle, Job, Keyed, Task},
     Error,
 };
 
 #[derive(Debug)]
-pub struct IntegrityScanner {
-    pub database: Database,
+pub struct IntegrityScanner<Backend: backend::Backend> {
+    pub database: Database<Backend>,
     pub scan: IntegrityScan,
 }
 
@@ -38,7 +39,7 @@ pub struct IntegrityScan {
 
 pub type OptionalViewMapHandle = Option<Arc<Mutex<Option<Handle<u64, Error>>>>>;
 
-impl Job for IntegrityScanner {
+impl<Backend: backend::Backend> Job for IntegrityScanner<Backend> {
     type Output = OptionalViewMapHandle;
     type Error = Error;
 
@@ -201,7 +202,7 @@ fn tree_keys<R: nebari::tree::Root>(
         .collect::<Result<HashSet<_>, bonsaidb_core::Error>>()?)
 }
 
-impl Keyed<Task> for IntegrityScanner {
+impl<Backend: backend::Backend> Keyed<Task> for IntegrityScanner<Backend> {
     fn key(&self) -> Task {
         Task::IntegrityScan(self.scan.clone())
     }

@@ -5,12 +5,6 @@ use std::{
     time::Duration,
 };
 
-use crate::{
-    config::KeyValuePersistence,
-    database::compat,
-    tasks::{Job, Keyed, Task},
-    Database, DatabaseNonBlocking, Error,
-};
 use async_trait::async_trait;
 use bonsaidb_core::{
     keyvalue::{
@@ -31,6 +25,14 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use watchable::{Watchable, Watcher};
 
+use crate::{
+    backend,
+    config::KeyValuePersistence,
+    database::compat,
+    tasks::{Job, Keyed, Task},
+    Database, DatabaseNonBlocking, Error,
+};
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Entry {
     pub value: Value,
@@ -40,11 +42,11 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub(crate) fn restore(
+    pub(crate) fn restore<Backend: backend::Backend>(
         self,
         namespace: Option<String>,
         key: String,
-        database: &Database,
+        database: &Database<Backend>,
     ) -> Result<(), bonsaidb_core::Error> {
         database.execute_key_operation(KeyOperation {
             namespace,
@@ -62,7 +64,7 @@ impl Entry {
 }
 
 #[async_trait]
-impl KeyValue for Database {
+impl<Backend: backend::Backend> KeyValue for Database<Backend> {
     fn execute_key_operation(&self, op: KeyOperation) -> Result<Output, bonsaidb_core::Error> {
         self.check_permission(
             keyvalue_key_resource_name(self.name(), op.namespace.as_deref(), &op.key),
@@ -72,7 +74,7 @@ impl KeyValue for Database {
     }
 }
 
-impl Database {
+impl<Backend: backend::Backend> Database<Backend> {
     pub(crate) fn all_key_value_entries(
         &self,
     ) -> Result<BTreeMap<(Option<String>, String), Entry>, Error> {
@@ -807,19 +809,19 @@ pub enum BackgroundWorkerProcessTarget {
 }
 
 #[derive(Debug)]
-pub struct ExpirationLoader {
-    pub database: Database,
+pub struct ExpirationLoader<Backend: backend::Backend> {
+    pub database: Database<Backend>,
     pub launched_at: Timestamp,
 }
 
-impl Keyed<Task> for ExpirationLoader {
+impl<Backend: backend::Backend> Keyed<Task> for ExpirationLoader<Backend> {
     fn key(&self) -> Task {
         Task::ExpirationLoader(self.database.data.name.clone())
     }
 }
 
 #[async_trait]
-impl Job for ExpirationLoader {
+impl<Backend: backend::Backend> Job for ExpirationLoader<Backend> {
     type Output = ();
     type Error = Error;
 

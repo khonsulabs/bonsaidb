@@ -99,7 +99,7 @@ define_local_suite!(memory);
 #[cfg_attr(not(feature = "compression"), allow(unused_mut))]
 fn integrity_checks() -> anyhow::Result<()> {
     let path = TestDirectory::new("integrity-checks");
-    let mut config = StorageConfiguration::new(&path);
+    let mut config = StorageConfiguration::default_with_path(&path);
     #[cfg(feature = "compression")]
     {
         config = config.default_compression(crate::config::Compression::Lz4);
@@ -189,7 +189,9 @@ fn encryption() -> anyhow::Result<()> {
     let document_header = {
         let rt = tokio::runtime::Runtime::new()?;
         rt.block_on(async {
-            let db = AsyncDatabase::open::<BasicSchema>(StorageConfiguration::new(&path)).await?;
+            let db =
+                AsyncDatabase::open::<BasicSchema>(StorageConfiguration::default_with_path(&path))
+                    .await?;
 
             let document_header = db
                 .collection::<EncryptedBasic>()
@@ -216,7 +218,8 @@ fn encryption() -> anyhow::Result<()> {
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
-        let db = AsyncDatabase::open::<BasicSchema>(StorageConfiguration::new(&path)).await?;
+        let db = AsyncDatabase::open::<BasicSchema>(StorageConfiguration::default_with_path(&path))
+            .await?;
 
         // Try retrieving the document, but expect an error decrypting.
         if let Err(bonsaidb_core::Error::Database(err)) = db
@@ -247,7 +250,8 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             rt.block_on(async {
-                let db = AsyncDatabase::open::<()>(StorageConfiguration::new(&path)).await?;
+                let db = AsyncDatabase::open::<()>(StorageConfiguration::default_with_path(&path))
+                    .await?;
 
                 // TODO This is a workaroun for the key-value expiration task
                 // taking ownership of an instance of Database. If this async
@@ -268,7 +272,8 @@ fn expiration_after_close() -> anyhow::Result<()> {
         {
             let rt = tokio::runtime::Runtime::new()?;
             let retry = rt.block_on(async {
-                let db = AsyncDatabase::open::<()>(StorageConfiguration::new(&path)).await?;
+                let db = AsyncDatabase::open::<()>(StorageConfiguration::default_with_path(&path))
+                    .await?;
 
                 let key = db.get_key("a").await?;
                 // Due to not having a reliable way to shut down the database,

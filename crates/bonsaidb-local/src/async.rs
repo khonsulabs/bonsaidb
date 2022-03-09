@@ -16,23 +16,43 @@ use bonsaidb_core::{
     schema::{self, view::map::MappedDocuments, Map, MappedValue, Nameable, Schema, SchemaName},
     transaction::{self, OperationResult, Transaction},
 };
+use derive_where::derive_where;
 
 use crate::{
+    backend::{self, NoBackend},
     config::StorageConfiguration,
     database::DatabaseNonBlocking,
     storage::{AnyBackupLocation, StorageNonBlocking},
     Database, Error, Storage, Subscriber,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+#[derive_where(Clone)]
 #[must_use]
-pub struct AsyncStorage {
-    storage: Storage,
+pub struct AsyncStorage<Backend: backend::Backend = NoBackend> {
+    storage: Storage<Backend>,
     runtime: tokio::runtime::Handle,
 }
 
-impl AsyncStorage {
-    pub async fn open(configuration: StorageConfiguration) -> Result<Self, Error> {
+impl<Backend: backend::Backend> AsyncStorage<Backend> {
+    pub(crate) async fn database_without_schema(
+        &self,
+        name: &str,
+    ) -> Result<AsyncDatabase<Backend>, Error> {
+        let task_self = self.clone();
+        let name = name.to_owned();
+        self.runtime
+            .spawn_blocking(move || {
+                task_self
+                    .storage
+                    .instance
+                    .database_without_schema(&name, Some(&task_self.storage))
+            })
+            .await?
+            .map(AsyncDatabase::from)
+    }
+
+    pub async fn open(configuration: StorageConfiguration<Backend>) -> Result<Self, Error> {
         tokio::task::spawn_blocking(move || Storage::open(configuration))
             .await?
             .map(Self::from)
@@ -55,8 +75,8 @@ impl AsyncStorage {
     }
 }
 
-impl From<Storage> for AsyncStorage {
-    fn from(storage: Storage) -> Self {
+impl<Backend: backend::Backend> From<Storage<Backend>> for AsyncStorage<Backend> {
+    fn from(storage: Storage<Backend>) -> Self {
         Self {
             storage,
             runtime: tokio::runtime::Handle::current(),
@@ -64,34 +84,37 @@ impl From<Storage> for AsyncStorage {
     }
 }
 
-impl From<AsyncStorage> for Storage {
-    fn from(storage: AsyncStorage) -> Self {
+impl<Backend: backend::Backend> From<AsyncStorage<Backend>> for Storage<Backend> {
+    fn from(storage: AsyncStorage<Backend>) -> Self {
         storage.storage
     }
 }
 
-impl StorageNonBlocking for AsyncStorage {
+impl<Backend: backend::Backend> StorageNonBlocking for AsyncStorage<Backend> {
     fn path(&self) -> &std::path::Path {
         self.storage.path()
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+#[derive_where(Clone)]
 #[must_use]
-pub struct AsyncDatabase {
-    database: Database,
+pub struct AsyncDatabase<Backend: backend::Backend = NoBackend> {
+    pub(crate) database: Database<Backend>,
     runtime: tokio::runtime::Handle,
 }
 
-impl AsyncDatabase {
+impl<Backend: backend::Backend> AsyncDatabase<Backend> {
     /// Creates a `Storage` with a single-database named "default" with its data stored at `path`.
-    pub async fn open<DB: Schema>(configuration: StorageConfiguration) -> Result<Self, Error> {
+    pub async fn open<DB: Schema>(
+        configuration: StorageConfiguration<Backend>,
+    ) -> Result<Self, Error> {
         tokio::task::spawn_blocking(move || Database::open::<DB>(configuration))
             .await?
             .map(Self::from)
     }
 
-    pub fn storage(&self) -> AsyncStorage {
+    pub fn storage(&self) -> AsyncStorage<Backend> {
         AsyncStorage::from(self.database.storage().clone())
     }
 
@@ -109,8 +132,8 @@ impl AsyncDatabase {
     }
 }
 
-impl From<Database> for AsyncDatabase {
-    fn from(database: Database) -> Self {
+impl<Backend: backend::Backend> From<Database<Backend>> for AsyncDatabase<Backend> {
+    fn from(database: Database<Backend>) -> Self {
         Self {
             database,
             runtime: tokio::runtime::Handle::current(),
@@ -118,21 +141,21 @@ impl From<Database> for AsyncDatabase {
     }
 }
 
-impl From<AsyncDatabase> for Database {
-    fn from(database: AsyncDatabase) -> Self {
+impl<Backend: backend::Backend> From<AsyncDatabase<Backend>> for Database<Backend> {
+    fn from(database: AsyncDatabase<Backend>) -> Self {
         database.database
     }
 }
 
-impl DatabaseNonBlocking for AsyncDatabase {
+impl<Backend: backend::Backend> DatabaseNonBlocking for AsyncDatabase<Backend> {
     fn name(&self) -> &str {
         self.database.name()
     }
 }
 
 #[async_trait]
-impl AsyncStorageConnection for AsyncStorage {
-    type Database = AsyncDatabase;
+impl<Backend: backend::Backend> AsyncStorageConnection for AsyncStorage<Backend> {
+    type Database = AsyncDatabase<Backend>;
     type Authenticated = Self;
 
     async fn admin(&self) -> Self::Database {
@@ -344,7 +367,7 @@ impl AsyncStorageConnection for AsyncStorage {
 }
 
 #[async_trait]
-impl AsyncConnection for AsyncDatabase {
+impl<Backend: backend::Backend> AsyncConnection for AsyncDatabase<Backend> {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(transaction)))]
     async fn apply_transaction(
         &self,
@@ -599,7 +622,7 @@ impl AsyncConnection for AsyncDatabase {
 }
 
 #[async_trait]
-impl AsyncKeyValue for AsyncDatabase {
+impl<Backend: backend::Backend> AsyncKeyValue for AsyncDatabase<Backend> {
     async fn execute_key_operation(
         &self,
         op: KeyOperation,
@@ -613,8 +636,8 @@ impl AsyncKeyValue for AsyncDatabase {
 }
 
 #[async_trait]
-impl AsyncPubSub for AsyncDatabase {
-    type Subscriber = Subscriber;
+impl<Backend: backend::Backend> AsyncPubSub for AsyncDatabase<Backend> {
+    type Subscriber = Subscriber<Backend>;
 
     async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
         PubSub::create_subscriber(&self.database)
@@ -635,10 +658,26 @@ impl AsyncPubSub for AsyncDatabase {
     ) -> Result<(), bonsaidb_core::Error> {
         PubSub::publish_to_all(&self.database, topics, payload)
     }
+
+    async fn publish_bytes<S: Into<String> + Send>(
+        &self,
+        topic: S,
+        payload: Vec<u8>,
+    ) -> Result<(), bonsaidb_core::Error> {
+        PubSub::publish_bytes(&self.database, topic, payload)
+    }
+
+    async fn publish_bytes_to_all(
+        &self,
+        topics: Vec<String>,
+        payload: Vec<u8>,
+    ) -> Result<(), bonsaidb_core::Error> {
+        PubSub::publish_bytes_to_all(&self.database, topics, payload)
+    }
 }
 
 #[async_trait]
-impl AsyncSubscriber for Subscriber {
+impl<Backend: backend::Backend> AsyncSubscriber for Subscriber<Backend> {
     async fn subscribe_to<S: Into<String> + Send>(
         &self,
         topic: S,

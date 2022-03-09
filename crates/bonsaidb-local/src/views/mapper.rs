@@ -20,6 +20,7 @@ use nebari::{
 };
 
 use crate::{
+    backend,
     database::{deserialize_document, document_tree_name, Database},
     tasks::{Job, Keyed, Task},
     views::{
@@ -30,8 +31,8 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Mapper {
-    pub database: Database,
+pub struct Mapper<Backend: backend::Backend> {
+    pub database: Database<Backend>,
     pub map: Map,
 }
 
@@ -42,7 +43,7 @@ pub struct Map {
     pub view_name: ViewName,
 }
 
-impl Job for Mapper {
+impl<Backend: backend::Backend> Job for Mapper<Backend> {
     type Output = u64;
     type Error = Error;
 
@@ -114,12 +115,12 @@ impl Job for Mapper {
     }
 }
 
-fn map_view(
+fn map_view<Backend: backend::Backend>(
     invalidated_entries: &Tree<Unversioned, AnyFile>,
     document_map: &Tree<Unversioned, AnyFile>,
     documents: &Tree<Versioned, AnyFile>,
     view_entries: &Tree<Unversioned, AnyFile>,
-    database: &Database,
+    database: &Database<Backend>,
     map_request: &Map,
 ) -> Result<(), Error> {
     const CHUNK_SIZE: usize = 100_000;
@@ -171,10 +172,10 @@ fn map_view(
     Ok(())
 }
 
-pub struct DocumentRequest<'a> {
+pub struct DocumentRequest<'a, Backend: backend::Backend> {
     pub document_ids: Vec<ArcBytes<'static>>,
     pub map_request: &'a Map,
-    pub database: &'a Database,
+    pub database: &'a Database<Backend>,
 
     pub document_map: &'a UnlockedTransactionTree<AnyFile>,
     pub documents: &'a UnlockedTransactionTree<AnyFile>,
@@ -185,7 +186,7 @@ pub struct DocumentRequest<'a> {
 type DocumentIdPayload = (ArcBytes<'static>, Option<ArcBytes<'static>>);
 type BatchPayload = (Vec<ArcBytes<'static>>, flume::Receiver<DocumentIdPayload>);
 
-impl<'a> DocumentRequest<'a> {
+impl<'a, Backend: backend::Backend> DocumentRequest<'a, Backend> {
     fn generate_batches(
         batch_sender: flume::Sender<BatchPayload>,
         document_ids: &[ArcBytes<'static>],
@@ -416,7 +417,7 @@ struct Batch {
     all_keys: BTreeSet<ArcBytes<'static>>,
 }
 
-impl Keyed<Task> for Mapper {
+impl<Backend: backend::Backend> Keyed<Task> for Mapper<Backend> {
     fn key(&self) -> Task {
         Task::ViewMap(self.map.clone())
     }

@@ -21,12 +21,22 @@ pub trait PubSub {
         payload: &P,
     ) -> Result<(), Error>;
 
+    /// Publishes a `payload` to all subscribers of `topic`.
+    fn publish_bytes<S: Into<String> + Send>(
+        &self,
+        topic: S,
+        payload: Vec<u8>,
+    ) -> Result<(), Error>;
+
     /// Publishes a `payload` to all subscribers of all `topics`.
     fn publish_to_all<P: Serialize + Sync>(
         &self,
         topics: Vec<String>,
         payload: &P,
     ) -> Result<(), Error>;
+
+    /// Publishes a `payload` to all subscribers of all `topics`.
+    fn publish_bytes_to_all(&self, topics: Vec<String>, payload: Vec<u8>) -> Result<(), Error>;
 }
 
 /// A subscriber to one or more topics.
@@ -58,11 +68,25 @@ pub trait AsyncPubSub {
         payload: &P,
     ) -> Result<(), Error>;
 
+    /// Publishes a `payload` to all subscribers of `topic`.
+    async fn publish_bytes<S: Into<String> + Send>(
+        &self,
+        topic: S,
+        payload: Vec<u8>,
+    ) -> Result<(), Error>;
+
     /// Publishes a `payload` to all subscribers of all `topics`.
     async fn publish_to_all<P: Serialize + Sync>(
         &self,
         topics: Vec<String>,
         payload: &P,
+    ) -> Result<(), Error>;
+
+    /// Publishes a `payload` to all subscribers of all `topics`.
+    async fn publish_bytes_to_all(
+        &self,
+        topics: Vec<String>,
+        payload: Vec<u8>,
     ) -> Result<(), Error>;
 }
 
@@ -105,6 +129,20 @@ impl PubSub for Relay {
         self.publish_to_all(topics, payload)?;
         Ok(())
     }
+
+    fn publish_bytes<S: Into<String> + Send>(
+        &self,
+        topic: S,
+        payload: Vec<u8>,
+    ) -> Result<(), Error> {
+        self.publish_raw(topic, payload);
+        Ok(())
+    }
+
+    fn publish_bytes_to_all(&self, topics: Vec<String>, payload: Vec<u8>) -> Result<(), Error> {
+        self.publish_raw_to_all(topics, payload);
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -124,12 +162,31 @@ impl AsyncPubSub for Relay {
         Ok(())
     }
 
+    /// Publishes a `payload` to all subscribers of `topic`.
+    async fn publish_bytes<S: Into<String> + Send>(
+        &self,
+        topic: S,
+        payload: Vec<u8>,
+    ) -> Result<(), Error> {
+        self.publish_raw(topic, payload);
+        Ok(())
+    }
+
     async fn publish_to_all<P: Serialize + Sync>(
         &self,
         topics: Vec<String>,
         payload: &P,
     ) -> Result<(), Error> {
         self.publish_to_all(topics, payload)?;
+        Ok(())
+    }
+
+    async fn publish_bytes_to_all(
+        &self,
+        topics: Vec<String>,
+        payload: Vec<u8>,
+    ) -> Result<(), Error> {
+        self.publish_raw_to_all(topics, payload);
         Ok(())
     }
 }

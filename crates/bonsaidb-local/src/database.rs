@@ -42,6 +42,7 @@ use bonsaidb_core::{
         Transaction,
     },
 };
+use derive_where::derive_where;
 use itertools::Itertools;
 use nebari::{
     io::any::AnyFile,
@@ -58,6 +59,7 @@ use watchable::Watchable;
 #[cfg(feature = "encryption")]
 use crate::storage::TreeVault;
 use crate::{
+    backend::{self, NoBackend},
     config::{Builder, KeyValuePersistence, StorageConfiguration},
     database::keyvalue::BackgroundWorkerProcessTarget,
     error::Error,
@@ -112,32 +114,26 @@ pub mod pubsub;
 /// In this example, `BlogPost` implements the [`Collection`] trait, and all
 /// collections can be used as a [`Schema`].
 #[derive(Debug)]
+#[derive_where(Clone)]
 #[must_use]
-pub struct Database {
-    pub(crate) data: Arc<Data>,
+pub struct Database<Backend: backend::Backend = NoBackend> {
+    pub(crate) data: Arc<Data<Backend>>,
 }
 
 #[derive(Debug)]
-pub struct Data {
+pub struct Data<Backend: backend::Backend> {
     pub name: Arc<Cow<'static, str>>,
     context: Context,
-    pub(crate) storage: Storage,
+    pub(crate) storage: Storage<Backend>,
     pub(crate) schema: Arc<Schematic>,
 }
-impl Clone for Database {
-    fn clone(&self) -> Self {
-        Self {
-            data: self.data.clone(),
-        }
-    }
-}
 
-impl Database {
+impl<Backend: backend::Backend> Database<Backend> {
     /// Opens a local file as a bonsaidb.
     pub(crate) fn new<DB: Schema, S: Into<Cow<'static, str>> + Send>(
         name: S,
         context: Context,
-        storage: &Storage,
+        storage: &Storage<Backend>,
     ) -> Result<Self, Error> {
         let name = name.into();
         let schema = Arc::new(DB::schematic()?);
@@ -180,7 +176,7 @@ impl Database {
     }
 
     /// Creates a `Storage` with a single-database named "default" with its data stored at `path`.
-    pub fn open<DB: Schema>(configuration: StorageConfiguration) -> Result<Self, Error> {
+    pub fn open<DB: Schema>(configuration: StorageConfiguration<Backend>) -> Result<Self, Error> {
         let storage = Storage::open(configuration.with_schema::<DB>()?)?;
 
         storage.create_database::<DB>("default", true)?;
@@ -189,7 +185,7 @@ impl Database {
     }
 
     /// Returns the [`Storage`] that this database belongs to.
-    pub fn storage(&self) -> &'_ Storage {
+    pub fn storage(&self) -> &'_ Storage<Backend> {
         &self.data.storage
     }
 
@@ -1241,7 +1237,7 @@ fn serialize_document(document: &BorrowedDocument<'_>) -> Result<Vec<u8>, bonsai
         .map_err(bonsaidb_core::Error::from)
 }
 
-impl Connection for Database {
+impl<Backend: backend::Backend> Connection for Database<Backend> {
     fn session(&self) -> Option<&Session> {
         self.storage().session()
     }
@@ -1793,7 +1789,7 @@ pub trait DatabaseNonBlocking {
     fn name(&self) -> &str;
 }
 
-impl DatabaseNonBlocking for Database {
+impl<Backend: backend::Backend> DatabaseNonBlocking for Database<Backend> {
     fn name(&self) -> &str {
         self.data.name.as_ref()
     }
