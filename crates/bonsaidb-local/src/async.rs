@@ -13,7 +13,10 @@ use bonsaidb_core::{
     keyvalue::{AsyncKeyValue, KeyOperation, KeyValue, Output},
     permissions::Permissions,
     pubsub::{self, AsyncPubSub, AsyncSubscriber, PubSub},
-    schema::{self, view::map::MappedDocuments, Map, MappedValue, Nameable, Schema, SchemaName},
+    schema::{
+        self, view::map::MappedDocuments, CollectionName, Map, MappedValue, Nameable, Schema,
+        SchemaName,
+    },
     transaction::{self, OperationResult, Transaction},
 };
 use derive_where::derive_where;
@@ -129,6 +132,17 @@ impl<Backend: backend::Backend> AsyncDatabase<Backend> {
             self.database
                 .with_effective_permissions(effective_permissions),
         )
+    }
+
+    pub async fn compact_collection_by_name(
+        &self,
+        collection: CollectionName,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let task_db = self.database.clone();
+        self.runtime
+            .spawn_blocking(move || task_db.compact_collection_by_name(collection))
+            .await
+            .map_err(Error::from)?
     }
 }
 

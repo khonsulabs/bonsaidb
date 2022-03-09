@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{Debug, Display},
     fs::{self, File},
     io::{Read, Write},
@@ -20,6 +20,7 @@ use bonsaidb_core::{
         database::{self, ByName, Database as DatabaseRecord},
         Admin, ADMIN_DATABASE_NAME,
     },
+    circulate,
     connection::{self, Connection, Session, StorageConnection},
     permissions::{
         bonsai::{bonsaidb_resource_name, database_resource_name, BonsaiAction, ServerAction},
@@ -63,6 +64,7 @@ use crate::{
 mod argon;
 
 mod backup;
+mod pubsub;
 pub use backup::{AnyBackupLocation, BackupLocation};
 
 /// A file-based, multi-database, multi-user database engine.
@@ -157,7 +159,7 @@ pub use backup::{AnyBackupLocation, BackupLocation};
 #[must_use]
 pub struct Storage<Backend: backend::Backend> {
     pub(crate) instance: StorageInstance<Backend>,
-    authentication: Option<Arc<AuthenticatedSession<Backend>>>,
+    pub(crate) authentication: Option<Arc<AuthenticatedSession<Backend>>>,
     effective_session: Session,
 }
 
@@ -168,13 +170,37 @@ pub struct AuthenticatedSession<Backend: backend::Backend> {
     pub session: Session,
 }
 
+#[derive(Debug, Default)]
+pub struct SessionSubscribers {
+    pub subscribers: HashMap<u64, SessionSubscriber>,
+    pub subscribers_by_session: HashMap<u64, HashSet<u64>>,
+    pub last_id: u64,
+}
+
+#[derive(Debug)]
+pub struct SessionSubscriber {
+    pub session_id: Option<u64>,
+    pub subscriber: circulate::Subscriber,
+}
+
 impl<Backend: backend::Backend> Drop for AuthenticatedSession<Backend> {
     fn drop(&mut self) {
-        // Deregister the session id once dropped.
         if let Some(id) = self.session.id.take() {
             if let Some(storage) = self.storage.upgrade() {
+                // Deregister the session id once dropped.
                 let mut sessions = storage.sessions.write();
                 sessions.sessions.remove(&id);
+
+                // Remove all subscribers.
+                let mut sessions = storage.subscribers.write();
+                for id in sessions
+                    .subscribers_by_session
+                    .remove(&id)
+                    .into_iter()
+                    .flatten()
+                {
+                    sessions.subscribers.remove(&id);
+                }
             }
         }
     }
@@ -217,6 +243,7 @@ struct Data<Backend: backend::Backend> {
     // cfg check matches `Connection::authenticate`
     #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
     sessions: RwLock<AuthenticatedSessions<Backend>>,
+    pub(crate) subscribers: Arc<RwLock<SessionSubscribers>>,
     #[cfg(feature = "password-hashing")]
     argon: argon::Hasher,
     #[cfg(feature = "encryption")]
@@ -292,6 +319,7 @@ impl<Backend: backend::Backend> Storage<Backend> {
                     id,
                     tasks,
                     parallelization,
+                    subscribers: Arc::default(),
                     #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
                     sessions: RwLock::default(),
                     #[cfg(feature = "password-hashing")]

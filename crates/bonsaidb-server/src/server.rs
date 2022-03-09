@@ -14,38 +14,23 @@ use std::{
 
 use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
+#[cfg(feature = "password-hashing")]
+use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     admin::{Admin, User, ADMIN_DATABASE_NAME},
     arc_bytes::serde::Bytes,
     circulate::{Message, Relay, Subscriber},
-    connection::{
-        self, AccessPolicy, AsyncConnection, AsyncStorageConnection, QueryKey, Range, Session, Sort,
-    },
+    connection::{self, AsyncConnection, AsyncStorageConnection, Session},
     custom_api::{CustomApi, CustomApiResult},
-    document::DocumentId,
-    keyvalue::{KeyOperation, KeyValue},
-    networking::{
-        self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
-        DeleteDatabaseHandler, Payload, Request, RequestDispatcher, Response, ServerRequest,
-        ServerRequestDispatcher, ServerResponse, CURRENT_PROTOCOL_VERSION,
-    },
+    networking::{self, DatabaseResponse, Payload, Request, Response, CURRENT_PROTOCOL_VERSION},
     permissions::{
-        bonsai::{
-            bonsaidb_resource_name, collection_resource_name, database_resource_name,
-            document_resource_name, keyvalue_key_resource_name, kv_resource_name,
-            pubsub_topic_resource_name, user_resource_name, view_resource_name, BonsaiAction,
-            DatabaseAction, DocumentAction, KeyValueAction, PubSubAction, ServerAction,
-            TransactionAction, ViewAction,
-        },
-        Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
+        bonsai::{bonsaidb_resource_name, BonsaiAction, ServerAction},
+        Dispatcher, Permissions,
     },
     pubsub::database_topic,
-    schema::{self, CollectionName, Nameable, NamedCollection, NamedReference, Schema, ViewName},
-    transaction::{Command, Transaction},
+    schema::{self, Nameable, NamedCollection, Schema},
 };
-#[cfg(feature = "password-hashing")]
-use bonsaidb_core::{connection::Authentication, permissions::bonsai::AuthenticationMethod};
-use bonsaidb_local::{config::Builder, AsyncStorage, Database, Storage, StorageNonBlocking};
+use bonsaidb_local::{config::Builder, AsyncStorage, StorageNonBlocking};
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::derive_where;
 use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
@@ -61,7 +46,7 @@ use tokio::sync::{oneshot, Notify};
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
 use crate::{
-    backend::{BackendError, ConnectionHandling, CustomApiDispatcher},
+    backend::{ConnectionHandling, CustomApiDispatcher},
     error::Error,
     hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
     server::shutdown::{Shutdown, ShutdownState},

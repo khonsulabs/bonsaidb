@@ -22,7 +22,7 @@ pub struct ServerDatabase<B: ServerBackend = NoBackend> {
 }
 
 impl<B: ServerBackend> ServerDatabase<B> {
-    pub fn with_effective_permissions(&self, permissions: Permissions) -> Self {
+    pub fn with_effective_permissions(&self, permissions: &Permissions) -> Self {
         Self {
             db: self.db.with_effective_permissions(permissions),
             server: self.server.clone(),

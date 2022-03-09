@@ -1,42 +1,26 @@
-use std::{collections::HashMap, sync::Arc};
-
 use async_trait::async_trait;
+#[cfg(feature = "password-hashing")]
+use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
-    admin::{Admin, User, ADMIN_DATABASE_NAME},
     arc_bytes::serde::Bytes,
-    circulate::{Message, Relay, Subscriber},
-    connection::{
-        self, AccessPolicy, AsyncConnection, AsyncStorageConnection, QueryKey, Range, Session, Sort,
-    },
+    connection::{AccessPolicy, AsyncConnection, AsyncStorageConnection, QueryKey, Range, Sort},
     custom_api::{CustomApi, CustomApiResult},
     document::DocumentId,
     keyvalue::{AsyncKeyValue, KeyOperation},
     networking::{
-        self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
-        DeleteDatabaseHandler, Payload, Request, RequestDispatcher, Response, ServerRequest,
-        ServerRequestDispatcher, ServerResponse, CURRENT_PROTOCOL_VERSION,
+        CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
+        DeleteDatabaseHandler, Request, RequestDispatcher, Response, ServerRequest,
+        ServerRequestDispatcher, ServerResponse,
     },
-    permissions::{
-        bonsai::{
-            bonsaidb_resource_name, collection_resource_name, database_resource_name,
-            document_resource_name, keyvalue_key_resource_name, kv_resource_name,
-            pubsub_topic_resource_name, user_resource_name, view_resource_name, BonsaiAction,
-            DatabaseAction, DocumentAction, KeyValueAction, PubSubAction, ServerAction,
-            TransactionAction, ViewAction,
-        },
-        Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
-    },
-    pubsub::{database_topic, AsyncPubSub, AsyncSubscriber},
-    schema::{self, CollectionName, Nameable, NamedCollection, NamedReference, Schema, ViewName},
-    transaction::{Command, Transaction},
+    permissions::{Dispatcher, Permissions},
+    pubsub::AsyncPubSub,
+    schema::{CollectionName, NamedReference, ViewName},
+    transaction::Transaction,
 };
-#[cfg(feature = "password-hashing")]
-use bonsaidb_core::{connection::Authentication, permissions::bonsai::AuthenticationMethod};
-use tokio::sync::RwLock;
 
 use crate::{
     backend::{self, BackendError, CustomApiDispatcher},
-    AsyncDatabase, AsyncStorage, Database, Error, Storage,
+    AsyncDatabase, AsyncStorage, Error,
 };
 
 #[derive(Dispatcher, Debug)]
@@ -46,8 +30,6 @@ where
     Backend: backend::Backend,
 {
     storage: &'s AsyncStorage<Backend>,
-    subscribers: &'s Arc<RwLock<HashMap<u64, Subscriber>>>,
-    response_sender: &'s flume::Sender<Payload<Response<CustomApiResult<Backend::CustomApi>>>>,
 }
 
 #[async_trait]
@@ -97,12 +79,9 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::DatabaseHandler
         request: DatabaseRequest,
     ) -> Result<Response<CustomApiResult<Backend::CustomApi>>, Error> {
         let database = self.storage.database_without_schema(&database_name).await?;
-        DatabaseDispatcher {
-            database,
-            server_dispatcher: self,
-        }
-        .dispatch(permissions, request)
-        .await
+        DatabaseDispatcher { database }
+            .dispatch(permissions, request)
+            .await
     }
 }
 
@@ -284,22 +263,21 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::AlterUserRoleMemb
 
 #[derive(Dispatcher, Debug)]
 #[dispatcher(input = DatabaseRequest, actionable = bonsaidb_core::actionable)]
-struct DatabaseDispatcher<'s, Backend>
+struct DatabaseDispatcher<Backend>
 where
     Backend: backend::Backend,
 {
     database: AsyncDatabase<Backend>,
-    server_dispatcher: &'s ServerDispatcher<'s, Backend>,
 }
 
-impl<'s, Backend: backend::Backend> DatabaseRequestDispatcher for DatabaseDispatcher<'s, Backend> {
+impl<Backend: backend::Backend> DatabaseRequestDispatcher for DatabaseDispatcher<Backend> {
     type Output = Response<CustomApiResult<Backend::CustomApi>>;
     type Error = Error;
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::GetHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::GetHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -327,8 +305,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::GetHandler
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::GetMultipleHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::GetMultipleHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -348,8 +326,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::GetMultipleHandle
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::ListHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::ListHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -371,8 +349,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::ListHandler
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::CountHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::CountHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -390,8 +368,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::CountHandler
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::QueryHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::QueryHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -429,8 +407,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::QueryHandler
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::ReduceHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::ReduceHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -461,8 +439,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::ReduceHandler
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::ApplyTransactionHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::ApplyTransactionHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -477,8 +455,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::ApplyTransactionH
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::DeleteDocsHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::DeleteDocsHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -499,8 +477,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::DeleteDocsHandler
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -517,8 +495,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::ListExecutedTrans
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::LastTransactionIdHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::LastTransactionIdHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -531,8 +509,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::LastTransactionId
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::CreateSubscriberHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::CreateSubscriberHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -548,8 +526,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::CreateSubscriberH
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::PublishHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::PublishHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -559,14 +537,14 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::PublishHandler
     ) -> Result<Response<CustomApiResult<Backend::CustomApi>>, Error> {
         self.database
             .publish_bytes(&topic, payload.into_vec())
-            .await;
+            .await?;
         Ok(Response::Ok)
     }
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::PublishToAllHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::PublishToAllHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -575,15 +553,15 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::PublishToAllHandl
         payload: Bytes,
     ) -> Result<Response<CustomApiResult<Backend::CustomApi>>, Error> {
         self.database
-            .publish_raw_to_all(topics, payload.into_vec())
-            .await;
+            .publish_bytes_to_all(topics, payload.into_vec())
+            .await?;
         Ok(Response::Ok)
     }
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::SubscribeToHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::SubscribeToHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -591,26 +569,16 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::SubscribeToHandle
         subscriber_id: u64,
         topic: String,
     ) -> Result<Response<CustomApiResult<Backend::CustomApi>>, Error> {
-        if self
-            .server_dispatcher
-            .client
-            .owns_subscriber(subscriber_id)
-            .await
-        {
-            self.database
-                .subscribe_to(subscriber_id, &self.name, topic)
-                .await
-                .map(|_| Response::Ok)
-                .map_err(Error::from)
-        } else {
-            Err(Error::Transport(String::from("invalid subscriber_id")))
-        }
+        self.database
+            .database
+            .subscribe_by_id(subscriber_id, &topic)
+            .map(|_| Response::Ok)
     }
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::UnsubscribeFromHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::UnsubscribeFromHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -618,56 +586,32 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::UnsubscribeFromHa
         subscriber_id: u64,
         topic: String,
     ) -> Result<Response<CustomApiResult<Backend::CustomApi>>, Error> {
-        if self
-            .server_dispatcher
-            .client
-            .owns_subscriber(subscriber_id)
-            .await
-        {
-            self.server_dispatcher
-                .storage
-                .unsubscribe_from(subscriber_id, &self.name, &topic)
-                .await
-                .map(|_| Response::Ok)
-                .map_err(Error::from)
-        } else {
-            Err(Error::Transport(String::from("invalid subscriber_id")))
-        }
+        self.database
+            .database
+            .unsubscribe_by_id(subscriber_id, &topic)
+            .map(|_| Response::Ok)
     }
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::UnregisterSubscriberHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::UnregisterSubscriberHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
         _permissions: &Permissions,
         subscriber_id: u64,
     ) -> Result<Response<CustomApiResult<Backend::CustomApi>>, Error> {
-        if self
-            .server_dispatcher
-            .client
-            .remove_subscriber(subscriber_id)
-            .await
-        {
-            let mut subscribers = self.server_dispatcher.subscribers.write().await;
-            if subscribers.remove(&subscriber_id).is_none() {
-                Ok(Response::Error(bonsaidb_core::Error::Server(String::from(
-                    "invalid subscriber id",
-                ))))
-            } else {
-                Ok(Response::Ok)
-            }
-        } else {
-            Err(Error::Transport(String::from("invalid subscriber_id")))
-        }
+        self.database
+            .database
+            .unregister_subscriber_by_id(subscriber_id)
+            .map(|_| Response::Ok)
     }
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -680,8 +624,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::ExecuteKeyOperati
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::CompactCollectionHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::CompactCollectionHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -695,8 +639,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::CompactCollection
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::CompactKeyValueStoreHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::CompactKeyValueStoreHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,
@@ -709,8 +653,8 @@ impl<'s, Backend: backend::Backend> bonsaidb_core::networking::CompactKeyValueSt
 }
 
 #[async_trait]
-impl<'s, Backend: backend::Backend> bonsaidb_core::networking::CompactHandler
-    for DatabaseDispatcher<'s, Backend>
+impl<Backend: backend::Backend> bonsaidb_core::networking::CompactHandler
+    for DatabaseDispatcher<Backend>
 {
     async fn handle(
         &self,

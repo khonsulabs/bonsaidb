@@ -1,9 +1,10 @@
-use std::sync::Arc;
+use std::{collections::hash_map, sync::Arc};
 
 use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
 use bonsaidb_core::{
     circulate,
+    connection::Connection,
     permissions::bonsai::{
         database_resource_name, pubsub_topic_resource_name, BonsaiAction, DatabaseAction,
         PubSubAction,
@@ -14,6 +15,42 @@ use bonsaidb_core::{
 
 use crate::{backend, Database, DatabaseNonBlocking};
 
+impl<Backend: backend::Backend> super::Database<Backend> {
+    pub(crate) fn subscribe_by_id(
+        &self,
+        subscriber_id: u64,
+        topic: &str,
+    ) -> Result<(), crate::Error> {
+        self.storage().instance.subscribe_by_id(
+            subscriber_id,
+            database_topic(self.name(), topic),
+            self.session().and_then(|session| session.id),
+        )
+    }
+
+    pub(crate) fn unsubscribe_by_id(
+        &self,
+        subscriber_id: u64,
+        topic: &str,
+    ) -> Result<(), crate::Error> {
+        self.storage().instance.unsubscribe_by_id(
+            subscriber_id,
+            &database_topic(self.name(), topic),
+            self.session().and_then(|session| session.id),
+        )
+    }
+
+    pub(crate) fn unregister_subscriber_by_id(
+        &self,
+        subscriber_id: u64,
+    ) -> Result<(), crate::Error> {
+        self.storage().instance.unregister_subscriber_by_id(
+            subscriber_id,
+            self.session().and_then(|session| session.id),
+        )
+    }
+}
+
 impl<Backend: backend::Backend> PubSub for super::Database<Backend> {
     type Subscriber = Subscriber<Backend>;
 
@@ -22,10 +59,10 @@ impl<Backend: backend::Backend> PubSub for super::Database<Backend> {
             database_resource_name(self.name()),
             &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::CreateSuscriber)),
         )?;
-        Ok(Subscriber {
-            database: self.clone(),
-            subscriber: self.data.storage.instance.relay().create_subscriber(),
-        })
+        Ok(self
+            .storage()
+            .instance
+            .register_subscriber(self.session().and_then(|session| session.id), self.clone()))
     }
 
     fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
@@ -109,8 +146,13 @@ impl<Backend: backend::Backend> PubSub for super::Database<Backend> {
 
 /// A subscriber for `PubSub` messages.
 pub struct Subscriber<Backend: backend::Backend> {
-    database: Database<Backend>,
-    subscriber: circulate::Subscriber,
+    pub(crate) id: u64,
+    pub(crate) database: Database<Backend>,
+    pub(crate) subscriber: circulate::Subscriber,
+}
+
+impl<Backend: backend::Backend> Drop for Subscriber<Backend> {
+    fn drop(&mut self) {}
 }
 
 #[async_trait]

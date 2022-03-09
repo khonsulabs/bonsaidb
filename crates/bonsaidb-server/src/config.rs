@@ -130,6 +130,8 @@ mod acme {
 #[cfg(feature = "acme")]
 pub use acme::*;
 
+use crate::backend;
+
 /// The default permissions to use for all connections to the server.
 #[derive(Debug, Clone)]
 pub enum DefaultPermissions {
