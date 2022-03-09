@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Since `usize` is platform-dependent, picking a fixed-width type is more
   appropriate.
 
+### Added
+
+- `Range::default()` now returns an unbounded range, and `Bound::default()`
+  returns `Bound::Unbounded`.
+- `Range` now has several builder-pattern style methods to help construct
+  ranges. In general, users should simply use the built-in range operators
+  (`..`, `start..`, `start..end`, `start..=end`), as they are able to represent
+  nearly every range pattern. The built-in range operators do not support
+  specifying an excluded start bound, while the new method `Range::after` allows
+  setting an excluded start bound.
+
 ## v0.3.0
 
 ### Breaking Changes
