@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   specifying an excluded start bound, while the new method `Range::after` allows
   setting an excluded start bound.
 
+### Fixed
+
+- Defining multiple views with the same name for the same collection will now
+  return an error.
+
 ## v0.3.0
 
 ### Breaking Changes

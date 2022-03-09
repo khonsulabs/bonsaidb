@@ -1,3 +1,28 @@
+//! Types for interacting with `Document`s.
+//!
+//! A document is a stored value in a [`Collection`]. Each document has a
+//! [`Header`], which contains a unique ID and information about the currently
+//! stored revision. BonsaiDb adds extra protections by requiring update
+//! operations to include the document's current header. If the document header
+//! doesn't match the currently stored information,
+//! [`Error::DocumentConflict`](crate::Error::DocumentConflict) will be
+//! returned.
+//!
+//! The lower-level interface for BonsaiDb uses [`OwnedDocument`] and
+//! [`BorrowedDocument`]. These types contain a buffer of bytes that have been
+//! inserted into a collection previously. This interface is useful if you are
+//! wanting to do borrowing or zero-copy deserialization, as the handling of the
+//! bytes is left up to the user. Views implemented using
+//! [`ViewSchema`](crate::schema::ViewSchema) receive a [`BorrowedDocument`]
+//! parameter to the map function.
+//!
+//! The higher-level interface uses [`CollectionDocument<T>`] which
+//! automatically serializes and deserialized from
+//! [`OwnedDocument`]/[`BorrowedDocument`] using the [`SerializedCollection`]
+//! trait. This interface is recommended for most users, as it is significantly
+//! more ergonomic. Views implemented using
+//! [`CollectionViewSchema`](crate::schema::CollectionViewSchema) receive a
+//! [`CollectionDocument<T>`] parameter to the map function.
 use std::borrow::Cow;
 
 use arc_bytes::serde::{Bytes, CowBytes};

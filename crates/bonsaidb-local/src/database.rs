@@ -185,7 +185,20 @@ impl Database {
         self.data.name.as_ref()
     }
 
-    /// Creates a `Storage` with a single-database named "default" with its data stored at `path`.
+    /// Creates a `Storage` with a single-database named "default" with its data
+    /// stored at `path`. This requires exclusive access to the storage location
+    /// configured. Attempting to open the same path multiple times concurrently
+    /// will lead to errors.
+    ///
+    /// Using this method is perfect if only one database is being used.
+    /// However, if multiple databases are needed, it is much better to store
+    /// multiple databases in a single [`Storage`] instance rather than creating
+    /// multiple independent databases using this method.
+    ///
+    /// When opening multiple databases using this function, each database will
+    /// have its own thread pool, cache, task worker pool, and more. By using a
+    /// single [`Storage`] instance, BonsaiDb will use less resources and likely
+    /// perform better.
     pub async fn open<DB: Schema>(configuration: StorageConfiguration) -> Result<Self, Error> {
         let storage = Storage::open(configuration.with_schema::<DB>()?).await?;
 

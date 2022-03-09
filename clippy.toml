@@ -2,6 +2,7 @@ doc-valid-idents = [
     "BonsaiDb",
     "WebSockets",
     "WebAssembly",
+    "NoSQL",
     # Defaults from Clippy follow:
     "KiB",
     "MiB",
