@@ -5,6 +5,12 @@ use std::{
     time::Duration,
 };
 
+use crate::{
+    config::KeyValuePersistence,
+    database::compat,
+    tasks::{Job, Keyed, Task},
+    Database, DatabaseNonBlocking, Error,
+};
 use async_trait::async_trait;
 use bonsaidb_core::{
     keyvalue::{
@@ -23,13 +29,7 @@ use nebari::{
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-
-use crate::{
-    config::KeyValuePersistence,
-    database::compat,
-    tasks::{Job, Keyed, Task},
-    Database, DatabaseNonBlocking, Error,
-};
+use watchable::{Watchable, Watcher};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Entry {
@@ -217,7 +217,7 @@ pub struct KeyValueState {
     persistence: KeyValuePersistence,
     last_commit: Timestamp,
     last_background_worker_target: BackgroundWorkerProcessTarget,
-    background_worker_target: flume::Sender<BackgroundWorkerProcessTarget>,
+    background_worker_target: Watchable<BackgroundWorkerProcessTarget>,
     expiring_keys: BTreeMap<String, Timestamp>,
     expiration_order: VecDeque<String>,
     dirty_keys: BTreeMap<String, Option<Entry>>,
@@ -229,7 +229,7 @@ impl KeyValueState {
     pub fn new(
         persistence: KeyValuePersistence,
         roots: Roots<AnyFile>,
-        background_worker_target: flume::Sender<BackgroundWorkerProcessTarget>,
+        background_worker_target: Watchable<BackgroundWorkerProcessTarget>,
     ) -> Self {
         Self {
             roots,
@@ -585,9 +585,8 @@ impl KeyValueState {
         if self.keys_being_persisted.is_some() {
             if self.last_background_worker_target != BackgroundWorkerProcessTarget::Never {
                 self.last_background_worker_target = BackgroundWorkerProcessTarget::Never;
-                let _ = self
-                    .background_worker_target
-                    .send(BackgroundWorkerProcessTarget::Never);
+                self.background_worker_target
+                    .replace(BackgroundWorkerProcessTarget::Never);
             }
             return;
         }
@@ -598,9 +597,8 @@ impl KeyValueState {
         if duration_until_commit == Duration::ZERO {
             if self.last_background_worker_target != BackgroundWorkerProcessTarget::Now {
                 self.last_background_worker_target = BackgroundWorkerProcessTarget::Now;
-                let _ = self
-                    .background_worker_target
-                    .send(BackgroundWorkerProcessTarget::Now);
+                self.background_worker_target
+                    .replace(BackgroundWorkerProcessTarget::Now);
             }
         } else {
             let commit_target = now + duration_until_commit;
@@ -609,7 +607,7 @@ impl KeyValueState {
             if self.last_background_worker_target != new_target {
                 self.last_background_worker_target = new_target;
 
-                let _ = self.background_worker_target.send(new_target);
+                self.background_worker_target.replace(new_target);
             }
         }
     }
@@ -746,14 +744,16 @@ impl KeyValueState {
 
 pub fn background_worker(
     key_value_state: &Arc<Mutex<KeyValueState>>,
-    timestamp_receiver: &flume::Receiver<BackgroundWorkerProcessTarget>,
+    timestamp_receiver: &mut Watcher<BackgroundWorkerProcessTarget>,
 ) {
     let mut current_timestamp = BackgroundWorkerProcessTarget::Never;
     loop {
         let mut perform_operations = false;
-        let mut new_timestamp = match current_timestamp {
+        let new_timestamp = match current_timestamp {
             // With no target, sleep until we receive a target.
-            BackgroundWorkerProcessTarget::Never => timestamp_receiver.recv().map(Some),
+            BackgroundWorkerProcessTarget::Never => timestamp_receiver
+                .watch()
+                .map(|_| Some(*timestamp_receiver.read())),
             BackgroundWorkerProcessTarget::Timestamp(target) => {
                 // With a target, we need to wait to receive a target only as
                 // long as there is time remaining.
@@ -762,15 +762,13 @@ pub fn background_worker(
                     // recv_timeout panics if Instant::checked_add(remaining)
                     // fails. So, we will cap the sleep time at 1 day.
                     let remaining = remaining.min(Duration::from_secs(60 * 60 * 24));
-                    match timestamp_receiver.recv_timeout(remaining) {
-                        Ok(timestamp) => Ok(Some(timestamp)),
-                        Err(flume::RecvTimeoutError::Timeout) => {
+                    match timestamp_receiver.watch_timeout(remaining) {
+                        Ok(_) => Ok(Some(*timestamp_receiver.read())),
+                        Err(watchable::TimeoutError::Timeout) => {
                             perform_operations = true;
                             Ok(None)
                         }
-                        Err(flume::RecvTimeoutError::Disconnected) => {
-                            Err(flume::RecvError::Disconnected)
-                        }
+                        Err(watchable::TimeoutError::Disconnected) => Err(watchable::Disconnected),
                     }
                 } else {
                     perform_operations = true;
@@ -782,12 +780,6 @@ pub fn background_worker(
                 Ok(None)
             }
         };
-
-        // It's possible there's a queue of new target timestamps. Drop all the
-        // pending ones, and only use the latest one.
-        while let Ok(in_queue) = timestamp_receiver.try_recv() {
-            new_timestamp = Ok(Some(in_queue));
-        }
 
         match new_timestamp {
             Ok(Some(new_timestamp)) => current_timestamp = new_timestamp,

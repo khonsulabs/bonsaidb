@@ -53,11 +53,13 @@ use nebari::{
 };
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use watchable::Watchable;
 
 #[cfg(feature = "encryption")]
 use crate::storage::TreeVault;
 use crate::{
     config::{Builder, KeyValuePersistence, StorageConfiguration},
+    database::keyvalue::BackgroundWorkerProcessTarget,
     error::Error,
     open_trees::OpenTrees,
     views::{
@@ -1707,11 +1709,12 @@ impl Borrow<Roots<AnyFile>> for Context {
 
 impl Context {
     pub(crate) fn new(roots: Roots<AnyFile>, key_value_persistence: KeyValuePersistence) -> Self {
-        let (background_sender, background_receiver) = flume::unbounded();
+        let background_worker_target = Watchable::new(BackgroundWorkerProcessTarget::Never);
+        let mut background_worker_target_watcher = background_worker_target.watch();
         let key_value_state = Arc::new(Mutex::new(keyvalue::KeyValueState::new(
             key_value_persistence,
             roots.clone(),
-            background_sender,
+            background_worker_target,
         )));
         let context = Self {
             data: Arc::new(ContextData {
@@ -1721,7 +1724,12 @@ impl Context {
         };
         std::thread::Builder::new()
             .name(String::from("keyvalue-worker"))
-            .spawn(move || keyvalue::background_worker(&key_value_state, &background_receiver))
+            .spawn(move || {
+                keyvalue::background_worker(
+                    &key_value_state,
+                    &mut background_worker_target_watcher,
+                );
+            })
             .unwrap();
         context
     }
