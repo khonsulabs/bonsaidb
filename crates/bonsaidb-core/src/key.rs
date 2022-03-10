@@ -1,5 +1,9 @@
 use std::{
-    borrow::Cow, convert::Infallible, io::ErrorKind, num::TryFromIntError, string::FromUtf8Error,
+    borrow::Cow,
+    convert::Infallible,
+    io::{ErrorKind, Write},
+    num::TryFromIntError,
+    string::FromUtf8Error,
 };
 
 use arc_bytes::{
@@ -395,13 +399,13 @@ macro_rules! impl_key_for_tuple {
             fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
                 let mut bytes = Vec::new();
 
-                $(encode_composite_key_field(&self.$index, &mut bytes)?;)+
+                $(encode_composite_field(&self.$index, &mut bytes)?;)+
 
                 Ok(Cow::Owned(bytes))
             }
 
             fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-                $(let ($varname, bytes) = decode_composite_key_field::<$generic>(bytes)?;)+
+                $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
 
                 if bytes.is_empty() {
                     Ok(($($varname),+))
@@ -453,9 +457,27 @@ impl_key_for_tuple!(
     (7, t8, T8)
 );
 
-fn encode_composite_key_field<'a, T: Key<'a>>(
+/// Encodes a value using the `Key` trait in such a way that multiple values can
+/// still be ordered at the byte level when chained together.
+///
+/// ```rust
+/// # use bonsaidb_core::key::{encode_composite_field, decode_composite_field};
+///
+/// let value1 = String::from("hello");
+/// let value2 = 42_u32;
+/// let mut key_bytes = Vec::new();
+/// encode_composite_field(&value1, &mut key_bytes).unwrap();
+/// encode_composite_field(&value2, &mut key_bytes).unwrap();
+///
+/// let (decoded_string, remaining_bytes) = decode_composite_field::<String>(&key_bytes).unwrap();
+/// assert_eq!(decoded_string, value1);
+/// let (decoded_u32, remaining_bytes) = decode_composite_field::<u32>(&remaining_bytes).unwrap();
+/// assert_eq!(decoded_u32, value2);
+/// assert!(remaining_bytes.is_empty());
+/// ```
+pub fn encode_composite_field<'a, T: Key<'a>, Bytes: Write>(
     value: &'a T,
-    bytes: &mut Vec<u8>,
+    bytes: &mut Bytes,
 ) -> Result<(), CompositeKeyError> {
     let t2 = T::as_ord_bytes(value).map_err(CompositeKeyError::new)?;
     if T::LENGTH.is_none() {
@@ -463,11 +485,30 @@ fn encode_composite_key_field<'a, T: Key<'a>>(
             .encode_variable(bytes)
             .map_err(CompositeKeyError::new)?;
     }
-    bytes.extend(t2.iter().copied());
+    bytes.write_all(&t2)?;
     Ok(())
 }
 
-fn decode_composite_key_field<'a, T: Key<'a>>(
+/// Decodes a value previously encoded using [`encode_composite_field()`].
+/// The result is a tuple with the first element being the decoded value, and
+/// the second element is the remainig byte slice.
+///
+/// ```rust
+/// # use bonsaidb_core::key::{encode_composite_field, decode_composite_field};
+///
+/// let value1 = String::from("hello");
+/// let value2 = 42_u32;
+/// let mut key_bytes = Vec::new();
+/// encode_composite_field(&value1, &mut key_bytes).unwrap();
+/// encode_composite_field(&value2, &mut key_bytes).unwrap();
+///
+/// let (decoded_string, remaining_bytes) = decode_composite_field::<String>(&key_bytes).unwrap();
+/// assert_eq!(decoded_string, value1);
+/// let (decoded_u32, remaining_bytes) = decode_composite_field::<u32>(&remaining_bytes).unwrap();
+/// assert_eq!(decoded_u32, value2);
+/// assert!(remaining_bytes.is_empty());
+/// ```
+pub fn decode_composite_field<'a, T: Key<'a>>(
     mut bytes: &'a [u8],
 ) -> Result<(T, &[u8]), CompositeKeyError> {
     let length = if let Some(length) = T::LENGTH {

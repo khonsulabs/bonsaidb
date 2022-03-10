@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nearly every range pattern. The built-in range operators do not support
   specifying an excluded start bound, while the new method `Range::after` allows
   setting an excluded start bound.
+- `bonsaidb_core::key::encode_composite_field` and
+  `bonsaidb_core::key::decode_composite_field` have been added which allow
+  building more complex `Key` implementations that are composed of multiple
+  fields. These functions are what the `Key` implementation for tuples is
+  powered by.
 
 ### Fixed
 
