@@ -38,23 +38,6 @@ pub struct AsyncStorage<Backend: backend::Backend = NoBackend> {
 }
 
 impl<Backend: backend::Backend> AsyncStorage<Backend> {
-    pub(crate) async fn database_without_schema(
-        &self,
-        name: &str,
-    ) -> Result<AsyncDatabase<Backend>, Error> {
-        let task_self = self.clone();
-        let name = name.to_owned();
-        self.runtime
-            .spawn_blocking(move || {
-                task_self
-                    .storage
-                    .instance
-                    .database_without_schema(&name, Some(&task_self.storage))
-            })
-            .await?
-            .map(AsyncDatabase::from)
-    }
-
     pub async fn open(configuration: StorageConfiguration<Backend>) -> Result<Self, Error> {
         tokio::task::spawn_blocking(move || Storage::open(configuration))
             .await?

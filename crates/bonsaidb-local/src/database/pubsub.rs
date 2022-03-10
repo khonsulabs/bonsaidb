@@ -1,4 +1,4 @@
-use std::{collections::hash_map, sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;

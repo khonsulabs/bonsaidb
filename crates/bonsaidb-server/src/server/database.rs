@@ -11,7 +11,7 @@ use bonsaidb_core::{
     schema::{self, view::map::MappedDocuments, Map, MappedValue, SerializedView},
     transaction::Transaction,
 };
-use bonsaidb_local::{AsyncDatabase, Database, DatabaseNonBlocking};
+use bonsaidb_local::{AsyncDatabase, DatabaseNonBlocking};
 
 use crate::{CustomServer, NoBackend, ServerBackend};
 

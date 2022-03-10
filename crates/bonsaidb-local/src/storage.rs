@@ -354,6 +354,11 @@ impl<Backend: backend::Backend> Storage<Backend> {
         Ok(storage)
     }
 
+    pub(crate) fn database_without_schema(&self, name: &str) -> Result<Database<Backend>, Error> {
+        let name = name.to_owned();
+        self.instance.database_without_schema(&name, Some(self))
+    }
+
     fn lookup_or_create_id(
         configuration: &StorageConfiguration<Backend>,
         path: &Path,

@@ -1,6 +1,5 @@
 use std::{fmt::Debug, marker::PhantomData};
 
-use async_trait::async_trait;
 use bonsaidb_core::{
     actionable,
     custom_api::{CustomApi, CustomApiError, Infallible},
@@ -8,10 +7,9 @@ use bonsaidb_core::{
     schema::{InsertError, InvalidNameError},
 };
 
-use crate::{AsyncStorage, Error, Storage};
+use crate::{Error, Storage};
 
 /// Tailors the behavior of [`Storage`] to your needs.
-#[async_trait]
 pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// The custom API definition. If you do not wish to have an API, [`NoBackend`] may be provided.
     type CustomApi: CustomApi;
@@ -27,7 +25,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
 
     /// Invoked once upon the server starting up.
     #[allow(unused_variables)]
-    async fn initialize(server: &Storage<Self>) {}
+    fn initialize(server: &Storage<Self>) {}
 
     // TODO replace with session_created or something similar.
     // /// A client successfully authenticated.
@@ -48,7 +46,7 @@ pub trait CustomApiDispatcher<B: Backend>:
     /// Returns a dispatcher to handle custom api requests. The `storage`
     /// instance is provided to allow the dispatcher to have access during
     /// dispatched calls.
-    fn new(storage: &AsyncStorage<B>) -> Self;
+    fn new(storage: &Storage<B>) -> Self;
 }
 
 /// A [`Backend`] with no custom functionality.
@@ -67,26 +65,17 @@ impl Backend for NoBackend {
 pub struct NoDispatcher<B: Backend>(PhantomData<B>);
 
 impl<B: Backend<CustomApi = ()>> CustomApiDispatcher<B> for NoDispatcher<B> {
-    fn new(_server: &AsyncStorage<B>) -> Self {
+    fn new(_server: &Storage<B>) -> Self {
         Self(PhantomData)
     }
 }
 
-#[async_trait]
 impl<B: Backend<CustomApi = ()>> actionable::Dispatcher<()> for NoDispatcher<B> {
     type Result = Result<(), BackendError>;
 
-    async fn dispatch(&self, _permissions: &actionable::Permissions, _request: ()) -> Self::Result {
+    fn dispatch(&self, _permissions: &actionable::Permissions, _request: ()) -> Self::Result {
         Ok(())
     }
-}
-
-/// Controls how a server should handle a connection.
-pub enum ConnectionHandling {
-    /// The server should accept this connection.
-    Accept,
-    /// The server should reject this connection.
-    Reject,
 }
 
 /// An error that can occur inside of a [`Backend`] function.

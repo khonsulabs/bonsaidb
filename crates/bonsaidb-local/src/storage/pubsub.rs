@@ -65,7 +65,7 @@ impl<Backend: backend::Backend> crate::storage::StorageInstance<Backend> {
         let data = self.data.subscribers.read();
         if let Some(subscriber) = data.subscribers.get(&subscriber_id) {
             if subscriber.session_id == in_session_id {
-                subscriber.subscriber.unsubscribe_from(&topic);
+                subscriber.subscriber.unsubscribe_from(topic);
                 Ok(())
             } else {
                 // TODO real errors? Generic message?

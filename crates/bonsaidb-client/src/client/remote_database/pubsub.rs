@@ -98,7 +98,7 @@ where
                 database: self.name.to_string(),
                 request: DatabaseRequest::PublishToAll {
                     topics,
-                    payload: Bytes::from(payload.to_vec()),
+                    payload: Bytes::from(payload),
                 },
             })
             .await?
