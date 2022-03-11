@@ -1,8 +1,8 @@
-use bonsaidb_core::custom_api::CustomApiError;
+use bonsaidb_core::{arc_bytes::serde::Bytes, schema::Name};
 
 /// Errors related to working with [`Client`](crate::Client)
 #[derive(thiserror::Error, Debug)]
-pub enum Error<ApiError: CustomApiError> {
+pub enum Error {
     #[cfg(feature = "websockets")]
     /// An error occurred from the WebSocket transport layer.
     #[error("a transport error occurred: '{0}'")]
@@ -24,29 +24,30 @@ pub enum Error<ApiError: CustomApiError> {
     #[error("unexpected disconnection")]
     Core(#[from] bonsaidb_core::Error),
 
-    /// An error from the custom API.
-    #[error("api error: {0}")]
-    Api(ApiError),
+    /// An error from a `CustomApi`. The actual error is still serialized, as it
+    /// could be any type.
+    #[error("api {name} error")]
+    Api { name: Name, error: Bytes },
 
     /// The server is incompatible with this version of the client.
     #[error("server incompatible with client protocol version")]
     ProtocolVersionMismatch,
 }
 
-impl<T, ApiError: CustomApiError> From<flume::SendError<T>> for Error<ApiError> {
+impl<T> From<flume::SendError<T>> for Error {
     fn from(_: flume::SendError<T>) -> Self {
         Self::Disconnected
     }
 }
 
-impl<ApiError: CustomApiError> From<flume::RecvError> for Error<ApiError> {
+impl From<flume::RecvError> for Error {
     fn from(_: flume::RecvError) -> Self {
         Self::Disconnected
     }
 }
 
-impl<ApiError: CustomApiError> From<Error<ApiError>> for bonsaidb_core::Error {
-    fn from(other: Error<ApiError>) -> Self {
+impl From<Error> for bonsaidb_core::Error {
+    fn from(other: Error) -> Self {
         match other {
             Error::Core(err) => err,
             other => Self::Client(other.to_string()),
@@ -55,7 +56,7 @@ impl<ApiError: CustomApiError> From<Error<ApiError>> for bonsaidb_core::Error {
 }
 
 #[cfg(feature = "websockets")]
-impl<ApiError: CustomApiError> From<bincode::Error> for Error<ApiError> {
+impl From<bincode::Error> for Error {
     fn from(other: bincode::Error) -> Self {
         Self::Core(bonsaidb_core::Error::Websocket(format!(
             "error decoding websocket message: {:?}",
@@ -68,9 +69,7 @@ impl<ApiError: CustomApiError> From<bincode::Error> for Error<ApiError> {
 mod fabruic_impls {
     macro_rules! impl_from_fabruic {
         ($error:ty) => {
-            impl<ApiError: bonsaidb_core::custom_api::CustomApiError> From<$error>
-                for $crate::Error<ApiError>
-            {
+            impl From<$error> for $crate::Error {
                 fn from(other: $error) -> Self {
                     Self::Core(bonsaidb_core::Error::Transport(other.to_string()))
                 }
@@ -86,7 +85,7 @@ mod fabruic_impls {
 }
 
 #[cfg(feature = "websockets")]
-impl<ApiError: CustomApiError> From<crate::client::WebSocketError> for Error<ApiError> {
+impl From<crate::client::WebSocketError> for Error {
     #[cfg(not(target_arch = "wasm32"))]
     fn from(err: crate::client::WebSocketError) -> Self {
         if let crate::client::WebSocketError::Http(response) = &err {
@@ -102,4 +101,18 @@ impl<ApiError: CustomApiError> From<crate::client::WebSocketError> for Error<Api
     fn from(err: crate::client::WebSocketError) -> Self {
         Self::WebSocket(err)
     }
+}
+
+impl From<pot::Error> for Error {
+    fn from(err: pot::Error) -> Self {
+        Self::from(bonsaidb_core::Error::from(err))
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ApiError<T> {
+    #[error("api error: {0}")]
+    Api(T),
+    #[error("client error: {0}")]
+    Client(#[from] Error),
 }

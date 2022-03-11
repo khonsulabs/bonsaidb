@@ -3,7 +3,6 @@ use std::{ops::Deref, sync::Arc};
 use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{AccessPolicy, AsyncConnection, QueryKey, Range, Sort},
-    custom_api::CustomApi,
     document::{AnyDocumentId, OwnedDocument},
     key::Key,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
@@ -17,7 +16,6 @@ use bonsaidb_core::{
     },
     transaction::{Executed, OperationResult, Transaction},
 };
-use derive_where::derive_where;
 
 use crate::Client;
 
@@ -27,14 +25,13 @@ pub use pubsub::*;
 mod keyvalue;
 
 /// A database on a remote server.
-#[derive(Debug)]
-#[derive_where(Clone)]
-pub struct RemoteDatabase<A: CustomApi = ()> {
-    client: Client<A>,
+#[derive(Debug, Clone)]
+pub struct RemoteDatabase {
+    client: Client,
     name: Arc<String>,
     schema: Arc<Schematic>,
 }
-impl<A: CustomApi> RemoteDatabase<A> {
+impl RemoteDatabase {
     /// Returns the name of the database.
     #[must_use]
     pub fn name(&self) -> &str {
@@ -42,16 +39,16 @@ impl<A: CustomApi> RemoteDatabase<A> {
     }
 }
 
-impl<A: CustomApi> Deref for RemoteDatabase<A> {
-    type Target = Client<A>;
+impl Deref for RemoteDatabase {
+    type Target = Client;
 
     fn deref(&self) -> &Self::Target {
         &self.client
     }
 }
 
-impl<A: CustomApi> RemoteDatabase<A> {
-    pub(crate) fn new(client: Client<A>, name: String, schema: Arc<Schematic>) -> Self {
+impl RemoteDatabase {
+    pub(crate) fn new(client: Client, name: String, schema: Arc<Schematic>) -> Self {
         Self {
             client,
             name: Arc::new(name),
@@ -61,7 +58,7 @@ impl<A: CustomApi> RemoteDatabase<A> {
 }
 
 #[async_trait]
-impl<A: CustomApi> AsyncConnection for RemoteDatabase<A> {
+impl AsyncConnection for RemoteDatabase {
     async fn get<C, PrimaryKey>(
         &self,
         id: PrimaryKey,

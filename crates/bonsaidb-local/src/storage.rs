@@ -26,7 +26,7 @@ use bonsaidb_core::{
         bonsai::{bonsaidb_resource_name, database_resource_name, BonsaiAction, ServerAction},
         Action, Identifier, Permissions,
     },
-    schema::{Schema, SchemaName, Schematic},
+    schema::{Name, Schema, SchemaName, Schematic},
 };
 #[cfg(feature = "multiuser")]
 use bonsaidb_core::{
@@ -36,7 +36,6 @@ use bonsaidb_core::{
     permissions::bonsai::{user_resource_name, AuthenticationMethod},
     schema::{Nameable, NamedCollection},
 };
-use derive_where::derive_where;
 use itertools::Itertools;
 use nebari::{
     io::{
@@ -53,8 +52,8 @@ use crate::config::Compression;
 #[cfg(feature = "encryption")]
 use crate::vault::{self, LocalVaultKeyStorage, Vault};
 use crate::{
-    backend,
     config::{KeyValuePersistence, StorageConfiguration},
+    custom_api::AnyCustomApiDispatcher,
     database::Context,
     tasks::{manager::Manager, TaskManager},
     Database, Error,
@@ -154,19 +153,18 @@ pub use backup::{AnyBackupLocation, BackupLocation};
 /// #     Ok(())
 /// # }
 /// ```
-#[derive(Debug)]
-#[derive_where(Clone)]
+#[derive(Debug, Clone)]
 #[must_use]
-pub struct Storage<Backend: backend::Backend> {
-    pub(crate) instance: StorageInstance<Backend>,
-    pub(crate) authentication: Option<Arc<AuthenticatedSession<Backend>>>,
+pub struct Storage {
+    pub(crate) instance: StorageInstance,
+    pub(crate) authentication: Option<Arc<AuthenticatedSession>>,
     effective_session: Session,
 }
 
 #[derive(Debug, Clone)]
-pub struct AuthenticatedSession<Backend: backend::Backend> {
+pub struct AuthenticatedSession {
     // TODO: client_data,
-    storage: Weak<Data<Backend>>,
+    storage: Weak<Data>,
     pub session: Session,
 }
 
@@ -183,7 +181,7 @@ pub struct SessionSubscriber {
     pub subscriber: circulate::Subscriber,
 }
 
-impl<Backend: backend::Backend> Drop for AuthenticatedSession<Backend> {
+impl Drop for AuthenticatedSession {
     fn drop(&mut self) {
         if let Some(id) = self.session.id.take() {
             if let Some(storage) = self.storage.upgrade() {
@@ -206,21 +204,19 @@ impl<Backend: backend::Backend> Drop for AuthenticatedSession<Backend> {
     }
 }
 
-#[derive(Debug)]
-#[derive_where(Default)]
-struct AuthenticatedSessions<Backend: backend::Backend> {
-    sessions: HashMap<u64, Arc<AuthenticatedSession<Backend>>>,
+#[derive(Debug, Default)]
+struct AuthenticatedSessions {
+    sessions: HashMap<u64, Arc<AuthenticatedSession>>,
     last_session_id: u64,
 }
 
-#[derive(Debug)]
-#[derive_where(Clone)]
-pub struct StorageInstance<Backend: backend::Backend> {
-    data: Arc<Data<Backend>>,
+#[derive(Debug, Clone)]
+pub struct StorageInstance {
+    data: Arc<Data>,
 }
 
-impl<Backend: backend::Backend> From<StorageInstance<Backend>> for Storage<Backend> {
-    fn from(instance: StorageInstance<Backend>) -> Self {
+impl From<StorageInstance> for Storage {
+    fn from(instance: StorageInstance) -> Self {
         Self {
             instance,
             authentication: None,
@@ -230,19 +226,20 @@ impl<Backend: backend::Backend> From<StorageInstance<Backend>> for Storage<Backe
 }
 
 #[derive(Debug)]
-struct Data<Backend: backend::Backend> {
+struct Data {
     id: StorageId,
     path: PathBuf,
     parallelization: usize,
     threadpool: ThreadPool<AnyFile>,
     file_manager: AnyFileManager,
     pub(crate) tasks: TaskManager,
-    schemas: RwLock<HashMap<SchemaName, Arc<dyn DatabaseOpener<Backend>>>>,
+    schemas: RwLock<HashMap<SchemaName, Arc<dyn DatabaseOpener>>>,
+    custom_apis: RwLock<HashMap<Name, Arc<dyn AnyCustomApiDispatcher>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
     open_roots: Mutex<HashMap<String, Context>>,
     // cfg check matches `Connection::authenticate`
     #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
-    sessions: RwLock<AuthenticatedSessions<Backend>>,
+    sessions: RwLock<AuthenticatedSessions>,
     pub(crate) subscribers: Arc<RwLock<SessionSubscribers>>,
     #[cfg(feature = "password-hashing")]
     argon: argon::Hasher,
@@ -256,12 +253,11 @@ struct Data<Backend: backend::Backend> {
     chunk_cache: ChunkCache,
     pub(crate) check_view_integrity_on_database_open: bool,
     relay: Relay,
-    _backend: PhantomData<Backend>,
 }
 
-impl<Backend: backend::Backend> Storage<Backend> {
+impl Storage {
     /// Creates or opens a multi-database [`Storage`] with its data stored in `directory`.
-    pub fn open(configuration: StorageConfiguration<Backend>) -> Result<Self, Error> {
+    pub fn open(configuration: StorageConfiguration) -> Result<Self, Error> {
         let owned_path = configuration
             .path
             .clone()
@@ -335,12 +331,12 @@ impl<Backend: backend::Backend> Storage<Backend> {
                     chunk_cache: ChunkCache::new(2000, 160_384),
                     threadpool: ThreadPool::new(parallelization),
                     schemas: RwLock::new(configuration.initial_schemas),
+                    custom_apis: RwLock::new(configuration.custom_apis),
                     available_databases: RwLock::default(),
                     open_roots: Mutex::default(),
                     key_value_persistence,
                     check_view_integrity_on_database_open,
                     relay: Relay::default(),
-                    _backend: PhantomData,
                 }),
             },
             authentication: None,
@@ -354,13 +350,13 @@ impl<Backend: backend::Backend> Storage<Backend> {
         Ok(storage)
     }
 
-    pub(crate) fn database_without_schema(&self, name: &str) -> Result<Database<Backend>, Error> {
+    pub(crate) fn database_without_schema(&self, name: &str) -> Result<Database, Error> {
         let name = name.to_owned();
         self.instance.database_without_schema(&name, Some(self))
     }
 
     fn lookup_or_create_id(
-        configuration: &StorageConfiguration<Backend>,
+        configuration: &StorageConfiguration,
         path: &Path,
     ) -> Result<StorageId, Error> {
         Ok(StorageId(if let Some(id) = configuration.unique_id {
@@ -537,7 +533,7 @@ impl<Backend: backend::Backend> Storage<Backend> {
     }
 }
 
-impl<Backend: backend::Backend> StorageInstance<Backend> {
+impl StorageInstance {
     #[cfg_attr(
         not(any(feature = "encryption", feature = "compression")),
         allow(unused_mut)
@@ -580,12 +576,20 @@ impl<Backend: backend::Backend> StorageInstance<Backend> {
         &self.data.relay
     }
 
+    pub(crate) fn custom_api_dispatcher(
+        &self,
+        name: &Name,
+    ) -> Option<Arc<dyn AnyCustomApiDispatcher>> {
+        let dispatchers = self.data.custom_apis.read();
+        dispatchers.get(name).cloned()
+    }
+
     /// Opens a database through a generic-free trait.
     pub(crate) fn database_without_schema(
         &self,
         name: &str,
-        storage: Option<&Storage<Backend>>,
-    ) -> Result<Database<Backend>, Error> {
+        storage: Option<&Storage>,
+    ) -> Result<Database, Error> {
         // TODO switch to upgradable read now that we are on parking_lot
         let schema = {
             let available_databases = self.data.available_databases.read();
@@ -645,8 +649,8 @@ impl<Backend: backend::Backend> StorageInstance<Backend> {
         &self,
         user: CollectionDocument<User>,
         authentication: Authentication,
-        admin: &Database<Backend>,
-    ) -> Result<Storage<Backend>, bonsaidb_core::Error> {
+        admin: &Database,
+    ) -> Result<Storage, bonsaidb_core::Error> {
         match authentication {
             Authentication::Password(password) => {
                 let saved_hash = user
@@ -731,9 +735,9 @@ impl<Backend: backend::Backend> StorageInstance<Backend> {
     }
 }
 
-pub trait DatabaseOpener<Backend: backend::Backend>: Send + Sync + Debug {
+pub trait DatabaseOpener: Send + Sync + Debug {
     fn schematic(&self) -> &'_ Schematic;
-    fn open(&self, name: String, storage: &Storage<Backend>) -> Result<Database<Backend>, Error>;
+    fn open(&self, name: String, storage: &Storage) -> Result<Database, Error>;
 }
 
 #[derive(Debug)]
@@ -755,25 +759,24 @@ where
     }
 }
 
-impl<DB, Backend> DatabaseOpener<Backend> for StorageSchemaOpener<DB>
+impl<DB> DatabaseOpener for StorageSchemaOpener<DB>
 where
     DB: Schema,
-    Backend: backend::Backend,
 {
     fn schematic(&self) -> &'_ Schematic {
         &self.schematic
     }
 
-    fn open(&self, name: String, storage: &Storage<Backend>) -> Result<Database<Backend>, Error> {
+    fn open(&self, name: String, storage: &Storage) -> Result<Database, Error> {
         let roots = storage.instance.open_roots(&name)?;
         let db = Database::new::<DB, _>(name, roots, storage)?;
         Ok(db)
     }
 }
 
-impl<Backend: backend::Backend> StorageConnection for StorageInstance<Backend> {
-    type Database = Database<Backend>;
-    type Authenticated = Storage<Backend>;
+impl StorageConnection for StorageInstance {
+    type Database = Database;
+    type Authenticated = Storage;
 
     fn session(&self) -> Option<&Session> {
         None
@@ -798,7 +801,7 @@ impl<Backend: backend::Backend> StorageConnection for StorageInstance<Backend> {
         schema: SchemaName,
         only_if_needed: bool,
     ) -> Result<(), bonsaidb_core::Error> {
-        Storage::<Backend>::validate_name(name)?;
+        Storage::validate_name(name)?;
 
         // TODO upgrade read
         {
@@ -1030,8 +1033,8 @@ impl<Backend: backend::Backend> StorageConnection for StorageInstance<Backend> {
     }
 }
 
-impl<Backend: backend::Backend> StorageConnection for Storage<Backend> {
-    type Database = Database<Backend>;
+impl StorageConnection for Storage {
+    type Database = Database;
     type Authenticated = Self;
 
     fn session(&self) -> Option<&Session> {
@@ -1183,12 +1186,10 @@ impl<Backend: backend::Backend> StorageConnection for Storage<Backend> {
                         user_resource_name(user.header.id),
                         &BonsaiAction::Server(ServerAction::ModifyUserPermissionGroups),
                     )?;
-                    Ok(
-                        StorageInstance::<Backend>::add_permission_group_to_user_inner(
-                            user,
-                            permission_group_id,
-                        ),
-                    )
+                    Ok(StorageInstance::add_permission_group_to_user_inner(
+                        user,
+                        permission_group_id,
+                    ))
                 },
             )
     }
@@ -1214,12 +1215,10 @@ impl<Backend: backend::Backend> StorageConnection for Storage<Backend> {
                         user_resource_name(user.header.id),
                         &BonsaiAction::Server(ServerAction::ModifyUserPermissionGroups),
                     )?;
-                    Ok(
-                        StorageInstance::<Backend>::remove_permission_group_from_user_inner(
-                            user,
-                            permission_group_id,
-                        ),
-                    )
+                    Ok(StorageInstance::remove_permission_group_from_user_inner(
+                        user,
+                        permission_group_id,
+                    ))
                 },
             )
     }
@@ -1242,9 +1241,7 @@ impl<Backend: backend::Backend> StorageConnection for Storage<Backend> {
                     user_resource_name(user.header.id),
                     &BonsaiAction::Server(ServerAction::ModifyUserRoles),
                 )?;
-                Ok(StorageInstance::<Backend>::add_role_to_user_inner(
-                    user, role_id,
-                ))
+                Ok(StorageInstance::add_role_to_user_inner(user, role_id))
             })
     }
 
@@ -1266,30 +1263,24 @@ impl<Backend: backend::Backend> StorageConnection for Storage<Backend> {
                     user_resource_name(user.header.id),
                     &BonsaiAction::Server(ServerAction::ModifyUserRoles),
                 )?;
-                Ok(StorageInstance::<Backend>::remove_role_from_user_inner(
-                    user, role_id,
-                ))
+                Ok(StorageInstance::remove_role_from_user_inner(user, role_id))
             })
     }
 }
 
 #[test]
 fn name_validation_tests() {
-    use crate::backend::NoBackend;
+    assert!(matches!(Storage::validate_name("azAZ09.-"), Ok(())));
     assert!(matches!(
-        Storage::<NoBackend>::validate_name("azAZ09.-"),
+        Storage::validate_name("_internal-names-work"),
         Ok(())
     ));
     assert!(matches!(
-        Storage::<NoBackend>::validate_name("_internal-names-work"),
-        Ok(())
-    ));
-    assert!(matches!(
-        Storage::<NoBackend>::validate_name("-alphaunmericfirstrequired"),
+        Storage::validate_name("-alphaunmericfirstrequired"),
         Err(Error::Core(bonsaidb_core::Error::InvalidDatabaseName(_)))
     ));
     assert!(matches!(
-        Storage::<NoBackend>::validate_name("\u{2661}"),
+        Storage::validate_name("\u{2661}"),
         Err(Error::Core(bonsaidb_core::Error::InvalidDatabaseName(_)))
     ));
 }
@@ -1421,13 +1412,13 @@ pub trait StorageNonBlocking {
     fn path(&self) -> &Path;
 }
 
-impl<Backend: backend::Backend> StorageNonBlocking for Storage<Backend> {
+impl StorageNonBlocking for Storage {
     fn path(&self) -> &Path {
         self.instance.data.path()
     }
 }
 
-impl<Backend: backend::Backend> StorageNonBlocking for Data<Backend> {
+impl StorageNonBlocking for Data {
     fn path(&self) -> &Path {
         &self.path
     }

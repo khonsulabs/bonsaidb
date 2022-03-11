@@ -2,6 +2,8 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 
+use crate::schema::Name;
+
 /// A definition of a custom API. The `Request` associated type is what a
 /// connected client can send. The `Response` associated type is what your API
 /// is expecetd to send from the server to the client. The `Dispatcher` is the
@@ -18,12 +20,18 @@ pub trait CustomApi: Debug + Send + Sync + 'static {
     type Response: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug;
     /// The error type that this Api instance can return.
     type Error: CustomApiError;
+
+    fn name() -> Name;
 }
 
 impl CustomApi for () {
     type Request = ();
     type Response = ();
     type Error = Infallible;
+
+    fn name() -> Name {
+        Name::new("")
+    }
 }
 
 /// An Error type that can be used in within a [`CustomApi`] definition.

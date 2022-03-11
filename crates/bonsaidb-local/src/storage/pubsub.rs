@@ -2,14 +2,14 @@ use std::collections::hash_map::Entry;
 
 use bonsaidb_core::Error;
 
-use crate::{backend, storage::SessionSubscriber, Database, Subscriber};
+use crate::{storage::SessionSubscriber, Database, Subscriber};
 
-impl<Backend: backend::Backend> crate::storage::StorageInstance<Backend> {
+impl crate::storage::StorageInstance {
     pub(crate) fn register_subscriber(
         &self,
         session_id: Option<u64>,
-        database: Database<Backend>,
-    ) -> Subscriber<Backend> {
+        database: Database,
+    ) -> Subscriber {
         let subscriber = self.relay().create_subscriber();
         let mut data = self.data.subscribers.write();
         let id = loop {

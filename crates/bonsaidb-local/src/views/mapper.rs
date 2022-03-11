@@ -20,7 +20,6 @@ use nebari::{
 };
 
 use crate::{
-    backend,
     database::{deserialize_document, document_tree_name, Database},
     tasks::{Job, Keyed, Task},
     views::{
@@ -31,8 +30,8 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Mapper<Backend: backend::Backend> {
-    pub database: Database<Backend>,
+pub struct Mapper {
+    pub database: Database,
     pub map: Map,
 }
 
@@ -43,7 +42,7 @@ pub struct Map {
     pub view_name: ViewName,
 }
 
-impl<Backend: backend::Backend> Job for Mapper<Backend> {
+impl Job for Mapper {
     type Output = u64;
     type Error = Error;
 
@@ -115,12 +114,12 @@ impl<Backend: backend::Backend> Job for Mapper<Backend> {
     }
 }
 
-fn map_view<Backend: backend::Backend>(
+fn map_view(
     invalidated_entries: &Tree<Unversioned, AnyFile>,
     document_map: &Tree<Unversioned, AnyFile>,
     documents: &Tree<Versioned, AnyFile>,
     view_entries: &Tree<Unversioned, AnyFile>,
-    database: &Database<Backend>,
+    database: &Database,
     map_request: &Map,
 ) -> Result<(), Error> {
     const CHUNK_SIZE: usize = 100_000;
@@ -172,10 +171,10 @@ fn map_view<Backend: backend::Backend>(
     Ok(())
 }
 
-pub struct DocumentRequest<'a, Backend: backend::Backend> {
+pub struct DocumentRequest<'a> {
     pub document_ids: Vec<ArcBytes<'static>>,
     pub map_request: &'a Map,
-    pub database: &'a Database<Backend>,
+    pub database: &'a Database,
 
     pub document_map: &'a UnlockedTransactionTree<AnyFile>,
     pub documents: &'a UnlockedTransactionTree<AnyFile>,
@@ -186,7 +185,7 @@ pub struct DocumentRequest<'a, Backend: backend::Backend> {
 type DocumentIdPayload = (ArcBytes<'static>, Option<ArcBytes<'static>>);
 type BatchPayload = (Vec<ArcBytes<'static>>, flume::Receiver<DocumentIdPayload>);
 
-impl<'a, Backend: backend::Backend> DocumentRequest<'a, Backend> {
+impl<'a> DocumentRequest<'a> {
     fn generate_batches(
         batch_sender: flume::Sender<BatchPayload>,
         document_ids: &[ArcBytes<'static>],
@@ -417,7 +416,7 @@ struct Batch {
     all_keys: BTreeSet<ArcBytes<'static>>,
 }
 
-impl<Backend: backend::Backend> Keyed<Task> for Mapper<Backend> {
+impl Keyed<Task> for Mapper {
     fn key(&self) -> Task {
         Task::ViewMap(self.map.clone())
     }

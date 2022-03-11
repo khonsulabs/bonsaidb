@@ -26,7 +26,6 @@ use serde::{Deserialize, Serialize};
 use watchable::{Watchable, Watcher};
 
 use crate::{
-    backend,
     config::KeyValuePersistence,
     database::compat,
     tasks::{Job, Keyed, Task},
@@ -42,11 +41,11 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub(crate) fn restore<Backend: backend::Backend>(
+    pub(crate) fn restore(
         self,
         namespace: Option<String>,
         key: String,
-        database: &Database<Backend>,
+        database: &Database,
     ) -> Result<(), bonsaidb_core::Error> {
         database.execute_key_operation(KeyOperation {
             namespace,
@@ -64,7 +63,7 @@ impl Entry {
 }
 
 #[async_trait]
-impl<Backend: backend::Backend> KeyValue for Database<Backend> {
+impl KeyValue for Database {
     fn execute_key_operation(&self, op: KeyOperation) -> Result<Output, bonsaidb_core::Error> {
         self.check_permission(
             keyvalue_key_resource_name(self.name(), op.namespace.as_deref(), &op.key),
@@ -74,7 +73,7 @@ impl<Backend: backend::Backend> KeyValue for Database<Backend> {
     }
 }
 
-impl<Backend: backend::Backend> Database<Backend> {
+impl Database {
     pub(crate) fn all_key_value_entries(
         &self,
     ) -> Result<BTreeMap<(Option<String>, String), Entry>, Error> {
@@ -809,19 +808,19 @@ pub enum BackgroundWorkerProcessTarget {
 }
 
 #[derive(Debug)]
-pub struct ExpirationLoader<Backend: backend::Backend> {
-    pub database: Database<Backend>,
+pub struct ExpirationLoader {
+    pub database: Database,
     pub launched_at: Timestamp,
 }
 
-impl<Backend: backend::Backend> Keyed<Task> for ExpirationLoader<Backend> {
+impl Keyed<Task> for ExpirationLoader {
     fn key(&self) -> Task {
         Task::ExpirationLoader(self.database.data.name.clone())
     }
 }
 
 #[async_trait]
-impl<Backend: backend::Backend> Job for ExpirationLoader<Backend> {
+impl Job for ExpirationLoader {
     type Output = ();
     type Error = Error;
 

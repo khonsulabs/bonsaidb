@@ -64,7 +64,7 @@ pub use transmog_pot;
 use crate::{
     document::{DocumentId, Header, InvalidHexadecimal},
     key::NextValueError,
-    schema::InsertError,
+    schema::{InsertError, Name},
 };
 
 /// an enumeration of errors that this crate can produce
@@ -103,6 +103,10 @@ pub enum Error {
     /// The database name given was not found.
     #[error("database '{0}' was not found")]
     DatabaseNotFound(String),
+
+    /// The custom api invoked was not found.
+    #[error("custom api '{0}' was not found")]
+    CustomApiNotFound(Name),
 
     /// The database name already exists.
     #[error("a database with name '{0}' already exists")]

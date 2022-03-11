@@ -7,14 +7,16 @@ use std::{
 
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
-use bonsaidb_core::schema::{Schema, SchemaName};
-use derive_where::derive_where;
+use bonsaidb_core::{
+    custom_api::CustomApi,
+    schema::{Name, Schema, SchemaName},
+};
 use sysinfo::{RefreshKind, System, SystemExt};
 
 #[cfg(feature = "encryption")]
 use crate::vault::AnyVaultKeyStorage;
 use crate::{
-    backend::{self, NoBackend},
+    custom_api::{AnyCustomApiDispatcher, CustomApiDispatcher},
     storage::{DatabaseOpener, StorageSchemaOpener},
     Error,
 };
@@ -25,10 +27,9 @@ mod argon;
 pub use argon::*;
 
 /// Configuration options for [`Storage`](crate::storage::Storage).
-#[derive(Debug)]
-#[derive_where(Clone)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct StorageConfiguration<Backend: backend::Backend = NoBackend> {
+pub struct StorageConfiguration {
     /// The path to the database. Defaults to `db.bonsaidb` if not specified.
     pub path: Option<PathBuf>,
 
@@ -79,10 +80,11 @@ pub struct StorageConfiguration<Backend: backend::Backend = NoBackend> {
     #[cfg(feature = "password-hashing")]
     pub argon: ArgonConfiguration,
 
-    pub(crate) initial_schemas: HashMap<SchemaName, Arc<dyn DatabaseOpener<Backend>>>,
+    pub(crate) initial_schemas: HashMap<SchemaName, Arc<dyn DatabaseOpener>>,
+    pub(crate) custom_apis: HashMap<Name, Arc<dyn AnyCustomApiDispatcher>>,
 }
 
-impl<Backend: backend::Backend> Default for StorageConfiguration<Backend> {
+impl Default for StorageConfiguration {
     fn default() -> Self {
         let system_specs = RefreshKind::new().with_cpu().with_memory();
         let mut system = System::new_with_specifics(system_specs);
@@ -103,20 +105,12 @@ impl<Backend: backend::Backend> Default for StorageConfiguration<Backend> {
             #[cfg(feature = "password-hashing")]
             argon: ArgonConfiguration::default_for(&system),
             initial_schemas: HashMap::default(),
+            custom_apis: HashMap::default(),
         }
     }
 }
 
-impl StorageConfiguration<NoBackend> {
-    /// Creates a default configuration with `path` set and no
-    /// [`Backend`][backend::Backend].
-    #[must_use]
-    pub fn default_with_path<P: AsRef<Path>>(path: P) -> Self {
-        Self::new(path)
-    }
-}
-
-impl<Backend: backend::Backend> StorageConfiguration<Backend> {
+impl StorageConfiguration {
     /// Creates a default configuration with `path` set.
     #[must_use]
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
@@ -125,8 +119,19 @@ impl<Backend: backend::Backend> StorageConfiguration<Backend> {
 
     /// Registers the schema provided.
     pub fn register_schema<S: Schema>(&mut self) -> Result<(), Error> {
+        // TODO this should error on duplicate registration.
         self.initial_schemas
             .insert(S::schema_name(), Arc::new(StorageSchemaOpener::<S>::new()?));
+        Ok(())
+    }
+
+    pub fn register_custom_api<Dispatcher: CustomApiDispatcher + 'static>(
+        &mut self,
+        dispatcher: Dispatcher,
+    ) -> Result<(), Error> {
+        // TODO this should error on duplicate registration.
+        self.custom_apis
+            .insert(<Dispatcher::Api as CustomApi>::name(), Arc::new(dispatcher));
         Ok(())
     }
 }
@@ -328,6 +333,11 @@ impl PersistenceThreshold {
 pub trait Builder: Sized {
     /// Registers the schema and returns self.
     fn with_schema<S: Schema>(self) -> Result<Self, Error>;
+    /// Registers the custom api dispatcher and returns self.
+    fn with_custom_api<Dispatcher: CustomApiDispatcher + 'static>(
+        self,
+        dispatcher: Dispatcher,
+    ) -> Result<Self, Error>;
 
     /// Sets [`StorageConfiguration::path`](StorageConfiguration#structfield.memory_only) to true and returns self.
     #[must_use]
@@ -367,9 +377,17 @@ pub trait Builder: Sized {
     fn key_value_persistence(self, persistence: KeyValuePersistence) -> Self;
 }
 
-impl<Backend: backend::Backend> Builder for StorageConfiguration<Backend> {
+impl Builder for StorageConfiguration {
     fn with_schema<S: Schema>(mut self) -> Result<Self, Error> {
         self.register_schema::<S>()?;
+        Ok(self)
+    }
+
+    fn with_custom_api<Dispatcher: CustomApiDispatcher + 'static>(
+        mut self,
+        dispatcher: Dispatcher,
+    ) -> Result<Self, Error> {
+        self.register_custom_api(dispatcher)?;
         Ok(self)
     }
 

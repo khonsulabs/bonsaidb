@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     circulate::Message,
-    custom_api::CustomApi,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     pubsub::{AsyncPubSub, AsyncSubscriber},
 };
@@ -13,11 +12,8 @@ use serde::Serialize;
 use crate::Client;
 
 #[async_trait]
-impl<A> AsyncPubSub for super::RemoteDatabase<A>
-where
-    A: CustomApi,
-{
-    type Subscriber = RemoteSubscriber<A>;
+impl AsyncPubSub for super::RemoteDatabase {
+    type Subscriber = RemoteSubscriber;
 
     async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
         match self
@@ -114,15 +110,15 @@ where
 
 /// A `PubSub` subscriber from a remote server.
 #[derive(Debug)]
-pub struct RemoteSubscriber<A: CustomApi> {
-    client: Client<A>,
+pub struct RemoteSubscriber {
+    client: Client,
     database: Arc<String>,
     id: u64,
     receiver: flume::Receiver<Arc<Message>>,
 }
 
 #[async_trait]
-impl<A: CustomApi> AsyncSubscriber for RemoteSubscriber<A> {
+impl AsyncSubscriber for RemoteSubscriber {
     async fn subscribe_to<S: Into<String> + Send>(
         &self,
         topic: S,
@@ -171,7 +167,7 @@ impl<A: CustomApi> AsyncSubscriber for RemoteSubscriber<A> {
     }
 }
 
-impl<A: CustomApi> Drop for RemoteSubscriber<A> {
+impl Drop for RemoteSubscriber {
     fn drop(&mut self) {
         let client = self.client.clone();
         let database = self.database.to_string();

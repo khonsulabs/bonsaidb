@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use bonsaidb_core::{
-    custom_api::{CustomApi, CustomApiResult},
     networking::{Payload, Request, Response},
+    schema::Name,
 };
 use bonsaidb_utils::fast_async_lock;
 use fabruic::{self, Certificate, Endpoint};
@@ -10,23 +10,23 @@ use flume::Receiver;
 use futures::StreamExt;
 use url::Url;
 
-use super::{CustomApiCallback, PendingRequest};
+use super::PendingRequest;
 use crate::{
-    client::{OutstandingRequestMapHandle, SubscriberMap},
+    client::{AnyCustomApiCallback, OutstandingRequestMapHandle, SubscriberMap},
     Error,
 };
 
 /// This function will establish a connection and try to keep it active. If an
 /// error occurs, any queries that come in while reconnecting will have the
 /// error replayed to them.
-pub async fn reconnecting_client_loop<A: CustomApi>(
+pub async fn reconnecting_client_loop(
     mut url: Url,
     protocol_version: &'static str,
     certificate: Option<Certificate>,
-    request_receiver: Receiver<PendingRequest<A>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
+    request_receiver: Receiver<PendingRequest>,
+    custom_apis: Arc<HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>>,
     subscribers: SubscriberMap,
-) -> Result<(), Error<A::Error>> {
+) -> Result<(), Error> {
     if url.port().is_none() && url.scheme() == "bonsaidb" {
         let _ = url.set_port(Some(5645));
     }
@@ -39,7 +39,7 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
             certificate.as_ref(),
             request,
             &request_receiver,
-            custom_api_callback.clone(),
+            custom_apis.clone(),
             &subscribers,
         )
         .await
@@ -54,17 +54,17 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
     Ok(())
 }
 
-async fn connect_and_process<A: CustomApi>(
+async fn connect_and_process(
     url: &Url,
     protocol_version: &str,
     certificate: Option<&Certificate>,
-    initial_request: PendingRequest<A>,
-    request_receiver: &Receiver<PendingRequest<A>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
+    initial_request: PendingRequest,
+    request_receiver: &Receiver<PendingRequest>,
+    custom_apis: Arc<HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>>,
     subscribers: &SubscriberMap,
-) -> Result<(), (Option<PendingRequest<A>>, Error<A::Error>)> {
+) -> Result<(), (Option<PendingRequest>, Error)> {
     let (_connection, payload_sender, payload_receiver) =
-        match connect::<A>(url, certificate, protocol_version).await {
+        match connect(url, certificate, protocol_version).await {
             Ok(result) => result,
             Err(err) => return Err((Some(initial_request), err)),
         };
@@ -73,7 +73,7 @@ async fn connect_and_process<A: CustomApi>(
     let request_processor = tokio::spawn(process(
         outstanding_requests.clone(),
         payload_receiver,
-        custom_api_callback,
+        custom_apis,
         subscribers.clone(),
     ));
 
@@ -93,7 +93,7 @@ async fn connect_and_process<A: CustomApi>(
     }
 
     if let Err(err) = futures::try_join!(
-        process_requests::<A>(
+        process_requests(
             outstanding_requests.clone(),
             request_receiver,
             payload_sender
@@ -111,11 +111,11 @@ async fn connect_and_process<A: CustomApi>(
     Ok(())
 }
 
-async fn process_requests<A: CustomApi>(
-    outstanding_requests: OutstandingRequestMapHandle<A>,
-    request_receiver: &Receiver<PendingRequest<A>>,
-    payload_sender: fabruic::Sender<Payload<Request<A::Request>>>,
-) -> Result<(), Error<A::Error>> {
+async fn process_requests(
+    outstanding_requests: OutstandingRequestMapHandle,
+    request_receiver: &Receiver<PendingRequest>,
+    payload_sender: fabruic::Sender<Payload<Request>>,
+) -> Result<(), Error> {
     while let Ok(client_request) = request_receiver.recv_async().await {
         let mut outstanding_requests = fast_async_lock!(outstanding_requests);
         payload_sender.send(&client_request.request)?;
@@ -129,37 +129,32 @@ async fn process_requests<A: CustomApi>(
     Err(Error::Disconnected)
 }
 
-pub async fn process<A: CustomApi>(
-    outstanding_requests: OutstandingRequestMapHandle<A>,
-    mut payload_receiver: fabruic::Receiver<Payload<Response<CustomApiResult<A>>>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
+pub async fn process(
+    outstanding_requests: OutstandingRequestMapHandle,
+    mut payload_receiver: fabruic::Receiver<Payload<Response>>,
+    custom_apis: Arc<HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>>,
     subscribers: SubscriberMap,
-) -> Result<(), Error<A::Error>> {
+) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
         let payload = payload?;
-        super::process_response_payload(
-            payload,
-            &outstanding_requests,
-            custom_api_callback.as_deref(),
-            &subscribers,
-        )
-        .await;
+        super::process_response_payload(payload, &outstanding_requests, &custom_apis, &subscribers)
+            .await;
     }
 
     Err(Error::Disconnected)
 }
 
-async fn connect<A: CustomApi>(
+async fn connect(
     url: &Url,
     certificate: Option<&Certificate>,
     protocol_version: &str,
 ) -> Result<
     (
         fabruic::Connection<()>,
-        fabruic::Sender<Payload<Request<A::Request>>>,
-        fabruic::Receiver<Payload<Response<CustomApiResult<A>>>>,
+        fabruic::Sender<Payload<Request>>,
+        fabruic::Receiver<Payload<Response>>,
     ),
-    Error<A::Error>,
+    Error,
 > {
     let mut endpoint = Endpoint::builder();
     endpoint

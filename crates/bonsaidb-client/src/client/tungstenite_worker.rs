@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use bonsaidb_core::{
-    custom_api::{CustomApi, CustomApiResult},
     networking::{Payload, Response},
+    schema::Name,
 };
 use bonsaidb_utils::fast_async_lock;
 use flume::Receiver;
@@ -14,19 +14,19 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
-use super::{CustomApiCallback, PendingRequest};
+use super::PendingRequest;
 use crate::{
-    client::{OutstandingRequestMapHandle, SubscriberMap},
+    client::{AnyCustomApiCallback, OutstandingRequestMapHandle, SubscriberMap},
     Error,
 };
 
-pub async fn reconnecting_client_loop<A: CustomApi>(
+pub async fn reconnecting_client_loop(
     url: Url,
     protocol_version: &str,
-    request_receiver: Receiver<PendingRequest<A>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
+    request_receiver: Receiver<PendingRequest>,
+    custom_apis: Arc<HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>>,
     subscribers: SubscriberMap,
-) -> Result<(), Error<A::Error>> {
+) -> Result<(), Error> {
     while let Ok(request) = {
         subscribers.clear().await;
         request_receiver.recv_async().await
@@ -69,7 +69,7 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
             response_processor(
                 receiver,
                 outstanding_requests.clone(),
-                custom_api_callback.as_deref(),
+                &custom_apis,
                 subscribers.clone()
             )
         ) {
@@ -85,11 +85,11 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
     Ok(())
 }
 
-async fn request_sender<Api: CustomApi>(
-    request_receiver: &Receiver<PendingRequest<Api>>,
+async fn request_sender(
+    request_receiver: &Receiver<PendingRequest>,
     mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    outstanding_requests: OutstandingRequestMapHandle<Api>,
-) -> Result<(), Error<Api::Error>> {
+    outstanding_requests: OutstandingRequestMapHandle,
+) -> Result<(), Error> {
     while let Ok(pending) = request_receiver.recv_async().await {
         let mut outstanding_requests = fast_async_lock!(outstanding_requests);
         sender
@@ -106,23 +106,22 @@ async fn request_sender<Api: CustomApi>(
 }
 
 #[allow(clippy::collapsible_else_if)] // not possible due to cfg statement
-async fn response_processor<A: CustomApi>(
+async fn response_processor(
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-    outstanding_requests: OutstandingRequestMapHandle<A>,
-    custom_api_callback: Option<&dyn CustomApiCallback<A>>,
+    outstanding_requests: OutstandingRequestMapHandle,
+    custom_apis: &HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
     subscribers: SubscriberMap,
-) -> Result<(), Error<A::Error>> {
+) -> Result<(), Error> {
     while let Some(message) = receiver.next().await {
         let message = message?;
         match message {
             Message::Binary(response) => {
-                let payload =
-                    bincode::deserialize::<Payload<Response<CustomApiResult<A>>>>(&response)?;
+                let payload = bincode::deserialize::<Payload<Response>>(&response)?;
 
                 super::process_response_payload(
                     payload,
                     &outstanding_requests,
-                    custom_api_callback,
+                    custom_apis,
                     &subscribers,
                 )
                 .await;

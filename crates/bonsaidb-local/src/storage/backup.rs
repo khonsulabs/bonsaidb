@@ -15,7 +15,6 @@ use bonsaidb_core::{
 };
 
 use crate::{
-    backend,
     database::{keyvalue::Entry, DatabaseNonBlocking},
     Database, Error, Storage,
 };
@@ -59,7 +58,7 @@ pub trait BackupLocation: Send + Sync {
     ) -> Result<Vec<u8>, Self::Error>;
 }
 
-impl<Backend: backend::Backend> Storage<Backend> {
+impl Storage {
     /// Stores a copy of all data in this instance to `location`.
     pub fn backup<L: AnyBackupLocation>(&self, location: &L) -> Result<(), Error> {
         let databases = {
@@ -104,7 +103,7 @@ impl<Backend: backend::Backend> Storage<Backend> {
     }
 
     pub(crate) fn backup_database(
-        database: &Database<Backend>,
+        database: &Database,
         location: &dyn AnyBackupLocation,
     ) -> Result<(), Error> {
         let schema = database.schematic().name.clone();
@@ -136,7 +135,7 @@ impl<Backend: backend::Backend> Storage<Backend> {
     }
 
     pub(crate) fn restore_database(
-        database: &Database<Backend>,
+        database: &Database,
         location: &dyn AnyBackupLocation,
     ) -> Result<(), Error> {
         let schema = database.schematic().name.clone();
@@ -469,7 +468,7 @@ mod tests {
         let test_doc = {
             let database_directory = TestDirectory::new("backup-restore.bonsaidb");
             let storage = AsyncStorage::open(
-                StorageConfiguration::default_with_path(&database_directory)
+                StorageConfiguration::new(&database_directory)
                     .key_value_persistence(KeyValuePersistence::lazy([
                         PersistenceThreshold::after_changes(2),
                     ]))
@@ -495,7 +494,7 @@ mod tests {
         // `backup_destination` now contains an export of the database, time to try loading it:
         let database_directory = TestDirectory::new("backup-restore.bonsaidb");
         let restored_storage = AsyncStorage::open(
-            StorageConfiguration::default_with_path(&database_directory).with_schema::<Basic>()?,
+            StorageConfiguration::new(&database_directory).with_schema::<Basic>()?,
         )
         .await?;
         restored_storage

@@ -13,9 +13,9 @@ use bonsaidb_core::{
     Error,
 };
 
-use crate::{backend, Database, DatabaseNonBlocking};
+use crate::{Database, DatabaseNonBlocking};
 
-impl<Backend: backend::Backend> super::Database<Backend> {
+impl super::Database {
     pub(crate) fn subscribe_by_id(
         &self,
         subscriber_id: u64,
@@ -51,8 +51,8 @@ impl<Backend: backend::Backend> super::Database<Backend> {
     }
 }
 
-impl<Backend: backend::Backend> PubSub for super::Database<Backend> {
-    type Subscriber = Subscriber<Backend>;
+impl PubSub for super::Database {
+    type Subscriber = Subscriber;
 
     fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
         self.check_permission(
@@ -145,18 +145,18 @@ impl<Backend: backend::Backend> PubSub for super::Database<Backend> {
 }
 
 /// A subscriber for `PubSub` messages.
-pub struct Subscriber<Backend: backend::Backend> {
+pub struct Subscriber {
     pub(crate) id: u64,
-    pub(crate) database: Database<Backend>,
+    pub(crate) database: Database,
     pub(crate) subscriber: circulate::Subscriber,
 }
 
-impl<Backend: backend::Backend> Drop for Subscriber<Backend> {
+impl Drop for Subscriber {
     fn drop(&mut self) {}
 }
 
 #[async_trait]
-impl<Backend: backend::Backend> pubsub::Subscriber for Subscriber<Backend> {
+impl pubsub::Subscriber for Subscriber {
     fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error> {
         let topic = topic.into();
         self.database.check_permission(

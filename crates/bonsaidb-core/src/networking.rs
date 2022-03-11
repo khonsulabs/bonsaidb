@@ -1,5 +1,4 @@
 use arc_bytes::serde::Bytes;
-use derive_where::derive_where;
 use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +9,7 @@ use crate::{
     schema::{
         self,
         view::map::{self},
-        CollectionName, NamedReference, ViewName,
+        CollectionName, Name, NamedReference, ViewName,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -30,10 +29,9 @@ pub struct Payload<T> {
 }
 
 /// A request made to a server.
-#[derive(Clone, Deserialize, Serialize)]
-#[derive_where(Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug)]
 #[cfg_attr(feature = "actionable-traits", derive(actionable::Actionable))]
-pub enum Request<T> {
+pub enum Request {
     /// A server-related request.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     Server(ServerRequest),
@@ -48,12 +46,8 @@ pub enum Request<T> {
     },
 
     /// A database-related request.
-    #[cfg_attr(
-        feature = "actionable-traits",
-        actionable(protection = "none", subaction)
-    )]
-    #[derive_where(skip_inner)]
-    Api(T),
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
+    Api { name: Name, request: Bytes },
 }
 
 /// A server-related request.
@@ -296,9 +290,8 @@ pub enum DatabaseRequest {
 }
 
 /// A response from a server.
-#[derive(Clone, Serialize, Deserialize)]
-#[derive_where(Debug)]
-pub enum Response<T> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Response {
     /// A request succeded but provided no output.
     Ok,
     /// A response to a [`ServerRequest`].
@@ -306,8 +299,10 @@ pub enum Response<T> {
     /// A response to a [`DatabaseRequest`].
     Database(DatabaseResponse),
     /// A response to an Api request.
-    #[derive_where(skip_inner)]
-    Api(T),
+    Api {
+        name: Name, // TODO namespace
+        response: Bytes,
+    },
     /// An error occurred processing a request.
     Error(crate::Error),
 }
