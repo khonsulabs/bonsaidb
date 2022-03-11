@@ -7,9 +7,9 @@ use tokio::{
     net::TcpListener,
 };
 
-use crate::{CustomServer, Error, ServerBackend};
+use crate::{Backend, CustomServer, Error};
 
-impl<B: ServerBackend> CustomServer<B> {
+impl<B: Backend> CustomServer<B> {
     /// Listens for HTTP traffic on `port`. This port will also receive
     /// `WebSocket` connections if feature `websockets` is enabled.
     pub async fn listen_for_tcp_on<S: TcpService, T: tokio::net::ToSocketAddrs + Send + Sync>(
@@ -173,7 +173,7 @@ impl<B: ServerBackend> CustomServer<B> {
     }
 }
 
-impl<B: ServerBackend> ResolvesServerCert for CustomServer<B> {
+impl<B: Backend> ResolvesServerCert for CustomServer<B> {
     #[cfg_attr(not(feature = "acme"), allow(unused_variables))]
     fn resolve(
         &self,

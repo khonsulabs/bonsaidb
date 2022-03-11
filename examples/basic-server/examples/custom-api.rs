@@ -18,7 +18,7 @@ use bonsaidb::{
     },
     local::config::Builder,
     server::{
-        BackendError, ConnectedClient, CustomApiDispatcher, CustomServer, ServerBackend,
+        Backend, BackendError, ConnectedClient, CustomApiDispatcher, CustomServer,
         ServerConfiguration,
     },
 };
@@ -58,7 +58,7 @@ impl CustomApi for ExampleApi {
 // ANCHOR_END: api-types
 
 // ANCHOR: server-traits
-impl ServerBackend for ExampleBackend {
+impl Backend for ExampleBackend {
     type CustomApi = ExampleApi;
     type CustomApiDispatcher = ExampleDispatcher;
     type ClientData = ();

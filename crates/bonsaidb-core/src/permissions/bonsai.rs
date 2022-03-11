@@ -125,6 +125,7 @@ pub enum ServerAction {
     SetPassword,
     /// Permits the ability to log in with a password.
     Authenticate(AuthenticationMethod),
+    AssumeIdentity,
     /// Permits [`StorageConnection::add_permission_group_to_user`](crate::connection::StorageConnection::add_permission_group_to_user) and [`StorageConnection::remove_permission_group_from_user`](crate::connection::StorageConnection::remove_permission_group_from_user).
     ModifyUserPermissionGroups,
     /// Permits .

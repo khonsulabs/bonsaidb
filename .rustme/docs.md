@@ -97,7 +97,6 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 - `local-compression`: Enables support for compressed storage using lz4.
 - `local-encryption`: Enables at-rest encryption.
 - `local-instrument`: Enables instrumenting with `tracing`.
-- `local-multiuser`: Enables multi-user support.
 - `local-password-hashing`: Enables the ability to use password authentication
   using Argon2.
 

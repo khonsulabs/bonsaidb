@@ -6,11 +6,11 @@ use std::time::Duration;
 
 use clap::Args;
 
-use crate::{CustomServer, Error, ServerBackend, TcpService};
+use crate::{Backend, CustomServer, Error, TcpService};
 
 /// Execute the server
 #[derive(Args, Debug)]
-pub struct Serve<B: ServerBackend> {
+pub struct Serve<B: Backend> {
     /// The UDP port for the BonsaiDb protocol. Defaults to UDP port 5645 (not
     /// an [officially registered
     /// port](https://github.com/khonsulabs/bonsaidb/issues/48)).
@@ -31,7 +31,7 @@ pub struct Serve<B: ServerBackend> {
     _backend: PhantomData<B>,
 }
 
-impl<B: ServerBackend> Serve<B> {
+impl<B: Backend> Serve<B> {
     /// Starts the server.
     pub async fn execute(&self, server: &CustomServer<B>) -> Result<(), Error> {
         self.execute_with(server, ()).await

@@ -20,7 +20,7 @@
 pub mod cli;
 /// Configuration options.
 pub mod config;
-mod custom_api;
+pub mod custom_api;
 mod database;
 mod dispatch;
 mod error;

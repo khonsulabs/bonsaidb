@@ -20,9 +20,14 @@ use bonsaidb_core::{
     admin::{Admin, User, ADMIN_DATABASE_NAME},
     arc_bytes::serde::Bytes,
     circulate::{Message, Relay, Subscriber},
-    connection::{self, AsyncConnection, AsyncStorageConnection, Session},
+    connection::{
+        self, AsyncConnection, AsyncNetworking, AsyncStorageConnection, Identity, Session,
+    },
     custom_api::{CustomApi, CustomApiResult},
-    networking::{self, DatabaseResponse, Payload, Request, Response, CURRENT_PROTOCOL_VERSION},
+    networking::{
+        self, DatabaseResponse, Payload, Request, Response, ServerResponse,
+        CURRENT_PROTOCOL_VERSION,
+    },
     permissions::{
         bonsai::{bonsaidb_resource_name, BonsaiAction, ServerAction},
         Dispatcher, Permissions,
@@ -46,11 +51,11 @@ use tokio::sync::{oneshot, Notify};
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
 use crate::{
-    backend::{ConnectionHandling, CustomApiDispatcher},
+    backend::ConnectionHandling,
     error::Error,
     hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
     server::shutdown::{Shutdown, ShutdownState},
-    NoBackend, ServerBackend, ServerConfiguration,
+    Backend, NoBackend, ServerConfiguration,
 };
 
 #[cfg(feature = "acme")]
@@ -66,7 +71,7 @@ mod websockets;
 use self::connected_client::OwnedClient;
 pub use self::{
     connected_client::{ConnectedClient, LockedClientDataGuard, Transport},
-    database::{ServerDatabase, ServerSubscriber},
+    database::ServerDatabase,
     tcp::{ApplicationProtocols, HttpService, Peer, StandardTcpProtocols, TcpService},
 };
 
@@ -75,16 +80,16 @@ static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 /// A BonsaiDb server.
 #[derive(Debug)]
 #[derive_where(Clone)]
-pub struct CustomServer<B: ServerBackend = NoBackend> {
+pub struct CustomServer<B: Backend = NoBackend> {
     data: Arc<Data<B>>,
+    storage: AsyncStorage,
 }
 
 /// A BonsaiDb server without a custom backend.
 pub type Server = CustomServer<NoBackend>;
 
 #[derive(Debug)]
-struct Data<B: ServerBackend = NoBackend> {
-    storage: AsyncStorage,
+struct Data<B: Backend = NoBackend> {
     clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     request_processor: flume::Sender<ClientRequest<B>>,
     default_permissions: Permissions,
@@ -98,8 +103,6 @@ struct Data<B: ServerBackend = NoBackend> {
     #[cfg(feature = "acme")]
     alpn_keys: AlpnKeys,
     shutdown: Shutdown,
-    relay: Relay,
-    subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
     _backend: PhantomData<B>,
 }
 
@@ -120,7 +123,7 @@ impl Deref for CachedCertifiedKey {
     }
 }
 
-impl<B: ServerBackend> CustomServer<B> {
+impl<B: Backend> CustomServer<B> {
     /// Opens a server using `directory` for storage.
     pub async fn open(configuration: ServerConfiguration) -> Result<Self, Error> {
         let (request_sender, request_receiver) = flume::unbounded::<ClientRequest<B>>();
@@ -129,16 +132,32 @@ impl<B: ServerBackend> CustomServer<B> {
             tokio::task::spawn(async move {
                 while let Ok(mut client_request) = request_receiver.recv_async().await {
                     let request = client_request.request.take().unwrap();
-                    let result = ServerDispatcher {
-                        server: &client_request.server,
-                        client: &client_request.client,
-                        subscribers: &client_request.subscribers,
-                        response_sender: &client_request.sender,
+                    let storage = client_request
+                        .server
+                        .storage
+                        .with_effective_permissions(&client_request.session.permissions);
+                    let result = storage.request(request.wrapped).await;
+                    match &result {
+                        Ok(Response::Database(DatabaseResponse::SubscriberCreated {
+                            subscriber_id,
+                        })) => {
+                            // let task_self = self.clone();
+                            // tokio::spawn(async move {
+                            //     task_self
+                            //         .forward_notifications_for(
+                            //             subscriber.id,
+                            //             subscriber.receiver,
+                            //             response_sender.clone(),
+                            //         )
+                            //         .await;
+                            // });
+                        }
+                        Ok(Response::Server(ServerResponse::Authenticated(session))) => {
+                            client_request.client.logged_in_as(session.clone()).await;
+                        }
+                        _ => {}
                     }
-                    .dispatch(&client_request.client.permissions().await, request)
-                    .await;
-                    let result = result
-                        .unwrap_or_else(|err| Response::Error(bonsaidb_core::Error::from(err)));
+                    let result = result.unwrap_or_else(Response::Error);
                     drop(client_request.result_sender.send(result));
                 }
             });
@@ -152,9 +171,9 @@ impl<B: ServerBackend> CustomServer<B> {
         let authenticated_permissions = Permissions::from(configuration.authenticated_permissions);
 
         let server = Self {
+            storage,
             data: Arc::new(Data {
                 clients: RwLock::default(),
-                storage,
                 endpoint: RwLock::default(),
                 request_processor: request_sender,
                 default_permissions,
@@ -167,8 +186,6 @@ impl<B: ServerBackend> CustomServer<B> {
                 #[cfg(feature = "acme")]
                 alpn_keys: AlpnKeys::default(),
                 shutdown: Shutdown::new(),
-                relay: Relay::default(),
-                subscribers: Arc::default(),
                 _backend: PhantomData::default(),
             }),
         };
@@ -192,7 +209,7 @@ impl<B: ServerBackend> CustomServer<B> {
 
     /// Returns the administration database.
     pub async fn admin(&self) -> ServerDatabase<B> {
-        let db = self.data.storage.admin().await;
+        let db = self.storage.admin().await;
         ServerDatabase {
             server: self.clone(),
             db,
@@ -200,12 +217,7 @@ impl<B: ServerBackend> CustomServer<B> {
     }
 
     pub(crate) async fn hosted(&self) -> ServerDatabase<B> {
-        let db = self
-            .data
-            .storage
-            .database::<Hosted>("_hosted")
-            .await
-            .unwrap();
+        let db = self.storage.database::<Hosted>("_hosted").await.unwrap();
         ServerDatabase {
             server: self.clone(),
             db,
@@ -403,10 +415,11 @@ impl<B: ServerBackend> CustomServer<B> {
     }
 
     /// Sends a custom API response to all connected clients.
-    pub async fn broadcast(&self, response: CustomApiResult<B::CustomApi>) {
+    pub async fn broadcast<Api: CustomApi>(&self, response: &CustomApiResult<Api>) {
         let clients = fast_async_read!(self.data.clients);
         for client in clients.values() {
-            drop(client.send(response.clone()));
+            // TODO should this broadcast to all sessions too rather than only the global session?
+            drop(client.send::<Api>(None, &response));
         }
     }
 
@@ -414,7 +427,7 @@ impl<B: ServerBackend> CustomServer<B> {
         &self,
         transport: Transport,
         address: SocketAddr,
-        sender: Sender<CustomApiResult<B::CustomApi>>,
+        sender: Sender<(Option<u64>, Response)>,
     ) -> Option<OwnedClient<B>> {
         if !self.data.default_permissions.allowed_to(
             &bonsaidb_resource_name(),
@@ -466,8 +479,9 @@ impl<B: ServerBackend> CustomServer<B> {
             };
 
             match incoming
-            .accept::<networking::Payload<Response<CustomApiResult<B::CustomApi>>>, networking::Payload<Request<<B::CustomApi as CustomApi>::Request>>>()
-            .await {
+                .accept::<networking::Payload<Response>, networking::Payload<Request>>()
+                .await
+            {
                 Ok((sender, receiver)) => {
                     let (api_response_sender, api_response_receiver) = flume::unbounded();
                     if let Some(disconnector) = self
@@ -480,12 +494,14 @@ impl<B: ServerBackend> CustomServer<B> {
                     {
                         let task_sender = sender.clone();
                         tokio::spawn(async move {
-                            while let Ok(response) = api_response_receiver.recv_async().await {
+                            while let Ok((session_id, response)) =
+                                api_response_receiver.recv_async().await
+                            {
                                 if task_sender
                                     .send(&Payload {
                                         id: None,
-                                        session_id: None,
-                                        wrapped: Response::Api(response),
+                                        session_id,
+                                        wrapped: response,
                                     })
                                     .is_err()
                                 {
@@ -521,8 +537,8 @@ impl<B: ServerBackend> CustomServer<B> {
     async fn handle_client_requests(
         &self,
         client: ConnectedClient<B>,
-        request_receiver: flume::Receiver<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
-        response_sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
+        request_receiver: flume::Receiver<Payload<Request>>,
+        response_sender: flume::Sender<Payload<Response>>,
     ) {
         let notify = Arc::new(Notify::new());
         let requests_in_queue = Arc::new(AtomicUsize::new(0));
@@ -566,7 +582,6 @@ impl<B: ServerBackend> CustomServer<B> {
                         Ok(())
                     },
                     client.clone(),
-                    self.data.subscribers.clone(),
                     response_sender.clone(),
                 )
                 .await
@@ -576,24 +591,24 @@ impl<B: ServerBackend> CustomServer<B> {
     }
 
     async fn handle_request_through_worker<
-        F: FnOnce(Response<CustomApiResult<B::CustomApi>>) -> R + Send + 'static,
+        F: FnOnce(Response) -> R + Send + 'static,
         R: Future<Output = Result<(), Error>> + Send,
     >(
         &self,
-        request: Payload<Request<<B::CustomApi as CustomApi>::Request>>,
+        request: Payload<Request>,
         callback: F,
         client: ConnectedClient<B>,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        response_sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
+        response_sender: flume::Sender<Payload<Response>>,
     ) -> Result<(), Error> {
         let (result_sender, result_receiver) = oneshot::channel();
+        let session = client.session(request.session_id).await;
         self.data
             .request_processor
             .send(ClientRequest::<B>::new(
                 request,
                 self.clone(),
                 client,
-                subscribers,
+                session,
                 response_sender,
                 result_sender,
             ))
@@ -615,8 +630,8 @@ impl<B: ServerBackend> CustomServer<B> {
     async fn handle_stream(
         &self,
         client: OwnedClient<B>,
-        sender: fabruic::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
-        mut receiver: fabruic::Receiver<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
+        sender: fabruic::Sender<Payload<Response>>,
+        mut receiver: fabruic::Receiver<Payload<Request>>,
     ) -> Result<(), Error> {
         let (payload_sender, payload_receiver) = flume::unbounded();
         tokio::spawn(async move {
@@ -628,9 +643,7 @@ impl<B: ServerBackend> CustomServer<B> {
         });
 
         let (request_sender, request_receiver) =
-            flume::bounded::<Payload<Request<<B::CustomApi as CustomApi>::Request>>>(
-                self.data.client_simultaneous_request_limit,
-            );
+            flume::bounded::<Payload<Request>>(self.data.client_simultaneous_request_limit);
         let task_self = self.clone();
         tokio::spawn(async move {
             task_self
@@ -649,7 +662,7 @@ impl<B: ServerBackend> CustomServer<B> {
         &self,
         subscriber_id: u64,
         receiver: flume::Receiver<Arc<Message>>,
-        sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
+        sender: flume::Sender<Payload<Response>>,
     ) {
         while let Ok(message) = receiver.recv_async().await {
             if sender
@@ -754,135 +767,40 @@ impl<B: ServerBackend> CustomServer<B> {
 
         Ok(())
     }
-
-    /// Manually authenticates `client` as `user`. `user` can be the user's id
-    /// ([`u64`]) or the username ([`String`]/[`str`]). Returns the permissions
-    /// that the user now has.
-    pub async fn authenticate_client_as<'name, N: Nameable<'name, u64> + Send + Sync>(
-        &self,
-        user: N,
-        client: &ConnectedClient<B>,
-    ) -> Result<Permissions, Error> {
-        let admin = self.data.storage.admin().await;
-        let user = User::load_async(user, &admin)
-            .await?
-            .ok_or(bonsaidb_core::Error::UserNotFound)?;
-
-        let permissions = user.contents.effective_permissions_async(&admin).await?;
-        let permissions = Permissions::merged(
-            [
-                &permissions,
-                &self.data.authenticated_permissions,
-                &self.data.default_permissions,
-            ]
-            .into_iter(),
-        );
-        client
-            .logged_in_as(user.header.id, permissions.clone())
-            .await;
-        Ok(permissions)
-    }
-
-    async fn publish_message(&self, database: &str, topic: &str, payload: Vec<u8>) {
-        self.data.relay.publish_message(Message {
-            topic: database_topic(database, topic),
-            payload: payload.into(),
-        });
-    }
-
-    async fn publish_serialized_to_all(&self, database: &str, topics: &[String], payload: Vec<u8>) {
-        self.data.relay.publish_raw_to_all(
-            topics
-                .iter()
-                .map(|topic| database_topic(database, topic))
-                .collect(),
-            payload,
-        );
-    }
-
-    async fn create_subscriber(&self, database: String) -> ServerSubscriber<B> {
-        let subscriber = self.data.relay.create_subscriber();
-
-        let mut subscribers = fast_async_write!(self.data.subscribers);
-        let subscriber_id = subscriber.id();
-        let receiver = subscriber.receiver().clone();
-        subscribers.insert(subscriber_id, subscriber);
-
-        ServerSubscriber {
-            server: self.clone(),
-            database,
-            receiver,
-            id: subscriber_id,
-        }
-    }
-
-    async fn subscribe_to<S: Into<String> + Send>(
-        &self,
-        subscriber_id: u64,
-        database: &str,
-        topic: S,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let subscribers = fast_async_read!(self.data.subscribers);
-        if let Some(subscriber) = subscribers.get(&subscriber_id) {
-            subscriber.subscribe_to(database_topic(database, &topic.into()));
-            Ok(())
-        } else {
-            Err(bonsaidb_core::Error::Server(String::from(
-                "invalid subscriber id",
-            )))
-        }
-    }
-
-    async fn unsubscribe_from(
-        &self,
-        subscriber_id: u64,
-        database: &str,
-        topic: &str,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let subscribers = fast_async_read!(self.data.subscribers);
-        if let Some(subscriber) = subscribers.get(&subscriber_id) {
-            subscriber.unsubscribe_from(&database_topic(database, topic));
-            Ok(())
-        } else {
-            Err(bonsaidb_core::Error::Server(String::from(
-                "invalid subscriber id",
-            )))
-        }
-    }
 }
 
-impl<B: ServerBackend> Deref for CustomServer<B> {
+impl<B: Backend> Deref for CustomServer<B> {
     type Target = AsyncStorage;
 
     fn deref(&self) -> &Self::Target {
-        &self.data.storage
+        &self.storage
     }
 }
 
 #[derive(Debug)]
-struct ClientRequest<B: ServerBackend> {
-    request: Option<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
+struct ClientRequest<B: Backend> {
+    request: Option<Payload<Request>>,
     client: ConnectedClient<B>,
+    session: Session,
     server: CustomServer<B>,
-    subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-    sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
-    result_sender: oneshot::Sender<Response<CustomApiResult<B::CustomApi>>>,
+    sender: flume::Sender<Payload<Response>>,
+    result_sender: oneshot::Sender<Response>,
 }
 
-impl<B: ServerBackend> ClientRequest<B> {
+impl<B: Backend> ClientRequest<B> {
     pub fn new(
-        request: Payload<Request<<B::CustomApi as CustomApi>::Request>>,
+        request: Payload<Request>,
         server: CustomServer<B>,
         client: ConnectedClient<B>,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
-        result_sender: oneshot::Sender<Response<CustomApiResult<B::CustomApi>>>,
+        session: Session,
+        sender: flume::Sender<Payload<Response>>,
+        result_sender: oneshot::Sender<Response>,
     ) -> Self {
         Self {
             request: Some(request),
             server,
             client,
-            subscribers,
+            session,
             sender,
             result_sender,
         }
@@ -890,12 +808,12 @@ impl<B: ServerBackend> ClientRequest<B> {
 }
 
 #[async_trait]
-impl<B: ServerBackend> AsyncStorageConnection for CustomServer<B> {
+impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
     type Database = ServerDatabase<B>;
-    type Authenticated = AsyncStorage;
+    type Authenticated = Self;
 
     fn session(&self) -> Option<&Session> {
-        self.data.storage.session()
+        self.storage.session()
     }
 
     async fn admin(&self) -> Self::Database {
@@ -908,8 +826,7 @@ impl<B: ServerBackend> AsyncStorageConnection for CustomServer<B> {
         schema: SchemaName,
         only_if_needed: bool,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data
-            .storage
+        self.storage
             .create_database_with_schema(name, schema, only_if_needed)
             .await
     }
@@ -918,7 +835,7 @@ impl<B: ServerBackend> AsyncStorageConnection for CustomServer<B> {
         &self,
         name: &str,
     ) -> Result<Self::Database, bonsaidb_core::Error> {
-        let db = self.data.storage.database::<DB>(name).await?;
+        let db = self.storage.database::<DB>(name).await?;
         Ok(ServerDatabase {
             server: self.clone(),
             db,
@@ -926,26 +843,26 @@ impl<B: ServerBackend> AsyncStorageConnection for CustomServer<B> {
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.delete_database(name).await
+        self.storage.delete_database(name).await
     }
 
     async fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
-        self.data.storage.list_databases().await
+        self.storage.list_databases().await
     }
 
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
-        self.data.storage.list_available_schemas().await
+        self.storage.list_available_schemas().await
     }
 
     async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
-        self.data.storage.create_user(username).await
+        self.storage.create_user(username).await
     }
 
     async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.delete_user(user).await
+        self.storage.delete_user(user).await
     }
 
     #[cfg(feature = "password-hashing")]
@@ -954,7 +871,7 @@ impl<B: ServerBackend> AsyncStorageConnection for CustomServer<B> {
         user: U,
         password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.set_user_password(user, password).await
+        self.storage.set_user_password(user, password).await
     }
 
     #[cfg(feature = "password-hashing")]
@@ -963,7 +880,20 @@ impl<B: ServerBackend> AsyncStorageConnection for CustomServer<B> {
         user: U,
         authentication: Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
-        self.data.storage.authenticate(user, authentication).await
+        Ok(Self {
+            data: self.data.clone(),
+            storage: self.storage.authenticate(user, authentication).await?,
+        })
+    }
+
+    async fn assume_identity(
+        &self,
+        identity: Identity,
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
+        Ok(Self {
+            data: self.data.clone(),
+            storage: self.storage.assume_identity(identity).await?,
+        })
     }
 
     async fn add_permission_group_to_user<
@@ -976,8 +906,7 @@ impl<B: ServerBackend> AsyncStorageConnection for CustomServer<B> {
         user: U,
         permission_group: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data
-            .storage
+        self.storage
             .add_permission_group_to_user(user, permission_group)
             .await
     }
@@ -992,8 +921,7 @@ impl<B: ServerBackend> AsyncStorageConnection for CustomServer<B> {
         user: U,
         permission_group: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data
-            .storage
+        self.storage
             .remove_permission_group_from_user(user, permission_group)
             .await
     }
@@ -1008,7 +936,7 @@ impl<B: ServerBackend> AsyncStorageConnection for CustomServer<B> {
         user: U,
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.add_role_to_user(user, role).await
+        self.storage.add_role_to_user(user, role).await
     }
 
     async fn remove_role_from_user<
@@ -1021,7 +949,7 @@ impl<B: ServerBackend> AsyncStorageConnection for CustomServer<B> {
         user: U,
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.remove_role_from_user(user, role).await
+        self.storage.remove_role_from_user(user, role).await
     }
 }
 

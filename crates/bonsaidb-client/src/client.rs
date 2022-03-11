@@ -18,7 +18,7 @@ use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
     arc_bytes::{serde::Bytes, OwnedBytes},
-    connection::{AsyncStorageConnection, Database, Session},
+    connection::{AsyncStorageConnection, Database, Identity, Session},
     custom_api::CustomApi,
     networking::{
         self, Payload, Request, Response, ServerRequest, ServerResponse, CURRENT_PROTOCOL_VERSION,
@@ -675,6 +675,25 @@ impl AsyncStorageConnection for Client {
                 user: user.name()?.into_owned(),
                 authentication,
             }))
+            .await?
+        {
+            Response::Server(ServerResponse::Authenticated(session)) => Ok(Self {
+                data: self.data.clone(),
+                session,
+            }),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn assume_identity(
+        &self,
+        identity: Identity,
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
+        match self
+            .send_request(Request::Server(ServerRequest::AssumeIdentity(identity)))
             .await?
         {
             Response::Server(ServerResponse::Authenticated(session)) => Ok(Self {

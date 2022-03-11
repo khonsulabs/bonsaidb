@@ -7,21 +7,21 @@ use bonsaidb_core::{
     document::{AnyDocumentId, OwnedDocument},
     keyvalue::AsyncKeyValue,
     permissions::Permissions,
-    pubsub::{AsyncPubSub, AsyncSubscriber, PubSub, Subscriber},
+    pubsub::{AsyncPubSub, AsyncSubscriber},
     schema::{self, view::map::MappedDocuments, Map, MappedValue, SerializedView},
     transaction::Transaction,
 };
 use bonsaidb_local::{AsyncDatabase, DatabaseNonBlocking};
 
-use crate::{CustomServer, NoBackend, ServerBackend};
+use crate::{Backend, CustomServer, NoBackend};
 
 /// A database belonging to a [`CustomServer`].
-pub struct ServerDatabase<B: ServerBackend = NoBackend> {
+pub struct ServerDatabase<B: Backend = NoBackend> {
     pub(crate) server: CustomServer<B>,
     pub(crate) db: AsyncDatabase,
 }
 
-impl<B: ServerBackend> ServerDatabase<B> {
+impl<B: Backend> ServerDatabase<B> {
     pub fn with_effective_permissions(&self, permissions: &Permissions) -> Self {
         Self {
             db: self.db.with_effective_permissions(permissions),
@@ -30,7 +30,7 @@ impl<B: ServerBackend> ServerDatabase<B> {
     }
 }
 
-impl<B: ServerBackend> Deref for ServerDatabase<B> {
+impl<B: Backend> Deref for ServerDatabase<B> {
     type Target = AsyncDatabase;
 
     fn deref(&self) -> &Self::Target {
@@ -40,14 +40,11 @@ impl<B: ServerBackend> Deref for ServerDatabase<B> {
 
 /// Uses `CustomServer`'s `PubSub` relay.
 #[async_trait]
-impl<B: ServerBackend> AsyncPubSub for ServerDatabase<B> {
-    type Subscriber = ServerSubscriber<B>;
+impl<B: Backend> AsyncPubSub for ServerDatabase<B> {
+    type Subscriber = bonsaidb_local::Subscriber;
 
     async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
-        Ok(self
-            .server
-            .create_subscriber(self.db.name().to_string())
-            .await)
+        self.db.create_subscriber().await
     }
 
     async fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
@@ -55,10 +52,15 @@ impl<B: ServerBackend> AsyncPubSub for ServerDatabase<B> {
         topic: S,
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.server
-            .publish_message(self.db.name(), &topic.into(), pot::to_vec(payload)?)
-            .await;
-        Ok(())
+        self.db.publish(topic, payload).await
+    }
+
+    async fn publish_bytes<S: Into<String> + Send>(
+        &self,
+        topic: S,
+        payload: Vec<u8>,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.db.publish_bytes(topic, payload).await
     }
 
     async fn publish_to_all<P: serde::Serialize + Sync>(
@@ -66,47 +68,21 @@ impl<B: ServerBackend> AsyncPubSub for ServerDatabase<B> {
         topics: Vec<String>,
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.server
-            .publish_serialized_to_all(self.db.name(), &topics, pot::to_vec(payload)?)
-            .await;
-        Ok(())
+        self.db.publish_to_all(topics, payload).await
     }
-}
 
-/// A `PubSub` subscriber for a [`CustomServer`].
-pub struct ServerSubscriber<B: ServerBackend> {
-    /// The unique ID of this subscriber.
-    pub id: u64,
-    pub(crate) database: String,
-    pub(crate) server: CustomServer<B>,
-    pub(crate) receiver: flume::Receiver<Arc<Message>>,
-}
-
-#[async_trait]
-impl<B: ServerBackend> AsyncSubscriber for ServerSubscriber<B> {
-    async fn subscribe_to<S: Into<String> + Send>(
+    async fn publish_bytes_to_all(
         &self,
-        topic: S,
+        topics: Vec<String>,
+        payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.server
-            .subscribe_to(self.id, &self.database, topic)
-            .await
-    }
-
-    async fn unsubscribe_from(&self, topic: &str) -> Result<(), bonsaidb_core::Error> {
-        self.server
-            .unsubscribe_from(self.id, &self.database, topic)
-            .await
-    }
-
-    fn receiver(&self) -> &'_ flume::Receiver<Arc<Message>> {
-        &self.receiver
+        self.db.publish_bytes_to_all(topics, payload).await
     }
 }
 
 /// Pass-through implementation
 #[async_trait]
-impl<B: ServerBackend> bonsaidb_core::connection::AsyncConnection for ServerDatabase<B> {
+impl<B: Backend> bonsaidb_core::connection::AsyncConnection for ServerDatabase<B> {
     async fn get<C, PrimaryKey>(
         &self,
         id: PrimaryKey,
@@ -251,7 +227,7 @@ impl<B: ServerBackend> bonsaidb_core::connection::AsyncConnection for ServerData
 
 /// Pass-through implementation
 #[async_trait]
-impl<B: ServerBackend> AsyncKeyValue for ServerDatabase<B> {
+impl<B: Backend> AsyncKeyValue for ServerDatabase<B> {
     async fn execute_key_operation(
         &self,
         op: bonsaidb_core::keyvalue::KeyOperation,

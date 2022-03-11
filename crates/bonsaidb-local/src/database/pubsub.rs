@@ -152,7 +152,9 @@ pub struct Subscriber {
 }
 
 impl Drop for Subscriber {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        // TODO
+    }
 }
 
 #[async_trait]

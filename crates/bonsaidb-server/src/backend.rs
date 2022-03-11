@@ -3,6 +3,7 @@ use std::{fmt::Debug, marker::PhantomData};
 use async_trait::async_trait;
 use bonsaidb_core::{
     actionable,
+    connection::Session,
     custom_api::{CustomApi, CustomApiError, Infallible},
     permissions::{Dispatcher, PermissionDenied},
     schema::{InsertError, InvalidNameError},
@@ -12,18 +13,11 @@ use crate::{server::ConnectedClient, CustomServer, Error};
 
 /// Tailors the behavior of a server to your needs.
 #[async_trait]
-pub trait ServerBackend: Debug + Send + Sync + Sized + 'static {
-    /// The custom API definition. If you do not wish to have an API, `()` may be provided.
-    type CustomApi: CustomApi;
-
+pub trait Backend: Debug + Send + Sync + Sized + 'static {
     /// The type of data that can be stored in
     /// [`ConnectedClient::set_client_data`]. This allows state to be stored
     /// associated with each connected client.
     type ClientData: Send + Sync + Debug;
-
-    /// The type that implements the
-    /// [`Dispatcher`](bonsaidb_core::permissions::Dispatcher) trait.
-    type CustomApiDispatcher: CustomApiDispatcher<Self>;
 
     /// Invoked once upon the server starting up.
     #[allow(unused_variables)]
@@ -57,23 +51,17 @@ pub trait ServerBackend: Debug + Send + Sync + Sized + 'static {
 
     /// A client successfully authenticated.
     #[allow(unused_variables)]
-    async fn client_authenticated(client: ConnectedClient<Self>, server: &CustomServer<Self>) {
+    async fn client_authenticated(
+        client: ConnectedClient<Self>,
+        session: &Session,
+        server: &CustomServer<Self>,
+    ) {
         log::info!(
-            "{:?} client authenticated as user: {}",
+            "{:?} client authenticated as user: {:?}",
             client.transport(),
-            client.user_id().await.unwrap()
+            session.identity
         );
     }
-}
-
-/// A trait that can dispatch requests for a [`CustomApi`].
-pub trait CustomApiDispatcher<B: ServerBackend>:
-    Dispatcher<<B::CustomApi as CustomApi>::Request, Result = BackendApiResult<B::CustomApi>> + Debug
-{
-    /// Returns a dispatcher to handle custom api requests. The `server` and
-    /// `client` parameters are provided to allow the dispatcher to have access
-    /// to them when handling the individual actions.
-    fn new(server: &CustomServer<B>, client: &ConnectedClient<B>) -> Self;
 }
 
 /// A [`Backend`] with no custom functionality.
@@ -81,29 +69,8 @@ pub trait CustomApiDispatcher<B: ServerBackend>:
 #[derive(Debug)]
 pub enum NoBackend {}
 
-impl ServerBackend for NoBackend {
-    type CustomApi = ();
-    type CustomApiDispatcher = NoDispatcher<Self>;
+impl Backend for NoBackend {
     type ClientData = ();
-}
-
-/// Defines a no-op dispatcher for a backend with no custom api.
-#[derive(Debug)]
-pub struct NoDispatcher<B: ServerBackend>(PhantomData<B>);
-
-impl<B: ServerBackend<CustomApi = ()>> CustomApiDispatcher<B> for NoDispatcher<B> {
-    fn new(_server: &CustomServer<B>, _client: &ConnectedClient<B>) -> Self {
-        Self(PhantomData)
-    }
-}
-
-#[async_trait]
-impl<B: ServerBackend<CustomApi = ()>> actionable::Dispatcher<()> for NoDispatcher<B> {
-    type Result = Result<(), BackendError>;
-
-    async fn dispatch(&self, _permissions: &actionable::Permissions, _request: ()) -> Self::Result {
-        Ok(())
-    }
 }
 
 /// Controls how a server should handle a connection.

@@ -41,7 +41,6 @@ pub mod custom_api;
 /// Key trait and related types.
 pub mod key;
 
-#[cfg(feature = "networking")]
 /// Types for implementing the BonsaiDb network protocol.
 pub mod networking;
 
@@ -134,7 +133,6 @@ pub enum Error {
     Websocket(String),
 
     /// An error occurred from networking.
-    #[cfg(feature = "networking")]
     #[error("a networking error occurred: '{0}'")]
     Networking(networking::Error),
 

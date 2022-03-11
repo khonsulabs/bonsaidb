@@ -7,7 +7,7 @@ use bonsaidb::{
         admin::{Admin, PermissionGroup, ADMIN_DATABASE_NAME},
         circulate::flume,
         connection::AsyncStorageConnection,
-        keyvalue::KeyValue,
+        keyvalue::AsyncKeyValue,
         permissions::{
             bonsai::{BonsaiAction, ServerAction},
             Statement,
@@ -291,7 +291,7 @@ async fn assume_permissions(
                 name: String::from(label),
                 statements,
             }
-            .push_into(&admin)
+            .push_into_async(&admin)
             .await)
             {
                 Ok(doc) => doc.header.id,

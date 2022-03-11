@@ -32,16 +32,12 @@ pub use config::{
 };
 
 pub use self::{
-    backend::{
-        BackendError, ConnectionHandling, CustomApiDispatcher, NoBackend, NoDispatcher,
-        ServerBackend,
-    },
+    backend::{Backend, BackendError, ConnectionHandling, NoBackend},
     config::{DefaultPermissions, ServerConfiguration},
     error::Error,
     server::{
         ApplicationProtocols, ConnectedClient, CustomServer, HttpService, LockedClientDataGuard,
-        Peer, Server, ServerDatabase, ServerSubscriber, StandardTcpProtocols, TcpService,
-        Transport,
+        Peer, Server, ServerDatabase, StandardTcpProtocols, TcpService, Transport,
     },
 };
 

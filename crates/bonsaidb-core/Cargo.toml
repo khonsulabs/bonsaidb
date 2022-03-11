@@ -15,13 +15,11 @@ rust-version = "1.58"
 [features]
 default = []
 test-util = ["tokio", "anyhow"]
-networking = ["multiuser"]
 websockets = []
 actionable-traits = []
 instrument = ["pot/tracing"]
-multiuser = ["zeroize"]
 encryption = []
-password-hashing = ["multiuser"]
+password-hashing = []
 included-from-omnibus = ["bonsaidb-macros/omnibus-path"]
 included-from-server = ["bonsaidb-macros/server-path"]
 included-from-local = ["bonsaidb-macros/local-path"]
@@ -47,7 +45,7 @@ derive-where = "=1.0.0-rc.2"
 transmog = "0.1.0"
 transmog-pot = "0.1.0"
 arc-bytes = { version = "0.3.3", features = ["serde"] }
-zeroize = { version = "1", optional = true, features = ["zeroize_derive"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [dev-dependencies]
 hex-literal = "0.3"
@@ -58,4 +56,4 @@ anyhow = "1"
 transmog-bincode = "0.1"
 
 [package.metadata.docs.rs]
-features = ["networking", "websockets", "encryption", "password-hashing"]
+features = ["websockets", "encryption", "password-hashing"]

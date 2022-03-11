@@ -6,11 +6,12 @@ use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     circulate,
     connection::{
-        self, AccessPolicy, AsyncConnection, AsyncStorageConnection, Connection, QueryKey, Range,
-        Session, Sort, StorageConnection,
+        self, AccessPolicy, AsyncConnection, AsyncNetworking, AsyncStorageConnection, Connection,
+        Identity, Networking, QueryKey, Range, Session, Sort, StorageConnection,
     },
     document::{AnyDocumentId, OwnedDocument},
     keyvalue::{AsyncKeyValue, KeyOperation, KeyValue, Output},
+    networking::{Request, Response},
     permissions::Permissions,
     pubsub::{self, AsyncPubSub, AsyncSubscriber, PubSub},
     schema::{
@@ -19,7 +20,6 @@ use bonsaidb_core::{
     },
     transaction::{self, OperationResult, Transaction},
 };
-use derive_where::derive_where;
 
 use crate::{
     config::StorageConfiguration,
@@ -56,6 +56,19 @@ impl AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.backup(&location))
             .await?
+    }
+
+    /// Returns a clone with `effective_permissions`. Replaces any previously applied permissions.
+    ///
+    /// # Unstable
+    ///
+    /// See [this issue](https://github.com/khonsulabs/bonsaidb/issues/68).
+    #[doc(hidden)]
+    pub fn with_effective_permissions(&self, effective_permissions: &Permissions) -> Self {
+        Self::from(
+            self.storage
+                .with_effective_permissions(effective_permissions),
+        )
     }
 }
 
@@ -277,6 +290,17 @@ impl AsyncStorageConnection for AsyncStorage {
             .unwrap()
     }
 
+    async fn assume_identity(
+        &self,
+        identity: Identity,
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        self.runtime
+            .spawn_blocking(move || task_self.storage.assume_identity(identity).map(Self::from))
+            .await
+            .unwrap()
+    }
+
     async fn add_permission_group_to_user<
         'user,
         'group,
@@ -353,6 +377,17 @@ impl AsyncStorageConnection for AsyncStorage {
         let role = role.name()?.into_owned();
         self.runtime
             .spawn_blocking(move || task_self.storage.remove_role_from_user(user, role))
+            .await
+            .unwrap()
+    }
+}
+
+#[async_trait]
+impl AsyncNetworking for AsyncStorage {
+    async fn request(&self, request: Request) -> Result<Response, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        self.runtime
+            .spawn_blocking(move || task_self.storage.request(request))
             .await
             .unwrap()
     }

@@ -18,23 +18,23 @@ use bonsaidb_core::{
     admin::{
         self,
         database::{self, ByName, Database as DatabaseRecord},
-        Admin, ADMIN_DATABASE_NAME,
+        user::User,
+        Admin, PermissionGroup, Role, ADMIN_DATABASE_NAME,
     },
     circulate,
-    connection::{self, Connection, Session, StorageConnection},
-    permissions::{
-        bonsai::{bonsaidb_resource_name, database_resource_name, BonsaiAction, ServerAction},
-        Action, Identifier, Permissions,
-    },
-    schema::{Name, Schema, SchemaName, Schematic},
-};
-#[cfg(feature = "multiuser")]
-use bonsaidb_core::{
-    admin::{user::User, PermissionGroup, Role},
-    connection::Identity,
+    connection::{self, Connection, Identity, Networking, Session, StorageConnection},
     document::CollectionDocument,
-    permissions::bonsai::{user_resource_name, AuthenticationMethod},
-    schema::{Nameable, NamedCollection},
+    networking::{Request, Response},
+    permissions::{
+        bonsai::{
+            bonsaidb_resource_name, database_resource_name, user_resource_name,
+            AuthenticationMethod, BonsaiAction, ServerAction,
+        },
+        Action, Dispatcher, Identifier, Permissions,
+    },
+    schema::{
+        Name, Nameable, NamedCollection, Schema, SchemaName, Schematic, SerializedCollection,
+    },
 };
 use itertools::Itertools;
 use nebari::{
@@ -55,6 +55,7 @@ use crate::{
     config::{KeyValuePersistence, StorageConfiguration},
     custom_api::AnyCustomApiDispatcher,
     database::Context,
+    dispatch::StorageDispatcher,
     tasks::{manager::Manager, TaskManager},
     Database, Error,
 };
@@ -238,7 +239,7 @@ struct Data {
     available_databases: RwLock<HashMap<String, SchemaName>>,
     open_roots: Mutex<HashMap<String, Context>>,
     // cfg check matches `Connection::authenticate`
-    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+    #[cfg(feature = "password-hashing")]
     sessions: RwLock<AuthenticatedSessions>,
     pub(crate) subscribers: Arc<RwLock<SessionSubscribers>>,
     #[cfg(feature = "password-hashing")]
@@ -316,7 +317,7 @@ impl Storage {
                     tasks,
                     parallelization,
                     subscribers: Arc::default(),
-                    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+                    #[cfg(feature = "password-hashing")]
                     sessions: RwLock::default(),
                     #[cfg(feature = "password-hashing")]
                     argon,
@@ -614,7 +615,6 @@ impl StorageInstance {
         }
     }
 
-    #[cfg(feature = "multiuser")]
     fn update_user_with_named_id<
         'user,
         'other,
@@ -644,7 +644,6 @@ impl StorageInstance {
         }
     }
 
-    #[cfg(feature = "multiuser")]
     fn authenticate_inner(
         &self,
         user: CollectionDocument<User>,
@@ -662,39 +661,42 @@ impl StorageInstance {
                 self.data
                     .argon
                     .verify(user.header.id, password, saved_hash)?;
-                let permissions = user.contents.effective_permissions(admin)?;
-
-                let mut sessions = self.data.sessions.write();
-                sessions.last_session_id += 1;
-                let session_id = sessions.last_session_id;
-                let session = Session {
-                    id: Some(session_id),
-                    identity: Some(Arc::new(Identity::User {
-                        id: user.header.id,
-                        username: user.contents.username,
-                    })),
-                    permissions,
-                };
-                let authentication = Arc::new(AuthenticatedSession {
-                    storage: Arc::downgrade(&self.data),
-                    session: session.clone(),
-                });
-                sessions.sessions.insert(session_id, authentication.clone());
-
-                // TODO this should go to the new backend trait
-                // self.client
-                //     .logged_in_as(response.user_id, response.permissions.clone())
-                //     .await;
-                Ok(Storage {
-                    instance: self.clone(),
-                    authentication: Some(authentication),
-                    effective_session: session,
-                })
+                self.assume_user(user, admin)
             }
         }
     }
 
-    #[cfg(feature = "multiuser")]
+    fn assume_user(
+        &self,
+        user: CollectionDocument<User>,
+        admin: &Database,
+    ) -> Result<Storage, bonsaidb_core::Error> {
+        let permissions = user.contents.effective_permissions(admin)?;
+
+        let mut sessions = self.data.sessions.write();
+        sessions.last_session_id += 1;
+        let session_id = sessions.last_session_id;
+        let session = Session {
+            id: Some(session_id),
+            identity: Some(Arc::new(Identity::User {
+                id: user.header.id,
+                username: user.contents.username,
+            })),
+            permissions,
+        };
+        let authentication = Arc::new(AuthenticatedSession {
+            storage: Arc::downgrade(&self.data),
+            session: session.clone(),
+        });
+        sessions.sessions.insert(session_id, authentication.clone());
+
+        Ok(Storage {
+            instance: self.clone(),
+            authentication: Some(authentication),
+            effective_session: session,
+        })
+    }
+
     fn add_permission_group_to_user_inner(
         user: &mut CollectionDocument<User>,
         permission_group_id: u64,
@@ -707,7 +709,6 @@ impl StorageInstance {
         }
     }
 
-    #[cfg(feature = "multiuser")]
     fn remove_permission_group_from_user_inner(
         user: &mut CollectionDocument<User>,
         permission_group_id: u64,
@@ -717,7 +718,6 @@ impl StorageInstance {
         old_len != user.contents.groups.len()
     }
 
-    #[cfg(feature = "multiuser")]
     fn add_role_to_user_inner(user: &mut CollectionDocument<User>, role_id: u64) -> bool {
         if user.contents.roles.contains(&role_id) {
             false
@@ -727,7 +727,6 @@ impl StorageInstance {
         }
     }
 
-    #[cfg(feature = "multiuser")]
     fn remove_role_from_user_inner(user: &mut CollectionDocument<User>, role_id: u64) -> bool {
         let old_len = user.contents.roles.len();
         user.contents.roles.retain(|id| id != &role_id);
@@ -902,7 +901,6 @@ impl StorageConnection for StorageInstance {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
-    #[cfg(feature = "multiuser")]
     fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         let result = self
             .admin()
@@ -912,7 +910,6 @@ impl StorageConnection for StorageInstance {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
-    #[cfg(feature = "multiuser")]
     fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
@@ -937,7 +934,7 @@ impl StorageConnection for StorageInstance {
         user.update(&admin)
     }
 
-    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+    #[cfg(feature = "password-hashing")]
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
     fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
@@ -950,8 +947,22 @@ impl StorageConnection for StorageInstance {
             .map(Storage::from)
     }
 
+    fn assume_identity(
+        &self,
+        identity: Identity,
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
+        let admin = self.admin();
+        match identity {
+            Identity::User { id, .. } => {
+                let user =
+                    User::get(id, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+                self.assume_user(user, &admin).map(Storage::from)
+            }
+            _ => todo!(),
+        }
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
-    #[cfg(feature = "multiuser")]
     fn add_permission_group_to_user<
         'user,
         'group,
@@ -975,7 +986,6 @@ impl StorageConnection for StorageInstance {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
-    #[cfg(feature = "multiuser")]
     fn remove_permission_group_from_user<
         'user,
         'group,
@@ -999,7 +1009,6 @@ impl StorageConnection for StorageInstance {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
-    #[cfg(feature = "multiuser")]
     fn add_role_to_user<
         'user,
         'group,
@@ -1016,7 +1025,6 @@ impl StorageConnection for StorageInstance {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
-    #[cfg(feature = "multiuser")]
     fn remove_role_from_user<
         'user,
         'group,
@@ -1095,7 +1103,6 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
-    #[cfg(feature = "multiuser")]
     fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         self.check_permission(
             bonsaidb_resource_name(),
@@ -1105,7 +1112,6 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
-    #[cfg(feature = "multiuser")]
     fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
@@ -1141,7 +1147,7 @@ impl StorageConnection for Storage {
         self.instance.set_user_password(user, password)
     }
 
-    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+    #[cfg(feature = "password-hashing")]
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
     fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
@@ -1165,8 +1171,28 @@ impl StorageConnection for Storage {
             .authenticate_inner(user, authentication, &admin)
     }
 
+    fn assume_identity(
+        &self,
+        identity: Identity,
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
+        match identity {
+            Identity::User { id, .. } => {
+                self.check_permission(
+                    user_resource_name(id),
+                    &BonsaiAction::Server(ServerAction::AssumeIdentity),
+                )?;
+                let admin = self.admin();
+                let user =
+                    User::load(id, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+                self.instance.assume_user(user, &admin)
+            }
+
+            // TODO better error
+            _ => Err(bonsaidb_core::Error::UserNotFound),
+        }
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
-    #[cfg(feature = "multiuser")]
     fn add_permission_group_to_user<
         'user,
         'group,
@@ -1195,7 +1221,6 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
-    #[cfg(feature = "multiuser")]
     fn remove_permission_group_from_user<
         'user,
         'group,
@@ -1224,7 +1249,6 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
-    #[cfg(feature = "multiuser")]
     fn add_role_to_user<
         'user,
         'group,
@@ -1246,7 +1270,6 @@ impl StorageConnection for Storage {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
-    #[cfg(feature = "multiuser")]
     fn remove_role_from_user<
         'user,
         'group,
@@ -1265,6 +1288,14 @@ impl StorageConnection for Storage {
                 )?;
                 Ok(StorageInstance::remove_role_from_user_inner(user, role_id))
             })
+    }
+}
+
+impl Networking for Storage {
+    fn request(&self, request: Request) -> Result<Response, bonsaidb_core::Error> {
+        StorageDispatcher { storage: self }
+            .dispatch(&self.effective_session.permissions, request)
+            .map_err(bonsaidb_core::Error::from)
     }
 }
 

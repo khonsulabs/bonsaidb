@@ -12,9 +12,8 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use transmog_pot::Pot;
 
-#[cfg(feature = "multiuser")]
-use crate::admin::{PermissionGroup, Role, User};
 use crate::{
+    admin::{PermissionGroup, Role, User},
     connection::{AccessPolicy, AsyncConnection, AsyncStorageConnection},
     document::{
         AnyDocumentId, BorrowedDocument, CollectionDocument, CollectionHeader, DocumentId, Emit,
@@ -627,7 +626,6 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
-        #[cfg(any(feature = "multiuser", feature = "local-multiuser", feature = "server"))]
         async fn user_management() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::UserManagement).await?;
             let _db = harness.connect().await?;
@@ -1390,7 +1388,6 @@ pub async fn compaction_tests<C: AsyncConnection + AsyncKeyValue>(db: &C) -> any
     Ok(())
 }
 
-#[cfg(feature = "multiuser")]
 pub async fn user_management_tests<C: AsyncConnection, S: AsyncStorageConnection>(
     admin: &C,
     server: S,

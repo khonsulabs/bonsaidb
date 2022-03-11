@@ -5,9 +5,12 @@ use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{permissions::Permissions, schema::Schema};
 #[cfg(feature = "compression")]
 use bonsaidb_local::config::Compression;
-use bonsaidb_local::config::{Builder, KeyValuePersistence, StorageConfiguration};
 #[cfg(feature = "encryption")]
 use bonsaidb_local::vault::AnyVaultKeyStorage;
+use bonsaidb_local::{
+    config::{Builder, KeyValuePersistence, StorageConfiguration},
+    custom_api::CustomApiDispatcher,
+};
 
 /// Configuration options for [`Server`](crate::Server)
 #[derive(Debug, Clone)]
@@ -130,8 +133,6 @@ mod acme {
 #[cfg(feature = "acme")]
 pub use acme::*;
 
-use crate::backend;
-
 /// The default permissions to use for all connections to the server.
 #[derive(Debug, Clone)]
 pub enum DefaultPermissions {
@@ -156,7 +157,7 @@ impl From<Permissions> for DefaultPermissions {
     }
 }
 
-impl<Backend: backend::Backend> Builder for ServerConfiguration<Backend> {
+impl Builder for ServerConfiguration {
     fn with_schema<S: Schema>(mut self) -> Result<Self, bonsaidb_local::Error> {
         self.storage.register_schema::<S>()?;
         Ok(self)
@@ -216,5 +217,13 @@ impl<Backend: backend::Backend> Builder for ServerConfiguration<Backend> {
     fn key_value_persistence(mut self, persistence: KeyValuePersistence) -> Self {
         self.storage.key_value_persistence = persistence;
         self
+    }
+
+    fn with_custom_api<Dispatcher: CustomApiDispatcher + 'static>(
+        mut self,
+        dispatcher: Dispatcher,
+    ) -> Result<Self, bonsaidb_local::Error> {
+        self.storage.register_custom_api(dispatcher)?;
+        Ok(self)
     }
 }

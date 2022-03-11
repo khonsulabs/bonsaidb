@@ -5,21 +5,19 @@ use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
 use futures::{future::BoxFuture, Future, FutureExt};
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "multiuser")]
 use zeroize::Zeroize;
 
-#[cfg(feature = "multiuser")]
-use crate::schema::Nameable;
 use crate::{
     document::{
         AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, OwnedDocument,
     },
     key::{IntoPrefixRange, Key},
+    networking::{Request, Response},
     permissions::Permissions,
     schema::{
         self,
         view::{self, map::MappedDocuments},
-        Map, MappedValue, Schema, SchemaName, SerializedCollection,
+        Map, MappedValue, Nameable, Schema, SchemaName, SerializedCollection,
     },
     transaction::{self, OperationResult, Transaction},
     Error,
@@ -2904,11 +2902,9 @@ pub trait StorageConnection: Sized + Send + Sync {
     fn list_available_schemas(&self) -> Result<Vec<SchemaName>, crate::Error>;
 
     /// Creates a user.
-    #[cfg(feature = "multiuser")]
     fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
 
     /// Deletes a user.
-    #[cfg(feature = "multiuser")]
     fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
@@ -2923,15 +2919,16 @@ pub trait StorageConnection: Sized + Send + Sync {
     ) -> Result<(), crate::Error>;
 
     /// Authenticates as a user with a authentication method.
-    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+    #[cfg(feature = "password-hashing")]
     fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         authentication: Authentication,
     ) -> Result<Self::Authenticated, crate::Error>;
 
+    fn assume_identity(&self, identity: Identity) -> Result<Self::Authenticated, crate::Error>;
+
     /// Adds a user to a permission group.
-    #[cfg(feature = "multiuser")]
     fn add_permission_group_to_user<
         'user,
         'group,
@@ -2944,7 +2941,6 @@ pub trait StorageConnection: Sized + Send + Sync {
     ) -> Result<(), crate::Error>;
 
     /// Removes a user from a permission group.
-    #[cfg(feature = "multiuser")]
     fn remove_permission_group_from_user<
         'user,
         'group,
@@ -2957,7 +2953,6 @@ pub trait StorageConnection: Sized + Send + Sync {
     ) -> Result<(), crate::Error>;
 
     /// Adds a user to a permission group.
-    #[cfg(feature = "multiuser")]
     fn add_role_to_user<
         'user,
         'role,
@@ -2970,7 +2965,6 @@ pub trait StorageConnection: Sized + Send + Sync {
     ) -> Result<(), crate::Error>;
 
     /// Removes a user from a permission group.
-    #[cfg(feature = "multiuser")]
     fn remove_role_from_user<
         'user,
         'role,
@@ -2981,6 +2975,10 @@ pub trait StorageConnection: Sized + Send + Sync {
         user: U,
         role: R,
     ) -> Result<(), crate::Error>;
+}
+
+pub trait Networking {
+    fn request(&self, request: Request) -> Result<Response, Error>;
 }
 
 /// Functions for interacting with a multi-database BonsaiDb instance.
@@ -3047,11 +3045,9 @@ pub trait AsyncStorageConnection: Sized + Send + Sync {
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, crate::Error>;
 
     /// Creates a user.
-    #[cfg(feature = "multiuser")]
     async fn create_user(&self, username: &str) -> Result<u64, crate::Error>;
 
     /// Deletes a user.
-    #[cfg(feature = "multiuser")]
     async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
@@ -3066,15 +3062,19 @@ pub trait AsyncStorageConnection: Sized + Send + Sync {
     ) -> Result<(), crate::Error>;
 
     /// Authenticates as a user with a authentication method.
-    #[cfg(all(feature = "multiuser", feature = "password-hashing"))]
+    #[cfg(feature = "password-hashing")]
     async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
         authentication: Authentication,
     ) -> Result<Self::Authenticated, crate::Error>;
 
+    async fn assume_identity(
+        &self,
+        identity: Identity,
+    ) -> Result<Self::Authenticated, crate::Error>;
+
     /// Adds a user to a permission group.
-    #[cfg(feature = "multiuser")]
     async fn add_permission_group_to_user<
         'user,
         'group,
@@ -3087,7 +3087,6 @@ pub trait AsyncStorageConnection: Sized + Send + Sync {
     ) -> Result<(), crate::Error>;
 
     /// Removes a user from a permission group.
-    #[cfg(feature = "multiuser")]
     async fn remove_permission_group_from_user<
         'user,
         'group,
@@ -3100,7 +3099,6 @@ pub trait AsyncStorageConnection: Sized + Send + Sync {
     ) -> Result<(), crate::Error>;
 
     /// Adds a user to a permission group.
-    #[cfg(feature = "multiuser")]
     async fn add_role_to_user<
         'user,
         'role,
@@ -3113,7 +3111,6 @@ pub trait AsyncStorageConnection: Sized + Send + Sync {
     ) -> Result<(), crate::Error>;
 
     /// Removes a user from a permission group.
-    #[cfg(feature = "multiuser")]
     async fn remove_role_from_user<
         'user,
         'role,
@@ -3124,6 +3121,11 @@ pub trait AsyncStorageConnection: Sized + Send + Sync {
         user: U,
         role: R,
     ) -> Result<(), crate::Error>;
+}
+
+#[async_trait]
+pub trait AsyncNetworking {
+    async fn request(&self, request: Request) -> Result<Response, Error>;
 }
 
 /// A database stored in BonsaiDb.
@@ -3137,20 +3139,17 @@ pub struct Database {
 
 /// A plain-text password. This struct automatically overwrites the password
 /// with zeroes when dropped.
-#[cfg(feature = "multiuser")]
 #[derive(Clone, Serialize, Deserialize, Zeroize)]
 #[zeroize(drop)]
 #[serde(transparent)]
 pub struct SensitiveString(pub String);
 
-#[cfg(feature = "multiuser")]
 impl std::fmt::Debug for SensitiveString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("SensitiveString(...)")
     }
 }
 
-#[cfg(feature = "multiuser")]
 impl Deref for SensitiveString {
     type Target = String;
 

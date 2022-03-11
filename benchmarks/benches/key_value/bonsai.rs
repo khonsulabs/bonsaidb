@@ -2,7 +2,7 @@ use std::{path::Path, time::Duration};
 
 use bonsaidb::{
     client::{url::Url, Client, RemoteDatabase},
-    core::{connection::AsyncStorageConnection, keyvalue::KeyValue},
+    core::{connection::AsyncStorageConnection, keyvalue::AsyncKeyValue},
     local::config::{Builder, KeyValuePersistence, PersistenceThreshold},
     server::{DefaultPermissions, Server, ServerConfiguration},
 };
@@ -82,13 +82,13 @@ fn write_blobs_networked(c: &mut BenchmarkGroup<WallTime>, data: &[u8]) {
     });
 }
 
-async fn get_blob<C: KeyValue>(connection: &C) {
+async fn get_blob<C: AsyncKeyValue>(connection: &C) {
     // The set_key API provides serialization. Uisng this API, we can skip
     // serialization.
     connection.get_key("blob").await.unwrap().unwrap();
 }
 
-async fn set_blob<C: KeyValue>(connection: &C, blob: &[u8]) {
+async fn set_blob<C: AsyncKeyValue>(connection: &C, blob: &[u8]) {
     // The set_key API provides serialization. Uisng this API, we can skip
     // serialization.
     connection.set_binary_key("blob", blob).await.unwrap();
@@ -126,7 +126,7 @@ fn increment_networked(c: &mut BenchmarkGroup<WallTime>) {
     });
 }
 
-async fn increment_key<C: KeyValue>(connection: &C) {
+async fn increment_key<C: AsyncKeyValue>(connection: &C) {
     connection.increment_key_by("u64", 1_u64).await.unwrap();
 }
 

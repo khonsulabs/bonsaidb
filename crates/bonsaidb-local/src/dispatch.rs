@@ -2,8 +2,7 @@
 use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
-    connection::{AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    custom_api::{CustomApi, CustomApiResult},
+    connection::{AccessPolicy, Connection, Identity, QueryKey, Range, Sort, StorageConnection},
     document::DocumentId,
     keyvalue::{KeyOperation, KeyValue},
     networking::{
@@ -17,15 +16,12 @@ use bonsaidb_core::{
     transaction::Transaction,
 };
 
-use crate::{
-    custom_api::{self, CustomApiDispatcher, DispatchError},
-    Database, Error, Storage,
-};
+use crate::{Database, Error, Storage};
 
 #[derive(Dispatcher, Debug)]
 #[dispatcher(input = Request, input = ServerRequest, actionable = bonsaidb_core::actionable)]
-struct StorageDispatcher<'s> {
-    storage: &'s Storage,
+pub struct StorageDispatcher<'s> {
+    pub storage: &'s Storage,
 }
 
 impl<'s> RequestDispatcher for StorageDispatcher<'s> {
@@ -156,6 +152,16 @@ impl<'s> bonsaidb_core::networking::AuthenticateHandler for StorageDispatcher<'s
         let authenticated = self
             .storage
             .authenticate(username.clone(), authentication)?;
+
+        Ok(Response::Server(ServerResponse::Authenticated(
+            authenticated.session().cloned().unwrap(),
+        )))
+    }
+}
+
+impl<'s> bonsaidb_core::networking::AssumeIdentityHandler for StorageDispatcher<'s> {
+    fn handle(&self, _permissions: &Permissions, identity: Identity) -> Result<Response, Error> {
+        let authenticated = self.storage.assume_identity(identity)?;
 
         Ok(Response::Server(ServerResponse::Authenticated(
             authenticated.session().cloned().unwrap(),

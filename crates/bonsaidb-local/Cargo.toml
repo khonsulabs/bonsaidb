@@ -16,14 +16,7 @@ rust-version = "1.58"
 
 [features]
 default = ["full"]
-full = [
-    "cli",
-    "encryption",
-    "instrument",
-    "multiuser",
-    "password-hashing",
-    "compression",
-]
+full = ["cli", "encryption", "instrument", "password-hashing", "compression"]
 cli = ["clap"]
 internal-apis = []
 instrument = ["pot/tracing", "nebari/tracing", "tracing"]
@@ -36,12 +29,10 @@ encryption = [
     "chacha20poly1305",
 ]
 compression = ["lz4_flex"]
-multiuser = ["bonsaidb-core/multiuser"]
 password-hashing = [
     "argon2",
     "zeroize",
     "once_cell",
-    "multiuser",
     "bonsaidb-core/password-hashing",
 ]
 included-from-omnibus = []

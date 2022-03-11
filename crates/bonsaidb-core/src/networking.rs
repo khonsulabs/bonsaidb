@@ -3,7 +3,7 @@ use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    connection::{AccessPolicy, Database, QueryKey, Range, Session, Sort},
+    connection::{AccessPolicy, Database, Identity, QueryKey, Range, Session, Sort},
     document::{DocumentId, OwnedDocument},
     keyvalue::{KeyOperation, Output},
     schema::{
@@ -104,7 +104,8 @@ pub enum ServerRequest {
         /// The method of authentication.
         authentication: crate::connection::Authentication,
     },
-
+    #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
+    AssumeIdentity(Identity),
     /// Alter's a user's membership in a permission group.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     AlterUserPermissionGroupMembership {

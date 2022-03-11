@@ -111,12 +111,6 @@ impl Default for StorageConfiguration {
 }
 
 impl StorageConfiguration {
-    /// Creates a default configuration with `path` set.
-    #[must_use]
-    pub fn new<P: AsRef<Path>>(path: P) -> Self {
-        Self::default().path(path)
-    }
-
     /// Registers the schema provided.
     pub fn register_schema<S: Schema>(&mut self) -> Result<(), Error> {
         // TODO this should error on duplicate registration.
@@ -330,7 +324,12 @@ impl PersistenceThreshold {
 }
 
 /// Storage configuration builder methods.
-pub trait Builder: Sized {
+pub trait Builder: Default {
+    /// Creates a default configuration with `path` set.
+    #[must_use]
+    fn new<P: AsRef<Path>>(path: P) -> Self {
+        Self::default().path(path)
+    }
     /// Registers the schema and returns self.
     fn with_schema<S: Schema>(self) -> Result<Self, Error>;
     /// Registers the custom api dispatcher and returns self.

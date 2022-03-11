@@ -1,9 +1,9 @@
 use bonsaidb_core::networking::CURRENT_PROTOCOL_VERSION;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::{CustomServer, Error, ServerBackend};
+use crate::{Backend, CustomServer, Error};
 
-impl<B: ServerBackend> CustomServer<B> {
+impl<B: Backend> CustomServer<B> {
     /// Listens for websocket connections on `addr`.
     pub async fn listen_for_websockets_on<T: tokio::net::ToSocketAddrs + Send + Sync>(
         &self,
@@ -98,10 +98,7 @@ impl<B: ServerBackend> CustomServer<B> {
         connection: S,
         peer_address: std::net::SocketAddr,
     ) {
-        use bonsaidb_core::{
-            custom_api::CustomApi,
-            networking::{Payload, Request, Response},
-        };
+        use bonsaidb_core::networking::{Payload, Request};
         use futures::{SinkExt, StreamExt};
         use tokio_tungstenite::tungstenite::Message;
 
@@ -122,11 +119,12 @@ impl<B: ServerBackend> CustomServer<B> {
         };
         let task_sender = response_sender.clone();
         tokio::spawn(async move {
-            while let Ok(response) = api_response_receiver.recv_async().await {
+            while let Ok((session_id, response)) = api_response_receiver.recv_async().await {
                 if task_sender
                     .send(Payload {
                         id: None,
-                        wrapped: Response::Api(response),
+                        session_id,
+                        wrapped: response,
                     })
                     .is_err()
                 {
@@ -160,9 +158,7 @@ impl<B: ServerBackend> CustomServer<B> {
         });
 
         let (request_sender, request_receiver) =
-            flume::bounded::<Payload<Request<<B::CustomApi as CustomApi>::Request>>>(
-                self.data.client_simultaneous_request_limit,
-            );
+            flume::bounded::<Payload<Request>>(self.data.client_simultaneous_request_limit);
         let task_self = self.clone();
         tokio::spawn(async move {
             task_self
@@ -173,10 +169,7 @@ impl<B: ServerBackend> CustomServer<B> {
         while let Some(payload) = receiver.next().await {
             match payload {
                 Ok(Message::Binary(binary)) => {
-                    match bincode::deserialize::<
-                        Payload<Request<<B::CustomApi as CustomApi>::Request>>,
-                    >(&binary)
-                    {
+                    match bincode::deserialize::<Payload<Request>>(&binary) {
                         Ok(payload) => drop(request_sender.send_async(payload).await),
                         Err(err) => {
                             log::error!("[server] error decoding message: {:?}", err);

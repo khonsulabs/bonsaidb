@@ -6,11 +6,11 @@ pub mod serve;
 use bonsaidb_local::cli::StorageCommand;
 use clap::Parser;
 
-use crate::{CustomServer, Error, NoBackend, ServerBackend, ServerConfiguration};
+use crate::{Backend, CustomServer, Error, NoBackend, ServerConfiguration};
 
 /// Available commands for `bonsaidb server`.
 #[derive(Parser, Debug)]
-pub enum Command<B: ServerBackend = NoBackend> {
+pub enum Command<B: Backend = NoBackend> {
     /// Manage the server's root certificate.
     #[clap(subcommand)]
     Certificate(certificate::Command),
@@ -23,7 +23,7 @@ pub enum Command<B: ServerBackend = NoBackend> {
     Storage(StorageCommand),
 }
 
-impl<B: ServerBackend> Command<B> {
+impl<B: Backend> Command<B> {
     /// Executes the command.
     pub async fn execute(&self, configuration: ServerConfiguration) -> Result<(), Error> {
         let server = CustomServer::<B>::open(configuration).await?;

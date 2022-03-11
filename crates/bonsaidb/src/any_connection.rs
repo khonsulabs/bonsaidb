@@ -1,10 +1,11 @@
 use bonsaidb_client::{Client, RemoteDatabase};
 #[cfg(feature = "password-hashing")]
-use bonsaidb_core::connection::{Authenticated, Authentication};
+use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     async_trait::async_trait,
     connection::{
-        self, AccessPolicy, AsyncConnection, AsyncStorageConnection, QueryKey, Range, Sort,
+        self, AccessPolicy, AsyncConnection, AsyncStorageConnection, Identity, QueryKey, Range,
+        Session, Sort,
     },
     document::{AnyDocumentId, OwnedDocument},
     schema::{
@@ -13,19 +14,34 @@ use bonsaidb_core::{
     },
     transaction::{Executed, OperationResult, Transaction},
 };
-use bonsaidb_server::{CustomServer, NoBackend, ServerBackend, ServerDatabase};
+use bonsaidb_server::{Backend, CustomServer, NoBackend, ServerDatabase};
 
 /// A local server or a server over a network connection.
-pub enum AnyServerConnection<B: ServerBackend> {
+pub enum AnyServerConnection<B: Backend> {
     /// A local server.
     Local(CustomServer<B>),
     /// A server accessed with a [`Client`].
-    Networked(Client<B::CustomApi>),
+    Networked(Client),
 }
 
 #[async_trait]
-impl<B: ServerBackend> AsyncStorageConnection for AnyServerConnection<B> {
+impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
     type Database = AnyDatabase<B>;
+    type Authenticated = Self;
+
+    fn session(&self) -> Option<&Session> {
+        match self {
+            Self::Local(server) => server.session(),
+            Self::Networked(client) => client.session(),
+        }
+    }
+
+    async fn admin(&self) -> Self::Database {
+        match self {
+            Self::Local(server) => AnyDatabase::Local(server.admin().await),
+            Self::Networked(client) => AnyDatabase::Networked(client.admin().await),
+        }
+    }
 
     async fn database<DB: Schema>(
         &self,
@@ -115,10 +131,26 @@ impl<B: ServerBackend> AsyncStorageConnection for AnyServerConnection<B> {
         &self,
         user: U,
         authentication: Authentication,
-    ) -> Result<Authenticated, bonsaidb_core::Error> {
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         match self {
-            Self::Local(server) => server.authenticate(user, authentication).await,
-            Self::Networked(client) => client.authenticate(user, authentication).await,
+            Self::Local(server) => server
+                .authenticate(user, authentication)
+                .await
+                .map(Self::Local),
+            Self::Networked(client) => client
+                .authenticate(user, authentication)
+                .await
+                .map(Self::Networked),
+        }
+    }
+
+    async fn assume_identity(
+        &self,
+        identity: Identity,
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.assume_identity(identity).await.map(Self::Local),
+            Self::Networked(client) => client.assume_identity(identity).await.map(Self::Networked),
         }
     }
 
@@ -205,15 +237,15 @@ impl<B: ServerBackend> AsyncStorageConnection for AnyServerConnection<B> {
 
 /// A database connection that can be either from a local server or a server
 /// over a network connection.
-pub enum AnyDatabase<B: ServerBackend = NoBackend> {
+pub enum AnyDatabase<B: Backend = NoBackend> {
     /// A local database.
     Local(ServerDatabase<B>),
     /// A networked database accessed with a [`Client`].
-    Networked(RemoteDatabase<B::CustomApi>),
+    Networked(RemoteDatabase),
 }
 
 #[async_trait]
-impl<B: ServerBackend> AsyncConnection for AnyDatabase<B> {
+impl<B: Backend> AsyncConnection for AnyDatabase<B> {
     async fn get<C, PrimaryKey>(
         &self,
         id: PrimaryKey,
