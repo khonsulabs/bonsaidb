@@ -8,7 +8,7 @@ use bonsaidb_core::{
 };
 use nebari::{
     io::any::AnyFile,
-    tree::{KeyEvaluation, Operation, Unversioned, Versioned},
+    tree::{Operation, ScanEvaluation, Unversioned, Versioned},
     ArcBytes, Roots, Tree,
 };
 use serde::{Deserialize, Serialize};
@@ -199,10 +199,10 @@ fn tree_keys<R: nebari::tree::Root>(
     tree.scan::<Infallible, _, _, _, _>(
         &(..),
         true,
-        |_, _, _| true,
+        |_, _, _| ScanEvaluation::ReadData,
         |key, _| {
             ids.push(key.clone());
-            KeyEvaluation::Skip
+            ScanEvaluation::Skip
         },
         |_, _, _| unreachable!(),
     )?;

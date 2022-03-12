@@ -40,7 +40,7 @@ use itertools::Itertools;
 use nebari::{
     io::any::AnyFile,
     tree::{
-        AnyTreeRoot, BorrowByteRange, BorrowedRange, CompareSwap, KeyEvaluation, Root, TreeRoot,
+        AnyTreeRoot, BorrowByteRange, BorrowedRange, CompareSwap, Root, ScanEvaluation, TreeRoot,
         Unversioned, Versioned,
     },
     AbortError, ExecutingTransaction, Roots, Tree,
@@ -562,16 +562,16 @@ impl Database {
                     Sort::Ascending => true,
                     Sort::Descending => false,
                 },
-                |_, _, _| true,
+                |_, _, _| ScanEvaluation::ReadData,
                 |_, _| {
                     if let Some(limit) = limit {
                         if keys_read >= limit {
-                            return KeyEvaluation::Stop;
+                            return ScanEvaluation::Stop;
                         }
 
                         keys_read += 1;
                     }
-                    KeyEvaluation::ReadData
+                    ScanEvaluation::ReadData
                 },
                 |_, _, doc| {
                     found_docs.push(
@@ -612,25 +612,10 @@ impl Database {
                     document_tree_name(&collection),
                 )?)
                 .map_err(Error::from)?;
-            let mut keys_found = 0;
             let ids = DocumentIdRange(ids);
-            tree.scan(
-                &ids.borrow_as_bytes(),
-                true,
-                |_, _, _| true,
-                |_, _| {
-                    keys_found += 1;
-                    KeyEvaluation::Skip
-                },
-                |_, _, _| unreachable!(),
-            )
-            .map_err(|err| match err {
-                AbortError::Other(err) => err,
-                AbortError::Nebari(err) => crate::Error::from(err),
-            })
-            .unwrap();
+            let stats = tree.reduce(&ids.borrow_as_bytes()).map_err(Error::from)?;
 
-            Ok(keys_found)
+            Ok(stats.alive_keys)
         })
         .await
         .unwrap()
@@ -1105,15 +1090,15 @@ impl Database {
                     view_entries.scan::<Infallible, _, _, _, _>(
                         &range.map_ref(|bytes| &bytes[..]),
                         forwards,
-                        |_, _, _| true,
+                        |_, _, _| ScanEvaluation::ReadData,
                         |_, _| {
                             if let Some(limit) = limit {
                                 if values_read >= limit {
-                                    return KeyEvaluation::Stop;
+                                    return ScanEvaluation::Stop;
                                 }
                                 values_read += 1;
                             }
-                            KeyEvaluation::ReadData
+                            ScanEvaluation::ReadData
                         },
                         |_key, _index, value| {
                             values.push(value);
@@ -1153,15 +1138,15 @@ impl Database {
             view_entries.scan::<Infallible, _, _, _, _>(
                 &(..),
                 forwards,
-                |_, _, _| true,
+                |_, _, _| ScanEvaluation::ReadData,
                 |_, _| {
                     if let Some(limit) = limit {
                         if values_read >= limit {
-                            return KeyEvaluation::Stop;
+                            return ScanEvaluation::Stop;
                         }
                         values_read += 1;
                     }
-                    KeyEvaluation::ReadData
+                    ScanEvaluation::ReadData
                 },
                 |_, _, value| {
                     values.push(value);
