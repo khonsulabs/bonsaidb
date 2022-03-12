@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fields. These functions are what the `Key` implementation for tuples is
   powered by.
 
+### Changed
+
+- Counting a list of documents now uses `reduce()` in Nebari, a new feature that
+  allows aggregating the embedded statistics without traversing the entire tree.
+  The net result is that retrieving a Collection's count should be near instant
+  and returning the count of a range of keys should be very fast as well.
+
 ### Fixed
 
 - Defining multiple views with the same name for the same collection will now
