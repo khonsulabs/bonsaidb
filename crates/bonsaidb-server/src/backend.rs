@@ -1,11 +1,10 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::fmt::Debug;
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    actionable,
     connection::Session,
-    custom_api::{CustomApi, CustomApiError, Infallible},
-    permissions::{Dispatcher, PermissionDenied},
+    custom_api::{CustomApiError, Infallible},
+    permissions::PermissionDenied,
     schema::{InsertError, InvalidNameError},
 };
 
@@ -131,6 +130,3 @@ where
         Self::Server(Error::from(error.error))
     }
 }
-
-pub type BackendApiResult<Api> =
-    Result<<Api as CustomApi>::Response, BackendError<<Api as CustomApi>::Error>>;

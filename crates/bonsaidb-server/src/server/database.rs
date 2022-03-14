@@ -1,16 +1,13 @@
-use std::{ops::Deref, sync::Arc};
+use std::ops::Deref;
 
 use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
-    circulate::Message,
-    connection::{
-        AccessPolicy, AsyncLowLevelDatabase, AsyncStorageConnection, QueryKey, Range, Sort,
-    },
+    connection::{AccessPolicy, AsyncLowLevelDatabase, QueryKey, Range, Sort},
     document::{AnyDocumentId, DocumentId, OwnedDocument},
     keyvalue::AsyncKeyValue,
     permissions::Permissions,
-    pubsub::{AsyncPubSub, AsyncSubscriber},
+    pubsub::AsyncPubSub,
     schema::{
         self,
         view::map::{MappedDocuments, MappedSerializedValue},
@@ -18,10 +15,10 @@ use bonsaidb_core::{
     },
     transaction::Transaction,
 };
-use bonsaidb_local::{AsyncDatabase, DatabaseNonBlocking};
+use bonsaidb_local::AsyncDatabase;
 use derive_where::derive_where;
 
-use crate::{Backend, CustomServer, Error, NoBackend};
+use crate::{Backend, CustomServer, NoBackend};
 
 /// A database belonging to a [`CustomServer`].
 #[derive_where(Debug)]
@@ -31,6 +28,7 @@ pub struct ServerDatabase<B: Backend = NoBackend> {
 }
 
 impl<B: Backend> ServerDatabase<B> {
+    #[must_use]
     pub fn with_effective_permissions(&self, permissions: &Permissions) -> Self {
         Self {
             db: self.db.with_effective_permissions(permissions),

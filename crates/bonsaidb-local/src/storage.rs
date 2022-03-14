@@ -305,7 +305,7 @@ impl Storage {
         #[cfg(all(feature = "compression", not(feature = "encryption")))]
         let tree_vault = TreeVault::new_if_needed(configuration.default_compression);
 
-        let authenticated_permissions = Permissions::from(configuration.authenticated_permissions);
+        let authenticated_permissions = configuration.authenticated_permissions;
 
         let storage = Self {
             instance: StorageInstance {

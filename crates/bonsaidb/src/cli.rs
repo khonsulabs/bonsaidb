@@ -1,6 +1,6 @@
 //! BonsaiDb command line tools.
 
-use std::{ffi::OsString, fmt::Debug, marker::PhantomData, path::PathBuf};
+use std::{ffi::OsString, fmt::Debug, path::PathBuf};
 
 use bonsaidb_client::{fabruic::Certificate, Client};
 use bonsaidb_core::async_trait::async_trait;
@@ -133,7 +133,7 @@ pub trait CommandLine: Sized + Send + Sync {
     }
 
     /// Returns the server configuration to use when initializing a local server.
-    async fn configuration(&mut self) -> anyhow::Result<ServerConfiguration>;
+    async fn configuration(&mut self) -> anyhow::Result<ServerConfiguration<Self::Backend>>;
 
     /// Execute the command on `connection`.
     async fn execute(
@@ -163,19 +163,17 @@ impl CommandLine for NoBackend {
 
 /// Runs the command-line interface with only the built-in commands, using
 /// `configuration` to launch a server if running a local command.
-pub async fn run<B: Backend>(configuration: ServerConfiguration) -> anyhow::Result<()> {
+pub async fn run<B: Backend>(configuration: ServerConfiguration<B>) -> anyhow::Result<()> {
     Args::parse()
         .execute(NoCommandLine::<B> {
             configuration: Some(configuration),
-            _backend: PhantomData,
         })
         .await
 }
 
 #[derive(Debug)]
 struct NoCommandLine<B: Backend> {
-    configuration: Option<ServerConfiguration>,
-    _backend: PhantomData<B>,
+    configuration: Option<ServerConfiguration<B>>,
 }
 
 #[async_trait]
@@ -183,7 +181,7 @@ impl<B: Backend> CommandLine for NoCommandLine<B> {
     type Backend = B;
     type Subcommand = NoBackend;
 
-    async fn configuration(&mut self) -> anyhow::Result<ServerConfiguration> {
+    async fn configuration(&mut self) -> anyhow::Result<ServerConfiguration<B>> {
         self.configuration
             .take()
             .ok_or_else(|| anyhow::anyhow!("configuration already consumed"))

@@ -2,7 +2,7 @@ use std::{convert::Infallible, str::Utf8Error, string::FromUtf8Error, sync::Arc}
 
 use bonsaidb_core::{
     permissions::PermissionDenied,
-    schema::{view, InvalidNameError},
+    schema::{view, InsertError, InvalidNameError},
     AnyError,
 };
 use nebari::AbortError;
@@ -75,6 +75,12 @@ pub enum Error {
     #[cfg(feature = "password-hashing")]
     #[error("password hash error: {0}")]
     PasswordHash(String),
+}
+
+impl<T> From<InsertError<T>> for Error {
+    fn from(err: InsertError<T>) -> Self {
+        Self::Core(err.error)
+    }
 }
 
 impl From<flume::RecvError> for Error {

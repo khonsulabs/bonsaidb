@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
 
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
@@ -14,15 +14,15 @@ use bonsaidb_local::config::{Builder, KeyValuePersistence, StorageConfiguration}
 use bonsaidb_local::vault::AnyVaultKeyStorage;
 
 use crate::{
-    custom_api::{AnyCustomApiDispatcher, CustomApiDispatcher},
-    Error,
+    custom_api::{AnyCustomApiDispatcher, AnyWrapper, CustomApiDispatcher},
+    Backend, Error, NoBackend,
 };
 
 /// Configuration options for [`Server`](crate::Server)
 #[derive(Debug, Clone)]
 #[must_use]
 #[non_exhaustive]
-pub struct ServerConfiguration {
+pub struct ServerConfiguration<B: Backend = NoBackend> {
     /// The DNS name of the server.
     pub server_name: String,
     /// Number of sumultaneous requests a single client can have in flight at a
@@ -40,10 +40,10 @@ pub struct ServerConfiguration {
     #[cfg(feature = "acme")]
     pub acme: AcmeConfiguration,
 
-    pub(crate) custom_apis: HashMap<Name, Arc<dyn AnyCustomApiDispatcher>>,
+    pub(crate) custom_apis: HashMap<Name, Arc<dyn AnyCustomApiDispatcher<B>>>,
 }
 
-impl ServerConfiguration {
+impl<B: Backend> ServerConfiguration<B> {
     /// Sets [`Self::server_name`](Self#structfield.server_name) to `server_name` and returns self.
     pub fn server_name(mut self, server_name: impl Into<String>) -> Self {
         self.server_name = server_name.into();
@@ -51,13 +51,13 @@ impl ServerConfiguration {
     }
 
     /// Sets [`Self::client_simultaneous_request_limit`](Self#structfield.client_simultaneous_request_limit) to `request_limit` and returns self.
-    pub const fn client_simultaneous_request_limit(mut self, request_limit: usize) -> Self {
+    pub fn client_simultaneous_request_limit(mut self, request_limit: usize) -> Self {
         self.client_simultaneous_request_limit = request_limit;
         self
     }
 
     /// Sets [`Self::request_workers`](Self#structfield.request_workers) to `workers` and returns self.
-    pub const fn request_workers(mut self, workers: usize) -> Self {
+    pub fn request_workers(mut self, workers: usize) -> Self {
         self.request_workers = workers;
         self
     }
@@ -85,18 +85,20 @@ impl ServerConfiguration {
         self
     }
 
-    pub fn register_custom_api<Dispatcher: CustomApiDispatcher + 'static>(
+    pub fn register_custom_api<Dispatcher: CustomApiDispatcher<B> + 'static>(
         &mut self,
         dispatcher: Dispatcher,
     ) -> Result<(), Error> {
         // TODO this should error on duplicate registration.
-        self.custom_apis
-            .insert(<Dispatcher::Api as CustomApi>::name(), Arc::new(dispatcher));
+        self.custom_apis.insert(
+            <Dispatcher::Api as CustomApi>::name(),
+            Arc::new(AnyWrapper(dispatcher, PhantomData)),
+        );
         Ok(())
     }
 
     /// Registers the custom api dispatcher and returns self.
-    pub fn with_api<Dispatcher: CustomApiDispatcher + 'static>(
+    pub fn with_api<Dispatcher: CustomApiDispatcher<B> + 'static>(
         mut self,
         dispatcher: Dispatcher,
     ) -> Result<Self, Error> {
@@ -105,7 +107,7 @@ impl ServerConfiguration {
     }
 }
 
-impl Default for ServerConfiguration {
+impl<B: Backend> Default for ServerConfiguration<B> {
     fn default() -> Self {
         Self {
             server_name: String::from("bonsaidb"),
@@ -173,7 +175,7 @@ impl From<Permissions> for DefaultPermissions {
     }
 }
 
-impl Builder for ServerConfiguration {
+impl<B: Backend> Builder for ServerConfiguration<B> {
     fn with_schema<S: Schema>(mut self) -> Result<Self, bonsaidb_local::Error> {
         self.storage.register_schema::<S>()?;
         Ok(self)

@@ -1,7 +1,6 @@
 use std::{
     collections::{hash_map, HashMap},
     fmt::Debug,
-    marker::PhantomData,
     net::SocketAddr,
     ops::Deref,
     path::PathBuf,
@@ -17,23 +16,17 @@ use async_trait::async_trait;
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
-    admin::{Admin, User, ADMIN_DATABASE_NAME},
-    arc_bytes::serde::Bytes,
-    circulate::{Message, Relay, Subscriber},
+    admin::{Admin, ADMIN_DATABASE_NAME},
     connection::{
         self, AsyncConnection, AsyncStorageConnection, Identity, Session, SessionId,
         StorageConnection,
     },
     custom_api::{CustomApi, CustomApiResult},
-    networking::{
-        self, DatabaseResponse, Payload, Request, Response, ServerResponse,
-        CURRENT_PROTOCOL_VERSION,
-    },
+    networking::{self, Payload, Request, Response, CURRENT_PROTOCOL_VERSION},
     permissions::{
         bonsai::{bonsaidb_resource_name, BonsaiAction, ServerAction},
         Dispatcher, Permissions,
     },
-    pubsub::database_topic,
     schema::{self, Name, Nameable, NamedCollection, Schema},
 };
 use bonsaidb_local::{config::Builder, AsyncStorage, StorageNonBlocking};
@@ -100,13 +93,12 @@ struct Data<B: Backend = NoBackend> {
     client_simultaneous_request_limit: usize,
     primary_tls_key: CachedCertifiedKey,
     primary_domain: String,
-    custom_apis: parking_lot::RwLock<HashMap<Name, Arc<dyn AnyCustomApiDispatcher>>>,
+    custom_apis: parking_lot::RwLock<HashMap<Name, Arc<dyn AnyCustomApiDispatcher<B>>>>,
     #[cfg(feature = "acme")]
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
     alpn_keys: AlpnKeys,
     shutdown: Shutdown,
-    _backend: PhantomData<B>,
 }
 
 #[derive(Default)]
@@ -128,7 +120,7 @@ impl Deref for CachedCertifiedKey {
 
 impl<B: Backend> CustomServer<B> {
     /// Opens a server using `directory` for storage.
-    pub async fn open(configuration: ServerConfiguration) -> Result<Self, Error> {
+    pub async fn open(configuration: ServerConfiguration<B>) -> Result<Self, Error> {
         let (request_sender, request_receiver) = flume::unbounded::<ClientRequest<B>>();
         for _ in 0..configuration.request_workers {
             let request_receiver = request_receiver.clone();
@@ -189,7 +181,6 @@ impl<B: Backend> CustomServer<B> {
                 #[cfg(feature = "acme")]
                 alpn_keys: AlpnKeys::default(),
                 shutdown: Shutdown::new(),
-                _backend: PhantomData::default(),
             }),
         };
         B::initialize(&server).await;
@@ -230,7 +221,7 @@ impl<B: Backend> CustomServer<B> {
     pub(crate) fn custom_api_dispatcher(
         &self,
         name: &Name,
-    ) -> Option<Arc<dyn AnyCustomApiDispatcher>> {
+    ) -> Option<Arc<dyn AnyCustomApiDispatcher<B>>> {
         let dispatchers = self.data.custom_apis.read();
         dispatchers.get(name).cloned()
     }
@@ -430,7 +421,7 @@ impl<B: Backend> CustomServer<B> {
         let clients = fast_async_read!(self.data.clients);
         for client in clients.values() {
             // TODO should this broadcast to all sessions too rather than only the global session?
-            drop(client.send::<Api>(None, &response));
+            drop(client.send::<Api>(None, response));
         }
     }
 
@@ -451,7 +442,14 @@ impl<B: Backend> CustomServer<B> {
             let next_id = CONNECTED_CLIENT_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
             let mut clients = fast_async_write!(self.data.clients);
             if let hash_map::Entry::Vacant(e) = clients.entry(next_id) {
-                let client = OwnedClient::new(next_id, address, transport, sender, self.clone());
+                let client = OwnedClient::new(
+                    next_id,
+                    address,
+                    transport,
+                    sender,
+                    self.clone(),
+                    self.data.default_session.clone(),
+                );
                 e.insert(client.clone());
                 break client;
             }
@@ -593,7 +591,6 @@ impl<B: Backend> CustomServer<B> {
                         Ok(())
                     },
                     client.clone(),
-                    response_sender.clone(),
                 )
                 .await
                 .unwrap();
@@ -609,12 +606,11 @@ impl<B: Backend> CustomServer<B> {
         request: Payload<Request>,
         callback: F,
         client: ConnectedClient<B>,
-        response_sender: flume::Sender<Payload<Response>>,
     ) -> Result<(), Error> {
         let (result_sender, result_receiver) = oneshot::channel();
-        let session = client
+        let session = dbg!(client
             .session(request.session_id)
-            .unwrap_or_else(|| self.data.default_session.clone());
+            .unwrap_or_else(|| self.data.default_session.clone()));
         self.data
             .request_processor
             .send(ClientRequest::<B>::new(
@@ -622,7 +618,6 @@ impl<B: Backend> CustomServer<B> {
                 self.clone(),
                 client,
                 session,
-                response_sender,
                 result_sender,
             ))
             .map_err(|_| Error::InternalCommunication)?;
@@ -772,7 +767,6 @@ struct ClientRequest<B: Backend> {
     client: ConnectedClient<B>,
     session: Session,
     server: CustomServer<B>,
-    sender: flume::Sender<Payload<Response>>,
     result_sender: oneshot::Sender<Response>,
 }
 
@@ -782,7 +776,6 @@ impl<B: Backend> ClientRequest<B> {
         server: CustomServer<B>,
         client: ConnectedClient<B>,
         session: Session,
-        sender: flume::Sender<Payload<Response>>,
         result_sender: oneshot::Sender<Response>,
     ) -> Self {
         Self {
@@ -790,7 +783,6 @@ impl<B: Backend> ClientRequest<B> {
             server,
             client,
             session,
-            sender,
             result_sender,
         }
     }

@@ -246,11 +246,11 @@ macro_rules! define_pubsub_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::PubSubSimple).await?;
             let pubsub = harness.connect().await?;
             let subscriber = AsyncPubSub::create_subscriber(&pubsub).await?;
-            dbg!(AsyncSubscriber::subscribe_to(&subscriber, "mytopic").await)?;
-            dbg!(AsyncPubSub::publish(&pubsub, "mytopic", &String::from("test")).await)?;
-            dbg!(AsyncPubSub::publish(&pubsub, "othertopic", &String::from("test")).await)?;
+            AsyncSubscriber::subscribe_to(&subscriber, "mytopic").await?;
+            AsyncPubSub::publish(&pubsub, "mytopic", &String::from("test")).await?;
+            AsyncPubSub::publish(&pubsub, "othertopic", &String::from("test")).await?;
             let receiver = subscriber.receiver().clone();
-            let message = dbg!(receiver.recv_async().await).expect("No message received");
+            let message = receiver.recv_async().await.expect("No message received");
             assert_eq!(message.payload::<String>()?, "test");
             // The message should only be received once.
             assert!(matches!(

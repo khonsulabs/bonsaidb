@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, marker::PhantomData};
 
 use async_trait::async_trait;
 use bonsaidb_core::{
@@ -8,32 +8,52 @@ use bonsaidb_core::{
     schema::{InsertError, InvalidNameError},
 };
 
-use crate::Error;
+use crate::{Backend, ConnectedClient, CustomServer, Error};
 
 /// A trait that can dispatch requests for a [`CustomApi`].
-pub trait CustomApiDispatcher:
+pub trait CustomApiDispatcher<B: Backend>:
     Dispatcher<<Self::Api as CustomApi>::Request, Result = BackendApiResult<Self::Api>> + Debug
 {
     type Api: CustomApi;
-    // /// Returns a dispatcher to handle custom api requests. The `storage`
-    // /// instance is provided to allow the dispatcher to have access during
-    // /// dispatched calls.
-    // fn new(storage: &Storage) -> Self;
+    /// Returns a dispatcher to handle custom api requests. The `storage`
+    /// instance is provided to allow the dispatcher to have access during
+    /// dispatched calls.
+    fn new(server: &CustomServer<B>, client: &ConnectedClient<B>) -> Self;
 }
 
 #[async_trait]
-pub trait AnyCustomApiDispatcher: Send + Sync + Debug {
-    async fn dispatch(&self, permissions: &Permissions, request: &[u8]) -> Result<Bytes, Error>;
+pub trait AnyCustomApiDispatcher<B: Backend>: Send + Sync + Debug {
+    async fn dispatch(
+        &self,
+        server: &CustomServer<B>,
+        client: &ConnectedClient<B>,
+        permissions: &Permissions,
+        request: &[u8],
+    ) -> Result<Bytes, Error>;
 }
 
+#[derive(Debug)]
+pub(crate) struct AnyWrapper<D: CustomApiDispatcher<B>, B: Backend>(
+    pub(crate) D,
+    pub(crate) PhantomData<B>,
+);
+
 #[async_trait]
-impl<T> AnyCustomApiDispatcher for T
+impl<T, B> AnyCustomApiDispatcher<B> for AnyWrapper<T, B>
 where
-    T: CustomApiDispatcher,
+    B: Backend,
+    T: CustomApiDispatcher<B>,
 {
-    async fn dispatch(&self, permissions: &Permissions, request: &[u8]) -> Result<Bytes, Error> {
+    async fn dispatch(
+        &self,
+        server: &CustomServer<B>,
+        client: &ConnectedClient<B>,
+        permissions: &Permissions,
+        request: &[u8],
+    ) -> Result<Bytes, Error> {
         let request = pot::from_slice(request)?;
-        let response = match self.dispatch(permissions, request).await {
+        let dispatcher = T::new(server, client);
+        let response = match dispatcher.dispatch(permissions, request).await {
             Ok(response) => Ok(response),
             Err(DispatchError::Api(api)) => Err(api),
             Err(DispatchError::Storage(err)) => return Err(err),
@@ -80,7 +100,7 @@ impl<E: CustomApiError> From<bincode::Error> for DispatchError<E> {
 
 impl<E: CustomApiError> From<pot::Error> for DispatchError<E> {
     fn from(other: pot::Error) -> Self {
-        DispatchError::Storage(Error::from(other))
+        Self::Storage(Error::from(other))
     }
 }
 

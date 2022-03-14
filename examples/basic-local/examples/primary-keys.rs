@@ -5,7 +5,7 @@ use bonsaidb::{
     },
     local::{
         config::{Builder, StorageConfiguration},
-        AsyncDatabase, Database,
+        AsyncDatabase,
     },
 };
 use serde::{Deserialize, Serialize};

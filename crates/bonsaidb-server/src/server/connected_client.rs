@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     net::SocketAddr,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -11,12 +11,11 @@ use bonsaidb_core::{
     circulate::Message,
     connection::{Session, SessionId},
     custom_api::{CustomApi, CustomApiResult},
-    networking::{DatabaseResponse, Payload, Response},
-    permissions::Permissions,
+    networking::{DatabaseResponse, Response},
     pubsub::Subscriber as _,
 };
 use bonsaidb_local::Subscriber;
-use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
+use bonsaidb_utils::fast_async_lock;
 use derive_where::derive_where;
 use flume::Sender;
 use parking_lot::RwLock;
@@ -43,18 +42,17 @@ pub struct ConnectedClient<B: Backend = NoBackend> {
 #[derive(Debug)]
 struct Data<B: Backend = NoBackend> {
     id: u32,
-    sessions: RwLock<HashMap<Option<SessionId>, Session>>,
+    sessions: RwLock<HashMap<Option<SessionId>, ClientSession>>,
     address: SocketAddr,
     transport: Transport,
     response_sender: Sender<(Option<SessionId>, Response)>,
     client_data: Mutex<Option<B::ClientData>>,
-    subscribers: parking_lot::Mutex<HashMap<u64, Subscriber>>,
 }
 
-#[derive(Debug, Default)]
-struct AuthenticationState {
-    user_id: Option<u64>,
-    permissions: Permissions,
+#[derive(Debug)]
+struct ClientSession {
+    session: Session,
+    subscribers: HashMap<u64, Subscriber>,
 }
 
 impl<B: Backend> ConnectedClient<B> {
@@ -71,8 +69,15 @@ impl<B: Backend> ConnectedClient<B> {
     }
 
     pub(crate) fn logged_in_as(&self, session: Session) {
+        println!("Authenticating as: {:?}", session);
         let mut sessions = self.data.sessions.write();
-        sessions.insert(session.id, session);
+        sessions.insert(
+            session.id,
+            ClientSession {
+                session,
+                subscribers: HashMap::default(),
+            },
+        );
     }
 
     /// Sends a custom API response to the client.
@@ -99,7 +104,7 @@ impl<B: Backend> ConnectedClient<B> {
 
     pub fn session(&self, session_id: Option<SessionId>) -> Option<Session> {
         let sessions = self.data.sessions.read();
-        sessions.get(&session_id).cloned()
+        sessions.get(&session_id).map(|data| data.session.clone())
     }
 
     pub(crate) fn register_subscriber(
@@ -110,14 +115,21 @@ impl<B: Backend> ConnectedClient<B> {
         let subscriber_id = subscriber.id();
         let receiver = subscriber.receiver().clone();
         {
-            let mut subscribers = self.data.subscribers.lock();
-            subscribers.insert(subscriber.id(), subscriber.clone());
+            let mut sessions = self.data.sessions.write();
+            if let Some(client_session) = sessions.get_mut(&session_id) {
+                client_session
+                    .subscribers
+                    .insert(subscriber.id(), subscriber);
+            } else {
+                // TODO return error for session not found.
+                return;
+            }
         }
         let task_self = self.clone();
         tokio::task::spawn(async move {
             task_self
                 .forward_notifications_for(session_id, subscriber_id, receiver)
-                .await
+                .await;
         });
     }
 
@@ -133,8 +145,7 @@ impl<B: Backend> ConnectedClient<B> {
         subscriber_id: u64,
         receiver: flume::Receiver<Arc<Message>>,
     ) {
-        println!("Here");
-        while let Ok(message) = dbg!(receiver.recv_async().await) {
+        while let Ok(message) = receiver.recv_async().await {
             if self
                 .data
                 .response_sender
@@ -159,14 +170,16 @@ impl<B: Backend> ConnectedClient<B> {
         topic: String,
         check_session_id: Option<SessionId>,
     ) -> Result<(), crate::Error> {
-        let subscribers = self.data.subscribers.lock();
-        if let Some(subscriber) = subscribers.get(&subscriber_id) {
-            subscriber.subscribe_to(topic)?;
-            Ok(())
+        let mut sessions = self.data.sessions.write();
+        if let Some(client_session) = sessions.get_mut(&check_session_id) {
+            if let Some(subscriber) = client_session.subscribers.get(&subscriber_id) {
+                subscriber.subscribe_to(topic)?;
+                Ok(())
+            } else {
+                Err(Error::Transport(String::from("invalid subscriber id")))
+            }
         } else {
-            Err(crate::Error::from(Error::Transport(String::from(
-                "invalid subscriber id",
-            ))))
+            Err(Error::Transport(String::from("invalid session id")))
         }
     }
 
@@ -176,14 +189,16 @@ impl<B: Backend> ConnectedClient<B> {
         topic: &str,
         check_session_id: Option<SessionId>,
     ) -> Result<(), crate::Error> {
-        let subscribers = self.data.subscribers.lock();
-        if let Some(subscriber) = subscribers.get(&subscriber_id) {
-            subscriber.unsubscribe_from(topic)?;
-            Ok(())
+        let mut sessions = self.data.sessions.write();
+        if let Some(client_session) = sessions.get_mut(&check_session_id) {
+            if let Some(subscriber) = client_session.subscribers.get(&subscriber_id) {
+                subscriber.unsubscribe_from(topic)?;
+                Ok(())
+            } else {
+                Err(Error::Transport(String::from("invalid subscriber id")))
+            }
         } else {
-            Err(crate::Error::from(Error::Transport(String::from(
-                "invalid subscriber id",
-            ))))
+            Err(Error::Transport(String::from("invalid session id")))
         }
     }
 
@@ -192,13 +207,15 @@ impl<B: Backend> ConnectedClient<B> {
         subscriber_id: u64,
         check_session_id: Option<SessionId>,
     ) -> Result<(), crate::Error> {
-        let mut subscribers = self.data.subscribers.lock();
-        if subscribers.remove(&subscriber_id).is_some() {
-            Ok(())
+        let mut sessions = self.data.sessions.write();
+        if let Some(client_session) = sessions.get_mut(&check_session_id) {
+            if client_session.subscribers.remove(&subscriber_id).is_some() {
+                Ok(())
+            } else {
+                Err(Error::Transport(String::from("invalid subscriber id")))
+            }
         } else {
-            Err(crate::Error::from(Error::Transport(String::from(
-                "invalid subscriber id",
-            ))))
+            Err(Error::Transport(String::from("invalid session id")))
         }
     }
 }
@@ -234,7 +251,16 @@ impl<B: Backend> OwnedClient<B> {
         transport: Transport,
         response_sender: Sender<(Option<SessionId>, Response)>,
         server: CustomServer<B>,
+        default_session: Session,
     ) -> Self {
+        let mut session = HashMap::new();
+        session.insert(
+            None,
+            ClientSession {
+                session: default_session,
+                subscribers: HashMap::default(),
+            },
+        );
         Self {
             client: ConnectedClient {
                 data: Arc::new(Data {
@@ -242,9 +268,8 @@ impl<B: Backend> OwnedClient<B> {
                     address,
                     transport,
                     response_sender,
-                    sessions: RwLock::default(),
+                    sessions: RwLock::new(session),
                     client_data: Mutex::default(),
-                    subscribers: parking_lot::Mutex::default(),
                 }),
             },
             runtime: tokio::runtime::Handle::current(),

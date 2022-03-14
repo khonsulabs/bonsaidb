@@ -25,7 +25,7 @@ pub enum Command<B: Backend = NoBackend> {
 
 impl<B: Backend> Command<B> {
     /// Executes the command.
-    pub async fn execute(&self, configuration: ServerConfiguration) -> Result<(), Error> {
+    pub async fn execute(&self, configuration: ServerConfiguration<B>) -> Result<(), Error> {
         let server = CustomServer::<B>::open(configuration).await?;
         match self {
             Self::Certificate(command) => command.execute(&server).await,

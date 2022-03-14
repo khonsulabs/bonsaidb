@@ -161,7 +161,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::CreateUserHandler for ServerDisp
         _permissions: &Permissions,
         username: String,
     ) -> Result<Response, Error> {
-        dbg!(self.server.session());
+        self.server.session();
         Ok(Response::Server(ServerResponse::UserCreated {
             id: self.server.create_user(&username).await?,
         }))
@@ -287,7 +287,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ApiHandler for ServerDispatcher<
     ) -> Result<Response, Error> {
         if let Some(dispatcher) = self.server.custom_api_dispatcher(&name) {
             dispatcher
-                .dispatch(permissions, &request)
+                .dispatch(self.server, self.client, permissions, &request)
                 .await
                 .map(|response| Response::Api { name, response })
         } else {

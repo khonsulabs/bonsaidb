@@ -97,19 +97,15 @@ fn create_databases(path: impl AsRef<Path>) {
     )
     .unwrap();
 
-    storage.create_database::<SchemaA>("a-1", false).unwrap();
-    write_basic(&storage.database::<SchemaA>("a-1").unwrap());
+    write_basic(&storage.create_database::<SchemaA>("a-1", false).unwrap());
 
-    storage.create_database::<SchemaA>("a-2", false).unwrap();
-    write_basic(&storage.database::<SchemaA>("a-2").unwrap());
+    write_basic(&storage.create_database::<SchemaA>("a-2", false).unwrap());
 
-    storage.create_database::<SchemaB>("b-1", false).unwrap();
-    write_unique(&storage.database::<SchemaB>("b-1").unwrap());
+    write_unique(&storage.create_database::<SchemaB>("b-1", false).unwrap());
     write_basic(&storage.database::<SchemaB>("b-1").unwrap());
 
-    storage.create_database::<SchemaB>("b-2", false).unwrap();
-    write_unique(&storage.database::<SchemaB>("b-2").unwrap());
-    write_basic(&storage.database::<SchemaB>("b-2").unwrap());
+    write_unique(&storage.create_database::<SchemaB>("b-2", false).unwrap());
+    write_basic(&storage.create_database::<SchemaB>("b-2", false).unwrap());
     drop(storage);
 }
 

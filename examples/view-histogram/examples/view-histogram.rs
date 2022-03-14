@@ -17,16 +17,17 @@ use std::ops::Deref;
 
 use bonsaidb::{
     core::{
+        connection::AsyncConnection,
         document::{CollectionDocument, Emit},
         schema::{
-            view::CollectionViewSchema, Collection, ReduceResult, SerializedView, View,
-            ViewMappedValue,
+            view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection,
+            SerializedView, View, ViewMappedValue,
         },
         transmog::{Format, OwnedDeserializer},
     },
     local::{
         config::{Builder, StorageConfiguration},
-        Database,
+        AsyncDatabase,
     },
 };
 use hdrhistogram::{
@@ -38,22 +39,22 @@ use serde::{Deserialize, Serialize};
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::local::Error> {
-    let db =
-        Database::open::<Samples>(StorageConfiguration::new("view-histogram.bonsaidb")).await?;
+    let db = AsyncDatabase::open::<Samples>(StorageConfiguration::new("view-histogram.bonsaidb"))
+        .await?;
 
     println!("inserting 100 new sets of samples");
     let mut rng = StdRng::from_entropy();
     for timestamp in 1..100 {
         // This inserts a new record, generating a random range that will trend
         // upwards as `timestamp` increases.
-        db.collection::<Samples>()
-            .push(&Samples {
-                timestamp,
-                entries: (0..100)
-                    .map(|_| rng.gen_range(50 + timestamp / 2..115 + timestamp))
-                    .collect(),
-            })
-            .await?;
+        Samples {
+            timestamp,
+            entries: (0..100)
+                .map(|_| rng.gen_range(50 + timestamp / 2..115 + timestamp))
+                .collect(),
+        }
+        .push_into_async(&db)
+        .await?;
     }
     println!("done inserting new samples");
 

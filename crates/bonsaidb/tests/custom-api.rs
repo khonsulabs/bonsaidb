@@ -10,11 +10,12 @@ use bonsaidb::{
     },
     local::config::Builder,
     server::{
-        Backend, BackendError, ConnectedClient, CustomApiDispatcher, CustomServer,
+        custom_api::CustomApiDispatcher, Backend, ConnectedClient, CustomServer,
         DefaultPermissions, ServerConfiguration,
     },
 };
-use bonsaidb_local::custom_api::CustomApiDispatcher;
+use bonsaidb_core::schema::Name;
+use bonsaidb_server::custom_api::DispatchError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Dispatcher)]
@@ -27,7 +28,7 @@ impl Backend for CustomBackend {
     type ClientData = u64;
 }
 
-impl CustomApiDispatcher for CustomBackend {
+impl CustomApiDispatcher<Self> for CustomBackend {
     type Api = Api;
 
     fn new(_server: &CustomServer<Self>, client: &ConnectedClient<Self>) -> Self {
@@ -44,6 +45,10 @@ impl CustomApi for Api {
     type Request = CustomRequest;
     type Response = CustomResponse;
     type Error = Infallible;
+
+    fn name() -> Name {
+        Name::from("custom-api")
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Actionable)]
@@ -93,7 +98,7 @@ async fn custom_api() -> anyhow::Result<()> {
 
 impl CustomRequestDispatcher for CustomBackend {
     type Output = CustomResponse;
-    type Error = BackendError<Infallible>;
+    type Error = DispatchError<Infallible>;
 }
 
 #[async_trait]
@@ -102,7 +107,7 @@ impl SetValueHandler for CustomBackend {
         &self,
         _permissions: &Permissions,
         value: u64,
-    ) -> Result<CustomResponse, BackendError<Infallible>> {
+    ) -> Result<CustomResponse, DispatchError<Infallible>> {
         let mut data = self.client.client_data().await;
         let existing_value = data.replace(value);
         Ok(CustomResponse::ExistingValue(existing_value))

@@ -115,6 +115,7 @@ pub struct Subscriber {
 }
 
 impl Subscriber {
+    #[must_use]
     pub const fn id(&self) -> u64 {
         self.id
     }

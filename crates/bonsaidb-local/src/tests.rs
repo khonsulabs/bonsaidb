@@ -43,10 +43,9 @@ macro_rules! define_local_suite {
                     }
 
                     let storage = AsyncStorage::open(config).await?;
-                    storage
+                    let db = storage
                         .create_database::<BasicSchema>("tests", false)
                         .await?;
-                    let db = storage.database::<BasicSchema>("tests").await?;
 
                     Ok(Self {
                         _directory: directory,

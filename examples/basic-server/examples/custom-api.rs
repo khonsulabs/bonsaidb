@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use bonsaidb::{
-    client::{url::Url, Client},
+    client::{url::Url, ApiError, Client},
     core::{
         actionable::{Actionable, Dispatcher, Permissions},
         async_trait::async_trait,
@@ -15,11 +15,12 @@ use bonsaidb::{
             bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
             Action, ResourceName, Statement,
         },
+        schema::Name,
     },
     local::config::Builder,
     server::{
-        Backend, BackendError, ConnectedClient, CustomApiDispatcher, CustomServer,
-        ServerConfiguration,
+        custom_api::{CustomApiDispatcher, DispatchError},
+        Backend, ConnectedClient, CustomServer, ServerConfiguration,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -54,33 +55,33 @@ impl CustomApi for ExampleApi {
     type Request = Request;
     type Response = Response;
     type Error = Infallible;
+
+    fn name() -> Name {
+        Name::from("example")
+    }
 }
 // ANCHOR_END: api-types
 
 // ANCHOR: server-traits
 impl Backend for ExampleBackend {
-    type CustomApi = ExampleApi;
-    type CustomApiDispatcher = ExampleDispatcher;
     type ClientData = ();
 }
 
 /// Dispatches Requests and returns Responses.
 #[derive(Debug, Dispatcher)]
 #[dispatcher(input = Request, actionable = bonsaidb::core::actionable)]
-pub struct ExampleDispatcher {
+pub struct ExampleDispatcher<B: Backend> {
     // While this example doesn't use the server reference, this is how a custom
     // API can gain access to the running server to perform database operations
     // within the handlers. The `ConnectedClient` can also be cloned and stored
     // in the dispatcher if handlers need to interact with clients outside of a
     // simple Request/Response exchange.
-    _server: CustomServer<ExampleBackend>,
+    _server: CustomServer<B>,
 }
 
-impl CustomApiDispatcher<ExampleBackend> for ExampleDispatcher {
-    fn new(
-        server: &CustomServer<ExampleBackend>,
-        _client: &ConnectedClient<ExampleBackend>,
-    ) -> Self {
+impl<B: Backend> CustomApiDispatcher<B> for ExampleDispatcher<B> {
+    type Api = ExampleApi;
+    fn new(server: &CustomServer<B>, _client: &ConnectedClient<B>) -> Self {
         Self {
             _server: server.clone(),
         }
@@ -88,20 +89,20 @@ impl CustomApiDispatcher<ExampleBackend> for ExampleDispatcher {
 }
 
 #[async_trait]
-impl RequestDispatcher for ExampleDispatcher {
+impl<B: Backend> RequestDispatcher for ExampleDispatcher<B> {
     type Output = Response;
-    type Error = BackendError<Infallible>;
+    type Error = DispatchError<Infallible>;
 }
 
 /// The Request::Ping variant has `#[actionable(protection = "none")]`, which
 /// causes `PingHandler` to be generated with a single method and no implicit
 /// permission handling.
 #[async_trait]
-impl PingHandler for ExampleDispatcher {
+impl<B: Backend> PingHandler for ExampleDispatcher<B> {
     async fn handle(
         &self,
         _permissions: &Permissions,
-    ) -> Result<Response, BackendError<Infallible>> {
+    ) -> Result<Response, DispatchError<Infallible>> {
         Ok(Response::Pong)
     }
 }
@@ -121,13 +122,13 @@ pub enum ExampleActions {
 /// automatically confirm that the connected user has been granted the ability
 /// to perform `Action` against `ResourceName`.
 #[async_trait]
-impl DoSomethingSimpleHandler for ExampleDispatcher {
+impl<B: Backend> DoSomethingSimpleHandler for ExampleDispatcher<B> {
     type Action = ExampleActions;
 
     async fn resource_name<'a>(
         &'a self,
         _some_argument: &'a u32,
-    ) -> Result<ResourceName<'a>, BackendError<Infallible>> {
+    ) -> Result<ResourceName<'a>, DispatchError<Infallible>> {
         Ok(ResourceName::named("example"))
     }
 
@@ -139,7 +140,7 @@ impl DoSomethingSimpleHandler for ExampleDispatcher {
         &self,
         _permissions: &Permissions,
         _some_argument: u32,
-    ) -> Result<Response, BackendError<Infallible>> {
+    ) -> Result<Response, DispatchError<Infallible>> {
         // The permissions have already been checked.
         Ok(Response::DidSomething)
     }
@@ -151,12 +152,12 @@ impl DoSomethingSimpleHandler for ExampleDispatcher {
 /// names that need to be checked, or if permissions change based on the
 /// arguments passed.
 #[async_trait]
-impl DoSomethingCustomHandler for ExampleDispatcher {
+impl<B: Backend> DoSomethingCustomHandler for ExampleDispatcher<B> {
     async fn verify_permissions(
         &self,
         permissions: &Permissions,
         some_argument: &u32,
-    ) -> Result<(), BackendError<Infallible>> {
+    ) -> Result<(), DispatchError<Infallible>> {
         if *some_argument == 42 {
             Ok(())
         } else {
@@ -173,7 +174,7 @@ impl DoSomethingCustomHandler for ExampleDispatcher {
         &self,
         _permissions: &Permissions,
         _some_argument: u32,
-    ) -> Result<Response, BackendError<Infallible>> {
+    ) -> Result<Response, DispatchError<Infallible>> {
         // `verify_permissions` has already been executed, so no permissions
         // logic needs to live here.
         Ok(Response::DidSomething)
@@ -247,7 +248,7 @@ async fn main() -> anyhow::Result<()> {
         // To connect over websockets, use the websocket scheme.
         tasks.push(invoke_apis(
             Client::build(Url::parse("ws://localhost:8080")?)
-                .with_custom_api()
+                .with_custom_api::<ExampleApi>()
                 .finish()
                 .await?,
             "websockets",
@@ -257,7 +258,7 @@ async fn main() -> anyhow::Result<()> {
     // To connect over QUIC, use the bonsaidb scheme.
     tasks.push(invoke_apis(
         Client::build(Url::parse("bonsaidb://localhost")?)
-            .with_custom_api()
+            .with_custom_api::<ExampleApi>()
             .with_certificate(certificate)
             .finish()
             .await?,
@@ -275,33 +276,30 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-async fn invoke_apis(
-    client: Client<ExampleApi>,
-    client_name: &str,
-) -> Result<(), bonsaidb::core::Error> {
+async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::core::Error> {
     ping_the_server(&client, client_name).await?;
 
     // Calling DoSomethingSimple and DoSomethingCustom will check permissions, which our client currently doesn't have access to.
     assert!(matches!(
         client
-            .send_api_request(Request::DoSomethingSimple { some_argument: 1 })
+            .send_api_request::<ExampleApi>(&Request::DoSomethingSimple { some_argument: 1 })
             .await,
-        Err(bonsaidb::client::Error::Core(
+        Err(ApiError::Client(bonsaidb::client::Error::Core(
             bonsaidb::core::Error::PermissionDenied(_)
-        ))
+        )))
     ));
     assert!(matches!(
         client
-            .send_api_request(Request::DoSomethingCustom { some_argument: 1 })
+            .send_api_request::<ExampleApi>(&Request::DoSomethingCustom { some_argument: 1 })
             .await,
-        Err(bonsaidb::client::Error::Core(
+        Err(ApiError::Client(bonsaidb::client::Error::Core(
             bonsaidb::core::Error::PermissionDenied(_)
-        ))
+        )))
     ));
     // However, DoSomethingCustom with the argument `42` will succeed, because that argument has special logic in the handler.
     assert!(matches!(
         client
-            .send_api_request(Request::DoSomethingCustom { some_argument: 42 })
+            .send_api_request::<ExampleApi>(&Request::DoSomethingCustom { some_argument: 42 })
             .await,
         Ok(Response::DidSomething)
     ));
@@ -316,13 +314,13 @@ async fn invoke_apis(
         .unwrap();
     assert!(matches!(
         client
-            .send_api_request(Request::DoSomethingSimple { some_argument: 1 })
+            .send_api_request::<ExampleApi>(&Request::DoSomethingSimple { some_argument: 1 })
             .await,
         Ok(Response::DidSomething)
     ));
     assert!(matches!(
         client
-            .send_api_request(Request::DoSomethingCustom { some_argument: 1 })
+            .send_api_request::<ExampleApi>(&Request::DoSomethingCustom { some_argument: 1 })
             .await,
         Ok(Response::DidSomething)
     ));
@@ -331,11 +329,8 @@ async fn invoke_apis(
 }
 
 // ANCHOR: api-call
-async fn ping_the_server(
-    client: &Client<ExampleApi>,
-    client_name: &str,
-) -> Result<(), bonsaidb::core::Error> {
-    match client.send_api_request(Request::Ping).await {
+async fn ping_the_server(client: &Client, client_name: &str) -> Result<(), bonsaidb::core::Error> {
+    match client.send_api_request::<ExampleApi>(&Request::Ping).await {
         Ok(Response::Pong) => {
             println!("Received Pong from server on {}", client_name);
         }
