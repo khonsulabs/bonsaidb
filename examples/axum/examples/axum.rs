@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use axum::{extract, extract::Extension, routing::get, Router};
 use bonsaidb::{
-    core::{connection::AsyncStorageConnection, keyvalue::KeyValue},
+    core::{connection::AsyncStorageConnection, keyvalue::AsyncKeyValue},
     local::config::Builder,
     server::{
         DefaultPermissions, HttpService, Peer, Server, ServerConfiguration, StandardTcpProtocols,

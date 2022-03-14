@@ -14,6 +14,7 @@ use bonsaidb::{
         DefaultPermissions, ServerConfiguration,
     },
 };
+use bonsaidb_local::custom_api::CustomApiDispatcher;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Dispatcher)]
@@ -23,12 +24,12 @@ struct CustomBackend {
 }
 
 impl Backend for CustomBackend {
-    type CustomApi = Self;
-    type CustomApiDispatcher = Self;
     type ClientData = u64;
 }
 
-impl CustomApiDispatcher<Self> for CustomBackend {
+impl CustomApiDispatcher for CustomBackend {
+    type Api = Api;
+
     fn new(_server: &CustomServer<Self>, client: &ConnectedClient<Self>) -> Self {
         Self {
             client: client.clone(),
@@ -36,7 +37,10 @@ impl CustomApiDispatcher<Self> for CustomBackend {
     }
 }
 
-impl CustomApi for CustomBackend {
+#[derive(Debug)]
+pub struct Api;
+
+impl CustomApi for Api {
     type Request = CustomRequest;
     type Response = CustomResponse;
     type Error = Infallible;
@@ -60,6 +64,7 @@ async fn custom_api() -> anyhow::Result<()> {
     let server = CustomServer::<CustomBackend>::open(
         ServerConfiguration::new(&dir)
             .default_permissions(DefaultPermissions::AllowAll)
+            .with_custom_api(Api)
             .with_schema::<Basic>()?,
     )
     .await?;

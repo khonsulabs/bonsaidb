@@ -10,7 +10,7 @@ use bonsaidb::{
     },
     local::{
         config::{Builder, StorageConfiguration},
-        Database,
+        AsyncDatabase,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -52,14 +52,14 @@ impl ViewSchema for BlogPostsByCategory {
 #[tokio::test]
 async fn example() -> Result<(), Error> {
     drop(tokio::fs::remove_dir_all("example.bonsaidb").await);
-    let db = Database::open::<BlogPost>(StorageConfiguration::new("example.bonsaidb")).await?;
+    let db = AsyncDatabase::open::<BlogPost>(StorageConfiguration::new("example.bonsaidb")).await?;
     // ANCHOR: insert_data
     BlogPost {
         title: String::from("New version of BonsaiDb released"),
         body: String::from("..."),
         category: Some(String::from("Rust")),
     }
-    .push_into(&db)
+    .push_into_async(&db)
     .await?;
 
     BlogPost {
@@ -67,7 +67,7 @@ async fn example() -> Result<(), Error> {
         body: String::from("..."),
         category: Some(String::from("Rust")),
     }
-    .push_into(&db)
+    .push_into_async(&db)
     .await?;
 
     BlogPost {
@@ -75,7 +75,7 @@ async fn example() -> Result<(), Error> {
         body: String::from("..."),
         category: Some(String::from("Cooking")),
     }
-    .push_into(&db)
+    .push_into_async(&db)
     .await?;
     // ANCHOR_END: insert_data
     // ANCHOR: query_with_docs

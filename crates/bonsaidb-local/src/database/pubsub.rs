@@ -15,42 +15,6 @@ use bonsaidb_core::{
 
 use crate::{Database, DatabaseNonBlocking};
 
-impl super::Database {
-    pub(crate) fn subscribe_by_id(
-        &self,
-        subscriber_id: u64,
-        topic: &str,
-    ) -> Result<(), crate::Error> {
-        self.storage().instance.subscribe_by_id(
-            subscriber_id,
-            database_topic(self.name(), topic),
-            self.session().and_then(|session| session.id),
-        )
-    }
-
-    pub(crate) fn unsubscribe_by_id(
-        &self,
-        subscriber_id: u64,
-        topic: &str,
-    ) -> Result<(), crate::Error> {
-        self.storage().instance.unsubscribe_by_id(
-            subscriber_id,
-            &database_topic(self.name(), topic),
-            self.session().and_then(|session| session.id),
-        )
-    }
-
-    pub(crate) fn unregister_subscriber_by_id(
-        &self,
-        subscriber_id: u64,
-    ) -> Result<(), crate::Error> {
-        self.storage().instance.unregister_subscriber_by_id(
-            subscriber_id,
-            self.session().and_then(|session| session.id),
-        )
-    }
-}
-
 impl PubSub for super::Database {
     type Subscriber = Subscriber;
 
@@ -75,8 +39,7 @@ impl PubSub for super::Database {
             pubsub_topic_resource_name(self.name(), &topic),
             &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish)),
         )?;
-        self.data
-            .storage
+        self.storage
             .instance
             .relay()
             .publish(database_topic(&self.data.name, &topic), payload)?;
@@ -88,7 +51,7 @@ impl PubSub for super::Database {
         topics: Vec<String>,
         payload: &P,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.instance.relay().publish_to_all(
+        self.storage.instance.relay().publish_to_all(
             topics
                 .iter()
                 .map(|topic| {
@@ -114,8 +77,7 @@ impl PubSub for super::Database {
             pubsub_topic_resource_name(self.name(), &topic),
             &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish)),
         )?;
-        self.data
-            .storage
+        self.storage
             .instance
             .relay()
             .publish_raw(database_topic(&self.data.name, &topic), payload);
@@ -127,7 +89,7 @@ impl PubSub for super::Database {
         topics: Vec<String>,
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.instance.relay().publish_raw_to_all(
+        self.storage.instance.relay().publish_raw_to_all(
             topics
                 .iter()
                 .map(|topic| {
@@ -145,10 +107,17 @@ impl PubSub for super::Database {
 }
 
 /// A subscriber for `PubSub` messages.
+#[derive(Debug, Clone)]
 pub struct Subscriber {
     pub(crate) id: u64,
     pub(crate) database: Database,
     pub(crate) subscriber: circulate::Subscriber,
+}
+
+impl Subscriber {
+    pub const fn id(&self) -> u64 {
+        self.id
+    }
 }
 
 impl Drop for Subscriber {

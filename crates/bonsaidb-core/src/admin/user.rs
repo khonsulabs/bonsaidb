@@ -45,6 +45,7 @@ impl User {
     pub fn effective_permissions<C: Connection>(
         &self,
         admin: &C,
+        inherit_permissions: &Permissions,
     ) -> Result<Permissions, crate::Error> {
         // List all of the groups that this user belongs to because of role associations.
         let role_groups = if self.roles.is_empty() {
@@ -73,7 +74,8 @@ impl User {
                 .into_iter()
                 .map(|group| Permissions::from(group.contents.statements))
                 .collect::<Vec<_>>()
-                .iter(),
+                .iter()
+                .chain(std::iter::once(inherit_permissions)),
         );
 
         Ok(merged_permissions)

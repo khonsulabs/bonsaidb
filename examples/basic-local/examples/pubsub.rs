@@ -1,10 +1,10 @@
 use std::time::Duration;
 
 use bonsaidb::{
-    core::pubsub::{PubSub, Subscriber},
+    core::pubsub::{AsyncPubSub, AsyncSubscriber},
     local::{
         config::{Builder, StorageConfiguration},
-        Database,
+        AsyncDatabase,
     },
 };
 use tokio::time::sleep;
@@ -13,7 +13,7 @@ use tokio::time::sleep;
 async fn main() -> Result<(), bonsaidb::local::Error> {
     // This example is using a database with no collections, because PubSub is a
     // system independent of the data stored in the database.
-    let db = Database::open::<()>(StorageConfiguration::new("pubsub.bonsaidb")).await?;
+    let db = AsyncDatabase::open::<()>(StorageConfiguration::new("pubsub.bonsaidb")).await?;
 
     let subscriber = db.create_subscriber().await?;
     // Subscribe for messages sent to the topic "pong"
@@ -43,7 +43,7 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
     Ok(())
 }
 
-async fn pinger<P: PubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error> {
+async fn pinger<P: AsyncPubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error> {
     let mut ping_count = 0u32;
     loop {
         ping_count += 1;
@@ -53,7 +53,7 @@ async fn pinger<P: PubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error> {
     }
 }
 
-async fn ponger<P: PubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error> {
+async fn ponger<P: AsyncPubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error> {
     const NUMBER_OF_PONGS: usize = 5;
     let subscriber = pubsub.create_subscriber().await?;
     subscriber.subscribe_to("ping").await?;

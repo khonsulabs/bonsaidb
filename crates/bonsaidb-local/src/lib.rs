@@ -20,9 +20,7 @@
 pub mod cli;
 /// Configuration options.
 pub mod config;
-pub mod custom_api;
 mod database;
-mod dispatch;
 mod error;
 mod open_trees;
 mod storage;

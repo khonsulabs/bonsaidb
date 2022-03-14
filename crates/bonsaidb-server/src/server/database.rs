@@ -2,20 +2,29 @@ use std::{ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
 use bonsaidb_core::{
+    arc_bytes::serde::Bytes,
     circulate::Message,
-    connection::{AccessPolicy, QueryKey, Range, Sort},
-    document::{AnyDocumentId, OwnedDocument},
+    connection::{
+        AccessPolicy, AsyncLowLevelDatabase, AsyncStorageConnection, QueryKey, Range, Sort,
+    },
+    document::{AnyDocumentId, DocumentId, OwnedDocument},
     keyvalue::AsyncKeyValue,
     permissions::Permissions,
     pubsub::{AsyncPubSub, AsyncSubscriber},
-    schema::{self, view::map::MappedDocuments, Map, MappedValue, SerializedView},
+    schema::{
+        self,
+        view::map::{MappedDocuments, MappedSerializedValue},
+        CollectionName, Map, MappedValue, SerializedView, ViewName,
+    },
     transaction::Transaction,
 };
 use bonsaidb_local::{AsyncDatabase, DatabaseNonBlocking};
+use derive_where::derive_where;
 
-use crate::{Backend, CustomServer, NoBackend};
+use crate::{Backend, CustomServer, Error, NoBackend};
 
 /// A database belonging to a [`CustomServer`].
+#[derive_where(Debug)]
 pub struct ServerDatabase<B: Backend = NoBackend> {
     pub(crate) server: CustomServer<B>,
     pub(crate) db: AsyncDatabase,
@@ -44,7 +53,8 @@ impl<B: Backend> AsyncPubSub for ServerDatabase<B> {
     type Subscriber = bonsaidb_local::Subscriber;
 
     async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
-        self.db.create_subscriber().await
+        let subscriber = self.db.create_subscriber().await?;
+        Ok(subscriber)
     }
 
     async fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
@@ -233,5 +243,106 @@ impl<B: Backend> AsyncKeyValue for ServerDatabase<B> {
         op: bonsaidb_core::keyvalue::KeyOperation,
     ) -> Result<bonsaidb_core::keyvalue::Output, bonsaidb_core::Error> {
         self.db.execute_key_operation(op).await
+    }
+}
+
+#[async_trait]
+impl<B: Backend> AsyncLowLevelDatabase for ServerDatabase<B> {
+    async fn get_from_collection(
+        &self,
+        id: DocumentId,
+        collection: &CollectionName,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
+        self.db.get_from_collection(id, collection).await
+    }
+
+    async fn list_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<usize>,
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        self.db
+            .list_from_collection(ids, order, limit, collection)
+            .await
+    }
+
+    async fn count_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        collection: &CollectionName,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        self.db.count_from_collection(ids, collection).await
+    }
+
+    async fn get_multiple_from_collection(
+        &self,
+        ids: &[DocumentId],
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        self.db.get_multiple_from_collection(ids, collection).await
+    }
+
+    async fn compact_collection_by_name(
+        &self,
+        collection: CollectionName,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.db.compact_collection_by_name(collection).await
+    }
+
+    async fn query_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        order: Sort,
+        limit: Option<usize>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
+        self.db
+            .query_by_name(view, key, order, limit, access_policy)
+            .await
+    }
+
+    async fn query_by_name_with_docs(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        order: Sort,
+        limit: Option<usize>,
+        access_policy: AccessPolicy,
+    ) -> Result<schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error> {
+        self.db
+            .query_by_name_with_docs(view, key, order, limit, access_policy)
+            .await
+    }
+
+    async fn reduce_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
+        self.db.reduce_by_name(view, key, access_policy).await
+    }
+
+    async fn reduce_grouped_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
+        self.db
+            .reduce_grouped_by_name(view, key, access_policy)
+            .await
+    }
+
+    async fn delete_docs_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        self.db.delete_docs_by_name(view, key, access_policy).await
     }
 }

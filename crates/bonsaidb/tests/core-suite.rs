@@ -362,7 +362,9 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
         .await?;
     match client.create_user("otheruser").await {
         Err(bonsaidb_core::Error::PermissionDenied(_)) => {}
-        _ => unreachable!("should not have permission to create another user before logging in"),
+        other => unreachable!(
+            "should not have permission to create another user before logging in: {other:?}"
+        ),
     }
 
     let authenticated_client = client

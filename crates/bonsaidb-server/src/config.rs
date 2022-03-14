@@ -1,15 +1,21 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
-use bonsaidb_core::{permissions::Permissions, schema::Schema};
+use bonsaidb_core::{
+    custom_api::CustomApi,
+    permissions::Permissions,
+    schema::{Name, Schema},
+};
 #[cfg(feature = "compression")]
 use bonsaidb_local::config::Compression;
+use bonsaidb_local::config::{Builder, KeyValuePersistence, StorageConfiguration};
 #[cfg(feature = "encryption")]
 use bonsaidb_local::vault::AnyVaultKeyStorage;
-use bonsaidb_local::{
-    config::{Builder, KeyValuePersistence, StorageConfiguration},
-    custom_api::CustomApiDispatcher,
+
+use crate::{
+    custom_api::{AnyCustomApiDispatcher, CustomApiDispatcher},
+    Error,
 };
 
 /// Configuration options for [`Server`](crate::Server)
@@ -30,11 +36,11 @@ pub struct ServerConfiguration {
     pub storage: StorageConfiguration,
     /// The permissions granted to all connections to this server.
     pub default_permissions: DefaultPermissions,
-    /// The permissions granted to authenticated connections to this server.
-    pub authenticated_permissions: DefaultPermissions,
     /// The ACME settings for automatic TLS certificate management.
     #[cfg(feature = "acme")]
     pub acme: AcmeConfiguration,
+
+    pub(crate) custom_apis: HashMap<Name, Arc<dyn AnyCustomApiDispatcher>>,
 }
 
 impl ServerConfiguration {
@@ -65,15 +71,6 @@ impl ServerConfiguration {
         self
     }
 
-    /// Sets [`Self::authenticated_permissions`](Self#structfield.authenticated_permissions) to `authenticated_permissions` and returns self.
-    pub fn authenticated_permissions<P: Into<DefaultPermissions>>(
-        mut self,
-        authenticated_permissions: P,
-    ) -> Self {
-        self.authenticated_permissions = authenticated_permissions.into();
-        self
-    }
-
     /// Sets [`AcmeConfiguration::contact_email`] to `contact_email` and returns self.
     #[cfg(feature = "acme")]
     pub fn acme_contact_email(mut self, contact_email: impl Into<String>) -> Self {
@@ -87,6 +84,25 @@ impl ServerConfiguration {
         self.acme.directory = directory.into();
         self
     }
+
+    pub fn register_custom_api<Dispatcher: CustomApiDispatcher + 'static>(
+        &mut self,
+        dispatcher: Dispatcher,
+    ) -> Result<(), Error> {
+        // TODO this should error on duplicate registration.
+        self.custom_apis
+            .insert(<Dispatcher::Api as CustomApi>::name(), Arc::new(dispatcher));
+        Ok(())
+    }
+
+    /// Registers the custom api dispatcher and returns self.
+    pub fn with_api<Dispatcher: CustomApiDispatcher + 'static>(
+        mut self,
+        dispatcher: Dispatcher,
+    ) -> Result<Self, Error> {
+        self.register_custom_api(dispatcher)?;
+        Ok(self)
+    }
 }
 
 impl Default for ServerConfiguration {
@@ -99,7 +115,7 @@ impl Default for ServerConfiguration {
             request_workers: 16,
             storage: bonsaidb_local::config::StorageConfiguration::default(),
             default_permissions: DefaultPermissions::Permissions(Permissions::default()),
-            authenticated_permissions: DefaultPermissions::Permissions(Permissions::default()),
+            custom_apis: HashMap::default(),
             #[cfg(feature = "acme")]
             acme: AcmeConfiguration::default(),
         }
@@ -163,13 +179,13 @@ impl Builder for ServerConfiguration {
         Ok(self)
     }
 
-    fn path<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.storage.path = Some(path.as_ref().to_owned());
+    fn memory_only(mut self) -> Self {
+        self.storage.memory_only = true;
         self
     }
 
-    fn memory_only(mut self) -> Self {
-        self.storage.memory_only = true;
+    fn path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.storage.path = Some(path.as_ref().to_owned());
         self
     }
 
@@ -193,12 +209,6 @@ impl Builder for ServerConfiguration {
         self
     }
 
-    #[cfg(feature = "compression")]
-    fn default_compression(mut self, compression: Compression) -> Self {
-        self.storage.default_compression = Some(compression);
-        self
-    }
-
     fn tasks_worker_count(mut self, worker_count: usize) -> Self {
         self.storage.workers.worker_count = worker_count;
         self
@@ -214,16 +224,22 @@ impl Builder for ServerConfiguration {
         self
     }
 
+    #[cfg(feature = "compression")]
+    fn default_compression(mut self, compression: Compression) -> Self {
+        self.storage.default_compression = Some(compression);
+        self
+    }
+
     fn key_value_persistence(mut self, persistence: KeyValuePersistence) -> Self {
         self.storage.key_value_persistence = persistence;
         self
     }
 
-    fn with_custom_api<Dispatcher: CustomApiDispatcher + 'static>(
+    fn authenticated_permissions<P: Into<Permissions>>(
         mut self,
-        dispatcher: Dispatcher,
-    ) -> Result<Self, bonsaidb_local::Error> {
-        self.storage.register_custom_api(dispatcher)?;
-        Ok(self)
+        authenticated_permissions: P,
+    ) -> Self {
+        self.storage.authenticated_permissions = authenticated_permissions.into();
+        self
     }
 }

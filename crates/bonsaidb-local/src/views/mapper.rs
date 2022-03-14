@@ -98,17 +98,12 @@ impl Job for Mapper {
             &map_request,
         )?;
 
-        self.database
-            .data
-            .storage
-            .instance
-            .tasks()
-            .mark_view_updated(
-                self.map.database.clone(),
-                self.map.collection.clone(),
-                self.map.view_name.clone(),
-                transaction_id,
-            );
+        self.database.storage.instance.tasks().mark_view_updated(
+            self.map.database.clone(),
+            self.map.collection.clone(),
+            self.map.view_name.clone(),
+            transaction_id,
+        );
 
         Ok(transaction_id)
     }

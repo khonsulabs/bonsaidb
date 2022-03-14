@@ -7,7 +7,7 @@ use bonsaidb::{
     },
     local::{
         config::{Builder, StorageConfiguration},
-        Storage,
+        AsyncStorage,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -22,16 +22,13 @@ struct Message {
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
     let storage =
-        Storage::open(StorageConfiguration::new("basic.bonsaidb").with_schema::<Message>()?)
+        AsyncStorage::open(StorageConfiguration::new("basic.bonsaidb").with_schema::<Message>()?)
             .await?;
-    // Before you can create a database, you must register the schema you're
-    // wanting to use.
-    storage.create_database::<Message>("messages", true).await?;
-    let messages = storage.database::<Message>("messages").await?;
-    storage
+    let messages = storage.create_database::<Message>("messages", true).await?;
+
+    let private_messages = storage
         .create_database::<Message>("private-messages", true)
         .await?;
-    let private_messages = storage.database::<Message>("private-messages").await?;
 
     insert_a_message(&messages, "Hello, World!").await?;
     insert_a_message(&private_messages, "Hey!").await?;
@@ -48,7 +45,7 @@ async fn insert_a_message<C: AsyncConnection>(
         contents: String::from(value),
         timestamp: SystemTime::now(),
     }
-    .push_into(connection)
+    .push_into_async(connection)
     .await?;
     Ok(())
 }

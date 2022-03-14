@@ -248,11 +248,10 @@ async fn basic_test() {
     };
     let document = {
         let bonsai = AsyncStorage::open(configuration(None)).await.unwrap();
-        bonsai
+        let db = bonsai
             .create_database::<BasicSchema>("test", false)
             .await
             .unwrap();
-        let db = bonsai.database::<BasicSchema>("test").await.unwrap();
         Basic::new("test").push_into_async(&db).await.unwrap()
     };
 

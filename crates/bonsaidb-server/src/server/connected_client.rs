@@ -5,17 +5,21 @@ use std::{
     sync::Arc,
 };
 
-use async_lock::{Mutex, MutexGuard, RwLock};
+use async_lock::{Mutex, MutexGuard};
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
-    connection::Session,
+    circulate::Message,
+    connection::{Session, SessionId},
     custom_api::{CustomApi, CustomApiResult},
-    networking::Response,
+    networking::{DatabaseResponse, Payload, Response},
     permissions::Permissions,
+    pubsub::Subscriber as _,
 };
+use bonsaidb_local::Subscriber;
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::derive_where;
 use flume::Sender;
+use parking_lot::RwLock;
 
 use crate::{Backend, CustomServer, Error, NoBackend};
 
@@ -39,12 +43,12 @@ pub struct ConnectedClient<B: Backend = NoBackend> {
 #[derive(Debug)]
 struct Data<B: Backend = NoBackend> {
     id: u32,
-    sessions: RwLock<HashMap<Option<u64>, Session>>,
+    sessions: RwLock<HashMap<Option<SessionId>, Session>>,
     address: SocketAddr,
     transport: Transport,
-    response_sender: Sender<(Option<u64>, Response)>,
+    response_sender: Sender<(Option<SessionId>, Response)>,
     client_data: Mutex<Option<B::ClientData>>,
-    subscriber_ids: Mutex<HashSet<u64>>,
+    subscribers: parking_lot::Mutex<HashMap<u64, Subscriber>>,
 }
 
 #[derive(Debug, Default)]
@@ -66,8 +70,8 @@ impl<B: Backend> ConnectedClient<B> {
         &self.data.transport
     }
 
-    pub(crate) async fn logged_in_as(&self, session: Session) {
-        let mut sessions = fast_async_write!(self.data.sessions);
+    pub(crate) fn logged_in_as(&self, session: Session) {
+        let mut sessions = self.data.sessions.write();
         sessions.insert(session.id, session);
     }
 
@@ -93,15 +97,109 @@ impl<B: Backend> ConnectedClient<B> {
         LockedClientDataGuard(fast_async_lock!(self.data.client_data))
     }
 
-    pub async fn session(&self, session_id: Option<u64>) -> Session {
-        let sessions = fast_async_read!(self.data.sessions);
-        sessions.get(&session_id).cloned().unwrap_or_default()
+    pub fn session(&self, session_id: Option<SessionId>) -> Option<Session> {
+        let sessions = self.data.sessions.read();
+        sessions.get(&session_id).cloned()
+    }
+
+    pub(crate) fn register_subscriber(
+        &self,
+        subscriber: Subscriber,
+        session_id: Option<SessionId>,
+    ) {
+        let subscriber_id = subscriber.id();
+        let receiver = subscriber.receiver().clone();
+        {
+            let mut subscribers = self.data.subscribers.lock();
+            subscribers.insert(subscriber.id(), subscriber.clone());
+        }
+        let task_self = self.clone();
+        tokio::task::spawn(async move {
+            task_self
+                .forward_notifications_for(session_id, subscriber_id, receiver)
+                .await
+        });
     }
 
     /// Sets the associated data for this client.
     pub async fn set_client_data(&self, data: B::ClientData) {
         let mut client_data = fast_async_lock!(self.data.client_data);
         *client_data = Some(data);
+    }
+
+    async fn forward_notifications_for(
+        &self,
+        session_id: Option<SessionId>,
+        subscriber_id: u64,
+        receiver: flume::Receiver<Arc<Message>>,
+    ) {
+        println!("Here");
+        while let Ok(message) = dbg!(receiver.recv_async().await) {
+            if self
+                .data
+                .response_sender
+                .send((
+                    session_id,
+                    Response::Database(DatabaseResponse::MessageReceived {
+                        subscriber_id,
+                        topic: message.topic.clone(),
+                        payload: Bytes::from(&message.payload[..]),
+                    }),
+                ))
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+
+    pub(crate) fn subscribe_by_id(
+        &self,
+        subscriber_id: u64,
+        topic: String,
+        check_session_id: Option<SessionId>,
+    ) -> Result<(), crate::Error> {
+        let subscribers = self.data.subscribers.lock();
+        if let Some(subscriber) = subscribers.get(&subscriber_id) {
+            subscriber.subscribe_to(topic)?;
+            Ok(())
+        } else {
+            Err(crate::Error::from(Error::Transport(String::from(
+                "invalid subscriber id",
+            ))))
+        }
+    }
+
+    pub(crate) fn unsubscribe_by_id(
+        &self,
+        subscriber_id: u64,
+        topic: &str,
+        check_session_id: Option<SessionId>,
+    ) -> Result<(), crate::Error> {
+        let subscribers = self.data.subscribers.lock();
+        if let Some(subscriber) = subscribers.get(&subscriber_id) {
+            subscriber.unsubscribe_from(topic)?;
+            Ok(())
+        } else {
+            Err(crate::Error::from(Error::Transport(String::from(
+                "invalid subscriber id",
+            ))))
+        }
+    }
+
+    pub(crate) fn unregister_subscriber_by_id(
+        &self,
+        subscriber_id: u64,
+        check_session_id: Option<SessionId>,
+    ) -> Result<(), crate::Error> {
+        let mut subscribers = self.data.subscribers.lock();
+        if subscribers.remove(&subscriber_id).is_some() {
+            Ok(())
+        } else {
+            Err(crate::Error::from(Error::Transport(String::from(
+                "invalid subscriber id",
+            ))))
+        }
     }
 }
 
@@ -134,7 +232,7 @@ impl<B: Backend> OwnedClient<B> {
         id: u32,
         address: SocketAddr,
         transport: Transport,
-        response_sender: Sender<(Option<u64>, Response)>,
+        response_sender: Sender<(Option<SessionId>, Response)>,
         server: CustomServer<B>,
     ) -> Self {
         Self {
@@ -146,7 +244,7 @@ impl<B: Backend> OwnedClient<B> {
                     response_sender,
                     sessions: RwLock::default(),
                     client_data: Mutex::default(),
-                    subscriber_ids: Mutex::default(),
+                    subscribers: parking_lot::Mutex::default(),
                 }),
             },
             runtime: tokio::runtime::Handle::current(),

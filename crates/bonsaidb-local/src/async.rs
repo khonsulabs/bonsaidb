@@ -4,19 +4,20 @@ use async_trait::async_trait;
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
+    arc_bytes::serde::Bytes,
     circulate,
     connection::{
-        self, AccessPolicy, AsyncConnection, AsyncNetworking, AsyncStorageConnection, Connection,
-        Identity, Networking, QueryKey, Range, Session, Sort, StorageConnection,
+        self, AccessPolicy, AsyncConnection, AsyncLowLevelDatabase, AsyncStorageConnection,
+        Connection, Identity, LowLevelDatabase, QueryKey, Range, Session, Sort, StorageConnection,
     },
-    document::{AnyDocumentId, OwnedDocument},
+    document::{AnyDocumentId, DocumentId, OwnedDocument},
     keyvalue::{AsyncKeyValue, KeyOperation, KeyValue, Output},
-    networking::{Request, Response},
     permissions::Permissions,
     pubsub::{self, AsyncPubSub, AsyncSubscriber, PubSub},
     schema::{
-        self, view::map::MappedDocuments, CollectionName, Map, MappedValue, Nameable, Schema,
-        SchemaName,
+        self,
+        view::map::{MappedDocuments, MappedSerializedValue},
+        CollectionName, Map, MappedValue, Nameable, Schema, SchemaName, ViewName,
     },
     transaction::{self, OperationResult, Transaction},
 };
@@ -91,6 +92,9 @@ impl StorageNonBlocking for AsyncStorage {
     fn path(&self) -> &std::path::Path {
         self.storage.path()
     }
+    fn assume_session(&self, session: Session) -> Result<Storage, bonsaidb_core::Error> {
+        self.storage.assume_session(session)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -123,17 +127,6 @@ impl AsyncDatabase {
             self.database
                 .with_effective_permissions(effective_permissions),
         )
-    }
-
-    pub async fn compact_collection_by_name(
-        &self,
-        collection: CollectionName,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let task_db = self.database.clone();
-        self.runtime
-            .spawn_blocking(move || task_db.compact_collection_by_name(collection))
-            .await
-            .map_err(Error::from)?
     }
 }
 
@@ -195,7 +188,7 @@ impl AsyncStorageConnection for AsyncStorage {
                 )
             })
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     async fn database<DB: Schema>(
@@ -207,7 +200,7 @@ impl AsyncStorageConnection for AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.database::<DB>(&name))
             .await
-            .unwrap()
+            .map_err(Error::from)?
             .map(AsyncDatabase::from)
     }
 
@@ -217,7 +210,7 @@ impl AsyncStorageConnection for AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.delete_database(&name))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     async fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
@@ -225,7 +218,7 @@ impl AsyncStorageConnection for AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.list_databases())
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
@@ -233,7 +226,7 @@ impl AsyncStorageConnection for AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.list_available_schemas())
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
@@ -242,7 +235,7 @@ impl AsyncStorageConnection for AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.create_user(&username))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
@@ -254,7 +247,7 @@ impl AsyncStorageConnection for AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.delete_user(user))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg(feature = "password-hashing")]
@@ -268,7 +261,7 @@ impl AsyncStorageConnection for AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.set_user_password(user, password))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg(feature = "password-hashing")]
@@ -287,7 +280,7 @@ impl AsyncStorageConnection for AsyncStorage {
                     .map(Self::from)
             })
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     async fn assume_identity(
@@ -298,7 +291,7 @@ impl AsyncStorageConnection for AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.assume_identity(identity).map(Self::from))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     async fn add_permission_group_to_user<
@@ -317,7 +310,7 @@ impl AsyncStorageConnection for AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.add_permission_group_to_user(user, group))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     async fn remove_permission_group_from_user<
@@ -340,7 +333,7 @@ impl AsyncStorageConnection for AsyncStorage {
                     .remove_permission_group_from_user(user, group)
             })
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     async fn add_role_to_user<
@@ -359,7 +352,7 @@ impl AsyncStorageConnection for AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.add_role_to_user(user, role))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     async fn remove_role_from_user<
@@ -378,18 +371,7 @@ impl AsyncStorageConnection for AsyncStorage {
         self.runtime
             .spawn_blocking(move || task_self.storage.remove_role_from_user(user, role))
             .await
-            .unwrap()
-    }
-}
-
-#[async_trait]
-impl AsyncNetworking for AsyncStorage {
-    async fn request(&self, request: Request) -> Result<Response, bonsaidb_core::Error> {
-        let task_self = self.clone();
-        self.runtime
-            .spawn_blocking(move || task_self.storage.request(request))
-            .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 }
 
@@ -404,7 +386,7 @@ impl AsyncConnection for AsyncDatabase {
         self.runtime
             .spawn_blocking(move || task_self.database.apply_transaction(transaction))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(id)))]
@@ -421,7 +403,7 @@ impl AsyncConnection for AsyncDatabase {
         self.runtime
             .spawn_blocking(move || task_self.database.get::<C, _>(id))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
@@ -443,7 +425,7 @@ impl AsyncConnection for AsyncDatabase {
         self.runtime
             .spawn_blocking(move || task_self.database.get_multiple::<C, _, _, _>(ids))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids, order, limit)))]
@@ -465,7 +447,7 @@ impl AsyncConnection for AsyncDatabase {
                 Connection::list::<C, _, _>(&task_self.database, ids, order, limit)
             })
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
@@ -480,7 +462,7 @@ impl AsyncConnection for AsyncDatabase {
         self.runtime
             .spawn_blocking(move || Connection::count::<C, _, _>(&task_self.database, ids))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(
@@ -502,7 +484,7 @@ impl AsyncConnection for AsyncDatabase {
                 )
             })
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(
@@ -526,7 +508,7 @@ impl AsyncConnection for AsyncDatabase {
                 Connection::query::<V>(&task_self.database, key, order, limit, access_policy)
             })
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(
@@ -555,7 +537,7 @@ impl AsyncConnection for AsyncDatabase {
                 )
             })
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
@@ -573,7 +555,7 @@ impl AsyncConnection for AsyncDatabase {
                 Connection::reduce::<V>(&task_self.database, key, access_policy)
             })
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
@@ -591,7 +573,7 @@ impl AsyncConnection for AsyncDatabase {
                 Connection::reduce_grouped::<V>(&task_self.database, key, access_policy)
             })
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     async fn delete_docs<V: schema::SerializedView>(
@@ -608,7 +590,7 @@ impl AsyncConnection for AsyncDatabase {
                 Connection::delete_docs::<V>(&task_self.database, key, access_policy)
             })
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
@@ -626,7 +608,7 @@ impl AsyncConnection for AsyncDatabase {
         self.runtime
             .spawn_blocking(move || Connection::compact_collection::<C>(&task_self.database))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
@@ -635,7 +617,7 @@ impl AsyncConnection for AsyncDatabase {
         self.runtime
             .spawn_blocking(move || Connection::compact(&task_self.database))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
@@ -644,7 +626,7 @@ impl AsyncConnection for AsyncDatabase {
         self.runtime
             .spawn_blocking(move || Connection::compact_key_value_store(&task_self.database))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 }
 
@@ -658,7 +640,7 @@ impl AsyncKeyValue for AsyncDatabase {
         self.runtime
             .spawn_blocking(move || KeyValue::execute_key_operation(&task_self.database, op))
             .await
-            .unwrap()
+            .map_err(Error::from)?
     }
 }
 
@@ -718,5 +700,173 @@ impl AsyncSubscriber for Subscriber {
 
     fn receiver(&self) -> &'_ flume::Receiver<Arc<circulate::Message>> {
         pubsub::Subscriber::receiver(self)
+    }
+}
+
+#[async_trait]
+impl AsyncLowLevelDatabase for AsyncDatabase {
+    async fn get_from_collection(
+        &self,
+        id: DocumentId,
+        collection: &CollectionName,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        let collection = collection.clone();
+        self.runtime
+            .spawn_blocking(move || task_self.database.get_from_collection(id, &collection))
+            .await
+            .map_err(Error::from)?
+    }
+
+    async fn list_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<usize>,
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        let collection = collection.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                task_self
+                    .database
+                    .list_from_collection(ids, order, limit, &collection)
+            })
+            .await
+            .map_err(Error::from)?
+    }
+
+    async fn count_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        collection: &CollectionName,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        let collection = collection.clone();
+        self.runtime
+            .spawn_blocking(move || task_self.database.count_from_collection(ids, &collection))
+            .await
+            .map_err(Error::from)?
+    }
+
+    async fn get_multiple_from_collection(
+        &self,
+        ids: &[DocumentId],
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        // TODO avoid the allocation here, switch to IntoIterator.
+        let ids = ids.to_vec();
+        let collection = collection.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                task_self
+                    .database
+                    .get_multiple_from_collection(&ids, &collection)
+            })
+            .await
+            .map_err(Error::from)?
+    }
+
+    async fn compact_collection_by_name(
+        &self,
+        collection: CollectionName,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let task_self = self.clone();
+        self.runtime
+            .spawn_blocking(move || task_self.database.compact_collection_by_name(collection))
+            .await
+            .map_err(Error::from)?
+    }
+
+    async fn query_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        order: Sort,
+        limit: Option<usize>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        let view = view.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                task_self
+                    .database
+                    .query_by_name(&view, key, order, limit, access_policy)
+            })
+            .await
+            .map_err(Error::from)?
+    }
+
+    async fn query_by_name_with_docs(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        order: Sort,
+        limit: Option<usize>,
+        access_policy: AccessPolicy,
+    ) -> Result<schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        let view = view.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                task_self
+                    .database
+                    .query_by_name_with_docs(&view, key, order, limit, access_policy)
+            })
+            .await
+            .map_err(Error::from)?
+    }
+
+    async fn reduce_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        let view = view.clone();
+        self.runtime
+            .spawn_blocking(move || task_self.database.reduce_by_name(&view, key, access_policy))
+            .await
+            .map_err(Error::from)?
+    }
+
+    async fn reduce_grouped_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        let view = view.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                task_self
+                    .database
+                    .reduce_grouped_by_name(&view, key, access_policy)
+            })
+            .await
+            .map_err(Error::from)?
+    }
+
+    async fn delete_docs_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        let view = view.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                task_self
+                    .database
+                    .delete_docs_by_name(&view, key, access_policy)
+            })
+            .await
+            .map_err(Error::from)?
     }
 }

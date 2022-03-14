@@ -101,7 +101,6 @@ impl Job for IntegrityScanner {
 
             Some(Arc::new(Mutex::new(Some(
                 self.database
-                    .data
                     .storage
                     .instance
                     .tasks()
@@ -118,7 +117,6 @@ impl Job for IntegrityScanner {
         };
 
         self.database
-            .data
             .storage
             .instance
             .tasks()

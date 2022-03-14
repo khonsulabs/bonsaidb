@@ -21,7 +21,8 @@ use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     circulate::{Message, Relay, Subscriber},
     connection::{
-        self, AsyncConnection, AsyncNetworking, AsyncStorageConnection, Identity, Session,
+        self, AsyncConnection, AsyncStorageConnection, Identity, Session, SessionId,
+        StorageConnection,
     },
     custom_api::{CustomApi, CustomApiResult},
     networking::{
@@ -33,7 +34,7 @@ use bonsaidb_core::{
         Dispatcher, Permissions,
     },
     pubsub::database_topic,
-    schema::{self, Nameable, NamedCollection, Schema},
+    schema::{self, Name, Nameable, NamedCollection, Schema},
 };
 use bonsaidb_local::{config::Builder, AsyncStorage, StorageNonBlocking};
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
@@ -52,6 +53,8 @@ use tokio::sync::{oneshot, Notify};
 use crate::config::AcmeConfiguration;
 use crate::{
     backend::ConnectionHandling,
+    custom_api::AnyCustomApiDispatcher,
+    dispatch::ServerDispatcher,
     error::Error,
     hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
     server::shutdown::{Shutdown, ShutdownState},
@@ -82,7 +85,7 @@ static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 #[derive_where(Clone)]
 pub struct CustomServer<B: Backend = NoBackend> {
     data: Arc<Data<B>>,
-    storage: AsyncStorage,
+    pub(crate) storage: AsyncStorage,
 }
 
 /// A BonsaiDb server without a custom backend.
@@ -92,12 +95,12 @@ pub type Server = CustomServer<NoBackend>;
 struct Data<B: Backend = NoBackend> {
     clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     request_processor: flume::Sender<ClientRequest<B>>,
-    default_permissions: Permissions,
-    authenticated_permissions: Permissions,
+    default_session: Session,
     endpoint: RwLock<Option<Endpoint>>,
     client_simultaneous_request_limit: usize,
     primary_tls_key: CachedCertifiedKey,
     primary_domain: String,
+    custom_apis: parking_lot::RwLock<HashMap<Name, Arc<dyn AnyCustomApiDispatcher>>>,
     #[cfg(feature = "acme")]
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
@@ -132,32 +135,30 @@ impl<B: Backend> CustomServer<B> {
             tokio::task::spawn(async move {
                 while let Ok(mut client_request) = request_receiver.recv_async().await {
                     let request = client_request.request.take().unwrap();
-                    let storage = client_request
-                        .server
-                        .storage
-                        .with_effective_permissions(&client_request.session.permissions);
-                    let result = storage.request(request.wrapped).await;
-                    match &result {
-                        Ok(Response::Database(DatabaseResponse::SubscriberCreated {
-                            subscriber_id,
-                        })) => {
-                            // let task_self = self.clone();
-                            // tokio::spawn(async move {
-                            //     task_self
-                            //         .forward_notifications_for(
-                            //             subscriber.id,
-                            //             subscriber.receiver,
-                            //             response_sender.clone(),
-                            //         )
-                            //         .await;
-                            // });
+                    let session = client_request
+                        .client
+                        .session(request.session_id)
+                        .unwrap_or_else(|| client_request.server.data.default_session.clone());
+                    // TODO we should be able to upgrade a session-less Storage to one with a Session.
+                    // The Session needs to be looked up from the client based on the request's session id.
+                    let result = match client_request.server.storage.assume_session(session) {
+                        Ok(storage) => {
+                            println!("Session: {:?}", storage.session());
+                            let server = Self {
+                                data: client_request.server.data.clone(),
+                                storage: AsyncStorage::from(storage),
+                            };
+                            ServerDispatcher {
+                                server: &server,
+                                client: &client_request.client,
+                            }
+                            .dispatch(&client_request.session.permissions, request.wrapped)
+                            .await
+                            .map_err(bonsaidb_core::Error::from)
+                            .unwrap_or_else(Response::Error)
                         }
-                        Ok(Response::Server(ServerResponse::Authenticated(session))) => {
-                            client_request.client.logged_in_as(session.clone()).await;
-                        }
-                        _ => {}
-                    }
-                    let result = result.unwrap_or_else(Response::Error);
+                        Err(err) => Response::Error(err),
+                    };
                     drop(client_request.result_sender.send(result));
                 }
             });
@@ -168,7 +169,6 @@ impl<B: Backend> CustomServer<B> {
         storage.create_database::<Hosted>("_hosted", true).await?;
 
         let default_permissions = Permissions::from(configuration.default_permissions);
-        let authenticated_permissions = Permissions::from(configuration.authenticated_permissions);
 
         let server = Self {
             storage,
@@ -176,11 +176,14 @@ impl<B: Backend> CustomServer<B> {
                 clients: RwLock::default(),
                 endpoint: RwLock::default(),
                 request_processor: request_sender,
-                default_permissions,
-                authenticated_permissions,
+                default_session: Session {
+                    permissions: default_permissions,
+                    ..Session::default()
+                },
                 client_simultaneous_request_limit: configuration.client_simultaneous_request_limit,
                 primary_tls_key: CachedCertifiedKey::default(),
                 primary_domain: configuration.server_name,
+                custom_apis: parking_lot::RwLock::new(configuration.custom_apis),
                 #[cfg(feature = "acme")]
                 acme: configuration.acme,
                 #[cfg(feature = "acme")]
@@ -222,6 +225,14 @@ impl<B: Backend> CustomServer<B> {
             server: self.clone(),
             db,
         }
+    }
+
+    pub(crate) fn custom_api_dispatcher(
+        &self,
+        name: &Name,
+    ) -> Option<Arc<dyn AnyCustomApiDispatcher>> {
+        let dispatchers = self.data.custom_apis.read();
+        dispatchers.get(name).cloned()
     }
 
     /// Installs an X.509 certificate used for general purpose connections.
@@ -427,9 +438,9 @@ impl<B: Backend> CustomServer<B> {
         &self,
         transport: Transport,
         address: SocketAddr,
-        sender: Sender<(Option<u64>, Response)>,
+        sender: Sender<(Option<SessionId>, Response)>,
     ) -> Option<OwnedClient<B>> {
-        if !self.data.default_permissions.allowed_to(
+        if !self.data.default_session.allowed_to(
             &bonsaidb_resource_name(),
             &BonsaiAction::Server(ServerAction::Connect),
         ) {
@@ -601,7 +612,9 @@ impl<B: Backend> CustomServer<B> {
         response_sender: flume::Sender<Payload<Response>>,
     ) -> Result<(), Error> {
         let (result_sender, result_receiver) = oneshot::channel();
-        let session = client.session(request.session_id).await;
+        let session = client
+            .session(request.session_id)
+            .unwrap_or_else(|| self.data.default_session.clone());
         self.data
             .request_processor
             .send(ClientRequest::<B>::new(
@@ -656,30 +669,6 @@ impl<B: Backend> CustomServer<B> {
         }
 
         Ok(())
-    }
-
-    async fn forward_notifications_for(
-        &self,
-        subscriber_id: u64,
-        receiver: flume::Receiver<Arc<Message>>,
-        sender: flume::Sender<Payload<Response>>,
-    ) {
-        while let Ok(message) = receiver.recv_async().await {
-            if sender
-                .send(Payload {
-                    id: None,
-                    session_id: None, // TODO should the session_id indicate the session_id of the subscriber?
-                    wrapped: Response::Database(DatabaseResponse::MessageReceived {
-                        subscriber_id,
-                        topic: message.topic.clone(),
-                        payload: Bytes::from(&message.payload[..]),
-                    }),
-                })
-                .is_err()
-            {
-                break;
-            }
-        }
     }
 
     /// Shuts the server down. If a `timeout` is provided, the server will stop
@@ -880,9 +869,10 @@ impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
         user: U,
         authentication: Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
+        let storage = self.storage.authenticate(user, authentication).await?;
         Ok(Self {
             data: self.data.clone(),
-            storage: self.storage.authenticate(user, authentication).await?,
+            storage,
         })
     }
 
@@ -890,9 +880,10 @@ impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
         &self,
         identity: Identity,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
+        let storage = self.storage.assume_identity(identity).await?;
         Ok(Self {
             data: self.data.clone(),
-            storage: self.storage.assume_identity(identity).await?,
+            storage,
         })
     }
 

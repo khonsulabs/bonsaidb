@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     custom_api::{CustomApi, CustomApiError, Infallible},
@@ -7,30 +8,32 @@ use bonsaidb_core::{
     schema::{InsertError, InvalidNameError},
 };
 
-use crate::{Error, Storage};
+use crate::Error;
 
 /// A trait that can dispatch requests for a [`CustomApi`].
 pub trait CustomApiDispatcher:
     Dispatcher<<Self::Api as CustomApi>::Request, Result = BackendApiResult<Self::Api>> + Debug
 {
     type Api: CustomApi;
-    /// Returns a dispatcher to handle custom api requests. The `storage`
-    /// instance is provided to allow the dispatcher to have access during
-    /// dispatched calls.
-    fn new(storage: &Storage) -> Self;
+    // /// Returns a dispatcher to handle custom api requests. The `storage`
+    // /// instance is provided to allow the dispatcher to have access during
+    // /// dispatched calls.
+    // fn new(storage: &Storage) -> Self;
 }
 
+#[async_trait]
 pub trait AnyCustomApiDispatcher: Send + Sync + Debug {
-    fn dispatch(&self, permissions: &Permissions, request: &[u8]) -> Result<Bytes, Error>;
+    async fn dispatch(&self, permissions: &Permissions, request: &[u8]) -> Result<Bytes, Error>;
 }
 
+#[async_trait]
 impl<T> AnyCustomApiDispatcher for T
 where
     T: CustomApiDispatcher,
 {
-    fn dispatch(&self, permissions: &Permissions, request: &[u8]) -> Result<Bytes, Error> {
+    async fn dispatch(&self, permissions: &Permissions, request: &[u8]) -> Result<Bytes, Error> {
         let request = pot::from_slice(request)?;
-        let response = match self.dispatch(permissions, request) {
+        let response = match self.dispatch(permissions, request).await {
             Ok(response) => Ok(response),
             Err(DispatchError::Api(api)) => Err(api),
             Err(DispatchError::Storage(err)) => return Err(err),
@@ -71,7 +74,7 @@ impl<E: CustomApiError> From<InvalidNameError> for DispatchError<E> {
 #[cfg(feature = "websockets")]
 impl<E: CustomApiError> From<bincode::Error> for DispatchError<E> {
     fn from(other: bincode::Error) -> Self {
-        Self::Server(Error::from(bonsaidb_local::Error::from(other)))
+        Self::Storage(Error::from(bonsaidb_local::Error::from(other)))
     }
 }
 

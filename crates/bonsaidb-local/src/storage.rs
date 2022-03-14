@@ -22,19 +22,16 @@ use bonsaidb_core::{
         Admin, PermissionGroup, Role, ADMIN_DATABASE_NAME,
     },
     circulate,
-    connection::{self, Connection, Identity, Networking, Session, StorageConnection},
+    connection::{self, Connection, Identity, Session, SessionId, StorageConnection},
     document::CollectionDocument,
-    networking::{Request, Response},
     permissions::{
         bonsai::{
             bonsaidb_resource_name, database_resource_name, user_resource_name,
             AuthenticationMethod, BonsaiAction, ServerAction,
         },
-        Action, Dispatcher, Identifier, Permissions,
+        Action, Identifier, Permissions,
     },
-    schema::{
-        Name, Nameable, NamedCollection, Schema, SchemaName, Schematic, SerializedCollection,
-    },
+    schema::{Nameable, NamedCollection, Schema, SchemaName, Schematic, SerializedCollection},
 };
 use itertools::Itertools;
 use nebari::{
@@ -53,9 +50,7 @@ use crate::config::Compression;
 use crate::vault::{self, LocalVaultKeyStorage, Vault};
 use crate::{
     config::{KeyValuePersistence, StorageConfiguration},
-    custom_api::AnyCustomApiDispatcher,
     database::Context,
-    dispatch::StorageDispatcher,
     tasks::{manager::Manager, TaskManager},
     Database, Error,
 };
@@ -159,7 +154,7 @@ pub use backup::{AnyBackupLocation, BackupLocation};
 pub struct Storage {
     pub(crate) instance: StorageInstance,
     pub(crate) authentication: Option<Arc<AuthenticatedSession>>,
-    effective_session: Session,
+    effective_session: Option<Session>,
 }
 
 #[derive(Debug, Clone)]
@@ -172,13 +167,13 @@ pub struct AuthenticatedSession {
 #[derive(Debug, Default)]
 pub struct SessionSubscribers {
     pub subscribers: HashMap<u64, SessionSubscriber>,
-    pub subscribers_by_session: HashMap<u64, HashSet<u64>>,
+    pub subscribers_by_session: HashMap<SessionId, HashSet<u64>>,
     pub last_id: u64,
 }
 
 #[derive(Debug)]
 pub struct SessionSubscriber {
-    pub session_id: Option<u64>,
+    pub session_id: Option<SessionId>,
     pub subscriber: circulate::Subscriber,
 }
 
@@ -207,7 +202,7 @@ impl Drop for AuthenticatedSession {
 
 #[derive(Debug, Default)]
 struct AuthenticatedSessions {
-    sessions: HashMap<u64, Arc<AuthenticatedSession>>,
+    sessions: HashMap<SessionId, Arc<AuthenticatedSession>>,
     last_session_id: u64,
 }
 
@@ -221,7 +216,7 @@ impl From<StorageInstance> for Storage {
         Self {
             instance,
             authentication: None,
-            effective_session: Session::default(),
+            effective_session: None,
         }
     }
 }
@@ -235,10 +230,10 @@ struct Data {
     file_manager: AnyFileManager,
     pub(crate) tasks: TaskManager,
     schemas: RwLock<HashMap<SchemaName, Arc<dyn DatabaseOpener>>>,
-    custom_apis: RwLock<HashMap<Name, Arc<dyn AnyCustomApiDispatcher>>>,
     available_databases: RwLock<HashMap<String, SchemaName>>,
     open_roots: Mutex<HashMap<String, Context>>,
     // cfg check matches `Connection::authenticate`
+    authenticated_permissions: Permissions,
     #[cfg(feature = "password-hashing")]
     sessions: RwLock<AuthenticatedSessions>,
     pub(crate) subscribers: Arc<RwLock<SessionSubscribers>>,
@@ -310,6 +305,8 @@ impl Storage {
         #[cfg(all(feature = "compression", not(feature = "encryption")))]
         let tree_vault = TreeVault::new_if_needed(configuration.default_compression);
 
+        let authenticated_permissions = Permissions::from(configuration.authenticated_permissions);
+
         let storage = Self {
             instance: StorageInstance {
                 data: Arc::new(Data {
@@ -317,6 +314,7 @@ impl Storage {
                     tasks,
                     parallelization,
                     subscribers: Arc::default(),
+                    authenticated_permissions,
                     #[cfg(feature = "password-hashing")]
                     sessions: RwLock::default(),
                     #[cfg(feature = "password-hashing")]
@@ -332,7 +330,6 @@ impl Storage {
                     chunk_cache: ChunkCache::new(2000, 160_384),
                     threadpool: ThreadPool::new(parallelization),
                     schemas: RwLock::new(configuration.initial_schemas),
-                    custom_apis: RwLock::new(configuration.custom_apis),
                     available_databases: RwLock::default(),
                     open_roots: Mutex::default(),
                     key_value_persistence,
@@ -341,7 +338,7 @@ impl Storage {
                 }),
             },
             authentication: None,
-            effective_session: Session::default(),
+            effective_session: None,
         };
 
         storage.cache_available_databases()?;
@@ -351,7 +348,9 @@ impl Storage {
         Ok(storage)
     }
 
-    pub(crate) fn database_without_schema(&self, name: &str) -> Result<Database, Error> {
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    pub fn database_without_schema(&self, name: &str) -> Result<Database, Error> {
         let name = name.to_owned();
         self.instance.database_without_schema(&name, Some(self))
     }
@@ -422,7 +421,7 @@ impl Storage {
         match self.database::<Admin>(ADMIN_DATABASE_NAME) {
             Ok(_) => {}
             Err(bonsaidb_core::Error::DatabaseNotFound(_)) => {
-                self.create_database::<Admin>(ADMIN_DATABASE_NAME, true)?;
+                drop(self.create_database::<Admin>(ADMIN_DATABASE_NAME, true)?);
             }
             Err(err) => return Err(Error::Core(err)),
         }
@@ -529,7 +528,13 @@ impl Storage {
         Self {
             instance: self.instance.clone(),
             authentication: self.authentication.clone(),
-            effective_session: self.effective_session.restricted_by(effective_permissions),
+            effective_session: Some(match &self.effective_session {
+                Some(session) => session.restricted_by(effective_permissions),
+                None => Session {
+                    permissions: effective_permissions.clone(),
+                    ..Session::default()
+                },
+            }),
         }
     }
 }
@@ -575,14 +580,6 @@ impl StorageInstance {
 
     pub(crate) fn relay(&self) -> &'_ Relay {
         &self.data.relay
-    }
-
-    pub(crate) fn custom_api_dispatcher(
-        &self,
-        name: &Name,
-    ) -> Option<Arc<dyn AnyCustomApiDispatcher>> {
-        let dispatchers = self.data.custom_apis.read();
-        dispatchers.get(name).cloned()
     }
 
     /// Opens a database through a generic-free trait.
@@ -671,11 +668,14 @@ impl StorageInstance {
         user: CollectionDocument<User>,
         admin: &Database,
     ) -> Result<Storage, bonsaidb_core::Error> {
-        let permissions = user.contents.effective_permissions(admin)?;
+        let permissions = user.contents.effective_permissions(
+            admin,
+            &admin.storage().instance.data.authenticated_permissions,
+        )?;
 
         let mut sessions = self.data.sessions.write();
         sessions.last_session_id += 1;
-        let session_id = sessions.last_session_id;
+        let session_id = SessionId(sessions.last_session_id);
         let session = Session {
             id: Some(session_id),
             identity: Some(Arc::new(Identity::User {
@@ -693,7 +693,7 @@ impl StorageInstance {
         Ok(Storage {
             instance: self.clone(),
             authentication: Some(authentication),
-            effective_session: session,
+            effective_session: Some(session),
         })
     }
 
@@ -802,7 +802,6 @@ impl StorageConnection for StorageInstance {
     ) -> Result<(), bonsaidb_core::Error> {
         Storage::validate_name(name)?;
 
-        // TODO upgrade read
         {
             let schemas = self.data.schemas.read();
             if !schemas.contains_key(&schema) {
@@ -1046,7 +1045,7 @@ impl StorageConnection for Storage {
     type Authenticated = Self;
 
     fn session(&self) -> Option<&Session> {
-        self.instance.session()
+        self.effective_session.as_ref()
     }
 
     fn admin(&self) -> Self::Database {
@@ -1291,14 +1290,6 @@ impl StorageConnection for Storage {
     }
 }
 
-impl Networking for Storage {
-    fn request(&self, request: Request) -> Result<Response, bonsaidb_core::Error> {
-        StorageDispatcher { storage: self }
-            .dispatch(&self.effective_session.permissions, request)
-            .map_err(bonsaidb_core::Error::from)
-    }
-}
-
 #[test]
 fn name_validation_tests() {
     assert!(matches!(Storage::validate_name("azAZ09.-"), Ok(())));
@@ -1441,17 +1432,51 @@ pub trait StorageNonBlocking {
     /// Returns the path of the database storage.
     #[must_use]
     fn path(&self) -> &Path;
+    fn assume_session(&self, session: Session) -> Result<Storage, bonsaidb_core::Error>;
 }
 
 impl StorageNonBlocking for Storage {
     fn path(&self) -> &Path {
-        self.instance.data.path()
+        &self.instance.data.path
     }
-}
 
-impl StorageNonBlocking for Data {
-    fn path(&self) -> &Path {
-        &self.path
+    fn assume_session(&self, session: Session) -> Result<Storage, bonsaidb_core::Error> {
+        if self.authentication.is_some() {
+            // TODO better error
+            return Err(bonsaidb_core::Error::InvalidCredentials);
+        }
+
+        let session_id = match session.id {
+            Some(id) => id,
+            None => {
+                return Ok(Self {
+                    instance: self.instance.clone(),
+                    authentication: None,
+                    effective_session: Some(session),
+                })
+            }
+        };
+
+        let session_data = self.instance.data.sessions.read();
+        // TODO better error
+        let authentication = session_data
+            .sessions
+            .get(&session_id)
+            .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+
+        let effective_permissions =
+            Permissions::merged([&session.permissions, &authentication.session.permissions]);
+        let effective_session = Session {
+            id: authentication.session.id,
+            identity: authentication.session.identity.clone(),
+            permissions: effective_permissions,
+        };
+
+        Ok(Self {
+            instance: self.instance.clone(),
+            authentication: Some(authentication.clone()),
+            effective_session: Some(effective_session),
+        })
     }
 }
 

@@ -12,7 +12,6 @@ use crate::{
         AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, OwnedDocument,
     },
     key::{IntoPrefixRange, Key},
-    networking::{Request, Response},
     permissions::Permissions,
     schema::{
         self,
@@ -22,6 +21,10 @@ use crate::{
     transaction::{self, OperationResult, Transaction},
     Error,
 };
+
+mod lowlevel;
+
+pub use lowlevel::{AsyncLowLevelDatabase, LowLevelDatabase};
 
 pub trait Connection: Sized + Send + Sync {
     fn session(&self) -> Option<&Session>;
@@ -2863,8 +2866,9 @@ pub trait StorageConnection: Sized + Send + Sync {
         &self,
         name: &str,
         only_if_needed: bool,
-    ) -> Result<(), crate::Error> {
-        self.create_database_with_schema(name, DB::schema_name(), only_if_needed)
+    ) -> Result<Self::Database, crate::Error> {
+        self.create_database_with_schema(name, DB::schema_name(), only_if_needed)?;
+        self.database::<DB>(name)
     }
 
     /// Returns a reference to database `name` with schema `DB`.
@@ -2977,10 +2981,6 @@ pub trait StorageConnection: Sized + Send + Sync {
     ) -> Result<(), crate::Error>;
 }
 
-pub trait Networking {
-    fn request(&self, request: Request) -> Result<Response, Error>;
-}
-
 /// Functions for interacting with a multi-database BonsaiDb instance.
 #[async_trait]
 pub trait AsyncStorageConnection: Sized + Send + Sync {
@@ -3005,9 +3005,10 @@ pub trait AsyncStorageConnection: Sized + Send + Sync {
         &self,
         name: &str,
         only_if_needed: bool,
-    ) -> Result<(), crate::Error> {
+    ) -> Result<Self::Database, crate::Error> {
         self.create_database_with_schema(name, DB::schema_name(), only_if_needed)
-            .await
+            .await?;
+        self.database::<DB>(name).await
     }
 
     /// Returns a reference to database `name` with schema `DB`.
@@ -3121,11 +3122,6 @@ pub trait AsyncStorageConnection: Sized + Send + Sync {
         user: U,
         role: R,
     ) -> Result<(), crate::Error>;
-}
-
-#[async_trait]
-pub trait AsyncNetworking {
-    async fn request(&self, request: Request) -> Result<Response, Error>;
 }
 
 /// A database stored in BonsaiDb.
@@ -3259,10 +3255,14 @@ macro_rules! __doctest_prelude {
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 #[must_use]
 pub struct Session {
-    pub id: Option<u64>,
+    pub id: Option<SessionId>,
     pub identity: Option<Arc<Identity>>,
     pub permissions: Permissions,
 }
+
+#[derive(Default, Clone, Copy, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SessionId(pub u64);
 
 impl Session {
     pub fn restricted_by(&self, permissions: &Permissions) -> Self {

@@ -22,6 +22,8 @@ mod backend;
 #[cfg(feature = "cli")]
 pub mod cli;
 mod config;
+pub mod custom_api;
+mod dispatch;
 mod error;
 pub(crate) mod hosted;
 mod server;

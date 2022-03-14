@@ -1,13 +1,13 @@
 use std::collections::hash_map::Entry;
 
-use bonsaidb_core::Error;
+use bonsaidb_core::connection::SessionId;
 
 use crate::{storage::SessionSubscriber, Database, Subscriber};
 
 impl crate::storage::StorageInstance {
     pub(crate) fn register_subscriber(
         &self,
-        session_id: Option<u64>,
+        session_id: Option<SessionId>,
         database: Database,
     ) -> Subscriber {
         let subscriber = self.relay().create_subscriber();
@@ -29,77 +29,6 @@ impl crate::storage::StorageInstance {
             id,
             database,
             subscriber,
-        }
-    }
-
-    pub(crate) fn subscribe_by_id(
-        &self,
-        subscriber_id: u64,
-        topic: String,
-        in_session_id: Option<u64>,
-    ) -> Result<(), crate::Error> {
-        let data = self.data.subscribers.read();
-        if let Some(subscriber) = data.subscribers.get(&subscriber_id) {
-            if subscriber.session_id == in_session_id {
-                subscriber.subscriber.subscribe_to(topic);
-                Ok(())
-            } else {
-                // TODO real errors? Generic message?
-                Err(crate::Error::from(Error::Transport(String::from(
-                    "session_id not from current session",
-                ))))
-            }
-        } else {
-            Err(crate::Error::from(Error::Transport(String::from(
-                "invalid subscriber id",
-            ))))
-        }
-    }
-
-    pub(crate) fn unsubscribe_by_id(
-        &self,
-        subscriber_id: u64,
-        topic: &str,
-        in_session_id: Option<u64>,
-    ) -> Result<(), crate::Error> {
-        let data = self.data.subscribers.read();
-        if let Some(subscriber) = data.subscribers.get(&subscriber_id) {
-            if subscriber.session_id == in_session_id {
-                subscriber.subscriber.unsubscribe_from(topic);
-                Ok(())
-            } else {
-                // TODO real errors? Generic message?
-                Err(crate::Error::from(Error::Transport(String::from(
-                    "session_id not from current session",
-                ))))
-            }
-        } else {
-            Err(crate::Error::from(Error::Transport(String::from(
-                "invalid subscriber id",
-            ))))
-        }
-    }
-
-    pub(crate) fn unregister_subscriber_by_id(
-        &self,
-        subscriber_id: u64,
-        in_session_id: Option<u64>,
-    ) -> Result<(), crate::Error> {
-        let mut data = self.data.subscribers.write();
-        if let Some(subscriber) = data.subscribers.get(&subscriber_id) {
-            if subscriber.session_id == in_session_id {
-                data.subscribers.remove(&subscriber_id);
-                Ok(())
-            } else {
-                // TODO real errors? Generic message?
-                Err(crate::Error::from(Error::Transport(String::from(
-                    "session_id not from current session",
-                ))))
-            }
-        } else {
-            Err(crate::Error::from(Error::Transport(String::from(
-                "invalid subscriber id",
-            ))))
         }
     }
 }

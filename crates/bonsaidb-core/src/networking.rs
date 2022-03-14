@@ -3,7 +3,7 @@ use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    connection::{AccessPolicy, Database, Identity, QueryKey, Range, Session, Sort},
+    connection::{AccessPolicy, Database, Identity, QueryKey, Range, Session, SessionId, Sort},
     document::{DocumentId, OwnedDocument},
     keyvalue::{KeyOperation, Output},
     schema::{
@@ -21,7 +21,7 @@ pub const CURRENT_PROTOCOL_VERSION: &str = "bonsai/pre/0";
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Payload<T> {
     /// The authentication session id for this payload.
-    pub session_id: Option<u64>,
+    pub session_id: Option<SessionId>,
     /// The unique id for this payload.
     pub id: Option<u32>,
     /// The wrapped payload.

@@ -17,7 +17,6 @@ use std::ops::Deref;
 
 use bonsaidb::{
     core::{
-        connection::AsyncConnection,
         document::{CollectionDocument, Emit},
         schema::{
             view::CollectionViewSchema, Collection, ReduceResult, SerializedView, View,

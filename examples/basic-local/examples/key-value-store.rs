@@ -1,10 +1,10 @@
 use std::time::Duration;
 
 use bonsaidb::{
-    core::keyvalue::{KeyStatus, KeyValue},
+    core::keyvalue::{AsyncKeyValue, KeyStatus},
     local::{
         config::{Builder, StorageConfiguration},
-        Database,
+        AsyncDatabase,
     },
 };
 
@@ -16,7 +16,8 @@ use bonsaidb::{
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
-    let db = Database::open::<()>(StorageConfiguration::new("key-value-store.bonsaidb")).await?;
+    let db =
+        AsyncDatabase::open::<()>(StorageConfiguration::new("key-value-store.bonsaidb")).await?;
 
     // The set_key method can be awaited to insert/replace a key. Values can be
     // anything supported by Serde.

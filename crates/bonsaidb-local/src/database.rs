@@ -15,7 +15,8 @@ use bonsaidb_core::{
         ArcBytes,
     },
     connection::{
-        self, AccessPolicy, Connection, QueryKey, Range, Session, Sort, StorageConnection,
+        self, AccessPolicy, Connection, LowLevelDatabase, QueryKey, Range, Session, Sort,
+        StorageConnection,
     },
     document::{AnyDocumentId, BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
     key::Key,
@@ -115,13 +116,13 @@ pub mod pubsub;
 #[must_use]
 pub struct Database {
     pub(crate) data: Arc<Data>,
+    pub(crate) storage: Storage,
 }
 
 #[derive(Debug)]
 pub struct Data {
     pub name: Arc<Cow<'static, str>>,
     context: Context,
-    pub(crate) storage: Storage,
     pub(crate) schema: Arc<Schematic>,
 }
 
@@ -135,10 +136,10 @@ impl Database {
         let name = name.into();
         let schema = Arc::new(DB::schematic()?);
         let db = Self {
+            storage: storage.clone(),
             data: Arc::new(Data {
                 name: Arc::new(name),
                 context,
-                storage: storage.clone(),
                 schema,
             }),
         };
@@ -160,15 +161,10 @@ impl Database {
     /// Returns a clone with `effective_permissions`. Replaces any previously applied permissions.
     pub fn with_effective_permissions(&self, effective_permissions: &Permissions) -> Self {
         Self {
-            data: Arc::new(Data {
-                name: self.data.name.clone(),
-                context: self.data.context.clone(),
-                storage: self
-                    .data
-                    .storage
-                    .with_effective_permissions(effective_permissions),
-                schema: self.data.schema.clone(),
-            }),
+            storage: self
+                .storage
+                .with_effective_permissions(effective_permissions),
+            data: self.data.clone(),
         }
     }
 
@@ -176,14 +172,12 @@ impl Database {
     pub fn open<DB: Schema>(configuration: StorageConfiguration) -> Result<Self, Error> {
         let storage = Storage::open(configuration.with_schema::<DB>()?)?;
 
-        storage.create_database::<DB>("default", true)?;
-
-        Ok(storage.database::<DB>("default")?)
+        Ok(storage.create_database::<DB>("default", true)?)
     }
 
     /// Returns the [`Storage`] that this database belongs to.
     pub fn storage(&self) -> &'_ Storage {
-        &self.data.storage
+        &self.storage
     }
 
     /// Returns the [`Schematic`] for the schema for this database.
@@ -221,8 +215,7 @@ impl Database {
         mut callback: F,
     ) -> Result<(), bonsaidb_core::Error> {
         if matches!(access_policy, AccessPolicy::UpdateBefore) {
-            self.data
-                .storage
+            self.storage
                 .instance
                 .tasks()
                 .update_view_if_needed(view, self)?;
@@ -250,8 +243,7 @@ impl Database {
                 .schema
                 .view_by_name(&view_name)
                 .expect("query made with view that isn't registered with this database");
-            db.data
-                .storage
+            db.storage
                 .instance
                 .tasks()
                 .update_view_if_needed(view, &db)?;
@@ -285,359 +277,6 @@ impl Database {
             access_policy,
             callback,
         )
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub fn internal_get_from_collection_id(
-        &self,
-        id: DocumentId,
-        collection: &CollectionName,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
-        self.get_from_collection_id(id, collection)
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub fn list_from_collection(
-        &self,
-        ids: Range<DocumentId>,
-        order: Sort,
-        limit: Option<usize>,
-        collection: &CollectionName,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        self.list(ids, order, limit, collection)
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub fn count_from_collection(
-        &self,
-        ids: Range<DocumentId>,
-        collection: &CollectionName,
-    ) -> Result<u64, bonsaidb_core::Error> {
-        self.count(ids, collection)
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub fn internal_get_multiple_from_collection_id(
-        &self,
-        ids: &[DocumentId],
-        collection: &CollectionName,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        self.get_multiple_from_collection_id(ids, collection)
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub fn compact_collection_by_name(
-        &self,
-        collection: CollectionName,
-    ) -> Result<(), bonsaidb_core::Error> {
-        self.storage()
-            .instance
-            .tasks()
-            .compact_collection(self.clone(), collection)?;
-        Ok(())
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub fn query_by_name(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        order: Sort,
-        limit: Option<usize>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<bonsaidb_core::schema::view::map::Serialized>, bonsaidb_core::Error> {
-        if let Some(view) = self.schematic().view_by_name(view) {
-            let mut results = Vec::new();
-            self.for_each_in_view(view, key, order, limit, access_policy, |entry| {
-                for mapping in entry.mappings {
-                    results.push(bonsaidb_core::schema::view::map::Serialized {
-                        source: mapping.source,
-                        key: entry.key.clone(),
-                        value: mapping.value,
-                    });
-                }
-                Ok(())
-            })?;
-
-            Ok(results)
-        } else {
-            Err(bonsaidb_core::Error::CollectionNotFound)
-        }
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub fn query_by_name_with_docs(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        order: Sort,
-        limit: Option<usize>,
-        access_policy: AccessPolicy,
-    ) -> Result<bonsaidb_core::schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error>
-    {
-        let results = self.query_by_name(view, key, order, limit, access_policy)?;
-        let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
-
-        let documents = self
-            .get_multiple_from_collection_id(
-                &results.iter().map(|m| m.source.id).collect::<Vec<_>>(),
-                &view.collection(),
-            )?
-            .into_iter()
-            .map(|doc| (doc.header.id, doc))
-            .collect::<BTreeMap<_, _>>();
-
-        Ok(
-            bonsaidb_core::schema::view::map::MappedSerializedDocuments {
-                mappings: results,
-                documents,
-            },
-        )
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub fn reduce_by_name(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
-        self.reduce_in_view(view, key, access_policy)
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub fn reduce_grouped_by_name(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
-        self.grouped_reduce_in_view(view, key, access_policy)
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub fn delete_docs_by_name(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error> {
-        let view = self
-            .data
-            .schema
-            .view_by_name(view)
-            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
-        let collection = view.collection();
-        let mut transaction = Transaction::default();
-        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
-            for mapping in entry.mappings {
-                transaction.push(Operation::delete(collection.clone(), mapping.source));
-            }
-
-            Ok(())
-        })?;
-
-        let results = Connection::apply_transaction(self, transaction)?;
-
-        Ok(results.len() as u64)
-    }
-
-    fn get_from_collection_id(
-        &self,
-        id: DocumentId,
-        collection: &CollectionName,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
-        let collection = collection.clone();
-        let tree = self
-            .data
-            .context
-            .roots
-            .tree(
-                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
-            )
-            .map_err(Error::from)?;
-        if let Some(vec) = tree.get(id.as_ref()).map_err(Error::from)? {
-            Ok(Some(deserialize_document(&vec)?.into_owned()))
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn get_multiple_from_collection_id(
-        &self,
-        ids: &[DocumentId],
-        collection: &CollectionName,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        let mut ids = ids.to_vec();
-        let collection = collection.clone();
-        let tree = self
-            .data
-            .context
-            .roots
-            .tree(
-                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
-            )
-            .map_err(Error::from)?;
-        ids.sort();
-        let keys_and_values = tree
-            .get_multiple(ids.iter().map(|id| id.as_ref()))
-            .map_err(Error::from)?;
-
-        keys_and_values
-            .into_iter()
-            .map(|(_, value)| deserialize_document(&value).map(BorrowedDocument::into_owned))
-            .collect::<Result<Vec<_>, Error>>()
-            .map_err(bonsaidb_core::Error::from)
-    }
-
-    pub(crate) fn list(
-        &self,
-        ids: Range<DocumentId>,
-        sort: Sort,
-        limit: Option<usize>,
-        collection: &CollectionName,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        let collection = collection.clone();
-        let tree = self
-            .data
-            .context
-            .roots
-            .tree(
-                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
-            )
-            .map_err(Error::from)?;
-        let mut found_docs = Vec::new();
-        let mut keys_read = 0;
-        let ids = DocumentIdRange(ids);
-        tree.scan(
-            &ids.borrow_as_bytes(),
-            match sort {
-                Sort::Ascending => true,
-                Sort::Descending => false,
-            },
-            |_, _, _| true,
-            |_, _| {
-                if let Some(limit) = limit {
-                    if keys_read >= limit {
-                        return KeyEvaluation::Stop;
-                    }
-
-                    keys_read += 1;
-                }
-                KeyEvaluation::ReadData
-            },
-            |_, _, doc| {
-                found_docs.push(
-                    deserialize_document(&doc)
-                        .map(BorrowedDocument::into_owned)
-                        .map_err(AbortError::Other)?,
-                );
-                Ok(())
-            },
-        )
-        .map_err(|err| match err {
-            AbortError::Other(err) => err,
-            AbortError::Nebari(err) => crate::Error::from(err),
-        })?;
-
-        Ok(found_docs)
-    }
-
-    pub(crate) fn count(
-        &self,
-        ids: Range<DocumentId>,
-        collection: &CollectionName,
-    ) -> Result<u64, bonsaidb_core::Error> {
-        let collection = collection.clone();
-        // TODO this should be able to use a reduce operation from Nebari https://github.com/khonsulabs/nebari/issues/23
-        let tree = self
-            .data
-            .context
-            .roots
-            .tree(
-                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
-            )
-            .map_err(Error::from)?;
-        let mut keys_found = 0;
-        let ids = DocumentIdRange(ids);
-        tree.scan(
-            &ids.borrow_as_bytes(),
-            true,
-            |_, _, _| true,
-            |_, _| {
-                keys_found += 1;
-                KeyEvaluation::Skip
-            },
-            |_, _, _| unreachable!(),
-        )
-        .map_err(|err| match err {
-            AbortError::Other(err) => err,
-            AbortError::Nebari(err) => crate::Error::from(err),
-        })?;
-
-        Ok(keys_found)
-    }
-
-    fn reduce_in_view(
-        &self,
-        view_name: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
-        let view = self
-            .data
-            .schema
-            .view_by_name(view_name)
-            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
-        let mut mappings = self.grouped_reduce_in_view(view_name, key, access_policy)?;
-
-        let result = if mappings.len() == 1 {
-            mappings.pop().unwrap().value.into_vec()
-        } else {
-            view.reduce(
-                &mappings
-                    .iter()
-                    .map(|map| (map.key.as_ref(), map.value.as_ref()))
-                    .collect::<Vec<_>>(),
-                true,
-            )
-            .map_err(Error::from)?
-        };
-
-        Ok(result)
-    }
-
-    fn grouped_reduce_in_view(
-        &self,
-        view_name: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
-        let view = self
-            .data
-            .schema
-            .view_by_name(view_name)
-            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
-        let mut mappings = Vec::new();
-        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
-            mappings.push(MappedSerializedValue {
-                key: entry.key,
-                value: entry.reduced_value,
-            });
-            Ok(())
-        })?;
-
-        Ok(mappings)
     }
 
     fn apply_transaction_to_roots(
@@ -1252,7 +891,7 @@ impl Connection for Database {
             document_resource_name(self.name(), &C::collection_name(), &id),
             &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
         )?;
-        self.get_from_collection_id(id, &C::collection_name())
+        self.get_from_collection(id, &C::collection_name())
     }
 
     fn get_multiple<C, PrimaryKey, DocumentIds, I>(
@@ -1276,7 +915,7 @@ impl Connection for Database {
             document_ids.push(id);
         }
 
-        self.get_multiple_from_collection_id(&document_ids, &collection)
+        self.get_multiple_from_collection(&document_ids, &collection)
     }
 
     fn list<C, R, PrimaryKey>(
@@ -1295,7 +934,7 @@ impl Connection for Database {
             collection_resource_name(self.name(), &collection),
             &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::List)),
         )?;
-        self.list(
+        self.list_from_collection(
             ids.into().map_result(|id| id.into().to_document_id())?,
             order,
             limit,
@@ -1315,7 +954,7 @@ impl Connection for Database {
             &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Count)),
         )?;
 
-        self.count(
+        self.count_from_collection(
             ids.into().map_result(|id| id.into().to_document_id())?,
             &collection,
         )
@@ -1412,7 +1051,7 @@ impl Connection for Database {
             &BonsaiAction::Database(DatabaseAction::View(ViewAction::Reduce)),
         )?;
 
-        let result = self.reduce_in_view(
+        let result = self.reduce_by_name(
             &view.view_name(),
             key.map(|key| key.serialized()).transpose()?,
             access_policy,
@@ -1440,7 +1079,7 @@ impl Connection for Database {
             &BonsaiAction::Database(DatabaseAction::View(ViewAction::Reduce)),
         )?;
 
-        let results = self.grouped_reduce_in_view(
+        let results = self.reduce_grouped_by_name(
             &view.view_name(),
             key.map(|key| key.serialized()).transpose()?,
             access_policy,
@@ -1529,7 +1168,6 @@ impl Connection for Database {
                 for view in views {
                     if view.unique() {
                         if let Some(task) = self
-                            .data
                             .storage
                             .instance
                             .tasks()
@@ -1654,6 +1292,288 @@ impl Connection for Database {
             .tasks()
             .compact_key_value_store(self.clone())?;
         Ok(())
+    }
+}
+
+impl LowLevelDatabase for Database {
+    fn get_from_collection(
+        &self,
+        id: DocumentId,
+        collection: &CollectionName,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
+        let collection = collection.clone();
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(
+                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
+            )
+            .map_err(Error::from)?;
+        if let Some(vec) = tree.get(id.as_ref()).map_err(Error::from)? {
+            Ok(Some(deserialize_document(&vec)?.into_owned()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn list_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        sort: Sort,
+        limit: Option<usize>,
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        let collection = collection.clone();
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(
+                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
+            )
+            .map_err(Error::from)?;
+        let mut found_docs = Vec::new();
+        let mut keys_read = 0;
+        let ids = DocumentIdRange(ids);
+        tree.scan(
+            &ids.borrow_as_bytes(),
+            match sort {
+                Sort::Ascending => true,
+                Sort::Descending => false,
+            },
+            |_, _, _| true,
+            |_, _| {
+                if let Some(limit) = limit {
+                    if keys_read >= limit {
+                        return KeyEvaluation::Stop;
+                    }
+
+                    keys_read += 1;
+                }
+                KeyEvaluation::ReadData
+            },
+            |_, _, doc| {
+                found_docs.push(
+                    deserialize_document(&doc)
+                        .map(BorrowedDocument::into_owned)
+                        .map_err(AbortError::Other)?,
+                );
+                Ok(())
+            },
+        )
+        .map_err(|err| match err {
+            AbortError::Other(err) => err,
+            AbortError::Nebari(err) => crate::Error::from(err),
+        })?;
+
+        Ok(found_docs)
+    }
+
+    fn count_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        collection: &CollectionName,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        let collection = collection.clone();
+        // TODO this should be able to use a reduce operation from Nebari https://github.com/khonsulabs/nebari/issues/23
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(
+                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
+            )
+            .map_err(Error::from)?;
+        let mut keys_found = 0;
+        let ids = DocumentIdRange(ids);
+        tree.scan(
+            &ids.borrow_as_bytes(),
+            true,
+            |_, _, _| true,
+            |_, _| {
+                keys_found += 1;
+                KeyEvaluation::Skip
+            },
+            |_, _, _| unreachable!(),
+        )
+        .map_err(|err| match err {
+            AbortError::Other(err) => err,
+            AbortError::Nebari(err) => crate::Error::from(err),
+        })?;
+
+        Ok(keys_found)
+    }
+
+    fn get_multiple_from_collection(
+        &self,
+        ids: &[DocumentId],
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        let mut ids = ids.to_vec();
+        let collection = collection.clone();
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(
+                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
+            )
+            .map_err(Error::from)?;
+        ids.sort();
+        let keys_and_values = tree
+            .get_multiple(ids.iter().map(|id| id.as_ref()))
+            .map_err(Error::from)?;
+
+        keys_and_values
+            .into_iter()
+            .map(|(_, value)| deserialize_document(&value).map(BorrowedDocument::into_owned))
+            .collect::<Result<Vec<_>, Error>>()
+            .map_err(bonsaidb_core::Error::from)
+    }
+
+    fn compact_collection_by_name(
+        &self,
+        collection: CollectionName,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.storage()
+            .instance
+            .tasks()
+            .compact_collection(self.clone(), collection)?;
+        Ok(())
+    }
+
+    fn query_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        order: Sort,
+        limit: Option<usize>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
+        if let Some(view) = self.schematic().view_by_name(view) {
+            let mut results = Vec::new();
+            self.for_each_in_view(view, key, order, limit, access_policy, |entry| {
+                for mapping in entry.mappings {
+                    results.push(bonsaidb_core::schema::view::map::Serialized {
+                        source: mapping.source,
+                        key: entry.key.clone(),
+                        value: mapping.value,
+                    });
+                }
+                Ok(())
+            })?;
+
+            Ok(results)
+        } else {
+            Err(bonsaidb_core::Error::CollectionNotFound)
+        }
+    }
+
+    fn query_by_name_with_docs(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        order: Sort,
+        limit: Option<usize>,
+        access_policy: AccessPolicy,
+    ) -> Result<schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error> {
+        let results = self.query_by_name(view, key, order, limit, access_policy)?;
+        let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
+
+        let documents = self
+            .get_multiple_from_collection(
+                &results.iter().map(|m| m.source.id).collect::<Vec<_>>(),
+                &view.collection(),
+            )?
+            .into_iter()
+            .map(|doc| (doc.header.id, doc))
+            .collect::<BTreeMap<_, _>>();
+
+        Ok(
+            bonsaidb_core::schema::view::map::MappedSerializedDocuments {
+                mappings: results,
+                documents,
+            },
+        )
+    }
+
+    fn reduce_by_name(
+        &self,
+        view_name: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
+        let mut mappings = self.reduce_grouped_by_name(view_name, key, access_policy)?;
+
+        let result = if mappings.len() == 1 {
+            mappings.pop().unwrap().value.into_vec()
+        } else {
+            let view = self
+                .data
+                .schema
+                .view_by_name(view_name)
+                .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
+            view.reduce(
+                &mappings
+                    .iter()
+                    .map(|map| (map.key.as_ref(), map.value.as_ref()))
+                    .collect::<Vec<_>>(),
+                true,
+            )
+            .map_err(Error::from)?
+        };
+
+        Ok(result)
+    }
+
+    fn reduce_grouped_by_name(
+        &self,
+        view_name: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
+        let view = self
+            .data
+            .schema
+            .view_by_name(view_name)
+            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
+        let mut mappings = Vec::new();
+        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
+            mappings.push(MappedSerializedValue {
+                key: entry.key,
+                value: entry.reduced_value,
+            });
+            Ok(())
+        })?;
+
+        Ok(mappings)
+    }
+
+    fn delete_docs_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        let view = self
+            .data
+            .schema
+            .view_by_name(view)
+            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
+        let collection = view.collection();
+        let mut transaction = Transaction::default();
+        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
+            for mapping in entry.mappings {
+                transaction.push(Operation::delete(collection.clone(), mapping.source));
+            }
+
+            Ok(())
+        })?;
+
+        let results = Connection::apply_transaction(self, transaction)?;
+
+        Ok(results.len() as u64)
     }
 }
 

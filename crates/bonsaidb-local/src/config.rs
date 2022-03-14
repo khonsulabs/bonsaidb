@@ -8,15 +8,14 @@ use std::{
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
-    custom_api::CustomApi,
-    schema::{Name, Schema, SchemaName},
+    permissions::Permissions,
+    schema::{Schema, SchemaName},
 };
 use sysinfo::{RefreshKind, System, SystemExt};
 
 #[cfg(feature = "encryption")]
 use crate::vault::AnyVaultKeyStorage;
 use crate::{
-    custom_api::{AnyCustomApiDispatcher, CustomApiDispatcher},
     storage::{DatabaseOpener, StorageSchemaOpener},
     Error,
 };
@@ -76,12 +75,14 @@ pub struct StorageConfiguration {
     #[cfg(feature = "compression")]
     pub default_compression: Option<Compression>,
 
+    /// The permissions granted to authenticated connections to this server.
+    pub authenticated_permissions: Permissions,
+
     /// Password hashing configuration.
     #[cfg(feature = "password-hashing")]
     pub argon: ArgonConfiguration,
 
     pub(crate) initial_schemas: HashMap<SchemaName, Arc<dyn DatabaseOpener>>,
-    pub(crate) custom_apis: HashMap<Name, Arc<dyn AnyCustomApiDispatcher>>,
 }
 
 impl Default for StorageConfiguration {
@@ -102,10 +103,10 @@ impl Default for StorageConfiguration {
             workers: Tasks::default_for(&system),
             views: Views::default(),
             key_value_persistence: KeyValuePersistence::default(),
+            authenticated_permissions: Permissions::default(),
             #[cfg(feature = "password-hashing")]
             argon: ArgonConfiguration::default_for(&system),
             initial_schemas: HashMap::default(),
-            custom_apis: HashMap::default(),
         }
     }
 }
@@ -116,16 +117,6 @@ impl StorageConfiguration {
         // TODO this should error on duplicate registration.
         self.initial_schemas
             .insert(S::schema_name(), Arc::new(StorageSchemaOpener::<S>::new()?));
-        Ok(())
-    }
-
-    pub fn register_custom_api<Dispatcher: CustomApiDispatcher + 'static>(
-        &mut self,
-        dispatcher: Dispatcher,
-    ) -> Result<(), Error> {
-        // TODO this should error on duplicate registration.
-        self.custom_apis
-            .insert(<Dispatcher::Api as CustomApi>::name(), Arc::new(dispatcher));
         Ok(())
     }
 }
@@ -332,11 +323,6 @@ pub trait Builder: Default {
     }
     /// Registers the schema and returns self.
     fn with_schema<S: Schema>(self) -> Result<Self, Error>;
-    /// Registers the custom api dispatcher and returns self.
-    fn with_custom_api<Dispatcher: CustomApiDispatcher + 'static>(
-        self,
-        dispatcher: Dispatcher,
-    ) -> Result<Self, Error>;
 
     /// Sets [`StorageConfiguration::path`](StorageConfiguration#structfield.memory_only) to true and returns self.
     #[must_use]
@@ -374,19 +360,14 @@ pub trait Builder: Default {
     /// Sets [`StorageConfiguration::key_value_persistence`](StorageConfiguration#structfield.key_value_persistence) to `persistence` and returns self.
     #[must_use]
     fn key_value_persistence(self, persistence: KeyValuePersistence) -> Self;
+    /// Sets [`Self::authenticated_permissions`](Self#structfield.authenticated_permissions) to `authenticated_permissions` and returns self.
+    #[must_use]
+    fn authenticated_permissions<P: Into<Permissions>>(self, authenticated_permissions: P) -> Self;
 }
 
 impl Builder for StorageConfiguration {
     fn with_schema<S: Schema>(mut self) -> Result<Self, Error> {
         self.register_schema::<S>()?;
-        Ok(self)
-    }
-
-    fn with_custom_api<Dispatcher: CustomApiDispatcher + 'static>(
-        mut self,
-        dispatcher: Dispatcher,
-    ) -> Result<Self, Error> {
-        self.register_custom_api(dispatcher)?;
         Ok(self)
     }
 
@@ -443,6 +424,14 @@ impl Builder for StorageConfiguration {
 
     fn key_value_persistence(mut self, persistence: KeyValuePersistence) -> Self {
         self.key_value_persistence = persistence;
+        self
+    }
+
+    fn authenticated_permissions<P: Into<Permissions>>(
+        mut self,
+        authenticated_permissions: P,
+    ) -> Self {
+        self.authenticated_permissions = authenticated_permissions.into();
         self
     }
 }

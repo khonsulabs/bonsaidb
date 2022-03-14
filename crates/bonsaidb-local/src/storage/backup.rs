@@ -7,7 +7,7 @@ use std::{
 use async_trait::async_trait;
 use bonsaidb_core::{
     admin,
-    connection::{Connection, Range, Sort, StorageConnection},
+    connection::{Connection, LowLevelDatabase, Range, Sort, StorageConnection},
     document::DocumentId,
     schema::{Collection, SchemaName},
     transaction::{Operation, Transaction},
@@ -108,7 +108,12 @@ impl Storage {
     ) -> Result<(), Error> {
         let schema = database.schematic().name.clone();
         for collection in database.schematic().collections() {
-            let documents = database.list(Range::from(..), Sort::Ascending, None, &collection)?;
+            let documents = database.list_from_collection(
+                Range::from(..),
+                Sort::Ascending,
+                None,
+                &collection,
+            )?;
             let collection_name = collection.encoded();
             // TODO consider how to best parallelize -- perhaps a location can opt into parallelization?
             for document in documents {
@@ -475,8 +480,8 @@ mod tests {
                     .with_schema::<Basic>()?,
             )
             .await?;
-            storage.create_database::<Basic>("basic", false).await?;
-            let db = storage.database::<Basic>("basic").await?;
+
+            let db = storage.create_database::<Basic>("basic", false).await?;
             let test_doc = db
                 .collection::<Basic>()
                 .push(&Basic::new("somevalue"))
