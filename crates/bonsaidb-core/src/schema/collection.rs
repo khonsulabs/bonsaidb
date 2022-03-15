@@ -1803,7 +1803,7 @@ where
     }
 
     /// Sets the maximum number of results to return.
-    pub fn limit(mut self, maximum_results: usize) -> Self {
+    pub fn limit(mut self, maximum_results: u32) -> Self {
         self.0 = self.0.limit(maximum_results);
         self
     }
@@ -1862,7 +1862,7 @@ where
     }
 
     /// Sets the maximum number of results to return.
-    pub fn limit(mut self, maximum_results: usize) -> Self {
+    pub fn limit(mut self, maximum_results: u32) -> Self {
         self.0 = self.0.limit(maximum_results);
         self
     }

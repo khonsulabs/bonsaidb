@@ -47,7 +47,7 @@ use itertools::Itertools;
 use nebari::{
     io::any::AnyFile,
     tree::{
-        AnyTreeRoot, BorrowByteRange, BorrowedRange, CompareSwap, KeyEvaluation, Root, TreeRoot,
+        AnyTreeRoot, BorrowByteRange, BorrowedRange, CompareSwap, Root, ScanEvaluation, TreeRoot,
         Unversioned, Versioned,
     },
     AbortError, ExecutingTransaction, Roots, Tree,
@@ -167,7 +167,20 @@ impl Database {
         }
     }
 
-    /// Creates a `Storage` with a single-database named "default" with its data stored at `path`.
+    /// Creates a `Storage` with a single-database named "default" with its data
+    /// stored at `path`. This requires exclusive access to the storage location
+    /// configured. Attempting to open the same path multiple times concurrently
+    /// will lead to errors.
+    ///
+    /// Using this method is perfect if only one database is being used.
+    /// However, if multiple databases are needed, it is much better to store
+    /// multiple databases in a single [`Storage`] instance rather than creating
+    /// multiple independent databases using this method.
+    ///
+    /// When opening multiple databases using this function, each database will
+    /// have its own thread pool, cache, task worker pool, and more. By using a
+    /// single [`Storage`] instance, BonsaiDb will use less resources and likely
+    /// perform better.
     pub fn open<DB: Schema>(configuration: StorageConfiguration) -> Result<Self, Error> {
         let storage = Storage::open(configuration.with_schema::<DB>()?)?;
 
@@ -209,7 +222,7 @@ impl Database {
         view: &dyn view::Serialized,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
         mut callback: F,
     ) -> Result<(), bonsaidb_core::Error> {
@@ -258,7 +271,7 @@ impl Database {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
         callback: F,
     ) -> Result<(), bonsaidb_core::Error> {
@@ -675,7 +688,7 @@ impl Database {
         view_entries: &'a Tree<Unversioned, AnyFile>,
         key: Option<QueryKey<K>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<ViewEntry>, Error> {
         let mut values = Vec::new();
         let forwards = match order {
@@ -692,15 +705,15 @@ impl Database {
                     view_entries.scan::<Infallible, _, _, _, _>(
                         &range.map_ref(|bytes| &bytes[..]),
                         forwards,
-                        |_, _, _| true,
+                        |_, _, _| ScanEvaluation::ReadData,
                         |_, _| {
                             if let Some(limit) = limit {
                                 if values_read >= limit {
-                                    return KeyEvaluation::Stop;
+                                    return ScanEvaluation::Stop;
                                 }
                                 values_read += 1;
                             }
-                            KeyEvaluation::ReadData
+                            ScanEvaluation::ReadData
                         },
                         |_key, _index, value| {
                             values.push(value);
@@ -740,15 +753,15 @@ impl Database {
             view_entries.scan::<Infallible, _, _, _, _>(
                 &(..),
                 forwards,
-                |_, _, _| true,
+                |_, _, _| ScanEvaluation::ReadData,
                 |_, _| {
                     if let Some(limit) = limit {
                         if values_read >= limit {
-                            return KeyEvaluation::Stop;
+                            return ScanEvaluation::Stop;
                         }
                         values_read += 1;
                     }
-                    KeyEvaluation::ReadData
+                    ScanEvaluation::ReadData
                 },
                 |_, _, value| {
                     values.push(value);
@@ -921,7 +934,7 @@ impl Connection for Database {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
     where
         C: schema::Collection,
@@ -963,7 +976,7 @@ impl Connection for Database {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
@@ -1000,7 +1013,7 @@ impl Connection for Database {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
     where
@@ -1200,15 +1213,18 @@ impl Connection for Database {
     fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Vec<transaction::Executed>, bonsaidb_core::Error> {
         self.check_permission(
             database_resource_name(self.name()),
             &BonsaiAction::Database(DatabaseAction::Transaction(TransactionAction::ListExecuted)),
         )?;
-        let result_limit = result_limit
-            .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
-            .min(LIST_TRANSACTIONS_MAX_RESULTS);
+        let result_limit = usize::try_from(
+            result_limit
+                .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
+                .min(LIST_TRANSACTIONS_MAX_RESULTS),
+        )
+        .unwrap();
         if result_limit > 0 {
             let range = if let Some(starting_id) = starting_id {
                 Range::from(starting_id..)
@@ -1320,7 +1336,7 @@ impl LowLevelDatabase for Database {
         &self,
         ids: Range<DocumentId>,
         sort: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         let collection = collection.clone();
@@ -1341,16 +1357,16 @@ impl LowLevelDatabase for Database {
                 Sort::Ascending => true,
                 Sort::Descending => false,
             },
-            |_, _, _| true,
+            |_, _, _| ScanEvaluation::ReadData,
             |_, _| {
                 if let Some(limit) = limit {
                     if keys_read >= limit {
-                        return KeyEvaluation::Stop;
+                        return ScanEvaluation::Stop;
                     }
 
                     keys_read += 1;
                 }
-                KeyEvaluation::ReadData
+                ScanEvaluation::ReadData
             },
             |_, _, doc| {
                 found_docs.push(
@@ -1374,34 +1390,18 @@ impl LowLevelDatabase for Database {
         ids: Range<DocumentId>,
         collection: &CollectionName,
     ) -> Result<u64, bonsaidb_core::Error> {
-        let collection = collection.clone();
-        // TODO this should be able to use a reduce operation from Nebari https://github.com/khonsulabs/nebari/issues/23
         let tree = self
             .data
             .context
             .roots
             .tree(
-                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
+                self.collection_tree::<Versioned, _>(collection, document_tree_name(&collection))?,
             )
             .map_err(Error::from)?;
-        let mut keys_found = 0;
         let ids = DocumentIdRange(ids);
-        tree.scan(
-            &ids.borrow_as_bytes(),
-            true,
-            |_, _, _| true,
-            |_, _| {
-                keys_found += 1;
-                KeyEvaluation::Skip
-            },
-            |_, _, _| unreachable!(),
-        )
-        .map_err(|err| match err {
-            AbortError::Other(err) => err,
-            AbortError::Nebari(err) => crate::Error::from(err),
-        })?;
+        let stats = tree.reduce(&ids.borrow_as_bytes()).map_err(Error::from)?;
 
-        Ok(keys_found)
+        Ok(stats.alive_keys)
     }
 
     fn get_multiple_from_collection(
@@ -1447,7 +1447,7 @@ impl LowLevelDatabase for Database {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
         if let Some(view) = self.schematic().view_by_name(view) {
@@ -1474,7 +1474,7 @@ impl LowLevelDatabase for Database {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error> {
         let results = self.query_by_name(view, key, order, limit, access_policy)?;

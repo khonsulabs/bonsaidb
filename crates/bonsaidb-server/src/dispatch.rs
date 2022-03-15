@@ -357,7 +357,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatch
         collection: CollectionName,
         ids: Range<DocumentId>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Response, Error> {
         let documents = self
             .database
@@ -391,7 +391,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatc
         view: ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
         with_docs: bool,
     ) -> Result<Response, Error> {
@@ -484,7 +484,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
         &self,
         _permissions: &Permissions,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Response, Error> {
         Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
             self.database

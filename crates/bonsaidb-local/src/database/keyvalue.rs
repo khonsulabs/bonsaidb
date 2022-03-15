@@ -18,7 +18,7 @@ use bonsaidb_core::{
 };
 use nebari::{
     io::any::AnyFile,
-    tree::{CompareSwap, KeyEvaluation, Operation, Root, Unversioned},
+    tree::{CompareSwap, Operation, Root, ScanEvaluation, Unversioned},
     AbortError, ArcBytes, Roots,
 };
 use parking_lot::Mutex;
@@ -88,8 +88,8 @@ impl Database {
             .scan::<Error, _, _, _, _>(
                 &(..),
                 true,
-                |_, _, _| true,
-                |_, _| KeyEvaluation::ReadData,
+                |_, _, _| ScanEvaluation::ReadData,
+                |_, _| ScanEvaluation::ReadData,
                 |key, _, entry: ArcBytes<'static>| {
                     let entry = bincode::deserialize::<Entry>(&entry)
                         .map_err(|err| AbortError::Other(Error::from(err)))?;

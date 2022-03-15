@@ -163,7 +163,7 @@ pub enum DatabaseRequest {
         /// The order for the query into the collection.
         order: Sort,
         /// The maximum number of results to return.
-        limit: Option<usize>,
+        limit: Option<u32>,
     },
     /// Counts the number of documents in the specified range.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
@@ -183,7 +183,7 @@ pub enum DatabaseRequest {
         /// The order for the query into the view.
         order: Sort,
         /// The maximum number of results to return.
-        limit: Option<usize>,
+        limit: Option<u32>,
         /// The access policy for the query.
         access_policy: AccessPolicy,
         /// If true, [`DatabaseResponse::ViewMappingsWithDocs`] will be
@@ -227,7 +227,7 @@ pub enum DatabaseRequest {
         /// The starting transaction id.
         starting_id: Option<u64>,
         /// The maximum number of results.
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     },
     /// Queries the last transaction id.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]

@@ -95,8 +95,12 @@ impl Schematic {
         let collection = instance.collection();
         let unique = instance.unique();
         self.views.insert(TypeId::of::<V>(), Box::new(instance));
-        // TODO check for name collision
+
+        if self.views_by_name.contains_key(&name) {
+            return Err(Error::ViewAlreadyRegistered(name));
+        }
         self.views_by_name.insert(name, TypeId::of::<V>());
+
         if unique {
             let unique_views = self
                 .unique_views_by_collection

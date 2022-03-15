@@ -202,7 +202,7 @@ impl Connection for RemoteDatabase {
         &self,
         ids: R,
         order: bonsaidb_core::connection::Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<bonsaidb_core::document::OwnedDocument>, bonsaidb_core::Error>
     where
         C: bonsaidb_core::schema::Collection,
@@ -227,7 +227,7 @@ impl Connection for RemoteDatabase {
         &self,
         key: Option<bonsaidb_core::connection::QueryKey<V::Key>>,
         order: bonsaidb_core::connection::Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: bonsaidb_core::connection::AccessPolicy,
     ) -> Result<Vec<bonsaidb_core::schema::Map<V::Key, V::Value>>, bonsaidb_core::Error> {
         self.tokio().block_on(async {
@@ -239,7 +239,7 @@ impl Connection for RemoteDatabase {
         &self,
         key: Option<bonsaidb_core::connection::QueryKey<V::Key>>,
         order: bonsaidb_core::connection::Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: bonsaidb_core::connection::AccessPolicy,
     ) -> Result<
         bonsaidb_core::schema::view::map::MappedDocuments<
@@ -293,7 +293,7 @@ impl Connection for RemoteDatabase {
     fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Vec<bonsaidb_core::transaction::Executed>, bonsaidb_core::Error> {
         self.tokio().block_on(async {
             AsyncConnection::list_executed_transactions(self, starting_id, result_limit).await

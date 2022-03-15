@@ -23,9 +23,7 @@ pub mod permissions;
 pub mod admin;
 /// Types for interacting with BonsaiDb.
 pub mod connection;
-/// Types for interacting with `Document`s.
 pub mod document;
-/// Limits used within BonsaiDb.
 pub mod limits;
 /// Types for defining database schema.
 pub mod schema;
@@ -92,6 +90,10 @@ pub enum Error {
     /// The [`SchemaName`] requested was not registered.
     #[error("schema '{0}' is not registered")]
     SchemaNotRegistered(SchemaName),
+
+    /// The [`ViewName`] returned has already been registered.
+    #[error("view '{0}' was already registered")]
+    ViewAlreadyRegistered(ViewName),
 
     /// An invalid database name was specified. See
     /// [`StorageConnection::create_database()`](connection::StorageConnection::create_database)

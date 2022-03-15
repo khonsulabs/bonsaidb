@@ -456,7 +456,7 @@ impl AsyncConnection for AsyncDatabase {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
     where
         C: schema::Collection,
@@ -495,7 +495,7 @@ impl AsyncConnection for AsyncDatabase {
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Vec<transaction::Executed>, bonsaidb_core::Error> {
         let task_self = self.clone();
         self.runtime
@@ -519,7 +519,7 @@ impl AsyncConnection for AsyncDatabase {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
@@ -542,7 +542,7 @@ impl AsyncConnection for AsyncDatabase {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
     where
@@ -745,7 +745,7 @@ impl AsyncLowLevelDatabase for AsyncDatabase {
         &self,
         ids: Range<DocumentId>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         let task_self = self.clone();
@@ -808,7 +808,7 @@ impl AsyncLowLevelDatabase for AsyncDatabase {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
         let task_self = self.clone();
@@ -828,7 +828,7 @@ impl AsyncLowLevelDatabase for AsyncDatabase {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error> {
         let task_self = self.clone();

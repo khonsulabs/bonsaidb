@@ -19,7 +19,7 @@ pub trait LowLevelDatabase {
         &self,
         ids: Range<DocumentId>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, Error>;
 
@@ -42,7 +42,7 @@ pub trait LowLevelDatabase {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<schema::view::map::Serialized>, Error>;
 
@@ -51,7 +51,7 @@ pub trait LowLevelDatabase {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<schema::view::map::MappedSerializedDocuments, Error>;
 
@@ -89,7 +89,7 @@ pub trait AsyncLowLevelDatabase {
         &self,
         ids: Range<DocumentId>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, Error>;
 
@@ -112,7 +112,7 @@ pub trait AsyncLowLevelDatabase {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<schema::view::map::Serialized>, Error>;
 
@@ -121,7 +121,7 @@ pub trait AsyncLowLevelDatabase {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<schema::view::map::MappedSerializedDocuments, Error>;
 

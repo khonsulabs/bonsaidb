@@ -18,6 +18,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   delete, and `DocumentAction::Delete` for each document retrieved. This ensures
   if permission is denied to delete a specific document, it still cannot be
   deleted through `delete_docs()`.
+- All APIs have had their `limit` parameters changed from `usize` to `u32`.
+  Since `usize` is platform-dependent, picking a fixed-width type is more
+  appropriate.
+
+### Added
+
+- `Range::default()` now returns an unbounded range, and `Bound::default()`
+  returns `Bound::Unbounded`.
+- `Range` now has several builder-pattern style methods to help construct
+  ranges. In general, users should simply use the built-in range operators
+  (`..`, `start..`, `start..end`, `start..=end`), as they are able to represent
+  nearly every range pattern. The built-in range operators do not support
+  specifying an excluded start bound, while the new method `Range::after` allows
+  setting an excluded start bound.
+- `bonsaidb_core::key::encode_composite_field` and
+  `bonsaidb_core::key::decode_composite_field` have been added which allow
+  building more complex `Key` implementations that are composed of multiple
+  fields. These functions are what the `Key` implementation for tuples is
+  powered by.
+
+### Changed
+
+- Counting a list of documents now uses `reduce()` in Nebari, a new feature that
+  allows aggregating the embedded statistics without traversing the entire tree.
+  The net result is that retrieving a Collection's count should be near instant
+  and returning the count of a range of keys should be very fast as well.
+
+### Fixed
+
+- Defining multiple views with the same name for the same collection will now
+  return an error.
 
 ## v0.3.0
 

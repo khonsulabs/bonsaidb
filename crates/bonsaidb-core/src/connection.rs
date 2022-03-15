@@ -173,7 +173,7 @@ pub trait Connection: Sized + Send + Sync {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<OwnedDocument>, Error>
     where
         C: schema::Collection,
@@ -232,7 +232,7 @@ pub trait Connection: Sized + Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, Error>;
 
@@ -246,7 +246,7 @@ pub trait Connection: Sized + Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, Error>;
 
@@ -260,7 +260,7 @@ pub trait Connection: Sized + Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
@@ -330,7 +330,7 @@ pub trait Connection: Sized + Send + Sync {
     fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Vec<transaction::Executed>, Error>;
 
     /// Fetches the last transaction id that has been committed, if any.
@@ -757,7 +757,7 @@ where
     collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
     range: Range<AnyDocumentId<Cl::PrimaryKey>>,
     sort: Sort,
-    limit: Option<usize>,
+    limit: Option<u32>,
 }
 
 impl<'a, Cn, Cl> List<'a, Cn, Cl>
@@ -790,7 +790,7 @@ where
     }
 
     /// Sets the maximum number of results to return.
-    pub fn limit(mut self, maximum_results: usize) -> Self {
+    pub fn limit(mut self, maximum_results: u32) -> Self {
         self.limit = Some(maximum_results);
         self
     }
@@ -894,7 +894,7 @@ pub struct View<'a, Cn, V: schema::SerializedView> {
     pub sort: Sort,
 
     /// The maximum number of results to return.
-    pub limit: Option<usize>,
+    pub limit: Option<u32>,
 }
 
 impl<'a, Cn, V> View<'a, Cn, V>
@@ -1090,7 +1090,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn limit(mut self, maximum_results: usize) -> Self {
+    pub fn limit(mut self, maximum_results: u32) -> Self {
         self.limit = Some(maximum_results);
         self
     }
@@ -1387,7 +1387,7 @@ pub trait AsyncConnection: Sized + Send + Sync {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<OwnedDocument>, Error>
     where
         C: schema::Collection,
@@ -1447,7 +1447,7 @@ pub trait AsyncConnection: Sized + Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, Error>;
 
@@ -1462,7 +1462,7 @@ pub trait AsyncConnection: Sized + Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, Error>;
 
@@ -1477,7 +1477,7 @@ pub trait AsyncConnection: Sized + Send + Sync {
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
@@ -1555,7 +1555,7 @@ pub trait AsyncConnection: Sized + Send + Sync {
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Vec<transaction::Executed>, Error>;
 
     /// Fetches the last transaction id that has been committed, if any.
@@ -1985,7 +1985,7 @@ where
     collection: PossiblyOwned<'a, AsyncCollection<'a, Cn, Cl>>,
     range: Range<AnyDocumentId<Cl::PrimaryKey>>,
     sort: Sort,
-    limit: Option<usize>,
+    limit: Option<u32>,
 }
 
 pub(crate) enum PossiblyOwned<'a, Cl> {
@@ -2062,7 +2062,7 @@ where
     }
 
     /// Sets the maximum number of results to return.
-    pub fn limit(mut self, maximum_results: usize) -> Self {
+    pub fn limit(mut self, maximum_results: u32) -> Self {
         self.builder().limit = Some(maximum_results);
         self
     }
@@ -2195,7 +2195,7 @@ pub struct AsyncView<'a, Cn, V: schema::SerializedView> {
     pub sort: Sort,
 
     /// The maximum number of results to return.
-    pub limit: Option<usize>,
+    pub limit: Option<u32>,
 }
 
 impl<'a, Cn, V> AsyncView<'a, Cn, V>
@@ -2391,7 +2391,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn limit(mut self, maximum_results: usize) -> Self {
+    pub fn limit(mut self, maximum_results: u32) -> Self {
         self.limit = Some(maximum_results);
         self
     }
@@ -2618,8 +2618,12 @@ where
     }
 }
 
-/// A range type that can represent all std range types and be serialized.
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
+/// A range type that can represent all `std` range types and be serialized.
+///
+/// This type implements conversion operations from all range types defined in
+/// `std`.
+#[derive(Serialize, Deserialize, Default, Debug, Copy, Clone, Eq, PartialEq)]
+#[must_use]
 pub struct Range<T> {
     /// The start of the range.
     pub start: Bound<T>,
@@ -2629,6 +2633,7 @@ pub struct Range<T> {
 
 /// A range bound that can be serialized.
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Eq, PartialEq)]
+#[must_use]
 pub enum Bound<T> {
     /// No bound.
     Unbounded,
@@ -2638,7 +2643,53 @@ pub enum Bound<T> {
     Excluded(T),
 }
 
+impl<T> Default for Bound<T> {
+    fn default() -> Self {
+        Self::Unbounded
+    }
+}
+
 impl<T> Range<T> {
+    /// Sets the start bound of this range to [`Bound::Excluded`] with
+    /// `excluded_start`. The range will represent values that are
+    /// [`Ordering::Greater`](std::cmp::Ordering::Greater) than, but not
+    /// including, `excluded_start`.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn after(mut self, excluded_start: T) -> Self {
+        self.start = Bound::Excluded(excluded_start);
+        self
+    }
+
+    /// Sets the start bound of this range to [`Bound::Included`] with
+    /// `included_start`. The range will represent values that are
+    /// [`Ordering::Greater`](std::cmp::Ordering::Greater) than or
+    /// [`Ordering::Equal`](std::cmp::Ordering::Equal) to `included_start`.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn start_at(mut self, included_start: T) -> Self {
+        self.start = Bound::Included(included_start);
+        self
+    }
+
+    /// Sets the end bound of this range to [`Bound::Excluded`] with
+    /// `excluded_end`. The range will represent values that are
+    /// [`Ordering::Less`](std::cmp::Ordering::Less) than, but not including,
+    /// `excluded_end`.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn before(mut self, excluded_end: T) -> Self {
+        self.end = Bound::Excluded(excluded_end);
+        self
+    }
+
+    /// Sets the end bound of this range to [`Bound::Included`] with
+    /// `included_end`. The range will represent values that are
+    /// [`Ordering:::Less`](std::cmp::Ordering::Less) than or
+    /// [`Ordering::Equal`](std::cmp::Ordering::Equal) to `included_end`.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn end_at(mut self, included_end: T) -> Self {
+        self.end = Bound::Included(included_end);
+        self
+    }
+
     /// Maps each contained value with the function provided.
     pub fn map<U, F: Fn(T) -> U>(self, map: F) -> Range<U> {
         Range {
@@ -2662,6 +2713,38 @@ impl<T> Range<T> {
             end: self.end.map_ref(&map),
         }
     }
+}
+
+#[test]
+fn range_constructors() {
+    assert_eq!(
+        Range::default().after(1_u32),
+        Range {
+            start: Bound::Excluded(1),
+            end: Bound::Unbounded
+        }
+    );
+    assert_eq!(
+        Range::default().start_at(1_u32),
+        Range {
+            start: Bound::Included(1),
+            end: Bound::Unbounded
+        }
+    );
+    assert_eq!(
+        Range::default().before(1_u32),
+        Range {
+            start: Bound::Unbounded,
+            end: Bound::Excluded(1),
+        }
+    );
+    assert_eq!(
+        Range::default().end_at(1_u32),
+        Range {
+            start: Bound::Unbounded,
+            end: Bound::Included(1),
+        }
+    );
 }
 
 impl<'a, T: Key<'a>> Range<T> {

@@ -131,7 +131,7 @@ impl<B: Backend> bonsaidb_core::connection::AsyncConnection for ServerDatabase<B
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
     where
         C: schema::Collection,
@@ -154,7 +154,7 @@ impl<B: Backend> bonsaidb_core::connection::AsyncConnection for ServerDatabase<B
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
     where
@@ -167,7 +167,7 @@ impl<B: Backend> bonsaidb_core::connection::AsyncConnection for ServerDatabase<B
         &self,
         key: Option<QueryKey<V::Key>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
     where
@@ -221,7 +221,7 @@ impl<B: Backend> bonsaidb_core::connection::AsyncConnection for ServerDatabase<B
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Vec<bonsaidb_core::transaction::Executed>, bonsaidb_core::Error> {
         self.db
             .list_executed_transactions(starting_id, result_limit)
@@ -270,7 +270,7 @@ impl<B: Backend> AsyncLowLevelDatabase for ServerDatabase<B> {
         &self,
         ids: Range<DocumentId>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.db
@@ -306,7 +306,7 @@ impl<B: Backend> AsyncLowLevelDatabase for ServerDatabase<B> {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
         self.db
@@ -319,7 +319,7 @@ impl<B: Backend> AsyncLowLevelDatabase for ServerDatabase<B> {
         view: &ViewName,
         key: Option<QueryKey<Bytes>>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error> {
         self.db
