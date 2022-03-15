@@ -281,7 +281,7 @@ fn expiration_after_close() -> anyhow::Result<()> {
                     return Ok(true);
                 }
 
-                timing.wait_until(Duration::from_secs(4)).await;
+                timing.wait_until_async(Duration::from_secs(4)).await;
 
                 assert!(db.get_key("a").await?.is_none());
 

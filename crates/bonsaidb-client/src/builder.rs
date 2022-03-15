@@ -35,17 +35,14 @@ impl Builder {
     /// Enables using a [`CustomApi`] with this client. If you want to receive
     /// out-of-band API requests, set a callback using
     /// `with_custom_api_callback` instead.
-    pub fn with_custom_api<Api: CustomApi>(mut self) -> Self {
+    pub fn with_api<Api: CustomApi>(mut self) -> Self {
         self.custom_apis.insert(Api::name(), None);
         self
     }
 
     /// Enables using a [`CustomApi`] with this client. `callback` will be
     /// invoked when custom API responses are received from the server.
-    pub fn with_custom_api_callback<Api: CustomApi>(
-        mut self,
-        callback: CustomApiCallback<Api>,
-    ) -> Self {
+    pub fn with_api_callback<Api: CustomApi>(mut self, callback: CustomApiCallback<Api>) -> Self {
         self.custom_apis
             .insert(Api::name(), Some(Arc::new(callback)));
         self

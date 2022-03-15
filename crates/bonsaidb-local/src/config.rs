@@ -249,19 +249,19 @@ impl KeyValuePersistence {
         elapsed_since_last_commit: Duration,
     ) -> bool {
         self.duration_until_next_commit(number_of_changes, elapsed_since_last_commit)
-            == Duration::ZERO
+            == Some(Duration::ZERO)
     }
 
     pub(crate) fn duration_until_next_commit(
         &self,
         number_of_changes: usize,
         elapsed_since_last_commit: Duration,
-    ) -> Duration {
+    ) -> Option<Duration> {
         if number_of_changes == 0 {
-            Duration::MAX
+            None
         } else {
             match &self.0 {
-                KeyValuePersistenceInner::Immediate => Duration::ZERO,
+                KeyValuePersistenceInner::Immediate => Some(Duration::ZERO),
                 KeyValuePersistenceInner::Lazy(rules) => {
                     let mut shortest_duration = Duration::MAX;
                     for rule in rules
@@ -276,7 +276,7 @@ impl KeyValuePersistence {
                             break;
                         }
                     }
-                    shortest_duration
+                    (shortest_duration < Duration::MAX).then(|| shortest_duration)
                 }
             }
         }

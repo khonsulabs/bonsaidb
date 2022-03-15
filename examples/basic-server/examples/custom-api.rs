@@ -29,10 +29,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug)]
 pub struct ExampleBackend;
 
-/// The `CustomApi` for this example.
-#[derive(Debug)]
-pub enum ExampleApi {}
-
 // ANCHOR: api-types
 #[derive(Serialize, Deserialize, Actionable, Debug)]
 #[actionable(actionable = bonsaidb::core::actionable)]
@@ -51,8 +47,7 @@ pub enum Response {
     DidSomething,
 }
 
-impl CustomApi for ExampleApi {
-    type Request = Request;
+impl CustomApi for Request {
     type Response = Response;
     type Error = Infallible;
 
@@ -79,10 +74,14 @@ pub struct ExampleDispatcher<B: Backend> {
     _server: CustomServer<B>,
 }
 
-impl<B: Backend> CustomApiDispatcher<B> for ExampleDispatcher<B> {
-    type Api = ExampleApi;
-    fn new(server: &CustomServer<B>, _client: &ConnectedClient<B>) -> Self {
-        Self {
+pub struct ExampleDispatcherFactory;
+
+impl<B: Backend> CustomApiDispatcher<B> for ExampleDispatcherFactory {
+    type Api = Request;
+    type Dispatcher = ExampleDispatcher<B>;
+
+    fn dispatcher(server: &CustomServer<B>, _client: &ConnectedClient<B>) -> Self::Dispatcher {
+        ExampleDispatcher {
             _server: server.clone(),
         }
     }
@@ -199,7 +198,8 @@ async fn main() -> anyhow::Result<()> {
                 Statement::for_any()
                     .allowing(&ExampleActions::DoSomethingSimple)
                     .allowing(&ExampleActions::DoSomethingCustom),
-            )),
+            ))
+            .with_api(ExampleDispatcherFactory)?,
     )
     .await?;
     // ANCHOR_END: server-init
@@ -248,7 +248,7 @@ async fn main() -> anyhow::Result<()> {
         // To connect over websockets, use the websocket scheme.
         tasks.push(invoke_apis(
             Client::build(Url::parse("ws://localhost:8080")?)
-                .with_custom_api::<ExampleApi>()
+                .with_api::<Request>()
                 .finish()
                 .await?,
             "websockets",
@@ -258,7 +258,7 @@ async fn main() -> anyhow::Result<()> {
     // To connect over QUIC, use the bonsaidb scheme.
     tasks.push(invoke_apis(
         Client::build(Url::parse("bonsaidb://localhost")?)
-            .with_custom_api::<ExampleApi>()
+            .with_api::<Request>()
             .with_certificate(certificate)
             .finish()
             .await?,
@@ -282,7 +282,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
     // Calling DoSomethingSimple and DoSomethingCustom will check permissions, which our client currently doesn't have access to.
     assert!(matches!(
         client
-            .send_api_request::<ExampleApi>(&Request::DoSomethingSimple { some_argument: 1 })
+            .send_api_request(&Request::DoSomethingSimple { some_argument: 1 })
             .await,
         Err(ApiError::Client(bonsaidb::client::Error::Core(
             bonsaidb::core::Error::PermissionDenied(_)
@@ -290,7 +290,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
     ));
     assert!(matches!(
         client
-            .send_api_request::<ExampleApi>(&Request::DoSomethingCustom { some_argument: 1 })
+            .send_api_request(&Request::DoSomethingCustom { some_argument: 1 })
             .await,
         Err(ApiError::Client(bonsaidb::client::Error::Core(
             bonsaidb::core::Error::PermissionDenied(_)
@@ -299,7 +299,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
     // However, DoSomethingCustom with the argument `42` will succeed, because that argument has special logic in the handler.
     assert!(matches!(
         client
-            .send_api_request::<ExampleApi>(&Request::DoSomethingCustom { some_argument: 42 })
+            .send_api_request(&Request::DoSomethingCustom { some_argument: 42 })
             .await,
         Ok(Response::DidSomething)
     ));
@@ -314,13 +314,13 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
         .unwrap();
     assert!(matches!(
         client
-            .send_api_request::<ExampleApi>(&Request::DoSomethingSimple { some_argument: 1 })
+            .send_api_request(&Request::DoSomethingSimple { some_argument: 1 })
             .await,
         Ok(Response::DidSomething)
     ));
     assert!(matches!(
         client
-            .send_api_request::<ExampleApi>(&Request::DoSomethingCustom { some_argument: 1 })
+            .send_api_request(&Request::DoSomethingCustom { some_argument: 1 })
             .await,
         Ok(Response::DidSomething)
     ));
@@ -330,7 +330,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
 
 // ANCHOR: api-call
 async fn ping_the_server(client: &Client, client_name: &str) -> Result<(), bonsaidb::core::Error> {
-    match client.send_api_request::<ExampleApi>(&Request::Ping).await {
+    match client.send_api_request(&Request::Ping).await {
         Ok(Response::Pong) => {
             println!("Received Pong from server on {}", client_name);
         }

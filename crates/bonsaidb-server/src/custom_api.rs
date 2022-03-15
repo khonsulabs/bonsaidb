@@ -11,14 +11,13 @@ use bonsaidb_core::{
 use crate::{Backend, ConnectedClient, CustomServer, Error};
 
 /// A trait that can dispatch requests for a [`CustomApi`].
-pub trait CustomApiDispatcher<B: Backend>:
-    Dispatcher<<Self::Api as CustomApi>::Request, Result = BackendApiResult<Self::Api>> + Debug
-{
+pub trait CustomApiDispatcher<B: Backend>: Send + Sync {
+    type Dispatcher: Dispatcher<Self::Api, Result = BackendApiResult<Self::Api>>;
     type Api: CustomApi;
     /// Returns a dispatcher to handle custom api requests. The `storage`
     /// instance is provided to allow the dispatcher to have access during
     /// dispatched calls.
-    fn new(server: &CustomServer<B>, client: &ConnectedClient<B>) -> Self;
+    fn dispatcher(server: &CustomServer<B>, client: &ConnectedClient<B>) -> Self::Dispatcher;
 }
 
 #[async_trait]
@@ -32,11 +31,20 @@ pub trait AnyCustomApiDispatcher<B: Backend>: Send + Sync + Debug {
     ) -> Result<Bytes, Error>;
 }
 
-#[derive(Debug)]
 pub(crate) struct AnyWrapper<D: CustomApiDispatcher<B>, B: Backend>(
     pub(crate) D,
     pub(crate) PhantomData<B>,
 );
+
+impl<D, B> Debug for AnyWrapper<D, B>
+where
+    D: CustomApiDispatcher<B>,
+    B: Backend,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("AnyWrapper").finish()
+    }
+}
 
 #[async_trait]
 impl<T, B> AnyCustomApiDispatcher<B> for AnyWrapper<T, B>
@@ -52,7 +60,7 @@ where
         request: &[u8],
     ) -> Result<Bytes, Error> {
         let request = pot::from_slice(request)?;
-        let dispatcher = T::new(server, client);
+        let dispatcher = T::dispatcher(server, client);
         let response = match dispatcher.dispatch(permissions, request).await {
             Ok(response) => Ok(response),
             Err(DispatchError::Api(api)) => Err(api),

@@ -174,7 +174,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 ///
 /// # async fn test_fn() -> anyhow::Result<()> {
 /// let client = Client::build(Url::parse("bonsaidb://localhost")?)
-///     .with_custom_api::<MyApi>()
+///     .with_api::<MyApi>()
 ///     .finish()
 ///     .await?;
 /// let Response::Pong = client.send_api_request(Request::Ping).await?;
@@ -210,7 +210,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// # }
 /// # async fn test_fn() -> anyhow::Result<()> {
 /// let client = Client::build(Url::parse("bonsaidb://localhost")?)
-///     .with_custom_api_callback::<MyApi, _>(|result: Result<Response, Infallible>| {
+///     .with_api_callback::<MyApi, _>(|result: Result<Response, Infallible>| {
 ///         let Response::Pong = result.unwrap();
 ///     })
 ///     .finish()
@@ -458,7 +458,7 @@ impl Client {
     /// Sends an api `request`.
     pub async fn send_api_request<Api: CustomApi>(
         &self,
-        request: &Api::Request,
+        request: &Api,
     ) -> Result<Api::Response, ApiError<Api::Error>> {
         let request = Bytes::from(pot::to_vec(request).map_err(Error::from)?);
         match self

@@ -51,7 +51,7 @@ fn keyed_simple() {
     let handle2 = manager.lookup_or_enqueue(Echo(1));
     // Tests that they received the same job id
     assert_eq!(handle.id, handle2.id);
-    let mut handle3 = manager.lookup_or_enqueue(Echo(1));
+    let handle3 = manager.lookup_or_enqueue(Echo(1));
     assert_eq!(handle3.id, handle.id);
 
     manager.spawn_worker();
@@ -60,9 +60,7 @@ fn keyed_simple() {
     let result2 = handle2.receive().unwrap();
     // Because they're all the same handle, if those have returned, this one
     // should be available without blocking.
-    let result3 = handle3
-        .try_receive()
-        .expect("try_receive failed even though other channels were available");
+    let result3 = handle3.receive().unwrap();
 
     for result in [result1, result2, result3] {
         assert_eq!(result.unwrap(), 1);

@@ -13,9 +13,7 @@ use crate::schema::Name;
 ///
 /// * [`Action`](crate::permissions::Action) (trait and derive macro)
 /// * [`Actionable`](crate::permissions::Actionable) (derive macro)
-pub trait CustomApi: Debug + Send + Sync + 'static {
-    /// The type that represents an API request. This type is what clients will send to the server.
-    type Request: Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug;
+pub trait CustomApi: Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug + 'static {
     /// The type that represents an API response. This type will be sent to clients from the server.
     type Response: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug;
     /// The error type that this Api instance can return.
@@ -25,7 +23,6 @@ pub trait CustomApi: Debug + Send + Sync + 'static {
 }
 
 impl CustomApi for () {
-    type Request = ();
     type Response = ();
     type Error = Infallible;
 

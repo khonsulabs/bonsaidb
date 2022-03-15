@@ -113,7 +113,6 @@ pub mod pubsub;
 /// In this example, `BlogPost` implements the [`Collection`] trait, and all
 /// collections can be used as a [`Schema`].
 #[derive(Debug, Clone)]
-#[must_use]
 pub struct Database {
     pub(crate) data: Arc<Data>,
     pub(crate) storage: Storage,
@@ -1663,6 +1662,12 @@ impl Context {
         let mut state = self.data.key_value_state.lock();
         state.update_key_expiration(tree_key, expiration);
     }
+
+    #[cfg(test)]
+    pub(crate) fn kv_persistence_watcher(&self) -> watchable::Watcher<Timestamp> {
+        let state = self.data.key_value_state.lock();
+        state.persistence_watcher()
+    }
 }
 
 impl Drop for ContextData {
@@ -1671,7 +1676,6 @@ impl Drop for ContextData {
             let mut state = self.key_value_state.lock();
             state.shutdown(&self.key_value_state)
         } {
-            println!("Receiving shutdown");
             let _ = shutdown.recv();
         }
     }

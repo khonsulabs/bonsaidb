@@ -28,21 +28,24 @@ impl Backend for CustomBackend {
     type ClientData = u64;
 }
 
-impl CustomApiDispatcher<Self> for CustomBackend {
-    type Api = Api;
+#[derive(Debug)]
+pub struct ApiDispatcher;
 
-    fn new(_server: &CustomServer<Self>, client: &ConnectedClient<Self>) -> Self {
-        Self {
+impl CustomApiDispatcher<CustomBackend> for ApiDispatcher {
+    type Api = CustomRequest;
+    type Dispatcher = CustomBackend;
+
+    fn dispatcher(
+        _server: &CustomServer<CustomBackend>,
+        client: &ConnectedClient<CustomBackend>,
+    ) -> CustomBackend {
+        CustomBackend {
             client: client.clone(),
         }
     }
 }
 
-#[derive(Debug)]
-pub struct Api;
-
-impl CustomApi for Api {
-    type Request = CustomRequest;
+impl CustomApi for CustomRequest {
     type Response = CustomResponse;
     type Error = Infallible;
 
@@ -69,7 +72,7 @@ async fn custom_api() -> anyhow::Result<()> {
     let server = CustomServer::<CustomBackend>::open(
         ServerConfiguration::new(&dir)
             .default_permissions(DefaultPermissions::AllowAll)
-            .with_custom_api(Api)
+            .with_api(ApiDispatcher)?
             .with_schema::<Basic>()?,
     )
     .await?;
@@ -81,16 +84,16 @@ async fn custom_api() -> anyhow::Result<()> {
     tokio::spawn(async move { server.listen_on(12346).await });
 
     let client = Client::build(Url::parse("bonsaidb://localhost:12346")?)
-        .with_custom_api::<CustomBackend>()
+        .with_api::<CustomRequest>()
         .with_certificate(certificate)
         .finish()
         .await?;
 
     let CustomResponse::ExistingValue(old_data) =
-        client.send_api_request(CustomRequest::SetValue(1)).await?;
+        client.send_api_request(&CustomRequest::SetValue(1)).await?;
     assert_eq!(old_data, None);
     let CustomResponse::ExistingValue(old_data) =
-        client.send_api_request(CustomRequest::SetValue(2)).await?;
+        client.send_api_request(&CustomRequest::SetValue(2)).await?;
     assert_eq!(old_data, Some(1));
 
     Ok(())

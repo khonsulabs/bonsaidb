@@ -1820,7 +1820,7 @@ macro_rules! define_kv_test_suite {
 
                 // Before checking the value, make sure we haven't elapsed too
                 // much time. If so, just restart the test.
-                if !timing.wait_until(Duration::from_secs_f32(3.)).await {
+                if !timing.wait_until_async(Duration::from_secs_f32(3.)).await {
                     println!(
                         "Restarting test {}. Took too long {:?}",
                         line!(),
@@ -1831,7 +1831,7 @@ macro_rules! define_kv_test_suite {
 
                 assert_eq!(kv.get_key("b").await?, None, "b never expired");
 
-                timing.wait_until(Duration::from_secs_f32(5.)).await;
+                timing.wait_until_async(Duration::from_secs_f32(5.)).await;
                 assert_eq!(kv.get_key("a").await?, None, "a never expired");
                 break;
             }
@@ -1872,7 +1872,7 @@ macro_rules! define_kv_test_suite {
                     );
                     continue;
                 }
-                if !timing.wait_until(Duration::from_secs_f32(2.5)).await {
+                if !timing.wait_until_async(Duration::from_secs_f32(2.5)).await {
                     println!(
                         "Restarting test {}. Took too long {:?}",
                         line!(),
@@ -1891,6 +1891,9 @@ macro_rules! define_kv_test_suite {
         }
 
         #[tokio::test]
+        // This test can fail when the machine its running on is under high load or
+        // constrained resources. We need a command that persists (and waits until
+        // persist) to make this test fully deterministic.
         async fn kv_transaction_tests() -> anyhow::Result<()> {
             use std::time::Duration;
 
@@ -1898,6 +1901,7 @@ macro_rules! define_kv_test_suite {
                 connection::AsyncConnection,
                 keyvalue::{AsyncKeyValue, KeyStatus},
             };
+            // loop {
             let harness = $harness::new($crate::test_util::HarnessTest::KvTransactions).await?;
             let db = harness.connect().await?;
             // Generate several transactions that we can validate. Persisting
@@ -1906,17 +1910,14 @@ macro_rules! define_kv_test_suite {
             db.set_key("expires", &0_u32)
                 .expire_in(Duration::from_secs(1))
                 .await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
             db.set_key("akey", &String::from("avalue")).await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            db.get_key("akey").and_delete().await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
             db.set_numeric_key("nkey", 0_u64).await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
             db.increment_key_by("nkey", 1_u64).await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
             db.delete_key("nkey").await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            db.get_key("akey").and_delete().await?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
             // Ensure this doesn't generate a transaction.
             db.delete_key("nkey").await?;
 
@@ -1927,25 +1928,26 @@ macro_rules! define_kv_test_suite {
                 .iter()
                 .filter_map(|tx| tx.changes.keys())
                 .flatten()
-                .filter(|changed_key| changed_key.deleted)
+                .filter(|changed_key| dbg!(changed_key).deleted)
                 .count();
-            assert_eq!(deleted_keys, 3);
+            assert_eq!(deleted_keys, 3, "deleted keys wasn't 3");
             let akey_changes = transactions
                 .iter()
                 .filter_map(|tx| tx.changes.keys())
                 .flatten()
                 .filter(|changed_key| changed_key.key == "akey")
                 .count();
-            assert_eq!(akey_changes, 2);
+            assert_eq!(akey_changes, 2, "akey changes wasn't 2");
             let nkey_changes = transactions
                 .iter()
                 .filter_map(|tx| tx.changes.keys())
                 .flatten()
                 .filter(|changed_key| changed_key.key == "nkey")
                 .count();
-            assert_eq!(nkey_changes, 3);
+            assert_eq!(nkey_changes, 3, "nkey changes wasn't 3");
 
             harness.shutdown().await?;
+            // }
 
             Ok(())
         }
@@ -1966,7 +1968,19 @@ impl TimingTest {
         }
     }
 
-    pub async fn wait_until(&self, absolute_duration: Duration) -> bool {
+    pub fn wait_until(&self, absolute_duration: Duration) -> bool {
+        let target = self.start + absolute_duration;
+        let mut now = Instant::now();
+        if let Some(sleep_duration) = target.checked_duration_since(now) {
+            std::thread::sleep(sleep_duration);
+            now = Instant::now();
+        }
+        let amount_past = now.checked_duration_since(target);
+        // Return false if we're beyond the tolerance given
+        amount_past.unwrap_or_default() < self.tolerance
+    }
+
+    pub async fn wait_until_async(&self, absolute_duration: Duration) -> bool {
         let target = self.start + absolute_duration;
         let mut now = Instant::now();
         if now < target {

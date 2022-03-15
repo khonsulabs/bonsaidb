@@ -105,7 +105,7 @@ fn create_databases(path: impl AsRef<Path>) {
     write_basic(&storage.database::<SchemaB>("b-1").unwrap());
 
     write_unique(&storage.create_database::<SchemaB>("b-2", false).unwrap());
-    write_basic(&storage.create_database::<SchemaB>("b-2", false).unwrap());
+    write_basic(&storage.database::<SchemaB>("b-2").unwrap());
     drop(storage);
 }
 

@@ -608,9 +608,9 @@ impl<B: Backend> CustomServer<B> {
         client: ConnectedClient<B>,
     ) -> Result<(), Error> {
         let (result_sender, result_receiver) = oneshot::channel();
-        let session = dbg!(client
+        let session = client
             .session(request.session_id)
-            .unwrap_or_else(|| self.data.default_session.clone()));
+            .unwrap_or_else(|| self.data.default_session.clone());
         self.data
             .request_processor
             .send(ClientRequest::<B>::new(

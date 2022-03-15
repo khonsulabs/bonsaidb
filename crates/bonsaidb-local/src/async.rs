@@ -98,7 +98,6 @@ impl StorageNonBlocking for AsyncStorage {
 }
 
 #[derive(Debug, Clone)]
-#[must_use]
 pub struct AsyncDatabase {
     pub(crate) database: Database,
     runtime: tokio::runtime::Handle,
