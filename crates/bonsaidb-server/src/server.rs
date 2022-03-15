@@ -29,7 +29,7 @@ use bonsaidb_core::{
     },
     schema::{self, Name, Nameable, NamedCollection, Schema},
 };
-use bonsaidb_local::{config::Builder, AsyncStorage, StorageNonBlocking};
+use bonsaidb_local::{config::Builder, AsyncStorage, Storage, StorageNonBlocking};
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::derive_where;
 use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
@@ -79,6 +79,18 @@ static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 pub struct CustomServer<B: Backend = NoBackend> {
     data: Arc<Data<B>>,
     pub(crate) storage: AsyncStorage,
+}
+
+impl<'a, B: Backend> From<&'a CustomServer<B>> for Storage {
+    fn from(server: &'a CustomServer<B>) -> Self {
+        Self::from(server.storage.clone())
+    }
+}
+
+impl<B: Backend> From<CustomServer<B>> for Storage {
+    fn from(server: CustomServer<B>) -> Self {
+        Self::from(server.storage)
+    }
 }
 
 /// A BonsaiDb server without a custom backend.

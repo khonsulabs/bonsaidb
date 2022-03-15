@@ -12,7 +12,7 @@ impl AsyncKeyValue for super::RemoteDatabase {
     ) -> Result<bonsaidb_core::keyvalue::Output, bonsaidb_core::Error> {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::ExecuteKeyOperation(op),
             })

@@ -249,8 +249,7 @@ async fn main() -> anyhow::Result<()> {
         tasks.push(invoke_apis(
             Client::build(Url::parse("ws://localhost:8080")?)
                 .with_api::<Request>()
-                .finish()
-                .await?,
+                .finish()?,
             "websockets",
         ));
     }
@@ -260,8 +259,7 @@ async fn main() -> anyhow::Result<()> {
         Client::build(Url::parse("bonsaidb://localhost")?)
             .with_api::<Request>()
             .with_certificate(certificate)
-            .finish()
-            .await?,
+            .finish()?,
         "bonsaidb",
     ));
 
@@ -282,7 +280,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
     // Calling DoSomethingSimple and DoSomethingCustom will check permissions, which our client currently doesn't have access to.
     assert!(matches!(
         client
-            .send_api_request(&Request::DoSomethingSimple { some_argument: 1 })
+            .send_api_request_async(&Request::DoSomethingSimple { some_argument: 1 })
             .await,
         Err(ApiError::Client(bonsaidb::client::Error::Core(
             bonsaidb::core::Error::PermissionDenied(_)
@@ -290,7 +288,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
     ));
     assert!(matches!(
         client
-            .send_api_request(&Request::DoSomethingCustom { some_argument: 1 })
+            .send_api_request_async(&Request::DoSomethingCustom { some_argument: 1 })
             .await,
         Err(ApiError::Client(bonsaidb::client::Error::Core(
             bonsaidb::core::Error::PermissionDenied(_)
@@ -299,7 +297,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
     // However, DoSomethingCustom with the argument `42` will succeed, because that argument has special logic in the handler.
     assert!(matches!(
         client
-            .send_api_request(&Request::DoSomethingCustom { some_argument: 42 })
+            .send_api_request_async(&Request::DoSomethingCustom { some_argument: 42 })
             .await,
         Ok(Response::DidSomething)
     ));
@@ -314,13 +312,13 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
         .unwrap();
     assert!(matches!(
         client
-            .send_api_request(&Request::DoSomethingSimple { some_argument: 1 })
+            .send_api_request_async(&Request::DoSomethingSimple { some_argument: 1 })
             .await,
         Ok(Response::DidSomething)
     ));
     assert!(matches!(
         client
-            .send_api_request(&Request::DoSomethingCustom { some_argument: 1 })
+            .send_api_request_async(&Request::DoSomethingCustom { some_argument: 1 })
             .await,
         Ok(Response::DidSomething)
     ));
@@ -330,7 +328,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
 
 // ANCHOR: api-call
 async fn ping_the_server(client: &Client, client_name: &str) -> Result<(), bonsaidb::core::Error> {
-    match client.send_api_request(&Request::Ping).await {
+    match client.send_api_request_async(&Request::Ping).await {
         Ok(Response::Pong) => {
             println!("Received Pong from server on {}", client_name);
         }

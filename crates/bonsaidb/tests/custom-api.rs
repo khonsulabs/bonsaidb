@@ -86,14 +86,15 @@ async fn custom_api() -> anyhow::Result<()> {
     let client = Client::build(Url::parse("bonsaidb://localhost:12346")?)
         .with_api::<CustomRequest>()
         .with_certificate(certificate)
-        .finish()
-        .await?;
+        .finish()?;
 
-    let CustomResponse::ExistingValue(old_data) =
-        client.send_api_request(&CustomRequest::SetValue(1)).await?;
+    let CustomResponse::ExistingValue(old_data) = client
+        .send_api_request_async(&CustomRequest::SetValue(1))
+        .await?;
     assert_eq!(old_data, None);
-    let CustomResponse::ExistingValue(old_data) =
-        client.send_api_request(&CustomRequest::SetValue(2)).await?;
+    let CustomResponse::ExistingValue(old_data) = client
+        .send_api_request_async(&CustomRequest::SetValue(2))
+        .await?;
     assert_eq!(old_data, Some(1));
 
     Ok(())

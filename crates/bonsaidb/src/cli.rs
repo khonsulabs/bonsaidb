@@ -55,7 +55,7 @@ where
                         client = client.with_certificate(certificate);
                     }
 
-                    AnyServerConnection::Networked(client.finish().await?)
+                    AnyServerConnection::Networked(client.finish()?)
                 } else {
                     AnyServerConnection::Local(cli.open_server().await?)
                 };

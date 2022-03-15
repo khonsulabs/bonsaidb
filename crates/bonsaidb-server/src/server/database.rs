@@ -15,7 +15,7 @@ use bonsaidb_core::{
     },
     transaction::Transaction,
 };
-use bonsaidb_local::AsyncDatabase;
+use bonsaidb_local::{AsyncDatabase, Database};
 use derive_where::derive_where;
 
 use crate::{Backend, CustomServer, NoBackend};
@@ -25,6 +25,18 @@ use crate::{Backend, CustomServer, NoBackend};
 pub struct ServerDatabase<B: Backend = NoBackend> {
     pub(crate) server: CustomServer<B>,
     pub(crate) db: AsyncDatabase,
+}
+
+impl<B: Backend> From<ServerDatabase<B>> for Database {
+    fn from(server: ServerDatabase<B>) -> Self {
+        Self::from(server.db)
+    }
+}
+
+impl<'a, B: Backend> From<&'a ServerDatabase<B>> for Database {
+    fn from(server: &'a ServerDatabase<B>) -> Self {
+        Self::from(server.db.clone())
+    }
 }
 
 impl<B: Backend> ServerDatabase<B> {

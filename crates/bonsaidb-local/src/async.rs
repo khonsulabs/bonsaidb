@@ -82,6 +82,21 @@ impl From<Storage> for AsyncStorage {
     }
 }
 
+impl<'a> From<&'a Storage> for AsyncStorage {
+    fn from(storage: &'a Storage) -> Self {
+        Self {
+            storage: storage.clone(),
+            runtime: tokio::runtime::Handle::current(),
+        }
+    }
+}
+
+impl<'a> From<&'a AsyncStorage> for Storage {
+    fn from(storage: &'a AsyncStorage) -> Self {
+        storage.storage.clone()
+    }
+}
+
 impl From<AsyncStorage> for Storage {
     fn from(storage: AsyncStorage) -> Self {
         storage.storage
@@ -112,7 +127,7 @@ impl AsyncDatabase {
     }
 
     pub fn storage(&self) -> AsyncStorage {
-        AsyncStorage::from(self.database.storage().clone())
+        AsyncStorage::from(self.database.storage())
     }
 
     /// Returns a clone with `effective_permissions`. Replaces any previously applied permissions.
@@ -141,6 +156,15 @@ impl From<Database> for AsyncDatabase {
 impl From<AsyncDatabase> for Database {
     fn from(database: AsyncDatabase) -> Self {
         database.database
+    }
+}
+
+impl<'a> From<&'a Database> for AsyncDatabase {
+    fn from(database: &'a Database) -> Self {
+        Self {
+            database: database.clone(),
+            runtime: tokio::runtime::Handle::current(),
+        }
     }
 }
 

@@ -78,8 +78,7 @@ async fn main() -> anyhow::Result<()> {
                 .await?
                 .into_end_entity_certificate(),
         )
-        .finish()
-        .await?;
+        .finish()?;
     let db = client.database::<Shape>("my-database").await?;
 
     // Before authenticating, inserting a shape shouldn't work.

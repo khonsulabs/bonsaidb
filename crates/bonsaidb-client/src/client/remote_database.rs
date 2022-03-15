@@ -37,6 +37,11 @@ impl RemoteDatabase {
     pub fn name(&self) -> &str {
         self.name.as_ref()
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn tokio(&self) -> &tokio::runtime::Handle {
+        self.client.tokio()
+    }
 }
 
 impl Deref for RemoteDatabase {
@@ -69,7 +74,7 @@ impl AsyncConnection for RemoteDatabase {
     {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Get {
                     collection: C::collection_name(),
@@ -101,7 +106,7 @@ impl AsyncConnection for RemoteDatabase {
     {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::GetMultiple {
                     collection: C::collection_name(),
@@ -134,7 +139,7 @@ impl AsyncConnection for RemoteDatabase {
     {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::List {
                     collection: C::collection_name(),
@@ -161,7 +166,7 @@ impl AsyncConnection for RemoteDatabase {
     {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Count {
                     collection: C::collection_name(),
@@ -190,7 +195,7 @@ impl AsyncConnection for RemoteDatabase {
     {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Query {
                     view: self
@@ -231,7 +236,7 @@ impl AsyncConnection for RemoteDatabase {
     {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Query {
                     view: self
@@ -268,7 +273,7 @@ impl AsyncConnection for RemoteDatabase {
     {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Reduce {
                     view: self
@@ -304,7 +309,7 @@ impl AsyncConnection for RemoteDatabase {
     {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Reduce {
                     view: self
@@ -349,7 +354,7 @@ impl AsyncConnection for RemoteDatabase {
     {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::DeleteDocs {
                     view: self
@@ -377,7 +382,7 @@ impl AsyncConnection for RemoteDatabase {
     ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::ApplyTransaction { transaction },
             })
@@ -398,7 +403,7 @@ impl AsyncConnection for RemoteDatabase {
     ) -> Result<Vec<Executed>, bonsaidb_core::Error> {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::ListExecutedTransactions {
                     starting_id,
@@ -418,7 +423,7 @@ impl AsyncConnection for RemoteDatabase {
     async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::LastTransactionId,
             })
@@ -434,7 +439,7 @@ impl AsyncConnection for RemoteDatabase {
 
     async fn compact_collection<C: Collection>(&self) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::CompactCollection {
                     name: C::collection_name(),
@@ -452,7 +457,7 @@ impl AsyncConnection for RemoteDatabase {
 
     async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Compact,
             })
@@ -468,7 +473,7 @@ impl AsyncConnection for RemoteDatabase {
 
     async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::CompactKeyValueStore,
             })

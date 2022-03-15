@@ -180,7 +180,6 @@ fn initialize_networked_server(
         let client = Client::build(Url::parse("bonsaidb://localhost:7022").unwrap())
             .with_certificate(certificate)
             .finish()
-            .await
             .unwrap();
         client.database::<()>("key-value").await.unwrap()
     });
@@ -188,7 +187,6 @@ fn initialize_networked_server(
         // Allow the server time to start listening
         let client = Client::build(Url::parse("ws://localhost:7023").unwrap())
             .finish()
-            .await
             .unwrap();
         client.database::<()>("key-value").await.unwrap()
     });

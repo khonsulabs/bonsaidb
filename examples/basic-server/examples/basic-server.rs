@@ -63,8 +63,7 @@ async fn main() -> anyhow::Result<()> {
     {
         // To connect over websockets, use the websocket scheme.
         tasks.push(do_some_database_work(
-            Client::new(Url::parse("ws://localhost:8080")?)
-                .await?
+            Client::new(Url::parse("ws://localhost:8080")?)?
                 .database::<Shape>("my-database")
                 .await?,
             "websockets",
@@ -75,8 +74,7 @@ async fn main() -> anyhow::Result<()> {
     tasks.push(do_some_database_work(
         Client::build(Url::parse("bonsaidb://localhost")?)
             .with_certificate(certificate)
-            .finish()
-            .await?
+            .finish()?
             .database::<Shape>("my-database")
             .await?,
         "bonsaidb",

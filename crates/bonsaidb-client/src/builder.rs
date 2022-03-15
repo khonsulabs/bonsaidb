@@ -3,6 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 use bonsaidb_core::{custom_api::CustomApi, networking::CURRENT_PROTOCOL_VERSION, schema::Name};
 #[cfg(not(target_arch = "wasm32"))]
 use fabruic::Certificate;
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::runtime::Handle;
 use url::Url;
 
 use crate::{
@@ -18,6 +20,8 @@ pub struct Builder {
     custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
     #[cfg(not(target_arch = "wasm32"))]
     certificate: Option<fabruic::Certificate>,
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio: Option<Handle>,
 }
 
 impl Builder {
@@ -29,7 +33,15 @@ impl Builder {
             custom_apis: HashMap::new(),
             #[cfg(not(target_arch = "wasm32"))]
             certificate: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio: Handle::try_current().ok(),
         }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_runtime(mut self, handle: Handle) -> Self {
+        self.tokio = Some(handle);
+        self
     }
 
     /// Enables using a [`CustomApi`] with this client. If you want to receive
@@ -65,14 +77,15 @@ impl Builder {
     }
 
     /// Finishes building the client.
-    pub async fn finish(self) -> Result<Client, Error> {
+    pub fn finish(self) -> Result<Client, Error> {
         Client::new_from_parts(
             self.url,
             self.protocol_version,
             self.custom_apis,
             #[cfg(not(target_arch = "wasm32"))]
             self.certificate,
+            #[cfg(not(target_arch = "wasm32"))]
+            self.tokio,
         )
-        .await
     }
 }

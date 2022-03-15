@@ -141,14 +141,12 @@ impl Backend for BonsaiBackend {
                             .into_end_entity_certificate(),
                     )
                     .finish()
-                    .await
                     .unwrap();
                 AnyDatabase::Networked(client.database::<Commerce>("commerce").await.unwrap())
             }
             Bonsai::WebSockets => {
                 let client = Client::build(Url::parse("ws://localhost:7023").unwrap())
                     .finish()
-                    .await
                     .unwrap();
                 AnyDatabase::Networked(client.database::<Commerce>("commerce").await.unwrap())
             }

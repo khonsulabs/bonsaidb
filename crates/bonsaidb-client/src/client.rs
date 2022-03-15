@@ -30,7 +30,7 @@ use bonsaidb_utils::fast_async_lock;
 use flume::Sender;
 use futures::{future::BoxFuture, Future, FutureExt};
 #[cfg(not(target_arch = "wasm32"))]
-use tokio::task::JoinHandle;
+use tokio::{runtime::Handle, task::JoinHandle};
 use url::Url;
 
 pub use self::remote_database::{RemoteDatabase, RemoteSubscriber};
@@ -39,6 +39,7 @@ use crate::{error::Error, ApiError, Builder};
 #[cfg(not(target_arch = "wasm32"))]
 mod quic_worker;
 mod remote_database;
+mod sync;
 #[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
 mod tungstenite_worker;
 #[cfg(all(feature = "websockets", target_arch = "wasm32"))]
@@ -236,6 +237,8 @@ pub struct Data {
     #[cfg(not(target_arch = "wasm32"))]
     _worker: CancellableHandle<Result<(), Error>>,
     effective_permissions: Mutex<Option<Permissions>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio: Option<Handle>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     request_id: AtomicU32,
     subscribers: SubscriberMap,
@@ -265,15 +268,16 @@ impl Client {
     /// to recover and reconnect, each component of the apps built can adopt a
     /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
     /// the database is to operation.
-    pub async fn new(url: Url) -> Result<Self, Error> {
+    pub fn new(url: Url) -> Result<Self, Error> {
         Self::new_from_parts(
             url,
             CURRENT_PROTOCOL_VERSION,
             HashMap::default(),
             #[cfg(not(target_arch = "wasm32"))]
             None,
+            #[cfg(not(target_arch = "wasm32"))]
+            Handle::try_current().ok(),
         )
-        .await
     }
 
     /// Initialize a client connecting to `url` with `certificate` being used to
@@ -291,11 +295,12 @@ impl Client {
     /// to recover and reconnect, each component of the apps built can adopt a
     /// "retry-to-recover" design, or "abort-and-fail" depending on how critical
     /// the database is to operation.
-    pub(crate) async fn new_from_parts(
+    pub(crate) fn new_from_parts(
         url: Url,
         protocol_version: &'static str,
         custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
         #[cfg(not(target_arch = "wasm32"))] certificate: Option<fabruic::Certificate>,
+        #[cfg(not(target_arch = "wasm32"))] tokio: Option<Handle>,
     ) -> Result<Self, Error> {
         match url.scheme() {
             #[cfg(not(target_arch = "wasm32"))]
@@ -304,9 +309,16 @@ impl Client {
                 protocol_version,
                 certificate,
                 custom_apis,
+                tokio,
             )),
             #[cfg(feature = "websockets")]
-            "wss" | "ws" => Self::new_websocket_client(url, protocol_version, custom_apis).await,
+            "wss" | "ws" => Ok(Self::new_websocket_client(
+                url,
+                protocol_version,
+                custom_apis,
+                #[cfg(not(target_arch = "wasm32"))]
+                tokio,
+            )),
             other => {
                 return Err(Error::InvalidUrl(format!("unsupported scheme {}", other)));
             }
@@ -319,6 +331,7 @@ impl Client {
         protocol_version: &'static str,
         certificate: Option<fabruic::Certificate>,
         custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
+        tokio: Option<Handle>,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
@@ -347,6 +360,7 @@ impl Client {
                 request_id: AtomicU32::default(),
                 effective_permissions: Mutex::default(),
                 subscribers,
+                tokio,
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
@@ -355,11 +369,12 @@ impl Client {
     }
 
     #[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
-    async fn new_websocket_client(
+    fn new_websocket_client(
         url: Url,
         protocol_version: &'static str,
         custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
-    ) -> Result<Self, Error> {
+        tokio: Option<Handle>,
+    ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
         let subscribers = SubscriberMap::default();
@@ -375,7 +390,7 @@ impl Client {
         #[cfg(feature = "test-util")]
         let background_task_running = Arc::new(AtomicBool::new(true));
 
-        let client = Self {
+        Self {
             data: Arc::new(Data {
                 request_sender,
                 #[cfg(not(target_arch = "wasm32"))]
@@ -388,21 +403,20 @@ impl Client {
                 request_id: AtomicU32::default(),
                 effective_permissions: Mutex::default(),
                 subscribers,
+                tokio,
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
             session: Session::default(),
-        };
-
-        Ok(client)
+        }
     }
 
     #[cfg(all(feature = "websockets", target_arch = "wasm32"))]
-    async fn new_websocket_client(
+    fn new_websocket_client(
         url: Url,
         protocol_version: &'static str,
         custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
-    ) -> Result<Self, Error<A::Error>> {
+    ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
         let subscribers = SubscriberMap::default();
@@ -418,7 +432,7 @@ impl Client {
         #[cfg(feature = "test-util")]
         let background_task_running = Arc::new(AtomicBool::new(true));
 
-        let client = Self {
+        Self {
             data: Arc::new(Data {
                 request_sender,
                 #[cfg(not(target_arch = "wasm32"))]
@@ -435,12 +449,10 @@ impl Client {
                 background_task_running,
             }),
             session: Session::default(),
-        };
-
-        Ok(client)
+        }
     }
 
-    async fn send_request(&self, request: Request) -> Result<Response, Error> {
+    async fn send_request_async(&self, request: Request) -> Result<Response, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
@@ -449,25 +461,62 @@ impl Client {
                 id: Some(id),
                 wrapped: request,
             },
-            responder: result_sender.clone(),
+            responder: result_sender,
         })?;
 
         result_receiver.recv_async().await?
     }
 
     /// Sends an api `request`.
-    pub async fn send_api_request<Api: CustomApi>(
+    pub async fn send_api_request_async<Api: CustomApi>(
         &self,
         request: &Api,
     ) -> Result<Api::Response, ApiError<Api::Error>> {
         let request = Bytes::from(pot::to_vec(request).map_err(Error::from)?);
         match self
-            .send_request(Request::Api {
+            .send_request_async(Request::Api {
                 name: Api::name(),
                 request,
             })
             .await?
         {
+            Response::Api { response, .. } => {
+                let response = pot::from_slice::<Result<Api::Response, Api::Error>>(&response)
+                    .map_err(Error::from)?;
+                response.map_err(ApiError::Api)
+            }
+            Response::Error(err) => Err(ApiError::Client(Error::from(err))),
+            other => Err(ApiError::Client(Error::Network(
+                networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            ))),
+        }
+    }
+
+    fn send_request(&self, request: Request) -> Result<Response, Error> {
+        let (result_sender, result_receiver) = flume::bounded(1);
+        let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
+        self.data.request_sender.send(PendingRequest {
+            request: Payload {
+                session_id: self.session.id,
+                id: Some(id),
+                wrapped: request,
+            },
+            responder: result_sender,
+        })?;
+
+        result_receiver.recv()?
+    }
+
+    /// Sends an api `request`.
+    pub fn send_api_request<Api: CustomApi>(
+        &self,
+        request: &Api,
+    ) -> Result<Api::Response, ApiError<Api::Error>> {
+        let request = Bytes::from(pot::to_vec(request).map_err(Error::from)?);
+        match self.send_request(Request::Api {
+            name: Api::name(),
+            request,
+        })? {
             Response::Api { response, .. } => {
                 let response = pot::from_slice::<Result<Api::Response, Api::Error>>(&response)
                     .map_err(Error::from)?;
@@ -501,7 +550,7 @@ impl Client {
 
     pub(crate) async fn unregister_subscriber(&self, database: String, id: u64) {
         drop(
-            self.send_request(Request::Database {
+            self.send_request_async(Request::Database {
                 database,
                 request: DatabaseRequest::UnregisterSubscriber { subscriber_id: id },
             })
@@ -532,7 +581,7 @@ impl AsyncStorageConnection for Client {
         only_if_needed: bool,
     ) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::CreateDatabase {
+            .send_request_async(Request::Server(ServerRequest::CreateDatabase {
                 database: Database {
                     name: name.to_string(),
                     schema,
@@ -571,7 +620,7 @@ impl AsyncStorageConnection for Client {
 
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::DeleteDatabase {
+            .send_request_async(Request::Server(ServerRequest::DeleteDatabase {
                 name: name.to_string(),
             }))
             .await?
@@ -586,7 +635,7 @@ impl AsyncStorageConnection for Client {
 
     async fn list_databases(&self) -> Result<Vec<Database>, bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::ListDatabases))
+            .send_request_async(Request::Server(ServerRequest::ListDatabases))
             .await?
         {
             Response::Server(ServerResponse::Databases(databases)) => Ok(databases),
@@ -599,7 +648,7 @@ impl AsyncStorageConnection for Client {
 
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::ListAvailableSchemas))
+            .send_request_async(Request::Server(ServerRequest::ListAvailableSchemas))
             .await?
         {
             Response::Server(ServerResponse::AvailableSchemas(schemas)) => Ok(schemas),
@@ -612,7 +661,7 @@ impl AsyncStorageConnection for Client {
 
     async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::CreateUser {
+            .send_request_async(Request::Server(ServerRequest::CreateUser {
                 username: username.to_string(),
             }))
             .await?
@@ -630,7 +679,7 @@ impl AsyncStorageConnection for Client {
         user: U,
     ) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::DeleteUser {
+            .send_request_async(Request::Server(ServerRequest::DeleteUser {
                 user: user.name()?.into_owned(),
             }))
             .await?
@@ -650,7 +699,7 @@ impl AsyncStorageConnection for Client {
         password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::SetUserPassword {
+            .send_request_async(Request::Server(ServerRequest::SetUserPassword {
                 user: user.name()?.into_owned(),
                 password,
             }))
@@ -671,7 +720,7 @@ impl AsyncStorageConnection for Client {
         authentication: Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::Authenticate {
+            .send_request_async(Request::Server(ServerRequest::Authenticate {
                 user: user.name()?.into_owned(),
                 authentication,
             }))
@@ -693,7 +742,7 @@ impl AsyncStorageConnection for Client {
         identity: Identity,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::AssumeIdentity(identity)))
+            .send_request_async(Request::Server(ServerRequest::AssumeIdentity(identity)))
             .await?
         {
             Response::Server(ServerResponse::Authenticated(session)) => Ok(Self {
@@ -718,7 +767,7 @@ impl AsyncStorageConnection for Client {
         permission_group: G,
     ) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(
+            .send_request_async(Request::Server(
                 ServerRequest::AlterUserPermissionGroupMembership {
                     user: user.name()?.into_owned(),
                     group: permission_group.name()?.into_owned(),
@@ -746,7 +795,7 @@ impl AsyncStorageConnection for Client {
         permission_group: G,
     ) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(
+            .send_request_async(Request::Server(
                 ServerRequest::AlterUserPermissionGroupMembership {
                     user: user.name()?.into_owned(),
                     group: permission_group.name()?.into_owned(),
@@ -774,7 +823,7 @@ impl AsyncStorageConnection for Client {
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::AlterUserRoleMembership {
+            .send_request_async(Request::Server(ServerRequest::AlterUserRoleMembership {
                 user: user.name()?.into_owned(),
                 role: role.name()?.into_owned(),
                 should_be_member: true,
@@ -800,7 +849,7 @@ impl AsyncStorageConnection for Client {
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
         match self
-            .send_request(Request::Server(ServerRequest::AlterUserRoleMembership {
+            .send_request_async(Request::Server(ServerRequest::AlterUserRoleMembership {
                 user: user.name()?.into_owned(),
                 role: role.name()?.into_owned(),
                 should_be_member: false,

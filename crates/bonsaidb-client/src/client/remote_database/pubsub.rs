@@ -18,7 +18,7 @@ impl AsyncPubSub for super::RemoteDatabase {
     async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::CreateSubscriber,
             })
@@ -57,7 +57,7 @@ impl AsyncPubSub for super::RemoteDatabase {
     ) -> Result<(), bonsaidb_core::Error> {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::Publish {
                     topic: topic.into(),
@@ -90,7 +90,7 @@ impl AsyncPubSub for super::RemoteDatabase {
     ) -> Result<(), bonsaidb_core::Error> {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.name.to_string(),
                 request: DatabaseRequest::PublishToAll {
                     topics,
@@ -117,6 +117,13 @@ pub struct RemoteSubscriber {
     receiver: flume::Receiver<Arc<Message>>,
 }
 
+impl RemoteSubscriber {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn tokio(&self) -> &tokio::runtime::Handle {
+        self.client.tokio()
+    }
+}
+
 #[async_trait]
 impl AsyncSubscriber for RemoteSubscriber {
     async fn subscribe_to<S: Into<String> + Send>(
@@ -125,7 +132,7 @@ impl AsyncSubscriber for RemoteSubscriber {
     ) -> Result<(), bonsaidb_core::Error> {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.database.to_string(),
                 request: DatabaseRequest::SubscribeTo {
                     subscriber_id: self.id,
@@ -145,7 +152,7 @@ impl AsyncSubscriber for RemoteSubscriber {
     async fn unsubscribe_from(&self, topic: &str) -> Result<(), bonsaidb_core::Error> {
         match self
             .client
-            .send_request(Request::Database {
+            .send_request_async(Request::Database {
                 database: self.database.to_string(),
                 request: DatabaseRequest::UnsubscribeFrom {
                     subscriber_id: self.id,
