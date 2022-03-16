@@ -47,7 +47,12 @@ pub enum Request {
 
     /// A database-related request.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
-    Api { name: Name, request: Bytes },
+    Api {
+        /// The unique name of the api
+        name: Name,
+        /// The request payload.
+        request: Bytes,
+    },
 }
 
 /// A server-related request.
@@ -104,6 +109,7 @@ pub enum ServerRequest {
         /// The method of authentication.
         authentication: crate::connection::Authentication,
     },
+    /// Assume an identity.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "none"))]
     AssumeIdentity(Identity),
     /// Alter's a user's membership in a permission group.
@@ -301,7 +307,9 @@ pub enum Response {
     Database(DatabaseResponse),
     /// A response to an Api request.
     Api {
+        /// The unique name of the API
         name: Name, // TODO namespace
+        /// The response from the API
         response: Bytes,
     },
     /// An error occurred processing a request.

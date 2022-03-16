@@ -105,6 +105,14 @@ pub enum Error {
     #[error("database '{0}' was not found")]
     DatabaseNotFound(String),
 
+    /// The view was not found.
+    #[error("view was not found")]
+    ViewNotFound,
+
+    /// The collection was not found.
+    #[error("collection was not found")]
+    CollectionNotFound,
+
     /// The custom api invoked was not found.
     #[error("custom api '{0}' was not found")]
     CustomApiNotFound(Name),
@@ -149,10 +157,6 @@ pub enum Error {
     /// An error occurred inside of the client.
     #[error("an io error in the client: '{0}'")]
     Client(String),
-
-    /// An attempt to use a `Collection` with a `Database` that it wasn't defined within.
-    #[error("attempted to access a collection not registered with this schema")]
-    CollectionNotFound,
 
     /// A `Collection` being added already exists. This can be caused by a collection name not being unique.
     #[error("attempted to define a collection that already has been defined")]

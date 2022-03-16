@@ -27,7 +27,12 @@ pub enum Error {
     /// An error from a `CustomApi`. The actual error is still serialized, as it
     /// could be any type.
     #[error("api {name} error")]
-    Api { name: Name, error: Bytes },
+    Api {
+        /// The unique name of the api that responded with an error
+        name: Name,
+        /// The serialized bytes of the error type.
+        error: Bytes,
+    },
 
     /// The server is incompatible with this version of the client.
     #[error("server incompatible with client protocol version")]
@@ -109,10 +114,13 @@ impl From<pot::Error> for Error {
     }
 }
 
+/// An error returned from an api request.
 #[derive(thiserror::Error, Debug)]
 pub enum ApiError<T> {
+    /// The API returned its own error type.
     #[error("api error: {0}")]
     Api(T),
+    /// An error from BonsaiDb occurred.
     #[error("client error: {0}")]
     Client(#[from] Error),
 }

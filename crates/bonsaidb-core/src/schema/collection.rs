@@ -306,16 +306,15 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(doc) = MyCollection::get(42, &db).await? {
+    /// if let Some(doc) = MyCollection::get(42, &db)? {
     ///     println!(
     ///         "Retrieved revision {} with deserialized contents: {:?}",
     ///         doc.header.revision, doc.contents
     ///     );
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     fn get<C, PrimaryKey>(
@@ -335,9 +334,10 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(doc) = MyCollection::get(42, &db).await? {
+    /// if let Some(doc) = MyCollection::get_async(42, &db).await? {
     ///     println!(
     ///         "Retrieved revision {} with deserialized contents: {:?}",
     ///         doc.header.revision, doc.contents
@@ -365,16 +365,15 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for doc in MyCollection::get_multiple([42, 43], &db).await? {
+    /// for doc in MyCollection::get_multiple([42, 43], &db)? {
     ///     println!(
     ///         "Retrieved #{} with deserialized contents: {:?}",
     ///         doc.header.id, doc.contents
     ///     );
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     fn get_multiple<C, DocumentIds, PrimaryKey, I>(
@@ -399,9 +398,10 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for doc in MyCollection::get_multiple([42, 43], &db).await? {
+    /// for doc in MyCollection::get_multiple_async([42, 43], &db).await? {
     ///     println!(
     ///         "Retrieved #{} with deserialized contents: {:?}",
     ///         doc.header.id, doc.contents
@@ -433,16 +433,19 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for doc in MyCollection::list(42.., &db).descending().limit(20).await? {
+    /// for doc in MyCollection::list(42.., &db)
+    ///     .descending()
+    ///     .limit(20)
+    ///     .query()?
+    /// {
     ///     println!(
     ///         "Retrieved #{} with deserialized contents: {:?}",
     ///         doc.header.id, doc.contents
     ///     );
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     fn list<R, PrimaryKey, C>(ids: R, connection: &'_ C) -> List<'_, C, Self>
@@ -462,9 +465,14 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for doc in MyCollection::list(42.., &db).descending().limit(20).await? {
+    /// for doc in MyCollection::list_async(42.., &db)
+    ///     .descending()
+    ///     .limit(20)
+    ///     .await?
+    /// {
     ///     println!(
     ///         "Retrieved #{} with deserialized contents: {:?}",
     ///         doc.header.id, doc.contents
@@ -506,7 +514,7 @@ pub trait SerializedCollection: Collection {
     /// async fn starts_with_a<C: Connection>(
     ///     db: &C,
     /// ) -> Result<Vec<CollectionDocument<MyCollection>>, Error> {
-    ///     MyCollection::list_with_prefix(String::from("a"), db).await
+    ///     MyCollection::list_with_prefix(String::from("a"), db).query()
     /// }
     /// ```
     fn list_with_prefix<C>(prefix: Self::PrimaryKey, connection: &'_ C) -> List<'_, C, Self>
@@ -525,7 +533,7 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// use bonsaidb_core::{
-    ///     connection::Connection,
+    ///     connection::AsyncConnection,
     ///     document::CollectionDocument,
     ///     schema::{Collection, Schematic, SerializedCollection},
     ///     Error,
@@ -537,10 +545,10 @@ pub trait SerializedCollection: Collection {
     /// # #[collection(core = bonsaidb_core)]
     /// pub struct MyCollection;
     ///
-    /// async fn starts_with_a<C: Connection>(
+    /// async fn starts_with_a<C: AsyncConnection>(
     ///     db: &C,
     /// ) -> Result<Vec<CollectionDocument<MyCollection>>, Error> {
-    ///     MyCollection::list_with_prefix(String::from("a"), db).await
+    ///     MyCollection::list_with_prefix_async(String::from("a"), db).await
     /// }
     /// ```
     fn list_with_prefix_async<C>(
@@ -562,9 +570,10 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for doc in MyCollection::all(&db).await? {
+    /// for doc in MyCollection::all(&db).query()? {
     ///     println!(
     ///         "Retrieved #{} with deserialized contents: {:?}",
     ///         doc.header.id, doc.contents
@@ -588,9 +597,10 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for doc in MyCollection::all(&db).await? {
+    /// for doc in MyCollection::all_async(&db).await? {
     ///     println!(
     ///         "Retrieved #{} with deserialized contents: {:?}",
     ///         doc.header.id, doc.contents
@@ -623,15 +633,14 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::push(MyCollection::default(), &db).await?;
+    /// let document = MyCollection::push(MyCollection::default(), &db)?;
     /// println!(
     ///     "Inserted {:?} with id {} with revision {}",
     ///     document.contents, document.header.id, document.header.revision
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     fn push<Cn: Connection>(
@@ -661,9 +670,10 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::push(MyCollection::default(), &db).await?;
+    /// let document = MyCollection::push_async(MyCollection::default(), &db).await?;
     /// println!(
     ///     "Inserted {:?} with id {} with revision {}",
     ///     document.contents, document.header.id, document.header.revision
@@ -699,15 +709,14 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::default().push_into(&db).await?;
+    /// let document = MyCollection::default().push_into(&db)?;
     /// println!(
     ///     "Inserted {:?} with id {} with revision {}",
     ///     document.contents, document.header.id, document.header.revision
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     fn push_into<Cn: Connection>(
@@ -732,9 +741,10 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::default().push_into(&db).await?;
+    /// let document = MyCollection::default().push_into_async(&db).await?;
     /// println!(
     ///     "Inserted {:?} with id {} with revision {}",
     ///     document.contents, document.header.id, document.header.revision
@@ -758,16 +768,15 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::insert(42, MyCollection::default(), &db).await?;
+    /// let document = MyCollection::insert(42, MyCollection::default(), &db)?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Inserted {:?} with revision {}",
     ///     document.contents, document.header.revision
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     fn insert<PrimaryKey, Cn>(
@@ -792,9 +801,10 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::insert(42, MyCollection::default(), &db).await?;
+    /// let document = MyCollection::insert_async(42, MyCollection::default(), &db).await?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Inserted {:?} with revision {}",
@@ -827,16 +837,15 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::default().insert_into(42, &db).await?;
+    /// let document = MyCollection::default().insert_into(42, &db)?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Inserted {:?} with revision {}",
     ///     document.contents, document.header.revision
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     fn insert_into<PrimaryKey, Cn>(
@@ -857,9 +866,10 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::default().insert_into(42, &db).await?;
+    /// let document = MyCollection::default().insert_into_async(42, &db).await?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Inserted {:?} with revision {}",
@@ -887,16 +897,15 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::overwrite(42, MyCollection::default(), &db).await?;
+    /// let document = MyCollection::overwrite(42, MyCollection::default(), &db)?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Overwrote {:?} with revision {}",
     ///     document.contents, document.header.revision
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     fn overwrite<PrimaryKey, Cn>(
@@ -924,9 +933,10 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::overwrite(42, MyCollection::default(), &db).await?;
+    /// let document = MyCollection::overwrite_async(42, MyCollection::default(), &db).await?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Overwrote {:?} with revision {}",
@@ -962,16 +972,15 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::default().overwrite_into(42, &db).await?;
+    /// let document = MyCollection::default().overwrite_into(42, &db)?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Overwrote {:?} with revision {}",
     ///     document.contents, document.header.revision
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     fn overwrite_into<Cn: Connection, PrimaryKey>(
@@ -991,9 +1000,12 @@ pub trait SerializedCollection: Collection {
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::default().overwrite_into(42, &db).await?;
+    /// let document = MyCollection::default()
+    ///     .overwrite_into_async(42, &db)
+    ///     .await?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Overwrote {:?} with revision {}",
@@ -1058,16 +1070,15 @@ pub struct InsertError<T> {
 ///
 /// ```rust
 /// # bonsaidb_core::__doctest_prelude!();
+/// # use bonsaidb_core::connection::Connection;
 /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-/// if let Some(doc) = MyCollection::load("unique name", &db).await? {
+/// if let Some(doc) = MyCollection::load("unique name", &db)? {
 ///     println!(
 ///         "Retrieved revision {} with deserialized contents: {:?}",
 ///         doc.header.revision, doc.contents
 ///     );
 /// }
 /// # Ok(())
-/// # })
 /// # }
 /// ```
 ///
@@ -1076,16 +1087,15 @@ pub struct InsertError<T> {
 ///
 /// ```rust
 /// # bonsaidb_core::__doctest_prelude!();
+/// # use bonsaidb_core::connection::Connection;
 /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-/// if let Some(doc) = MyCollection::load(42, &db).await? {
+/// if let Some(doc) = MyCollection::load(42, &db)? {
 ///     println!(
 ///         "Retrieved revision {} with deserialized contents: {:?}",
 ///         doc.header.revision, doc.contents
 ///     );
 /// }
 /// # Ok(())
-/// # })
 /// # }
 /// ```
 ///
@@ -1093,19 +1103,18 @@ pub struct InsertError<T> {
 ///
 /// ```rust
 /// # bonsaidb_core::__doctest_prelude!();
+/// # use bonsaidb_core::connection::Connection;
 /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-/// # tokio::runtime::Runtime::new().unwrap().block_on(async {
 /// let upserted = MyCollection::entry("unique name", &db)
 ///     .update_with(|existing: &mut MyCollection| {
 ///         existing.rank += 1;
 ///     })
 ///     .or_insert_with(MyCollection::default)
-///     .await?
+///     .execute()?
 ///     .unwrap();
 /// println!("Rank: {:?}", upserted.contents.rank);
 ///
 /// # Ok(())
-/// # })
 /// # }
 /// ```
 #[async_trait]
@@ -1814,18 +1823,17 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// println!(
     ///     "Number of documents with id 42 or larger: {}",
-    ///     MyCollection::list(42.., db).count().await?
+    ///     MyCollection::list(42.., db).count()?
     /// );
     /// println!(
     ///     "Number of documents in MyCollection: {}",
-    ///     MyCollection::all(db).count().await?
+    ///     MyCollection::all(db).count()?
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn count(self) -> Result<u64, Error> {
@@ -1873,15 +1881,16 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// println!(
     ///     "Number of documents with id 42 or larger: {}",
-    ///     MyCollection::list(42.., db).count().await?
+    ///     MyCollection::list_async(42.., db).count().await?
     /// );
     /// println!(
     ///     "Number of documents in MyCollection: {}",
-    ///     MyCollection::all(db).count().await?
+    ///     MyCollection::all_async(db).count().await?
     /// );
     /// # Ok(())
     /// # })

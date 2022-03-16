@@ -942,33 +942,18 @@ async fn process_response_payload(
     }
 }
 
-// /// A handler of [`CustomApi`] responses.
-// #[async_trait]
-// pub trait CustomApiCallback: Send + Sync + 'static {
-//     type Api: CustomApi;
-//     /// An out-of-band `response` was received. This happens when the server
-//     /// sends a response that isn't in response to a request.
-//     async fn response_received(&self, response: CustomApiResult<Self::Api>);
-// }
-
-// #[async_trait]
-// impl<F> CustomApiCallback for F
-// where
-//     F: Fn(CustomApiResult<Self::Api>) + Send + Sync + 'static,
-// {
-//     async fn response_received(&self, response: CustomApiResult<Self::Api>) {
-//         self(response);
-//     }
-// }
-
 trait CustomApiWrapper<Response>: Send + Sync {
     fn invoke(&self, response: Response) -> BoxFuture<'static, ()>;
 }
 
+/// A callback that is invoked when an [`Api::Response`](CustomApi::Response)
+/// value is received out-of-band (not in reply to a request).
 pub struct CustomApiCallback<Api: CustomApi> {
     generator: Box<dyn CustomApiWrapper<Api::Response>>,
 }
 
+/// The trait bounds required for the function wrapped in a
+/// [`CustomApiCallback`].
 pub trait CustomApiCallbackFn<Request, F>: Fn(Request) -> F + Send + Sync + 'static {}
 
 struct CustomApiFutureBoxer<Response: Send + Sync, F: Future<Output = ()> + Send + Sync>(
@@ -984,6 +969,7 @@ impl<Response: Send + Sync, F: Future<Output = ()> + Send + Sync + 'static>
 }
 
 impl<Api: CustomApi> CustomApiCallback<Api> {
+    /// Returns a new instance wrapping the provided function.
     pub fn new<
         F: CustomApiCallbackFn<Api::Response, Fut>,
         Fut: Future<Output = ()> + Send + Sync + 'static,

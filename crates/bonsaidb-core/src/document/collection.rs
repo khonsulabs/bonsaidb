@@ -72,15 +72,14 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(mut document) = MyCollection::get(42, &db).await? {
+    /// if let Some(mut document) = MyCollection::get(42, &db)? {
     ///     // modify the document
-    ///     document.update(&db).await?;
+    ///     document.update(&db)?;
     ///     println!("Updated revision: {:?}", document.header.revision);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn update<Cn: Connection>(&mut self, connection: &Cn) -> Result<(), Error> {
@@ -97,11 +96,12 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(mut document) = MyCollection::get(42, &db).await? {
+    /// if let Some(mut document) = MyCollection::get_async(42, &db).await? {
     ///     // modify the document
-    ///     document.update(&db).await?;
+    ///     document.update_async(&db).await?;
     ///     println!("Updated revision: {:?}", document.header.revision);
     /// }
     /// # Ok(())
@@ -210,10 +210,11 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(document) = MyCollection::get(42, &db).await? {
-    ///     document.delete(&db).await?;
+    /// if let Some(document) = MyCollection::get(42, &db)? {
+    ///     document.delete(&db)?;
     /// }
     /// # Ok(())
     /// # })
@@ -229,10 +230,11 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(document) = MyCollection::get(42, &db).await? {
-    ///     document.delete(&db).await?;
+    /// if let Some(document) = MyCollection::get_async(42, &db).await? {
+    ///     document.delete_async(&db).await?;
     /// }
     /// # Ok(())
     /// # })

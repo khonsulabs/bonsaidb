@@ -3,7 +3,7 @@ use std::ops::Deref;
 use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
-    connection::{AccessPolicy, AsyncLowLevelDatabase, QueryKey, Range, Sort},
+    connection::{AccessPolicy, AsyncLowLevelConnection, QueryKey, Range, Sort},
     document::{AnyDocumentId, DocumentId, OwnedDocument},
     keyvalue::AsyncKeyValue,
     permissions::Permissions,
@@ -257,7 +257,7 @@ impl<B: Backend> AsyncKeyValue for ServerDatabase<B> {
 }
 
 #[async_trait]
-impl<B: Backend> AsyncLowLevelDatabase for ServerDatabase<B> {
+impl<B: Backend> AsyncLowLevelConnection for ServerDatabase<B> {
     async fn get_from_collection(
         &self,
         id: DocumentId,

@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, marker::PhantomData, ops::Deref, sync::Arc};
+use std::{marker::PhantomData, ops::Deref, sync::Arc};
 
 use actionable::{Action, Identifier};
 use arc_bytes::serde::Bytes;
@@ -18,309 +18,32 @@ use crate::{
         view::{self, map::MappedDocuments},
         Map, MappedValue, Nameable, Schema, SchemaName, SerializedCollection,
     },
-    transaction::{self, OperationResult, Transaction},
+    transaction::{self},
     Error,
 };
 
 mod lowlevel;
 
-pub use lowlevel::{AsyncLowLevelDatabase, LowLevelDatabase};
+pub use lowlevel::{AsyncLowLevelConnection, LowLevelConnection};
 
-pub trait Connection: Sized + Send + Sync {
+/// A connection to a database's [`schema::Schema`], giving access to
+/// [`Collection`s](crate::schema::Collection) and
+/// [`Views`s](crate::schema::View). This trait is not safe to use within async
+/// contexts and will block the current thread. For async access, use
+/// [`AsyncConnection`].
+pub trait Connection: LowLevelConnection + Sized + Send + Sync {
+    /// Returns the currently authenticated session, if any.
     fn session(&self) -> Option<&Session>;
 
     /// Accesses a collection for the connected [`schema::Schema`].
     fn collection<C: schema::Collection>(&self) -> Collection<'_, Self, C> {
         Collection::new(self)
     }
-    /// Inserts a newly created document into the connected [`schema::Schema`]
-    /// for the [`Collection`] `C`. If `id` is `None` a unique id will be
-    /// generated. If an id is provided and a document already exists with that
-    /// id, a conflict error will be returned.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`SerializedCollection::push_into()`]
-    /// - [`SerializedCollection::insert_into()`]
-    /// - [`self.collection::<Collection>().insert()`](Collection::insert)
-    /// - [`self.collection::<Collection>().push()`](Collection::push)
-    fn insert<
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-        B: Into<Bytes> + Send,
-    >(
-        &self,
-        id: Option<PrimaryKey>,
-        contents: B,
-    ) -> Result<CollectionHeader<C::PrimaryKey>, Error> {
-        let contents = contents.into();
-        let results = self.apply_transaction(Transaction::insert(
-            C::collection_name(),
-            id.map(|id| id.into().to_document_id()).transpose()?,
-            contents,
-        ))?;
-        if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            CollectionHeader::try_from(header)
-        } else {
-            unreachable!(
-                "apply_transaction on a single insert should yield a single DocumentUpdated entry"
-            )
-        }
-    }
 
-    /// Updates an existing document in the connected [`schema::Schema`] for the
-    /// [`Collection`] `C`. Upon success, `doc.revision` will be updated with
-    /// the new revision.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`CollectionDocument::update()`]
-    /// - [`self.collection::<Collection>().update()`](Collection::update)
-    fn update<C: schema::Collection, D: Document<C> + Send + Sync>(
-        &self,
-        doc: &mut D,
-    ) -> Result<(), Error> {
-        let results = self.apply_transaction(Transaction::update(
-            C::collection_name(),
-            doc.header().into_header()?,
-            doc.bytes()?,
-        ))?;
-        if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            doc.set_header(header)?;
-            Ok(())
-        } else {
-            unreachable!(
-                "apply_transaction on a single update should yield a single DocumentUpdated entry"
-            )
-        }
-    }
-
-    /// Overwrites an existing document, or inserts a new document. Upon success,
-    /// `doc.revision` will be updated with the new revision information.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`SerializedCollection::overwrite()`]
-    /// - [`SerializedCollection::overwrite_into()`]
-    /// - [`self.collection::<Collection>().overwrite()`](Collection::overwrite)
-    fn overwrite<C, PrimaryKey>(
-        &self,
-        id: PrimaryKey,
-        contents: Vec<u8>,
-    ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
-    where
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        let results = self.apply_transaction(Transaction::overwrite(
-            C::collection_name(),
-            id.into().to_document_id()?,
-            contents,
-        ))?;
-        if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            CollectionHeader::try_from(header)
-        } else {
-            unreachable!(
-                "apply_transaction on a single update should yield a single DocumentUpdated entry"
-            )
-        }
-    }
-
-    /// Retrieves a stored document from [`Collection`] `C` identified by `id`.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`SerializedCollection::get()`]
-    /// - [`self.collection::<Collection>().get()`](Collection::get)
-    fn get<C, PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
-    where
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
-
-    /// Retrieves all documents matching `ids`. Documents that are not found
-    /// are not returned, but no error will be generated.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`SerializedCollection::get_multiple()`]
-    /// - [`self.collection::<Collection>().get_multiple()`](Collection::get_multiple)
-    fn get_multiple<C, PrimaryKey, DocumentIds, I>(
-        &self,
-        ids: DocumentIds,
-    ) -> Result<Vec<OwnedDocument>, Error>
-    where
-        C: schema::Collection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync;
-
-    /// Retrieves all documents within the range of `ids`. To retrieve all
-    /// documents, pass in `..` for `ids`.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using one
-    /// of:
-    ///
-    /// - [`SerializedCollection::all()`]
-    /// - [`self.collection::<Collection>().all()`](Collection::all)
-    /// - [`SerializedCollection::list()`]
-    /// - [`self.collection::<Collection>().list()`](Collection::list)
-    fn list<C, R, PrimaryKey>(
-        &self,
-        ids: R,
-        order: Sort,
-        limit: Option<u32>,
-    ) -> Result<Vec<OwnedDocument>, Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
-
-    /// Counts the number of documents within the range of `ids`.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`SerializedCollection::all().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().all().count()`](List::count)
-    /// - [`SerializedCollection::list().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().list().count()`](List::count)
-    fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
-
-    /// Removes a `Document` from the database.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`CollectionDocument::delete()`]
-    /// - [`self.collection::<Collection>().delete()`](Collection::delete)
-    fn delete<C: schema::Collection, H: HasHeader + Send + Sync>(
-        &self,
-        doc: &H,
-    ) -> Result<(), Error> {
-        let results =
-            self.apply_transaction(Transaction::delete(C::collection_name(), doc.header()?))?;
-        if let OperationResult::DocumentDeleted { .. } = &results[0] {
-            Ok(())
-        } else {
-            unreachable!(
-                "apply_transaction on a single update should yield a single DocumentUpdated entry"
-            )
-        }
-    }
-
-    /// Initializes [`View`] for [`schema::View`] `V`.
+    /// Accesses a [`schema::View`] from this connection.
     fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V> {
         View::new(self)
     }
-
-    /// Queries for view entries matching [`View`].
-    ///
-    /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query()`](View::query) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    fn query<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, Error>;
-
-    /// Queries for view entries matching [`View`] with their source documents.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query_with_docs()`](View::query_with_docs) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    fn query_with_docs<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, Error>;
-
-    /// Queries for view entries matching [`View`] with their source documents, deserialized.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query_with_collection_docs()`](View::query_with_collection_docs) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    fn query_with_collection_docs<V>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
-    where
-        V: schema::SerializedView,
-        V::Collection: SerializedCollection,
-        <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
-    {
-        let mapped_docs = self.query_with_docs::<V>(key, order, limit, access_policy)?;
-        let mut collection_docs = BTreeMap::new();
-        for (id, doc) in mapped_docs.documents {
-            collection_docs.insert(id, CollectionDocument::<V::Collection>::try_from(&doc)?);
-        }
-        Ok(MappedDocuments {
-            mappings: mapped_docs.mappings,
-            documents: collection_docs,
-        })
-    }
-
-    /// Reduces the view entries matching [`View`].
-    ///
-    /// This is the lower-level API. For better ergonomics, consider reducing
-    /// the view using [`self.view::<View>().reduce()`](View::reduce) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    fn reduce<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<V::Value, Error>;
-
-    /// Reduces the view entries matching [`View`], reducing the values by each
-    /// unique key.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider reducing
-    /// the view using
-    /// [`self.view::<View>().reduce_grouped()`](View::reduce_grouped) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    fn reduce_grouped<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error>;
-
-    /// Deletes all of the documents associated with this view.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().delete_docs()`](View::delete_docs()) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    fn delete_docs<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, Error>;
-
-    /// Applies a [`Transaction`] to the [`schema::Schema`]. If any operation in the
-    /// [`Transaction`] fails, none of the operations will be applied to the
-    /// [`schema::Schema`].
-    fn apply_transaction(&self, transaction: Transaction) -> Result<Vec<OperationResult>, Error>;
 
     /// Lists executed [`Transaction`]s from this [`schema::Schema`]. By default, a maximum of
     /// 1000 entries will be returned, but that limit can be overridden by
@@ -359,7 +82,9 @@ pub trait Connection: Sized + Send + Sync {
     ///
     /// * [`Error::CollectionNotFound`]: database `name` does not exist.
     /// * [`Error::Io`]: an error occurred while compacting the database.
-    fn compact_collection<C: schema::Collection>(&self) -> Result<(), crate::Error>;
+    fn compact_collection<C: schema::Collection>(&self) -> Result<(), crate::Error> {
+        self.compact_collection_by_name(C::collection_name())
+    }
 
     /// Compacts the key value store to reclaim unused disk space.
     ///
@@ -429,18 +154,16 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// let inserted_header = db
     ///     .collection::<MyCollection>()
-    ///     .push(&MyCollection::default())
-    ///     .await?;
+    ///     .push(&MyCollection::default())?;
     /// println!(
     ///     "Inserted id {} with revision {}",
     ///     inserted_header.id, inserted_header.revision
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn push(
@@ -467,15 +190,14 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let inserted_header = db.collection::<MyCollection>().push_bytes(vec![]).await?;
+    /// let inserted_header = db.collection::<MyCollection>().push_bytes(vec![])?;
     /// println!(
     ///     "Inserted id {} with revision {}",
     ///     inserted_header.id, inserted_header.revision
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn push_bytes<B: Into<Bytes> + Send>(
@@ -493,18 +215,16 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// let inserted_header = db
     ///     .collection::<MyCollection>()
-    ///     .insert(42, &MyCollection::default())
-    ///     .await?;
+    ///     .insert(42, &MyCollection::default())?;
     /// println!(
     ///     "Inserted id {} with revision {}",
     ///     inserted_header.id, inserted_header.revision
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn insert<PrimaryKey>(
@@ -524,18 +244,14 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let inserted_header = db
-    ///     .collection::<MyCollection>()
-    ///     .insert_bytes(42, vec![])
-    ///     .await?;
+    /// let inserted_header = db.collection::<MyCollection>().insert_bytes(42, vec![])?;
     /// println!(
     ///     "Inserted id {} with revision {}",
     ///     inserted_header.id, inserted_header.revision
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn insert_bytes<B: Into<Bytes> + Send>(
@@ -554,15 +270,14 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(mut document) = db.collection::<MyCollection>().get(42).await? {
+    /// if let Some(mut document) = db.collection::<MyCollection>().get(42)? {
     ///     // modify the document
     ///     db.collection::<MyCollection>().update(&mut document);
     ///     println!("Updated revision: {:?}", document.header.revision);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn update<D: Document<Cl> + Send + Sync>(&self, doc: &mut D) -> Result<(), Error> {
@@ -574,15 +289,14 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(mut document) = db.collection::<MyCollection>().get(42).await? {
+    /// if let Some(mut document) = db.collection::<MyCollection>().get(42)? {
     ///     // modify the document
     ///     db.collection::<MyCollection>().overwrite(&mut document);
     ///     println!("Updated revision: {:?}", document.header.revision);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn overwrite<D: Document<Cl> + Send + Sync>(&self, doc: &mut D) -> Result<(), Error> {
@@ -594,9 +308,9 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(doc) = db.collection::<MyCollection>().get(42).await? {
+    /// if let Some(doc) = db.collection::<MyCollection>().get(42)? {
     ///     println!(
     ///         "Retrieved bytes {:?} with revision {}",
     ///         doc.contents, doc.header.revision
@@ -605,7 +319,6 @@ where
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn get<PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
@@ -620,19 +333,14 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for doc in db
-    ///     .collection::<MyCollection>()
-    ///     .get_multiple([42, 43])
-    ///     .await?
-    /// {
+    /// for doc in db.collection::<MyCollection>().get_multiple([42, 43])? {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
     ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn get_multiple<DocumentIds, PrimaryKey, I>(
@@ -651,21 +359,20 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for doc in db
     ///     .collection::<MyCollection>()
     ///     .list(42..)
     ///     .descending()
     ///     .limit(20)
-    ///     .await?
+    ///     .query()?
     /// {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
     ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn list<PrimaryKey, R>(&'a self, ids: R) -> List<'a, Cn, Cl>
@@ -695,10 +402,10 @@ where
     /// # #[collection(core = bonsaidb_core)]
     /// pub struct MyCollection;
     ///
-    /// async fn starts_with_a<C: Connection>(db: &C) -> Result<Vec<OwnedDocument>, Error> {
+    /// fn starts_with_a<C: Connection>(db: &C) -> Result<Vec<OwnedDocument>, Error> {
     ///     db.collection::<MyCollection>()
     ///         .list_with_prefix(String::from("a"))
-    ///         .await
+    ///         .query()
     /// }
     /// ```
     pub fn list_with_prefix(&'a self, prefix: Cl::PrimaryKey) -> List<'a, Cn, Cl>
@@ -715,15 +422,14 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for doc in db.collection::<MyCollection>().all().await? {
+    /// for doc in db.collection::<MyCollection>().all().query()? {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
     ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn all(&'a self) -> List<'a, Cn, Cl> {
@@ -734,13 +440,12 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(doc) = db.collection::<MyCollection>().get(42).await? {
-    ///     db.collection::<MyCollection>().delete(&doc).await?;
+    /// if let Some(doc) = db.collection::<MyCollection>().get(42)? {
+    ///     db.collection::<MyCollection>().delete(&doc)?;
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn delete<H: HasHeader + Send + Sync>(&self, doc: &H) -> Result<(), Error> {
@@ -801,18 +506,17 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// println!(
     ///     "Number of documents with id 42 or larger: {}",
-    ///     db.collection::<MyCollection>().list(42..).count().await?
+    ///     db.collection::<MyCollection>().list(42..).count()?
     /// );
     /// println!(
     ///     "Number of documents in MyCollection: {}",
-    ///     db.collection::<MyCollection>().all().count().await?
+    ///     db.collection::<MyCollection>().all().count()?
     /// );
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn count(self) -> Result<u64, Error> {
@@ -822,6 +526,20 @@ where
         collection.connection.count::<Cl, _, _>(range)
     }
 
+    /// Retrieves the matching documents.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
+    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// for doc in db.collection::<MyCollection>().all().query()? {
+    ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
+    ///     let deserialized = MyCollection::document_contents(&doc)?;
+    ///     println!("Deserialized contents: {:?}", deserialized);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn query(self) -> Result<Vec<OwnedDocument>, Error> {
         let Self {
             collection,
@@ -916,15 +634,14 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().with_key(42).query().await? {
+    /// for mapping in db.view::<ScoresByRank>().with_key(42).query()? {
     ///     assert_eq!(mapping.key, 42);
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn with_key(mut self, key: V::Key) -> Self {
@@ -936,19 +653,13 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db
-    ///     .view::<ScoresByRank>()
-    ///     .with_keys([42, 43])
-    ///     .query()
-    ///     .await?
-    /// {
+    /// for mapping in db.view::<ScoresByRank>().with_keys([42, 43]).query()? {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn with_keys<IntoIter: IntoIterator<Item = V::Key>>(mut self, keys: IntoIter) -> Self {
@@ -960,20 +671,14 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db
-    ///     .view::<ScoresByRank>()
-    ///     .with_key_range(42..)
-    ///     .query()
-    ///     .await?
-    /// {
+    /// for mapping in db.view::<ScoresByRank>().with_key_range(42..).query()? {
     ///     assert!(mapping.key >= 42);
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn with_key_range<R: Into<Range<V::Key>>>(mut self, range: R) -> Self {
@@ -985,8 +690,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #[derive(View, Debug, Clone)]
     /// #[view(name = "by-name", key = String, collection = MyCollection)]
     /// # #[view(core = bonsaidb_core)]
@@ -996,14 +701,12 @@ where
     /// for mapping in db
     ///     .view::<ByName>()
     ///     .with_key_prefix(String::from("a"))
-    ///     .query()
-    ///     .await?
+    ///     .query()?
     /// {
     ///     assert!(mapping.key.starts_with("a"));
     ///     println!("{} in document {:?}", mapping.key, mapping.source);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn with_key_prefix(mut self, prefix: V::Key) -> Self
@@ -1018,19 +721,17 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
     /// for mapping in db
     ///     .view::<ScoresByRank>()
     ///     .with_access_policy(AccessPolicy::UpdateAfter)
-    ///     .query()
-    ///     .await?
+    ///     .query()?
     /// {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn with_access_policy(mut self, policy: AccessPolicy) -> Self {
@@ -1043,14 +744,13 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().ascending().query().await? {
+    /// for mapping in db.view::<ScoresByRank>().ascending().query()? {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn ascending(mut self) -> Self {
@@ -1062,14 +762,13 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().descending().query().await? {
+    /// for mapping in db.view::<ScoresByRank>().descending().query()? {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn descending(mut self) -> Self {
@@ -1081,13 +780,12 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// let mappings = db.view::<ScoresByRank>().limit(10).query().await?;
+    /// let mappings = db.view::<ScoresByRank>().limit(10).query()?;
     /// assert!(mappings.len() <= 10);
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn limit(mut self, maximum_results: u32) -> Self {
@@ -1099,14 +797,13 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().query().await? {
+    /// for mapping in db.view::<ScoresByRank>().query()? {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn query(self) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
@@ -1118,13 +815,12 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for mapping in &db
     ///     .view::<ScoresByRank>()
     ///     .with_key_range(42..=44)
-    ///     .query_with_docs()
-    ///     .await?
+    ///     .query_with_docs()?
     /// {
     ///     println!(
     ///         "Mapping from #{} with rank: {} and score: {}. Document bytes: {:?}",
@@ -1132,7 +828,6 @@ where
     ///     );
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn query_with_docs(self) -> Result<MappedDocuments<OwnedDocument, V>, Error> {
@@ -1144,13 +839,12 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for mapping in &db
     ///     .view::<ScoresByRank>()
     ///     .with_key_range(42..=44)
-    ///     .query_with_collection_docs()
-    ///     .await?
+    ///     .query_with_collection_docs()?
     /// {
     ///     println!(
     ///         "Mapping from #{} with rank: {} and score: {}. Deserialized Contents: {:?}",
@@ -1158,7 +852,6 @@ where
     ///     );
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn query_with_collection_docs(
@@ -1180,13 +873,12 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// let score = db.view::<ScoresByRank>().reduce().await?;
+    /// let score = db.view::<ScoresByRank>().reduce()?;
     /// println!("Average score: {:3}", score);
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn reduce(self) -> Result<V::Value, Error> {
@@ -1197,17 +889,16 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().reduce_grouped().await? {
+    /// for mapping in db.view::<ScoresByRank>().reduce_grouped()? {
     ///     println!(
     ///         "Rank {} has an average score of {:3}",
     ///         mapping.key, mapping.value
     ///     );
     /// }
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn reduce_grouped(self) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error> {
@@ -1219,11 +910,10 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// db.view::<ScoresByRank>().delete_docs().await?;
+    /// db.view::<ScoresByRank>().delete_docs()?;
     /// # Ok(())
-    /// # })
     /// # }
     /// ```
     pub fn delete_docs(self) -> Result<u64, Error> {
@@ -1232,320 +922,21 @@ where
     }
 }
 
-/// Defines all interactions with a [`schema::Schema`], regardless of whether it
-/// is local or remote.
+/// A connection to a database's [`schema::Schema`], giving access to
+/// [`Collection`s](crate::schema::Collection) and
+/// [`Views`s](crate::schema::View). All functions on this trait are safe to use
+/// in an asynchronous context.
 #[async_trait]
-pub trait AsyncConnection: Sized + Send + Sync {
+pub trait AsyncConnection: AsyncLowLevelConnection + Sized + Send + Sync {
     /// Accesses a collection for the connected [`schema::Schema`].
     fn collection<C: schema::Collection>(&self) -> AsyncCollection<'_, Self, C> {
         AsyncCollection::new(self)
-    }
-
-    /// Inserts a newly created document into the connected [`schema::Schema`]
-    /// for the [`Collection`] `C`. If `id` is `None` a unique id will be
-    /// generated. If an id is provided and a document already exists with that
-    /// id, a conflict error will be returned.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`SerializedCollection::push_into()`]
-    /// - [`SerializedCollection::insert_into()`]
-    /// - [`self.collection::<Collection>().insert()`](Collection::insert)
-    /// - [`self.collection::<Collection>().push()`](Collection::push)
-    async fn insert<
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-        B: Into<Bytes> + Send,
-    >(
-        &self,
-        id: Option<PrimaryKey>,
-        contents: B,
-    ) -> Result<CollectionHeader<C::PrimaryKey>, Error> {
-        let contents = contents.into();
-        let results = self
-            .apply_transaction(Transaction::insert(
-                C::collection_name(),
-                id.map(|id| id.into().to_document_id()).transpose()?,
-                contents,
-            ))
-            .await?;
-        if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            CollectionHeader::try_from(header)
-        } else {
-            unreachable!(
-                "apply_transaction on a single insert should yield a single DocumentUpdated entry"
-            )
-        }
-    }
-
-    /// Updates an existing document in the connected [`schema::Schema`] for the
-    /// [`Collection`] `C`. Upon success, `doc.revision` will be updated with
-    /// the new revision.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`CollectionDocument::update()`]
-    /// - [`self.collection::<Collection>().update()`](Collection::update)
-    async fn update<C: schema::Collection, D: Document<C> + Send + Sync>(
-        &self,
-        doc: &mut D,
-    ) -> Result<(), Error> {
-        let results = self
-            .apply_transaction(Transaction::update(
-                C::collection_name(),
-                doc.header().into_header()?,
-                doc.bytes()?,
-            ))
-            .await?;
-        if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            doc.set_header(header)?;
-            Ok(())
-        } else {
-            unreachable!(
-                "apply_transaction on a single update should yield a single DocumentUpdated entry"
-            )
-        }
-    }
-
-    /// Overwrites an existing document, or inserts a new document. Upon success,
-    /// `doc.revision` will be updated with the new revision information.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`SerializedCollection::overwrite()`]
-    /// - [`SerializedCollection::overwrite_into()`]
-    /// - [`self.collection::<Collection>().overwrite()`](Collection::overwrite)
-    async fn overwrite<'a, C, PrimaryKey>(
-        &self,
-        id: PrimaryKey,
-        contents: Vec<u8>,
-    ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
-    where
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        let results = self
-            .apply_transaction(Transaction::overwrite(
-                C::collection_name(),
-                id.into().to_document_id()?,
-                contents,
-            ))
-            .await?;
-        if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
-            CollectionHeader::try_from(header)
-        } else {
-            unreachable!(
-                "apply_transaction on a single update should yield a single DocumentUpdated entry"
-            )
-        }
-    }
-
-    /// Retrieves a stored document from [`Collection`] `C` identified by `id`.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`SerializedCollection::get()`]
-    /// - [`self.collection::<Collection>().get()`](Collection::get)
-    async fn get<C, PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
-    where
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
-
-    /// Retrieves all documents matching `ids`. Documents that are not found
-    /// are not returned, but no error will be generated.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`SerializedCollection::get_multiple()`]
-    /// - [`self.collection::<Collection>().get_multiple()`](Collection::get_multiple)
-    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
-        &self,
-        ids: DocumentIds,
-    ) -> Result<Vec<OwnedDocument>, Error>
-    where
-        C: schema::Collection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync;
-
-    /// Retrieves all documents within the range of `ids`. To retrieve all
-    /// documents, pass in `..` for `ids`.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using one
-    /// of:
-    ///
-    /// - [`SerializedCollection::all()`]
-    /// - [`self.collection::<Collection>().all()`](Collection::all)
-    /// - [`SerializedCollection::list()`]
-    /// - [`self.collection::<Collection>().list()`](Collection::list)
-    async fn list<C, R, PrimaryKey>(
-        &self,
-        ids: R,
-        order: Sort,
-        limit: Option<u32>,
-    ) -> Result<Vec<OwnedDocument>, Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
-
-    /// Counts the number of documents within the range of `ids`.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`SerializedCollection::all().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().all().count()`](List::count)
-    /// - [`SerializedCollection::list().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().list().count()`](List::count)
-    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
-
-    /// Removes a `Document` from the database.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
-    ///
-    /// - [`CollectionDocument::delete()`]
-    /// - [`self.collection::<Collection>().delete()`](Collection::delete)
-    async fn delete<C: schema::Collection, H: HasHeader + Send + Sync>(
-        &self,
-        doc: &H,
-    ) -> Result<(), Error> {
-        let results = self
-            .apply_transaction(Transaction::delete(C::collection_name(), doc.header()?))
-            .await?;
-        if let OperationResult::DocumentDeleted { .. } = &results[0] {
-            Ok(())
-        } else {
-            unreachable!(
-                "apply_transaction on a single update should yield a single DocumentUpdated entry"
-            )
-        }
     }
 
     /// Initializes [`View`] for [`schema::View`] `V`.
     fn view<V: schema::SerializedView>(&'_ self) -> AsyncView<'_, Self, V> {
         AsyncView::new(self)
     }
-
-    /// Queries for view entries matching [`View`].
-    ///
-    /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query()`](View::query) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    async fn query<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, Error>;
-
-    /// Queries for view entries matching [`View`] with their source documents.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query_with_docs()`](View::query_with_docs) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    #[must_use]
-    async fn query_with_docs<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, Error>;
-
-    /// Queries for view entries matching [`View`] with their source documents, deserialized.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query_with_collection_docs()`](View::query_with_collection_docs) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    #[must_use]
-    async fn query_with_collection_docs<V>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
-    where
-        V: schema::SerializedView,
-        V::Collection: SerializedCollection,
-        <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
-    {
-        let mapped_docs = self
-            .query_with_docs::<V>(key, order, limit, access_policy)
-            .await?;
-        let mut collection_docs = BTreeMap::new();
-        for (id, doc) in mapped_docs.documents {
-            collection_docs.insert(id, CollectionDocument::<V::Collection>::try_from(&doc)?);
-        }
-        Ok(MappedDocuments {
-            mappings: mapped_docs.mappings,
-            documents: collection_docs,
-        })
-    }
-
-    /// Reduces the view entries matching [`View`].
-    ///
-    /// This is the lower-level API. For better ergonomics, consider reducing
-    /// the view using [`self.view::<View>().reduce()`](View::reduce) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    #[must_use]
-    async fn reduce<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<V::Value, Error>;
-
-    /// Reduces the view entries matching [`View`], reducing the values by each
-    /// unique key.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider reducing
-    /// the view using
-    /// [`self.view::<View>().reduce_grouped()`](View::reduce_grouped) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    #[must_use]
-    async fn reduce_grouped<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error>;
-
-    /// Deletes all of the documents associated with this view.
-    ///
-    /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().delete_docs()`](View::delete_docs()) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
-    #[must_use]
-    async fn delete_docs<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, Error>;
-
-    /// Applies a [`Transaction`] to the [`schema::Schema`]. If any operation in the
-    /// [`Transaction`] fails, none of the operations will be applied to the
-    /// [`schema::Schema`].
-    async fn apply_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Vec<OperationResult>, Error>;
 
     /// Lists executed [`Transaction`]s from this [`schema::Schema`]. By default, a maximum of
     /// 1000 entries will be returned, but that limit can be overridden by
@@ -1584,7 +975,9 @@ pub trait AsyncConnection: Sized + Send + Sync {
     ///
     /// * [`Error::CollectionNotFound`]: database `name` does not exist.
     /// * [`Error::Io`]: an error occurred while compacting the database.
-    async fn compact_collection<C: schema::Collection>(&self) -> Result<(), crate::Error>;
+    async fn compact_collection<C: schema::Collection>(&self) -> Result<(), crate::Error> {
+        self.compact_collection_by_name(C::collection_name()).await
+    }
 
     /// Compacts the key value store to reclaim unused disk space.
     ///
@@ -1654,7 +1047,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// let inserted_header = db
     ///     .collection::<MyCollection>()
@@ -1692,7 +1086,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// let inserted_header = db.collection::<MyCollection>().push_bytes(vec![]).await?;
     /// println!(
@@ -1719,7 +1114,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// let inserted_header = db
     ///     .collection::<MyCollection>()
@@ -1750,7 +1146,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// let inserted_header = db
     ///     .collection::<MyCollection>()
@@ -1780,7 +1177,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// if let Some(mut document) = db.collection::<MyCollection>().get(42).await? {
     ///     // modify the document
@@ -1800,7 +1198,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// if let Some(mut document) = db.collection::<MyCollection>().get(42).await? {
     ///     // modify the document
@@ -1824,7 +1223,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// if let Some(doc) = db.collection::<MyCollection>().get(42).await? {
     ///     println!(
@@ -1850,7 +1250,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for doc in db
     ///     .collection::<MyCollection>()
@@ -1881,7 +1282,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for doc in db
     ///     .collection::<MyCollection>()
@@ -1913,7 +1315,7 @@ where
     ///
     /// ```rust
     /// use bonsaidb_core::{
-    ///     connection::Connection,
+    ///     connection::AsyncConnection,
     ///     document::OwnedDocument,
     ///     schema::{Collection, Schematic, SerializedCollection},
     ///     Error,
@@ -1925,7 +1327,7 @@ where
     /// # #[collection(core = bonsaidb_core)]
     /// pub struct MyCollection;
     ///
-    /// async fn starts_with_a<C: Connection>(db: &C) -> Result<Vec<OwnedDocument>, Error> {
+    /// async fn starts_with_a<C: AsyncConnection>(db: &C) -> Result<Vec<OwnedDocument>, Error> {
     ///     db.collection::<MyCollection>()
     ///         .list_with_prefix(String::from("a"))
     ///         .await
@@ -1945,7 +1347,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for doc in db.collection::<MyCollection>().all().await? {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
@@ -1964,7 +1367,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// if let Some(doc) = db.collection::<MyCollection>().get(42).await? {
     ///     db.collection::<MyCollection>().delete(&doc).await?;
@@ -2073,7 +1477,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// println!(
     ///     "Number of documents with id 42 or larger: {}",
@@ -2217,7 +1622,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
     /// for mapping in db.view::<ScoresByRank>().with_key(42).query().await? {
@@ -2237,7 +1643,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
     /// for mapping in db
@@ -2261,7 +1668,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
     /// for mapping in db
@@ -2286,7 +1694,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// #[derive(View, Debug, Clone)]
     /// #[view(name = "by-name", key = String, collection = MyCollection)]
@@ -2319,7 +1728,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
     /// for mapping in db
@@ -2344,7 +1754,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
     /// for mapping in db.view::<ScoresByRank>().ascending().query().await? {
@@ -2363,7 +1774,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
     /// for mapping in db.view::<ScoresByRank>().descending().query().await? {
@@ -2382,7 +1794,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
     /// let mappings = db.view::<ScoresByRank>().limit(10).query().await?;
@@ -2400,7 +1813,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
     /// for mapping in db.view::<ScoresByRank>().query().await? {
@@ -2420,7 +1834,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for mapping in &db
     ///     .view::<ScoresByRank>()
@@ -2447,7 +1862,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for mapping in &db
     ///     .view::<ScoresByRank>()
@@ -2480,7 +1896,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
     /// let score = db.view::<ScoresByRank>().reduce().await?;
@@ -2499,7 +1916,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
     /// for mapping in db.view::<ScoresByRank>().reduce_grouped().await? {
@@ -2522,7 +1940,8 @@ where
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
-    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// db.view::<ScoresByRank>().delete_docs().await?;
     /// # Ok(())
@@ -2931,6 +2350,7 @@ pub trait StorageConnection: Sized + Send + Sync {
     type Database: Connection;
     type Authenticated: StorageConnection;
 
+    /// Returns the currently authenticated session, if any.
     fn session(&self) -> Option<&Session>;
 
     fn admin(&self) -> Self::Database;
@@ -3071,6 +2491,7 @@ pub trait AsyncStorageConnection: Sized + Send + Sync {
     type Database: AsyncConnection;
     type Authenticated: AsyncStorageConnection;
 
+    /// Returns the currently authenticated session, if any.
     fn session(&self) -> Option<&Session>;
 
     async fn admin(&self) -> Self::Database;
@@ -3250,11 +2671,10 @@ pub enum Authentication {
 macro_rules! __doctest_prelude {
     () => {
         use bonsaidb_core::{
-            connection::{AccessPolicy, Connection},
+            connection::AccessPolicy,
             define_basic_unique_mapped_view,
             document::{CollectionDocument,Emit, Document, OwnedDocument},
             schema::{
-
                 Collection, CollectionName, CollectionViewSchema, DefaultSerialization,
                 DefaultViewSerialization, Name, NamedCollection, ReduceResult, Schema, SchemaName,
                 Schematic, SerializedCollection, View, ViewMapResult, ViewMappedValue,

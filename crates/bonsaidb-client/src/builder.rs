@@ -38,7 +38,11 @@ impl Builder {
         }
     }
 
+    /// Specifies the tokio runtime this client should use for its async tasks.
+    /// If not specified, `Client` will try to acquire a handle via
+    /// `tokio::runtime::Handle::try_current()`.
     #[cfg(not(target_arch = "wasm32"))]
+    #[allow(clippy::missing_const_for_fn)]
     pub fn with_runtime(mut self, handle: Handle) -> Self {
         self.tokio = Some(handle);
         self

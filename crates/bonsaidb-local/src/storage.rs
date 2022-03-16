@@ -22,7 +22,9 @@ use bonsaidb_core::{
         Admin, PermissionGroup, Role, ADMIN_DATABASE_NAME,
     },
     circulate,
-    connection::{self, Connection, Identity, Session, SessionId, StorageConnection},
+    connection::{
+        self, Connection, Identity, LowLevelConnection, Session, SessionId, StorageConnection,
+    },
     document::CollectionDocument,
     permissions::{
         bonsai::{

@@ -7,8 +7,9 @@ use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     circulate,
     connection::{
-        self, AccessPolicy, AsyncConnection, AsyncLowLevelDatabase, AsyncStorageConnection,
-        Connection, Identity, LowLevelDatabase, QueryKey, Range, Session, Sort, StorageConnection,
+        self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
+        Connection, Identity, LowLevelConnection, QueryKey, Range, Session, Sort,
+        StorageConnection,
     },
     document::{AnyDocumentId, DocumentId, OwnedDocument},
     keyvalue::{AsyncKeyValue, KeyOperation, KeyValue, Output},
@@ -400,94 +401,6 @@ impl AsyncStorageConnection for AsyncStorage {
 
 #[async_trait]
 impl AsyncConnection for AsyncDatabase {
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(transaction)))]
-    async fn apply_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
-        let task_self = self.clone();
-        self.runtime
-            .spawn_blocking(move || task_self.database.apply_transaction(transaction))
-            .await
-            .map_err(Error::from)?
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(id)))]
-    async fn get<C, PrimaryKey>(
-        &self,
-        id: PrimaryKey,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + 'async_trait,
-    {
-        let task_self = self.clone();
-        let id = id.into().to_document_id()?;
-        self.runtime
-            .spawn_blocking(move || task_self.database.get::<C, _>(id))
-            .await
-            .map_err(Error::from)?
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
-    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
-        &self,
-        ids: DocumentIds,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
-    {
-        let task_self = self.clone();
-        let ids = ids
-            .into_iter()
-            .map(|id| id.into().to_document_id())
-            .collect::<Result<Vec<_>, _>>()?;
-        self.runtime
-            .spawn_blocking(move || task_self.database.get_multiple::<C, _, _, _>(ids))
-            .await
-            .map_err(Error::from)?
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids, order, limit)))]
-    async fn list<C, R, PrimaryKey>(
-        &self,
-        ids: R,
-        order: Sort,
-        limit: Option<u32>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        let task_self = self.clone();
-        let ids = ids.into().map_result(|id| id.into().to_document_id())?;
-        self.runtime
-            .spawn_blocking(move || {
-                Connection::list::<C, _, _>(&task_self.database, ids, order, limit)
-            })
-            .await
-            .map_err(Error::from)?
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
-    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        let task_self = self.clone();
-        let ids = ids.into().map_result(|id| id.into().to_document_id())?;
-        self.runtime
-            .spawn_blocking(move || Connection::count::<C, _, _>(&task_self.database, ids))
-            .await
-            .map_err(Error::from)?
-    }
-
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(skip(starting_id, result_limit))
@@ -500,117 +413,9 @@ impl AsyncConnection for AsyncDatabase {
         let task_self = self.clone();
         self.runtime
             .spawn_blocking(move || {
-                Connection::list_executed_transactions(
-                    &task_self.database,
-                    starting_id,
-                    result_limit,
-                )
-            })
-            .await
-            .map_err(Error::from)?
-    }
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip(key, order, limit, access_policy))
-    )]
-    #[must_use]
-    async fn query<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let task_self = self.clone();
-        self.runtime
-            .spawn_blocking(move || {
-                Connection::query::<V>(&task_self.database, key, order, limit, access_policy)
-            })
-            .await
-            .map_err(Error::from)?
-    }
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip(key, order, limit, access_policy))
-    )]
-    async fn query_with_docs<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let task_self = self.clone();
-        self.runtime
-            .spawn_blocking(move || {
-                Connection::query_with_docs::<V>(
-                    &task_self.database,
-                    key,
-                    order,
-                    limit,
-                    access_policy,
-                )
-            })
-            .await
-            .map_err(Error::from)?
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
-    async fn reduce<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<V::Value, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let task_self = self.clone();
-        self.runtime
-            .spawn_blocking(move || {
-                Connection::reduce::<V>(&task_self.database, key, access_policy)
-            })
-            .await
-            .map_err(Error::from)?
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
-    async fn reduce_grouped<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let task_self = self.clone();
-        self.runtime
-            .spawn_blocking(move || {
-                Connection::reduce_grouped::<V>(&task_self.database, key, access_policy)
-            })
-            .await
-            .map_err(Error::from)?
-    }
-
-    async fn delete_docs<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let task_self = self.clone();
-        self.runtime
-            .spawn_blocking(move || {
-                Connection::delete_docs::<V>(&task_self.database, key, access_policy)
+                task_self
+                    .database
+                    .list_executed_transactions(starting_id, result_limit)
             })
             .await
             .map_err(Error::from)?
@@ -626,19 +431,19 @@ impl AsyncConnection for AsyncDatabase {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn compact_collection<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
+    async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
         let task_self = self.clone();
         self.runtime
-            .spawn_blocking(move || Connection::compact_collection::<C>(&task_self.database))
+            .spawn_blocking(move || Connection::compact(&task_self.database))
             .await
             .map_err(Error::from)?
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
+    async fn compact_collection<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
         let task_self = self.clone();
         self.runtime
-            .spawn_blocking(move || Connection::compact(&task_self.database))
+            .spawn_blocking(move || Connection::compact_collection::<C>(&task_self.database))
             .await
             .map_err(Error::from)?
     }
@@ -727,7 +532,207 @@ impl AsyncSubscriber for Subscriber {
 }
 
 #[async_trait]
-impl AsyncLowLevelDatabase for AsyncDatabase {
+impl AsyncLowLevelConnection for AsyncDatabase {
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(transaction)))]
+    async fn apply_transaction(
+        &self,
+        transaction: Transaction,
+    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
+        let task_self = self.clone();
+        self.runtime
+            .spawn_blocking(move || task_self.database.apply_transaction(transaction))
+            .await
+            .map_err(Error::from)?
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(id)))]
+    async fn get<C, PrimaryKey>(
+        &self,
+        id: PrimaryKey,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + 'async_trait,
+    {
+        let task_self = self.clone();
+        let id = id.into().to_document_id()?;
+        self.runtime
+            .spawn_blocking(move || task_self.database.get::<C, _>(id))
+            .await
+            .map_err(Error::from)?
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
+    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
+        &self,
+        ids: DocumentIds,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
+    {
+        let task_self = self.clone();
+        let ids = ids
+            .into_iter()
+            .map(|id| id.into().to_document_id())
+            .collect::<Result<Vec<_>, _>>()?;
+        self.runtime
+            .spawn_blocking(move || task_self.database.get_multiple::<C, _, _, _>(ids))
+            .await
+            .map_err(Error::from)?
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids, order, limit)))]
+    async fn list<C, R, PrimaryKey>(
+        &self,
+        ids: R,
+        order: Sort,
+        limit: Option<u32>,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        let task_self = self.clone();
+        let ids = ids.into().map_result(|id| id.into().to_document_id())?;
+        self.runtime
+            .spawn_blocking(move || {
+                LowLevelConnection::list::<C, _, _>(&task_self.database, ids, order, limit)
+            })
+            .await
+            .map_err(Error::from)?
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
+    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        let task_self = self.clone();
+        let ids = ids.into().map_result(|id| id.into().to_document_id())?;
+        self.runtime
+            .spawn_blocking(move || LowLevelConnection::count::<C, _, _>(&task_self.database, ids))
+            .await
+            .map_err(Error::from)?
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(key, order, limit, access_policy))
+    )]
+    #[must_use]
+    async fn query<V: schema::SerializedView>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<u32>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
+    where
+        Self: Sized,
+    {
+        let task_self = self.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                LowLevelConnection::query::<V>(
+                    &task_self.database,
+                    key,
+                    order,
+                    limit,
+                    access_policy,
+                )
+            })
+            .await
+            .map_err(Error::from)?
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(skip(key, order, limit, access_policy))
+    )]
+    async fn query_with_docs<V: schema::SerializedView>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        order: Sort,
+        limit: Option<u32>,
+        access_policy: AccessPolicy,
+    ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
+    where
+        Self: Sized,
+    {
+        let task_self = self.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                LowLevelConnection::query_with_docs::<V>(
+                    &task_self.database,
+                    key,
+                    order,
+                    limit,
+                    access_policy,
+                )
+            })
+            .await
+            .map_err(Error::from)?
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
+    async fn reduce<V: schema::SerializedView>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<V::Value, bonsaidb_core::Error>
+    where
+        Self: Sized,
+    {
+        let task_self = self.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                LowLevelConnection::reduce::<V>(&task_self.database, key, access_policy)
+            })
+            .await
+            .map_err(Error::from)?
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
+    async fn reduce_grouped<V: schema::SerializedView>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
+    where
+        Self: Sized,
+    {
+        let task_self = self.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                LowLevelConnection::reduce_grouped::<V>(&task_self.database, key, access_policy)
+            })
+            .await
+            .map_err(Error::from)?
+    }
+
+    async fn delete_docs<V: schema::SerializedView>(
+        &self,
+        key: Option<QueryKey<V::Key>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error>
+    where
+        Self: Sized,
+    {
+        let task_self = self.clone();
+        self.runtime
+            .spawn_blocking(move || {
+                LowLevelConnection::delete_docs::<V>(&task_self.database, key, access_policy)
+            })
+            .await
+            .map_err(Error::from)?
+    }
+
     async fn get_from_collection(
         &self,
         id: DocumentId,

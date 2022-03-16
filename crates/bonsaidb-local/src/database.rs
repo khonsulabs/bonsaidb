@@ -15,10 +15,10 @@ use bonsaidb_core::{
         ArcBytes,
     },
     connection::{
-        self, AccessPolicy, Connection, LowLevelDatabase, QueryKey, Range, Session, Sort,
+        self, AccessPolicy, Connection, LowLevelConnection, QueryKey, Range, Session, Sort,
         StorageConnection,
     },
-    document::{AnyDocumentId, BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
+    document::{BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
     key::Key,
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
@@ -32,11 +32,8 @@ use bonsaidb_core::{
     },
     schema::{
         self,
-        view::{
-            self,
-            map::{MappedDocuments, MappedSerializedValue},
-        },
-        Collection, CollectionName, Map, MappedValue, Schema, Schematic, ViewName,
+        view::{self, map::MappedSerializedValue},
+        CollectionName, Schema, Schematic, ViewName,
     },
     transaction::{
         self, ChangedDocument, Changes, Command, DocumentChanges, Operation, OperationResult,
@@ -158,6 +155,7 @@ impl Database {
     }
 
     /// Returns a clone with `effective_permissions`. Replaces any previously applied permissions.
+    #[must_use]
     pub fn with_effective_permissions(&self, effective_permissions: &Permissions) -> Self {
         Self {
             storage: self
@@ -264,40 +262,13 @@ impl Database {
         Ok(())
     }
 
-    fn for_each_view_entry<
-        V: schema::View,
-        F: FnMut(ViewEntry) -> Result<(), bonsaidb_core::Error> + Send + Sync,
-    >(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-        callback: F,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let view = self
-            .data
-            .schema
-            .view::<V>()
-            .expect("query made with view that isn't registered with this database");
-
-        self.for_each_in_view(
-            view,
-            key.map(|key| key.serialized()).transpose()?,
-            order,
-            limit,
-            access_policy,
-            callback,
-        )
-    }
-
     fn apply_transaction_to_roots(
         &self,
         transaction: &Transaction,
     ) -> Result<Vec<OperationResult>, Error> {
         let mut open_trees = OpenTrees::default();
         for op in &transaction.operations {
-            if !self.data.schema.contains_collection_id(&op.collection) {
+            if !self.data.schema.contains_collection_name(&op.collection) {
                 return Err(Error::Core(bonsaidb_core::Error::CollectionNotFound));
             }
 
@@ -890,326 +861,6 @@ impl Connection for Database {
         self.storage().session()
     }
 
-    fn get<C, PrimaryKey>(
-        &self,
-        id: PrimaryKey,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        let id = id.into().to_document_id()?;
-        self.check_permission(
-            document_resource_name(self.name(), &C::collection_name(), &id),
-            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
-        )?;
-        self.get_from_collection(id, &C::collection_name())
-    }
-
-    fn get_multiple<C, PrimaryKey, DocumentIds, I>(
-        &self,
-        ids: DocumentIds,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
-    {
-        let collection = C::collection_name();
-        let mut document_ids = Vec::default();
-        for id in ids {
-            let id = id.into().to_document_id()?;
-            self.check_permission(
-                document_resource_name(self.name(), &collection, &id),
-                &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
-            )?;
-            document_ids.push(id);
-        }
-
-        self.get_multiple_from_collection(&document_ids, &collection)
-    }
-
-    fn list<C, R, PrimaryKey>(
-        &self,
-        ids: R,
-        order: Sort,
-        limit: Option<u32>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        let collection = C::collection_name();
-        self.check_permission(
-            collection_resource_name(self.name(), &collection),
-            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::List)),
-        )?;
-        self.list_from_collection(
-            ids.into().map_result(|id| id.into().to_document_id())?,
-            order,
-            limit,
-            &collection,
-        )
-    }
-
-    fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        let collection = C::collection_name();
-        self.check_permission(
-            collection_resource_name(self.name(), &collection),
-            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Count)),
-        )?;
-
-        self.count_from_collection(
-            ids.into().map_result(|id| id.into().to_document_id())?,
-            &collection,
-        )
-    }
-
-    fn query<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let view = self
-            .data
-            .schema
-            .view::<V>()
-            .expect("query made with view that isn't registered with this database");
-        self.check_permission(
-            view_resource_name(self.name(), &view.view_name()),
-            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Query)),
-        )?;
-        let mut results = Vec::new();
-        self.for_each_view_entry::<V, _>(key, order, limit, access_policy, |entry| {
-            let key = <V::Key as Key>::from_ord_bytes(&entry.key)
-                .map_err(view::Error::key_serialization)
-                .map_err(Error::from)?;
-            for entry in entry.mappings {
-                results.push(Map::new(
-                    entry.source,
-                    key.clone(),
-                    V::deserialize(&entry.value)?,
-                ));
-            }
-            Ok(())
-        })?;
-
-        Ok(results)
-    }
-
-    fn query_with_docs<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        // Query permission is checked by the query call
-        let results = Connection::query::<V>(self, key, order, limit, access_policy)?;
-
-        // Verify that there is permission to fetch each document
-        let mut ids = Vec::with_capacity(results.len());
-        let collection = <V::Collection as Collection>::collection_name();
-        for id in results.iter().map(|m| m.source.id) {
-            self.check_permission(
-                document_resource_name(self.name(), &collection, &id),
-                &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
-            )?;
-            ids.push(id);
-        }
-
-        let documents = self
-            .get_multiple::<V::Collection, _, _, _>(ids)?
-            .into_iter()
-            .map(|doc| (doc.header.id, doc))
-            .collect::<BTreeMap<_, _>>();
-
-        Ok(MappedDocuments {
-            mappings: results,
-            documents,
-        })
-    }
-
-    fn reduce<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<V::Value, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let view = self
-            .data
-            .schema
-            .view::<V>()
-            .expect("query made with view that isn't registered with this database");
-        self.check_permission(
-            view_resource_name(self.name(), &view.view_name()),
-            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Reduce)),
-        )?;
-
-        let result = self.reduce_by_name(
-            &view.view_name(),
-            key.map(|key| key.serialized()).transpose()?,
-            access_policy,
-        )?;
-        let value = V::deserialize(&result)?;
-
-        Ok(value)
-    }
-
-    fn reduce_grouped<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let view = self
-            .data
-            .schema
-            .view::<V>()
-            .expect("query made with view that isn't registered with this database");
-        self.check_permission(
-            view_resource_name(self.name(), &view.view_name()),
-            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Reduce)),
-        )?;
-
-        let results = self.reduce_grouped_by_name(
-            &view.view_name(),
-            key.map(|key| key.serialized()).transpose()?,
-            access_policy,
-        )?;
-        results
-            .into_iter()
-            .map(|map| {
-                Ok(MappedValue::new(
-                    V::Key::from_ord_bytes(&map.key).map_err(view::Error::key_serialization)?,
-                    V::deserialize(&map.value)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, bonsaidb_core::Error>>()
-    }
-
-    fn delete_docs<V: schema::SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let view = self
-            .data
-            .schema
-            .view::<V>()
-            .expect("query made with view that isn't registered with this database");
-        self.check_permission(
-            view_resource_name(self.name(), &view.view_name()),
-            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Query)),
-        )?;
-        let collection = <V::Collection as Collection>::collection_name();
-        let mut transaction = Transaction::default();
-        self.for_each_view_entry::<V, _>(key, Sort::Ascending, None, access_policy, |entry| {
-            for mapping in entry.mappings {
-                self.check_permission(
-                    document_resource_name(self.name(), &collection, &mapping.source.id),
-                    &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
-                )?;
-                transaction.push(Operation::delete(collection.clone(), mapping.source));
-            }
-
-            Ok(())
-        })?;
-
-        let results = Connection::apply_transaction(self, transaction)?;
-
-        Ok(results.len() as u64)
-    }
-
-    fn apply_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
-        for op in &transaction.operations {
-            let (resource, action) = match &op.command {
-                Command::Insert { .. } => (
-                    collection_resource_name(self.name(), &op.collection),
-                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Insert)),
-                ),
-                Command::Update { header, .. } => (
-                    document_resource_name(self.name(), &op.collection, &header.id),
-                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Update)),
-                ),
-                Command::Overwrite { id, .. } => (
-                    document_resource_name(self.name(), &op.collection, id),
-                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Overwrite)),
-                ),
-                Command::Delete { header } => (
-                    document_resource_name(self.name(), &op.collection, &header.id),
-                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
-                ),
-            };
-            self.check_permission(&resource, &action)?;
-        }
-
-        let mut unique_view_tasks = Vec::new();
-        for collection_name in transaction
-            .operations
-            .iter()
-            .map(|op| &op.collection)
-            .collect::<HashSet<_>>()
-        {
-            if let Some(views) = self.data.schema.views_in_collection(collection_name) {
-                for view in views {
-                    if view.unique() {
-                        if let Some(task) = self
-                            .storage
-                            .instance
-                            .tasks()
-                            .spawn_integrity_check(view, self)
-                        {
-                            unique_view_tasks.push(task);
-                        }
-                    }
-                }
-            }
-        }
-
-        let mut unique_view_mapping_tasks = Vec::new();
-        for task in unique_view_tasks {
-            if let Some(spawned_task) = task.receive().map_err(Error::from)?.map_err(Error::from)? {
-                unique_view_mapping_tasks.push(spawned_task);
-            }
-        }
-
-        for task in unique_view_mapping_tasks {
-            let mut task = task.lock();
-            if let Some(task) = task.take() {
-                task.receive().map_err(Error::from)?.map_err(Error::from)?;
-            }
-        }
-
-        self.apply_transaction_to_roots(&transaction)
-            .map_err(bonsaidb_core::Error::from)
-    }
-
     fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
@@ -1284,19 +935,6 @@ impl Connection for Database {
         Ok(())
     }
 
-    fn compact_collection<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
-        let collection = C::collection_name();
-        self.check_permission(
-            collection_resource_name(self.name(), &collection),
-            &BonsaiAction::Database(DatabaseAction::Compact),
-        )?;
-        self.storage()
-            .instance
-            .tasks()
-            .compact_collection(self.clone(), C::collection_name())?;
-        Ok(())
-    }
-
     fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
         self.check_permission(
             kv_resource_name(self.name()),
@@ -1310,20 +948,92 @@ impl Connection for Database {
     }
 }
 
-impl LowLevelDatabase for Database {
+impl LowLevelConnection for Database {
+    fn schematic(&self) -> &Schematic {
+        &self.data.schema
+    }
+
+    fn apply_transaction(
+        &self,
+        transaction: Transaction,
+    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
+        for op in &transaction.operations {
+            let (resource, action) = match &op.command {
+                Command::Insert { .. } => (
+                    collection_resource_name(self.name(), &op.collection),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Insert)),
+                ),
+                Command::Update { header, .. } => (
+                    document_resource_name(self.name(), &op.collection, &header.id),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Update)),
+                ),
+                Command::Overwrite { id, .. } => (
+                    document_resource_name(self.name(), &op.collection, id),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Overwrite)),
+                ),
+                Command::Delete { header } => (
+                    document_resource_name(self.name(), &op.collection, &header.id),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
+                ),
+            };
+            self.check_permission(&resource, &action)?;
+        }
+
+        let mut unique_view_tasks = Vec::new();
+        for collection_name in transaction
+            .operations
+            .iter()
+            .map(|op| &op.collection)
+            .collect::<HashSet<_>>()
+        {
+            if let Some(views) = self.data.schema.views_in_collection(collection_name) {
+                for view in views {
+                    if view.unique() {
+                        if let Some(task) = self
+                            .storage
+                            .instance
+                            .tasks()
+                            .spawn_integrity_check(view, self)
+                        {
+                            unique_view_tasks.push(task);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut unique_view_mapping_tasks = Vec::new();
+        for task in unique_view_tasks {
+            if let Some(spawned_task) = task.receive().map_err(Error::from)?.map_err(Error::from)? {
+                unique_view_mapping_tasks.push(spawned_task);
+            }
+        }
+
+        for task in unique_view_mapping_tasks {
+            let mut task = task.lock();
+            if let Some(task) = task.take() {
+                task.receive().map_err(Error::from)?.map_err(Error::from)?;
+            }
+        }
+
+        self.apply_transaction_to_roots(&transaction)
+            .map_err(bonsaidb_core::Error::from)
+    }
+
     fn get_from_collection(
         &self,
         id: DocumentId,
         collection: &CollectionName,
     ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
-        let collection = collection.clone();
+        self.check_permission(
+            document_resource_name(self.name(), collection, &id),
+            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
+        )?;
         let tree = self
             .data
             .context
             .roots
-            .tree(
-                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
-            )
+            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
             .map_err(Error::from)?;
         if let Some(vec) = tree.get(id.as_ref()).map_err(Error::from)? {
             Ok(Some(deserialize_document(&vec)?.into_owned()))
@@ -1339,14 +1049,15 @@ impl LowLevelDatabase for Database {
         limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        let collection = collection.clone();
+        self.check_permission(
+            collection_resource_name(self.name(), collection),
+            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::List)),
+        )?;
         let tree = self
             .data
             .context
             .roots
-            .tree(
-                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
-            )
+            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
             .map_err(Error::from)?;
         let mut found_docs = Vec::new();
         let mut keys_read = 0;
@@ -1390,13 +1101,15 @@ impl LowLevelDatabase for Database {
         ids: Range<DocumentId>,
         collection: &CollectionName,
     ) -> Result<u64, bonsaidb_core::Error> {
+        self.check_permission(
+            collection_resource_name(self.name(), collection),
+            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Count)),
+        )?;
         let tree = self
             .data
             .context
             .roots
-            .tree(
-                self.collection_tree::<Versioned, _>(collection, document_tree_name(&collection))?,
-            )
+            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
             .map_err(Error::from)?;
         let ids = DocumentIdRange(ids);
         let stats = tree.reduce(&ids.borrow_as_bytes()).map_err(Error::from)?;
@@ -1409,6 +1122,12 @@ impl LowLevelDatabase for Database {
         ids: &[DocumentId],
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        for id in ids {
+            self.check_permission(
+                document_resource_name(self.name(), collection, id),
+                &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
+            )?;
+        }
         let mut ids = ids.to_vec();
         let collection = collection.clone();
         let tree = self
@@ -1435,6 +1154,10 @@ impl LowLevelDatabase for Database {
         &self,
         collection: CollectionName,
     ) -> Result<(), bonsaidb_core::Error> {
+        self.check_permission(
+            collection_resource_name(self.name(), &collection),
+            &BonsaiAction::Database(DatabaseAction::Compact),
+        )?;
         self.storage()
             .instance
             .tasks()
@@ -1450,23 +1173,24 @@ impl LowLevelDatabase for Database {
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
-        if let Some(view) = self.schematic().view_by_name(view) {
-            let mut results = Vec::new();
-            self.for_each_in_view(view, key, order, limit, access_policy, |entry| {
-                for mapping in entry.mappings {
-                    results.push(bonsaidb_core::schema::view::map::Serialized {
-                        source: mapping.source,
-                        key: entry.key.clone(),
-                        value: mapping.value,
-                    });
-                }
-                Ok(())
-            })?;
+        let view = self.schematic().view_by_name(view)?;
+        self.check_permission(
+            view_resource_name(self.name(), &view.view_name()),
+            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Query)),
+        )?;
+        let mut results = Vec::new();
+        self.for_each_in_view(view, key, order, limit, access_policy, |entry| {
+            for mapping in entry.mappings {
+                results.push(bonsaidb_core::schema::view::map::Serialized {
+                    source: mapping.source,
+                    key: entry.key.clone(),
+                    value: mapping.value,
+                });
+            }
+            Ok(())
+        })?;
 
-            Ok(results)
-        } else {
-            Err(bonsaidb_core::Error::CollectionNotFound)
-        }
+        Ok(results)
     }
 
     fn query_by_name_with_docs(
@@ -1508,11 +1232,7 @@ impl LowLevelDatabase for Database {
         let result = if mappings.len() == 1 {
             mappings.pop().unwrap().value.into_vec()
         } else {
-            let view = self
-                .data
-                .schema
-                .view_by_name(view_name)
-                .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
+            let view = self.data.schema.view_by_name(view_name)?;
             view.reduce(
                 &mappings
                     .iter()
@@ -1532,11 +1252,11 @@ impl LowLevelDatabase for Database {
         key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
-        let view = self
-            .data
-            .schema
-            .view_by_name(view_name)
-            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
+        let view = self.data.schema.view_by_name(view_name)?;
+        self.check_permission(
+            view_resource_name(self.name(), &view.view_name()),
+            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Reduce)),
+        )?;
         let mut mappings = Vec::new();
         self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
             mappings.push(MappedSerializedValue {
@@ -1555,11 +1275,7 @@ impl LowLevelDatabase for Database {
         key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
-        let view = self
-            .data
-            .schema
-            .view_by_name(view)
-            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
+        let view = self.data.schema.view_by_name(view)?;
         let collection = view.collection();
         let mut transaction = Transaction::default();
         self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
@@ -1570,7 +1286,7 @@ impl LowLevelDatabase for Database {
             Ok(())
         })?;
 
-        let results = Connection::apply_transaction(self, transaction)?;
+        let results = LowLevelConnection::apply_transaction(self, transaction)?;
 
         Ok(results.len() as u64)
     }

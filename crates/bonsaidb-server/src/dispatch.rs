@@ -4,7 +4,7 @@ use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     async_trait::async_trait,
     connection::{
-        AccessPolicy, AsyncConnection, AsyncLowLevelDatabase, AsyncStorageConnection, Identity,
+        AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection, Identity,
         QueryKey, Range, Sort,
     },
     document::DocumentId,
