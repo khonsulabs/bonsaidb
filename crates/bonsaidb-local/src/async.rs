@@ -18,7 +18,7 @@ use bonsaidb_core::{
     schema::{
         self,
         view::map::{MappedDocuments, MappedSerializedValue},
-        CollectionName, Map, MappedValue, Nameable, Schema, SchemaName, ViewName,
+        CollectionName, Map, MappedValue, Nameable, Schema, SchemaName, Schematic, ViewName,
     },
     transaction::{self, OperationResult, Transaction},
 };
@@ -533,6 +533,10 @@ impl AsyncSubscriber for Subscriber {
 
 #[async_trait]
 impl AsyncLowLevelConnection for AsyncDatabase {
+    fn schematic(&self) -> &Schematic {
+        self.database.schematic()
+    }
+
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(transaction)))]
     async fn apply_transaction(
         &self,

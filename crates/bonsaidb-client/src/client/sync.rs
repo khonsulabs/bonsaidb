@@ -5,6 +5,7 @@ use bonsaidb_core::{
     },
     keyvalue::{AsyncKeyValue, KeyValue},
     pubsub::{AsyncPubSub, AsyncSubscriber, PubSub, Subscriber},
+    schema::Schematic,
 };
 use tokio::runtime::Handle;
 
@@ -209,6 +210,10 @@ impl Connection for RemoteDatabase {
 }
 
 impl LowLevelConnection for RemoteDatabase {
+    fn schematic(&self) -> &Schematic {
+        &self.schema
+    }
+
     fn get<C, PrimaryKey>(
         &self,
         id: PrimaryKey,
@@ -259,7 +264,7 @@ impl LowLevelConnection for RemoteDatabase {
         PrimaryKey: Into<bonsaidb_core::document::AnyDocumentId<C::PrimaryKey>> + Send,
     {
         self.tokio()
-            .block_on(async { AsyncConnection::count::<C, _, _>(self, ids).await })
+            .block_on(async { AsyncLowLevelConnection::count::<C, _, _>(self, ids).await })
     }
 
     fn query<V: bonsaidb_core::schema::SerializedView>(

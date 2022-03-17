@@ -4,16 +4,12 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     connection::{AccessPolicy, AsyncLowLevelConnection, QueryKey, Range, Sort},
-    document::{AnyDocumentId, DocumentId, OwnedDocument},
+    document::{DocumentId, OwnedDocument},
     keyvalue::AsyncKeyValue,
     permissions::Permissions,
     pubsub::AsyncPubSub,
-    schema::{
-        self,
-        view::map::{MappedDocuments, MappedSerializedValue},
-        CollectionName, Map, MappedValue, SerializedView, ViewName,
-    },
-    transaction::Transaction,
+    schema::{self, view::map::MappedSerializedValue, CollectionName, Schematic, ViewName},
+    transaction::{OperationResult, Transaction},
 };
 use bonsaidb_local::{AsyncDatabase, Database};
 use derive_where::derive_where;
@@ -103,121 +99,6 @@ impl<B: Backend> AsyncPubSub for ServerDatabase<B> {
 /// Pass-through implementation
 #[async_trait]
 impl<B: Backend> bonsaidb_core::connection::AsyncConnection for ServerDatabase<B> {
-    async fn get<C, PrimaryKey>(
-        &self,
-        id: PrimaryKey,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        self.db.get::<C, PrimaryKey>(id).await
-    }
-
-    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
-        &self,
-        ids: DocumentIds,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
-    {
-        self.db.get_multiple::<C, _, _, _>(ids).await
-    }
-
-    async fn list<C, R, PrimaryKey>(
-        &self,
-        ids: R,
-        order: Sort,
-        limit: Option<u32>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        self.db.list::<C, R, PrimaryKey>(ids, order, limit).await
-    }
-
-    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        self.db.count::<C, R, PrimaryKey>(ids).await
-    }
-
-    async fn query<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        self.db.query::<V>(key, order, limit, access_policy).await
-    }
-
-    async fn query_with_docs<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        self.db
-            .query_with_docs::<V>(key, order, limit, access_policy)
-            .await
-    }
-
-    async fn reduce<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<V::Value, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        self.db.reduce::<V>(key, access_policy).await
-    }
-
-    async fn reduce_grouped<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        self.db.reduce_grouped::<V>(key, access_policy).await
-    }
-
-    async fn delete_docs<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        self.db.delete_docs::<V>(key, access_policy).await
-    }
-
-    async fn apply_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Vec<bonsaidb_core::transaction::OperationResult>, bonsaidb_core::Error> {
-        self.db.apply_transaction(transaction).await
-    }
-
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
@@ -258,6 +139,10 @@ impl<B: Backend> AsyncKeyValue for ServerDatabase<B> {
 
 #[async_trait]
 impl<B: Backend> AsyncLowLevelConnection for ServerDatabase<B> {
+    fn schematic(&self) -> &Schematic {
+        self.db.schematic()
+    }
+
     async fn get_from_collection(
         &self,
         id: DocumentId,
@@ -354,5 +239,12 @@ impl<B: Backend> AsyncLowLevelConnection for ServerDatabase<B> {
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
         self.db.delete_docs_by_name(view, key, access_policy).await
+    }
+
+    async fn apply_transaction(
+        &self,
+        transaction: Transaction,
+    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
+        self.db.apply_transaction(transaction).await
     }
 }

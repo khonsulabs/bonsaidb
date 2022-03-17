@@ -7,7 +7,7 @@ use std::{
 use async_trait::async_trait;
 use bonsaidb_core::{
     admin,
-    connection::{Connection, LowLevelConnection, Range, Sort, StorageConnection},
+    connection::{LowLevelConnection, Range, Sort, StorageConnection},
     document::DocumentId,
     schema::{Collection, SchemaName},
     transaction::{Operation, Transaction},

@@ -468,6 +468,8 @@ pub trait LowLevelConnection {
 
 #[async_trait]
 pub trait AsyncLowLevelConnection {
+    fn schematic(&self) -> &Schematic;
+
     /// Inserts a newly created document into the connected [`schema::Schema`]
     /// for the [`Collection`] `C`. If `id` is `None` a unique id will be
     /// generated. If an id is provided and a document already exists with that
@@ -580,7 +582,11 @@ pub trait AsyncLowLevelConnection {
     async fn get<C, PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        self.get_from_collection(id.into().to_document_id()?, &C::collection_name())
+            .await
+    }
 
     /// Retrieves all documents matching `ids`. Documents that are not found
     /// are not returned, but no error will be generated.
@@ -598,7 +604,15 @@ pub trait AsyncLowLevelConnection {
         C: schema::Collection,
         DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync;
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
+    {
+        let ids = ids
+            .into_iter()
+            .map(|id| id.into().to_document_id())
+            .collect::<Result<Vec<_>, _>>()?;
+        self.get_multiple_from_collection(&ids, &C::collection_name())
+            .await
+    }
 
     /// Retrieves all documents within the range of `ids`. To retrieve all
     /// documents, pass in `..` for `ids`.
@@ -619,7 +633,12 @@ pub trait AsyncLowLevelConnection {
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        let ids = ids.into().map_result(|id| id.into().to_document_id())?;
+        self.list_from_collection(ids, order, limit, &C::collection_name())
+            .await
+    }
 
     /// Counts the number of documents within the range of `ids`.
     ///
@@ -634,7 +653,14 @@ pub trait AsyncLowLevelConnection {
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        self.count_from_collection(
+            ids.into().map_result(|key| key.into().to_document_id())?,
+            &C::collection_name(),
+        )
+        .await
+    }
 
     /// Removes a `Document` from the database.
     ///
@@ -670,7 +696,30 @@ pub trait AsyncLowLevelConnection {
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, Error>;
+    ) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
+        let view = self.schematic().view::<V>()?;
+        let mappings = self
+            .query_by_name(
+                &view.view_name(),
+                key.map(|key| key.serialized()).transpose()?,
+                order,
+                limit,
+                access_policy,
+            )
+            .await?;
+        mappings
+            .into_iter()
+            .map(|mapping| {
+                Ok(Map {
+                    key: <V::Key as Key>::from_ord_bytes(&mapping.key)
+                        .map_err(view::Error::key_serialization)
+                        .map_err(Error::from)?,
+                    value: V::deserialize(&mapping.value)?,
+                    source: mapping.source,
+                })
+            })
+            .collect::<Result<Vec<_>, Error>>()
+    }
 
     /// Queries for view entries matching [`View`] with their source documents.
     ///
@@ -685,7 +734,26 @@ pub trait AsyncLowLevelConnection {
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, Error>;
+    ) -> Result<MappedDocuments<OwnedDocument, V>, Error> {
+        // Query permission is checked by the query call
+        let results = self.query::<V>(key, order, limit, access_policy).await?;
+
+        // Verify that there is permission to fetch each document
+        let mut ids = Vec::with_capacity(results.len());
+        ids.extend(results.iter().map(|m| m.source.id));
+
+        let documents = self
+            .get_multiple::<V::Collection, _, _, _>(ids)
+            .await?
+            .into_iter()
+            .map(|doc| (doc.header.id, doc))
+            .collect::<BTreeMap<_, _>>();
+
+        Ok(MappedDocuments {
+            mappings: results,
+            documents,
+        })
+    }
 
     /// Queries for view entries matching [`View`] with their source documents, deserialized.
     ///
@@ -730,7 +798,16 @@ pub trait AsyncLowLevelConnection {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<V::Value, Error>;
+    ) -> Result<V::Value, Error> {
+        let view = self.schematic().view::<V>()?;
+        self.reduce_by_name(
+            &view.view_name(),
+            key.map(|key| key.serialized()).transpose()?,
+            access_policy,
+        )
+        .await
+        .and_then(|value| V::deserialize(&value))
+    }
 
     /// Reduces the view entries matching [`View`], reducing the values by each
     /// unique key.
@@ -745,7 +822,23 @@ pub trait AsyncLowLevelConnection {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error>;
+    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error> {
+        let view = self.schematic().view::<V>()?;
+        self.reduce_grouped_by_name(
+            &view.view_name(),
+            key.map(|key| key.serialized()).transpose()?,
+            access_policy,
+        )
+        .await?
+        .into_iter()
+        .map(|map| {
+            Ok(MappedValue::new(
+                V::Key::from_ord_bytes(&map.key).map_err(view::Error::key_serialization)?,
+                V::deserialize(&map.value)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, Error>>()
+    }
 
     /// Deletes all of the documents associated with this view.
     ///
@@ -758,7 +851,15 @@ pub trait AsyncLowLevelConnection {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<u64, Error>;
+    ) -> Result<u64, Error> {
+        let view = self.schematic().view::<V>()?;
+        self.delete_docs_by_name(
+            &view.view_name(),
+            key.map(|key| key.serialized()).transpose()?,
+            access_policy,
+        )
+        .await
+    }
 
     /// Applies a [`Transaction`] to the [`schema::Schema`]. If any operation in the
     /// [`Transaction`] fails, none of the operations will be applied to the
