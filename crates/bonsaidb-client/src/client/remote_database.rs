@@ -20,7 +20,7 @@ mod keyvalue;
 /// A database on a remote server.
 #[derive(Debug, Clone)]
 pub struct RemoteDatabase {
-    client: Client,
+    pub(crate) client: Client,
     name: Arc<String>,
     pub(crate) schema: Arc<Schematic>,
 }
@@ -57,6 +57,12 @@ impl RemoteDatabase {
 
 #[async_trait]
 impl AsyncConnection for RemoteDatabase {
+    type Storage = Client;
+
+    fn storage(&self) -> Self::Storage {
+        self.client.clone()
+    }
+
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,

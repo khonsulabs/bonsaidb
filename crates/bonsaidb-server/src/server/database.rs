@@ -103,6 +103,12 @@ impl<B: Backend> AsyncPubSub for ServerDatabase<B> {
 /// Pass-through implementation
 #[async_trait]
 impl<B: Backend> bonsaidb_core::connection::AsyncConnection for ServerDatabase<B> {
+    type Storage = CustomServer<B>;
+
+    fn storage(&self) -> Self::Storage {
+        self.server.clone()
+    }
+
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,

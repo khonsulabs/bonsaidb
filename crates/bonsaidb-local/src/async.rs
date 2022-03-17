@@ -219,11 +219,6 @@ impl AsyncDatabase {
             .map(Self::from)
     }
 
-    /// Returns the [`AsyncStorage`] that this database belongs to.
-    pub fn storage(&self) -> AsyncStorage {
-        AsyncStorage::from(self.database.storage())
-    }
-
     /// Restricts an unauthenticated instance to having `effective_permissions`.
     /// Returns `None` if a session has already been established.
     pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Option<Self> {
@@ -489,6 +484,12 @@ impl AsyncStorageConnection for AsyncStorage {
 
 #[async_trait]
 impl AsyncConnection for AsyncDatabase {
+    type Storage = AsyncStorage;
+
+    fn storage(&self) -> Self::Storage {
+        AsyncStorage::from(self.database.storage())
+    }
+
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(skip(starting_id, result_limit))

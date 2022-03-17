@@ -247,6 +247,15 @@ pub enum AnyDatabase<B: Backend = NoBackend> {
 
 #[async_trait]
 impl<B: Backend> AsyncConnection for AnyDatabase<B> {
+    type Storage = AnyServerConnection<B>;
+
+    fn storage(&self) -> Self::Storage {
+        match self {
+            Self::Local(server) => AnyServerConnection::Local(server.storage()),
+            Self::Networked(client) => AnyServerConnection::Networked(client.storage()),
+        }
+    }
+
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,

@@ -7,6 +7,7 @@ use std::{
 
 use async_trait::async_trait;
 use bonsaidb_core::{
+    connection::Connection,
     keyvalue::{
         Command, KeyCheck, KeyOperation, KeyStatus, KeyValue, Numeric, Output, SetCommand,
         Timestamp, Value,

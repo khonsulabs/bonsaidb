@@ -186,11 +186,6 @@ impl Database {
         Ok(storage.create_database::<DB>("default", true)?)
     }
 
-    /// Returns the [`Storage`] that this database belongs to.
-    pub fn storage(&self) -> &'_ Storage {
-        &self.storage
-    }
-
     /// Returns the [`Schematic`] for the schema for this database.
     #[must_use]
     pub fn schematic(&self) -> &'_ Schematic {
@@ -752,7 +747,7 @@ impl Database {
     pub(crate) fn collection_encryption_key(&self, collection: &CollectionName) -> Option<&KeyId> {
         self.schematic()
             .encryption_key_for_collection(collection)
-            .or_else(|| self.storage().default_encryption_key())
+            .or_else(|| self.storage.default_encryption_key())
     }
 
     #[cfg_attr(
@@ -858,8 +853,14 @@ fn serialize_document(document: &BorrowedDocument<'_>) -> Result<Vec<u8>, bonsai
 }
 
 impl Connection for Database {
+    type Storage = Storage;
+
+    fn storage(&self) -> Self::Storage {
+        self.storage.clone()
+    }
+
     fn session(&self) -> Option<&Session> {
-        self.storage().session()
+        self.storage.session()
     }
 
     fn list_executed_transactions(

@@ -32,6 +32,12 @@ pub use lowlevel::{AsyncLowLevelConnection, LowLevelConnection};
 /// contexts and will block the current thread. For async access, use
 /// [`AsyncConnection`].
 pub trait Connection: LowLevelConnection + Sized + Send + Sync {
+    /// The [`StorageConnection`] type that is paired with this type.
+    type Storage: StorageConnection<Database = Self>;
+
+    /// Returns the [`StorageConnection`] implementor that this database belongs to.
+    fn storage(&self) -> Self::Storage;
+
     /// Returns the currently authenticated session, if any.
     fn session(&self) -> Option<&Session>;
 
@@ -928,6 +934,13 @@ where
 /// in an asynchronous context.
 #[async_trait]
 pub trait AsyncConnection: AsyncLowLevelConnection + Sized + Send + Sync {
+    /// The [`AsyncStorageConnection`] type that is paired with this type.
+    type Storage: AsyncStorageConnection<Database = Self>;
+
+    /// Returns the [`StorageConnection`] implementor that this database belongs
+    /// to.
+    fn storage(&self) -> Self::Storage;
+
     /// Accesses a collection for the connected [`schema::Schema`].
     fn collection<C: schema::Collection>(&self) -> AsyncCollection<'_, Self, C> {
         AsyncCollection::new(self)

@@ -172,6 +172,12 @@ impl StorageConnection for Client {
 }
 
 impl Connection for RemoteDatabase {
+    type Storage = Client;
+
+    fn storage(&self) -> Self::Storage {
+        self.client.clone()
+    }
+
     fn session(&self) -> Option<&bonsaidb_core::connection::Session> {
         Some(&self.session)
     }
