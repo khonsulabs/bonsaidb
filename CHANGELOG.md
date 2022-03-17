@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   building more complex `Key` implementations that are composed of multiple
   fields. These functions are what the `Key` implementation for tuples is
   powered by.
+- `Key` is now implemented for `[u8; N]`.
 
 ### Changed
 
