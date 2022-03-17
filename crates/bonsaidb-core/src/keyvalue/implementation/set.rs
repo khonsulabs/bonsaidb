@@ -125,6 +125,7 @@ where
             .transpose()
     }
 
+    /// Executes the operation using the configured options.
     pub fn execute(self) -> Result<KeyStatus, Error> {
         let Self {
             kv,

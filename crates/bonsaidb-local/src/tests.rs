@@ -70,7 +70,8 @@ macro_rules! define_local_suite {
                 ) -> anyhow::Result<AsyncDatabase> {
                     Ok(self
                         .db
-                        .with_effective_permissions(&Permissions::from(permissions)))
+                        .with_effective_permissions(Permissions::from(permissions))
+                        .unwrap())
                 }
 
                 async fn connect(&self) -> anyhow::Result<AsyncDatabase> {

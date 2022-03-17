@@ -136,6 +136,7 @@ where
         }
     }
 
+    /// Retrieves the value for the key, using the configured options.
     pub fn query(self) -> Result<Option<Value>, Error> {
         let Self {
             kv,

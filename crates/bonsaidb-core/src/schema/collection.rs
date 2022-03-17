@@ -623,7 +623,7 @@ pub trait SerializedCollection: Collection {
     /// Pushes this value into the collection, returning the created document.
     /// This function is useful when `Self != Self::Contents`.
     ///
-    /// ## Automatic Id Assignment
+    /// ## Automatic ID Assignment
     ///
     /// This function calls [`Self::natural_id()`] to try to retrieve a primary
     /// key value from `contents`. If an id is returned, the item is inserted
@@ -660,7 +660,7 @@ pub trait SerializedCollection: Collection {
     /// Pushes this value into the collection, returning the created document.
     /// This function is useful when `Self != Self::Contents`.
     ///
-    /// ## Automatic Id Assignment
+    /// ## Automatic ID Assignment
     ///
     /// This function calls [`Self::natural_id()`] to try to retrieve a primary
     /// key value from `contents`. If an id is returned, the item is inserted
@@ -699,7 +699,7 @@ pub trait SerializedCollection: Collection {
 
     /// Pushes this value into the collection, returning the created document.
     ///
-    /// ## Automatic Id Assignment
+    /// ## Automatic ID Assignment
     ///
     /// This function calls [`Self::natural_id()`] to try to retrieve a primary
     /// key value from `self`. If an id is returned, the item is inserted with
@@ -731,7 +731,7 @@ pub trait SerializedCollection: Collection {
 
     /// Pushes this value into the collection, returning the created document.
     ///
-    /// ## Automatic Id Assignment
+    /// ## Automatic ID Assignment
     ///
     /// This function calls [`Self::natural_id()`] to try to retrieve a primary
     /// key value from `self`. If an id is returned, the item is inserted with
@@ -1840,6 +1840,7 @@ where
         self.0.count()
     }
 
+    /// Retrieves the list of documents, using the configured options.
     pub fn query(self) -> Result<Vec<CollectionDocument<Cl>>, Error> {
         self.0.query().and_then(|docs| docs.collection_documents())
     }

@@ -154,15 +154,16 @@ impl Database {
         Ok(db)
     }
 
-    /// Returns a clone with `effective_permissions`. Replaces any previously applied permissions.
+    /// Restricts an unauthenticated instance to having `effective_permissions`.
+    /// Returns `None` if a session has already been established.
     #[must_use]
-    pub fn with_effective_permissions(&self, effective_permissions: &Permissions) -> Self {
-        Self {
-            storage: self
-                .storage
-                .with_effective_permissions(effective_permissions),
-            data: self.data.clone(),
-        }
+    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Option<Self> {
+        self.storage
+            .with_effective_permissions(effective_permissions)
+            .map(|storage| Self {
+                storage,
+                data: self.data.clone(),
+            })
     }
 
     /// Creates a `Storage` with a single-database named "default" with its data
@@ -1420,6 +1421,8 @@ impl<'a> BorrowByteRange<'a> for DocumentIdRange {
     }
 }
 
+/// Operations that can be performed on both [`Database`] and
+/// [`AsyncDatabase`](crate::AsyncDatabase).
 pub trait DatabaseNonBlocking {
     /// Returns the name of the database.
     #[must_use]

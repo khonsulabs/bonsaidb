@@ -1977,6 +1977,7 @@ impl TimingTest {
         }
     }
 
+    #[allow(clippy::must_use_candidate)]
     pub fn wait_until(&self, absolute_duration: Duration) -> bool {
         let target = self.start + absolute_duration;
         let mut now = Instant::now();

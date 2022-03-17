@@ -85,6 +85,9 @@ impl<B: Backend> ServerConfiguration<B> {
         self
     }
 
+    /// Registers a `dispatcher` for a [`CustomApi`]. When a [`Request::Api`] is
+    /// received for this [`CustomApi`], the dispatcher will be invoked with the
+    /// incoming request.
     pub fn register_custom_api<Dispatcher: CustomApiDispatcher<B> + 'static>(
         &mut self,
         dispatcher: Dispatcher,

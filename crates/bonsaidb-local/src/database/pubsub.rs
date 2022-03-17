@@ -115,6 +115,7 @@ pub struct Subscriber {
 }
 
 impl Subscriber {
+    /// Returns the unique id of the subscriber.
     #[must_use]
     pub const fn id(&self) -> u64 {
         self.id

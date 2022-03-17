@@ -50,6 +50,7 @@ where
         self
     }
 
+    /// Executes the operation using the configured options.
     pub fn execute(self) -> Result<V, Error> {
         let Self {
             kv,

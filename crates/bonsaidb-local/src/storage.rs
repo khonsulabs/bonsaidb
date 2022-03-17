@@ -520,23 +520,22 @@ impl Storage {
         )
     }
 
-    /// Returns a clone with `effective_permissions`.
-    ///
-    /// # Unstable
-    ///
-    /// See [this issue](https://github.com/khonsulabs/bonsaidb/issues/68).
-    #[doc(hidden)]
-    pub fn with_effective_permissions(&self, effective_permissions: &Permissions) -> Self {
-        Self {
-            instance: self.instance.clone(),
-            authentication: self.authentication.clone(),
-            effective_session: Some(match &self.effective_session {
-                Some(session) => session.restricted_by(effective_permissions),
-                None => Session {
-                    permissions: effective_permissions.clone(),
-                    ..Session::default()
-                },
-            }),
+    /// Restricts an unauthenticated instance to having `effective_permissions`.
+    /// Returns `None` if a session has already been established.
+    #[must_use]
+    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Option<Self> {
+        if self.effective_session.is_some() {
+            None
+        } else {
+            Some(Self {
+                instance: self.instance.clone(),
+                authentication: self.authentication.clone(),
+                effective_session: Some(Session {
+                    id: None,
+                    identity: None,
+                    permissions: effective_permissions,
+                }),
+            })
         }
     }
 }
@@ -1430,11 +1429,17 @@ impl nebari::Vault for TreeVault {
     }
 }
 
-pub trait StorageNonBlocking {
+/// Functionality that is available on both [`Storage`] and
+/// [`AsyncStorage`](crate::AsyncStorage).
+pub trait StorageNonBlocking: Sized {
     /// Returns the path of the database storage.
     #[must_use]
     fn path(&self) -> &Path;
-    fn assume_session(&self, session: Session) -> Result<Storage, bonsaidb_core::Error>;
+
+    /// Returns a new instance of [`Storage`] with `session` as the effective
+    /// authentication session. This call will only succeed if there is no
+    /// current session.
+    fn assume_session(&self, session: Session) -> Result<Self, bonsaidb_core::Error>;
 }
 
 impl StorageNonBlocking for Storage {

@@ -72,7 +72,8 @@ impl TestHarness {
         let mut db = self.connect().await?;
         db.db = db
             .db
-            .with_effective_permissions(&Permissions::from(permissions));
+            .with_effective_permissions(Permissions::from(permissions))
+            .unwrap();
         Ok(db)
     }
 

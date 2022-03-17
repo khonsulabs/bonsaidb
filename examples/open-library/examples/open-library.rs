@@ -3,7 +3,7 @@ use std::{self, collections::BTreeMap, fmt::Debug, fs::File, io::Read, mem, path
 use bonsaidb::{
     core::{
         async_trait::async_trait,
-        connection::AsyncConnection,
+        connection::{AsyncConnection, AsyncLowLevelConnection},
         document::{CollectionDocument, Emit},
         keyvalue::Timestamp,
         schema::{

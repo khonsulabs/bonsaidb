@@ -42,7 +42,9 @@ fn views() {
     }
 
     let schematic = Schematic::from_schema::<Shape>().unwrap();
-    assert!(schematic.view::<ShapesByNumberOfSides>().is_some());
+    schematic
+        .view::<ShapesByNumberOfSides>()
+        .expect("couldn't find view");
 
     #[derive(Debug, Clone)]
     struct ShapesByNumberOfSides;

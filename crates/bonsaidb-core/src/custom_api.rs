@@ -19,6 +19,7 @@ pub trait CustomApi: Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug
     /// The error type that this Api instance can return.
     type Error: CustomApiError;
 
+    /// Returns the unique name of this api.
     fn name() -> Name;
 }
 

@@ -30,6 +30,96 @@ use crate::{
     Database, Error, Storage, Subscriber,
 };
 
+/// A file-based, multi-database, multi-user database engine. This type is
+/// designed for use with [Tokio](https://tokio.rs). For non-asynchronous code,
+/// see the [`Storage`] type instead. This type can be converted using
+/// [`std::convert::From`].
+///
+/// ## Converting from `AsyncDatabase::open` to `AsyncStorage::open`
+///
+/// [`AsyncDatabase::open`](AsyncDatabase::open) is a simple method that uses
+/// `AsyncStorage` to create a database named `default` with the schema
+/// provided. These two ways of opening the database are the same:
+///
+/// ```rust
+/// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_local::core`.
+/// use bonsaidb_core::{connection::AsyncStorageConnection, schema::Schema};
+/// // `bonsaidb_local` is re-exported to `bonsaidb::local` if using the omnibus crate.
+/// use bonsaidb_local::{
+///     config::{AsyncStorageConfiguration, Builder},
+///     AsyncDatabase, AsyncStorage,
+/// };
+/// # async fn open<MySchema: Schema>() -> anyhow::Result<()> {
+/// // This creates a Storage instance, creates a database, and returns it.
+/// let db = AsyncDatabase::open::<MySchema>(StorageConfiguration::new("my-db.bonsaidb")).await?;
+///
+/// // This is the equivalent code being executed:
+/// let storage =
+///     AsyncStorage::open(StorageConfiguration::new("my-db.bonsaidb").with_schema::<MySchema>()?)
+///         .await?;
+/// storage.create_database::<MySchema>("default", true).await?;
+/// let db = storage.database::<MySchema>("default").await?;
+/// #     Ok(())
+/// # }
+/// ```
+///
+/// ## Using multiple databases
+///
+/// This example shows how to use `AsyncStorage` to create and use multiple databases
+/// with multiple schemas:
+///
+/// ```rust
+/// use bonsaidb_core::{
+///     connection::AsyncStorageConnection,
+///     schema::{Collection, Schema},
+/// };
+/// use bonsaidb_local::{
+///     config::{Builder, StorageConfiguration},
+///     AsyncStorage,
+/// };
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Schema)]
+/// #[schema(name = "my-schema", collections = [BlogPost, Author])]
+/// # #[schema(core = bonsaidb_core)]
+/// struct MySchema;
+///
+/// #[derive(Debug, Serialize, Deserialize, Collection)]
+/// #[collection(name = "blog-posts")]
+/// # #[collection(core = bonsaidb_core)]
+/// struct BlogPost {
+///     pub title: String,
+///     pub contents: String,
+///     pub author_id: u64,
+/// }
+///
+/// #[derive(Debug, Serialize, Deserialize, Collection)]
+/// #[collection(name = "blog-posts")]
+/// # #[collection(core = bonsaidb_core)]
+/// struct Author {
+///     pub name: String,
+/// }
+///
+/// # async fn test_fn() -> Result<(), bonsaidb_core::Error> {
+/// let storage = AsyncStorage::open(
+///     StorageConfiguration::new("my-db.bonsaidb")
+///         .with_schema::<BlogPost>()?
+///         .with_schema::<MySchema>()?,
+/// )
+/// .await?;
+///
+/// storage
+///     .create_database::<BlogPost>("ectons-blog", true)
+///     .await?;
+/// let ectons_blog = storage.database::<BlogPost>("ectons-blog").await?;
+/// storage
+///     .create_database::<MySchema>("another-db", true)
+///     .await?;
+/// let another_db = storage.database::<MySchema>("another-db").await?;
+///
+/// #     Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct AsyncStorage {
@@ -38,6 +128,7 @@ pub struct AsyncStorage {
 }
 
 impl AsyncStorage {
+    /// Creates or opens a multi-database [`AsyncStorage`] with its data stored in `directory`.
     pub async fn open(configuration: StorageConfiguration) -> Result<Self, Error> {
         tokio::task::spawn_blocking(move || Storage::open(configuration))
             .await?
@@ -60,17 +151,12 @@ impl AsyncStorage {
             .await?
     }
 
-    /// Returns a clone with `effective_permissions`. Replaces any previously applied permissions.
-    ///
-    /// # Unstable
-    ///
-    /// See [this issue](https://github.com/khonsulabs/bonsaidb/issues/68).
-    #[doc(hidden)]
-    pub fn with_effective_permissions(&self, effective_permissions: &Permissions) -> Self {
-        Self::from(
-            self.storage
-                .with_effective_permissions(effective_permissions),
-        )
+    /// Restricts an unauthenticated instance to having `effective_permissions`.
+    /// Returns `None` if a session has already been established.
+    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Option<Self> {
+        self.storage
+            .with_effective_permissions(effective_permissions)
+            .map(Self::from)
     }
 }
 
@@ -108,11 +194,17 @@ impl StorageNonBlocking for AsyncStorage {
     fn path(&self) -> &std::path::Path {
         self.storage.path()
     }
-    fn assume_session(&self, session: Session) -> Result<Storage, bonsaidb_core::Error> {
-        self.storage.assume_session(session)
+    fn assume_session(&self, session: Session) -> Result<Self, bonsaidb_core::Error> {
+        self.storage.assume_session(session).map(|storage| Self {
+            storage,
+            runtime: self.runtime.clone(),
+        })
     }
 }
 
+/// A database stored in BonsaiDb. This type is designed for use with
+/// [Tokio](https://tokio.rs). For non-asynchronous code, see the [`Database`]
+/// type instead. This type can be converted using [`std::convert::From`].
 #[derive(Debug, Clone)]
 pub struct AsyncDatabase {
     pub(crate) database: Database,
@@ -127,21 +219,17 @@ impl AsyncDatabase {
             .map(Self::from)
     }
 
+    /// Returns the [`AsyncStorage`] that this database belongs to.
     pub fn storage(&self) -> AsyncStorage {
         AsyncStorage::from(self.database.storage())
     }
 
-    /// Returns a clone with `effective_permissions`. Replaces any previously applied permissions.
-    ///
-    /// # Unstable
-    ///
-    /// See [this issue](https://github.com/khonsulabs/bonsaidb/issues/68).
-    #[doc(hidden)]
-    pub fn with_effective_permissions(&self, effective_permissions: &Permissions) -> Self {
-        Self::from(
-            self.database
-                .with_effective_permissions(effective_permissions),
-        )
+    /// Restricts an unauthenticated instance to having `effective_permissions`.
+    /// Returns `None` if a session has already been established.
+    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Option<Self> {
+        self.database
+            .with_effective_permissions(effective_permissions)
+            .map(Self::from)
     }
 }
 

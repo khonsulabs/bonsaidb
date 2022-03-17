@@ -17,10 +17,7 @@ use async_trait::async_trait;
 use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
-    connection::{
-        self, AsyncConnection, AsyncStorageConnection, Identity, Session, SessionId,
-        StorageConnection,
-    },
+    connection::{self, AsyncConnection, AsyncStorageConnection, Identity, Session, SessionId},
     custom_api::{CustomApi, CustomApiResult},
     networking::{self, Payload, Request, Response, CURRENT_PROTOCOL_VERSION},
     permissions::{
@@ -147,10 +144,9 @@ impl<B: Backend> CustomServer<B> {
                     // The Session needs to be looked up from the client based on the request's session id.
                     let result = match client_request.server.storage.assume_session(session) {
                         Ok(storage) => {
-                            println!("Session: {:?}", storage.session());
                             let server = Self {
                                 data: client_request.server.data.clone(),
-                                storage: AsyncStorage::from(storage),
+                                storage,
                             };
                             ServerDispatcher {
                                 server: &server,

@@ -36,12 +36,16 @@ impl<'a, B: Backend> From<&'a ServerDatabase<B>> for Database {
 }
 
 impl<B: Backend> ServerDatabase<B> {
+    /// Restricts an unauthenticated instance to having `effective_permissions`.
+    /// Returns `None` if a session has already been established.
     #[must_use]
-    pub fn with_effective_permissions(&self, permissions: &Permissions) -> Self {
-        Self {
-            db: self.db.with_effective_permissions(permissions),
-            server: self.server.clone(),
-        }
+    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Option<Self> {
+        self.db
+            .with_effective_permissions(effective_permissions)
+            .map(|db| Self {
+                db,
+                server: self.server.clone(),
+            })
     }
 }
 

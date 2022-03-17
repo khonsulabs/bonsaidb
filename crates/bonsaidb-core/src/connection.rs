@@ -144,7 +144,7 @@ where
 
     /// Adds a new `Document<Cl>` with the contents `item`.
     ///
-    /// ## Automatic Id Assignment
+    /// ## Automatic ID Assignment
     ///
     /// This function calls [`SerializedCollection::natural_id()`] to try to
     /// retrieve a primary key value from `item`. If an id is returned, the item
@@ -183,7 +183,7 @@ where
 
     /// Adds a new `Document<Cl>` with the `contents`.
     ///
-    /// ## Automatic Id Assignment
+    /// ## Automatic ID Assignment
     ///
     /// An id will be automatically assigned, if possible, by the storage backend, which uses
     /// the [`Key`] trait to assign ids.
@@ -1037,7 +1037,7 @@ where
 
     /// Adds a new `Document<Cl>` with the contents `item`.
     ///
-    /// ## Automatic Id Assignment
+    /// ## Automatic ID Assignment
     ///
     /// This function calls [`SerializedCollection::natural_id()`] to try to
     /// retrieve a primary key value from `item`. If an id is returned, the item
@@ -1079,7 +1079,7 @@ where
 
     /// Adds a new `Document<Cl>` with the `contents`.
     ///
-    /// ## Automatic Id Assignment
+    /// ## Automatic ID Assignment
     ///
     /// An id will be automatically assigned, if possible, by the storage backend, which uses
     /// the [`Key`] trait to assign ids.
@@ -2348,11 +2348,13 @@ pub enum AccessPolicy {
 pub trait StorageConnection: Sized + Send + Sync {
     /// The type that represents a database for this implementation.
     type Database: Connection;
+    /// The [`StorageConnection`] type returned from authentication calls.
     type Authenticated: StorageConnection;
 
     /// Returns the currently authenticated session, if any.
     fn session(&self) -> Option<&Session>;
 
+    /// Returns the administration database.
     fn admin(&self) -> Self::Database;
 
     /// Creates a database named `name` with the `Schema` provided.
@@ -2433,6 +2435,9 @@ pub trait StorageConnection: Sized + Send + Sync {
         authentication: Authentication,
     ) -> Result<Self::Authenticated, crate::Error>;
 
+    /// Assumes the `identity`. If successful, the returned instance will have
+    /// the merged permissions of the current authentication session and the
+    /// permissions from `identity`.
     fn assume_identity(&self, identity: Identity) -> Result<Self::Authenticated, crate::Error>;
 
     /// Adds a user to a permission group.
@@ -2489,11 +2494,13 @@ pub trait StorageConnection: Sized + Send + Sync {
 pub trait AsyncStorageConnection: Sized + Send + Sync {
     /// The type that represents a database for this implementation.
     type Database: AsyncConnection;
+    /// The [`StorageConnection`] type returned from authentication calls.
     type Authenticated: AsyncStorageConnection;
 
     /// Returns the currently authenticated session, if any.
     fn session(&self) -> Option<&Session>;
 
+    /// Returns the currently authenticated session, if any.
     async fn admin(&self) -> Self::Database;
     /// Creates a database named `name` with the `Schema` provided.
     ///
@@ -2574,6 +2581,9 @@ pub trait AsyncStorageConnection: Sized + Send + Sync {
         authentication: Authentication,
     ) -> Result<Self::Authenticated, crate::Error>;
 
+    /// Assumes the `identity`. If successful, the returned instance will have
+    /// the merged permissions of the current authentication session and the
+    /// permissions from `identity`.
     async fn assume_identity(
         &self,
         identity: Identity,
@@ -2755,27 +2765,25 @@ macro_rules! __doctest_prelude {
     };
 }
 
+/// The authentication state for a [`StorageConnection`].
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 #[must_use]
 pub struct Session {
+    /// The session's unique ID.
     pub id: Option<SessionId>,
+    /// The authenticated identity, if any.
     pub identity: Option<Arc<Identity>>,
+    /// The effective permissions of the session.
     pub permissions: Permissions,
 }
 
+/// A unique session ID.
 #[derive(Default, Clone, Copy, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SessionId(pub u64);
 
 impl Session {
-    pub fn restricted_by(&self, permissions: &Permissions) -> Self {
-        Self {
-            id: self.id,
-            identity: self.identity.clone(),
-            permissions: Permissions::merged([&self.permissions, permissions]),
-        }
-    }
-
+    /// Checks if `action` is permitted against `resource_name`.
     pub fn allowed_to<'a, R: AsRef<[Identifier<'a>]>, P: Action>(
         &self,
         resource_name: R,
@@ -2784,6 +2792,9 @@ impl Session {
         self.permissions.allowed_to(resource_name, action)
     }
 
+    /// Checks if `action` is permitted against `resource_name`. If permission
+    /// is denied, returns a
+    /// [`PermissionDenied`](bonsaidb_core::Error::PermissionDenied) error.
     pub fn check_permission<'a, R: AsRef<[Identifier<'a>]>, P: Action>(
         &self,
         resource_name: R,
@@ -2809,10 +2820,17 @@ impl std::hash::Hash for Session {
     }
 }
 
+/// An identity from the connected BonsaiDb instance.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Identity {
-    User { id: u64, username: String },
+    /// A [`User`](crate::admin::User).
+    User {
+        /// The unique ID of the user.
+        id: u64,
+        /// The username of the user.
+        username: String,
+    },
     // for role assumption someday: Role{ id: u64, name: String } ,
 }
 

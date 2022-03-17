@@ -102,6 +102,10 @@ impl<B: Backend> ConnectedClient<B> {
         LockedClientDataGuard(fast_async_lock!(self.data.client_data))
     }
 
+    /// Looks up an active authentication session by its unique id. `None`
+    /// represents the unauthenticated session, and the result can be used to
+    /// check what permissions are allowed by default.
+    #[must_use]
     pub fn session(&self, session_id: Option<SessionId>) -> Option<Session> {
         let sessions = self.data.sessions.read();
         sessions.get(&session_id).map(|data| data.session.clone())
