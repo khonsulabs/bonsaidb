@@ -82,6 +82,7 @@ impl StorageConnection for Client {
             .block_on(async { AsyncStorageConnection::delete_user(self, user).await })
     }
 
+    #[cfg(feature = "password-hashing")]
     fn set_user_password<'user, U: bonsaidb_core::schema::Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
@@ -92,6 +93,7 @@ impl StorageConnection for Client {
         })
     }
 
+    #[cfg(feature = "password-hashing")]
     fn authenticate<'user, U: bonsaidb_core::schema::Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,

@@ -39,6 +39,7 @@ use crate::{error::Error, ApiError, Builder};
 #[cfg(not(target_arch = "wasm32"))]
 mod quic_worker;
 mod remote_database;
+#[cfg(not(target_arch = "wasm32"))]
 mod sync;
 #[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
 mod tungstenite_worker;
@@ -415,7 +416,7 @@ impl Client {
     fn new_websocket_client(
         url: Url,
         protocol_version: &'static str,
-        custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
+        custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
@@ -425,7 +426,7 @@ impl Client {
             Arc::new(url),
             protocol_version,
             request_receiver,
-            custom_api_callback.clone(),
+            Arc::new(custom_apis),
             subscribers.clone(),
         );
 
