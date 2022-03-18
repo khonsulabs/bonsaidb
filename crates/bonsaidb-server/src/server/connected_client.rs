@@ -69,7 +69,6 @@ impl<B: Backend> ConnectedClient<B> {
     }
 
     pub(crate) fn logged_in_as(&self, session: Session) {
-        println!("Authenticating as: {:?}", session);
         let mut sessions = self.data.sessions.write();
         sessions.insert(
             session.id,

@@ -303,7 +303,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
     ));
 
     // Now, let's authenticate and try calling the APIs that previously were denied permissions
-    client
+    let authenticated_client = client
         .authenticate(
             "test-user",
             Authentication::Password(SensitiveString(String::from("hunter2"))),
@@ -311,13 +311,13 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
         .await
         .unwrap();
     assert!(matches!(
-        client
+        authenticated_client
             .send_api_request_async(&Request::DoSomethingSimple { some_argument: 1 })
             .await,
         Ok(Response::DidSomething)
     ));
     assert!(matches!(
-        client
+        authenticated_client
             .send_api_request_async(&Request::DoSomethingCustom { some_argument: 1 })
             .await,
         Ok(Response::DidSomething)

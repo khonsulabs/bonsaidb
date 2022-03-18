@@ -10,8 +10,6 @@ use std::{
 };
 
 pub use bonsaidb_core::circulate::Relay;
-#[cfg(feature = "password-hashing")]
-use bonsaidb_core::connection::Authentication;
 #[cfg(any(feature = "encryption", feature = "compression"))]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
@@ -28,13 +26,15 @@ use bonsaidb_core::{
     document::CollectionDocument,
     permissions::{
         bonsai::{
-            bonsaidb_resource_name, database_resource_name, user_resource_name,
-            AuthenticationMethod, BonsaiAction, ServerAction,
+            bonsaidb_resource_name, database_resource_name, user_resource_name, BonsaiAction,
+            ServerAction,
         },
         Action, Identifier, Permissions,
     },
     schema::{Nameable, NamedCollection, Schema, SchemaName, Schematic, SerializedCollection},
 };
+#[cfg(feature = "password-hashing")]
+use bonsaidb_core::{connection::Authentication, permissions::bonsai::AuthenticationMethod};
 use itertools::Itertools;
 use nebari::{
     io::{
@@ -236,7 +236,6 @@ struct Data {
     open_roots: Mutex<HashMap<String, Context>>,
     // cfg check matches `Connection::authenticate`
     authenticated_permissions: Permissions,
-    #[cfg(feature = "password-hashing")]
     sessions: RwLock<AuthenticatedSessions>,
     pub(crate) subscribers: Arc<RwLock<SessionSubscribers>>,
     #[cfg(feature = "password-hashing")]
@@ -317,7 +316,6 @@ impl Storage {
                     parallelization,
                     subscribers: Arc::default(),
                     authenticated_permissions,
-                    #[cfg(feature = "password-hashing")]
                     sessions: RwLock::default(),
                     #[cfg(feature = "password-hashing")]
                     argon,
@@ -642,6 +640,7 @@ impl StorageInstance {
         }
     }
 
+    #[cfg(feature = "password-hashing")]
     fn authenticate_inner(
         &self,
         user: CollectionDocument<User>,
