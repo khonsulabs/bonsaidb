@@ -28,14 +28,14 @@ use crate::{
 /// contexts and will block the current thread. For async access, use
 /// [`AsyncLowLevelConnection`].
 ///
-/// This trait's methods are not designed for ergonomics. See [`Connection`] for
-/// a higher-level interface.
+/// This trait's methods are not designed for ergonomics. See
+/// [`Connection`](super::Connection) for a higher-level interface.
 pub trait LowLevelConnection {
     /// Returns the schema for the database.
     fn schematic(&self) -> &Schematic;
 
     /// Inserts a newly created document into the connected [`schema::Schema`]
-    /// for the [`Collection`] `C`. If `id` is `None` a unique id will be
+    /// for the [`Collection`](schema::Collection) `C`. If `id` is `None` a unique id will be
     /// generated. If an id is provided and a document already exists with that
     /// id, a conflict error will be returned.
     ///
@@ -44,8 +44,8 @@ pub trait LowLevelConnection {
     ///
     /// - [`SerializedCollection::push_into()`]
     /// - [`SerializedCollection::insert_into()`]
-    /// - [`self.collection::<Collection>().insert()`](Collection::insert)
-    /// - [`self.collection::<Collection>().push()`](Collection::push)
+    /// - [`self.collection::<Collection>().insert()`](super::Collection::insert)
+    /// - [`self.collection::<Collection>().push()`](super::Collection::push)
     fn insert<
         C: schema::Collection,
         PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
@@ -71,14 +71,14 @@ pub trait LowLevelConnection {
     }
 
     /// Updates an existing document in the connected [`schema::Schema`] for the
-    /// [`Collection`] `C`. Upon success, `doc.revision` will be updated with
+    /// [`Collection`](schema::Collection) `C`. Upon success, `doc.revision` will be updated with
     /// the new revision.
     ///
     /// This is the lower-level API. For better ergonomics, consider using
     /// one of:
     ///
     /// - [`CollectionDocument::update()`]
-    /// - [`self.collection::<Collection>().update()`](Collection::update)
+    /// - [`self.collection::<Collection>().update()`](super::Collection::update)
     fn update<C: schema::Collection, D: Document<C> + Send + Sync>(
         &self,
         doc: &mut D,
@@ -106,7 +106,7 @@ pub trait LowLevelConnection {
     ///
     /// - [`SerializedCollection::overwrite()`]
     /// - [`SerializedCollection::overwrite_into()`]
-    /// - [`self.collection::<Collection>().overwrite()`](Collection::overwrite)
+    /// - [`self.collection::<Collection>().overwrite()`](super::Collection::overwrite)
     fn overwrite<C, PrimaryKey>(
         &self,
         id: PrimaryKey,
@@ -130,12 +130,12 @@ pub trait LowLevelConnection {
         }
     }
 
-    /// Retrieves a stored document from [`Collection`] `C` identified by `id`.
+    /// Retrieves a stored document from [`Collection`](schema::Collection) `C` identified by `id`.
     ///
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
     /// - [`SerializedCollection::get()`]
-    /// - [`self.collection::<Collection>().get()`](Collection::get)
+    /// - [`self.collection::<Collection>().get()`](super::Collection::get)
     fn get<C, PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
         C: schema::Collection,
@@ -150,7 +150,7 @@ pub trait LowLevelConnection {
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
     /// - [`SerializedCollection::get_multiple()`]
-    /// - [`self.collection::<Collection>().get_multiple()`](Collection::get_multiple)
+    /// - [`self.collection::<Collection>().get_multiple()`](super::Collection::get_multiple)
     fn get_multiple<C, PrimaryKey, DocumentIds, I>(
         &self,
         ids: DocumentIds,
@@ -174,9 +174,9 @@ pub trait LowLevelConnection {
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
     /// - [`SerializedCollection::all()`]
-    /// - [`self.collection::<Collection>().all()`](Collection::all)
+    /// - [`self.collection::<Collection>().all()`](super::Collection::all)
     /// - [`SerializedCollection::list()`]
-    /// - [`self.collection::<Collection>().list()`](Collection::list)
+    /// - [`self.collection::<Collection>().list()`](super::Collection::list)
     fn list<C, R, PrimaryKey>(
         &self,
         ids: R,
@@ -197,9 +197,9 @@ pub trait LowLevelConnection {
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
     /// - [`SerializedCollection::all().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().all().count()`](List::count)
+    /// - [`self.collection::<Collection>().all().count()`](super::List::count)
     /// - [`SerializedCollection::list().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().list().count()`](List::count)
+    /// - [`self.collection::<Collection>().list().count()`](super::List::count)
     fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, Error>
     where
         C: schema::Collection,
@@ -218,7 +218,7 @@ pub trait LowLevelConnection {
     /// one of:
     ///
     /// - [`CollectionDocument::delete()`]
-    /// - [`self.collection::<Collection>().delete()`](Collection::delete)
+    /// - [`self.collection::<Collection>().delete()`](super::Collection::delete)
     fn delete<C: schema::Collection, H: HasHeader + Send + Sync>(
         &self,
         doc: &H,
@@ -234,10 +234,10 @@ pub trait LowLevelConnection {
         }
     }
 
-    /// Queries for view entries matching [`View`].
+    /// Queries for view entries matching [`View`](schema::View).
     ///
     /// This is a lower-level API. For better ergonomics, consider querying the
-    /// view using [`self.view::<View>().query()`](View::query) instead. The
+    /// view using [`self.view::<View>().query()`](super::View::query) instead. The
     /// parameters for the query can be customized on the builder returned from
     /// [`Connection::view()`](super::Connection::view).
     fn query<V: schema::SerializedView>(
@@ -269,7 +269,7 @@ pub trait LowLevelConnection {
             .collect::<Result<Vec<_>, Error>>()
     }
 
-    /// Queries for view entries matching [`View`] with their source documents.
+    /// Queries for view entries matching [`View`](schema::View) with their source documents.
     ///
     /// This is a lower-level API. For better ergonomics, consider querying
     /// the view using [`self.view::<View>().query_with_docs()`](super::View::query_with_docs) instead.
@@ -301,10 +301,10 @@ pub trait LowLevelConnection {
         })
     }
 
-    /// Queries for view entries matching [`View`] with their source documents, deserialized.
+    /// Queries for view entries matching [`View`](schema::View) with their source documents, deserialized.
     ///
     /// This is a lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query_with_collection_docs()`](View::query_with_collection_docs) instead.
+    /// the view using [`self.view::<View>().query_with_collection_docs()`](super::View::query_with_collection_docs) instead.
     /// The parameters for the query can be customized on the builder returned
     /// from [`Connection::view()`](super::Connection::view).
     fn query_with_collection_docs<V>(
@@ -330,10 +330,10 @@ pub trait LowLevelConnection {
         })
     }
 
-    /// Reduces the view entries matching [`View`].
+    /// Reduces the view entries matching [`View`](schema::View).
     ///
     /// This is a lower-level API. For better ergonomics, consider reducing
-    /// the view using [`self.view::<View>().reduce()`](View::reduce) instead.
+    /// the view using [`self.view::<View>().reduce()`](super::View::reduce) instead.
     /// The parameters for the query can be customized on the builder returned
     /// from [`Connection::view()`](super::Connection::view).
     fn reduce<V: schema::SerializedView>(
@@ -350,7 +350,7 @@ pub trait LowLevelConnection {
         .and_then(|value| V::deserialize(&value))
     }
 
-    /// Reduces the view entries matching [`View`], reducing the values by each
+    /// Reduces the view entries matching [`View`](schema::View), reducing the values by each
     /// unique key.
     ///
     /// This is a lower-level API. For better ergonomics, consider reducing
@@ -410,7 +410,7 @@ pub trait LowLevelConnection {
     /// one of:
     ///
     /// - [`SerializedCollection::get()`]
-    /// - [`self.collection::<Collection>().get()`](Collection::get)
+    /// - [`self.collection::<Collection>().get()`](super::Collection::get)
     fn get_from_collection(
         &self,
         id: DocumentId,
@@ -424,7 +424,7 @@ pub trait LowLevelConnection {
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
     /// - [`SerializedCollection::get_multiple()`]
-    /// - [`self.collection::<Collection>().get_multiple()`](Collection::get_multiple)
+    /// - [`self.collection::<Collection>().get_multiple()`](super::Collection::get_multiple)
     fn get_multiple_from_collection(
         &self,
         ids: &[DocumentId],
@@ -437,9 +437,9 @@ pub trait LowLevelConnection {
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
     /// - [`SerializedCollection::all()`]
-    /// - [`self.collection::<Collection>().all()`](Collection::all)
+    /// - [`self.collection::<Collection>().all()`](super::Collection::all)
     /// - [`SerializedCollection::list()`]
-    /// - [`self.collection::<Collection>().list()`](Collection::list)
+    /// - [`self.collection::<Collection>().list()`](super::Collection::list)
     fn list_from_collection(
         &self,
         ids: Range<DocumentId>,
@@ -454,9 +454,9 @@ pub trait LowLevelConnection {
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
     /// - [`SerializedCollection::all().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().all().count()`](List::count)
+    /// - [`self.collection::<Collection>().all().count()`](super::List::count)
     /// - [`SerializedCollection::list().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().list().count()`](List::count)
+    /// - [`self.collection::<Collection>().list().count()`](super::List::count)
     fn count_from_collection(
         &self,
         ids: Range<DocumentId>,
@@ -479,7 +479,7 @@ pub trait LowLevelConnection {
     /// Queries for view entries from the named `view`.
     ///
     /// This is a lower-level API. For better ergonomics, consider querying the
-    /// view using [`self.view::<View>().query()`](View::query) instead. The
+    /// view using [`self.view::<View>().query()`](super::View::query) instead. The
     /// parameters for the query can be customized on the builder returned from
     /// [`Connection::view()`](super::Connection::view).
     fn query_by_name(
@@ -558,24 +558,24 @@ pub trait LowLevelConnection {
 /// contexts. For access outside of async contexts, use [`LowLevelConnection`].
 ///
 /// This trait's methods are not designed for ergonomics. See
-/// [`AsyncConnection`] for a higher-level interface.
+/// [`AsyncConnection`](super::AsyncConnection) for a higher-level interface.
 #[async_trait]
 pub trait AsyncLowLevelConnection {
     /// Returns the schema for the database.
     fn schematic(&self) -> &Schematic;
 
     /// Inserts a newly created document into the connected [`schema::Schema`]
-    /// for the [`Collection`] `C`. If `id` is `None` a unique id will be
+    /// for the [`Collection`](schema::Collection) `C`. If `id` is `None` a unique id will be
     /// generated. If an id is provided and a document already exists with that
     /// id, a conflict error will be returned.
     ///
     /// This is the lower-level API. For better ergonomics, consider using
     /// one of:
     ///
-    /// - [`SerializedCollection::push_into()`]
-    /// - [`SerializedCollection::insert_into()`]
-    /// - [`self.collection::<Collection>().insert()`](Collection::insert)
-    /// - [`self.collection::<Collection>().push()`](Collection::push)
+    /// - [`SerializedCollection::push_into_async()`]
+    /// - [`SerializedCollection::insert_into_async()`]
+    /// - [`self.collection::<Collection>().insert()`](super::AsyncCollection::insert)
+    /// - [`self.collection::<Collection>().push()`](super::AsyncCollection::push)
     async fn insert<
         C: schema::Collection,
         PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
@@ -603,14 +603,14 @@ pub trait AsyncLowLevelConnection {
     }
 
     /// Updates an existing document in the connected [`schema::Schema`] for the
-    /// [`Collection`] `C`. Upon success, `doc.revision` will be updated with
-    /// the new revision.
+    /// [`Collection`](schema::Collection)(schema::Collection) `C`. Upon success, `doc.revision`
+    /// will be updated with the new revision.
     ///
-    /// This is the lower-level API. For better ergonomics, consider using
-    /// one of:
+    /// This is the lower-level API. For better ergonomics, consider using one
+    /// of:
     ///
-    /// - [`CollectionDocument::update()`]
-    /// - [`self.collection::<Collection>().update()`](Collection::update)
+    /// - [`CollectionDocument::update_async()`]
+    /// - [`self.collection::<Collection>().update()`](super::AsyncCollection::update)
     async fn update<C: schema::Collection, D: Document<C> + Send + Sync>(
         &self,
         doc: &mut D,
@@ -638,9 +638,9 @@ pub trait AsyncLowLevelConnection {
     /// This is the lower-level API. For better ergonomics, consider using
     /// one of:
     ///
-    /// - [`SerializedCollection::overwrite()`]
-    /// - [`SerializedCollection::overwrite_into()`]
-    /// - [`self.collection::<Collection>().overwrite()`](Collection::overwrite)
+    /// - [`SerializedCollection::overwrite_async()`]
+    /// - [`SerializedCollection::overwrite_into_async()`]
+    /// - [`self.collection::<Collection>().overwrite()`](super::AsyncCollection::overwrite)
     async fn overwrite<'a, C, PrimaryKey>(
         &self,
         id: PrimaryKey,
@@ -666,13 +666,13 @@ pub trait AsyncLowLevelConnection {
         }
     }
 
-    /// Retrieves a stored document from [`Collection`] `C` identified by `id`.
+    /// Retrieves a stored document from [`Collection`](schema::Collection) `C` identified by `id`.
     ///
     /// This is the lower-level API. For better ergonomics, consider using
     /// one of:
     ///
-    /// - [`SerializedCollection::get()`]
-    /// - [`self.collection::<Collection>().get()`](Collection::get)
+    /// - [`SerializedCollection::get_async()`]
+    /// - [`self.collection::<Collection>().get()`](super::AsyncCollection::get)
     async fn get<C, PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
         C: schema::Collection,
@@ -688,8 +688,8 @@ pub trait AsyncLowLevelConnection {
     /// This is the lower-level API. For better ergonomics, consider using
     /// one of:
     ///
-    /// - [`SerializedCollection::get_multiple()`]
-    /// - [`self.collection::<Collection>().get_multiple()`](Collection::get_multiple)
+    /// - [`SerializedCollection::get_multiple_async()`]
+    /// - [`self.collection::<Collection>().get_multiple()`](super::AsyncCollection::get_multiple)
     async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
         &self,
         ids: DocumentIds,
@@ -714,10 +714,10 @@ pub trait AsyncLowLevelConnection {
     /// This is the lower-level API. For better ergonomics, consider using one
     /// of:
     ///
-    /// - [`SerializedCollection::all()`]
-    /// - [`self.collection::<Collection>().all()`](Collection::all)
-    /// - [`SerializedCollection::list()`]
-    /// - [`self.collection::<Collection>().list()`](Collection::list)
+    /// - [`SerializedCollection::all_async()`]
+    /// - [`self.collection::<Collection>().all()`](super::AsyncCollection::all)
+    /// - [`SerializedCollection::list_async()`]
+    /// - [`self.collection::<Collection>().list()`](super::AsyncCollection::list)
     async fn list<C, R, PrimaryKey>(
         &self,
         ids: R,
@@ -739,10 +739,10 @@ pub trait AsyncLowLevelConnection {
     /// This is the lower-level API. For better ergonomics, consider using
     /// one of:
     ///
-    /// - [`SerializedCollection::all().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().all().count()`](List::count)
-    /// - [`SerializedCollection::list().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().list().count()`](List::count)
+    /// - [`SerializedCollection::all_async().count()`](schema::AsyncList::count)
+    /// - [`self.collection::<Collection>().all().count()`](super::AsyncList::count)
+    /// - [`SerializedCollection::list_async().count()`](schema::AsyncList::count)
+    /// - [`self.collection::<Collection>().list().count()`](super::AsyncList::count)
     async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, Error>
     where
         C: schema::Collection,
@@ -761,8 +761,8 @@ pub trait AsyncLowLevelConnection {
     /// This is the lower-level API. For better ergonomics, consider using
     /// one of:
     ///
-    /// - [`CollectionDocument::delete()`]
-    /// - [`self.collection::<Collection>().delete()`](Collection::delete)
+    /// - [`CollectionDocument::delete_async()`]
+    /// - [`self.collection::<Collection>().delete()`](super::AsyncCollection::delete)
     async fn delete<C: schema::Collection, H: HasHeader + Send + Sync>(
         &self,
         doc: &H,
@@ -778,12 +778,12 @@ pub trait AsyncLowLevelConnection {
             )
         }
     }
-    /// Queries for view entries matching [`View`].
+    /// Queries for view entries matching [`View`](schema::View)(super::AsyncView).
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query()`](View::query) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
+    /// the view using [`self.view::<View>().query()`](super::AsyncView::query)
+    /// instead. The parameters for the query can be customized on the builder
+    /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn query<V: schema::SerializedView>(
         &self,
         key: Option<QueryKey<V::Key>>,
@@ -815,12 +815,12 @@ pub trait AsyncLowLevelConnection {
             .collect::<Result<Vec<_>, Error>>()
     }
 
-    /// Queries for view entries matching [`View`] with their source documents.
+    /// Queries for view entries matching [`View`](schema::View) with their source documents.
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query_with_docs()`](View::query_with_docs) instead.
+    /// the view using [`self.view::<View>().query_with_docs()`](super::AsyncView::query_with_docs) instead.
     /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
+    /// from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
     async fn query_with_docs<V: schema::SerializedView>(
         &self,
@@ -849,12 +849,14 @@ pub trait AsyncLowLevelConnection {
         })
     }
 
-    /// Queries for view entries matching [`View`] with their source documents, deserialized.
+    /// Queries for view entries matching [`View`](schema::View) with their source documents,
+    /// deserialized.
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query_with_collection_docs()`](View::query_with_collection_docs) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
+    /// the view using
+    /// [`self.view::<View>().query_with_collection_docs()`](super::AsyncView::query_with_collection_docs)
+    /// instead. The parameters for the query can be customized on the builder
+    /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
     async fn query_with_collection_docs<V>(
         &self,
@@ -881,12 +883,13 @@ pub trait AsyncLowLevelConnection {
         })
     }
 
-    /// Reduces the view entries matching [`View`].
+    /// Reduces the view entries matching [`View`](schema::View).
     ///
-    /// This is the lower-level API. For better ergonomics, consider reducing
-    /// the view using [`self.view::<View>().reduce()`](View::reduce) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
+    /// This is the lower-level API. For better ergonomics, consider querying
+    /// the view using
+    /// [`self.view::<View>().reduce()`](super::AsyncView::reduce)
+    /// instead. The parameters for the query can be customized on the builder
+    /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
     async fn reduce<V: schema::SerializedView>(
         &self,
@@ -903,14 +906,14 @@ pub trait AsyncLowLevelConnection {
         .and_then(|value| V::deserialize(&value))
     }
 
-    /// Reduces the view entries matching [`View`], reducing the values by each
+    /// Reduces the view entries matching [`View`](schema::View), reducing the values by each
     /// unique key.
     ///
-    /// This is the lower-level API. For better ergonomics, consider reducing
+    /// This is the lower-level API. For better ergonomics, consider querying
     /// the view using
-    /// [`self.view::<View>().reduce_grouped()`](View::reduce_grouped) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
+    /// [`self.view::<View>().reduce_grouped()`](super::AsyncView::reduce_grouped)
+    /// instead. The parameters for the query can be customized on the builder
+    /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
     async fn reduce_grouped<V: schema::SerializedView>(
         &self,
@@ -937,9 +940,10 @@ pub trait AsyncLowLevelConnection {
     /// Deletes all of the documents associated with this view.
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().delete_docs()`](View::delete_docs()) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Self::view()`].
+    /// the view using
+    /// [`self.view::<View>().delete_docs()`](super::AsyncView::delete_docs)
+    /// instead. The parameters for the query can be customized on the builder
+    /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
     async fn delete_docs<V: schema::SerializedView>(
         &self,
@@ -955,9 +959,9 @@ pub trait AsyncLowLevelConnection {
         .await
     }
 
-    /// Applies a [`Transaction`] to the [`schema::Schema`]. If any operation in the
-    /// [`Transaction`] fails, none of the operations will be applied to the
-    /// [`schema::Schema`].
+    /// Applies a [`Transaction`] to the [`Schema`](schema::Schema). If any
+    /// operation in the [`Transaction`] fails, none of the operations will be
+    /// applied to the [`Schema`](schema::Schema).
     async fn apply_transaction(
         &self,
         transaction: Transaction,
@@ -965,11 +969,10 @@ pub trait AsyncLowLevelConnection {
 
     /// Retrieves the document with `id` stored within the named `collection`.
     ///
-    /// This is a lower-level API. For better ergonomics, consider using
-    /// one of:
+    /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
-    /// - [`SerializedCollection::get()`]
-    /// - [`self.collection::<Collection>().get()`](Collection::get)
+    /// - [`SerializedCollection::get_async()`]
+    /// - [`self.collection::<Collection>().get()`](super::AsyncCollection::get)
     async fn get_from_collection(
         &self,
         id: DocumentId,
@@ -982,8 +985,8 @@ pub trait AsyncLowLevelConnection {
     ///
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
-    /// - [`SerializedCollection::get_multiple()`]
-    /// - [`self.collection::<Collection>().get_multiple()`](Collection::get_multiple)
+    /// - [`SerializedCollection::get_multiple_async()`]
+    /// - [`self.collection::<Collection>().get_multiple()`](super::AsyncCollection::get_multiple)
     async fn get_multiple_from_collection(
         &self,
         ids: &[DocumentId],
@@ -995,10 +998,10 @@ pub trait AsyncLowLevelConnection {
     ///
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
-    /// - [`SerializedCollection::all()`]
-    /// - [`self.collection::<Collection>().all()`](Collection::all)
-    /// - [`SerializedCollection::list()`]
-    /// - [`self.collection::<Collection>().list()`](Collection::list)
+    /// - [`SerializedCollection::all_async()`]
+    /// - [`self.collection::<Collection>().all()`](super::AsyncCollection::all)
+    /// - [`SerializedCollection::list_async()`]
+    /// - [`self.collection::<Collection>().list()`](super::AsyncCollection::list)
     async fn list_from_collection(
         &self,
         ids: Range<DocumentId>,
@@ -1012,10 +1015,10 @@ pub trait AsyncLowLevelConnection {
     ///
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
-    /// - [`SerializedCollection::all().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().all().count()`](List::count)
-    /// - [`SerializedCollection::list().count()`](schema::List::count)
-    /// - [`self.collection::<Collection>().list().count()`](List::count)
+    /// - [`SerializedCollection::all_async().count()`](schema::AsyncList::count)
+    /// - [`self.collection::<Collection>().all().count()`](super::AsyncList::count)
+    /// - [`SerializedCollection::list_async().count()`](schema::AsyncList::count)
+    /// - [`self.collection::<Collection>().list().count()`](super::AsyncList::count)
     async fn count_from_collection(
         &self,
         ids: Range<DocumentId>,
@@ -1037,10 +1040,10 @@ pub trait AsyncLowLevelConnection {
 
     /// Queries for view entries from the named `view`.
     ///
-    /// This is a lower-level API. For better ergonomics, consider querying the
-    /// view using [`self.view::<View>().query()`](View::query) instead. The
-    /// parameters for the query can be customized on the builder returned from
-    /// [`Connection::view()`](super::Connection::view).
+    /// This is the lower-level API. For better ergonomics, consider querying
+    /// the view using [`self.view::<View>().query()`](super::AsyncView::query)
+    /// instead. The parameters for the query can be customized on the builder
+    /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn query_by_name(
         &self,
         view: &ViewName,
@@ -1053,11 +1056,10 @@ pub trait AsyncLowLevelConnection {
     /// Queries for view entries from the named `view` with their source
     /// documents.
     ///
-    /// This is a lower-level API. For better ergonomics, consider querying the
-    /// view using
-    /// [`self.view::<View>().query_with_docs()`](super::View::query_with_docs)
-    /// instead. The parameters for the query can be customized on the builder
-    /// returned from [`Connection::view()`]
+    /// This is the lower-level API. For better ergonomics, consider querying
+    /// the view using [`self.view::<View>().query_with_docs()`](super::AsyncView::query_with_docs) instead.
+    /// The parameters for the query can be customized on the builder returned
+    /// from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn query_by_name_with_docs(
         &self,
         view: &ViewName,
@@ -1069,10 +1071,11 @@ pub trait AsyncLowLevelConnection {
 
     /// Reduces the view entries from the named `view`.
     ///
-    /// This is a lower-level API. For better ergonomics, consider reducing the
-    /// view using [`self.view::<View>().reduce()`](super::View::reduce)
+    /// This is the lower-level API. For better ergonomics, consider querying
+    /// the view using
+    /// [`self.view::<View>().reduce()`](super::AsyncView::reduce)
     /// instead. The parameters for the query can be customized on the builder
-    /// returned from [`Connection::view()`](super::Connection::view).
+    /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn reduce_by_name(
         &self,
         view: &ViewName,
@@ -1083,11 +1086,11 @@ pub trait AsyncLowLevelConnection {
     /// Reduces the view entries from the named `view`, reducing the values by each
     /// unique key.
     ///
-    /// This is a lower-level API. For better ergonomics, consider reducing
+    /// This is the lower-level API. For better ergonomics, consider querying
     /// the view using
-    /// [`self.view::<View>().reduce_grouped()`](super::View::reduce_grouped) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Connection::view()`](super::Connection::view).
+    /// [`self.view::<View>().reduce_grouped()`](super::AsyncView::reduce_grouped)
+    /// instead. The parameters for the query can be customized on the builder
+    /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn reduce_grouped_by_name(
         &self,
         view: &ViewName,
@@ -1098,11 +1101,11 @@ pub trait AsyncLowLevelConnection {
     /// Deletes all source documents for entries that match within the named
     /// `view`.
     ///
-    /// This is a lower-level API. For better ergonomics, consider querying the
-    /// view using
-    /// [`self.view::<View>().delete_docs()`](super::View::delete_docs())
+    /// This is the lower-level API. For better ergonomics, consider querying
+    /// the view using
+    /// [`self.view::<View>().delete_docs()`](super::AsyncView::delete_docs)
     /// instead. The parameters for the query can be customized on the builder
-    /// returned from [`Connection::view()`](super::Connection::view).
+    /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn delete_docs_by_name(
         &self,
         view: &ViewName,

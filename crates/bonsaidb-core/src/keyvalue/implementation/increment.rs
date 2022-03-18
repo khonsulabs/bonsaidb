@@ -8,9 +8,8 @@ use crate::{
     Error,
 };
 
-/// Executes [`Command::Set`] when awaited. Also offers methods to customize the
-/// options for the operation.
-#[must_use]
+/// Executes a [`Command::Increment`] or [`Command::Decrement`] key-value operation.
+#[must_use = "the key-value operation is not performed until execute() is called"]
 pub struct Builder<'a, KeyValue, V> {
     kv: &'a KeyValue,
     namespace: Option<String>,
@@ -78,8 +77,7 @@ where
     }
 }
 
-/// Executes [`Command::Set`] when awaited. Also offers methods to customize the
-/// options for the operation.
+/// Executes a [`Command::Increment`] or [`Command::Decrement`] key-value operation when awaited.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct AsyncBuilder<'a, KeyValue, V> {
     state: BuilderState<'a, Options<'a, KeyValue>, Result<V, Error>>,

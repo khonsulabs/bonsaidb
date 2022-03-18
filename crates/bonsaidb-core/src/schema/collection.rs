@@ -1787,8 +1787,8 @@ where
     Executing(BoxFuture<'a, Result<Option<CollectionDocument<Col>>, Error>>),
 }
 
-/// Executes [`Connection::list()`] when awaited. Also offers methods to
-/// customize the options for the operation.
+/// Retrieves a list of documents from a collection. This
+/// structure also offers functions to customize the options for the operation.
 #[must_use]
 pub struct List<'a, Cn, Cl>(connection::List<'a, Cn, Cl>)
 where
@@ -1846,8 +1846,8 @@ where
     }
 }
 
-/// Executes [`Connection::list()`] when awaited. Also offers methods to
-/// customize the options for the operation.
+/// Retrieves a list of documents from a collection, when awaited. This
+/// structure also offers functions to customize the options for the operation.
 #[must_use]
 pub struct AsyncList<'a, Cn, Cl>(connection::AsyncList<'a, Cn, Cl>)
 where

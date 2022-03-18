@@ -163,38 +163,38 @@ pub enum DatabaseAction {
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum DocumentAction {
     /// Allows document retrieval through
-    /// [`Connection::get()`](crate::connection::Connection::get) and
-    /// [`Connection::get_multiple()`](crate::connection::Connection::get_multiple).
+    /// [`Connection::get()`](crate::connection::LowLevelConnection::get) and
+    /// [`Connection::get_multiple()`](crate::connection::LowLevelConnection::get_multiple).
     /// See [`document_resource_name()`] for the format of document resource
     /// names.
     Get,
     /// Allows listing documents through
-    /// [`Connection::list()`](crate::connection::Connection::list). See
+    /// [`Connection::list()`](crate::connection::LowLevelConnection::list). See
     /// [`collection_resource_name()`] for the format of collection resource
     /// names.
     List,
     /// Allows counting documents through
-    /// [`Connection::count()`](crate::connection::Connection::count). See
+    /// [`Connection::count()`](crate::connection::LowLevelConnection::count). See
     /// [`collection_resource_name()`] for the format of collection resource
     /// names.
     Count,
     /// Allows inserting a document through
-    /// [`Connection::apply_transaction()`](crate::connection::Connection::apply_transaction).
+    /// [`Connection::apply_transaction()`](crate::connection::LowLevelConnection::apply_transaction).
     /// See [`collection_resource_name()`] for the format of collection resource
     /// names.
     Insert,
     /// Allows updating a document through
-    /// [`Connection::apply_transaction()`](crate::connection::Connection::apply_transaction).
+    /// [`Connection::apply_transaction()`](crate::connection::LowLevelConnection::apply_transaction).
     /// See [`document_resource_name()`] for the format of document resource
     /// names.
     Update,
     /// Allows overwriting a document by id with
-    /// [`Connection::apply_transaction()`](crate::connection::Connection::apply_transaction).
+    /// [`Connection::apply_transaction()`](crate::connection::LowLevelConnection::apply_transaction).
     /// No revision information will be checked. See
     /// [`document_resource_name()`] for the format of document resource names.
     Overwrite,
     /// Allows deleting a document through
-    /// [`Connection::apply_transaction()`](crate::connection::Connection::apply_transaction).
+    /// [`Connection::apply_transaction()`](crate::connection::LowLevelConnection::apply_transaction).
     /// See [`document_resource_name()`] for the format of document resource
     /// names.
     Delete,
@@ -204,15 +204,15 @@ pub enum DocumentAction {
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum ViewAction {
     /// Allows querying a view with
-    /// [`Connection::query()`](crate::connection::Connection::query). See
+    /// [`Connection::query()`](crate::connection::LowLevelConnection::query). See
     /// [`view_resource_name`] for the format of view resource names.
     Query,
     /// Allows reducing a view with
-    /// [`Connection::reduce()`](crate::connection::Connection::reduce). See
+    /// [`Connection::reduce()`](crate::connection::LowLevelConnection::reduce). See
     /// [`view_resource_name`] for the format of view resource names.
     Reduce,
     /// Allows deleting associated docs with
-    /// [`Connection::delete_docs()`](crate::connection::Connection::delete_docs).
+    /// [`Connection::delete_docs()`](crate::connection::LowLevelConnection::delete_docs).
     /// See [`view_resource_name`] for the format of view resource names.
     DeleteDocs,
 }

@@ -26,7 +26,7 @@ mod lowlevel;
 
 pub use lowlevel::{AsyncLowLevelConnection, LowLevelConnection};
 
-/// A connection to a database's [`schema::Schema`], giving access to
+/// A connection to a database's [`Schema`](schema::Schema), giving access to
 /// [`Collection`s](crate::schema::Collection) and
 /// [`Views`s](crate::schema::View). This trait is not safe to use within async
 /// contexts and will block the current thread. For async access, use
@@ -41,7 +41,7 @@ pub trait Connection: LowLevelConnection + Sized + Send + Sync {
     /// Returns the currently authenticated session, if any.
     fn session(&self) -> Option<&Session>;
 
-    /// Accesses a collection for the connected [`schema::Schema`].
+    /// Accesses a collection for the connected [`Schema`](schema::Schema).
     fn collection<C: schema::Collection>(&self) -> Collection<'_, Self, C> {
         Collection::new(self)
     }
@@ -51,11 +51,12 @@ pub trait Connection: LowLevelConnection + Sized + Send + Sync {
         View::new(self)
     }
 
-    /// Lists executed [`Transaction`]s from this [`schema::Schema`]. By default, a maximum of
-    /// 1000 entries will be returned, but that limit can be overridden by
-    /// setting `result_limit`. A hard limit of 100,000 results will be
-    /// returned. To begin listing after another known `transaction_id`, pass
-    /// `transaction_id + 1` into `starting_id`.
+    /// Lists [executed transactions](transaction::Executed) from this
+    /// [`Schema`](schema::Schema). By default, a maximum of 1000 entries will
+    /// be returned, but that limit can be overridden by setting `result_limit`.
+    /// A hard limit of 100,000 results will be returned. To begin listing after
+    /// another known `transaction_id`, pass `transaction_id + 1` into
+    /// `starting_id`.
     fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
@@ -459,7 +460,8 @@ where
     }
 }
 
-/// Builder for a collection list query.
+/// Retrieves a list of documents from a collection. This structure also offers
+/// functions to customize the options for the operation.
 #[must_use]
 pub struct List<'a, Cn, Cl>
 where
@@ -928,7 +930,7 @@ where
     }
 }
 
-/// A connection to a database's [`schema::Schema`], giving access to
+/// A connection to a database's [`Schema`](schema::Schema), giving access to
 /// [`Collection`s](crate::schema::Collection) and
 /// [`Views`s](crate::schema::View). All functions on this trait are safe to use
 /// in an asynchronous context.
@@ -941,7 +943,7 @@ pub trait AsyncConnection: AsyncLowLevelConnection + Sized + Send + Sync {
     /// to.
     fn storage(&self) -> Self::Storage;
 
-    /// Accesses a collection for the connected [`schema::Schema`].
+    /// Accesses a collection for the connected [`Schema`](schema::Schema).
     fn collection<C: schema::Collection>(&self) -> AsyncCollection<'_, Self, C> {
         AsyncCollection::new(self)
     }
@@ -951,7 +953,7 @@ pub trait AsyncConnection: AsyncLowLevelConnection + Sized + Send + Sync {
         AsyncView::new(self)
     }
 
-    /// Lists executed [`Transaction`]s from this [`schema::Schema`]. By default, a maximum of
+    /// Lists [executed transactions](transaction::Executed) from this [`Schema`](schema::Schema). By default, a maximum of
     /// 1000 entries will be returned, but that limit can be overridden by
     /// setting `result_limit`. A hard limit of 100,000 results will be
     /// returned. To begin listing after another known `transaction_id`, pass
@@ -1429,8 +1431,8 @@ where
     Executing(BoxFuture<'a, Result<Vec<OwnedDocument>, Error>>),
 }
 
-/// Executes [`Connection::list()`] when awaited. Also offers methods to
-/// customize the options for the operation.
+/// Retrieves a list of documents from a collection, when awaited. This
+/// structure also offers functions to customize the options for the operation.
 #[must_use]
 pub struct AsyncList<'a, Cn, Cl>
 where
@@ -2806,8 +2808,8 @@ impl Session {
     }
 
     /// Checks if `action` is permitted against `resource_name`. If permission
-    /// is denied, returns a
-    /// [`PermissionDenied`](bonsaidb_core::Error::PermissionDenied) error.
+    /// is denied, returns a [`PermissionDenied`](Error::PermissionDenied)
+    /// error.
     pub fn check_permission<'a, R: AsRef<[Identifier<'a>]>, P: Action>(
         &self,
         resource_name: R,

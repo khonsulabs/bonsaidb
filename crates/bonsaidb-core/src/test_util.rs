@@ -462,7 +462,7 @@ macro_rules! assert_f64_eq {
     }};
 }
 
-/// Creates a test suite that tests methods available on [`Connection`]
+/// Creates a test suite that tests methods available on [`AsyncConnection`]
 #[macro_export]
 macro_rules! define_connection_test_suite {
     ($harness:ident) => {

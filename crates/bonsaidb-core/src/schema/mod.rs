@@ -9,8 +9,8 @@ pub use bonsaidb_macros::{Collection, Schema, View};
 
 pub use self::{
     collection::{
-        AsyncEntry, Collection, DefaultSerialization, InsertError, List, Nameable, NamedCollection,
-        NamedReference, SerializedCollection,
+        AsyncEntry, AsyncList, Collection, DefaultSerialization, InsertError, List, Nameable,
+        NamedCollection, NamedReference, SerializedCollection,
     },
     names::{Authority, CollectionName, InvalidNameError, Name, SchemaName, ViewName},
     schematic::Schematic,

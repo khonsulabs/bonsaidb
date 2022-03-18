@@ -7,9 +7,8 @@ use crate::{
     Error,
 };
 
-/// Executes [`Command::Get`] when awaited. Also offers methods to customize the
-/// options for the operation.
-#[must_use]
+/// Builder for a [`Command::Get`] key-value operation.
+#[must_use = "the key-value operation is not performed until query() is called"]
 pub struct Builder<'a, KeyValue> {
     kv: &'a KeyValue,
     namespace: Option<String>,
@@ -157,8 +156,8 @@ where
     }
 }
 
-/// Executes [`Command::Get`] when awaited. Also offers methods to customize the
-/// options for the operation.
+/// Builder for a [`Command::Get`] key-value operation. Queries the value when
+/// awaited.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct AsyncBuilder<'a, KeyValue> {
     state: BuilderState<'a, Options<'a, KeyValue>, Result<Option<Value>, Error>>,
