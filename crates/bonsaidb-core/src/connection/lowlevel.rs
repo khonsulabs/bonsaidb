@@ -3,8 +3,9 @@ use std::collections::BTreeMap;
 use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
 
+use super::GroupedReductions;
 use crate::{
-    connection::{AccessPolicy, QueryKey, Range, Sort},
+    connection::{AccessPolicy, QueryKey, Range, Sort, ViewMappings},
     document::{
         AnyDocumentId, CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader,
         OwnedDocument,
@@ -246,7 +247,7 @@ pub trait LowLevelConnection {
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
+    ) -> Result<ViewMappings<V>, Error> {
         let view = self.schematic().view::<V>()?;
         let mappings = self.query_by_name(
             &view.view_name(),
@@ -362,7 +363,7 @@ pub trait LowLevelConnection {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error> {
+    ) -> Result<GroupedReductions<V>, Error> {
         let view = self.schematic().view::<V>()?;
         self.reduce_grouped_by_name(
             &view.view_name(),
@@ -790,7 +791,7 @@ pub trait AsyncLowLevelConnection {
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
+    ) -> Result<ViewMappings<V>, Error> {
         let view = self.schematic().view::<V>()?;
         let mappings = self
             .query_by_name(
@@ -919,7 +920,7 @@ pub trait AsyncLowLevelConnection {
         &self,
         key: Option<QueryKey<V::Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error> {
+    ) -> Result<GroupedReductions<V>, Error> {
         let view = self.schematic().view::<V>()?;
         self.reduce_grouped_by_name(
             &view.view_name(),

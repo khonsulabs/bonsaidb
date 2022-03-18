@@ -814,7 +814,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn query(self) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
+    pub fn query(self) -> Result<ViewMappings<V>, Error> {
         self.connection
             .query::<V>(self.key, self.sort, self.limit, self.access_policy)
     }
@@ -909,7 +909,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn reduce_grouped(self) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error> {
+    pub fn reduce_grouped(self) -> Result<GroupedReductions<V>, Error> {
         self.connection
             .reduce_grouped::<V>(self.key, self.access_policy)
     }
@@ -929,6 +929,18 @@ where
             .delete_docs::<V>(self.key, self.access_policy)
     }
 }
+
+/// This type is the result of `query()`. It is a list of mappings, which
+/// contains:
+///
+/// - The key emitted during the map function.
+/// - The value emitted during the map function.
+/// - The source document header that the mappings originated from.
+pub type ViewMappings<V> = Vec<Map<<V as schema::View>::Key, <V as schema::View>::Value>>;
+/// This type is the result of `reduce_grouped()`. It is a list of all matching
+/// keys and the reduced value of all mapped entries for that key.
+pub type GroupedReductions<V> =
+    Vec<MappedValue<<V as schema::View>::Key, <V as schema::View>::Value>>;
 
 /// A connection to a database's [`Schema`](schema::Schema), giving access to
 /// [`Collection`s](crate::schema::Collection) and

@@ -308,8 +308,7 @@ impl<K: for<'a> Key<'a>, V> MappedValue<K, V> {
 }
 
 /// A mapped value in a [`View`].
-#[allow(type_alias_bounds)] // False positive, required for associated types
-pub type ViewMappedValue<V: View> = MappedValue<V::Key, V::Value>;
+pub type ViewMappedValue<V> = MappedValue<<V as View>::Key, <V as View>::Value>;
 
 /// A serialized [`MappedValue`].
 #[derive(Clone, Serialize, Deserialize, Debug)]
