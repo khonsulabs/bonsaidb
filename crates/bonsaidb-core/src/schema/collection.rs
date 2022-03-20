@@ -1289,11 +1289,11 @@ where
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// println!(
-    ///     "Number of documents with id 42 or larger: {}",
+    ///     "Number of documents with id 42 or larger: {:?}",
     ///     MyCollection::list(42.., db).headers().await?
     /// );
     /// println!(
-    ///     "Number of documents in MyCollection: {}",
+    ///     "Number of documents in MyCollection: {:?}",
     ///     MyCollection::all(db).headers().await?
     /// );
     /// # Ok(())

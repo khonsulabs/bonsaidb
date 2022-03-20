@@ -772,25 +772,6 @@ where
         )
     }
 
-    // pub fn list<PrimaryKey, R>(&'a self, ids: R) -> List<'a, Cn, Cl>
-    // where
-    //     R: Into<Range<PrimaryKey>>,
-    //     PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>>,
-    pub async fn list_headers<PrimaryKey, R>(
-        &'a self,
-        ids: R,
-        order: Sort,
-        limit: Option<usize>,
-    ) -> Result<Vec<Header>, Error>
-    where
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send,
-    {
-        self.connection
-            .list_headers::<Cl, R, PrimaryKey>(ids, order, limit)
-            .await
-    }
-
     /// Retrieves all documents.
     ///
     /// ```rust
@@ -955,11 +936,11 @@ where
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// println!(
-    ///     "Number of documents with id 42 or larger: {}",
+    ///     "Number of documents with id 42 or larger: {:?}",
     ///     db.collection::<MyCollection>().list(42..).headers().await?
     /// );
     /// println!(
-    ///     "Number of documents in MyCollection: {}",
+    ///     "Number of documents in MyCollection: {:?}",
     ///     db.collection::<MyCollection>().all().headers().await?
     /// );
     /// # Ok(())
