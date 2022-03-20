@@ -204,7 +204,7 @@ pub trait Connection: Send + Sync {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<Header>, Error>
     where
         C: schema::Collection,

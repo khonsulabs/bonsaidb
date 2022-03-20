@@ -160,7 +160,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<Header>, bonsaidb_core::Error>
     where
         C: Collection,

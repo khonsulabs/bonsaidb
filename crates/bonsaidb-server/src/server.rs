@@ -1556,7 +1556,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHeadersHandler for DatabaseD
         collection: &'a CollectionName,
         _ids: &'a Range<DocumentId>,
         _order: &'a Sort,
-        _limit: &'a Option<usize>,
+        _limit: &'a Option<u32>,
     ) -> Result<ResourceName<'a>, Error> {
         Ok(collection_resource_name(&self.name, collection))
     }
@@ -1571,7 +1571,7 @@ impl<'s, B: Backend> bonsaidb_core::networking::ListHeadersHandler for DatabaseD
         collection: CollectionName,
         ids: Range<DocumentId>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
         let documents = self
             .database

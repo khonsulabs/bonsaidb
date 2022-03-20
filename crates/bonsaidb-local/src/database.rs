@@ -332,7 +332,7 @@ impl Database {
         &self,
         ids: Range<DocumentId>,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<Header>, bonsaidb_core::Error> {
         self.list_headers(ids, order, limit, collection).await
@@ -610,7 +610,7 @@ impl Database {
         &self,
         ids: Range<DocumentId>,
         sort: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<Header>, bonsaidb_core::Error> {
         let task_self = self.clone();
@@ -634,16 +634,16 @@ impl Database {
                     Sort::Ascending => true,
                     Sort::Descending => false,
                 },
-                |_, _, _| true,
+                |_, _, _| ScanEvaluation::ReadData,
                 |_, _| {
                     if let Some(limit) = limit {
                         if keys_read >= limit {
-                            return KeyEvaluation::Stop;
+                            return ScanEvaluation::Stop;
                         }
 
                         keys_read += 1;
                     }
-                    KeyEvaluation::ReadData
+                    ScanEvaluation::ReadData
                 },
                 |_, _, doc| {
                     found_headers.push(
@@ -1462,7 +1462,7 @@ impl Connection for Database {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<Header>, bonsaidb_core::Error>
     where
         C: schema::Collection,

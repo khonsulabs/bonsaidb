@@ -139,7 +139,7 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<Header>, bonsaidb_core::Error>
     where
         C: schema::Collection,

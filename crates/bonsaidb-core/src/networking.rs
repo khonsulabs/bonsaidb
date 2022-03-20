@@ -178,7 +178,7 @@ pub enum DatabaseRequest {
         /// The order for the query into the collection.
         order: Sort,
         /// The maximum number of results to return.
-        limit: Option<usize>,
+        limit: Option<u32>,
     },
     /// Counts the number of documents in the specified range.
     #[cfg_attr(feature = "actionable-traits", actionable(protection = "simple"))]
