@@ -13,7 +13,7 @@ use url::Url;
 
 use super::PendingRequest;
 use crate::{
-    client::{AnyCustomApiCallback, OutstandingRequestMapHandle, SubscriberMap},
+    client::{AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap},
     Error,
 };
 
@@ -21,7 +21,7 @@ pub async fn reconnecting_client_loop(
     url: Url,
     protocol_version: &str,
     request_receiver: Receiver<PendingRequest>,
-    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Ok(request) = {
@@ -101,7 +101,7 @@ async fn request_sender(
 async fn response_processor(
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     outstanding_requests: OutstandingRequestMapHandle,
-    custom_apis: &HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
+    custom_apis: &HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
 ) -> Result<(), Error> {
     while let Some(message) = receiver.next().await {
         let message = message?;

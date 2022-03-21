@@ -9,12 +9,12 @@ use bonsaidb::{
     },
     local::config::Builder,
     server::{
-        api::CustomApiHandler, Backend, ConnectedClient, CustomServer, DefaultPermissions,
+        api::Handler, Backend, ConnectedClient, CustomServer, DefaultPermissions,
         ServerConfiguration,
     },
 };
 use bonsaidb_core::schema::{ApiName, Qualified};
-use bonsaidb_server::api::DispatcherResult;
+use bonsaidb_server::api::HandlerResult;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
@@ -76,12 +76,12 @@ impl Api for SetValue {
 struct SetValueHandler;
 
 #[async_trait]
-impl CustomApiHandler<CustomBackend, SetValue> for SetValueHandler {
+impl Handler<CustomBackend, SetValue> for SetValueHandler {
     async fn handle(
         _server: &CustomServer<CustomBackend>,
         client: &ConnectedClient<CustomBackend>,
         request: SetValue,
-    ) -> DispatcherResult<SetValue> {
+    ) -> HandlerResult<SetValue> {
         let mut data = client.client_data().await;
         let existing_value = data.replace(request.new_value);
         Ok(existing_value)

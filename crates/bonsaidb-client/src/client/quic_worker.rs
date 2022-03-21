@@ -9,7 +9,7 @@ use url::Url;
 
 use super::PendingRequest;
 use crate::{
-    client::{AnyCustomApiCallback, OutstandingRequestMapHandle, SubscriberMap},
+    client::{AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap},
     Error,
 };
 
@@ -21,7 +21,7 @@ pub async fn reconnecting_client_loop(
     protocol_version: &'static str,
     certificate: Option<Certificate>,
     request_receiver: Receiver<PendingRequest>,
-    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     if url.port().is_none() && url.scheme() == "bonsaidb" {
@@ -56,7 +56,7 @@ async fn connect_and_process(
     certificate: Option<&Certificate>,
     initial_request: PendingRequest,
     request_receiver: &Receiver<PendingRequest>,
-    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
 ) -> Result<(), (Option<PendingRequest>, Error)> {
     let (_connection, payload_sender, payload_receiver) =
         match connect(url, certificate, protocol_version).await {
@@ -126,7 +126,7 @@ async fn process_requests(
 pub async fn process(
     outstanding_requests: OutstandingRequestMapHandle,
     mut payload_receiver: fabruic::Receiver<Payload>,
-    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
         let payload = payload?;

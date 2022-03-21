@@ -14,7 +14,7 @@ use bonsaidb_local::config::{Builder, KeyValuePersistence, StorageConfiguration}
 use bonsaidb_local::vault::AnyVaultKeyStorage;
 
 use crate::{
-    api::{AnyCustomApiHandler, AnyWrapper, CustomApiHandler},
+    api::{AnyHandler, AnyWrapper, Handler},
     Backend, Error, NoBackend,
 };
 
@@ -40,7 +40,7 @@ pub struct ServerConfiguration<B: Backend = NoBackend> {
     #[cfg(feature = "acme")]
     pub acme: AcmeConfiguration,
 
-    pub(crate) custom_apis: HashMap<ApiName, Arc<dyn AnyCustomApiHandler<B>>>,
+    pub(crate) custom_apis: HashMap<ApiName, Arc<dyn AnyHandler<B>>>,
 }
 
 impl<B: Backend> ServerConfiguration<B> {
@@ -88,7 +88,7 @@ impl<B: Backend> ServerConfiguration<B> {
     /// Registers a `dispatcher` for a [`Api`]. When a [`Request::Api`] is
     /// received for this [`Api`], the dispatcher will be invoked with the
     /// incoming request.
-    pub fn register_custom_api<Dispatcher: CustomApiHandler<B, Api> + 'static, Api: api::Api>(
+    pub fn register_custom_api<Dispatcher: Handler<B, Api> + 'static, Api: api::Api>(
         &mut self,
     ) -> Result<(), Error> {
         // TODO this should error on duplicate registration.
@@ -100,7 +100,7 @@ impl<B: Backend> ServerConfiguration<B> {
     }
 
     /// Registers the custom api dispatcher and returns self.
-    pub fn with_api<Dispatcher: CustomApiHandler<B, Api> + 'static, Api: api::Api>(
+    pub fn with_api<Dispatcher: Handler<B, Api> + 'static, Api: api::Api>(
         mut self,
     ) -> Result<Self, Error> {
         self.register_custom_api::<Dispatcher, Api>()?;

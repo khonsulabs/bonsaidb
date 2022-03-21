@@ -27,6 +27,6 @@ pub use fabruic;
 
 pub use self::{
     builder::Builder,
-    client::{Client, CustomApiCallback, RemoteDatabase, RemoteSubscriber},
+    client::{ApiCallback, Client, RemoteDatabase, RemoteSubscriber},
     error::{ApiError, Error},
 };

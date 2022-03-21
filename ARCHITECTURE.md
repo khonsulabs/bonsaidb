@@ -18,8 +18,8 @@ surface. This crate contains these modules:
 - `connection`: Defines the [`StorageConnection`][storage-connection] and
   [`Connection`][connection] traits, as well as the types that support those
   APIs.
-- `custom_api`: Defines the types needed to [define a CustomApi
-  server][custom-api]. This is currently only functional with Client/Server, but
+- `api`: Defines the types needed to [define a Api
+  server][api]. This is currently only functional with Client/Server, but
   this should be generalized so that custom_api can work in `bonsaidb-local`
   without networking.
 - `document`: Defines the types used when interacting with
@@ -141,7 +141,7 @@ WebSockets in WASM.
 [storage-connection]:
     https://dev.bonsaidb.io/main/guide/traits/storage_connection.html
 [connection]: https://dev.bonsaidb.io/main/guide/traits/connection.html
-[custom-api]:
+[api]:
     https://dev.bonsaidb.io/main/guide/about/access-models/custom-api-server.html
 [document]: https://dev.bonsaidb.io/main/guide/about/concepts/document.html
 [custom-primary-keys]:

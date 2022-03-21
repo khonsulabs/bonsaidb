@@ -113,9 +113,9 @@ pub enum Error {
     #[error("collection was not found")]
     CollectionNotFound,
 
-    /// The custom api invoked was not found.
-    #[error("custom api '{0}' was not found")]
-    CustomApiNotFound(ApiName),
+    /// The api invoked was not found.
+    #[error("api '{0}' was not found")]
+    ApiNotFound(ApiName),
 
     /// The database name already exists.
     #[error("a database with name '{0}' already exists")]

@@ -12,7 +12,7 @@ use tokio::runtime::Handle;
 use url::Url;
 
 use crate::{
-    client::{AnyCustomApiCallback, CustomApiCallback},
+    client::{AnyApiCallback, ApiCallback},
     Client, Error,
 };
 
@@ -21,7 +21,7 @@ use crate::{
 pub struct Builder {
     url: Url,
     protocol_version: &'static str,
-    custom_apis: HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
+    custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
     #[cfg(not(target_arch = "wasm32"))]
     certificate: Option<fabruic::Certificate>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -62,7 +62,7 @@ impl Builder {
 
     /// Enables using a [`Api`] with this client. `callback` will be
     /// invoked when custom API responses are received from the server.
-    pub fn with_api_callback<Api: api::Api>(mut self, callback: CustomApiCallback<Api>) -> Self {
+    pub fn with_api_callback<Api: api::Api>(mut self, callback: ApiCallback<Api>) -> Self {
         self.custom_apis
             .insert(Api::name(), Some(Arc::new(callback)));
         self

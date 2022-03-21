@@ -23,7 +23,7 @@ use bonsaidb::{
     },
     local::config::Builder,
     server::{
-        api::{CustomApiHandler, DispatcherResult},
+        api::{Handler, HandlerResult},
         Backend, ConnectedClient, CustomServer, ServerConfiguration,
     },
 };
@@ -81,12 +81,12 @@ pub struct ExampleHandler;
 /// causes `PingHandler` to be generated with a single method and no implicit
 /// permission handling.
 #[async_trait]
-impl CustomApiHandler<ExampleBackend, Ping> for ExampleHandler {
+impl Handler<ExampleBackend, Ping> for ExampleHandler {
     async fn handle(
         _server: &CustomServer<ExampleBackend>,
         _client: &ConnectedClient<ExampleBackend>,
         _request: Ping,
-    ) -> DispatcherResult<Ping> {
+    ) -> HandlerResult<Ping> {
         Ok(Pong)
     }
 }
@@ -113,12 +113,12 @@ pub async fn increment_counter<S: AsyncStorageConnection<Database = C>, C: Async
 }
 
 #[async_trait]
-impl CustomApiHandler<ExampleBackend, IncrementCounter> for ExampleHandler {
+impl Handler<ExampleBackend, IncrementCounter> for ExampleHandler {
     async fn handle(
         server: &CustomServer<ExampleBackend>,
         _client: &ConnectedClient<ExampleBackend>,
         request: IncrementCounter,
-    ) -> DispatcherResult<IncrementCounter> {
+    ) -> HandlerResult<IncrementCounter> {
         Ok(Counter(increment_counter(server, request.amount).await?))
     }
 }

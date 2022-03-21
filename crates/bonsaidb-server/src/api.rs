@@ -12,7 +12,7 @@ use crate::{Backend, ConnectedClient, CustomServer, Error};
 
 /// A trait that can dispatch requests for a [`Api`].
 #[async_trait]
-pub trait CustomApiHandler<B: Backend, Api: api::Api>: Send + Sync {
+pub trait Handler<B: Backend, Api: api::Api>: Send + Sync {
     /// Returns a dispatcher to handle custom api requests. The parameters are
     /// provided so that they can be cloned if needed during the processing of
     /// requests.
@@ -20,11 +20,11 @@ pub trait CustomApiHandler<B: Backend, Api: api::Api>: Send + Sync {
         server: &CustomServer<B>,
         client: &ConnectedClient<B>,
         request: Api,
-    ) -> DispatcherResult<Api>;
+    ) -> HandlerResult<Api>;
 }
 
 #[async_trait]
-pub(crate) trait AnyCustomApiHandler<B: Backend>: Send + Sync + Debug {
+pub(crate) trait AnyHandler<B: Backend>: Send + Sync + Debug {
     async fn handle(
         &self,
         server: &CustomServer<B>,
@@ -33,13 +33,13 @@ pub(crate) trait AnyCustomApiHandler<B: Backend>: Send + Sync + Debug {
     ) -> Result<Bytes, Error>;
 }
 
-pub(crate) struct AnyWrapper<D: CustomApiHandler<B, A>, B: Backend, A: Api>(
+pub(crate) struct AnyWrapper<D: Handler<B, A>, B: Backend, A: Api>(
     pub(crate) PhantomData<(D, B, A)>,
 );
 
 impl<D, B, A> Debug for AnyWrapper<D, B, A>
 where
-    D: CustomApiHandler<B, A>,
+    D: Handler<B, A>,
     B: Backend,
     A: Api,
 {
@@ -49,10 +49,10 @@ where
 }
 
 #[async_trait]
-impl<T, B, A> AnyCustomApiHandler<B> for AnyWrapper<T, B, A>
+impl<T, B, A> AnyHandler<B> for AnyWrapper<T, B, A>
 where
     B: Backend,
-    T: CustomApiHandler<B, A>,
+    T: Handler<B, A>,
     A: Api,
 {
     async fn handle(
@@ -64,8 +64,8 @@ where
         let request = pot::from_slice(request)?;
         let response = match T::handle(server, client, request).await {
             Ok(response) => Ok(response),
-            Err(DispatchError::Api(err)) => Err(err),
-            Err(DispatchError::Storage(err)) => return Err(err),
+            Err(HandlerError::Api(err)) => Err(err),
+            Err(HandlerError::Server(err)) => return Err(err),
         };
         Ok(Bytes::from(pot::to_vec(&response)?))
     }
@@ -73,62 +73,62 @@ where
 
 /// An error that can occur inside of a [`Backend`] function.
 #[derive(thiserror::Error, Debug)]
-pub enum DispatchError<E: ApiError = Infallible> {
+pub enum HandlerError<E: ApiError = Infallible> {
     /// An api-related error.
     #[error("api error: {0}")]
     Api(E),
     /// A server-related error.
     #[error("server error: {0}")]
-    Storage(#[from] Error),
+    Server(#[from] Error),
 }
 
-impl<E: ApiError> From<PermissionDenied> for DispatchError<E> {
+impl<E: ApiError> From<PermissionDenied> for HandlerError<E> {
     fn from(permission_denied: PermissionDenied) -> Self {
-        Self::Storage(Error::from(permission_denied))
+        Self::Server(Error::from(permission_denied))
     }
 }
 
-impl<E: ApiError> From<bonsaidb_core::Error> for DispatchError<E> {
+impl<E: ApiError> From<bonsaidb_core::Error> for HandlerError<E> {
     fn from(err: bonsaidb_core::Error) -> Self {
-        Self::Storage(Error::from(err))
+        Self::Server(Error::from(err))
     }
 }
 
-impl<E: ApiError> From<bonsaidb_local::Error> for DispatchError<E> {
+impl<E: ApiError> From<bonsaidb_local::Error> for HandlerError<E> {
     fn from(err: bonsaidb_local::Error) -> Self {
-        Self::Storage(Error::from(err))
+        Self::Server(Error::from(err))
     }
 }
 
-impl<E: ApiError> From<InvalidNameError> for DispatchError<E> {
+impl<E: ApiError> From<InvalidNameError> for HandlerError<E> {
     fn from(err: InvalidNameError) -> Self {
-        Self::Storage(Error::from(err))
+        Self::Server(Error::from(err))
     }
 }
 
 #[cfg(feature = "websockets")]
-impl<E: ApiError> From<bincode::Error> for DispatchError<E> {
+impl<E: ApiError> From<bincode::Error> for HandlerError<E> {
     fn from(other: bincode::Error) -> Self {
-        Self::Storage(Error::from(bonsaidb_local::Error::from(other)))
+        Self::Server(Error::from(bonsaidb_local::Error::from(other)))
     }
 }
 
-impl<E: ApiError> From<pot::Error> for DispatchError<E> {
+impl<E: ApiError> From<pot::Error> for HandlerError<E> {
     fn from(other: pot::Error) -> Self {
-        Self::Storage(Error::from(other))
+        Self::Server(Error::from(other))
     }
 }
 
-impl<T, E> From<InsertError<T>> for DispatchError<E>
+impl<T, E> From<InsertError<T>> for HandlerError<E>
 where
     E: ApiError,
 {
     fn from(error: InsertError<T>) -> Self {
-        Self::Storage(Error::from(error.error))
+        Self::Server(Error::from(error.error))
     }
 }
 
-/// The return type from a [`CustomApiDispatcher`]'s
-/// [`dispatch()`](Dispatcher::dispatch) function.
-pub type DispatcherResult<Api> =
-    Result<<Api as api::Api>::Response, DispatchError<<Api as api::Api>::Error>>;
+/// The return type from a [`Handler`]'s [`handle()`](Handler::handle)
+/// function.
+pub type HandlerResult<Api> =
+    Result<<Api as api::Api>::Response, HandlerError<<Api as api::Api>::Error>>;

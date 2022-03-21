@@ -11,7 +11,7 @@ use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
 
 use crate::{
-    client::{AnyCustomApiCallback, OutstandingRequestMapHandle, PendingRequest, SubscriberMap},
+    client::{AnyApiCallback, OutstandingRequestMapHandle, PendingRequest, SubscriberMap},
     Error,
 };
 
@@ -19,7 +19,7 @@ pub fn spawn_client(
     url: Arc<Url>,
     protocol_version: &'static str,
     request_receiver: Receiver<PendingRequest>,
-    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
 ) {
     wasm_bindgen_futures::spawn_local(create_websocket(
@@ -35,7 +35,7 @@ async fn create_websocket(
     url: Arc<Url>,
     protocol_version: &'static str,
     request_receiver: Receiver<PendingRequest>,
-    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
 ) {
     subscribers.clear().await;
@@ -194,7 +194,7 @@ async fn send_request(
 
 fn on_message_callback(
     outstanding_requests: OutstandingRequestMapHandle,
-    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
 ) -> JsValue {
     Closure::wrap(Box::new(move |e: MessageEvent| {
         // Handle difference Text/Binary,...
@@ -260,7 +260,7 @@ fn on_close_callback(
     shutdown: flume::Sender<()>,
     ws: WebSocket,
     initial_request: Arc<Mutex<Option<PendingRequest>>>,
-    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
 ) -> JsValue {
     Closure::once_into_js(move |c: CloseEvent| {

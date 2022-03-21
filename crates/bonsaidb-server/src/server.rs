@@ -45,7 +45,7 @@ use tokio::sync::{oneshot, Notify};
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
 use crate::{
-    api::AnyCustomApiHandler,
+    api::AnyHandler,
     backend::ConnectionHandling,
     dispatch::{register_api_handlers, ServerDispatcher},
     error::Error,
@@ -105,7 +105,7 @@ struct Data<B: Backend = NoBackend> {
     client_simultaneous_request_limit: usize,
     primary_tls_key: CachedCertifiedKey,
     primary_domain: String,
-    custom_apis: parking_lot::RwLock<HashMap<ApiName, Arc<dyn AnyCustomApiHandler<B>>>>,
+    custom_apis: parking_lot::RwLock<HashMap<ApiName, Arc<dyn AnyHandler<B>>>>,
     #[cfg(feature = "acme")]
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
@@ -227,10 +227,7 @@ impl<B: Backend> CustomServer<B> {
         }
     }
 
-    pub(crate) fn custom_api_dispatcher(
-        &self,
-        name: &ApiName,
-    ) -> Option<Arc<dyn AnyCustomApiHandler<B>>> {
+    pub(crate) fn custom_api_dispatcher(&self, name: &ApiName) -> Option<Arc<dyn AnyHandler<B>>> {
         let dispatchers = self.data.custom_apis.read();
         dispatchers.get(name).cloned()
     }

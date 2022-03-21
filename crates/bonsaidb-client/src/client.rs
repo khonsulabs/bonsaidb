@@ -182,7 +182,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// callback](Builder::with_custom_api_callback):
 ///
 /// ```rust
-/// # use bonsaidb_client::{Client, CustomApiCallback, fabruic::Certificate, url::Url};
+/// # use bonsaidb_client::{Client, ApiCallback, fabruic::Certificate, url::Url};
 /// # // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_client::core`.
 /// # use bonsaidb_core::{api::{Api, Infallible}, schema::{ApiName, Qualified}};
 /// # use serde::{Serialize, Deserialize};
@@ -200,7 +200,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// # }
 /// # async fn test_fn() -> anyhow::Result<()> {
 /// let client = Client::build(Url::parse("bonsaidb://localhost")?)
-///     .with_api_callback(CustomApiCallback::<Ping>::new(|result: Pong| async move {
+///     .with_api_callback(ApiCallback::<Ping>::new(|result: Pong| async move {
 ///         println!("Received out-of-band Pong");
 ///     }))
 ///     .finish()?;
@@ -286,7 +286,7 @@ impl Client {
     pub(crate) fn new_from_parts(
         url: Url,
         protocol_version: &'static str,
-        mut custom_apis: HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
+        mut custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
         #[cfg(not(target_arch = "wasm32"))] certificate: Option<fabruic::Certificate>,
         #[cfg(not(target_arch = "wasm32"))] tokio: Option<Handle>,
     ) -> Result<Self, Error> {
@@ -294,7 +294,7 @@ impl Client {
         let callback_subscribers = subscribers.clone();
         custom_apis.insert(
             MessageReceived::name(),
-            Some(Arc::new(CustomApiCallback::<MessageReceived>::new(
+            Some(Arc::new(ApiCallback::<MessageReceived>::new(
                 move |message: MessageReceived| {
                     let callback_subscribers = callback_subscribers.clone();
                     async move {
@@ -344,7 +344,7 @@ impl Client {
         url: Url,
         protocol_version: &'static str,
         certificate: Option<fabruic::Certificate>,
-        custom_apis: HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
+        custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
         tokio: Option<Handle>,
         subscribers: SubscriberMap,
     ) -> Self {
@@ -386,7 +386,7 @@ impl Client {
     fn new_websocket_client(
         url: Url,
         protocol_version: &'static str,
-        custom_apis: HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
+        custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
         tokio: Option<Handle>,
         subscribers: SubscriberMap,
     ) -> Self {
@@ -428,7 +428,7 @@ impl Client {
     fn new_websocket_client(
         url: Url,
         protocol_version: &'static str,
-        custom_apis: HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
+        custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
         subscribers: SubscriberMap,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
@@ -790,7 +790,7 @@ impl<T> Drop for CancellableHandle<T> {
 async fn process_response_payload(
     payload: Payload,
     outstanding_requests: &OutstandingRequestMapHandle,
-    custom_apis: &HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
+    custom_apis: &HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
 ) {
     if let Some(payload_id) = payload.id {
         let request = {
@@ -812,62 +812,57 @@ async fn process_response_payload(
     }
 }
 
-trait CustomApiWrapper<Response>: Send + Sync {
+trait ApiWrapper<Response>: Send + Sync {
     fn invoke(&self, response: Response) -> BoxFuture<'static, ()>;
 }
 
-/// A callback that is invoked when an [`Api::Response`](CustomApi::Response)
+/// A callback that is invoked when an [`Api::Response`](Api::Response)
 /// value is received out-of-band (not in reply to a request).
-pub struct CustomApiCallback<Api: api::Api> {
-    generator: Box<dyn CustomApiWrapper<Api::Response>>,
+pub struct ApiCallback<Api: api::Api> {
+    generator: Box<dyn ApiWrapper<Api::Response>>,
 }
 
-/// The trait bounds required for the function wrapped in a
-/// [`CustomApiCallback`].
-pub trait CustomApiCallbackFn<Request, F>: Fn(Request) -> F + Send + Sync + 'static {}
+/// The trait bounds required for the function wrapped in a [`ApiCallback`].
+pub trait ApiCallbackFn<Request, F>: Fn(Request) -> F + Send + Sync + 'static {}
 
-impl<T, Request, F> CustomApiCallbackFn<Request, F> for T where
-    T: Fn(Request) -> F + Send + Sync + 'static
-{
-}
+impl<T, Request, F> ApiCallbackFn<Request, F> for T where T: Fn(Request) -> F + Send + Sync + 'static
+{}
 
-struct CustomApiFutureBoxer<Response: Send + Sync, F: Future<Output = ()> + Send + Sync>(
-    Box<dyn CustomApiCallbackFn<Response, F>>,
+struct ApiFutureBoxer<Response: Send + Sync, F: Future<Output = ()> + Send + Sync>(
+    Box<dyn ApiCallbackFn<Response, F>>,
 );
 
-impl<Response: Send + Sync, F: Future<Output = ()> + Send + Sync + 'static>
-    CustomApiWrapper<Response> for CustomApiFutureBoxer<Response, F>
+impl<Response: Send + Sync, F: Future<Output = ()> + Send + Sync + 'static> ApiWrapper<Response>
+    for ApiFutureBoxer<Response, F>
 {
     fn invoke(&self, response: Response) -> BoxFuture<'static, ()> {
         (&self.0)(response).boxed()
     }
 }
 
-impl<Api: api::Api> CustomApiCallback<Api> {
+impl<Api: api::Api> ApiCallback<Api> {
     /// Returns a new instance wrapping the provided function.
     pub fn new<
-        F: CustomApiCallbackFn<Api::Response, Fut>,
+        F: ApiCallbackFn<Api::Response, Fut>,
         Fut: Future<Output = ()> + Send + Sync + 'static,
     >(
         callback: F,
     ) -> Self {
         Self {
-            generator: Box::new(CustomApiFutureBoxer::<Api::Response, Fut>(Box::new(
-                callback,
-            ))),
+            generator: Box::new(ApiFutureBoxer::<Api::Response, Fut>(Box::new(callback))),
         }
     }
 }
 
 #[async_trait]
-pub trait AnyCustomApiCallback: Send + Sync + 'static {
+pub trait AnyApiCallback: Send + Sync + 'static {
     /// An out-of-band `response` was received. This happens when the server
     /// sends a response that isn't in response to a request.
     async fn response_received(&self, response: Bytes);
 }
 
 #[async_trait]
-impl<Api: api::Api> AnyCustomApiCallback for CustomApiCallback<Api> {
+impl<Api: api::Api> AnyApiCallback for ApiCallback<Api> {
     async fn response_received(&self, response: Bytes) {
         match pot::from_slice::<Result<Api::Response, Api::Error>>(&response) {
             Ok(response) => self.generator.invoke(response.unwrap()).await,
