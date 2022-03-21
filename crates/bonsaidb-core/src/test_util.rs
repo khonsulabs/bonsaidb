@@ -881,6 +881,14 @@ pub async fn list_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     assert_eq!(both_docs[0].contents.value, doc1_value.value);
     assert_eq!(both_docs[1].contents.value, doc2_value.value);
 
+    let both_headers = db
+        .collection::<Basic>()
+        .list(doc1.id..=doc2.id)
+        .headers()
+        .await?;
+
+    assert_eq!(both_headers.len(), 2);
+
     let one_doc = Basic::list(doc1.id..doc2.id, db).await?;
     assert_eq!(one_doc.len(), 1);
 

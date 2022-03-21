@@ -11,7 +11,8 @@ use zeroize::Zeroize;
 use crate::schema::Nameable;
 use crate::{
     document::{
-        AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, OwnedDocument,
+        AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, Header,
+        OwnedDocument,
     },
     key::{IntoPrefixRange, Key},
     permissions::Permissions,
@@ -184,6 +185,27 @@ pub trait Connection: Send + Sync {
         order: Sort,
         limit: Option<u32>,
     ) -> Result<Vec<OwnedDocument>, Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send;
+
+    /// Retrieves all documents within the range of `ids`. To retrieve all
+    /// documents, pass in `..` for `ids`.
+    ///
+    /// This is the lower-level API. For better ergonomics, consider using one
+    /// of:
+    ///
+    /// - [`SerializedCollection::all()`]
+    /// - [`self.collection::<Collection>().all()`](Collection::all)
+    /// - [`SerializedCollection::list_headers()`]
+    /// - [`self.collection::<Collection>().list_headers()`](Collection::list_headers)
+    async fn list_headers<C, R, PrimaryKey>(
+        &self,
+        ids: R,
+        order: Sort,
+        limit: Option<u32>,
+    ) -> Result<Vec<Header>, Error>
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
@@ -901,6 +923,44 @@ where
             ListState::Pending(Some(ListBuilder {
                 collection, range, ..
             })) => collection.connection.count::<Cl, _, _>(range).await,
+            _ => unreachable!("Attempted to use after retrieving the result"),
+        }
+    }
+
+    /// Returns the list of headers for documents contained within the range.
+    ///
+    /// Order and limit are ignored if they were set.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// println!(
+    ///     "Number of documents with id 42 or larger: {:?}",
+    ///     db.collection::<MyCollection>().list(42..).headers().await?
+    /// );
+    /// println!(
+    ///     "Number of documents in MyCollection: {:?}",
+    ///     db.collection::<MyCollection>().all().headers().await?
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub async fn headers(self) -> Result<Vec<Header>, Error> {
+        match self.state {
+            ListState::Pending(Some(ListBuilder {
+                collection,
+                range,
+                sort,
+                limit,
+                ..
+            })) => {
+                collection
+                    .connection
+                    .list_headers::<Cl, _, _>(range, sort, limit)
+                    .await
+            }
             _ => unreachable!("Attempted to use after retrieving the result"),
         }
     }

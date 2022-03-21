@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     circulate::Message,
     connection::{AccessPolicy, QueryKey, Range, Sort},
-    document::{AnyDocumentId, OwnedDocument},
+    document::{AnyDocumentId, Header, OwnedDocument},
     keyvalue::KeyValue,
     pubsub::{PubSub, Subscriber},
     schema::{self, view::map::MappedDocuments, Map, MappedValue, SerializedView},
@@ -133,6 +133,22 @@ impl<B: Backend> bonsaidb_core::connection::Connection for ServerDatabase<B> {
         PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
     {
         self.db.list::<C, R, PrimaryKey>(ids, order, limit).await
+    }
+
+    async fn list_headers<C, R, PrimaryKey>(
+        &self,
+        ids: R,
+        order: Sort,
+        limit: Option<u32>,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        self.db
+            .list_headers::<C, R, PrimaryKey>(ids, order, limit)
+            .await
     }
 
     async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>

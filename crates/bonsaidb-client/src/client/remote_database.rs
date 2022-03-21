@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection, QueryKey, Range, Sort},
     custom_api::CustomApi,
-    document::{AnyDocumentId, OwnedDocument},
+    document::{AnyDocumentId, Header, OwnedDocument},
     key::Key,
     networking::{DatabaseRequest, DatabaseResponse, Request, Response},
     schema::{
@@ -149,6 +149,40 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
             .await?
         {
             Response::Database(DatabaseResponse::Documents(documents)) => Ok(documents),
+            Response::Error(err) => Err(err),
+            other => Err(bonsaidb_core::Error::Networking(
+                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
+            )),
+        }
+    }
+
+    async fn list_headers<C, R, PrimaryKey>(
+        &self,
+        ids: R,
+        order: Sort,
+        limit: Option<u32>,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error>
+    where
+        C: Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        match self
+            .client
+            .send_request(Request::Database {
+                database: self.name.to_string(),
+                request: DatabaseRequest::ListHeaders {
+                    collection: C::collection_name(),
+                    ids: ids.into().map_result(|id| id.into().to_document_id())?,
+                    order,
+                    limit,
+                },
+            })
+            .await?
+        {
+            Response::Database(DatabaseResponse::DocumentHeaders(document_headers)) => {
+                Ok(document_headers)
+            }
             Response::Error(err) => Err(err),
             other => Err(bonsaidb_core::Error::Networking(
                 bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),

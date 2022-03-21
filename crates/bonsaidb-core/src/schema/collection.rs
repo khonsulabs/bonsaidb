@@ -9,7 +9,7 @@ use transmog_pot::Pot;
 use crate::{
     connection::{self, Connection, Range},
     document::{
-        AnyDocumentId, BorrowedDocument, CollectionDocument, Document, DocumentId, KeyId,
+        AnyDocumentId, BorrowedDocument, CollectionDocument, Document, DocumentId, Header, KeyId,
         OwnedDocument, OwnedDocuments,
     },
     key::{IntoPrefixRange, Key},
@@ -1278,6 +1278,30 @@ where
     /// ```
     pub async fn count(self) -> Result<u64, Error> {
         self.0.count().await
+    }
+
+    /// Returns the number of list of document headers contained within the range.
+    ///
+    /// Order and limit are ignored if they were set.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// println!(
+    ///     "Number of documents with id 42 or larger: {:?}",
+    ///     MyCollection::list(42.., db).headers().await?
+    /// );
+    /// println!(
+    ///     "Number of documents in MyCollection: {:?}",
+    ///     MyCollection::all(db).headers().await?
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub async fn headers(self) -> Result<Vec<Header>, Error> {
+        self.0.headers().await
     }
 }
 

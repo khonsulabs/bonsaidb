@@ -170,6 +170,11 @@ pub enum DocumentAction {
     /// [`collection_resource_name()`] for the format of collection resource
     /// names.
     List,
+    /// Allows listing documents through
+    /// [`Connection::list_headers()`](crate::connection::Connection::list_headers). See
+    /// [`collection_resource_name()`] for the format of collection resource
+    /// names.
+    ListHeaders,
     /// Allows counting documents through
     /// [`Connection::count()`](crate::connection::Connection::count). See
     /// [`collection_resource_name()`] for the format of collection resource
