@@ -5,7 +5,11 @@ use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     connection::{AccessPolicy, AsyncConnection, AsyncLowLevelConnection, QueryKey, Range, Sort},
     document::{DocumentId, OwnedDocument},
-    networking::{DatabaseRequest, DatabaseResponse, Request, Response},
+    networking::{
+        ApplyTransaction, Compact, CompactCollection, CompactKeyValueStore, Count, DeleteDocs, Get,
+        GetMultiple, LastTransactionId, List, ListExecutedTransactions, Query, QueryWithDocs,
+        Reduce, ReduceGrouped,
+    },
     schema::{self, view::map::MappedSerializedValue, CollectionName, Schematic, ViewName},
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -68,72 +72,39 @@ impl AsyncConnection for RemoteDatabase {
         starting_id: Option<u64>,
         result_limit: Option<u32>,
     ) -> Result<Vec<Executed>, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&ListExecutedTransactions {
                 database: self.name.to_string(),
-                request: DatabaseRequest::ListExecutedTransactions {
-                    starting_id,
-                    result_limit,
-                },
+                starting_id,
+                result_limit,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::ExecutedTransactions(results)) => Ok(results),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
     async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&LastTransactionId {
                 database: self.name.to_string(),
-                request: DatabaseRequest::LastTransactionId,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::LastTransactionId(result)) => Ok(result),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
     async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Database {
-                database: self.name.to_string(),
-                request: DatabaseRequest::Compact,
-            })
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        self.send_api_request_async(&Compact {
+            database: self.name.to_string(),
+        })
+        .await?;
+        Ok(())
     }
 
     async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Database {
-                database: self.name.to_string(),
-                request: DatabaseRequest::CompactKeyValueStore,
-            })
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        self.send_api_request_async(&CompactKeyValueStore {
+            database: self.name.to_string(),
+        })
+        .await?;
+        Ok(())
     }
 }
 
@@ -147,20 +118,13 @@ impl AsyncLowLevelConnection for RemoteDatabase {
         &self,
         transaction: Transaction,
     ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&ApplyTransaction {
                 database: self.name.to_string(),
-                request: DatabaseRequest::ApplyTransaction { transaction },
+                transaction,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::TransactionResults(results)) => Ok(results),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
     async fn get_from_collection(
@@ -168,26 +132,14 @@ impl AsyncLowLevelConnection for RemoteDatabase {
         id: DocumentId,
         collection: &CollectionName,
     ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&Get {
                 database: self.name.to_string(),
-                request: DatabaseRequest::Get {
-                    collection: collection.clone(),
-                    id,
-                },
+                collection: collection.clone(),
+                id,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::Documents(documents)) => {
-                Ok(documents.into_iter().next())
-            }
-            Response::Error(bonsaidb_core::Error::DocumentNotFound(_, _)) => Ok(None),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
     async fn list_from_collection(
@@ -197,25 +149,16 @@ impl AsyncLowLevelConnection for RemoteDatabase {
         limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&List {
                 database: self.name.to_string(),
-                request: DatabaseRequest::List {
-                    collection: collection.clone(),
-                    ids,
-                    order,
-                    limit,
-                },
+                collection: collection.clone(),
+                ids,
+                order,
+                limit,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::Documents(documents)) => Ok(documents),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
     async fn count_from_collection(
@@ -223,23 +166,14 @@ impl AsyncLowLevelConnection for RemoteDatabase {
         ids: Range<DocumentId>,
         collection: &CollectionName,
     ) -> Result<u64, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&Count {
                 database: self.name.to_string(),
-                request: DatabaseRequest::Count {
-                    collection: collection.clone(),
-                    ids,
-                },
+                collection: collection.clone(),
+                ids,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::Count(count)) => Ok(count),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
     async fn get_multiple_from_collection(
@@ -247,44 +181,26 @@ impl AsyncLowLevelConnection for RemoteDatabase {
         ids: &[DocumentId],
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&GetMultiple {
                 database: self.name.to_string(),
-                request: DatabaseRequest::GetMultiple {
-                    collection: collection.clone(),
-                    ids: ids.to_vec(),
-                },
+                collection: collection.clone(),
+                ids: ids.to_vec(),
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::Documents(documents)) => Ok(documents),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
     async fn compact_collection_by_name(
         &self,
         collection: CollectionName,
     ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Database {
-                database: self.name.to_string(),
-                request: DatabaseRequest::CompactCollection {
-                    name: collection.clone(),
-                },
-            })
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        self.send_api_request_async(&CompactCollection {
+            database: self.name.to_string(),
+            name: collection.clone(),
+        })
+        .await?;
+        Ok(())
     }
 
     async fn query_by_name(
@@ -295,27 +211,17 @@ impl AsyncLowLevelConnection for RemoteDatabase {
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&Query {
                 database: self.name.to_string(),
-                request: DatabaseRequest::Query {
-                    view: view.clone(),
-                    key,
-                    order,
-                    limit,
-                    access_policy,
-                    with_docs: false,
-                },
+                view: view.clone(),
+                key,
+                order,
+                limit,
+                access_policy,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::ViewMappings(mappings)) => Ok(mappings),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
     async fn query_by_name_with_docs(
@@ -326,27 +232,17 @@ impl AsyncLowLevelConnection for RemoteDatabase {
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&QueryWithDocs(Query {
                 database: self.name.to_string(),
-                request: DatabaseRequest::Query {
-                    view: view.clone(),
-                    key,
-                    order,
-                    limit,
-                    access_policy,
-                    with_docs: true,
-                },
-            })
-            .await?
-        {
-            Response::Database(DatabaseResponse::ViewMappingsWithDocs(mappings)) => Ok(mappings),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+                view: view.clone(),
+                key,
+                order,
+                limit,
+                access_policy,
+            }))
+            .await?)
     }
 
     async fn reduce_by_name(
@@ -355,25 +251,16 @@ impl AsyncLowLevelConnection for RemoteDatabase {
         key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&Reduce {
                 database: self.name.to_string(),
-                request: DatabaseRequest::Reduce {
-                    view: view.clone(),
-                    key,
-                    access_policy,
-                    grouped: false,
-                },
+                view: view.clone(),
+                key,
+                access_policy,
             })
             .await?
-        {
-            Response::Database(DatabaseResponse::ViewReduction(value)) => Ok(value.0),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .into_vec())
     }
 
     async fn reduce_grouped_by_name(
@@ -382,25 +269,15 @@ impl AsyncLowLevelConnection for RemoteDatabase {
         key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&ReduceGrouped(Reduce {
                 database: self.name.to_string(),
-                request: DatabaseRequest::Reduce {
-                    view: view.clone(),
-                    key,
-                    access_policy,
-                    grouped: true,
-                },
-            })
-            .await?
-        {
-            Response::Database(DatabaseResponse::ViewGroupedReduction(values)) => Ok(values),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+                view: view.clone(),
+                key,
+                access_policy,
+            }))
+            .await?)
     }
 
     async fn delete_docs_by_name(
@@ -409,23 +286,14 @@ impl AsyncLowLevelConnection for RemoteDatabase {
         key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&DeleteDocs {
                 database: self.name.to_string(),
-                request: DatabaseRequest::DeleteDocs {
-                    view: view.clone(),
-                    key,
-                    access_policy,
-                },
+                view: view.clone(),
+                key,
+                access_policy,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::Count(count)) => Ok(count),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 }

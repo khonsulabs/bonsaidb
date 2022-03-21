@@ -17,11 +17,13 @@ use async_trait::async_trait;
 use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
+    api::{self, Api},
     arc_bytes::{serde::Bytes, OwnedBytes},
     connection::{AsyncStorageConnection, Database, Identity, Session},
-    custom_api::CustomApi,
     networking::{
-        self, Payload, Request, Response, ServerRequest, ServerResponse, CURRENT_PROTOCOL_VERSION,
+        AlterUserPermissionGroupMembership, AlterUserRoleMembership, AssumeIdentity,
+        CreateDatabase, CreateUser, DeleteDatabase, DeleteUser, ListAvailableSchemas,
+        ListDatabases, MessageReceived, Payload, UnregisterSubscriber, CURRENT_PROTOCOL_VERSION,
     },
     permissions::Permissions,
     schema::{Name, Nameable, Schema, SchemaName, Schematic},
@@ -64,7 +66,7 @@ impl Deref for SubscriberMap {
     }
 }
 
-use bonsaidb_core::{circulate::Message, networking::DatabaseRequest};
+use bonsaidb_core::circulate::Message;
 
 #[cfg(all(feature = "websockets", not(target_arch = "wasm32")))]
 pub type WebSocketError = tokio_tungstenite::tungstenite::Error;
@@ -144,10 +146,10 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// # }
 /// ```
 ///
-/// ## Using a `CustomApi`
+/// ## Using a `Api`
 ///
 /// Our user guide has a [section on creating and using a
-/// `CustomApi`](https://dev.bonsaidb.io/release/guide/about/access-models/custom-api-server.html).
+/// `Api`](https://dev.bonsaidb.io/release/guide/about/access-models/custom-api-server.html).
 ///
 /// ```rust
 /// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
@@ -299,10 +301,34 @@ impl Client {
     pub(crate) fn new_from_parts(
         url: Url,
         protocol_version: &'static str,
-        custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
+        mut custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
         #[cfg(not(target_arch = "wasm32"))] certificate: Option<fabruic::Certificate>,
         #[cfg(not(target_arch = "wasm32"))] tokio: Option<Handle>,
     ) -> Result<Self, Error> {
+        let subscribers = SubscriberMap::default();
+        let callback_subscribers = subscribers.clone();
+        custom_apis.insert(
+            MessageReceived::name(),
+            Some(Arc::new(CustomApiCallback::<MessageReceived>::new(
+                move |message: MessageReceived| {
+                    let callback_subscribers = callback_subscribers.clone();
+                    async move {
+                        let mut subscribers = fast_async_lock!(callback_subscribers);
+                        if let Some(sender) = subscribers.get(&message.subscriber_id) {
+                            if sender
+                                .send(std::sync::Arc::new(bonsaidb_core::circulate::Message {
+                                    topic: message.topic,
+                                    payload: OwnedBytes::from(message.payload.into_vec()),
+                                }))
+                                .is_err()
+                            {
+                                subscribers.remove(&message.subscriber_id);
+                            }
+                        }
+                    }
+                },
+            ))),
+        );
         match url.scheme() {
             #[cfg(not(target_arch = "wasm32"))]
             "bonsaidb" => Ok(Self::new_bonsai_client(
@@ -311,6 +337,7 @@ impl Client {
                 certificate,
                 custom_apis,
                 tokio,
+                subscribers,
             )),
             #[cfg(feature = "websockets")]
             "wss" | "ws" => Ok(Self::new_websocket_client(
@@ -319,6 +346,7 @@ impl Client {
                 custom_apis,
                 #[cfg(not(target_arch = "wasm32"))]
                 tokio,
+                subscribers,
             )),
             other => {
                 return Err(Error::InvalidUrl(format!("unsupported scheme {}", other)));
@@ -333,10 +361,10 @@ impl Client {
         certificate: Option<fabruic::Certificate>,
         custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
         tokio: Option<Handle>,
+        subscribers: SubscriberMap,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
-        let subscribers = SubscriberMap::default();
         let worker = tokio::task::spawn(quic_worker::reconnecting_client_loop(
             url,
             protocol_version,
@@ -375,10 +403,9 @@ impl Client {
         protocol_version: &'static str,
         custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
         tokio: Option<Handle>,
+        subscribers: SubscriberMap,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
-
-        let subscribers = SubscriberMap::default();
 
         let worker = tokio::task::spawn(tungstenite_worker::reconnecting_client_loop(
             url,
@@ -417,10 +444,9 @@ impl Client {
         url: Url,
         protocol_version: &'static str,
         custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
+        subscribers: SubscriberMap,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
-
-        let subscribers = SubscriberMap::default();
 
         wasm_websocket_worker::spawn_client(
             Arc::new(url),
@@ -453,14 +479,15 @@ impl Client {
         }
     }
 
-    async fn send_request_async(&self, request: Request) -> Result<Response, Error> {
+    async fn send_request_async(&self, name: Name, bytes: Bytes) -> Result<Bytes, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
             request: Payload {
                 session_id: self.session.id,
                 id: Some(id),
-                wrapped: request,
+                name,
+                value: Ok(bytes),
             },
             responder: result_sender,
         })?;
@@ -468,39 +495,15 @@ impl Client {
         result_receiver.recv_async().await?
     }
 
-    /// Sends an api `request`.
-    pub async fn send_api_request_async<Api: CustomApi>(
-        &self,
-        request: &Api,
-    ) -> Result<Api::Response, ApiError<Api::Error>> {
-        let request = Bytes::from(pot::to_vec(request).map_err(Error::from)?);
-        match self
-            .send_request_async(Request::Api {
-                name: Api::name(),
-                request,
-            })
-            .await?
-        {
-            Response::Api { response, .. } => {
-                let response = pot::from_slice::<Result<Api::Response, Api::Error>>(&response)
-                    .map_err(Error::from)?;
-                response.map_err(ApiError::Api)
-            }
-            Response::Error(err) => Err(ApiError::Client(Error::from(err))),
-            other => Err(ApiError::Client(Error::Network(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            ))),
-        }
-    }
-
-    fn send_request(&self, request: Request) -> Result<Response, Error> {
+    fn send_request(&self, name: Name, bytes: Bytes) -> Result<Bytes, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
             request: Payload {
                 session_id: self.session.id,
                 id: Some(id),
-                wrapped: request,
+                name,
+                value: Ok(bytes),
             },
             responder: result_sender,
         })?;
@@ -509,25 +512,28 @@ impl Client {
     }
 
     /// Sends an api `request`.
-    pub fn send_api_request<Api: CustomApi>(
+    pub async fn send_api_request_async<Api: api::Api>(
         &self,
         request: &Api,
     ) -> Result<Api::Response, ApiError<Api::Error>> {
         let request = Bytes::from(pot::to_vec(request).map_err(Error::from)?);
-        match self.send_request(Request::Api {
-            name: Api::name(),
-            request,
-        })? {
-            Response::Api { response, .. } => {
-                let response = pot::from_slice::<Result<Api::Response, Api::Error>>(&response)
-                    .map_err(Error::from)?;
-                response.map_err(ApiError::Api)
-            }
-            Response::Error(err) => Err(ApiError::Client(Error::from(err))),
-            other => Err(ApiError::Client(Error::Network(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            ))),
-        }
+        let response = self.send_request_async(Api::name(), request).await?;
+        let response =
+            pot::from_slice::<Result<Api::Response, Api::Error>>(&response).map_err(Error::from)?;
+        response.map_err(ApiError::Api)
+    }
+
+    /// Sends an api `request`.
+    pub fn send_api_request<Api: api::Api>(
+        &self,
+        request: &Api,
+    ) -> Result<Api::Response, ApiError<Api::Error>> {
+        let request = Bytes::from(pot::to_vec(request).map_err(Error::from)?);
+        let response = self.send_request(Api::name(), request)?;
+
+        let response =
+            pot::from_slice::<Result<Api::Response, Api::Error>>(&response).map_err(Error::from)?;
+        response.map_err(ApiError::Api)
     }
 
     /// Returns the current effective permissions for the client. Returns None
@@ -551,9 +557,9 @@ impl Client {
 
     pub(crate) async fn unregister_subscriber(&self, database: String, id: u64) {
         drop(
-            self.send_request_async(Request::Database {
+            self.send_api_request_async(&UnregisterSubscriber {
                 database,
-                request: DatabaseRequest::UnregisterSubscriber { subscriber_id: id },
+                subscriber_id: id,
             })
             .await,
         );
@@ -581,22 +587,15 @@ impl AsyncStorageConnection for Client {
         schema: SchemaName,
         only_if_needed: bool,
     ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(ServerRequest::CreateDatabase {
-                database: Database {
-                    name: name.to_string(),
-                    schema,
-                },
-                only_if_needed,
-            }))
-            .await?
-        {
-            Response::Server(ServerResponse::DatabaseCreated { .. }) => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        self.send_api_request_async(&CreateDatabase {
+            database: Database {
+                name: name.to_string(),
+                schema,
+            },
+            only_if_needed,
+        })
+        .await?;
+        Ok(())
     }
 
     async fn database<DB: Schema>(
@@ -620,77 +619,38 @@ impl AsyncStorageConnection for Client {
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(ServerRequest::DeleteDatabase {
-                name: name.to_string(),
-            }))
-            .await?
-        {
-            Response::Server(ServerResponse::DatabaseDeleted { .. }) => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        self.send_api_request_async(&DeleteDatabase {
+            name: name.to_string(),
+        })
+        .await?;
+        Ok(())
     }
 
     async fn list_databases(&self) -> Result<Vec<Database>, bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(ServerRequest::ListDatabases))
-            .await?
-        {
-            Response::Server(ServerResponse::Databases(databases)) => Ok(databases),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        Ok(self.send_api_request_async(&ListDatabases).await?)
     }
 
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(ServerRequest::ListAvailableSchemas))
-            .await?
-        {
-            Response::Server(ServerResponse::AvailableSchemas(schemas)) => Ok(schemas),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        Ok(self.send_api_request_async(&ListAvailableSchemas).await?)
     }
 
     async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(ServerRequest::CreateUser {
+        Ok(self
+            .send_api_request_async(&CreateUser {
                 username: username.to_string(),
-            }))
-            .await?
-        {
-            Response::Server(ServerResponse::UserCreated { id }) => Ok(id),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            })
+            .await?)
     }
 
     async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
     ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(ServerRequest::DeleteUser {
+        Ok(self
+            .send_api_request_async(&DeleteUser {
                 user: user.name()?.into_owned(),
-            }))
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            })
+            .await?)
     }
 
     #[cfg(feature = "password-hashing")]
@@ -699,19 +659,12 @@ impl AsyncStorageConnection for Client {
         user: U,
         password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(ServerRequest::SetUserPassword {
+        Ok(self
+            .send_api_request_async(&bonsaidb_core::networking::SetUserPassword {
                 user: user.name()?.into_owned(),
                 password,
-            }))
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            })
+            .await?)
     }
 
     #[cfg(feature = "password-hashing")]
@@ -720,41 +673,29 @@ impl AsyncStorageConnection for Client {
         user: U,
         authentication: Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(ServerRequest::Authenticate {
+        let session = self
+            .send_api_request_async(&bonsaidb_core::networking::Authenticate {
                 user: user.name()?.into_owned(),
                 authentication,
-            }))
-            .await?
-        {
-            Response::Server(ServerResponse::Authenticated(session)) => Ok(Self {
-                data: self.data.clone(),
-                session,
-            }),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            })
+            .await?;
+        Ok(Self {
+            data: self.data.clone(),
+            session,
+        })
     }
 
     async fn assume_identity(
         &self,
         identity: Identity,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(ServerRequest::AssumeIdentity(identity)))
-            .await?
-        {
-            Response::Server(ServerResponse::Authenticated(session)) => Ok(Self {
-                data: self.data.clone(),
-                session,
-            }),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        let session = self
+            .send_api_request_async(&AssumeIdentity(identity))
+            .await?;
+        Ok(Self {
+            data: self.data.clone(),
+            session,
+        })
     }
 
     async fn add_permission_group_to_user<
@@ -767,22 +708,13 @@ impl AsyncStorageConnection for Client {
         user: U,
         permission_group: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(
-                ServerRequest::AlterUserPermissionGroupMembership {
-                    user: user.name()?.into_owned(),
-                    group: permission_group.name()?.into_owned(),
-                    should_be_member: true,
-                },
-            ))
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        self.send_api_request_async(&AlterUserPermissionGroupMembership {
+            user: user.name()?.into_owned(),
+            group: permission_group.name()?.into_owned(),
+            should_be_member: true,
+        })
+        .await?;
+        Ok(())
     }
 
     async fn remove_permission_group_from_user<
@@ -795,22 +727,13 @@ impl AsyncStorageConnection for Client {
         user: U,
         permission_group: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(
-                ServerRequest::AlterUserPermissionGroupMembership {
-                    user: user.name()?.into_owned(),
-                    group: permission_group.name()?.into_owned(),
-                    should_be_member: false,
-                },
-            ))
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        self.send_api_request_async(&AlterUserPermissionGroupMembership {
+            user: user.name()?.into_owned(),
+            group: permission_group.name()?.into_owned(),
+            should_be_member: false,
+        })
+        .await?;
+        Ok(())
     }
 
     async fn add_role_to_user<
@@ -823,20 +746,13 @@ impl AsyncStorageConnection for Client {
         user: U,
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(ServerRequest::AlterUserRoleMembership {
-                user: user.name()?.into_owned(),
-                role: role.name()?.into_owned(),
-                should_be_member: true,
-            }))
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        self.send_api_request_async(&AlterUserRoleMembership {
+            user: user.name()?.into_owned(),
+            role: role.name()?.into_owned(),
+            should_be_member: true,
+        })
+        .await?;
+        Ok(())
     }
 
     async fn remove_role_from_user<
@@ -849,30 +765,23 @@ impl AsyncStorageConnection for Client {
         user: U,
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request_async(Request::Server(ServerRequest::AlterUserRoleMembership {
-                user: user.name()?.into_owned(),
-                role: role.name()?.into_owned(),
-                should_be_member: false,
-            }))
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+        self.send_api_request_async(&AlterUserRoleMembership {
+            user: user.name()?.into_owned(),
+            role: role.name()?.into_owned(),
+            should_be_member: false,
+        })
+        .await?;
+        Ok(())
     }
 }
 
 type OutstandingRequestMap = HashMap<u32, PendingRequest>;
 type OutstandingRequestMapHandle = Arc<Mutex<OutstandingRequestMap>>;
-type PendingRequestResponder = Sender<Result<Response, Error>>;
+type PendingRequestResponder = Sender<Result<Bytes, Error>>;
 
 #[derive(Debug)]
 pub struct PendingRequest {
-    request: Payload<Request>,
+    request: Payload,
     responder: PendingRequestResponder,
 }
 
@@ -894,10 +803,9 @@ impl<T> Drop for CancellableHandle<T> {
 }
 
 async fn process_response_payload(
-    payload: Payload<Response>,
+    payload: Payload,
     outstanding_requests: &OutstandingRequestMapHandle,
     custom_apis: &HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
-    subscribers: &SubscriberMap,
 ) {
     if let Some(payload_id) = payload.id {
         let request = {
@@ -906,40 +814,16 @@ async fn process_response_payload(
                 .remove(&payload_id)
                 .expect("missing responder")
         };
-        drop(request.responder.send(Ok(payload.wrapped)));
+        drop(request.responder.send(payload.value.map_err(Error::from)));
+    } else if let (Some(custom_api_callback), Ok(value)) = (
+        custom_apis.get(&payload.name).and_then(Option::as_ref),
+        payload.value,
+    ) {
+        // if let Some(custom_api_callback) = custom_api_callback {
+        custom_api_callback.response_received(value).await;
+        // }
     } else {
-        match payload.wrapped {
-            Response::Api { name, response } => {
-                if let Some(custom_api_callback) = custom_apis.get(&name) {
-                    if let Some(custom_api_callback) = custom_api_callback {
-                        custom_api_callback.response_received(response).await;
-                    }
-                } else {
-                    log::warn!("unexpected api response received {name}");
-                }
-            }
-            Response::Database(bonsaidb_core::networking::DatabaseResponse::MessageReceived {
-                subscriber_id,
-                topic,
-                payload,
-            }) => {
-                let mut subscribers = fast_async_lock!(subscribers);
-                if let Some(sender) = subscribers.get(&subscriber_id) {
-                    if sender
-                        .send(std::sync::Arc::new(bonsaidb_core::circulate::Message {
-                            topic,
-                            payload: OwnedBytes::from(payload.into_vec()),
-                        }))
-                        .is_err()
-                    {
-                        subscribers.remove(&subscriber_id);
-                    }
-                }
-            }
-            _ => {
-                log::error!("unexpected adhoc response");
-            }
-        }
+        log::warn!("unexpected api response received ({})", payload.name);
     }
 }
 
@@ -949,13 +833,18 @@ trait CustomApiWrapper<Response>: Send + Sync {
 
 /// A callback that is invoked when an [`Api::Response`](CustomApi::Response)
 /// value is received out-of-band (not in reply to a request).
-pub struct CustomApiCallback<Api: CustomApi> {
+pub struct CustomApiCallback<Api: api::Api> {
     generator: Box<dyn CustomApiWrapper<Api::Response>>,
 }
 
 /// The trait bounds required for the function wrapped in a
 /// [`CustomApiCallback`].
 pub trait CustomApiCallbackFn<Request, F>: Fn(Request) -> F + Send + Sync + 'static {}
+
+impl<T, Request, F> CustomApiCallbackFn<Request, F> for T where
+    T: Fn(Request) -> F + Send + Sync + 'static
+{
+}
 
 struct CustomApiFutureBoxer<Response: Send + Sync, F: Future<Output = ()> + Send + Sync>(
     Box<dyn CustomApiCallbackFn<Response, F>>,
@@ -969,7 +858,7 @@ impl<Response: Send + Sync, F: Future<Output = ()> + Send + Sync + 'static>
     }
 }
 
-impl<Api: CustomApi> CustomApiCallback<Api> {
+impl<Api: api::Api> CustomApiCallback<Api> {
     /// Returns a new instance wrapping the provided function.
     pub fn new<
         F: CustomApiCallbackFn<Api::Response, Fut>,
@@ -993,10 +882,10 @@ pub trait AnyCustomApiCallback: Send + Sync + 'static {
 }
 
 #[async_trait]
-impl<Api: CustomApi> AnyCustomApiCallback for CustomApiCallback<Api> {
+impl<Api: api::Api> AnyCustomApiCallback for CustomApiCallback<Api> {
     async fn response_received(&self, response: Bytes) {
-        match pot::from_slice(&response) {
-            Ok(response) => self.generator.invoke(response).await,
+        match pot::from_slice::<Result<Api::Response, Api::Error>>(&response) {
+            Ok(response) => self.generator.invoke(response.unwrap()).await,
             Err(err) => {
                 log::error!("error deserializing api: {err}");
             }

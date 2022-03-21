@@ -1,672 +1,585 @@
-#[cfg(feature = "password-hashing")]
-use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     async_trait::async_trait,
-    connection::{
-        AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection, Identity,
-        QueryKey, Range, Sort,
-    },
-    document::DocumentId,
-    keyvalue::{AsyncKeyValue, KeyOperation},
+    connection::{AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection},
+    keyvalue::AsyncKeyValue,
     networking::{
-        CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
-        DeleteDatabaseHandler, Request, RequestDispatcher, Response, ServerRequest,
-        ServerRequestDispatcher, ServerResponse,
+        AlterUserPermissionGroupMembership, AlterUserRoleMembership, ApplyTransaction,
+        AssumeIdentity, Authenticate, Compact, CompactCollection, CompactKeyValueStore, Count,
+        CreateDatabase, CreateSubscriber, CreateUser, DeleteDatabase, DeleteDocs, DeleteUser,
+        ExecuteKeyOperation, Get, GetMultiple, LastTransactionId, List, ListAvailableSchemas,
+        ListDatabases, ListExecutedTransactions, Publish, PublishToAll, Query, QueryWithDocs,
+        Reduce, ReduceGrouped, SetUserPassword, SubscribeTo, UnregisterSubscriber, UnsubscribeFrom,
     },
-    permissions::{Dispatcher, Permissions},
     pubsub::AsyncPubSub,
-    schema::{CollectionName, Name, NamedReference, ViewName},
-    transaction::Transaction,
+    schema::Name,
 };
-use bonsaidb_local::{AsyncDatabase, Storage};
 
-use crate::{Backend, ConnectedClient, CustomServer, Error, ServerDatabase};
+use crate::{
+    api::{CustomApiHandler, DispatcherResult},
+    Backend, ConnectedClient, CustomServer, Error, ServerConfiguration,
+};
 
-#[derive(Dispatcher, Debug)]
-#[dispatcher(input = Request, input = ServerRequest, actionable = bonsaidb_core::actionable)]
-pub struct ServerDispatcher<'s, B: Backend> {
-    pub server: &'s CustomServer<B>,
-    pub client: &'s ConnectedClient<B>,
+pub fn register_api_handlers<B: Backend>(
+    config: ServerConfiguration<B>,
+) -> Result<ServerConfiguration<B>, Error> {
+    config
+        .with_api::<ServerDispatcher, AlterUserPermissionGroupMembership>()?
+        .with_api::<ServerDispatcher, AlterUserRoleMembership>()?
+        .with_api::<ServerDispatcher, ApplyTransaction>()?
+        .with_api::<ServerDispatcher, AssumeIdentity>()?
+        .with_api::<ServerDispatcher, Authenticate>()?
+        .with_api::<ServerDispatcher, Compact>()?
+        .with_api::<ServerDispatcher, CompactCollection>()?
+        .with_api::<ServerDispatcher, CompactKeyValueStore>()?
+        .with_api::<ServerDispatcher, Count>()?
+        .with_api::<ServerDispatcher, CreateDatabase>()?
+        .with_api::<ServerDispatcher, CreateSubscriber>()?
+        .with_api::<ServerDispatcher, CreateUser>()?
+        .with_api::<ServerDispatcher, DeleteDatabase>()?
+        .with_api::<ServerDispatcher, DeleteDocs>()?
+        .with_api::<ServerDispatcher, DeleteUser>()?
+        .with_api::<ServerDispatcher, ExecuteKeyOperation>()?
+        .with_api::<ServerDispatcher, Get>()?
+        .with_api::<ServerDispatcher, GetMultiple>()?
+        .with_api::<ServerDispatcher, LastTransactionId>()?
+        .with_api::<ServerDispatcher, List>()?
+        .with_api::<ServerDispatcher, ListAvailableSchemas>()?
+        .with_api::<ServerDispatcher, ListDatabases>()?
+        .with_api::<ServerDispatcher, ListExecutedTransactions>()?
+        .with_api::<ServerDispatcher, Publish>()?
+        .with_api::<ServerDispatcher, PublishToAll>()?
+        .with_api::<ServerDispatcher, Query>()?
+        .with_api::<ServerDispatcher, QueryWithDocs>()?
+        .with_api::<ServerDispatcher, Reduce>()?
+        .with_api::<ServerDispatcher, ReduceGrouped>()?
+        .with_api::<ServerDispatcher, SetUserPassword>()?
+        .with_api::<ServerDispatcher, SubscribeTo>()?
+        .with_api::<ServerDispatcher, UnregisterSubscriber>()?
+        .with_api::<ServerDispatcher, UnsubscribeFrom>()
 }
 
-// impl Networking for Storage {
-//     fn request(&self, request: Request) -> Result<Response, bonsaidb_core::Error> {
-//         StorageDispatcher { storage: self }
-//             .dispatch(&self.effective_session.permissions, request)
-//             .map_err(bonsaidb_core::Error::from)
-//     }
-// }
+#[derive(Debug)]
+pub struct ServerDispatcher;
+impl ServerDispatcher {
+    pub async fn dispatch_api_request<B: Backend>(
+        server: &CustomServer<B>,
+        client: &ConnectedClient<B>,
+        name: &Name,
+        request: Bytes,
+    ) -> Result<Bytes, Error> {
+        if let Some(dispatcher) = server.custom_api_dispatcher(name) {
+            dispatcher.handle(server, client, &request).await
+        } else {
+            Err(Error::from(bonsaidb_core::Error::CustomApiNotFound(
+                name.clone(),
+            )))
+        }
+    }
+}
 
 // #[async_trait]
-// impl AsyncNetworking for AsyncStorage {
-//     async fn request(&self, request: Request) -> Result<Response, bonsaidb_core::Error> {
-//         let task_self = self.clone();
-//         self.runtime
-//             .spawn_blocking(move || task_self.storage.request(request))
-//             .await
-//             .unwrap()
+// impl<B: Backend> CustomApiHandler<B, Database> for ServerDispatcher {
+//     async fn handle(
+//         &self,
+//         permissions: &Permissions,
+//         database_name: String,
+//         request: DatabaseRequest,
+//     ) -> Result<Response, Error> {
+//         let storage = Storage::from(self.server.storage.clone());
+//         let db = storage.database_without_schema(&database_name)?;
+//         DatabaseDispatcher {
+//             client: self.client,
+//             database: ServerDatabase {
+//                 server: self.server.clone(),
+//                 db: AsyncDatabase::from(db),
+//             },
+//         }
+//         .dispatch(permissions, request)
+//         .await
 //     }
 // }
 
-impl<'s, B: Backend> RequestDispatcher for ServerDispatcher<'s, B> {
-    type Output = Response;
-    type Error = Error;
-
-    //async fn handle_subaction(
-    //     &self,
-    //     permissions: &Permissions,
-    //     subaction: Self::Subaction,
-    // ) -> Result<Response, Error> {
-    //     let dispatcher =
-    //         <Backend::CustomApiDispatcher as CustomApiDispatcher>::new(self.storage);
-    //     match dispatcher.dispatch(permissions, subaction) {
-    //         Ok(response) => Ok(Response::Api(Ok(response))),
-    //         Err(err) => match err {
-    //             BackendError::Backend(backend) => Ok(Response::Api(Err(backend))),
-    //             BackendError::Storage(error) => Err(error),
-    //         },
-    //     }
-    // }
-}
-
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ServerHandler for ServerDispatcher<'s, B> {
+impl<B: Backend> CustomApiHandler<B, CreateDatabase> for ServerDispatcher {
     async fn handle(
-        &self,
-        permissions: &Permissions,
-        request: ServerRequest,
-    ) -> Result<Response, Error> {
-        ServerRequestDispatcher::dispatch_to_handlers(self, permissions, request).await
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::DatabaseHandler for ServerDispatcher<'s, B> {
-    async fn handle(
-        &self,
-        permissions: &Permissions,
-        database_name: String,
-        request: DatabaseRequest,
-    ) -> Result<Response, Error> {
-        let storage = Storage::from(self.server.storage.clone());
-        let db = storage.database_without_schema(&database_name)?;
-        DatabaseDispatcher {
-            client: self.client,
-            database: ServerDatabase {
-                server: self.server.clone(),
-                db: AsyncDatabase::from(db),
-            },
-        }
-        .dispatch(permissions, request)
-        .await
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> ServerRequestDispatcher for ServerDispatcher<'s, B> {
-    type Output = Response;
-    type Error = Error;
-}
-
-#[async_trait]
-impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
-    async fn handle(
-        &self,
-        _permissions: &Permissions,
-        database: bonsaidb_core::connection::Database,
-        only_if_needed: bool,
-    ) -> Result<Response, Error> {
-        self.server
-            .create_database_with_schema(&database.name, database.schema, only_if_needed)
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        request: CreateDatabase,
+    ) -> DispatcherResult<CreateDatabase> {
+        server
+            .create_database_with_schema(
+                &request.database.name,
+                request.database.schema,
+                request.only_if_needed,
+            )
             .await?;
-        Ok(Response::Server(ServerResponse::DatabaseCreated {
-            name: database.name,
-        }))
+        Ok(())
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> DeleteDatabaseHandler for ServerDispatcher<'s, B> {
-    async fn handle(&self, _permissions: &Permissions, name: String) -> Result<Response, Error> {
-        self.server.storage.delete_database(&name).await?;
-        Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ListDatabasesHandler for ServerDispatcher<'s, B> {
-    async fn handle(&self, _permissions: &Permissions) -> Result<Response, Error> {
-        Ok(Response::Server(ServerResponse::Databases(
-            self.server.list_databases().await?,
-        )))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ListAvailableSchemasHandler
-    for ServerDispatcher<'s, B>
-{
-    async fn handle(&self, _permissions: &Permissions) -> Result<Response, Error> {
-        Ok(Response::Server(ServerResponse::AvailableSchemas(
-            self.server.list_available_schemas().await?,
-        )))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CreateUserHandler for ServerDispatcher<'s, B> {
+impl<B: Backend> CustomApiHandler<B, DeleteDatabase> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        username: String,
-    ) -> Result<Response, Error> {
-        self.server.session();
-        Ok(Response::Server(ServerResponse::UserCreated {
-            id: self.server.create_user(&username).await?,
-        }))
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: DeleteDatabase,
+    ) -> DispatcherResult<DeleteDatabase> {
+        server.storage.delete_database(&command.name).await?;
+        Ok(())
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::DeleteUserHandler for ServerDispatcher<'s, B> {
+impl<B: Backend> CustomApiHandler<B, ListDatabases> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        user: NamedReference<'static, u64>,
-    ) -> Result<Response, Error> {
-        self.server.delete_user(user).await?;
-        Ok(Response::Ok)
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        _command: ListDatabases,
+    ) -> DispatcherResult<ListDatabases> {
+        server.list_databases().await
+    }
+}
+
+#[async_trait]
+impl<B: Backend> CustomApiHandler<B, ListAvailableSchemas> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        _command: ListAvailableSchemas,
+    ) -> DispatcherResult<ListAvailableSchemas> {
+        server.list_available_schemas().await
+    }
+}
+
+#[async_trait]
+impl<B: Backend> CustomApiHandler<B, CreateUser> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: CreateUser,
+    ) -> DispatcherResult<CreateUser> {
+        server.create_user(&command.username).await
+    }
+}
+
+#[async_trait]
+impl<B: Backend> CustomApiHandler<B, DeleteUser> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: DeleteUser,
+    ) -> DispatcherResult<DeleteUser> {
+        server.delete_user(command.user).await
     }
 }
 
 #[cfg(feature = "password-hashing")]
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::SetUserPasswordHandler for ServerDispatcher<'s, B> {
+impl<B: Backend> CustomApiHandler<B, SetUserPassword> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        username: NamedReference<'static, u64>,
-        password: bonsaidb_core::connection::SensitiveString,
-    ) -> Result<Response, Error> {
-        self.server.set_user_password(username, password).await?;
-        Ok(Response::Ok)
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: SetUserPassword,
+    ) -> DispatcherResult<SetUserPassword> {
+        server
+            .set_user_password(command.user, command.password)
+            .await
     }
 }
 
 #[cfg(feature = "password-hashing")]
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::AuthenticateHandler for ServerDispatcher<'s, B> {
+impl<B: Backend> CustomApiHandler<B, Authenticate> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        username: NamedReference<'static, u64>,
-        authentication: Authentication,
-    ) -> Result<Response, Error> {
-        let authenticated = self
-            .server
-            .authenticate(username.clone(), authentication)
+        server: &CustomServer<B>,
+        client: &ConnectedClient<B>,
+        command: Authenticate,
+    ) -> DispatcherResult<Authenticate> {
+        let authenticated = server
+            .authenticate(command.user, command.authentication)
             .await?;
         let session = authenticated.session().cloned().unwrap();
 
-        self.client.logged_in_as(session.clone());
+        client.logged_in_as(session.clone());
 
-        Ok(Response::Server(ServerResponse::Authenticated(session)))
+        Ok(session)
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::AssumeIdentityHandler for ServerDispatcher<'s, B> {
+impl<B: Backend> CustomApiHandler<B, AssumeIdentity> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        identity: Identity,
-    ) -> Result<Response, Error> {
-        let authenticated = self.server.assume_identity(identity).await?;
+        server: &CustomServer<B>,
+        client: &ConnectedClient<B>,
+        command: AssumeIdentity,
+    ) -> DispatcherResult<AssumeIdentity> {
+        let authenticated = server.assume_identity(command.0).await?;
         let session = authenticated.session().cloned().unwrap();
 
-        self.client.logged_in_as(session.clone());
+        client.logged_in_as(session.clone());
 
-        Ok(Response::Server(ServerResponse::Authenticated(session)))
+        Ok(session)
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::AlterUserPermissionGroupMembershipHandler
-    for ServerDispatcher<'s, B>
-{
+impl<B: Backend> CustomApiHandler<B, AlterUserPermissionGroupMembership> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        user: NamedReference<'static, u64>,
-        group: NamedReference<'static, u64>,
-        should_be_member: bool,
-    ) -> Result<Response, Error> {
-        if should_be_member {
-            self.server
-                .add_permission_group_to_user(user, group)
-                .await?;
-        } else {
-            self.server
-                .remove_permission_group_from_user(user, group)
-                .await?;
-        }
-
-        Ok(Response::Ok)
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::AlterUserRoleMembershipHandler
-    for ServerDispatcher<'s, B>
-{
-    async fn handle(
-        &self,
-        _permissions: &Permissions,
-        user: NamedReference<'static, u64>,
-        role: NamedReference<'static, u64>,
-        should_be_member: bool,
-    ) -> Result<Response, Error> {
-        if should_be_member {
-            self.server.add_role_to_user(user, role).await?;
-        } else {
-            self.server.remove_role_from_user(user, role).await?;
-        }
-
-        Ok(Response::Ok)
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ApiHandler for ServerDispatcher<'s, B> {
-    async fn handle(
-        &self,
-        permissions: &Permissions,
-        name: Name,
-        request: Bytes,
-    ) -> Result<Response, Error> {
-        if let Some(dispatcher) = self.server.custom_api_dispatcher(&name) {
-            dispatcher
-                .dispatch(self.server, self.client, permissions, &request)
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: AlterUserPermissionGroupMembership,
+    ) -> DispatcherResult<AlterUserPermissionGroupMembership> {
+        if command.should_be_member {
+            server
+                .add_permission_group_to_user(command.user, command.group)
                 .await
-                .map(|response| Response::Api { name, response })
         } else {
-            Err(Error::from(bonsaidb_core::Error::CustomApiNotFound(name)))
-        }
-    }
-}
-
-#[derive(Dispatcher, Debug)]
-#[dispatcher(input = DatabaseRequest, actionable = bonsaidb_core::actionable)]
-struct DatabaseDispatcher<'s, B: Backend> {
-    database: ServerDatabase<B>,
-    client: &'s ConnectedClient<B>,
-}
-
-#[async_trait]
-impl<'s, B: Backend> DatabaseRequestDispatcher for DatabaseDispatcher<'s, B> {
-    type Output = Response;
-    type Error = Error;
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatcher<'s, B> {
-    async fn handle(
-        &self,
-        _permissions: &Permissions,
-        collection: CollectionName,
-        id: DocumentId,
-    ) -> Result<Response, Error> {
-        let document = self
-            .database
-            .get_from_collection(id, &collection)
-            .await?
-            .ok_or_else(|| {
-                Error::Core(bonsaidb_core::Error::DocumentNotFound(
-                    collection,
-                    Box::new(id),
-                ))
-            })?;
-        Ok(Response::Database(DatabaseResponse::Documents(vec![
-            document,
-        ])))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseDispatcher<'s, B> {
-    async fn handle(
-        &self,
-        _permissions: &Permissions,
-        collection: CollectionName,
-        ids: Vec<DocumentId>,
-    ) -> Result<Response, Error> {
-        let documents = self
-            .database
-            .get_multiple_from_collection(&ids, &collection)
-            .await?;
-        Ok(Response::Database(DatabaseResponse::Documents(documents)))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatcher<'s, B> {
-    async fn handle(
-        &self,
-        _permissions: &Permissions,
-        collection: CollectionName,
-        ids: Range<DocumentId>,
-        order: Sort,
-        limit: Option<u32>,
-    ) -> Result<Response, Error> {
-        let documents = self
-            .database
-            .list_from_collection(ids, order, limit, &collection)
-            .await?;
-        Ok(Response::Database(DatabaseResponse::Documents(documents)))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CountHandler for DatabaseDispatcher<'s, B> {
-    async fn handle(
-        &self,
-        _permissions: &Permissions,
-        collection: CollectionName,
-        ids: Range<DocumentId>,
-    ) -> Result<Response, Error> {
-        let documents = self
-            .database
-            .count_from_collection(ids, &collection)
-            .await?;
-        Ok(Response::Database(DatabaseResponse::Count(documents)))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatcher<'s, B> {
-    async fn handle(
-        &self,
-        _permissions: &Permissions,
-        view: ViewName,
-        key: Option<QueryKey<Bytes>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-        with_docs: bool,
-    ) -> Result<Response, Error> {
-        if with_docs {
-            let mappings = self
-                .database
-                .query_by_name_with_docs(&view, key, order, limit, access_policy)
-                .await?;
-            Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
-                mappings,
-            )))
-        } else {
-            let mappings = self
-                .database
-                .query_by_name(&view, key, order, limit, access_policy)
-                .await?;
-            Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
+            server
+                .remove_permission_group_from_user(command.user, command.group)
+                .await
         }
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispatcher<'s, B> {
+impl<B: Backend> CustomApiHandler<B, AlterUserRoleMembership> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        view: ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-        grouped: bool,
-    ) -> Result<Response, Error> {
-        if grouped {
-            let values = self
-                .database
-                .reduce_grouped_by_name(&view, key, access_policy)
-                .await?;
-            Ok(Response::Database(DatabaseResponse::ViewGroupedReduction(
-                values,
-            )))
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: AlterUserRoleMembership,
+    ) -> DispatcherResult<AlterUserRoleMembership> {
+        if command.should_be_member {
+            server.add_role_to_user(command.user, command.role).await
         } else {
-            let value = self
-                .database
-                .reduce_by_name(&view, key, access_policy)
-                .await?;
-            Ok(Response::Database(DatabaseResponse::ViewReduction(
-                Bytes::from(value),
-            )))
+            server
+                .remove_role_from_user(command.user, command.role)
+                .await
         }
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
-    for DatabaseDispatcher<'s, B>
-{
+impl<B: Backend> CustomApiHandler<B, Get> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        transaction: Transaction,
-    ) -> Result<Response, Error> {
-        let results = self.database.apply_transaction(transaction).await?;
-        Ok(Response::Database(DatabaseResponse::TransactionResults(
-            results,
-        )))
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: Get,
+    ) -> DispatcherResult<Get> {
+        let database = server.database_without_schema(&command.database).await?;
+        database
+            .get_from_collection(command.id, &command.collection)
+            .await
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::DeleteDocsHandler for DatabaseDispatcher<'s, B> {
+impl<B: Backend> CustomApiHandler<B, GetMultiple> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        view: ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Response, Error> {
-        let count = self
-            .database
-            .delete_docs_by_name(&view, key, access_policy)
-            .await?;
-        Ok(Response::Database(DatabaseResponse::Count(count)))
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: GetMultiple,
+    ) -> DispatcherResult<GetMultiple> {
+        let database = server.database_without_schema(&command.database).await?;
+        database
+            .get_multiple_from_collection(&command.ids, &command.collection)
+            .await
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
-    for DatabaseDispatcher<'s, B>
-{
+impl<B: Backend> CustomApiHandler<B, List> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        starting_id: Option<u64>,
-        result_limit: Option<u32>,
-    ) -> Result<Response, Error> {
-        Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
-            self.database
-                .list_executed_transactions(starting_id, result_limit)
-                .await?,
-        )))
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: List,
+    ) -> DispatcherResult<List> {
+        let database = server.database_without_schema(&command.database).await?;
+        database
+            .list_from_collection(
+                command.ids,
+                command.order,
+                command.limit,
+                &command.collection,
+            )
+            .await
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::LastTransactionIdHandler
-    for DatabaseDispatcher<'s, B>
-{
-    async fn handle(&self, _permissions: &Permissions) -> Result<Response, Error> {
-        Ok(Response::Database(DatabaseResponse::LastTransactionId(
-            self.database.last_transaction_id().await?,
-        )))
+impl<B: Backend> CustomApiHandler<B, Count> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: Count,
+    ) -> DispatcherResult<Count> {
+        let database = server.database_without_schema(&command.database).await?;
+        database
+            .count_from_collection(command.ids, &command.collection)
+            .await
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CreateSubscriberHandler
-    for DatabaseDispatcher<'s, B>
-{
-    async fn handle(&self, _permissions: &Permissions) -> Result<Response, Error> {
-        let subscriber = self.database.create_subscriber().await?;
+impl<B: Backend> CustomApiHandler<B, Query> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: Query,
+    ) -> DispatcherResult<Query> {
+        let database = server.database_without_schema(&command.database).await?;
+        database
+            .query_by_name(
+                &command.view,
+                command.key,
+                command.order,
+                command.limit,
+                command.access_policy,
+            )
+            .await
+    }
+}
+
+#[async_trait]
+impl<B: Backend> CustomApiHandler<B, QueryWithDocs> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: QueryWithDocs,
+    ) -> DispatcherResult<QueryWithDocs> {
+        let database = server.database_without_schema(&command.0.database).await?;
+        database
+            .query_by_name_with_docs(
+                &command.0.view,
+                command.0.key,
+                command.0.order,
+                command.0.limit,
+                command.0.access_policy,
+            )
+            .await
+    }
+}
+
+#[async_trait]
+impl<B: Backend> CustomApiHandler<B, Reduce> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: Reduce,
+    ) -> DispatcherResult<Reduce> {
+        let database = server.database_without_schema(&command.database).await?;
+        database
+            .reduce_by_name(&command.view, command.key, command.access_policy)
+            .await
+            .map(Bytes::from)
+    }
+}
+
+#[async_trait]
+impl<B: Backend> CustomApiHandler<B, ReduceGrouped> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: ReduceGrouped,
+    ) -> DispatcherResult<ReduceGrouped> {
+        let database = server.database_without_schema(&command.0.database).await?;
+        database
+            .reduce_grouped_by_name(&command.0.view, command.0.key, command.0.access_policy)
+            .await
+    }
+}
+
+#[async_trait]
+impl<B: Backend> CustomApiHandler<B, ApplyTransaction> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: ApplyTransaction,
+    ) -> DispatcherResult<ApplyTransaction> {
+        let database = server.database_without_schema(&command.database).await?;
+        database.apply_transaction(command.transaction).await
+    }
+}
+
+#[async_trait]
+impl<B: Backend> CustomApiHandler<B, DeleteDocs> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: DeleteDocs,
+    ) -> DispatcherResult<DeleteDocs> {
+        let database = server.database_without_schema(&command.database).await?;
+        database
+            .delete_docs_by_name(&command.view, command.key, command.access_policy)
+            .await
+    }
+}
+
+#[async_trait]
+impl<B: Backend> CustomApiHandler<B, ListExecutedTransactions> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: ListExecutedTransactions,
+    ) -> DispatcherResult<ListExecutedTransactions> {
+        let database = server.database_without_schema(&command.database).await?;
+        database
+            .list_executed_transactions(command.starting_id, command.result_limit)
+            .await
+    }
+}
+
+#[async_trait]
+impl<B: Backend> CustomApiHandler<B, LastTransactionId> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: LastTransactionId,
+    ) -> DispatcherResult<LastTransactionId> {
+        let database = server.database_without_schema(&command.database).await?;
+        database.last_transaction_id().await
+    }
+}
+
+#[async_trait]
+impl<B: Backend> CustomApiHandler<B, CreateSubscriber> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        client: &ConnectedClient<B>,
+        command: CreateSubscriber,
+    ) -> DispatcherResult<CreateSubscriber> {
+        let database = server.database_without_schema(&command.database).await?;
+        let subscriber = database.create_subscriber().await?;
         let subscriber_id = subscriber.id();
 
-        self.client.register_subscriber(
-            subscriber,
-            self.database
-                .server
-                .session()
-                .and_then(|session| session.id),
-        );
+        client.register_subscriber(subscriber, server.session().and_then(|session| session.id));
 
-        Ok(Response::Database(DatabaseResponse::SubscriberCreated {
-            subscriber_id,
-        }))
+        Ok(subscriber_id)
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::PublishHandler for DatabaseDispatcher<'s, B> {
+impl<B: Backend> CustomApiHandler<B, Publish> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        topic: String,
-        payload: Bytes,
-    ) -> Result<Response, Error> {
-        self.database
-            .publish_bytes(&topic, payload.into_vec())
-            .await?;
-        Ok(Response::Ok)
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: Publish,
+    ) -> DispatcherResult<Publish> {
+        let database = server.database_without_schema(&command.database).await?;
+        database
+            .publish_bytes(&command.topic, command.payload.into_vec())
+            .await
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::PublishToAllHandler for DatabaseDispatcher<'s, B> {
+impl<B: Backend> CustomApiHandler<B, PublishToAll> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        topics: Vec<String>,
-        payload: Bytes,
-    ) -> Result<Response, Error> {
-        self.database
-            .publish_bytes_to_all(topics, payload.into_vec())
-            .await?;
-        Ok(Response::Ok)
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: PublishToAll,
+    ) -> DispatcherResult<PublishToAll> {
+        let database = server.database_without_schema(&command.database).await?;
+        database
+            .publish_bytes_to_all(command.topics, command.payload.into_vec())
+            .await
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::SubscribeToHandler for DatabaseDispatcher<'s, B> {
+impl<B: Backend> CustomApiHandler<B, SubscribeTo> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        subscriber_id: u64,
-        topic: String,
-    ) -> Result<Response, Error> {
-        self.client
+        server: &CustomServer<B>,
+        client: &ConnectedClient<B>,
+        command: SubscribeTo,
+    ) -> DispatcherResult<SubscribeTo> {
+        client
             .subscribe_by_id(
-                subscriber_id,
-                topic,
-                self.database
-                    .server
-                    .session()
-                    .and_then(|session| session.id),
+                command.subscriber_id,
+                command.topic,
+                server.session().and_then(|session| session.id),
             )
-            .map(|_| Response::Ok)
+            .map_err(bonsaidb_core::Error::from)
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::UnsubscribeFromHandler
-    for DatabaseDispatcher<'s, B>
-{
+impl<B: Backend> CustomApiHandler<B, UnsubscribeFrom> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        subscriber_id: u64,
-        topic: String,
-    ) -> Result<Response, Error> {
-        self.client
+        server: &CustomServer<B>,
+        client: &ConnectedClient<B>,
+        command: UnsubscribeFrom,
+    ) -> DispatcherResult<UnsubscribeFrom> {
+        client
             .unsubscribe_by_id(
-                subscriber_id,
-                &topic,
-                self.database
-                    .server
-                    .session()
-                    .and_then(|session| session.id),
+                command.subscriber_id,
+                &command.topic,
+                server.session().and_then(|session| session.id),
             )
-            .map(|_| Response::Ok)
+            .map_err(bonsaidb_core::Error::from)
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::UnregisterSubscriberHandler
-    for DatabaseDispatcher<'s, B>
-{
+impl<B: Backend> CustomApiHandler<B, UnregisterSubscriber> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        subscriber_id: u64,
-    ) -> Result<Response, Error> {
-        self.client
+        server: &CustomServer<B>,
+        client: &ConnectedClient<B>,
+        command: UnregisterSubscriber,
+    ) -> DispatcherResult<UnregisterSubscriber> {
+        client
             .unregister_subscriber_by_id(
-                subscriber_id,
-                self.database
-                    .server
-                    .session()
-                    .and_then(|session| session.id),
+                command.subscriber_id,
+                server.session().and_then(|session| session.id),
             )
-            .map(|_| Response::Ok)
+            .map_err(bonsaidb_core::Error::from)
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
-    for DatabaseDispatcher<'s, B>
-{
+impl<B: Backend> CustomApiHandler<B, ExecuteKeyOperation> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        op: KeyOperation,
-    ) -> Result<Response, Error> {
-        let result = self.database.execute_key_operation(op).await?;
-        Ok(Response::Database(DatabaseResponse::KvOutput(result)))
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: ExecuteKeyOperation,
+    ) -> DispatcherResult<ExecuteKeyOperation> {
+        let database = server.database_without_schema(&command.database).await?;
+        database.execute_key_operation(command.op).await
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CompactCollectionHandler
-    for DatabaseDispatcher<'s, B>
-{
+impl<B: Backend> CustomApiHandler<B, CompactCollection> for ServerDispatcher {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-        collection: CollectionName,
-    ) -> Result<Response, Error> {
-        self.database.compact_collection_by_name(collection).await?;
-
-        Ok(Response::Ok)
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: CompactCollection,
+    ) -> DispatcherResult<CompactCollection> {
+        let database = server.database_without_schema(&command.database).await?;
+        database.compact_collection_by_name(command.name).await
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CompactKeyValueStoreHandler
-    for DatabaseDispatcher<'s, B>
-{
-    async fn handle(&self, _permissions: &Permissions) -> Result<Response, Error> {
-        self.database.compact_key_value_store().await?;
-
-        Ok(Response::Ok)
+impl<B: Backend> CustomApiHandler<B, CompactKeyValueStore> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: CompactKeyValueStore,
+    ) -> DispatcherResult<CompactKeyValueStore> {
+        let database = server.database_without_schema(&command.database).await?;
+        database.compact_key_value_store().await
     }
 }
 
 #[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CompactHandler for DatabaseDispatcher<'s, B> {
-    async fn handle(&self, _permissions: &Permissions) -> Result<Response, Error> {
-        self.database.compact().await?;
-
-        Ok(Response::Ok)
+impl<B: Backend> CustomApiHandler<B, Compact> for ServerDispatcher {
+    async fn handle(
+        server: &CustomServer<B>,
+        _client: &ConnectedClient<B>,
+        command: Compact,
+    ) -> DispatcherResult<Compact> {
+        let database = server.database_without_schema(&command.database).await?;
+        database.compact().await
     }
 }

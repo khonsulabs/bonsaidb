@@ -24,7 +24,7 @@ pub enum Error {
     #[error("unexpected disconnection")]
     Core(#[from] bonsaidb_core::Error),
 
-    /// An error from a `CustomApi`. The actual error is still serialized, as it
+    /// An error from a `Api`. The actual error is still serialized, as it
     /// could be any type.
     #[error("api {name} error")]
     Api {
@@ -123,4 +123,13 @@ pub enum ApiError<T> {
     /// An error from BonsaiDb occurred.
     #[error("client error: {0}")]
     Client(#[from] Error),
+}
+
+impl From<ApiError<Self>> for bonsaidb_core::Error {
+    fn from(error: ApiError<Self>) -> Self {
+        match error {
+            ApiError::Api(err) => err,
+            ApiError::Client(err) => Self::from(err),
+        }
+    }
 }

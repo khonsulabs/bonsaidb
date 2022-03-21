@@ -32,7 +32,7 @@ name = "simultaneous-connections"
 required-features = ["server", "client"]
 
 [[test]]
-name = "custom-api"
+name = "apis"
 required-features = ["server", "client"]
 
 [features]

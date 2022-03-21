@@ -1,9 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bonsaidb_core::{
-    networking::{Payload, Request, Response},
-    schema::Name,
-};
+use bonsaidb_core::{networking::Payload, schema::Name};
 use bonsaidb_utils::fast_async_lock;
 use fabruic::{self, Certificate, Endpoint};
 use flume::Receiver;
@@ -40,7 +37,6 @@ pub async fn reconnecting_client_loop(
             request,
             &request_receiver,
             custom_apis.clone(),
-            &subscribers,
         )
         .await
         {
@@ -61,7 +57,6 @@ async fn connect_and_process(
     initial_request: PendingRequest,
     request_receiver: &Receiver<PendingRequest>,
     custom_apis: Arc<HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>>,
-    subscribers: &SubscriberMap,
 ) -> Result<(), (Option<PendingRequest>, Error)> {
     let (_connection, payload_sender, payload_receiver) =
         match connect(url, certificate, protocol_version).await {
@@ -74,7 +69,6 @@ async fn connect_and_process(
         outstanding_requests.clone(),
         payload_receiver,
         custom_apis,
-        subscribers.clone(),
     ));
 
     if let Err(err) = payload_sender.send(&initial_request.request) {
@@ -114,7 +108,7 @@ async fn connect_and_process(
 async fn process_requests(
     outstanding_requests: OutstandingRequestMapHandle,
     request_receiver: &Receiver<PendingRequest>,
-    payload_sender: fabruic::Sender<Payload<Request>>,
+    payload_sender: fabruic::Sender<Payload>,
 ) -> Result<(), Error> {
     while let Ok(client_request) = request_receiver.recv_async().await {
         let mut outstanding_requests = fast_async_lock!(outstanding_requests);
@@ -131,14 +125,12 @@ async fn process_requests(
 
 pub async fn process(
     outstanding_requests: OutstandingRequestMapHandle,
-    mut payload_receiver: fabruic::Receiver<Payload<Response>>,
+    mut payload_receiver: fabruic::Receiver<Payload>,
     custom_apis: Arc<HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>>,
-    subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
         let payload = payload?;
-        super::process_response_payload(payload, &outstanding_requests, &custom_apis, &subscribers)
-            .await;
+        super::process_response_payload(payload, &outstanding_requests, &custom_apis).await;
     }
 
     Err(Error::Disconnected)
@@ -151,8 +143,8 @@ async fn connect(
 ) -> Result<
     (
         fabruic::Connection<()>,
-        fabruic::Sender<Payload<Request>>,
-        fabruic::Receiver<Payload<Response>>,
+        fabruic::Sender<Payload>,
+        fabruic::Receiver<Payload>,
     ),
     Error,
 > {

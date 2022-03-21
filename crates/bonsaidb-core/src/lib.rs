@@ -34,7 +34,7 @@ pub mod transaction;
 pub mod keyvalue;
 
 /// Traits for tailoring a server.
-pub mod custom_api;
+pub mod api;
 
 /// Key trait and related types.
 pub mod key;

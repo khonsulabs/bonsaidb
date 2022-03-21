@@ -1,8 +1,5 @@
 use async_trait::async_trait;
-use bonsaidb_core::{
-    keyvalue::AsyncKeyValue,
-    networking::{DatabaseRequest, DatabaseResponse, Request, Response},
-};
+use bonsaidb_core::{keyvalue::AsyncKeyValue, networking::ExecuteKeyOperation};
 
 #[async_trait]
 impl AsyncKeyValue for super::RemoteDatabase {
@@ -10,19 +7,13 @@ impl AsyncKeyValue for super::RemoteDatabase {
         &self,
         op: bonsaidb_core::keyvalue::KeyOperation,
     ) -> Result<bonsaidb_core::keyvalue::Output, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&ExecuteKeyOperation {
                 database: self.name.to_string(),
-                request: DatabaseRequest::ExecuteKeyOperation(op),
+
+                op,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::KvOutput(output)) => Ok(output),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 }

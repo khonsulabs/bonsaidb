@@ -17,12 +17,13 @@ use async_trait::async_trait;
 use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
+    api::{self, ApiResult},
+    arc_bytes::serde::Bytes,
     connection::{self, AsyncConnection, AsyncStorageConnection, Identity, Session, SessionId},
-    custom_api::{CustomApi, CustomApiResult},
-    networking::{self, Payload, Request, Response, CURRENT_PROTOCOL_VERSION},
+    networking::{self, Payload, CURRENT_PROTOCOL_VERSION},
     permissions::{
         bonsai::{bonsaidb_resource_name, BonsaiAction, ServerAction},
-        Dispatcher, Permissions,
+        Permissions,
     },
     schema::{self, Name, Nameable, NamedCollection, Schema},
 };
@@ -42,9 +43,9 @@ use tokio::sync::{oneshot, Notify};
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
 use crate::{
+    api::AnyCustomApiHandler,
     backend::ConnectionHandling,
-    custom_api::AnyCustomApiDispatcher,
-    dispatch::ServerDispatcher,
+    dispatch::{register_api_handlers, ServerDispatcher},
     error::Error,
     hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
     server::shutdown::{Shutdown, ShutdownState},
@@ -102,7 +103,7 @@ struct Data<B: Backend = NoBackend> {
     client_simultaneous_request_limit: usize,
     primary_tls_key: CachedCertifiedKey,
     primary_domain: String,
-    custom_apis: parking_lot::RwLock<HashMap<Name, Arc<dyn AnyCustomApiDispatcher<B>>>>,
+    custom_apis: parking_lot::RwLock<HashMap<Name, Arc<dyn AnyCustomApiHandler<B>>>>,
     #[cfg(feature = "acme")]
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
@@ -130,16 +131,14 @@ impl Deref for CachedCertifiedKey {
 impl<B: Backend> CustomServer<B> {
     /// Opens a server using `directory` for storage.
     pub async fn open(configuration: ServerConfiguration<B>) -> Result<Self, Error> {
+        let configuration = register_api_handlers(configuration)?;
         let (request_sender, request_receiver) = flume::unbounded::<ClientRequest<B>>();
         for _ in 0..configuration.request_workers {
             let request_receiver = request_receiver.clone();
             tokio::task::spawn(async move {
                 while let Ok(mut client_request) = request_receiver.recv_async().await {
                     let request = client_request.request.take().unwrap();
-                    let session = client_request
-                        .client
-                        .session(request.session_id)
-                        .unwrap_or_else(|| client_request.server.data.default_session.clone());
+                    let session = client_request.session.clone();
                     // TODO we should be able to upgrade a session-less Storage to one with a Session.
                     // The Session needs to be looked up from the client based on the request's session id.
                     let result = match client_request.server.storage.assume_session(session) {
@@ -148,18 +147,18 @@ impl<B: Backend> CustomServer<B> {
                                 data: client_request.server.data.clone(),
                                 storage,
                             };
-                            ServerDispatcher {
-                                server: &server,
-                                client: &client_request.client,
-                            }
-                            .dispatch(&client_request.session.permissions, request.wrapped)
+                            ServerDispatcher::dispatch_api_request(
+                                &server,
+                                &client_request.client,
+                                &request.name,
+                                request.value.unwrap(),
+                            )
                             .await
                             .map_err(bonsaidb_core::Error::from)
-                            .unwrap_or_else(Response::Error)
                         }
-                        Err(err) => Response::Error(err),
+                        Err(err) => Err(err),
                     };
-                    drop(client_request.result_sender.send(result));
+                    drop(client_request.result_sender.send((request.name, result)));
                 }
             });
         }
@@ -229,7 +228,7 @@ impl<B: Backend> CustomServer<B> {
     pub(crate) fn custom_api_dispatcher(
         &self,
         name: &Name,
-    ) -> Option<Arc<dyn AnyCustomApiDispatcher<B>>> {
+    ) -> Option<Arc<dyn AnyCustomApiHandler<B>>> {
         let dispatchers = self.data.custom_apis.read();
         dispatchers.get(name).cloned()
     }
@@ -425,7 +424,7 @@ impl<B: Backend> CustomServer<B> {
     }
 
     /// Sends a custom API response to all connected clients.
-    pub async fn broadcast<Api: CustomApi>(&self, response: &CustomApiResult<Api>) {
+    pub async fn broadcast<Api: api::Api>(&self, response: &ApiResult<Api>) {
         let clients = fast_async_read!(self.data.clients);
         for client in clients.values() {
             // TODO should this broadcast to all sessions too rather than only the global session?
@@ -437,7 +436,7 @@ impl<B: Backend> CustomServer<B> {
         &self,
         transport: Transport,
         address: SocketAddr,
-        sender: Sender<(Option<SessionId>, Response)>,
+        sender: Sender<(Option<SessionId>, Name, Bytes)>,
     ) -> Option<OwnedClient<B>> {
         if !self.data.default_session.allowed_to(
             &bonsaidb_resource_name(),
@@ -496,7 +495,7 @@ impl<B: Backend> CustomServer<B> {
             };
 
             match incoming
-                .accept::<networking::Payload<Response>, networking::Payload<Request>>()
+                .accept::<networking::Payload, networking::Payload>()
                 .await
             {
                 Ok((sender, receiver)) => {
@@ -511,14 +510,15 @@ impl<B: Backend> CustomServer<B> {
                     {
                         let task_sender = sender.clone();
                         tokio::spawn(async move {
-                            while let Ok((session_id, response)) =
+                            while let Ok((session_id, name, bytes)) =
                                 api_response_receiver.recv_async().await
                             {
                                 if task_sender
                                     .send(&Payload {
                                         id: None,
                                         session_id,
-                                        wrapped: response,
+                                        name,
+                                        value: Ok(bytes),
                                     })
                                     .is_err()
                                 {
@@ -554,8 +554,8 @@ impl<B: Backend> CustomServer<B> {
     async fn handle_client_requests(
         &self,
         client: ConnectedClient<B>,
-        request_receiver: flume::Receiver<Payload<Request>>,
-        response_sender: flume::Sender<Payload<Response>>,
+        request_receiver: flume::Receiver<Payload>,
+        response_sender: flume::Sender<Payload>,
     ) {
         let notify = Arc::new(Notify::new());
         let requests_in_queue = Arc::new(AtomicUsize::new(0));
@@ -585,11 +585,12 @@ impl<B: Backend> CustomServer<B> {
                 let requests_in_queue = requests_in_queue.clone();
                 self.handle_request_through_worker(
                     payload,
-                    move |response| async move {
+                    move |name, value| async move {
                         drop(task_sender.send(Payload {
                             session_id,
                             id,
-                            wrapped: response,
+                            name,
+                            value,
                         }));
 
                         requests_in_queue.fetch_sub(1, Ordering::SeqCst);
@@ -607,11 +608,11 @@ impl<B: Backend> CustomServer<B> {
     }
 
     async fn handle_request_through_worker<
-        F: FnOnce(Response) -> R + Send + 'static,
+        F: FnOnce(Name, Result<Bytes, bonsaidb_core::Error>) -> R + Send + 'static,
         R: Future<Output = Result<(), Error>> + Send,
     >(
         &self,
-        request: Payload<Request>,
+        request: Payload,
         callback: F,
         client: ConnectedClient<B>,
     ) -> Result<(), Error> {
@@ -630,14 +631,14 @@ impl<B: Backend> CustomServer<B> {
             ))
             .map_err(|_| Error::InternalCommunication)?;
         tokio::spawn(async move {
-            let result = result_receiver.await?;
+            let (name, result) = result_receiver.await?;
             // Map the error into a Response::Error. The jobs system supports
             // multiple receivers receiving output, and wraps Err to avoid
             // requiring the error to be cloneable. As such, we have to unwrap
             // it. Thankfully, we can guarantee nothing else is waiting on a
             // response to a request than the original requestor, so this can be
             // safely unwrapped.
-            callback(result).await?;
+            callback(name, result).await?;
             Result::<(), Error>::Ok(())
         });
         Ok(())
@@ -646,8 +647,8 @@ impl<B: Backend> CustomServer<B> {
     async fn handle_stream(
         &self,
         client: OwnedClient<B>,
-        sender: fabruic::Sender<Payload<Response>>,
-        mut receiver: fabruic::Receiver<Payload<Request>>,
+        sender: fabruic::Sender<Payload>,
+        mut receiver: fabruic::Receiver<Payload>,
     ) -> Result<(), Error> {
         let (payload_sender, payload_receiver) = flume::unbounded();
         tokio::spawn(async move {
@@ -659,7 +660,7 @@ impl<B: Backend> CustomServer<B> {
         });
 
         let (request_sender, request_receiver) =
-            flume::bounded::<Payload<Request>>(self.data.client_simultaneous_request_limit);
+            flume::bounded::<Payload>(self.data.client_simultaneous_request_limit);
         let task_self = self.clone();
         tokio::spawn(async move {
             task_self
@@ -771,20 +772,20 @@ impl<B: Backend> Deref for CustomServer<B> {
 
 #[derive(Debug)]
 struct ClientRequest<B: Backend> {
-    request: Option<Payload<Request>>,
+    request: Option<Payload>,
     client: ConnectedClient<B>,
     session: Session,
     server: CustomServer<B>,
-    result_sender: oneshot::Sender<Response>,
+    result_sender: oneshot::Sender<(Name, Result<Bytes, bonsaidb_core::Error>)>,
 }
 
 impl<B: Backend> ClientRequest<B> {
     pub fn new(
-        request: Payload<Request>,
+        request: Payload,
         server: CustomServer<B>,
         client: ConnectedClient<B>,
         session: Session,
-        result_sender: oneshot::Sender<Response>,
+        result_sender: oneshot::Sender<(Name, Result<Bytes, bonsaidb_core::Error>)>,
     ) -> Self {
         Self {
             request: Some(request),

@@ -3,7 +3,7 @@ use std::{collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
-    custom_api::CustomApi,
+    api::{self},
     permissions::Permissions,
     schema::{Name, Schema},
 };
@@ -14,7 +14,7 @@ use bonsaidb_local::config::{Builder, KeyValuePersistence, StorageConfiguration}
 use bonsaidb_local::vault::AnyVaultKeyStorage;
 
 use crate::{
-    custom_api::{AnyCustomApiDispatcher, AnyWrapper, CustomApiDispatcher},
+    api::{AnyCustomApiHandler, AnyWrapper, CustomApiHandler},
     Backend, Error, NoBackend,
 };
 
@@ -40,7 +40,7 @@ pub struct ServerConfiguration<B: Backend = NoBackend> {
     #[cfg(feature = "acme")]
     pub acme: AcmeConfiguration,
 
-    pub(crate) custom_apis: HashMap<Name, Arc<dyn AnyCustomApiDispatcher<B>>>,
+    pub(crate) custom_apis: HashMap<Name, Arc<dyn AnyCustomApiHandler<B>>>,
 }
 
 impl<B: Backend> ServerConfiguration<B> {
@@ -85,27 +85,25 @@ impl<B: Backend> ServerConfiguration<B> {
         self
     }
 
-    /// Registers a `dispatcher` for a [`CustomApi`]. When a [`Request::Api`] is
-    /// received for this [`CustomApi`], the dispatcher will be invoked with the
+    /// Registers a `dispatcher` for a [`Api`]. When a [`Request::Api`] is
+    /// received for this [`Api`], the dispatcher will be invoked with the
     /// incoming request.
-    pub fn register_custom_api<Dispatcher: CustomApiDispatcher<B> + 'static>(
+    pub fn register_custom_api<Dispatcher: CustomApiHandler<B, Api> + 'static, Api: api::Api>(
         &mut self,
-        dispatcher: Dispatcher,
     ) -> Result<(), Error> {
         // TODO this should error on duplicate registration.
         self.custom_apis.insert(
-            <Dispatcher::Api as CustomApi>::name(),
-            Arc::new(AnyWrapper(dispatcher, PhantomData)),
+            Api::name(),
+            Arc::new(AnyWrapper::<Dispatcher, B, Api>(PhantomData)),
         );
         Ok(())
     }
 
     /// Registers the custom api dispatcher and returns self.
-    pub fn with_api<Dispatcher: CustomApiDispatcher<B> + 'static>(
+    pub fn with_api<Dispatcher: CustomApiHandler<B, Api> + 'static, Api: api::Api>(
         mut self,
-        dispatcher: Dispatcher,
     ) -> Result<Self, Error> {
-        self.register_custom_api(dispatcher)?;
+        self.register_custom_api::<Dispatcher, Api>()?;
         Ok(self)
     }
 }

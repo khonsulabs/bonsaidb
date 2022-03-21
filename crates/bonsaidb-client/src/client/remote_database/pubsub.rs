@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     circulate::Message,
-    networking::{DatabaseRequest, DatabaseResponse, Request, Response},
+    networking::{CreateSubscriber, Publish, PublishToAll, SubscribeTo, UnsubscribeFrom},
     pubsub::{AsyncPubSub, AsyncSubscriber},
 };
 use serde::Serialize;
@@ -16,29 +16,21 @@ impl AsyncPubSub for super::RemoteDatabase {
     type Subscriber = RemoteSubscriber;
 
     async fn create_subscriber(&self) -> Result<Self::Subscriber, bonsaidb_core::Error> {
-        match self
+        let subscriber_id = self
             .client
-            .send_request_async(Request::Database {
+            .send_api_request_async(&CreateSubscriber {
                 database: self.name.to_string(),
-                request: DatabaseRequest::CreateSubscriber,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::SubscriberCreated { subscriber_id }) => {
-                let (sender, receiver) = flume::unbounded();
-                self.client.register_subscriber(subscriber_id, sender).await;
-                Ok(RemoteSubscriber {
-                    client: self.client.clone(),
-                    database: self.name.clone(),
-                    id: subscriber_id,
-                    receiver,
-                })
-            }
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?;
+
+        let (sender, receiver) = flume::unbounded();
+        self.client.register_subscriber(subscriber_id, sender).await;
+        Ok(RemoteSubscriber {
+            client: self.client.clone(),
+            database: self.name.clone(),
+            id: subscriber_id,
+            receiver,
+        })
     }
 
     async fn publish<S: Into<String> + Send, P: Serialize + Sync>(
@@ -55,23 +47,14 @@ impl AsyncPubSub for super::RemoteDatabase {
         topic: S,
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .client
-            .send_request_async(Request::Database {
+        self.client
+            .send_api_request_async(&Publish {
                 database: self.name.to_string(),
-                request: DatabaseRequest::Publish {
-                    topic: topic.into(),
-                    payload: Bytes::from(payload),
-                },
+                topic: topic.into(),
+                payload: Bytes::from(payload),
             })
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?;
+        Ok(())
     }
 
     async fn publish_to_all<P: Serialize + Sync>(
@@ -88,23 +71,14 @@ impl AsyncPubSub for super::RemoteDatabase {
         topics: Vec<String>,
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .client
-            .send_request_async(Request::Database {
+        self.client
+            .send_api_request_async(&PublishToAll {
                 database: self.name.to_string(),
-                request: DatabaseRequest::PublishToAll {
-                    topics,
-                    payload: Bytes::from(payload),
-                },
+                topics,
+                payload: Bytes::from(payload),
             })
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?;
+        Ok(())
     }
 }
 
@@ -130,43 +104,25 @@ impl AsyncSubscriber for RemoteSubscriber {
         &self,
         topic: S,
     ) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .client
-            .send_request_async(Request::Database {
+        self.client
+            .send_api_request_async(&SubscribeTo {
                 database: self.database.to_string(),
-                request: DatabaseRequest::SubscribeTo {
-                    subscriber_id: self.id,
-                    topic: topic.into(),
-                },
+                subscriber_id: self.id,
+                topic: topic.into(),
             })
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?;
+        Ok(())
     }
 
     async fn unsubscribe_from(&self, topic: &str) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .client
-            .send_request_async(Request::Database {
+        self.client
+            .send_api_request_async(&UnsubscribeFrom {
                 database: self.database.to_string(),
-                request: DatabaseRequest::UnsubscribeFrom {
-                    subscriber_id: self.id,
-                    topic: topic.to_string(),
-                },
+                subscriber_id: self.id,
+                topic: topic.to_string(),
             })
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?;
+        Ok(())
     }
 
     fn receiver(&self) -> &'_ flume::Receiver<Arc<bonsaidb_core::circulate::Message>> {

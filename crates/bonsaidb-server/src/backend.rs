@@ -2,8 +2,8 @@ use std::fmt::Debug;
 
 use async_trait::async_trait;
 use bonsaidb_core::{
+    api::{ApiError, Infallible},
     connection::Session,
-    custom_api::{CustomApiError, Infallible},
     permissions::PermissionDenied,
     schema::{InsertError, InvalidNameError},
 };
@@ -82,7 +82,7 @@ pub enum ConnectionHandling {
 
 /// An error that can occur inside of a [`Backend`] function.
 #[derive(thiserror::Error, Debug)]
-pub enum BackendError<E: CustomApiError = Infallible> {
+pub enum BackendError<E: ApiError = Infallible> {
     /// A backend-related error.
     #[error("backend error: {0}")]
     Backend(E),
@@ -91,32 +91,32 @@ pub enum BackendError<E: CustomApiError = Infallible> {
     Server(#[from] Error),
 }
 
-impl<E: CustomApiError> From<PermissionDenied> for BackendError<E> {
+impl<E: ApiError> From<PermissionDenied> for BackendError<E> {
     fn from(permission_denied: PermissionDenied) -> Self {
         Self::Server(Error::from(permission_denied))
     }
 }
 
-impl<E: CustomApiError> From<bonsaidb_core::Error> for BackendError<E> {
+impl<E: ApiError> From<bonsaidb_core::Error> for BackendError<E> {
     fn from(err: bonsaidb_core::Error) -> Self {
         Self::Server(Error::from(err))
     }
 }
 
-impl<E: CustomApiError> From<InvalidNameError> for BackendError<E> {
+impl<E: ApiError> From<InvalidNameError> for BackendError<E> {
     fn from(err: InvalidNameError) -> Self {
         Self::Server(Error::from(err))
     }
 }
 
 #[cfg(feature = "websockets")]
-impl<E: CustomApiError> From<bincode::Error> for BackendError<E> {
+impl<E: ApiError> From<bincode::Error> for BackendError<E> {
     fn from(other: bincode::Error) -> Self {
         Self::Server(Error::from(bonsaidb_local::Error::from(other)))
     }
 }
 
-impl<E: CustomApiError> From<pot::Error> for BackendError<E> {
+impl<E: ApiError> From<pot::Error> for BackendError<E> {
     fn from(other: pot::Error) -> Self {
         Self::Server(Error::from(bonsaidb_local::Error::from(other)))
     }
@@ -124,7 +124,7 @@ impl<E: CustomApiError> From<pot::Error> for BackendError<E> {
 
 impl<T, E> From<InsertError<T>> for BackendError<E>
 where
-    E: CustomApiError,
+    E: ApiError,
 {
     fn from(error: InsertError<T>) -> Self {
         Self::Server(Error::from(error.error))

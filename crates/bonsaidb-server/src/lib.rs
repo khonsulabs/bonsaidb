@@ -17,12 +17,13 @@
     clippy::module_name_repetitions,
 )]
 
+/// Types for defining API handlers.
+pub mod api;
 mod backend;
 /// Command-line interface for the server.
 #[cfg(feature = "cli")]
 pub mod cli;
 mod config;
-pub mod custom_api;
 mod dispatch;
 mod error;
 pub(crate) mod hosted;

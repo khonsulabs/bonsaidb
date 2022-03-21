@@ -7,19 +7,20 @@ use std::time::Duration;
 use bonsaidb::{
     client::{url::Url, ApiError, Client},
     core::{
-        actionable::{Actionable, Dispatcher, Permissions},
+        actionable::Permissions,
+        api::{Api, Infallible},
         async_trait::async_trait,
         connection::{AsyncStorageConnection, Authentication, SensitiveString},
-        custom_api::{CustomApi, Infallible},
+        keyvalue::AsyncKeyValue,
         permissions::{
             bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
-            Action, ResourceName, Statement,
+            Action, Identifier, Statement,
         },
         schema::Name,
     },
     local::config::Builder,
     server::{
-        custom_api::{CustomApiDispatcher, DispatchError},
+        api::{CustomApiHandler, DispatcherResult},
         Backend, ConnectedClient, CustomServer, ServerConfiguration,
     },
 };
@@ -30,31 +31,38 @@ use serde::{Deserialize, Serialize};
 pub struct ExampleBackend;
 
 // ANCHOR: api-types
-#[derive(Serialize, Deserialize, Actionable, Debug)]
-#[actionable(actionable = bonsaidb::core::actionable)]
-pub enum Request {
-    #[actionable(protection = "none")]
-    Ping,
-    #[actionable(protection = "simple")]
-    DoSomethingSimple { some_argument: u32 },
-    #[actionable(protection = "custom")]
-    DoSomethingCustom { some_argument: u32 },
-}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Ping;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Response {
-    Pong,
-    DidSomething,
-}
-
-impl CustomApi for Request {
-    type Response = Response;
+impl Api for Ping {
+    type Response = Pong;
     type Error = Infallible;
 
     fn name() -> Name {
-        Name::from("example")
+        Name::from("ping")
     }
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct IncrementCounter {
+    amount: u64,
+}
+
+impl Api for IncrementCounter {
+    type Response = Counter;
+    type Error = Infallible;
+
+    fn name() -> Name {
+        Name::from("something")
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Pong;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Counter(pub u64);
+
 // ANCHOR_END: api-types
 
 // ANCHOR: server-traits
@@ -63,46 +71,20 @@ impl Backend for ExampleBackend {
 }
 
 /// Dispatches Requests and returns Responses.
-#[derive(Debug, Dispatcher)]
-#[dispatcher(input = Request, actionable = bonsaidb::core::actionable)]
-pub struct ExampleDispatcher<B: Backend> {
-    // While this example doesn't use the server reference, this is how a custom
-    // API can gain access to the running server to perform database operations
-    // within the handlers. The `ConnectedClient` can also be cloned and stored
-    // in the dispatcher if handlers need to interact with clients outside of a
-    // simple Request/Response exchange.
-    _server: CustomServer<B>,
-}
-
-pub struct ExampleDispatcherFactory;
-
-impl<B: Backend> CustomApiDispatcher<B> for ExampleDispatcherFactory {
-    type Api = Request;
-    type Dispatcher = ExampleDispatcher<B>;
-
-    fn dispatcher(server: &CustomServer<B>, _client: &ConnectedClient<B>) -> Self::Dispatcher {
-        ExampleDispatcher {
-            _server: server.clone(),
-        }
-    }
-}
-
-#[async_trait]
-impl<B: Backend> RequestDispatcher for ExampleDispatcher<B> {
-    type Output = Response;
-    type Error = DispatchError<Infallible>;
-}
+#[derive(Debug)]
+pub struct ExampleHandler;
 
 /// The Request::Ping variant has `#[actionable(protection = "none")]`, which
 /// causes `PingHandler` to be generated with a single method and no implicit
 /// permission handling.
 #[async_trait]
-impl<B: Backend> PingHandler for ExampleDispatcher<B> {
+impl CustomApiHandler<ExampleBackend, Ping> for ExampleHandler {
     async fn handle(
-        &self,
-        _permissions: &Permissions,
-    ) -> Result<Response, DispatchError<Infallible>> {
-        Ok(Response::Pong)
+        _server: &CustomServer<ExampleBackend>,
+        _client: &ConnectedClient<ExampleBackend>,
+        _request: Ping,
+    ) -> DispatcherResult<Ping> {
+        Ok(Pong)
     }
 }
 // ANCHOR_END: server-traits
@@ -112,71 +94,32 @@ impl<B: Backend> PingHandler for ExampleDispatcher<B> {
 #[derive(Debug, Action)]
 #[action(actionable = bonsaidb::core::actionable)]
 pub enum ExampleActions {
-    DoSomethingSimple,
+    Increment,
     DoSomethingCustom,
 }
 
-/// With `protection = "simple"`, `actionable` will generate a trait that allows
-/// you to return a `ResourceName` and an `Action`, and the handler will
-/// automatically confirm that the connected user has been granted the ability
-/// to perform `Action` against `ResourceName`.
-#[async_trait]
-impl<B: Backend> DoSomethingSimpleHandler for ExampleDispatcher<B> {
-    type Action = ExampleActions;
-
-    async fn resource_name<'a>(
-        &'a self,
-        _some_argument: &'a u32,
-    ) -> Result<ResourceName<'a>, DispatchError<Infallible>> {
-        Ok(ResourceName::named("example"))
+pub async fn increment_counter<S: AsyncStorageConnection<Database = C>, C: AsyncKeyValue>(
+    storage: &S,
+    amount: u64,
+) -> Result<u64, bonsaidb::core::Error> {
+    if let Some(session) = storage.session() {
+        session.check_permission(&[Identifier::from("increment")], &ExampleActions::Increment)?;
     }
-
-    fn action() -> Self::Action {
-        ExampleActions::DoSomethingSimple
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        _some_argument: u32,
-    ) -> Result<Response, DispatchError<Infallible>> {
-        // The permissions have already been checked.
-        Ok(Response::DidSomething)
-    }
+    let database = storage.create_database::<()>("counter", true).await?;
+    database.increment_key_by("counter", amount).await
 }
 
-/// With `protection = "custom"`, `actionable` will generate a trait with two
-/// functions: one to verify the permissions are valid, and one to do the
-/// protected action. This is useful if there are multiple actions or resource
-/// names that need to be checked, or if permissions change based on the
-/// arguments passed.
 #[async_trait]
-impl<B: Backend> DoSomethingCustomHandler for ExampleDispatcher<B> {
-    async fn verify_permissions(
-        &self,
-        permissions: &Permissions,
-        some_argument: &u32,
-    ) -> Result<(), DispatchError<Infallible>> {
-        if *some_argument == 42 {
-            Ok(())
-        } else {
-            permissions.check(
-                ResourceName::named("example"),
-                &ExampleActions::DoSomethingCustom,
-            )?;
-
-            Ok(())
-        }
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        _some_argument: u32,
-    ) -> Result<Response, DispatchError<Infallible>> {
-        // `verify_permissions` has already been executed, so no permissions
-        // logic needs to live here.
-        Ok(Response::DidSomething)
+impl CustomApiHandler<ExampleBackend, IncrementCounter> for ExampleHandler {
+    async fn handle(
+        server: &CustomServer<ExampleBackend>,
+        _client: &ConnectedClient<ExampleBackend>,
+        request: IncrementCounter,
+    ) -> DispatcherResult<IncrementCounter> {
+        Ok(Counter(
+            // TODO allow bubbling up errors
+            increment_counter(server, request.amount).await.unwrap(),
+        ))
     }
 }
 // ANCHOR_END: permission-handles
@@ -195,11 +138,10 @@ async fn main() -> anyhow::Result<()> {
                     ))),
             ))
             .authenticated_permissions(Permissions::from(
-                Statement::for_any()
-                    .allowing(&ExampleActions::DoSomethingSimple)
-                    .allowing(&ExampleActions::DoSomethingCustom),
+                Statement::for_any().allowing(&ExampleActions::Increment),
             ))
-            .with_api(ExampleDispatcherFactory)?,
+            .with_api::<ExampleHandler, Ping>()?
+            .with_api::<ExampleHandler, IncrementCounter>()?,
     )
     .await?;
     // ANCHOR_END: server-init
@@ -247,9 +189,7 @@ async fn main() -> anyhow::Result<()> {
     {
         // To connect over websockets, use the websocket scheme.
         tasks.push(invoke_apis(
-            Client::build(Url::parse("ws://localhost:8080")?)
-                .with_api::<Request>()
-                .finish()?,
+            Client::build(Url::parse("ws://localhost:8080")?).finish()?,
             "websockets",
         ));
     }
@@ -257,7 +197,6 @@ async fn main() -> anyhow::Result<()> {
     // To connect over QUIC, use the bonsaidb scheme.
     tasks.push(invoke_apis(
         Client::build(Url::parse("bonsaidb://localhost")?)
-            .with_api::<Request>()
             .with_certificate(certificate)
             .finish()?,
         "bonsaidb",
@@ -280,7 +219,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
     // Calling DoSomethingSimple and DoSomethingCustom will check permissions, which our client currently doesn't have access to.
     assert!(matches!(
         client
-            .send_api_request_async(&Request::DoSomethingSimple { some_argument: 1 })
+            .send_api_request_async(&IncrementCounter { amount: 1 })
             .await,
         Err(ApiError::Client(bonsaidb::client::Error::Core(
             bonsaidb::core::Error::PermissionDenied(_)
@@ -288,7 +227,7 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
     ));
     assert!(matches!(
         client
-            .send_api_request_async(&Request::DoSomethingCustom { some_argument: 1 })
+            .send_api_request_async(&IncrementCounter { amount: 1 })
             .await,
         Err(ApiError::Client(bonsaidb::client::Error::Core(
             bonsaidb::core::Error::PermissionDenied(_)
@@ -297,9 +236,9 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
     // However, DoSomethingCustom with the argument `42` will succeed, because that argument has special logic in the handler.
     assert!(matches!(
         client
-            .send_api_request_async(&Request::DoSomethingCustom { some_argument: 42 })
+            .send_api_request_async(&IncrementCounter { amount: 1 })
             .await,
-        Ok(Response::DidSomething)
+        Ok(Counter(_))
     ));
 
     // Now, let's authenticate and try calling the APIs that previously were denied permissions
@@ -312,15 +251,15 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
         .unwrap();
     assert!(matches!(
         authenticated_client
-            .send_api_request_async(&Request::DoSomethingSimple { some_argument: 1 })
+            .send_api_request_async(&IncrementCounter { amount: 1 })
             .await,
-        Ok(Response::DidSomething)
+        Ok(Counter(_))
     ));
     assert!(matches!(
         authenticated_client
-            .send_api_request_async(&Request::DoSomethingCustom { some_argument: 1 })
+            .send_api_request_async(&IncrementCounter { amount: 1 })
             .await,
-        Ok(Response::DidSomething)
+        Ok(Counter(_))
     ));
 
     Ok(())
@@ -328,8 +267,8 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
 
 // ANCHOR: api-call
 async fn ping_the_server(client: &Client, client_name: &str) -> Result<(), bonsaidb::core::Error> {
-    match client.send_api_request_async(&Request::Ping).await {
-        Ok(Response::Pong) => {
+    match client.send_api_request_async(&Ping).await {
+        Ok(Pong) => {
             println!("Received Pong from server on {}", client_name);
         }
         other => println!(

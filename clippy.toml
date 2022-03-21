@@ -3,6 +3,7 @@ doc-valid-idents = [
     "WebSockets",
     "WebAssembly",
     "NoSQL",
+    "PubSub",
     # Defaults from Clippy follow:
     "KiB",
     "MiB",

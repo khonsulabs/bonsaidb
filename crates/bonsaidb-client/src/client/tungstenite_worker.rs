@@ -1,9 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bonsaidb_core::{
-    networking::{Payload, Response},
-    schema::Name,
-};
+use bonsaidb_core::{networking::Payload, schema::Name};
 use bonsaidb_utils::fast_async_lock;
 use flume::Receiver;
 use futures::{
@@ -66,12 +63,7 @@ pub async fn reconnecting_client_loop(
 
         if let Err(err) = tokio::try_join!(
             request_sender(&request_receiver, sender, outstanding_requests.clone()),
-            response_processor(
-                receiver,
-                outstanding_requests.clone(),
-                &custom_apis,
-                subscribers.clone()
-            )
+            response_processor(receiver, outstanding_requests.clone(), &custom_apis,)
         ) {
             // Our socket was disconnected, clear the outstanding requests before returning.
             let mut outstanding_requests = fast_async_lock!(outstanding_requests);
@@ -110,21 +102,14 @@ async fn response_processor(
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     outstanding_requests: OutstandingRequestMapHandle,
     custom_apis: &HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
-    subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Some(message) = receiver.next().await {
         let message = message?;
         match message {
             Message::Binary(response) => {
-                let payload = bincode::deserialize::<Payload<Response>>(&response)?;
+                let payload = bincode::deserialize::<Payload>(&response)?;
 
-                super::process_response_payload(
-                    payload,
-                    &outstanding_requests,
-                    custom_apis,
-                    &subscribers,
-                )
-                .await;
+                super::process_response_payload(payload, &outstanding_requests, custom_apis).await;
             }
             other => {
                 log::error!("Unexpected websocket message: {:?}", other);

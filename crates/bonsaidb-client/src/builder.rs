@@ -1,6 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bonsaidb_core::{custom_api::CustomApi, networking::CURRENT_PROTOCOL_VERSION, schema::Name};
+use bonsaidb_core::{
+    api::{self},
+    networking::CURRENT_PROTOCOL_VERSION,
+    schema::Name,
+};
 #[cfg(not(target_arch = "wasm32"))]
 use fabruic::Certificate;
 #[cfg(not(target_arch = "wasm32"))]
@@ -48,17 +52,17 @@ impl Builder {
         self
     }
 
-    /// Enables using a [`CustomApi`] with this client. If you want to receive
+    /// Enables using a [`Api`] with this client. If you want to receive
     /// out-of-band API requests, set a callback using
     /// `with_custom_api_callback` instead.
-    pub fn with_api<Api: CustomApi>(mut self) -> Self {
+    pub fn with_api<Api: api::Api>(mut self) -> Self {
         self.custom_apis.insert(Api::name(), None);
         self
     }
 
-    /// Enables using a [`CustomApi`] with this client. `callback` will be
+    /// Enables using a [`Api`] with this client. `callback` will be
     /// invoked when custom API responses are received from the server.
-    pub fn with_api_callback<Api: CustomApi>(mut self, callback: CustomApiCallback<Api>) -> Self {
+    pub fn with_api_callback<Api: api::Api>(mut self, callback: CustomApiCallback<Api>) -> Self {
         self.custom_apis
             .insert(Api::name(), Some(Arc::new(callback)));
         self

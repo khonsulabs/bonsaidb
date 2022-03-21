@@ -158,6 +158,17 @@ impl AsyncStorage {
             .with_effective_permissions(effective_permissions)
             .map(Self::from)
     }
+
+    #[cfg(feature = "internal-apis")]
+    #[doc(hidden)]
+    pub async fn database_without_schema(&self, name: &str) -> Result<AsyncDatabase, Error> {
+        let name = name.to_owned();
+        let task_self = self.clone();
+        self.runtime
+            .spawn_blocking(move || task_self.storage.database_without_schema(&name))
+            .await?
+            .map(AsyncDatabase::from)
+    }
 }
 
 impl From<Storage> for AsyncStorage {

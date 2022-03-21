@@ -91,11 +91,7 @@ async fn create_websocket(
     );
     ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
 
-    let onmessage_callback = on_message_callback(
-        outstanding_requests,
-        custom_apis.clone(),
-        subscribers.clone(),
-    );
+    let onmessage_callback = on_message_callback(outstanding_requests, custom_apis.clone());
     ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
 
     let onerror_callback =
@@ -202,7 +198,6 @@ async fn send_request(
 fn on_message_callback(
     outstanding_requests: OutstandingRequestMapHandle,
     custom_apis: Arc<HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>>,
-    subscribers: SubscriberMap,
 ) -> JsValue {
     Closure::wrap(Box::new(move |e: MessageEvent| {
         // Handle difference Text/Binary,...
@@ -217,16 +212,9 @@ fn on_message_callback(
             };
 
             let outstanding_requests = outstanding_requests.clone();
-            let subscribers = subscribers.clone();
             let custom_apis = custom_apis.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                super::process_response_payload(
-                    payload,
-                    &outstanding_requests,
-                    &custom_apis,
-                    &subscribers,
-                )
-                .await;
+                super::process_response_payload(payload, &outstanding_requests, &custom_apis).await;
             });
         } else {
             log::warn!("Unexpected WebSocket message received: {:?}", e.data());

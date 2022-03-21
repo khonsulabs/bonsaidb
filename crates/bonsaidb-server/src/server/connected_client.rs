@@ -7,12 +7,13 @@ use std::{
 
 use async_lock::{Mutex, MutexGuard};
 use bonsaidb_core::{
+    api::{self, ApiResult},
     arc_bytes::serde::Bytes,
     circulate::Message,
     connection::{Session, SessionId},
-    custom_api::{CustomApi, CustomApiResult},
-    networking::{DatabaseResponse, Response},
+    networking::MessageReceived,
     pubsub::Subscriber as _,
+    schema::Name,
 };
 use bonsaidb_local::Subscriber;
 use bonsaidb_utils::fast_async_lock;
@@ -45,7 +46,7 @@ struct Data<B: Backend = NoBackend> {
     sessions: RwLock<HashMap<Option<SessionId>, ClientSession>>,
     address: SocketAddr,
     transport: Transport,
-    response_sender: Sender<(Option<SessionId>, Response)>,
+    response_sender: Sender<(Option<SessionId>, Name, Bytes)>,
     client_data: Mutex<Option<B::ClientData>>,
 }
 
@@ -80,18 +81,16 @@ impl<B: Backend> ConnectedClient<B> {
     }
 
     /// Sends a custom API response to the client.
-    pub fn send<Api: CustomApi>(
+    pub fn send<Api: api::Api>(
         &self,
         session: Option<&Session>,
-        response: &CustomApiResult<Api>,
+        response: &ApiResult<Api>,
     ) -> Result<(), Error> {
         let encoded = pot::to_vec(&response)?;
         self.data.response_sender.send((
             session.and_then(|session| session.id),
-            Response::Api {
-                name: Api::name(),
-                response: Bytes::from(encoded),
-            },
+            Api::name(),
+            Bytes::from(encoded),
         ))?;
         Ok(())
     }
@@ -148,18 +147,17 @@ impl<B: Backend> ConnectedClient<B> {
         subscriber_id: u64,
         receiver: flume::Receiver<Arc<Message>>,
     ) {
+        let session = self.session(session_id);
         while let Ok(message) = receiver.recv_async().await {
             if self
-                .data
-                .response_sender
-                .send((
-                    session_id,
-                    Response::Database(DatabaseResponse::MessageReceived {
+                .send::<MessageReceived>(
+                    session.as_ref(),
+                    &Ok(MessageReceived {
                         subscriber_id,
                         topic: message.topic.clone(),
                         payload: Bytes::from(&message.payload[..]),
                     }),
-                ))
+                )
                 .is_err()
             {
                 break;
@@ -252,7 +250,7 @@ impl<B: Backend> OwnedClient<B> {
         id: u32,
         address: SocketAddr,
         transport: Transport,
-        response_sender: Sender<(Option<SessionId>, Response)>,
+        response_sender: Sender<(Option<SessionId>, Name, Bytes)>,
         server: CustomServer<B>,
         default_session: Session,
     ) -> Self {
