@@ -5,30 +5,33 @@ use bonsaidb_core::{
     keyvalue::AsyncKeyValue,
     networking::{
         AlterUserPermissionGroupMembership, AlterUserRoleMembership, ApplyTransaction,
-        AssumeIdentity, Authenticate, Compact, CompactCollection, CompactKeyValueStore, Count,
-        CreateDatabase, CreateSubscriber, CreateUser, DeleteDatabase, DeleteDocs, DeleteUser,
-        ExecuteKeyOperation, Get, GetMultiple, LastTransactionId, List, ListAvailableSchemas,
-        ListDatabases, ListExecutedTransactions, Publish, PublishToAll, Query, QueryWithDocs,
-        Reduce, ReduceGrouped, SetUserPassword, SubscribeTo, UnregisterSubscriber, UnsubscribeFrom,
+        AssumeIdentity, Compact, CompactCollection, CompactKeyValueStore, Count, CreateDatabase,
+        CreateSubscriber, CreateUser, DeleteDatabase, DeleteDocs, DeleteUser, ExecuteKeyOperation,
+        Get, GetMultiple, LastTransactionId, List, ListAvailableSchemas, ListDatabases,
+        ListExecutedTransactions, Publish, PublishToAll, Query, QueryWithDocs, Reduce,
+        ReduceGrouped, SubscribeTo, UnregisterSubscriber, UnsubscribeFrom,
     },
     pubsub::AsyncPubSub,
     schema::ApiName,
 };
+
+#[cfg(feature = "password-hashing")]
+use bonsaidb_core::networking::{Authenticate, SetUserPassword};
 
 use crate::{
     api::{CustomApiHandler, DispatchError, DispatcherResult},
     Backend, ConnectedClient, CustomServer, Error, ServerConfiguration,
 };
 
+#[cfg_attr(not(feature = "password-hashing"), allow(unused_mut))]
 pub fn register_api_handlers<B: Backend>(
     config: ServerConfiguration<B>,
 ) -> Result<ServerConfiguration<B>, Error> {
-    config
+    let mut config = config
         .with_api::<ServerDispatcher, AlterUserPermissionGroupMembership>()?
         .with_api::<ServerDispatcher, AlterUserRoleMembership>()?
         .with_api::<ServerDispatcher, ApplyTransaction>()?
         .with_api::<ServerDispatcher, AssumeIdentity>()?
-        .with_api::<ServerDispatcher, Authenticate>()?
         .with_api::<ServerDispatcher, Compact>()?
         .with_api::<ServerDispatcher, CompactCollection>()?
         .with_api::<ServerDispatcher, CompactKeyValueStore>()?
@@ -53,10 +56,18 @@ pub fn register_api_handlers<B: Backend>(
         .with_api::<ServerDispatcher, QueryWithDocs>()?
         .with_api::<ServerDispatcher, Reduce>()?
         .with_api::<ServerDispatcher, ReduceGrouped>()?
-        .with_api::<ServerDispatcher, SetUserPassword>()?
         .with_api::<ServerDispatcher, SubscribeTo>()?
         .with_api::<ServerDispatcher, UnregisterSubscriber>()?
-        .with_api::<ServerDispatcher, UnsubscribeFrom>()
+        .with_api::<ServerDispatcher, UnsubscribeFrom>()?;
+
+    #[cfg(feature = "password-hashing")]
+    {
+        config = config
+            .with_api::<ServerDispatcher, Authenticate>()?
+            .with_api::<ServerDispatcher, SetUserPassword>()?;
+    }
+
+    Ok(config)
 }
 
 #[derive(Debug)]

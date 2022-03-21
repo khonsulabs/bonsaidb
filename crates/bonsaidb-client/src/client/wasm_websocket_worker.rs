@@ -4,8 +4,8 @@ use std::{
 };
 
 use bonsaidb_core::{
-    networking::{Payload, Response},
-    schema::Name,
+    networking::{Payload},
+    schema::ApiName,
 };
 use bonsaidb_utils::fast_async_lock;
 use flume::Receiver;
@@ -203,7 +203,7 @@ fn on_message_callback(
         // Handle difference Text/Binary,...
         if let Ok(abuf) = e.data().dyn_into::<js_sys::ArrayBuffer>() {
             let array = js_sys::Uint8Array::new(&abuf);
-            let payload = match bincode::deserialize::<Payload<Response>>(&array.to_vec()) {
+            let payload = match bincode::deserialize::<Payload>(&array.to_vec()) {
                 Ok(payload) => payload,
                 Err(err) => {
                     log::error!("error deserializing response: {:?}", err);
