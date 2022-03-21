@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::Api,
-    connection::{AccessPolicy, Database, Identity, QueryKey, Range, Session, SessionId, Sort},
+    connection::{
+        AccessPolicy, Database, IdentityReference, QueryKey, Range, Session, SessionId, Sort,
+    },
     document::{DocumentId, OwnedDocument},
     keyvalue::{KeyOperation, Output},
     schema::{
@@ -165,7 +167,7 @@ impl Api for Authenticate {
 
 /// Assume an identity.
 #[derive(Clone, Deserialize, Serialize, Debug)]
-pub struct AssumeIdentity(pub Identity);
+pub struct AssumeIdentity(pub IdentityReference<'static>);
 
 impl Api for AssumeIdentity {
     type Response = Session;

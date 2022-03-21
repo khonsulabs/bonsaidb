@@ -1,3 +1,5 @@
+#[cfg(feature = "password-hashing")]
+use bonsaidb_core::networking::{Authenticate, SetUserPassword};
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     async_trait::async_trait,
@@ -14,9 +16,6 @@ use bonsaidb_core::{
     pubsub::AsyncPubSub,
     schema::ApiName,
 };
-
-#[cfg(feature = "password-hashing")]
-use bonsaidb_core::networking::{Authenticate, SetUserPassword};
 
 use crate::{
     api::{CustomApiHandler, DispatchError, DispatcherResult},

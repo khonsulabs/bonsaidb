@@ -19,7 +19,9 @@ use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
     api::{self, ApiResult},
     arc_bytes::serde::Bytes,
-    connection::{self, AsyncConnection, AsyncStorageConnection, Identity, Session, SessionId},
+    connection::{
+        self, AsyncConnection, AsyncStorageConnection, IdentityReference, Session, SessionId,
+    },
     networking::{self, Payload, CURRENT_PROTOCOL_VERSION},
     permissions::{
         bonsai::{bonsaidb_resource_name, BonsaiAction, ServerAction},
@@ -879,7 +881,7 @@ impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
 
     async fn assume_identity(
         &self,
-        identity: Identity,
+        identity: IdentityReference<'_>,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let storage = self.storage.assume_identity(identity).await?;
         Ok(Self {

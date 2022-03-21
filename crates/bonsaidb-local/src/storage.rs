@@ -21,7 +21,8 @@ use bonsaidb_core::{
     },
     circulate,
     connection::{
-        self, Connection, Identity, LowLevelConnection, Session, SessionId, StorageConnection,
+        self, Connection, Identity, IdentityReference, LowLevelConnection, Session, SessionId,
+        StorageConnection,
     },
     document::CollectionDocument,
     permissions::{
@@ -31,7 +32,7 @@ use bonsaidb_core::{
         },
         Action, Identifier, Permissions,
     },
-    schema::{Nameable, NamedCollection, Schema, SchemaName, Schematic, SerializedCollection},
+    schema::{Nameable, NamedCollection, Schema, SchemaName, Schematic},
 };
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::{connection::Authentication, permissions::bonsai::AuthenticationMethod};
@@ -948,13 +949,13 @@ impl StorageConnection for StorageInstance {
 
     fn assume_identity(
         &self,
-        identity: Identity,
+        identity: IdentityReference<'_>,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let admin = self.admin();
         match identity {
-            Identity::User { id, .. } => {
+            IdentityReference::User(user) => {
                 let user =
-                    User::get(id, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+                    User::load(user, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
                 self.assume_user(user, &admin).map(Storage::from)
             }
             _ => todo!(),
@@ -1172,17 +1173,17 @@ impl StorageConnection for Storage {
 
     fn assume_identity(
         &self,
-        identity: Identity,
+        identity: IdentityReference<'_>,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         match identity {
-            Identity::User { id, .. } => {
-                self.check_permission(
-                    user_resource_name(id),
-                    &BonsaiAction::Server(ServerAction::AssumeIdentity),
-                )?;
+            IdentityReference::User(user) => {
                 let admin = self.admin();
                 let user =
-                    User::load(id, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+                    User::load(user, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+                self.check_permission(
+                    user_resource_name(user.header.id),
+                    &BonsaiAction::Server(ServerAction::AssumeIdentity),
+                )?;
                 self.instance.assume_user(user, &admin)
             }
 

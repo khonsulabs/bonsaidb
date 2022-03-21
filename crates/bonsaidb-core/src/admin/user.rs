@@ -3,11 +3,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     admin::{group, role},
-    connection::{AsyncConnection, Connection, SensitiveString},
+    connection::{
+        AsyncConnection, AsyncStorageConnection, Connection, IdentityReference, SensitiveString,
+        StorageConnection,
+    },
     define_basic_unique_mapped_view,
     document::{CollectionDocument, Emit, KeyId},
     permissions::Permissions,
-    schema::{Collection, NamedCollection, SerializedCollection},
+    schema::{Collection, NamedCollection, NamedReference, SerializedCollection},
 };
 
 /// A user that can authenticate with BonsaiDb.
@@ -32,6 +35,22 @@ pub struct User {
 }
 
 impl User {
+    pub fn assume_identity<'name, Storage: StorageConnection>(
+        name_or_id: impl Into<NamedReference<'name, u64>>,
+        storage: &Storage,
+    ) -> Result<Storage::Authenticated, crate::Error> {
+        storage.assume_identity(IdentityReference::User(name_or_id.into()))
+    }
+
+    pub async fn assume_identity_async<'name, Storage: AsyncStorageConnection>(
+        name_or_id: impl Into<NamedReference<'name, u64>> + Send,
+        storage: &Storage,
+    ) -> Result<Storage::Authenticated, crate::Error> {
+        storage
+            .assume_identity(IdentityReference::User(name_or_id.into()))
+            .await
+    }
+
     /// Returns a default user with the given username.
     pub fn default_with_username(username: impl Into<String>) -> Self {
         Self {

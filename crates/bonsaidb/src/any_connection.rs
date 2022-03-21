@@ -6,7 +6,7 @@ use bonsaidb_core::{
     async_trait::async_trait,
     connection::{
         self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
-        Identity, QueryKey, Range, Session, Sort,
+        IdentityReference, QueryKey, Range, Session, Sort,
     },
     document::{DocumentId, OwnedDocument},
     schema::{
@@ -147,7 +147,7 @@ impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
 
     async fn assume_identity(
         &self,
-        identity: Identity,
+        identity: IdentityReference<'_>,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.assume_identity(identity).await.map(Self::Local),

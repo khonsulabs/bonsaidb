@@ -16,7 +16,7 @@ use crate::{
     schema::{
         self,
         view::{self, map::MappedDocuments},
-        Map, MappedValue, Nameable, Schema, SchemaName, SerializedCollection,
+        Map, MappedValue, Nameable, NamedReference, Schema, SchemaName, SerializedCollection,
     },
     transaction::{self},
     Error,
@@ -2465,7 +2465,10 @@ pub trait StorageConnection: Sized + Send + Sync {
     /// Assumes the `identity`. If successful, the returned instance will have
     /// the merged permissions of the current authentication session and the
     /// permissions from `identity`.
-    fn assume_identity(&self, identity: Identity) -> Result<Self::Authenticated, crate::Error>;
+    fn assume_identity(
+        &self,
+        identity: IdentityReference<'_>,
+    ) -> Result<Self::Authenticated, crate::Error>;
 
     /// Adds a user to a permission group.
     fn add_permission_group_to_user<
@@ -2613,7 +2616,7 @@ pub trait AsyncStorageConnection: Sized + Send + Sync {
     /// permissions from `identity`.
     async fn assume_identity(
         &self,
-        identity: Identity,
+        identity: IdentityReference<'_>,
     ) -> Result<Self::Authenticated, crate::Error>;
 
     /// Adds a user to a permission group.
@@ -2878,6 +2881,25 @@ impl std::hash::Hash for Identity {
                 0_u8.hash(state); // "Tag" for the variant
                 id.hash(state);
             }
+        }
+    }
+}
+
+/// A reference to an identity.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum IdentityReference<'name> {
+    /// A reference to a [`User`](crate::admin::User).
+    User(NamedReference<'name, u64>),
+    // for role assumption someday: Role(NamedReference<'name, u64>),
+}
+
+impl<'name> IdentityReference<'name> {
+    /// Converts this reference to an owned reference with a `'static` lifetime.
+    #[must_use]
+    pub fn into_owned(self) -> IdentityReference<'static> {
+        match self {
+            IdentityReference::User(user) => IdentityReference::User(user.into_owned()),
         }
     }
 }

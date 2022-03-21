@@ -19,7 +19,7 @@ use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
     api::{self, Api},
     arc_bytes::{serde::Bytes, OwnedBytes},
-    connection::{AsyncStorageConnection, Database, Identity, Session},
+    connection::{AsyncStorageConnection, Database, IdentityReference, Session},
     networking::{
         AlterUserPermissionGroupMembership, AlterUserRoleMembership, AssumeIdentity,
         CreateDatabase, CreateUser, DeleteDatabase, DeleteUser, ListAvailableSchemas,
@@ -672,10 +672,10 @@ impl AsyncStorageConnection for Client {
 
     async fn assume_identity(
         &self,
-        identity: Identity,
+        identity: IdentityReference<'_>,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let session = self
-            .send_api_request_async(&AssumeIdentity(identity))
+            .send_api_request_async(&AssumeIdentity(identity.into_owned()))
             .await?;
         Ok(Self {
             data: self.data.clone(),

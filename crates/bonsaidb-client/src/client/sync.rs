@@ -1,7 +1,7 @@
 use bonsaidb_core::{
     connection::{
         AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection, Connection,
-        LowLevelConnection, StorageConnection,
+        IdentityReference, LowLevelConnection, StorageConnection,
     },
     keyvalue::{AsyncKeyValue, KeyValue},
     pubsub::{AsyncPubSub, AsyncSubscriber, PubSub, Subscriber},
@@ -106,7 +106,7 @@ impl StorageConnection for Client {
 
     fn assume_identity(
         &self,
-        identity: bonsaidb_core::connection::Identity,
+        identity: IdentityReference<'_>,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         self.tokio()
             .block_on(async { AsyncStorageConnection::assume_identity(self, identity).await })

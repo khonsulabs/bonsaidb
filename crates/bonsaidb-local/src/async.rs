@@ -8,7 +8,7 @@ use bonsaidb_core::{
     circulate,
     connection::{
         self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
-        Connection, Identity, LowLevelConnection, QueryKey, Range, Session, Sort,
+        Connection, IdentityReference, LowLevelConnection, QueryKey, Range, Session, Sort,
         StorageConnection,
     },
     document::{AnyDocumentId, DocumentId, OwnedDocument},
@@ -403,9 +403,10 @@ impl AsyncStorageConnection for AsyncStorage {
 
     async fn assume_identity(
         &self,
-        identity: Identity,
+        identity: IdentityReference<'_>,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let task_self = self.clone();
+        let identity = identity.into_owned();
         self.runtime
             .spawn_blocking(move || task_self.storage.assume_identity(identity).map(Self::from))
             .await
