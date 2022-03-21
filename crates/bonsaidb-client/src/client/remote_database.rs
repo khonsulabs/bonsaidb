@@ -171,7 +171,7 @@ impl<A: CustomApi> Connection for RemoteDatabase<A> {
             .client
             .send_request(Request::Database {
                 database: self.name.to_string(),
-                request: DatabaseRequest::List {
+                request: DatabaseRequest::ListHeaders {
                     collection: C::collection_name(),
                     ids: ids.into().map_result(|id| id.into().to_document_id())?,
                     order,
