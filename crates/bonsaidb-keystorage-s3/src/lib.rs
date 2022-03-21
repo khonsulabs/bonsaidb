@@ -17,6 +17,7 @@
 //! # use bonsaidb_local::config::{StorageConfiguration, Builder};
 //! # use http::Uri;
 //! #
+//! # async fn test() {
 //! let directory = TestDirectory::new("bonsaidb-keystorage-s3-basic");
 //! let configuration = StorageConfiguration::new(&directory)
 //!     .vault_key_storage(
@@ -25,6 +26,7 @@
 //!         )),
 //!     )
 //!     .default_encryption_key(KeyId::Master);
+//! # }
 //! ```
 //!
 //! The API calls are performed by the [`aws-sdk-s3`](aws_sdk_s3) crate.

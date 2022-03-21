@@ -13,7 +13,10 @@ use bonsaidb::{
         connection::{AsyncStorageConnection, Authentication, SensitiveString},
         keyvalue::AsyncKeyValue,
         permissions::{
-            bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
+            bonsai::{
+                database_resource_name, AuthenticationMethod, BonsaiAction, DatabaseAction,
+                KeyValueAction, ServerAction,
+            },
             Action, Identifier, Statement,
         },
         schema::Name,
@@ -105,7 +108,7 @@ pub async fn increment_counter<S: AsyncStorageConnection<Database = C>, C: Async
     if let Some(session) = storage.session() {
         session.check_permission(&[Identifier::from("increment")], &ExampleActions::Increment)?;
     }
-    let database = storage.create_database::<()>("counter", true).await?;
+    let database = storage.database::<()>("counter").await?;
     database.increment_key_by("counter", amount).await
 }
 
@@ -116,10 +119,7 @@ impl CustomApiHandler<ExampleBackend, IncrementCounter> for ExampleHandler {
         _client: &ConnectedClient<ExampleBackend>,
         request: IncrementCounter,
     ) -> DispatcherResult<IncrementCounter> {
-        Ok(Counter(
-            // TODO allow bubbling up errors
-            increment_counter(server, request.amount).await.unwrap(),
-        ))
+        Ok(Counter(increment_counter(server, request.amount).await?))
     }
 }
 // ANCHOR_END: permission-handles
@@ -137,14 +137,23 @@ async fn main() -> anyhow::Result<()> {
                         AuthenticationMethod::PasswordHash,
                     ))),
             ))
-            .authenticated_permissions(Permissions::from(
+            .authenticated_permissions(Permissions::from(vec![
                 Statement::for_any().allowing(&ExampleActions::Increment),
-            ))
+                // TODO -- these permissions should be granted to the API, not to the user.
+                Statement::for_resource(database_resource_name("counter"))
+                    // TODO -- granular keyvalue permissions?
+                    .allowing(&BonsaiAction::Database(DatabaseAction::KeyValue(
+                        KeyValueAction::ExecuteOperation,
+                    ))),
+            ]))
             .with_api::<ExampleHandler, Ping>()?
-            .with_api::<ExampleHandler, IncrementCounter>()?,
+            .with_api::<ExampleHandler, IncrementCounter>()?
+            .with_schema::<()>()?,
     )
     .await?;
     // ANCHOR_END: server-init
+
+    server.create_database::<()>("counter", true).await?;
 
     // Create a user to allow testing authenticated permissions
     match server.create_user("test-user").await {
@@ -232,13 +241,6 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
         Err(ApiError::Client(bonsaidb::client::Error::Core(
             bonsaidb::core::Error::PermissionDenied(_)
         )))
-    ));
-    // However, DoSomethingCustom with the argument `42` will succeed, because that argument has special logic in the handler.
-    assert!(matches!(
-        client
-            .send_api_request_async(&IncrementCounter { amount: 1 })
-            .await,
-        Ok(Counter(_))
     ));
 
     // Now, let's authenticate and try calling the APIs that previously were denied permissions

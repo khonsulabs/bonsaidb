@@ -62,7 +62,11 @@ where
         request: &[u8],
     ) -> Result<Bytes, Error> {
         let request = pot::from_slice(request)?;
-        let response = T::handle(server, client, request).await;
+        let response = match T::handle(server, client, request).await {
+            Ok(response) => Ok(response),
+            Err(DispatchError::Api(err)) => Err(err),
+            Err(DispatchError::Storage(err)) => return Err(err),
+        };
         Ok(Bytes::from(pot::to_vec(&response)?))
     }
 }
@@ -86,6 +90,12 @@ impl<E: ApiError> From<PermissionDenied> for DispatchError<E> {
 
 impl<E: ApiError> From<bonsaidb_core::Error> for DispatchError<E> {
     fn from(err: bonsaidb_core::Error) -> Self {
+        Self::Storage(Error::from(err))
+    }
+}
+
+impl<E: ApiError> From<bonsaidb_local::Error> for DispatchError<E> {
+    fn from(err: bonsaidb_local::Error) -> Self {
         Self::Storage(Error::from(err))
     }
 }
@@ -120,4 +130,5 @@ where
 
 /// The return type from a [`CustomApiDispatcher`]'s
 /// [`dispatch()`](Dispatcher::dispatch) function.
-pub type DispatcherResult<Api> = Result<<Api as api::Api>::Response, <Api as api::Api>::Error>;
+pub type DispatcherResult<Api> =
+    Result<<Api as api::Api>::Response, DispatchError<<Api as api::Api>::Error>>;

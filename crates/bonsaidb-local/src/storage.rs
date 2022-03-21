@@ -74,19 +74,19 @@ pub use backup::{AnyBackupLocation, BackupLocation};
 ///
 /// ```rust
 /// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_local::core`.
-/// use bonsaidb_core::{connection::StorageConnection, schema::Schema};
+/// use bonsaidb_core::{connection::AsyncStorageConnection, schema::Schema};
 /// // `bonsaidb_local` is re-exported to `bonsaidb::local` if using the omnibus crate.
 /// use bonsaidb_local::{
 ///     config::{Builder, StorageConfiguration},
-///     Database, Storage,
+///     AsyncDatabase, AsyncStorage,
 /// };
 /// # async fn open<MySchema: Schema>() -> anyhow::Result<()> {
 /// // This creates a Storage instance, creates a database, and returns it.
-/// let db = Database::open::<MySchema>(StorageConfiguration::new("my-db.bonsaidb")).await?;
+/// let db = AsyncDatabase::open::<MySchema>(StorageConfiguration::new("my-db.bonsaidb")).await?;
 ///
 /// // This is the equivalent code being executed:
 /// let storage =
-///     Storage::open(StorageConfiguration::new("my-db.bonsaidb").with_schema::<MySchema>()?)
+///     AsyncStorage::open(StorageConfiguration::new("my-db.bonsaidb").with_schema::<MySchema>()?)
 ///         .await?;
 /// storage.create_database::<MySchema>("default", true).await?;
 /// let db = storage.database::<MySchema>("default").await?;
@@ -101,12 +101,12 @@ pub use backup::{AnyBackupLocation, BackupLocation};
 ///
 /// ```rust
 /// use bonsaidb_core::{
-///     connection::StorageConnection,
+///     connection::AsyncStorageConnection,
 ///     schema::{Collection, Schema},
 /// };
 /// use bonsaidb_local::{
 ///     config::{Builder, StorageConfiguration},
-///     Storage,
+///     AsyncStorage,
 /// };
 /// use serde::{Deserialize, Serialize};
 ///
@@ -132,7 +132,7 @@ pub use backup::{AnyBackupLocation, BackupLocation};
 /// }
 ///
 /// # async fn test_fn() -> Result<(), bonsaidb_core::Error> {
-/// let storage = Storage::open(
+/// let storage = AsyncStorage::open(
 ///     StorageConfiguration::new("my-db.bonsaidb")
 ///         .with_schema::<BlogPost>()?
 ///         .with_schema::<MySchema>()?,

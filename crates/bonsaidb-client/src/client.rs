@@ -88,9 +88,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// ```rust
 /// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
 /// # async fn test_fn() -> anyhow::Result<()> {
-/// let client = Client::build(Url::parse("bonsaidb://my-server.com")?)
-///     .finish()
-///     .await?;
+/// let client = Client::build(Url::parse("bonsaidb://my-server.com")?).finish()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -108,8 +106,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 ///     Certificate::from_der(std::fs::read("mydb.bonsaidb/pinned-certificate.der")?)?;
 /// let client = Client::build(Url::parse("bonsaidb://localhost")?)
 ///     .with_certificate(certificate)
-///     .finish()
-///     .await?;
+///     .finish()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -127,9 +124,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// ```rust
 /// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
 /// # async fn test_fn() -> anyhow::Result<()> {
-/// let client = Client::build(Url::parse("ws://localhost")?)
-///     .finish()
-///     .await?;
+/// let client = Client::build(Url::parse("ws://localhost")?).finish()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -139,9 +134,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// ```rust
 /// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
 /// # async fn test_fn() -> anyhow::Result<()> {
-/// let client = Client::build(Url::parse("wss://my-server.com")?)
-///     .finish()
-///     .await?;
+/// let client = Client::build(Url::parse("wss://my-server.com")?).finish()?;
 /// # Ok(())
 /// # }
 /// ```
@@ -154,34 +147,30 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// ```rust
 /// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
 /// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_client::core`.
-/// use bonsaidb_core::custom_api::{CustomApi, Infallible};
+/// use bonsaidb_core::{
+///     api::{Api, Infallible},
+///     schema::Name,
+/// };
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Serialize, Deserialize, Debug)]
-/// pub enum Request {
-///     Ping,
-/// }
+/// pub struct Ping;
 ///
 /// #[derive(Serialize, Deserialize, Clone, Debug)]
-/// pub enum Response {
-///     Pong,
-/// }
+/// pub struct Pong;
 ///
-/// #[derive(Debug)]
-/// pub enum MyApi {}
-///
-/// impl CustomApi for MyApi {
-///     type Request = Request;
-///     type Response = Response;
+/// impl Api for Ping {
+///     type Response = Pong;
 ///     type Error = Infallible;
+///
+///     fn name() -> Name {
+///         Name::from("ping")
+///     }
 /// }
 ///
 /// # async fn test_fn() -> anyhow::Result<()> {
-/// let client = Client::build(Url::parse("bonsaidb://localhost")?)
-///     .with_api::<MyApi>()
-///     .finish()
-///     .await?;
-/// let Response::Pong = client.send_api_request(Request::Ping).await?;
+/// let client = Client::build(Url::parse("bonsaidb://localhost")?).finish()?;
+/// let Pong = client.send_api_request_async(&Ping).await?;
 /// # Ok(())
 /// # }
 /// ```
@@ -193,32 +182,28 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// callback](Builder::with_custom_api_callback):
 ///
 /// ```rust
-/// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
+/// # use bonsaidb_client::{Client, CustomApiCallback, fabruic::Certificate, url::Url};
 /// # // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_client::core`.
-/// # use bonsaidb_core::custom_api::{CustomApi, Infallible};
+/// # use bonsaidb_core::{api::{Api, Infallible}, schema::Name};
 /// # use serde::{Serialize, Deserialize};
 /// # #[derive(Serialize, Deserialize, Debug)]
-/// # pub enum Request {
-/// #     Ping
-/// # }
+/// # pub struct Ping;
 /// # #[derive(Serialize, Deserialize, Clone, Debug)]
-/// # pub enum Response {
-/// #     Pong
-/// # }
-/// # #[derive(Debug)]
-/// # pub enum MyApi {}
-/// # impl CustomApi for MyApi {
-/// #     type Request = Request;
-/// #     type Response = Response;
+/// # pub struct Pong;
+/// # impl Api for Ping {
+/// #     type Response = Pong;
 /// #     type Error = Infallible;
+/// #
+/// #     fn name() -> Name {
+/// #         Name::from("ping")
+/// #     }
 /// # }
 /// # async fn test_fn() -> anyhow::Result<()> {
 /// let client = Client::build(Url::parse("bonsaidb://localhost")?)
-///     .with_api_callback::<MyApi, _>(|result: Result<Response, Infallible>| {
-///         let Response::Pong = result.unwrap();
-///     })
-///     .finish()
-///     .await?;
+///     .with_api_callback(CustomApiCallback::<Ping>::new(|result: Pong| async move {
+///         println!("Received out-of-band Pong");
+///     }))
+///     .finish()?;
 /// # Ok(())
 /// # }
 /// ```

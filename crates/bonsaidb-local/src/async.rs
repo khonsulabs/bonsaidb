@@ -46,7 +46,7 @@ use crate::{
 /// use bonsaidb_core::{connection::AsyncStorageConnection, schema::Schema};
 /// // `bonsaidb_local` is re-exported to `bonsaidb::local` if using the omnibus crate.
 /// use bonsaidb_local::{
-///     config::{AsyncStorageConfiguration, Builder},
+///     config::{Builder, StorageConfiguration},
 ///     AsyncDatabase, AsyncStorage,
 /// };
 /// # async fn open<MySchema: Schema>() -> anyhow::Result<()> {

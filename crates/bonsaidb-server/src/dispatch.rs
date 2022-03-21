@@ -16,7 +16,7 @@ use bonsaidb_core::{
 };
 
 use crate::{
-    api::{CustomApiHandler, DispatcherResult},
+    api::{CustomApiHandler, DispatchError, DispatcherResult},
     Backend, ConnectedClient, CustomServer, Error, ServerConfiguration,
 };
 
@@ -137,7 +137,7 @@ impl<B: Backend> CustomApiHandler<B, ListDatabases> for ServerDispatcher {
         _client: &ConnectedClient<B>,
         _command: ListDatabases,
     ) -> DispatcherResult<ListDatabases> {
-        server.list_databases().await
+        server.list_databases().await.map_err(DispatchError::from)
     }
 }
 
@@ -148,7 +148,10 @@ impl<B: Backend> CustomApiHandler<B, ListAvailableSchemas> for ServerDispatcher 
         _client: &ConnectedClient<B>,
         _command: ListAvailableSchemas,
     ) -> DispatcherResult<ListAvailableSchemas> {
-        server.list_available_schemas().await
+        server
+            .list_available_schemas()
+            .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -159,7 +162,10 @@ impl<B: Backend> CustomApiHandler<B, CreateUser> for ServerDispatcher {
         _client: &ConnectedClient<B>,
         command: CreateUser,
     ) -> DispatcherResult<CreateUser> {
-        server.create_user(&command.username).await
+        server
+            .create_user(&command.username)
+            .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -170,7 +176,10 @@ impl<B: Backend> CustomApiHandler<B, DeleteUser> for ServerDispatcher {
         _client: &ConnectedClient<B>,
         command: DeleteUser,
     ) -> DispatcherResult<DeleteUser> {
-        server.delete_user(command.user).await
+        server
+            .delete_user(command.user)
+            .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -185,6 +194,7 @@ impl<B: Backend> CustomApiHandler<B, SetUserPassword> for ServerDispatcher {
         server
             .set_user_password(command.user, command.password)
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -234,10 +244,12 @@ impl<B: Backend> CustomApiHandler<B, AlterUserPermissionGroupMembership> for Ser
             server
                 .add_permission_group_to_user(command.user, command.group)
                 .await
+                .map_err(DispatchError::from)
         } else {
             server
                 .remove_permission_group_from_user(command.user, command.group)
                 .await
+                .map_err(DispatchError::from)
         }
     }
 }
@@ -250,11 +262,15 @@ impl<B: Backend> CustomApiHandler<B, AlterUserRoleMembership> for ServerDispatch
         command: AlterUserRoleMembership,
     ) -> DispatcherResult<AlterUserRoleMembership> {
         if command.should_be_member {
-            server.add_role_to_user(command.user, command.role).await
+            server
+                .add_role_to_user(command.user, command.role)
+                .await
+                .map_err(DispatchError::from)
         } else {
             server
                 .remove_role_from_user(command.user, command.role)
                 .await
+                .map_err(DispatchError::from)
         }
     }
 }
@@ -270,6 +286,7 @@ impl<B: Backend> CustomApiHandler<B, Get> for ServerDispatcher {
         database
             .get_from_collection(command.id, &command.collection)
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -284,6 +301,7 @@ impl<B: Backend> CustomApiHandler<B, GetMultiple> for ServerDispatcher {
         database
             .get_multiple_from_collection(&command.ids, &command.collection)
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -303,6 +321,7 @@ impl<B: Backend> CustomApiHandler<B, List> for ServerDispatcher {
                 &command.collection,
             )
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -317,6 +336,7 @@ impl<B: Backend> CustomApiHandler<B, Count> for ServerDispatcher {
         database
             .count_from_collection(command.ids, &command.collection)
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -337,6 +357,7 @@ impl<B: Backend> CustomApiHandler<B, Query> for ServerDispatcher {
                 command.access_policy,
             )
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -357,6 +378,7 @@ impl<B: Backend> CustomApiHandler<B, QueryWithDocs> for ServerDispatcher {
                 command.0.access_policy,
             )
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -372,6 +394,7 @@ impl<B: Backend> CustomApiHandler<B, Reduce> for ServerDispatcher {
             .reduce_by_name(&command.view, command.key, command.access_policy)
             .await
             .map(Bytes::from)
+            .map_err(DispatchError::from)
     }
 }
 
@@ -386,6 +409,7 @@ impl<B: Backend> CustomApiHandler<B, ReduceGrouped> for ServerDispatcher {
         database
             .reduce_grouped_by_name(&command.0.view, command.0.key, command.0.access_policy)
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -397,7 +421,10 @@ impl<B: Backend> CustomApiHandler<B, ApplyTransaction> for ServerDispatcher {
         command: ApplyTransaction,
     ) -> DispatcherResult<ApplyTransaction> {
         let database = server.database_without_schema(&command.database).await?;
-        database.apply_transaction(command.transaction).await
+        database
+            .apply_transaction(command.transaction)
+            .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -412,6 +439,7 @@ impl<B: Backend> CustomApiHandler<B, DeleteDocs> for ServerDispatcher {
         database
             .delete_docs_by_name(&command.view, command.key, command.access_policy)
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -426,6 +454,7 @@ impl<B: Backend> CustomApiHandler<B, ListExecutedTransactions> for ServerDispatc
         database
             .list_executed_transactions(command.starting_id, command.result_limit)
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -437,7 +466,10 @@ impl<B: Backend> CustomApiHandler<B, LastTransactionId> for ServerDispatcher {
         command: LastTransactionId,
     ) -> DispatcherResult<LastTransactionId> {
         let database = server.database_without_schema(&command.database).await?;
-        database.last_transaction_id().await
+        database
+            .last_transaction_id()
+            .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -469,6 +501,7 @@ impl<B: Backend> CustomApiHandler<B, Publish> for ServerDispatcher {
         database
             .publish_bytes(&command.topic, command.payload.into_vec())
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -483,6 +516,7 @@ impl<B: Backend> CustomApiHandler<B, PublishToAll> for ServerDispatcher {
         database
             .publish_bytes_to_all(command.topics, command.payload.into_vec())
             .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -499,7 +533,7 @@ impl<B: Backend> CustomApiHandler<B, SubscribeTo> for ServerDispatcher {
                 command.topic,
                 server.session().and_then(|session| session.id),
             )
-            .map_err(bonsaidb_core::Error::from)
+            .map_err(DispatchError::from)
     }
 }
 
@@ -516,7 +550,7 @@ impl<B: Backend> CustomApiHandler<B, UnsubscribeFrom> for ServerDispatcher {
                 &command.topic,
                 server.session().and_then(|session| session.id),
             )
-            .map_err(bonsaidb_core::Error::from)
+            .map_err(DispatchError::from)
     }
 }
 
@@ -532,7 +566,7 @@ impl<B: Backend> CustomApiHandler<B, UnregisterSubscriber> for ServerDispatcher 
                 command.subscriber_id,
                 server.session().and_then(|session| session.id),
             )
-            .map_err(bonsaidb_core::Error::from)
+            .map_err(DispatchError::from)
     }
 }
 
@@ -544,7 +578,10 @@ impl<B: Backend> CustomApiHandler<B, ExecuteKeyOperation> for ServerDispatcher {
         command: ExecuteKeyOperation,
     ) -> DispatcherResult<ExecuteKeyOperation> {
         let database = server.database_without_schema(&command.database).await?;
-        database.execute_key_operation(command.op).await
+        database
+            .execute_key_operation(command.op)
+            .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -556,7 +593,10 @@ impl<B: Backend> CustomApiHandler<B, CompactCollection> for ServerDispatcher {
         command: CompactCollection,
     ) -> DispatcherResult<CompactCollection> {
         let database = server.database_without_schema(&command.database).await?;
-        database.compact_collection_by_name(command.name).await
+        database
+            .compact_collection_by_name(command.name)
+            .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -568,7 +608,10 @@ impl<B: Backend> CustomApiHandler<B, CompactKeyValueStore> for ServerDispatcher 
         command: CompactKeyValueStore,
     ) -> DispatcherResult<CompactKeyValueStore> {
         let database = server.database_without_schema(&command.database).await?;
-        database.compact_key_value_store().await
+        database
+            .compact_key_value_store()
+            .await
+            .map_err(DispatchError::from)
     }
 }
 
@@ -580,6 +623,6 @@ impl<B: Backend> CustomApiHandler<B, Compact> for ServerDispatcher {
         command: Compact,
     ) -> DispatcherResult<Compact> {
         let database = server.database_without_schema(&command.database).await?;
-        database.compact().await
+        database.compact().await.map_err(DispatchError::from)
     }
 }
