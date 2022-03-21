@@ -649,7 +649,7 @@ impl Database {
                     found_headers.push(
                         deserialize_document(&doc)
                             .map(BorrowedDocument::into_owned)
-                            .map(|doc| doc.header.clone())
+                            .map(|doc| doc.header)
                             .map_err(AbortError::Other)?,
                     );
                     Ok(())

@@ -263,7 +263,7 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         &self,
         ids: R,
         order: Sort,
-        limit: Option<usize>,
+        limit: Option<u32>,
     ) -> Result<Vec<Header>, bonsaidb_core::Error>
     where
         C: Collection,
