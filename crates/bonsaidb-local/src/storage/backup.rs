@@ -9,7 +9,7 @@ use bonsaidb_core::{
     admin,
     connection::{LowLevelConnection, Range, Sort, StorageConnection},
     document::DocumentId,
-    schema::{Collection, SchemaName},
+    schema::{Collection, Qualified, SchemaName},
     transaction::{Operation, Transaction},
     AnyError,
 };

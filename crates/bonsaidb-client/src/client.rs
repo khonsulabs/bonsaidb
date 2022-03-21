@@ -26,7 +26,7 @@ use bonsaidb_core::{
         ListDatabases, MessageReceived, Payload, UnregisterSubscriber, CURRENT_PROTOCOL_VERSION,
     },
     permissions::Permissions,
-    schema::{Name, Nameable, Schema, SchemaName, Schematic},
+    schema::{ApiName, Nameable, Schema, SchemaName, Schematic},
 };
 use bonsaidb_utils::fast_async_lock;
 use flume::Sender;
@@ -149,7 +149,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_client::core`.
 /// use bonsaidb_core::{
 ///     api::{Api, Infallible},
-///     schema::Name,
+///     schema::{ApiName, Qualified},
 /// };
 /// use serde::{Deserialize, Serialize};
 ///
@@ -163,8 +163,8 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 ///     type Response = Pong;
 ///     type Error = Infallible;
 ///
-///     fn name() -> Name {
-///         Name::from("ping")
+///     fn name() -> ApiName {
+///         ApiName::private("ping")
 ///     }
 /// }
 ///
@@ -184,7 +184,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// ```rust
 /// # use bonsaidb_client::{Client, CustomApiCallback, fabruic::Certificate, url::Url};
 /// # // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_client::core`.
-/// # use bonsaidb_core::{api::{Api, Infallible}, schema::Name};
+/// # use bonsaidb_core::{api::{Api, Infallible}, schema::{ApiName, Qualified}};
 /// # use serde::{Serialize, Deserialize};
 /// # #[derive(Serialize, Deserialize, Debug)]
 /// # pub struct Ping;
@@ -194,8 +194,8 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// #     type Response = Pong;
 /// #     type Error = Infallible;
 /// #
-/// #     fn name() -> Name {
-/// #         Name::from("ping")
+/// #     fn name() -> ApiName {
+/// #         ApiName::private("ping")
 /// #     }
 /// # }
 /// # async fn test_fn() -> anyhow::Result<()> {
@@ -286,7 +286,7 @@ impl Client {
     pub(crate) fn new_from_parts(
         url: Url,
         protocol_version: &'static str,
-        mut custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
+        mut custom_apis: HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
         #[cfg(not(target_arch = "wasm32"))] certificate: Option<fabruic::Certificate>,
         #[cfg(not(target_arch = "wasm32"))] tokio: Option<Handle>,
     ) -> Result<Self, Error> {
@@ -344,7 +344,7 @@ impl Client {
         url: Url,
         protocol_version: &'static str,
         certificate: Option<fabruic::Certificate>,
-        custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
+        custom_apis: HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
         tokio: Option<Handle>,
         subscribers: SubscriberMap,
     ) -> Self {
@@ -386,7 +386,7 @@ impl Client {
     fn new_websocket_client(
         url: Url,
         protocol_version: &'static str,
-        custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
+        custom_apis: HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
         tokio: Option<Handle>,
         subscribers: SubscriberMap,
     ) -> Self {
@@ -428,7 +428,7 @@ impl Client {
     fn new_websocket_client(
         url: Url,
         protocol_version: &'static str,
-        custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
+        custom_apis: HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
         subscribers: SubscriberMap,
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
@@ -464,7 +464,7 @@ impl Client {
         }
     }
 
-    async fn send_request_async(&self, name: Name, bytes: Bytes) -> Result<Bytes, Error> {
+    async fn send_request_async(&self, name: ApiName, bytes: Bytes) -> Result<Bytes, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
@@ -480,7 +480,7 @@ impl Client {
         result_receiver.recv_async().await?
     }
 
-    fn send_request(&self, name: Name, bytes: Bytes) -> Result<Bytes, Error> {
+    fn send_request(&self, name: ApiName, bytes: Bytes) -> Result<Bytes, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
@@ -790,7 +790,7 @@ impl<T> Drop for CancellableHandle<T> {
 async fn process_response_payload(
     payload: Payload,
     outstanding_requests: &OutstandingRequestMapHandle,
-    custom_apis: &HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
+    custom_apis: &HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
 ) {
     if let Some(payload_id) = payload.id {
         let request = {

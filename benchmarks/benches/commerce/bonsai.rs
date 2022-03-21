@@ -13,8 +13,8 @@ use bonsaidb::{
         document::{CollectionDocument, CollectionHeader, Emit},
         schema::{
             view::map::Mappings, Collection, CollectionName, CollectionViewSchema,
-            DefaultSerialization, InsertError, NamedCollection, ReduceResult, Schema, Schematic,
-            SerializedCollection, View, ViewMapResult, ViewMappedValue,
+            DefaultSerialization, InsertError, NamedCollection, Qualified, ReduceResult, Schema,
+            Schematic, SerializedCollection, View, ViewMapResult, ViewMappedValue,
         },
         transaction::{self, Transaction},
         Error,

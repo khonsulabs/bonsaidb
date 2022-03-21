@@ -13,7 +13,7 @@ use bonsaidb_core::{
     connection::{Session, SessionId},
     networking::MessageReceived,
     pubsub::Subscriber as _,
-    schema::Name,
+    schema::ApiName,
 };
 use bonsaidb_local::Subscriber;
 use bonsaidb_utils::fast_async_lock;
@@ -46,7 +46,7 @@ struct Data<B: Backend = NoBackend> {
     sessions: RwLock<HashMap<Option<SessionId>, ClientSession>>,
     address: SocketAddr,
     transport: Transport,
-    response_sender: Sender<(Option<SessionId>, Name, Bytes)>,
+    response_sender: Sender<(Option<SessionId>, ApiName, Bytes)>,
     client_data: Mutex<Option<B::ClientData>>,
 }
 
@@ -250,7 +250,7 @@ impl<B: Backend> OwnedClient<B> {
         id: u32,
         address: SocketAddr,
         transport: Transport,
-        response_sender: Sender<(Option<SessionId>, Name, Bytes)>,
+        response_sender: Sender<(Option<SessionId>, ApiName, Bytes)>,
         server: CustomServer<B>,
         default_session: Session,
     ) -> Self {

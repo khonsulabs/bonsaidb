@@ -12,7 +12,7 @@ use bonsaidb_core::{
         Reduce, ReduceGrouped, SetUserPassword, SubscribeTo, UnregisterSubscriber, UnsubscribeFrom,
     },
     pubsub::AsyncPubSub,
-    schema::Name,
+    schema::ApiName,
 };
 
 use crate::{
@@ -65,7 +65,7 @@ impl ServerDispatcher {
     pub async fn dispatch_api_request<B: Backend>(
         server: &CustomServer<B>,
         client: &ConnectedClient<B>,
-        name: &Name,
+        name: &ApiName,
         request: Bytes,
     ) -> Result<Bytes, Error> {
         if let Some(dispatcher) = server.custom_api_dispatcher(name) {

@@ -4,7 +4,7 @@ use bonsaidb::core::{
     document::{CollectionDocument, Emit, KeyId},
     schema::{
         Collection, CollectionViewSchema, DefaultSerialization, DefaultViewSerialization, Name,
-        Schematic, SerializedCollection, View, ViewMapResult,
+        Qualified, Schematic, SerializedCollection, View, ViewMapResult,
     },
 };
 use serde::{Deserialize, Serialize};

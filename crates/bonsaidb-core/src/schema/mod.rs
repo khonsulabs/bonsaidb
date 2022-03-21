@@ -12,7 +12,9 @@ pub use self::{
         AsyncEntry, AsyncList, Collection, DefaultSerialization, InsertError, List, Nameable,
         NamedCollection, NamedReference, SerializedCollection,
     },
-    names::{Authority, CollectionName, InvalidNameError, Name, SchemaName, ViewName},
+    names::{
+        ApiName, Authority, CollectionName, InvalidNameError, Name, Qualified, SchemaName, ViewName,
+    },
     schematic::Schematic,
     view::{
         map::{Map, MappedValue, ViewMappedValue},
@@ -98,8 +100,8 @@ where
     T: Collection + 'static,
 {
     fn schema_name() -> SchemaName {
-        let CollectionName { authority, name } = Self::collection_name();
-        SchemaName { authority, name }
+        let CollectionName(qualified) = Self::collection_name();
+        SchemaName(qualified)
     }
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {

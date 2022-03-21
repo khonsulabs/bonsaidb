@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bonsaidb_core::{networking::Payload, schema::Name};
+use bonsaidb_core::{networking::Payload, schema::ApiName};
 use bonsaidb_utils::fast_async_lock;
 use flume::Receiver;
 use futures::{
@@ -21,7 +21,7 @@ pub async fn reconnecting_client_loop(
     url: Url,
     protocol_version: &str,
     request_receiver: Receiver<PendingRequest>,
-    custom_apis: Arc<HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
     subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Ok(request) = {
@@ -101,7 +101,7 @@ async fn request_sender(
 async fn response_processor(
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
     outstanding_requests: OutstandingRequestMapHandle,
-    custom_apis: &HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
+    custom_apis: &HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
 ) -> Result<(), Error> {
     while let Some(message) = receiver.next().await {
         let message = message?;

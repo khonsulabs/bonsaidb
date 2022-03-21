@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use bonsaidb_core::{
     api::{self},
     networking::CURRENT_PROTOCOL_VERSION,
-    schema::Name,
+    schema::ApiName,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use fabruic::Certificate;
@@ -21,7 +21,7 @@ use crate::{
 pub struct Builder {
     url: Url,
     protocol_version: &'static str,
-    custom_apis: HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>,
+    custom_apis: HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>,
     #[cfg(not(target_arch = "wasm32"))]
     certificate: Option<fabruic::Certificate>,
     #[cfg(not(target_arch = "wasm32"))]

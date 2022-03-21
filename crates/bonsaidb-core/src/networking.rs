@@ -10,7 +10,7 @@ use crate::{
     schema::{
         self,
         view::map::{self, MappedSerializedDocuments},
-        CollectionName, Name, NamedReference, ViewName,
+        ApiName, CollectionName, NamedReference, Qualified, ViewName,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -26,7 +26,7 @@ pub struct Payload {
     /// The unique id for this payload.
     pub id: Option<u32>,
     /// The unique name of the api
-    pub name: Name,
+    pub name: ApiName,
     /// The payload
     pub value: Result<Bytes, crate::Error>,
 }
@@ -44,8 +44,8 @@ impl Api for CreateDatabase {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("CreateDatabase")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "CreateDatabase")
     }
 }
 
@@ -60,8 +60,8 @@ impl Api for DeleteDatabase {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("DeleteDatabase")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "DeleteDatabase")
     }
 }
 
@@ -73,8 +73,8 @@ impl Api for ListDatabases {
     type Response = Vec<Database>;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("ListDatabases")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "ListDatabases")
     }
 }
 
@@ -86,8 +86,8 @@ impl Api for ListAvailableSchemas {
     type Response = Vec<SchemaName>;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("ListAvailableSchemas")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "ListAvailableSchemas")
     }
 }
 
@@ -102,8 +102,8 @@ impl Api for CreateUser {
     type Response = u64;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("CreateUser")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "CreateUser")
     }
 }
 
@@ -118,8 +118,8 @@ impl Api for DeleteUser {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("DeleteUser")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "DeleteUser")
     }
 }
 
@@ -138,8 +138,8 @@ impl Api for SetUserPassword {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("SetUserPassword")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "SetUserPassword")
     }
 }
 
@@ -158,8 +158,8 @@ impl Api for Authenticate {
     type Response = Session;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("Authenticate")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "Authenticate")
     }
 }
 
@@ -171,8 +171,8 @@ impl Api for AssumeIdentity {
     type Response = Session;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("AssumeIdentity")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "AssumeIdentity")
     }
 }
 
@@ -193,8 +193,8 @@ impl Api for AlterUserPermissionGroupMembership {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("AlterUserPermissionGroupMembership")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "AlterUserPermissionGroupMembership")
     }
 }
 
@@ -215,8 +215,8 @@ impl Api for AlterUserRoleMembership {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("AlterUserRoleMembership")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "AlterUserRoleMembership")
     }
 }
 
@@ -235,8 +235,8 @@ impl Api for Get {
     type Response = Option<OwnedDocument>;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("Get")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "Get")
     }
 }
 
@@ -255,8 +255,8 @@ impl Api for GetMultiple {
     type Response = Vec<OwnedDocument>;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("GetMultiple")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "GetMultiple")
     }
 }
 
@@ -279,8 +279,8 @@ impl Api for List {
     type Response = Vec<OwnedDocument>;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("List")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "List")
     }
 }
 
@@ -299,8 +299,8 @@ impl Api for Count {
     type Response = u64;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("Count")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "Count")
     }
 }
 
@@ -325,8 +325,8 @@ impl Api for Query {
     type Response = Vec<map::Serialized>;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("Query")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "Query")
     }
 }
 
@@ -338,8 +338,8 @@ impl Api for QueryWithDocs {
     type Response = MappedSerializedDocuments;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("QueryWithDocs")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "QueryWithDocs")
     }
 }
 
@@ -360,8 +360,8 @@ impl Api for Reduce {
     type Response = Bytes;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("Reduce")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "Reduce")
     }
 }
 
@@ -373,8 +373,8 @@ impl Api for ReduceGrouped {
     type Response = Vec<map::MappedSerializedValue>;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("ReduceGrouped")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "ReduceGrouped")
     }
 }
 
@@ -395,8 +395,8 @@ impl Api for DeleteDocs {
     type Response = u64;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("DeleteDocs")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "DeleteDocs")
     }
 }
 
@@ -413,8 +413,8 @@ impl Api for ApplyTransaction {
     type Response = Vec<OperationResult>;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("ApplyTransaction")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "ApplyTransaction")
     }
 }
 
@@ -433,8 +433,8 @@ impl Api for ListExecutedTransactions {
     type Response = Vec<Executed>;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("ListExecutedTransactions")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "ListExecutedTransactions")
     }
 }
 
@@ -449,8 +449,8 @@ impl Api for LastTransactionId {
     type Response = Option<u64>;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("LastTransactionId")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "LastTransactionId")
     }
 }
 
@@ -465,8 +465,8 @@ impl Api for CreateSubscriber {
     type Response = u64;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("CreateSubscriber")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "CreateSubscriber")
     }
 }
 
@@ -485,8 +485,8 @@ impl Api for Publish {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("Publish")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "Publish")
     }
 }
 
@@ -505,8 +505,8 @@ impl Api for PublishToAll {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("PublishToAll")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "PublishToAll")
     }
 }
 
@@ -525,8 +525,8 @@ impl Api for SubscribeTo {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("SubscribeTo")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "SubscribeTo")
     }
 }
 
@@ -545,8 +545,8 @@ impl Api for MessageReceived {
     type Response = Self;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("MessageReceived")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "MessageReceived")
     }
 }
 
@@ -565,8 +565,8 @@ impl Api for UnsubscribeFrom {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("UnsubscribeFrom")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "UnsubscribeFrom")
     }
 }
 
@@ -583,8 +583,8 @@ impl Api for UnregisterSubscriber {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("UnregisterSubscriber")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "UnregisterSubscriber")
     }
 }
 
@@ -601,8 +601,8 @@ impl Api for ExecuteKeyOperation {
     type Response = Output;
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("ExecuteKeyOperation")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "ExecuteKeyOperation")
     }
 }
 
@@ -619,8 +619,8 @@ impl Api for CompactCollection {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("CompactCollection")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "CompactCollection")
     }
 }
 
@@ -635,8 +635,8 @@ impl Api for CompactKeyValueStore {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("CompactKeyValueStore")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "CompactKeyValueStore")
     }
 }
 
@@ -651,8 +651,8 @@ impl Api for Compact {
     type Response = ();
     type Error = crate::Error;
 
-    fn name() -> Name {
-        Name::from("Compact")
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "Compact")
     }
 }
 

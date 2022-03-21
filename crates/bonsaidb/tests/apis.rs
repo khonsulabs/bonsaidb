@@ -13,7 +13,7 @@ use bonsaidb::{
         ServerConfiguration,
     },
 };
-use bonsaidb_core::schema::Name;
+use bonsaidb_core::schema::{ApiName, Qualified};
 use bonsaidb_server::api::DispatcherResult;
 use serde::{Deserialize, Serialize};
 
@@ -67,8 +67,8 @@ impl Api for SetValue {
     type Response = Option<u64>;
     type Error = Infallible;
 
-    fn name() -> Name {
-        Name::from("set-value")
+    fn name() -> ApiName {
+        ApiName::private("set-value")
     }
 }
 

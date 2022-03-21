@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use serde::{Deserialize, Serialize};
 
-use crate::schema::Name;
+use crate::schema::ApiName;
 
 /// An API request type.
 pub trait Api: Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug + 'static {
@@ -12,18 +12,8 @@ pub trait Api: Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug + 'st
     type Error: ApiError;
 
     /// Returns the unique name of this api.
-    fn name() -> Name;
+    fn name() -> ApiName;
 }
-
-impl Api for () {
-    type Response = ();
-    type Error = Infallible;
-
-    fn name() -> Name {
-        Name::new("")
-    }
-}
-
 /// An Error type that can be used in within an [`Api`] definition.
 ///
 /// The reason `std::convert::Infallible` can't be used is because `Api`

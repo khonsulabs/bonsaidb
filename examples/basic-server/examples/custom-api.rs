@@ -19,7 +19,7 @@ use bonsaidb::{
             },
             Action, Identifier, Statement,
         },
-        schema::Name,
+        schema::{ApiName, Qualified},
     },
     local::config::Builder,
     server::{
@@ -41,8 +41,8 @@ impl Api for Ping {
     type Response = Pong;
     type Error = Infallible;
 
-    fn name() -> Name {
-        Name::from("ping")
+    fn name() -> ApiName {
+        ApiName::private("ping")
     }
 }
 
@@ -55,8 +55,8 @@ impl Api for IncrementCounter {
     type Response = Counter;
     type Error = Infallible;
 
-    fn name() -> Name {
-        Name::from("something")
+    fn name() -> ApiName {
+        ApiName::private("increment")
     }
 }
 

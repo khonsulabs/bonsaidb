@@ -26,8 +26,8 @@ use crate::{
             map::{Mappings, ViewMappedValue},
             ReduceResult, ViewSchema,
         },
-        Collection, CollectionName, MappedValue, NamedCollection, Schema, SchemaName, Schematic,
-        SerializedCollection, View, ViewMapResult,
+        Collection, CollectionName, MappedValue, NamedCollection, Qualified, Schema, SchemaName,
+        Schematic, SerializedCollection, View, ViewMapResult,
     },
     Error,
 };

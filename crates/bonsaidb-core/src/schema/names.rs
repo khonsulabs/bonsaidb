@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     fmt::{Debug, Display, Write},
+    ops::Deref,
     sync::Arc,
 };
 
@@ -184,31 +185,36 @@ impl Display for Authority {
     }
 }
 
-/// The name of a [`Schema`](super::Schema).
+/// A namespaced name.
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
-pub struct SchemaName {
-    /// The authority of this schema.
+pub struct QualifiedName {
+    /// The authority that defines this name.
     pub authority: Authority,
 
-    /// The name of this schema.
+    /// The name, unique within `authority`.
     pub name: Name,
 }
 
-impl SchemaName {
-    /// Creates a name for a [`Schema`](super::Schema) that is not meant
-    /// to be shared with other developers.
-    pub fn private<N: Into<Name>>(name: N) -> Self {
-        let authority = Authority::from("private");
-        let name = name.into();
-        Self { authority, name }
+impl Display for QualifiedName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.authority, f)?;
+        f.write_char('.')?;
+        Display::fmt(&self.name, f)
+    }
+}
+
+/// Functions for creating qualified names
+pub trait Qualified: Display + Sized {
+    /// Creates a name that is not meant to be shared with other developers or
+    /// projects.
+    #[must_use]
+    fn private<N: Into<Name>>(name: N) -> Self {
+        Self::new(Authority::from("private"), name)
     }
 
-    /// Creates a new schema name.
-    pub fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
-        let authority = authority.into();
-        let name = name.into();
-        Self { authority, name }
-    }
+    /// Creates a new qualified name.
+    #[must_use]
+    fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self;
 
     /// Parses a schema name that was previously encoded via
     /// [`Self::encoded()`].
@@ -217,7 +223,7 @@ impl SchemaName {
     ///
     /// Returns [`InvalidNameError`] if the name contains invalid escape
     /// sequences or contains more than two periods.
-    pub fn parse_encoded(schema_name: &str) -> Result<Self, InvalidNameError> {
+    fn parse_encoded(schema_name: &str) -> Result<Self, InvalidNameError> {
         let mut parts = schema_name.split('.');
         if let (Some(authority), Some(name), None) = (parts.next(), parts.next(), parts.next()) {
             let authority = Name::parse_encoded(authority)?;
@@ -232,79 +238,92 @@ impl SchemaName {
     /// Encodes this schema name such that the authority and name can be
     /// safely parsed using [`Self::parse_encoded`].
     #[must_use]
-    pub fn encoded(&self) -> String {
+    fn encoded(&self) -> String {
         format!("{:#}", self)
+    }
+}
+
+impl Qualified for QualifiedName {
+    fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
+        Self {
+            authority: authority.into(),
+            name: name.into(),
+        }
+    }
+}
+
+/// The name of a [`Schema`](super::Schema).
+#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
+#[serde(transparent)]
+pub struct SchemaName(pub(crate) QualifiedName);
+
+impl Qualified for SchemaName {
+    fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
+        Self(QualifiedName::new(authority, name))
     }
 }
 
 impl Display for SchemaName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.authority, f)?;
-        f.write_char('.')?;
-        Display::fmt(&self.name, f)
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl Deref for SchemaName {
+    type Target = QualifiedName;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 /// The namespaced name of a [`Collection`](super::Collection).
-#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone)]
-pub struct CollectionName {
-    /// The authority of this collection. This name is used to ensure
-    /// collections from multiple authors/authorities can be used in the same
-    /// schema.
-    pub authority: Authority,
+#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
+#[serde(transparent)]
+pub struct CollectionName(pub(crate) QualifiedName);
 
-    /// The name of this collection. Must be unique within the [`Schema`](super::Schema)
-    pub name: Name,
-}
-
-impl CollectionName {
-    /// Creates a name for a [`Collection`](super::Collection) that is not meant
-    /// to be shared with other developers.
-    pub fn private<N: Into<Name>>(name: N) -> Self {
-        let authority = Authority::from("private");
-        let name = name.into();
-        Self { authority, name }
-    }
-
-    /// Creates a new collection name.
-    pub fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
-        let authority = authority.into();
-        let name = name.into();
-        Self { authority, name }
-    }
-
-    /// Parses a colleciton name that was previously encoded via
-    /// [`Self::encoded()`].
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InvalidNameError`] if the name contains invalid escape
-    /// sequences or contains more than two periods.
-    pub fn parse_encoded(collection_name: &str) -> Result<Self, InvalidNameError> {
-        let mut parts = collection_name.split('.');
-        if let (Some(authority), Some(name), None) = (parts.next(), parts.next(), parts.next()) {
-            let authority = Name::parse_encoded(authority)?;
-            let name = Name::parse_encoded(name)?;
-
-            Ok(Self::new(authority, name))
-        } else {
-            Err(InvalidNameError(collection_name.to_string()))
-        }
-    }
-
-    /// Encodes this collection name such that the authority and name can be
-    /// safely parsed using [`Self::parse_encoded`].
-    #[must_use]
-    pub fn encoded(&self) -> String {
-        format!("{:#}", self)
+impl Qualified for CollectionName {
+    fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
+        Self(QualifiedName::new(authority, name))
     }
 }
 
 impl Display for CollectionName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.authority, f)?;
-        f.write_char('.')?;
-        Display::fmt(&self.name, f)
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl Deref for CollectionName {
+    type Target = QualifiedName;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// The qualified name of an [`Api`](crate::api::Api).
+#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
+#[serde(transparent)]
+pub struct ApiName(QualifiedName);
+
+impl Qualified for ApiName {
+    fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
+        Self(QualifiedName::new(authority, name))
+    }
+}
+
+impl Display for ApiName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl Deref for ApiName {
+    type Target = QualifiedName;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

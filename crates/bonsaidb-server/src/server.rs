@@ -25,7 +25,7 @@ use bonsaidb_core::{
         bonsai::{bonsaidb_resource_name, BonsaiAction, ServerAction},
         Permissions,
     },
-    schema::{self, Name, Nameable, NamedCollection, Schema},
+    schema::{self, ApiName, Nameable, NamedCollection, Schema},
 };
 use bonsaidb_local::{config::Builder, AsyncStorage, Storage, StorageNonBlocking};
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
@@ -103,7 +103,7 @@ struct Data<B: Backend = NoBackend> {
     client_simultaneous_request_limit: usize,
     primary_tls_key: CachedCertifiedKey,
     primary_domain: String,
-    custom_apis: parking_lot::RwLock<HashMap<Name, Arc<dyn AnyCustomApiHandler<B>>>>,
+    custom_apis: parking_lot::RwLock<HashMap<ApiName, Arc<dyn AnyCustomApiHandler<B>>>>,
     #[cfg(feature = "acme")]
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
@@ -227,7 +227,7 @@ impl<B: Backend> CustomServer<B> {
 
     pub(crate) fn custom_api_dispatcher(
         &self,
-        name: &Name,
+        name: &ApiName,
     ) -> Option<Arc<dyn AnyCustomApiHandler<B>>> {
         let dispatchers = self.data.custom_apis.read();
         dispatchers.get(name).cloned()
@@ -436,7 +436,7 @@ impl<B: Backend> CustomServer<B> {
         &self,
         transport: Transport,
         address: SocketAddr,
-        sender: Sender<(Option<SessionId>, Name, Bytes)>,
+        sender: Sender<(Option<SessionId>, ApiName, Bytes)>,
     ) -> Option<OwnedClient<B>> {
         if !self.data.default_session.allowed_to(
             &bonsaidb_resource_name(),
@@ -608,7 +608,7 @@ impl<B: Backend> CustomServer<B> {
     }
 
     async fn handle_request_through_worker<
-        F: FnOnce(Name, Result<Bytes, bonsaidb_core::Error>) -> R + Send + 'static,
+        F: FnOnce(ApiName, Result<Bytes, bonsaidb_core::Error>) -> R + Send + 'static,
         R: Future<Output = Result<(), Error>> + Send,
     >(
         &self,
@@ -776,7 +776,7 @@ struct ClientRequest<B: Backend> {
     client: ConnectedClient<B>,
     session: Session,
     server: CustomServer<B>,
-    result_sender: oneshot::Sender<(Name, Result<Bytes, bonsaidb_core::Error>)>,
+    result_sender: oneshot::Sender<(ApiName, Result<Bytes, bonsaidb_core::Error>)>,
 }
 
 impl<B: Backend> ClientRequest<B> {
@@ -785,7 +785,7 @@ impl<B: Backend> ClientRequest<B> {
         server: CustomServer<B>,
         client: ConnectedClient<B>,
         session: Session,
-        result_sender: oneshot::Sender<(Name, Result<Bytes, bonsaidb_core::Error>)>,
+        result_sender: oneshot::Sender<(ApiName, Result<Bytes, bonsaidb_core::Error>)>,
     ) -> Self {
         Self {
             request: Some(request),

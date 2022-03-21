@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bonsaidb_core::{networking::Payload, schema::Name};
+use bonsaidb_core::{networking::Payload, schema::ApiName};
 use bonsaidb_utils::fast_async_lock;
 use fabruic::{self, Certificate, Endpoint};
 use flume::Receiver;
@@ -21,7 +21,7 @@ pub async fn reconnecting_client_loop(
     protocol_version: &'static str,
     certificate: Option<Certificate>,
     request_receiver: Receiver<PendingRequest>,
-    custom_apis: Arc<HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
     subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     if url.port().is_none() && url.scheme() == "bonsaidb" {
@@ -56,7 +56,7 @@ async fn connect_and_process(
     certificate: Option<&Certificate>,
     initial_request: PendingRequest,
     request_receiver: &Receiver<PendingRequest>,
-    custom_apis: Arc<HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
 ) -> Result<(), (Option<PendingRequest>, Error)> {
     let (_connection, payload_sender, payload_receiver) =
         match connect(url, certificate, protocol_version).await {
@@ -126,7 +126,7 @@ async fn process_requests(
 pub async fn process(
     outstanding_requests: OutstandingRequestMapHandle,
     mut payload_receiver: fabruic::Receiver<Payload>,
-    custom_apis: Arc<HashMap<Name, Option<Arc<dyn AnyCustomApiCallback>>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyCustomApiCallback>>>>,
 ) -> Result<(), Error> {
     while let Some(payload) = payload_receiver.next().await {
         let payload = payload?;

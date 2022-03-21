@@ -5,7 +5,7 @@ use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
     api::{self},
     permissions::Permissions,
-    schema::{Name, Schema},
+    schema::{ApiName, Schema},
 };
 #[cfg(feature = "compression")]
 use bonsaidb_local::config::Compression;
@@ -40,7 +40,7 @@ pub struct ServerConfiguration<B: Backend = NoBackend> {
     #[cfg(feature = "acme")]
     pub acme: AcmeConfiguration,
 
-    pub(crate) custom_apis: HashMap<Name, Arc<dyn AnyCustomApiHandler<B>>>,
+    pub(crate) custom_apis: HashMap<ApiName, Arc<dyn AnyCustomApiHandler<B>>>,
 }
 
 impl<B: Backend> ServerConfiguration<B> {
