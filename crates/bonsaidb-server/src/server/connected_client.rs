@@ -145,7 +145,7 @@ impl<B: Backend> ConnectedClient<B> {
         &self,
         session_id: Option<SessionId>,
         subscriber_id: u64,
-        receiver: flume::Receiver<Arc<Message>>,
+        receiver: flume::Receiver<Message>,
     ) {
         let session = self.session(session_id);
         while let Ok(message) = receiver.recv_async().await {
@@ -154,7 +154,7 @@ impl<B: Backend> ConnectedClient<B> {
                     session.as_ref(),
                     &Ok(MessageReceived {
                         subscriber_id,
-                        topic: message.topic.clone(),
+                        topic: Bytes::from(message.topic.0.into_vec()),
                         payload: Bytes::from(&message.payload[..]),
                     }),
                 )
@@ -168,13 +168,13 @@ impl<B: Backend> ConnectedClient<B> {
     pub(crate) fn subscribe_by_id(
         &self,
         subscriber_id: u64,
-        topic: String,
+        topic: Bytes,
         check_session_id: Option<SessionId>,
     ) -> Result<(), crate::Error> {
         let mut sessions = self.data.sessions.write();
         if let Some(client_session) = sessions.get_mut(&check_session_id) {
             if let Some(subscriber) = client_session.subscribers.get(&subscriber_id) {
-                subscriber.subscribe_to(topic)?;
+                subscriber.subscribe_to_bytes(topic.0)?;
                 Ok(())
             } else {
                 Err(Error::Transport(String::from("invalid subscriber id")))
@@ -187,13 +187,13 @@ impl<B: Backend> ConnectedClient<B> {
     pub(crate) fn unsubscribe_by_id(
         &self,
         subscriber_id: u64,
-        topic: &str,
+        topic: &[u8],
         check_session_id: Option<SessionId>,
     ) -> Result<(), crate::Error> {
         let mut sessions = self.data.sessions.write();
         if let Some(client_session) = sessions.get_mut(&check_session_id) {
             if let Some(subscriber) = client_session.subscribers.get(&subscriber_id) {
-                subscriber.unsubscribe_from(topic)?;
+                subscriber.unsubscribe_from_bytes(topic)?;
                 Ok(())
             } else {
                 Err(Error::Transport(String::from("invalid subscriber id")))

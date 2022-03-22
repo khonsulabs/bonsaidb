@@ -67,33 +67,17 @@ impl<B: Backend> AsyncPubSub for ServerDatabase<B> {
         Ok(subscriber)
     }
 
-    async fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
+    async fn publish_bytes(
         &self,
-        topic: S,
-        payload: &P,
-    ) -> Result<(), bonsaidb_core::Error> {
-        self.db.publish(topic, payload).await
-    }
-
-    async fn publish_bytes<S: Into<String> + Send>(
-        &self,
-        topic: S,
+        topic: Vec<u8>,
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
         self.db.publish_bytes(topic, payload).await
     }
 
-    async fn publish_to_all<P: serde::Serialize + Sync>(
-        &self,
-        topics: Vec<String>,
-        payload: &P,
-    ) -> Result<(), bonsaidb_core::Error> {
-        self.db.publish_to_all(topics, payload).await
-    }
-
     async fn publish_bytes_to_all(
         &self,
-        topics: Vec<String>,
+        topics: impl IntoIterator<Item = Vec<u8>> + Send + 'async_trait,
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
         self.db.publish_bytes_to_all(topics, payload).await

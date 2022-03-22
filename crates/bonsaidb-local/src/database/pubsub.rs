@@ -1,8 +1,7 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
 use bonsaidb_core::{
+    arc_bytes::OwnedBytes,
     circulate,
     connection::Connection,
     permissions::bonsai::{
@@ -29,50 +28,7 @@ impl PubSub for super::Database {
             .register_subscriber(self.session().and_then(|session| session.id), self.clone()))
     }
 
-    fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
-        &self,
-        topic: S,
-        payload: &P,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let topic = topic.into();
-        self.check_permission(
-            pubsub_topic_resource_name(self.name(), &topic),
-            &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish)),
-        )?;
-        self.storage
-            .instance
-            .relay()
-            .publish(database_topic(&self.data.name, &topic), payload)?;
-        Ok(())
-    }
-
-    fn publish_to_all<P: serde::Serialize + Sync>(
-        &self,
-        topics: Vec<String>,
-        payload: &P,
-    ) -> Result<(), bonsaidb_core::Error> {
-        self.storage.instance.relay().publish_to_all(
-            topics
-                .iter()
-                .map(|topic| {
-                    self.check_permission(
-                        pubsub_topic_resource_name(self.name(), topic),
-                        &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish)),
-                    )
-                    .map(|_| database_topic(&self.data.name, topic))
-                })
-                .collect::<Result<_, _>>()?,
-            payload,
-        )?;
-        Ok(())
-    }
-
-    fn publish_bytes<S: Into<String> + Send>(
-        &self,
-        topic: S,
-        payload: Vec<u8>,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let topic = topic.into();
+    fn publish_bytes(&self, topic: Vec<u8>, payload: Vec<u8>) -> Result<(), bonsaidb_core::Error> {
         self.check_permission(
             pubsub_topic_resource_name(self.name(), &topic),
             &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish)),
@@ -86,20 +42,20 @@ impl PubSub for super::Database {
 
     fn publish_bytes_to_all(
         &self,
-        topics: Vec<String>,
+        topics: impl IntoIterator<Item = Vec<u8>> + Send,
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
         self.storage.instance.relay().publish_raw_to_all(
             topics
-                .iter()
+                .into_iter()
                 .map(|topic| {
                     self.check_permission(
-                        pubsub_topic_resource_name(self.name(), topic),
+                        pubsub_topic_resource_name(self.name(), &topic),
                         &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish)),
                     )
-                    .map(|_| database_topic(&self.data.name, topic))
+                    .map(|_| OwnedBytes::from(database_topic(&self.data.name, &topic)))
                 })
-                .collect::<Result<_, _>>()?,
+                .collect::<Result<Vec<_>, _>>()?,
             payload,
         );
         Ok(())
@@ -130,28 +86,27 @@ impl Drop for Subscriber {
 
 #[async_trait]
 impl pubsub::Subscriber for Subscriber {
-    fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error> {
-        let topic = topic.into();
+    fn subscribe_to_bytes(&self, topic: Vec<u8>) -> Result<(), Error> {
         self.database.check_permission(
             pubsub_topic_resource_name(self.database.name(), &topic),
             &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::SubscribeTo)),
         )?;
         self.subscriber
-            .subscribe_to(database_topic(self.database.name(), &topic));
+            .subscribe_to_raw(database_topic(self.database.name(), &topic));
         Ok(())
     }
 
-    fn unsubscribe_from(&self, topic: &str) -> Result<(), Error> {
+    fn unsubscribe_from_bytes(&self, topic: &[u8]) -> Result<(), Error> {
         self.database.check_permission(
             pubsub_topic_resource_name(self.database.name(), topic),
             &BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::UnsubscribeFrom)),
         )?;
         self.subscriber
-            .unsubscribe_from(&database_topic(self.database.name(), topic));
+            .unsubscribe_from_raw(&database_topic(self.database.name(), topic));
         Ok(())
     }
 
-    fn receiver(&self) -> &'_ flume::Receiver<Arc<circulate::Message>> {
+    fn receiver(&self) -> &'_ flume::Receiver<circulate::Message> {
         self.subscriber.receiver()
     }
 }

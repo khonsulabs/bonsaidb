@@ -51,7 +51,7 @@ pub fn view_resource_name<'a>(database: &'a str, view: &'a ViewName) -> Resource
 
 /// Creates a resource name for `PubSub` `topic` within `database`.
 #[must_use]
-pub fn pubsub_topic_resource_name<'a>(database: &'a str, topic: &'a str) -> ResourceName<'a> {
+pub fn pubsub_topic_resource_name<'a>(database: &'a str, topic: &'a [u8]) -> ResourceName<'a> {
     database_resource_name(database).and("pubsub").and(topic)
 }
 

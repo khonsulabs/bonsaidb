@@ -485,7 +485,7 @@ impl<B: Backend> Handler<B, Publish> for ServerDispatcher {
     ) -> HandlerResult<Publish> {
         let database = server.database_without_schema(&command.database).await?;
         database
-            .publish_bytes(&command.topic, command.payload.into_vec())
+            .publish_bytes(command.topic.into_vec(), command.payload.into_vec())
             .await
             .map_err(HandlerError::from)
     }
@@ -500,7 +500,10 @@ impl<B: Backend> Handler<B, PublishToAll> for ServerDispatcher {
     ) -> HandlerResult<PublishToAll> {
         let database = server.database_without_schema(&command.database).await?;
         database
-            .publish_bytes_to_all(command.topics, command.payload.into_vec())
+            .publish_bytes_to_all(
+                command.topics.into_iter().map(Bytes::into_vec),
+                command.payload.into_vec(),
+            )
             .await
             .map_err(HandlerError::from)
     }

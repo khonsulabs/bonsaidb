@@ -49,7 +49,7 @@ mod tungstenite_worker;
 mod wasm_websocket_worker;
 
 #[derive(Debug, Clone, Default)]
-pub struct SubscriberMap(Arc<Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>>);
+pub struct SubscriberMap(Arc<Mutex<HashMap<u64, flume::Sender<Message>>>>);
 
 impl SubscriberMap {
     pub async fn clear(&self) {
@@ -59,7 +59,7 @@ impl SubscriberMap {
 }
 
 impl Deref for SubscriberMap {
-    type Target = Mutex<HashMap<u64, flume::Sender<Arc<Message>>>>;
+    type Target = Mutex<HashMap<u64, flume::Sender<Message>>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -301,10 +301,10 @@ impl Client {
                         let mut subscribers = fast_async_lock!(callback_subscribers);
                         if let Some(sender) = subscribers.get(&message.subscriber_id) {
                             if sender
-                                .send(std::sync::Arc::new(bonsaidb_core::circulate::Message {
-                                    topic: message.topic,
+                                .send(bonsaidb_core::circulate::Message {
+                                    topic: OwnedBytes::from(message.topic.into_vec()),
                                     payload: OwnedBytes::from(message.payload.into_vec()),
-                                }))
+                                })
                                 .is_err()
                             {
                                 subscribers.remove(&message.subscriber_id);
@@ -535,7 +535,7 @@ impl Client {
         self.data.background_task_running.clone()
     }
 
-    pub(crate) async fn register_subscriber(&self, id: u64, sender: flume::Sender<Arc<Message>>) {
+    pub(crate) async fn register_subscriber(&self, id: u64, sender: flume::Sender<Message>) {
         let mut subscribers = fast_async_lock!(self.data.subscribers);
         subscribers.insert(id, sender);
     }

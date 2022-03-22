@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::connection::Authentication;
@@ -581,25 +579,9 @@ impl AsyncPubSub for AsyncDatabase {
         PubSub::create_subscriber(&self.database)
     }
 
-    async fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
+    async fn publish_bytes(
         &self,
-        topic: S,
-        payload: &P,
-    ) -> Result<(), bonsaidb_core::Error> {
-        PubSub::publish(&self.database, topic, payload)
-    }
-
-    async fn publish_to_all<P: serde::Serialize + Sync>(
-        &self,
-        topics: Vec<String>,
-        payload: &P,
-    ) -> Result<(), bonsaidb_core::Error> {
-        PubSub::publish_to_all(&self.database, topics, payload)
-    }
-
-    async fn publish_bytes<S: Into<String> + Send>(
-        &self,
-        topic: S,
+        topic: Vec<u8>,
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
         PubSub::publish_bytes(&self.database, topic, payload)
@@ -607,7 +589,7 @@ impl AsyncPubSub for AsyncDatabase {
 
     async fn publish_bytes_to_all(
         &self,
-        topics: Vec<String>,
+        topics: impl IntoIterator<Item = Vec<u8>> + Send + 'async_trait,
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
         PubSub::publish_bytes_to_all(&self.database, topics, payload)
@@ -616,18 +598,15 @@ impl AsyncPubSub for AsyncDatabase {
 
 #[async_trait]
 impl AsyncSubscriber for Subscriber {
-    async fn subscribe_to<S: Into<String> + Send>(
-        &self,
-        topic: S,
-    ) -> Result<(), bonsaidb_core::Error> {
-        pubsub::Subscriber::subscribe_to(self, topic)
+    async fn subscribe_to_bytes(&self, topic: Vec<u8>) -> Result<(), bonsaidb_core::Error> {
+        pubsub::Subscriber::subscribe_to_bytes(self, topic)
     }
 
-    async fn unsubscribe_from(&self, topic: &str) -> Result<(), bonsaidb_core::Error> {
-        pubsub::Subscriber::unsubscribe_from(self, topic)
+    async fn unsubscribe_from_bytes(&self, topic: &[u8]) -> Result<(), bonsaidb_core::Error> {
+        pubsub::Subscriber::unsubscribe_from_bytes(self, topic)
     }
 
-    fn receiver(&self) -> &'_ flume::Receiver<Arc<circulate::Message>> {
+    fn receiver(&self) -> &'_ flume::Receiver<circulate::Message> {
         pubsub::Subscriber::receiver(self)
     }
 }

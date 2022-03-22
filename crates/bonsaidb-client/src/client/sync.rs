@@ -1,4 +1,5 @@
 use bonsaidb_core::{
+    circulate::Message,
     connection::{
         AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection, Connection,
         IdentityReference, LowLevelConnection, StorageConnection,
@@ -475,36 +476,14 @@ impl PubSub for RemoteDatabase {
             .block_on(async { AsyncPubSub::create_subscriber(self).await })
     }
 
-    fn publish<S: Into<String> + Send, P: serde::Serialize + Sync>(
-        &self,
-        topic: S,
-        payload: &P,
-    ) -> Result<(), bonsaidb_core::Error> {
-        self.tokio()
-            .block_on(async { AsyncPubSub::publish(self, topic, payload).await })
-    }
-
-    fn publish_bytes<S: Into<String> + Send>(
-        &self,
-        topic: S,
-        payload: Vec<u8>,
-    ) -> Result<(), bonsaidb_core::Error> {
+    fn publish_bytes(&self, topic: Vec<u8>, payload: Vec<u8>) -> Result<(), bonsaidb_core::Error> {
         self.tokio()
             .block_on(async { AsyncPubSub::publish_bytes(self, topic, payload).await })
     }
 
-    fn publish_to_all<P: serde::Serialize + Sync>(
-        &self,
-        topics: Vec<String>,
-        payload: &P,
-    ) -> Result<(), bonsaidb_core::Error> {
-        self.tokio()
-            .block_on(async { AsyncPubSub::publish_to_all(self, topics, payload).await })
-    }
-
     fn publish_bytes_to_all(
         &self,
-        topics: Vec<String>,
+        topics: impl IntoIterator<Item = Vec<u8>> + Send,
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
         self.tokio()
@@ -513,17 +492,17 @@ impl PubSub for RemoteDatabase {
 }
 
 impl Subscriber for RemoteSubscriber {
-    fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), bonsaidb_core::Error> {
+    fn subscribe_to_bytes(&self, topic: Vec<u8>) -> Result<(), bonsaidb_core::Error> {
         self.tokio()
-            .block_on(async { AsyncSubscriber::subscribe_to(self, topic).await })
+            .block_on(async { AsyncSubscriber::subscribe_to_bytes(self, topic).await })
     }
 
-    fn unsubscribe_from(&self, topic: &str) -> Result<(), bonsaidb_core::Error> {
+    fn unsubscribe_from_bytes(&self, topic: &[u8]) -> Result<(), bonsaidb_core::Error> {
         self.tokio()
-            .block_on(async { AsyncSubscriber::unsubscribe_from(self, topic).await })
+            .block_on(async { AsyncSubscriber::unsubscribe_from_bytes(self, topic).await })
     }
 
-    fn receiver(&self) -> &'_ flume::Receiver<std::sync::Arc<bonsaidb_core::circulate::Message>> {
+    fn receiver(&self) -> &'_ flume::Receiver<Message> {
         AsyncSubscriber::receiver(self)
     }
 }

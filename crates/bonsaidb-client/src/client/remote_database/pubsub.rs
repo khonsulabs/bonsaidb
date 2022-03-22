@@ -7,7 +7,6 @@ use bonsaidb_core::{
     networking::{CreateSubscriber, Publish, PublishToAll, SubscribeTo, UnsubscribeFrom},
     pubsub::{AsyncPubSub, AsyncSubscriber},
 };
-use serde::Serialize;
 
 use crate::Client;
 
@@ -33,44 +32,27 @@ impl AsyncPubSub for super::RemoteDatabase {
         })
     }
 
-    async fn publish<S: Into<String> + Send, P: Serialize + Sync>(
+    async fn publish_bytes(
         &self,
-        topic: S,
-        payload: &P,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let payload = pot::to_vec(&payload)?;
-        self.publish_bytes(topic, payload).await
-    }
-
-    async fn publish_bytes<S: Into<String> + Send>(
-        &self,
-        topic: S,
+        topic: Vec<u8>,
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
         self.client
             .send_api_request_async(&Publish {
                 database: self.name.to_string(),
-                topic: topic.into(),
+                topic: Bytes::from(topic),
                 payload: Bytes::from(payload),
             })
             .await?;
         Ok(())
     }
 
-    async fn publish_to_all<P: Serialize + Sync>(
-        &self,
-        topics: Vec<String>,
-        payload: &P,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let payload = pot::to_vec(&payload)?;
-        self.publish_bytes_to_all(topics, payload).await
-    }
-
     async fn publish_bytes_to_all(
         &self,
-        topics: Vec<String>,
+        topics: impl IntoIterator<Item = Vec<u8>> + Send + 'async_trait,
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
+        let topics = topics.into_iter().map(Bytes::from).collect();
         self.client
             .send_api_request_async(&PublishToAll {
                 database: self.name.to_string(),
@@ -88,7 +70,7 @@ pub struct RemoteSubscriber {
     client: Client,
     database: Arc<String>,
     id: u64,
-    receiver: flume::Receiver<Arc<Message>>,
+    receiver: flume::Receiver<Message>,
 }
 
 impl RemoteSubscriber {
@@ -100,32 +82,29 @@ impl RemoteSubscriber {
 
 #[async_trait]
 impl AsyncSubscriber for RemoteSubscriber {
-    async fn subscribe_to<S: Into<String> + Send>(
-        &self,
-        topic: S,
-    ) -> Result<(), bonsaidb_core::Error> {
+    async fn subscribe_to_bytes(&self, topic: Vec<u8>) -> Result<(), bonsaidb_core::Error> {
         self.client
             .send_api_request_async(&SubscribeTo {
                 database: self.database.to_string(),
                 subscriber_id: self.id,
-                topic: topic.into(),
+                topic: Bytes::from(topic),
             })
             .await?;
         Ok(())
     }
 
-    async fn unsubscribe_from(&self, topic: &str) -> Result<(), bonsaidb_core::Error> {
+    async fn unsubscribe_from_bytes(&self, topic: &[u8]) -> Result<(), bonsaidb_core::Error> {
         self.client
             .send_api_request_async(&UnsubscribeFrom {
                 database: self.database.to_string(),
                 subscriber_id: self.id,
-                topic: topic.to_string(),
+                topic: Bytes::from(topic),
             })
             .await?;
         Ok(())
     }
 
-    fn receiver(&self) -> &'_ flume::Receiver<Arc<bonsaidb_core::circulate::Message>> {
+    fn receiver(&self) -> &'_ flume::Receiver<Message> {
         &self.receiver
     }
 }

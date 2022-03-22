@@ -17,7 +17,7 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
 
     let subscriber = db.create_subscriber().await?;
     // Subscribe for messages sent to the topic "pong"
-    subscriber.subscribe_to("pong").await?;
+    subscriber.subscribe_to(&"pong").await?;
 
     // Launch a task that sends out "ping" messages.
     tokio::spawn(pinger(db.clone()));
@@ -31,7 +31,8 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
         let pings_remaining = message.payload::<usize>()?;
         println!(
             "<-- Received {}, pings remaining: {}",
-            message.topic, pings_remaining
+            message.topic::<String>()?,
+            pings_remaining
         );
         if pings_remaining == 0 {
             break;
@@ -48,7 +49,7 @@ async fn pinger<P: AsyncPubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error>
     loop {
         ping_count += 1;
         println!("-> Sending ping {}", ping_count);
-        pubsub.publish("ping", &ping_count).await?;
+        pubsub.publish(&"ping", &ping_count).await?;
         sleep(Duration::from_millis(250)).await;
     }
 }
@@ -56,7 +57,7 @@ async fn pinger<P: AsyncPubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error>
 async fn ponger<P: AsyncPubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error> {
     const NUMBER_OF_PONGS: usize = 5;
     let subscriber = pubsub.create_subscriber().await?;
-    subscriber.subscribe_to("ping").await?;
+    subscriber.subscribe_to(&"ping").await?;
     let mut pings_remaining = NUMBER_OF_PONGS;
 
     println!(
@@ -68,11 +69,11 @@ async fn ponger<P: AsyncPubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error>
         let message = subscriber.receiver().recv_async().await?;
         println!(
             "<- Received {}, id {}",
-            message.topic,
+            message.topic::<String>()?,
             message.payload::<u32>()?
         );
         pings_remaining -= 1;
-        pubsub.publish("pong", &pings_remaining).await?;
+        pubsub.publish(&"pong", &pings_remaining).await?;
     }
 
     println!("Ponger finished.");

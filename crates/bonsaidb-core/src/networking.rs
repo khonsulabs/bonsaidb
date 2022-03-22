@@ -478,7 +478,7 @@ pub struct Publish {
     /// The name of the database.
     pub database: String,
     /// The topics to publish to.
-    pub topic: String,
+    pub topic: Bytes,
     /// The payload to publish.
     pub payload: Bytes,
 }
@@ -498,7 +498,7 @@ pub struct PublishToAll {
     /// The name of the database.
     pub database: String,
     /// The topics to publish to.
-    pub topics: Vec<String>,
+    pub topics: Vec<Bytes>,
     /// The payload to publish.
     pub payload: Bytes,
 }
@@ -520,7 +520,7 @@ pub struct SubscribeTo {
     /// The id of the [`Subscriber`](crate::pubsub::Subscriber).
     pub subscriber_id: u64,
     /// The topic to subscribe to.
-    pub topic: String,
+    pub topic: Bytes,
 }
 
 impl Api for SubscribeTo {
@@ -538,7 +538,7 @@ pub struct MessageReceived {
     /// The ID of the subscriber receiving the message.
     pub subscriber_id: u64,
     /// The topic the payload was received on.
-    pub topic: String,
+    pub topic: Bytes,
     /// The message payload.
     pub payload: Bytes,
 }
@@ -560,7 +560,7 @@ pub struct UnsubscribeFrom {
     /// The id of the [`Subscriber`](crate::pubsub::Subscriber).
     pub subscriber_id: u64,
     /// The topic to unsubscribe from.
-    pub topic: String,
+    pub topic: Bytes,
 }
 
 impl Api for UnsubscribeFrom {

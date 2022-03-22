@@ -1,5 +1,4 @@
-use std::sync::Arc;
-
+use arc_bytes::OwnedBytes;
 use async_trait::async_trait;
 use circulate::{flume, Message, Relay};
 use serde::Serialize;
@@ -15,46 +14,69 @@ pub trait PubSub {
     fn create_subscriber(&self) -> Result<Self::Subscriber, Error>;
 
     /// Publishes a `payload` to all subscribers of `topic`.
-    fn publish<S: Into<String> + Send, P: Serialize + Sync>(
+    fn publish<Topic: Serialize, Payload: Serialize>(
         &self,
-        topic: S,
-        payload: &P,
-    ) -> Result<(), Error>;
+        topic: &Topic,
+        payload: &Payload,
+    ) -> Result<(), Error> {
+        self.publish_bytes(pot::to_vec(topic)?, pot::to_vec(payload)?)
+    }
 
     /// Publishes a `payload` to all subscribers of `topic`.
-    fn publish_bytes<S: Into<String> + Send>(
+    fn publish_bytes(&self, topic: Vec<u8>, payload: Vec<u8>) -> Result<(), Error>;
+
+    /// Publishes a `payload` to all subscribers of all `topics`.
+    fn publish_to_all<
+        'topics,
+        Topics: IntoIterator<Item = &'topics Topic> + 'topics,
+        Topic: Serialize + 'topics,
+        Payload: Serialize,
+    >(
         &self,
-        topic: S,
+        topics: Topics,
+        payload: &Payload,
+    ) -> Result<(), Error> {
+        let topics = topics
+            .into_iter()
+            .map(pot::to_vec)
+            .collect::<Result<Vec<_>, _>>()?;
+        self.publish_bytes_to_all(topics, pot::to_vec(payload)?)
+    }
+
+    /// Publishes a `payload` to all subscribers of all `topics`.
+    fn publish_bytes_to_all(
+        &self,
+        topics: impl IntoIterator<Item = Vec<u8>> + Send,
         payload: Vec<u8>,
     ) -> Result<(), Error>;
-
-    /// Publishes a `payload` to all subscribers of all `topics`.
-    fn publish_to_all<P: Serialize + Sync>(
-        &self,
-        topics: Vec<String>,
-        payload: &P,
-    ) -> Result<(), Error>;
-
-    /// Publishes a `payload` to all subscribers of all `topics`.
-    fn publish_bytes_to_all(&self, topics: Vec<String>, payload: Vec<u8>) -> Result<(), Error>;
 }
 
 /// A subscriber to one or more topics.
 pub trait Subscriber {
     /// Subscribe to [`Message`]s published to `topic`.
-    fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error>;
+    fn subscribe_to<Topic: Serialize>(&self, topic: &Topic) -> Result<(), Error> {
+        self.subscribe_to_bytes(pot::to_vec(topic)?)
+    }
+
+    /// Subscribe to [`Message`]s published to `topic`.
+    fn subscribe_to_bytes(&self, topic: Vec<u8>) -> Result<(), Error>;
 
     /// Unsubscribe from [`Message`]s published to `topic`.
-    fn unsubscribe_from(&self, topic: &str) -> Result<(), Error>;
+    fn unsubscribe_from<Topic: Serialize>(&self, topic: &Topic) -> Result<(), Error> {
+        self.unsubscribe_from_bytes(&pot::to_vec(topic)?)
+    }
+
+    /// Unsubscribe from [`Message`]s published to `topic`.
+    fn unsubscribe_from_bytes(&self, topic: &[u8]) -> Result<(), Error>;
 
     /// Returns the receiver to receive [`Message`]s.
     #[must_use]
-    fn receiver(&self) -> &'_ flume::Receiver<Arc<Message>>;
+    fn receiver(&self) -> &'_ flume::Receiver<Message>;
 }
 
 /// Publishes and Subscribes to messages on topics.
 #[async_trait]
-pub trait AsyncPubSub {
+pub trait AsyncPubSub: Send + Sync {
     /// The Subscriber type for this `PubSub` connection.
     type Subscriber: AsyncSubscriber;
 
@@ -62,46 +84,74 @@ pub trait AsyncPubSub {
     async fn create_subscriber(&self) -> Result<Self::Subscriber, Error>;
 
     /// Publishes a `payload` to all subscribers of `topic`.
-    async fn publish<S: Into<String> + Send, P: Serialize + Sync>(
+    async fn publish<Topic: Serialize + Send + Sync, Payload: Serialize + Send + Sync>(
         &self,
-        topic: S,
-        payload: &P,
-    ) -> Result<(), Error>;
+        topic: &Topic,
+        payload: &Payload,
+    ) -> Result<(), Error> {
+        let topic = pot::to_vec(topic)?;
+        let payload = pot::to_vec(payload)?;
+        self.publish_bytes(topic, payload).await
+    }
 
     /// Publishes a `payload` to all subscribers of `topic`.
-    async fn publish_bytes<S: Into<String> + Send>(
-        &self,
-        topic: S,
-        payload: Vec<u8>,
-    ) -> Result<(), Error>;
+    async fn publish_bytes(&self, topic: Vec<u8>, payload: Vec<u8>) -> Result<(), Error>;
 
     /// Publishes a `payload` to all subscribers of all `topics`.
-    async fn publish_to_all<P: Serialize + Sync>(
+    async fn publish_to_all<
+        'topics,
+        Topics: IntoIterator<Item = &'topics Topic> + Send + 'topics,
+        Topic: Serialize + Send + 'topics,
+        Payload: Serialize + Send + Sync,
+    >(
         &self,
-        topics: Vec<String>,
-        payload: &P,
-    ) -> Result<(), Error>;
+        topics: Topics,
+        payload: &Payload,
+    ) -> Result<(), Error> {
+        let topics = topics
+            .into_iter()
+            .map(|topic| pot::to_vec(topic))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.publish_bytes_to_all(topics, pot::to_vec(payload)?)
+            .await
+    }
 
     /// Publishes a `payload` to all subscribers of all `topics`.
     async fn publish_bytes_to_all(
         &self,
-        topics: Vec<String>,
+        topics: impl IntoIterator<Item = Vec<u8>> + Send + 'async_trait,
         payload: Vec<u8>,
     ) -> Result<(), Error>;
 }
 
 /// A subscriber to one or more topics.
 #[async_trait]
-pub trait AsyncSubscriber {
+pub trait AsyncSubscriber: Send + Sync {
     /// Subscribe to [`Message`]s published to `topic`.
-    async fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error>;
+    async fn subscribe_to<Topic: Serialize + Send + Sync>(
+        &self,
+        topic: &Topic,
+    ) -> Result<(), Error> {
+        self.subscribe_to_bytes(pot::to_vec(topic)?).await
+    }
+
+    /// Subscribe to [`Message`]s published to `topic`.
+    async fn subscribe_to_bytes(&self, topic: Vec<u8>) -> Result<(), Error>;
 
     /// Unsubscribe from [`Message`]s published to `topic`.
-    async fn unsubscribe_from(&self, topic: &str) -> Result<(), Error>;
+    async fn unsubscribe_from<Topic: Serialize + Send + Sync>(
+        &self,
+        topic: &Topic,
+    ) -> Result<(), Error> {
+        self.unsubscribe_from_bytes(&pot::to_vec(topic)?).await
+    }
+
+    /// Unsubscribe from [`Message`]s published to `topic`.
+    async fn unsubscribe_from_bytes(&self, topic: &[u8]) -> Result<(), Error>;
 
     /// Returns the receiver to receive [`Message`]s.
     #[must_use]
-    fn receiver(&self) -> &'_ flume::Receiver<Arc<Message>>;
+    fn receiver(&self) -> &'_ flume::Receiver<Message>;
 }
 
 #[async_trait]
@@ -112,35 +162,40 @@ impl PubSub for Relay {
         Ok(self.create_subscriber())
     }
 
-    fn publish<S: Into<String> + Send, P: Serialize + Sync>(
+    fn publish<Topic: Serialize, Payload: Serialize>(
         &self,
-        topic: S,
-        payload: &P,
+        topic: &Topic,
+        payload: &Payload,
     ) -> Result<(), Error> {
         self.publish(topic, payload)?;
         Ok(())
     }
 
-    fn publish_to_all<P: Serialize + Sync>(
+    fn publish_to_all<
+        'topics,
+        Topics: IntoIterator<Item = &'topics Topic> + 'topics,
+        Topic: Serialize + 'topics,
+        Payload: Serialize,
+    >(
         &self,
-        topics: Vec<String>,
-        payload: &P,
+        topics: Topics,
+        payload: &Payload,
     ) -> Result<(), Error> {
         self.publish_to_all(topics, payload)?;
         Ok(())
     }
 
-    fn publish_bytes<S: Into<String> + Send>(
-        &self,
-        topic: S,
-        payload: Vec<u8>,
-    ) -> Result<(), Error> {
+    fn publish_bytes(&self, topic: Vec<u8>, payload: Vec<u8>) -> Result<(), Error> {
         self.publish_raw(topic, payload);
         Ok(())
     }
 
-    fn publish_bytes_to_all(&self, topics: Vec<String>, payload: Vec<u8>) -> Result<(), Error> {
-        self.publish_raw_to_all(topics, payload);
+    fn publish_bytes_to_all(
+        &self,
+        topics: impl IntoIterator<Item = Vec<u8>>,
+        payload: Vec<u8>,
+    ) -> Result<(), Error> {
+        self.publish_raw_to_all(topics.into_iter().map(OwnedBytes::from), payload);
         Ok(())
     }
 }
@@ -153,73 +208,51 @@ impl AsyncPubSub for Relay {
         Ok(self.create_subscriber())
     }
 
-    async fn publish<S: Into<String> + Send, P: Serialize + Sync>(
-        &self,
-        topic: S,
-        payload: &P,
-    ) -> Result<(), Error> {
-        self.publish(topic, payload)?;
-        Ok(())
-    }
-
     /// Publishes a `payload` to all subscribers of `topic`.
-    async fn publish_bytes<S: Into<String> + Send>(
-        &self,
-        topic: S,
-        payload: Vec<u8>,
-    ) -> Result<(), Error> {
+    async fn publish_bytes(&self, topic: Vec<u8>, payload: Vec<u8>) -> Result<(), Error> {
         self.publish_raw(topic, payload);
-        Ok(())
-    }
-
-    async fn publish_to_all<P: Serialize + Sync>(
-        &self,
-        topics: Vec<String>,
-        payload: &P,
-    ) -> Result<(), Error> {
-        self.publish_to_all(topics, payload)?;
         Ok(())
     }
 
     async fn publish_bytes_to_all(
         &self,
-        topics: Vec<String>,
+        topics: impl IntoIterator<Item = Vec<u8>> + Send + 'async_trait,
         payload: Vec<u8>,
     ) -> Result<(), Error> {
-        self.publish_raw_to_all(topics, payload);
+        self.publish_raw_to_all(topics.into_iter().map(OwnedBytes::from), payload);
         Ok(())
     }
 }
 
 impl Subscriber for circulate::Subscriber {
-    fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error> {
-        self.subscribe_to(topic);
+    fn subscribe_to_bytes(&self, topic: Vec<u8>) -> Result<(), Error> {
+        self.subscribe_to_raw(topic);
         Ok(())
     }
 
-    fn unsubscribe_from(&self, topic: &str) -> Result<(), Error> {
-        self.unsubscribe_from(topic);
+    fn unsubscribe_from_bytes(&self, topic: &[u8]) -> Result<(), Error> {
+        self.unsubscribe_from_raw(topic);
         Ok(())
     }
 
-    fn receiver(&self) -> &'_ flume::Receiver<Arc<Message>> {
+    fn receiver(&self) -> &'_ flume::Receiver<Message> {
         self.receiver()
     }
 }
 
 #[async_trait]
 impl AsyncSubscriber for circulate::Subscriber {
-    async fn subscribe_to<S: Into<String> + Send>(&self, topic: S) -> Result<(), Error> {
-        self.subscribe_to(topic);
+    async fn subscribe_to_bytes(&self, topic: Vec<u8>) -> Result<(), Error> {
+        self.subscribe_to_raw(topic);
         Ok(())
     }
 
-    async fn unsubscribe_from(&self, topic: &str) -> Result<(), Error> {
-        self.unsubscribe_from(topic);
+    async fn unsubscribe_from_bytes(&self, topic: &[u8]) -> Result<(), Error> {
+        self.unsubscribe_from_raw(topic);
         Ok(())
     }
 
-    fn receiver(&self) -> &'_ flume::Receiver<Arc<Message>> {
+    fn receiver(&self) -> &'_ flume::Receiver<Message> {
         self.receiver()
     }
 }
@@ -229,8 +262,14 @@ impl AsyncSubscriber for circulate::Subscriber {
 /// Client and Server must agree on this format, which is why it lives in core.
 #[doc(hidden)]
 #[must_use]
-pub fn database_topic(database: &str, topic: &str) -> String {
-    format!("{}\u{0}{}", database, topic)
+pub fn database_topic(database: &str, topic: &[u8]) -> Vec<u8> {
+    let mut namespaced_topic = Vec::with_capacity(database.len() + topic.len() + 1);
+
+    namespaced_topic.extend(database.bytes());
+    namespaced_topic.push(b'\0');
+    namespaced_topic.extend(topic);
+
+    namespaced_topic
 }
 
 /// Expands into a suite of pubsub unit tests using the passed type as the test harness.
@@ -246,9 +285,9 @@ macro_rules! define_pubsub_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::PubSubSimple).await?;
             let pubsub = harness.connect().await?;
             let subscriber = AsyncPubSub::create_subscriber(&pubsub).await?;
-            AsyncSubscriber::subscribe_to(&subscriber, "mytopic").await?;
-            AsyncPubSub::publish(&pubsub, "mytopic", &String::from("test")).await?;
-            AsyncPubSub::publish(&pubsub, "othertopic", &String::from("test")).await?;
+            AsyncSubscriber::subscribe_to(&subscriber, &"mytopic").await?;
+            AsyncPubSub::publish(&pubsub, &"mytopic", &String::from("test")).await?;
+            AsyncPubSub::publish(&pubsub, &"othertopic", &String::from("test")).await?;
             let receiver = subscriber.receiver().clone();
             let message = receiver.recv_async().await.expect("No message received");
             assert_eq!(message.payload::<String>()?, "test");
@@ -270,13 +309,13 @@ macro_rules! define_pubsub_test_suite {
             let pubsub = harness.connect().await?;
             let subscriber_a = AsyncPubSub::create_subscriber(&pubsub).await?;
             let subscriber_ab = AsyncPubSub::create_subscriber(&pubsub).await?;
-            AsyncSubscriber::subscribe_to(&subscriber_a, "a").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_ab, "a").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_ab, "b").await?;
+            AsyncSubscriber::subscribe_to(&subscriber_a, &"a").await?;
+            AsyncSubscriber::subscribe_to(&subscriber_ab, &"a").await?;
+            AsyncSubscriber::subscribe_to(&subscriber_ab, &"b").await?;
 
             let mut messages_a = Vec::new();
             let mut messages_ab = Vec::new();
-            AsyncPubSub::publish(&pubsub, "a", &String::from("a1")).await?;
+            AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
             messages_a.push(
                 subscriber_a
                     .receiver()
@@ -292,7 +331,7 @@ macro_rules! define_pubsub_test_suite {
                     .payload::<String>()?,
             );
 
-            AsyncPubSub::publish(&pubsub, "b", &String::from("b1")).await?;
+            AsyncPubSub::publish(&pubsub, &"b", &String::from("b1")).await?;
             messages_ab.push(
                 subscriber_ab
                     .receiver()
@@ -301,7 +340,7 @@ macro_rules! define_pubsub_test_suite {
                     .payload::<String>()?,
             );
 
-            AsyncPubSub::publish(&pubsub, "a", &String::from("a2")).await?;
+            AsyncPubSub::publish(&pubsub, &"a", &String::from("a2")).await?;
             messages_a.push(
                 subscriber_a
                     .receiver()
@@ -332,13 +371,13 @@ macro_rules! define_pubsub_test_suite {
             let harness = $harness::new($crate::test_util::HarnessTest::PubSubUnsubscribe).await?;
             let pubsub = harness.connect().await?;
             let subscriber = AsyncPubSub::create_subscriber(&pubsub).await?;
-            AsyncSubscriber::subscribe_to(&subscriber, "a").await?;
+            AsyncSubscriber::subscribe_to(&subscriber, &"a").await?;
 
-            AsyncPubSub::publish(&pubsub, "a", &String::from("a1")).await?;
-            AsyncSubscriber::unsubscribe_from(&subscriber, "a").await?;
-            AsyncPubSub::publish(&pubsub, "a", &String::from("a2")).await?;
-            AsyncSubscriber::subscribe_to(&subscriber, "a").await?;
-            AsyncPubSub::publish(&pubsub, "a", &String::from("a3")).await?;
+            AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
+            AsyncSubscriber::unsubscribe_from(&subscriber, &"a").await?;
+            AsyncPubSub::publish(&pubsub, &"a", &String::from("a2")).await?;
+            AsyncSubscriber::subscribe_to(&subscriber, &"a").await?;
+            AsyncPubSub::publish(&pubsub, &"a", &String::from("a3")).await?;
 
             // Check subscriber_a for a1 and a2.
             let message = subscriber.receiver().recv_async().await?;
@@ -356,19 +395,14 @@ macro_rules! define_pubsub_test_suite {
             let subscriber_a = AsyncPubSub::create_subscriber(&pubsub).await?;
             let subscriber_b = AsyncPubSub::create_subscriber(&pubsub).await?;
             let subscriber_c = AsyncPubSub::create_subscriber(&pubsub).await?;
-            AsyncSubscriber::subscribe_to(&subscriber_a, "1").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_b, "1").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_b, "2").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_c, "2").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_a, "3").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_c, "3").await?;
+            AsyncSubscriber::subscribe_to(&subscriber_a, &"1").await?;
+            AsyncSubscriber::subscribe_to(&subscriber_b, &"1").await?;
+            AsyncSubscriber::subscribe_to(&subscriber_b, &"2").await?;
+            AsyncSubscriber::subscribe_to(&subscriber_c, &"2").await?;
+            AsyncSubscriber::subscribe_to(&subscriber_a, &"3").await?;
+            AsyncSubscriber::subscribe_to(&subscriber_c, &"3").await?;
 
-            AsyncPubSub::publish_to_all(
-                &pubsub,
-                vec![String::from("1"), String::from("2"), String::from("3")],
-                &String::from("1"),
-            )
-            .await?;
+            AsyncPubSub::publish_to_all(&pubsub, [&"1", &"2", &"3"], &String::from("1")).await?;
 
             // Each subscriber should get "1" twice on separate topics
             for subscriber in &[subscriber_a, subscriber_b, subscriber_c] {
