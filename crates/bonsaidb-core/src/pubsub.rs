@@ -266,8 +266,8 @@ pub fn database_topic(database: &str, topic: &[u8]) -> Vec<u8> {
 }
 
 /// Expands into a suite of pubsub unit tests using the passed type as the test harness.
-#[cfg(any(test, feature = "test-util"))]
-#[cfg_attr(feature = "test-util", macro_export)]
+#[cfg(feature = "test-util")]
+#[macro_export]
 macro_rules! define_pubsub_test_suite {
     ($harness:ident) => {
         #[cfg(test)]
