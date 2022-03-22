@@ -7,7 +7,7 @@ use crate::{
     connection::{
         AccessPolicy, Database, IdentityReference, QueryKey, Range, Session, SessionId, Sort,
     },
-    document::{DocumentId, OwnedDocument},
+    document::{DocumentId, Header, OwnedDocument},
     keyvalue::{KeyOperation, Output},
     schema::{
         self,
@@ -283,6 +283,19 @@ impl Api for List {
 
     fn name() -> ApiName {
         ApiName::new("bonsaidb", "List")
+    }
+}
+
+/// Retrieve multiple document headers.
+#[derive(Clone, Deserialize, Serialize, Debug)]
+pub struct ListHeaders(pub List);
+
+impl Api for ListHeaders {
+    type Response = Vec<Header>;
+    type Error = crate::Error;
+
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "ListHeaders")
     }
 }
 

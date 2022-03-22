@@ -4,11 +4,11 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     connection::{AccessPolicy, AsyncConnection, AsyncLowLevelConnection, QueryKey, Range, Sort},
-    document::{DocumentId, OwnedDocument},
+    document::{DocumentId, Header, OwnedDocument},
     networking::{
         ApplyTransaction, Compact, CompactCollection, CompactKeyValueStore, Count, DeleteDocs, Get,
-        GetMultiple, LastTransactionId, List, ListExecutedTransactions, Query, QueryWithDocs,
-        Reduce, ReduceGrouped,
+        GetMultiple, LastTransactionId, List, ListExecutedTransactions, ListHeaders, Query,
+        QueryWithDocs, Reduce, ReduceGrouped,
     },
     schema::{self, view::map::MappedSerializedValue, CollectionName, Schematic, ViewName},
     transaction::{Executed, OperationResult, Transaction},
@@ -158,6 +158,25 @@ impl AsyncLowLevelConnection for RemoteDatabase {
                 order,
                 limit,
             })
+            .await?)
+    }
+
+    async fn list_headers_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
+        Ok(self
+            .client
+            .send_api_request_async(&ListHeaders(List {
+                database: self.name.to_string(),
+                collection: collection.clone(),
+                ids,
+                order,
+                limit,
+            }))
             .await?)
     }
 

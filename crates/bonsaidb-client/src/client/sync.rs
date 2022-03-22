@@ -2,11 +2,12 @@ use bonsaidb_core::{
     circulate::Message,
     connection::{
         AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection, Connection,
-        IdentityReference, LowLevelConnection, StorageConnection,
+        IdentityReference, LowLevelConnection, Range, Sort, StorageConnection,
     },
+    document::{DocumentId, Header, OwnedDocument},
     keyvalue::{AsyncKeyValue, KeyValue},
     pubsub::{AsyncPubSub, AsyncSubscriber, PubSub, Subscriber},
-    schema::Schematic,
+    schema::{CollectionName, Schematic},
 };
 use tokio::runtime::Handle;
 
@@ -223,121 +224,6 @@ impl LowLevelConnection for RemoteDatabase {
         &self.schema
     }
 
-    fn get<C, PrimaryKey>(
-        &self,
-        id: PrimaryKey,
-    ) -> Result<Option<bonsaidb_core::document::OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: bonsaidb_core::schema::Collection,
-        PrimaryKey: Into<bonsaidb_core::document::AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        self.tokio()
-            .block_on(async { AsyncLowLevelConnection::get::<C, PrimaryKey>(self, id).await })
-    }
-
-    fn get_multiple<C, PrimaryKey, DocumentIds, I>(
-        &self,
-        ids: DocumentIds,
-    ) -> Result<Vec<bonsaidb_core::document::OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: bonsaidb_core::schema::Collection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<bonsaidb_core::document::AnyDocumentId<C::PrimaryKey>> + Send + Sync,
-    {
-        self.tokio().block_on(async {
-            AsyncLowLevelConnection::get_multiple::<C, _, _, _>(self, ids).await
-        })
-    }
-
-    fn list<C, R, PrimaryKey>(
-        &self,
-        ids: R,
-        order: bonsaidb_core::connection::Sort,
-        limit: Option<u32>,
-    ) -> Result<Vec<bonsaidb_core::document::OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: bonsaidb_core::schema::Collection,
-        R: Into<bonsaidb_core::connection::Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<bonsaidb_core::document::AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        self.tokio().block_on(async {
-            AsyncLowLevelConnection::list::<C, _, _>(self, ids, order, limit).await
-        })
-    }
-
-    fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
-    where
-        C: bonsaidb_core::schema::Collection,
-        R: Into<bonsaidb_core::connection::Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<bonsaidb_core::document::AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        self.tokio()
-            .block_on(async { AsyncLowLevelConnection::count::<C, _, _>(self, ids).await })
-    }
-
-    fn query<V: bonsaidb_core::schema::SerializedView>(
-        &self,
-        key: Option<bonsaidb_core::connection::QueryKey<V::Key>>,
-        order: bonsaidb_core::connection::Sort,
-        limit: Option<u32>,
-        access_policy: bonsaidb_core::connection::AccessPolicy,
-    ) -> Result<Vec<bonsaidb_core::schema::Map<V::Key, V::Value>>, bonsaidb_core::Error> {
-        self.tokio().block_on(async {
-            AsyncLowLevelConnection::query::<V>(self, key, order, limit, access_policy).await
-        })
-    }
-
-    fn query_with_docs<V: bonsaidb_core::schema::SerializedView>(
-        &self,
-        key: Option<bonsaidb_core::connection::QueryKey<V::Key>>,
-        order: bonsaidb_core::connection::Sort,
-        limit: Option<u32>,
-        access_policy: bonsaidb_core::connection::AccessPolicy,
-    ) -> Result<
-        bonsaidb_core::schema::view::map::MappedDocuments<
-            bonsaidb_core::document::OwnedDocument,
-            V,
-        >,
-        bonsaidb_core::Error,
-    > {
-        self.tokio().block_on(async {
-            AsyncLowLevelConnection::query_with_docs::<V>(self, key, order, limit, access_policy)
-                .await
-        })
-    }
-
-    fn reduce<V: bonsaidb_core::schema::SerializedView>(
-        &self,
-        key: Option<bonsaidb_core::connection::QueryKey<V::Key>>,
-        access_policy: bonsaidb_core::connection::AccessPolicy,
-    ) -> Result<V::Value, bonsaidb_core::Error> {
-        self.tokio().block_on(async {
-            AsyncLowLevelConnection::reduce::<V>(self, key, access_policy).await
-        })
-    }
-
-    fn reduce_grouped<V: bonsaidb_core::schema::SerializedView>(
-        &self,
-        key: Option<bonsaidb_core::connection::QueryKey<V::Key>>,
-        access_policy: bonsaidb_core::connection::AccessPolicy,
-    ) -> Result<Vec<bonsaidb_core::schema::MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
-    {
-        self.tokio().block_on(async {
-            AsyncLowLevelConnection::reduce_grouped::<V>(self, key, access_policy).await
-        })
-    }
-
-    fn delete_docs<V: bonsaidb_core::schema::SerializedView>(
-        &self,
-        key: Option<bonsaidb_core::connection::QueryKey<V::Key>>,
-        access_policy: bonsaidb_core::connection::AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error> {
-        self.tokio().block_on(async {
-            AsyncLowLevelConnection::delete_docs::<V>(self, key, access_policy).await
-        })
-    }
-
     fn apply_transaction(
         &self,
         transaction: bonsaidb_core::transaction::Transaction,
@@ -349,8 +235,8 @@ impl LowLevelConnection for RemoteDatabase {
     fn get_from_collection(
         &self,
         id: bonsaidb_core::document::DocumentId,
-        collection: &bonsaidb_core::schema::CollectionName,
-    ) -> Result<Option<bonsaidb_core::document::OwnedDocument>, bonsaidb_core::Error> {
+        collection: &CollectionName,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
         self.tokio().block_on(async {
             AsyncLowLevelConnection::get_from_collection(self, id, collection).await
         })
@@ -358,20 +244,35 @@ impl LowLevelConnection for RemoteDatabase {
 
     fn list_from_collection(
         &self,
-        ids: bonsaidb_core::connection::Range<bonsaidb_core::document::DocumentId>,
-        order: bonsaidb_core::connection::Sort,
+        ids: Range<bonsaidb_core::document::DocumentId>,
+        order: Sort,
         limit: Option<u32>,
-        collection: &bonsaidb_core::schema::CollectionName,
-    ) -> Result<Vec<bonsaidb_core::document::OwnedDocument>, bonsaidb_core::Error> {
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.tokio().block_on(async {
             AsyncLowLevelConnection::list_from_collection(self, ids, order, limit, collection).await
         })
     }
 
+    fn list_headers_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
+        self.tokio().block_on(async {
+            AsyncLowLevelConnection::list_headers_from_collection(
+                self, ids, order, limit, collection,
+            )
+            .await
+        })
+    }
+
     fn count_from_collection(
         &self,
-        ids: bonsaidb_core::connection::Range<bonsaidb_core::document::DocumentId>,
-        collection: &bonsaidb_core::schema::CollectionName,
+        ids: Range<bonsaidb_core::document::DocumentId>,
+        collection: &CollectionName,
     ) -> Result<u64, bonsaidb_core::Error> {
         self.tokio().block_on(async {
             AsyncLowLevelConnection::count_from_collection(self, ids, collection).await
@@ -381,8 +282,8 @@ impl LowLevelConnection for RemoteDatabase {
     fn get_multiple_from_collection(
         &self,
         ids: &[bonsaidb_core::document::DocumentId],
-        collection: &bonsaidb_core::schema::CollectionName,
-    ) -> Result<Vec<bonsaidb_core::document::OwnedDocument>, bonsaidb_core::Error> {
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.tokio().block_on(async {
             AsyncLowLevelConnection::get_multiple_from_collection(self, ids, collection).await
         })
@@ -390,7 +291,7 @@ impl LowLevelConnection for RemoteDatabase {
 
     fn compact_collection_by_name(
         &self,
-        collection: bonsaidb_core::schema::CollectionName,
+        collection: CollectionName,
     ) -> Result<(), bonsaidb_core::Error> {
         self.tokio().block_on(async {
             AsyncLowLevelConnection::compact_collection_by_name(self, collection).await
@@ -401,7 +302,7 @@ impl LowLevelConnection for RemoteDatabase {
         &self,
         view: &bonsaidb_core::schema::ViewName,
         key: Option<bonsaidb_core::connection::QueryKey<bonsaidb_core::arc_bytes::serde::Bytes>>,
-        order: bonsaidb_core::connection::Sort,
+        order: Sort,
         limit: Option<u32>,
         access_policy: bonsaidb_core::connection::AccessPolicy,
     ) -> Result<Vec<bonsaidb_core::schema::view::map::Serialized>, bonsaidb_core::Error> {
@@ -415,7 +316,7 @@ impl LowLevelConnection for RemoteDatabase {
         &self,
         view: &bonsaidb_core::schema::ViewName,
         key: Option<bonsaidb_core::connection::QueryKey<bonsaidb_core::arc_bytes::serde::Bytes>>,
-        order: bonsaidb_core::connection::Sort,
+        order: Sort,
         limit: Option<u32>,
         access_policy: bonsaidb_core::connection::AccessPolicy,
     ) -> Result<bonsaidb_core::schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error>

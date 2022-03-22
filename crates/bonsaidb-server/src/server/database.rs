@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     connection::{AccessPolicy, AsyncLowLevelConnection, QueryKey, Range, Sort},
-    document::{DocumentId, OwnedDocument},
+    document::{DocumentId, Header, OwnedDocument},
     keyvalue::AsyncKeyValue,
     permissions::Permissions,
     pubsub::AsyncPubSub,
@@ -154,6 +154,18 @@ impl<B: Backend> AsyncLowLevelConnection for ServerDatabase<B> {
     ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
         self.db
             .list_from_collection(ids, order, limit, collection)
+            .await
+    }
+
+    async fn list_headers_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
+        self.db
+            .list_headers_from_collection(ids, order, limit, collection)
             .await
     }
 

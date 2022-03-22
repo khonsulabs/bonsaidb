@@ -27,7 +27,7 @@ impl Deref for DocumentId {
 
 impl Ord for DocumentId {
     fn cmp(&self, other: &Self) -> Ordering {
-        (&**self).cmp(&**other)
+        (**self).cmp(&**other)
     }
 }
 
@@ -91,7 +91,7 @@ impl Display for DocumentId {
 
 impl Hash for DocumentId {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        (&**self).hash(state);
+        (**self).hash(state);
     }
 }
 

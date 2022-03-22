@@ -146,6 +146,26 @@ impl<'k> IntoPrefixRange for Vec<u8> {
     }
 }
 
+impl<'a, const N: usize> Key<'a> for [u8; N] {
+    type Error = IncorrectByteLength;
+
+    const LENGTH: Option<usize> = Some(N);
+
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+        Ok(Cow::Borrowed(self))
+    }
+
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        if bytes.len() == N {
+            let mut array = [0; N];
+            array.copy_from_slice(bytes);
+            Ok(array)
+        } else {
+            Err(IncorrectByteLength)
+        }
+    }
+}
+
 #[test]
 fn vec_prefix_range_tests() {
     use std::ops::RangeBounds;

@@ -8,7 +8,7 @@ use bonsaidb_core::{
         self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
         IdentityReference, QueryKey, Range, Session, Sort,
     },
-    document::{DocumentId, OwnedDocument},
+    document::{DocumentId, Header, OwnedDocument},
     schema::{
         self, view::map::MappedSerializedValue, Collection, CollectionName, Nameable, Schema,
         SchemaName, Schematic, ViewName,
@@ -350,6 +350,27 @@ impl<B: Backend> AsyncLowLevelConnection for AnyDatabase<B> {
             Self::Networked(client) => {
                 client
                     .list_from_collection(ids, order, limit, collection)
+                    .await
+            }
+        }
+    }
+
+    async fn list_headers_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => {
+                server
+                    .list_headers_from_collection(ids, order, limit, collection)
+                    .await
+            }
+            Self::Networked(client) => {
+                client
+                    .list_headers_from_collection(ids, order, limit, collection)
                     .await
             }
         }

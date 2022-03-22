@@ -9,7 +9,7 @@ use transmog_pot::Pot;
 use crate::{
     connection::{self, AsyncConnection, Connection, Range},
     document::{
-        AnyDocumentId, BorrowedDocument, CollectionDocument, Document, DocumentId, KeyId,
+        AnyDocumentId, BorrowedDocument, CollectionDocument, Document, DocumentId, Header, KeyId,
         OwnedDocument, OwnedDocuments,
     },
     key::{IntoPrefixRange, Key},
@@ -1817,6 +1817,29 @@ where
         self
     }
 
+    /// Returns the list of document headers contained within the range.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
+    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// println!(
+    ///     "Headers with id 42 or larger: {:?}",
+    ///     MyCollection::list(42.., db).headers()?
+    /// );
+    /// println!(
+    ///     "Headers in MyCollection: {:?}",
+    ///     MyCollection::all(db).headers()?
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub fn headers(self) -> Result<Vec<Header>, Error> {
+        self.0.headers()
+    }
+
     /// Returns the number of documents contained within the range.
     ///
     /// Order and limit are ignored if they were set.
@@ -1899,6 +1922,29 @@ where
     /// ```
     pub async fn count(self) -> Result<u64, Error> {
         self.0.count().await
+    }
+
+    /// Returns the list of document headers contained within the range.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// println!(
+    ///     "Headers with id 42 or larger: {:?}",
+    ///     MyCollection::list_async(42.., db).headers().await?
+    /// );
+    /// println!(
+    ///     "Headers in MyCollection: {:?}",
+    ///     MyCollection::all_async(db).headers().await?
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub async fn headers(self) -> Result<Vec<Header>, Error> {
+        self.0.headers().await
     }
 }
 

@@ -8,7 +8,7 @@ use crate::{
     connection::{AccessPolicy, QueryKey, Range, Sort, ViewMappings},
     document::{
         AnyDocumentId, CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader,
-        OwnedDocument,
+        Header, OwnedDocument,
     },
     key::Key,
     schema::{
@@ -191,6 +191,31 @@ pub trait LowLevelConnection {
     {
         let ids = ids.into().map_result(|id| id.into().to_document_id())?;
         self.list_from_collection(ids, order, limit, &C::collection_name())
+    }
+
+    /// Retrieves all documents within the range of `ids`. To retrieve all
+    /// documents, pass in `..` for `ids`.
+    ///
+    /// This is the lower-level API. For better ergonomics, consider using one
+    /// of:
+    ///
+    /// - [`SerializedCollection::all_async().headers()`](schema::AsyncList::headers)
+    /// - [`self.collection::<Collection>().all().headers()`](super::AsyncList::headers)
+    /// - [`SerializedCollection::list_async().headers()`](schema::AsyncList::headers)
+    /// - [`self.collection::<Collection>().list().headers()`](super::AsyncList::headers)
+    fn list_headers<C, R, PrimaryKey>(
+        &self,
+        ids: R,
+        order: Sort,
+        limit: Option<u32>,
+    ) -> Result<Vec<Header>, Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        let ids = ids.into().map_result(|id| id.into().to_document_id())?;
+        self.list_headers_from_collection(ids, order, limit, &C::collection_name())
     }
 
     /// Counts the number of documents within the range of `ids`.
@@ -448,6 +473,23 @@ pub trait LowLevelConnection {
         limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, Error>;
+
+    /// Retrieves all headers within the range of `ids` from the named
+    /// `collection`. To retrieve all documents, pass in `..` for `ids`.
+    ///
+    /// This is a lower-level API. For better ergonomics, consider using one of:
+    ///
+    /// - [`SerializedCollection::all_async()`]
+    /// - [`self.collection::<Collection>().all()`](super::AsyncCollection::all)
+    /// - [`SerializedCollection::list_async()`]
+    /// - [`self.collection::<Collection>().list()`](super::AsyncCollection::list)
+    fn list_headers_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, Error>;
 
     /// Counts the number of documents within the range of `ids` from the named
     /// `collection`.
@@ -735,6 +777,32 @@ pub trait AsyncLowLevelConnection {
             .await
     }
 
+    /// Retrieves all documents within the range of `ids`. To retrieve all
+    /// documents, pass in `..` for `ids`.
+    ///
+    /// This is the lower-level API. For better ergonomics, consider using one
+    /// of:
+    ///
+    /// - [`SerializedCollection::all()`]
+    /// - [`self.collection::<Collection>().all()`](Collection::all)
+    /// - [`SerializedCollection::list_headers()`]
+    /// - [`self.collection::<Collection>().list_headers()`](Collection::list_headers)
+    async fn list_headers<C, R, PrimaryKey>(
+        &self,
+        ids: R,
+        order: Sort,
+        limit: Option<u32>,
+    ) -> Result<Vec<Header>, Error>
+    where
+        C: schema::Collection,
+        R: Into<Range<PrimaryKey>> + Send,
+        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+    {
+        let ids = ids.into().map_result(|id| id.into().to_document_id())?;
+        self.list_headers_from_collection(ids, order, limit, &C::collection_name())
+            .await
+    }
+
     /// Counts the number of documents within the range of `ids`.
     ///
     /// This is the lower-level API. For better ergonomics, consider using
@@ -999,10 +1067,10 @@ pub trait AsyncLowLevelConnection {
     ///
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
-    /// - [`SerializedCollection::all_async()`]
-    /// - [`self.collection::<Collection>().all()`](super::AsyncCollection::all)
-    /// - [`SerializedCollection::list_async()`]
-    /// - [`self.collection::<Collection>().list()`](super::AsyncCollection::list)
+    /// - [`SerializedCollection::all().headers()`](schema::List::headers)
+    /// - [`self.collection::<Collection>().all().headers()`](super::List::headers)
+    /// - [`SerializedCollection::list()`](schema::List::headers)
+    /// - [`self.collection::<Collection>().list().headers()`](super::List::headers)
     async fn list_from_collection(
         &self,
         ids: Range<DocumentId>,
@@ -1010,6 +1078,23 @@ pub trait AsyncLowLevelConnection {
         limit: Option<u32>,
         collection: &CollectionName,
     ) -> Result<Vec<OwnedDocument>, Error>;
+
+    /// Retrieves all headers within the range of `ids` from the named
+    /// `collection`. To retrieve all documents, pass in `..` for `ids`.
+    ///
+    /// This is a lower-level API. For better ergonomics, consider using one of:
+    ///
+    /// - [`SerializedCollection::all().headers()`](schema::List::headers)
+    /// - [`self.collection::<Collection>().all().headers()`](super::List::headers)
+    /// - [`SerializedCollection::list()`](schema::List::headers)
+    /// - [`self.collection::<Collection>().list().headers()`](super::List::headers)
+    async fn list_headers_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, Error>;
 
     /// Counts the number of documents within the range of `ids` from the named
     /// `collection`.

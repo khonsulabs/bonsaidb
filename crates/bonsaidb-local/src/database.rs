@@ -1098,6 +1098,60 @@ impl LowLevelConnection for Database {
         Ok(found_docs)
     }
 
+    fn list_headers_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        sort: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
+        self.check_permission(
+            collection_resource_name(self.name(), collection),
+            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::ListHeaders)),
+        )?;
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
+            .map_err(Error::from)?;
+        let mut found_headers = Vec::new();
+        let mut keys_read = 0;
+        let ids = DocumentIdRange(ids);
+        tree.scan(
+            &ids.borrow_as_bytes(),
+            match sort {
+                Sort::Ascending => true,
+                Sort::Descending => false,
+            },
+            |_, _, _| ScanEvaluation::ReadData,
+            |_, _| {
+                if let Some(limit) = limit {
+                    if keys_read >= limit {
+                        return ScanEvaluation::Stop;
+                    }
+
+                    keys_read += 1;
+                }
+                ScanEvaluation::ReadData
+            },
+            |_, _, doc| {
+                found_headers.push(
+                    deserialize_document(&doc)
+                        .map(|doc| doc.header)
+                        .map_err(AbortError::Other)?,
+                );
+                Ok(())
+            },
+        )
+        .map_err(|err| match err {
+            AbortError::Other(err) => err,
+            AbortError::Nebari(err) => crate::Error::from(err),
+        })?;
+
+        Ok(found_headers)
+    }
+
     fn count_from_collection(
         &self,
         ids: Range<DocumentId>,

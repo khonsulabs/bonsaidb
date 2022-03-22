@@ -9,7 +9,8 @@ use zeroize::Zeroize;
 
 use crate::{
     document::{
-        AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, OwnedDocument,
+        AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, Header,
+        OwnedDocument,
     },
     key::{IntoPrefixRange, Key},
     permissions::Permissions,
@@ -532,6 +533,38 @@ where
             collection, range, ..
         } = self;
         collection.connection.count::<Cl, _, _>(range)
+    }
+
+    /// Returns the list of headers for documents contained within the range.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
+    /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// println!(
+    ///     "Headers with id 42 or larger: {:?}",
+    ///     db.collection::<MyCollection>().list(42..).headers()?
+    /// );
+    /// println!(
+    ///     "Headers in MyCollection: {:?}",
+    ///     db.collection::<MyCollection>().all().headers()?
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub fn headers(self) -> Result<Vec<Header>, Error> {
+        let Self {
+            collection,
+            range,
+            sort,
+            limit,
+            ..
+        } = self;
+        collection
+            .connection
+            .list_headers::<Cl, _, _>(range, sort, limit)
     }
 
     /// Retrieves the matching documents.
@@ -1496,6 +1529,43 @@ where
     pub fn limit(mut self, maximum_results: u32) -> Self {
         self.builder().limit = Some(maximum_results);
         self
+    }
+
+    /// Returns the list of headers for documents contained within the range.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// println!(
+    ///     "Number of documents with id 42 or larger: {:?}",
+    ///     db.collection::<MyCollection>().list(42..).headers().await?
+    /// );
+    /// println!(
+    ///     "Number of documents in MyCollection: {:?}",
+    ///     db.collection::<MyCollection>().all().headers().await?
+    /// );
+    /// # Ok(())
+    /// # })
+    /// # }
+    /// ```
+    pub async fn headers(self) -> Result<Vec<Header>, Error> {
+        match self.state {
+            ListState::Pending(Some(AsyncListBuilder {
+                collection,
+                range,
+                sort,
+                limit,
+                ..
+            })) => {
+                collection
+                    .connection
+                    .list_headers::<Cl, _, _>(range, sort, limit)
+                    .await
+            }
+            _ => unreachable!("Attempted to use after retrieving the result"),
+        }
     }
 
     /// Returns the number of documents contained within the range.
