@@ -3,9 +3,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
-    circulate::Message,
     networking::{CreateSubscriber, Publish, PublishToAll, SubscribeTo, UnsubscribeFrom},
-    pubsub::{AsyncPubSub, AsyncSubscriber},
+    pubsub::{AsyncPubSub, AsyncSubscriber, Receiver},
 };
 
 use crate::Client;
@@ -28,7 +27,7 @@ impl AsyncPubSub for super::RemoteDatabase {
             client: self.client.clone(),
             database: self.name.clone(),
             id: subscriber_id,
-            receiver,
+            receiver: Receiver::new(receiver),
         })
     }
 
@@ -70,7 +69,7 @@ pub struct RemoteSubscriber {
     client: Client,
     database: Arc<String>,
     id: u64,
-    receiver: flume::Receiver<Message>,
+    receiver: Receiver,
 }
 
 impl RemoteSubscriber {
@@ -104,7 +103,7 @@ impl AsyncSubscriber for RemoteSubscriber {
         Ok(())
     }
 
-    fn receiver(&self) -> &'_ flume::Receiver<Message> {
+    fn receiver(&self) -> &Receiver {
         &self.receiver
     }
 }

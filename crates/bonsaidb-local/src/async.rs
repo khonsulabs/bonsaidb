@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
-    circulate,
     connection::{
         self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
         Connection, IdentityReference, LowLevelConnection, QueryKey, Range, Session, Sort,
@@ -12,7 +11,7 @@ use bonsaidb_core::{
     document::{DocumentId, Header, OwnedDocument},
     keyvalue::{AsyncKeyValue, KeyOperation, KeyValue, Output},
     permissions::Permissions,
-    pubsub::{self, AsyncPubSub, AsyncSubscriber, PubSub},
+    pubsub::{self, AsyncPubSub, AsyncSubscriber, PubSub, Receiver},
     schema::{
         self, view::map::MappedSerializedValue, CollectionName, Nameable, Schema, SchemaName,
         Schematic, ViewName,
@@ -605,7 +604,7 @@ impl AsyncSubscriber for Subscriber {
         pubsub::Subscriber::unsubscribe_from_bytes(self, topic)
     }
 
-    fn receiver(&self) -> &'_ flume::Receiver<circulate::Message> {
+    fn receiver(&self) -> &Receiver {
         pubsub::Subscriber::receiver(self)
     }
 }

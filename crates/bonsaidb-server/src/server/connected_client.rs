@@ -9,10 +9,9 @@ use async_lock::{Mutex, MutexGuard};
 use bonsaidb_core::{
     api::{self, ApiResult},
     arc_bytes::serde::Bytes,
-    circulate::Message,
     connection::{Session, SessionId},
     networking::MessageReceived,
-    pubsub::Subscriber as _,
+    pubsub::{Receiver, Subscriber as _},
     schema::ApiName,
 };
 use bonsaidb_local::Subscriber;
@@ -145,10 +144,10 @@ impl<B: Backend> ConnectedClient<B> {
         &self,
         session_id: Option<SessionId>,
         subscriber_id: u64,
-        receiver: flume::Receiver<Message>,
+        receiver: Receiver,
     ) {
         let session = self.session(session_id);
-        while let Ok(message) = receiver.recv_async().await {
+        while let Ok(message) = receiver.receive_async().await {
             if self
                 .send::<MessageReceived>(
                     session.as_ref(),

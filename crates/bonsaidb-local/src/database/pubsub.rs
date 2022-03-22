@@ -8,7 +8,7 @@ use bonsaidb_core::{
         database_resource_name, pubsub_topic_resource_name, BonsaiAction, DatabaseAction,
         PubSubAction,
     },
-    pubsub::{self, database_topic, PubSub},
+    pubsub::{self, database_topic, PubSub, Receiver},
     Error,
 };
 
@@ -68,6 +68,7 @@ pub struct Subscriber {
     pub(crate) id: u64,
     pub(crate) database: Database,
     pub(crate) subscriber: circulate::Subscriber,
+    pub(crate) receiver: Receiver,
 }
 
 impl Subscriber {
@@ -106,7 +107,7 @@ impl pubsub::Subscriber for Subscriber {
         Ok(())
     }
 
-    fn receiver(&self) -> &'_ flume::Receiver<circulate::Message> {
-        self.subscriber.receiver()
+    fn receiver(&self) -> &Receiver {
+        &self.receiver
     }
 }

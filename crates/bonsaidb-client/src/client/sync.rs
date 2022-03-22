@@ -1,12 +1,11 @@
 use bonsaidb_core::{
-    circulate::Message,
     connection::{
         AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection, Connection,
         IdentityReference, LowLevelConnection, Range, Sort, StorageConnection,
     },
     document::{DocumentId, Header, OwnedDocument},
     keyvalue::{AsyncKeyValue, KeyValue},
-    pubsub::{AsyncPubSub, AsyncSubscriber, PubSub, Subscriber},
+    pubsub::{AsyncPubSub, AsyncSubscriber, PubSub, Receiver, Subscriber},
     schema::{CollectionName, Schematic},
 };
 use tokio::runtime::Handle;
@@ -403,7 +402,7 @@ impl Subscriber for RemoteSubscriber {
             .block_on(async { AsyncSubscriber::unsubscribe_from_bytes(self, topic).await })
     }
 
-    fn receiver(&self) -> &'_ flume::Receiver<Message> {
+    fn receiver(&self) -> &Receiver {
         AsyncSubscriber::receiver(self)
     }
 }

@@ -27,7 +27,7 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
     // Loop until a we receive a message letting us know when the ponger() has
     // no pings remaining.
     loop {
-        let message = subscriber.receiver().recv_async().await?;
+        let message = subscriber.receiver().receive_async().await?;
         let pings_remaining = message.payload::<usize>()?;
         println!(
             "<-- Received {}, pings remaining: {}",
@@ -54,7 +54,9 @@ async fn pinger<P: AsyncPubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error>
     }
 }
 
-async fn ponger<P: AsyncPubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error> {
+async fn ponger<P: AsyncPubSub<Subscriber = S>, S: AsyncSubscriber + std::fmt::Debug>(
+    pubsub: P,
+) -> Result<(), bonsaidb::local::Error> {
     const NUMBER_OF_PONGS: usize = 5;
     let subscriber = pubsub.create_subscriber().await?;
     subscriber.subscribe_to(&"ping").await?;
@@ -66,11 +68,11 @@ async fn ponger<P: AsyncPubSub>(pubsub: P) -> Result<(), bonsaidb::local::Error>
     );
 
     while pings_remaining > 0 {
-        let message = subscriber.receiver().recv_async().await?;
+        let message = subscriber.receiver().receive_async().await?;
         println!(
             "<- Received {}, id {}",
-            message.topic::<String>()?,
-            message.payload::<u32>()?
+            message.topic::<&str>().unwrap(),
+            message.payload::<u32>().unwrap()
         );
         pings_remaining -= 1;
         pubsub.publish(&"pong", &pings_remaining).await?;
