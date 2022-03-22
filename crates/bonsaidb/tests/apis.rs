@@ -8,13 +8,10 @@ use bonsaidb::{
         test_util::{Basic, TestDirectory},
     },
     local::config::Builder,
-    server::{
-        api::Handler, Backend, ConnectedClient, CustomServer, DefaultPermissions,
-        ServerConfiguration,
-    },
+    server::{api::Handler, Backend, CustomServer, DefaultPermissions, ServerConfiguration},
 };
 use bonsaidb_core::schema::{ApiName, Qualified};
-use bonsaidb_server::api::HandlerResult;
+use bonsaidb_server::api::{HandlerResult, HandlerSession};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
@@ -78,11 +75,10 @@ struct SetValueHandler;
 #[async_trait]
 impl Handler<CustomBackend, SetValue> for SetValueHandler {
     async fn handle(
-        _server: &CustomServer<CustomBackend>,
-        client: &ConnectedClient<CustomBackend>,
+        session: HandlerSession<'_, CustomBackend>,
         request: SetValue,
     ) -> HandlerResult<SetValue> {
-        let mut data = client.client_data().await;
+        let mut data = session.client.client_data().await;
         let existing_value = data.replace(request.new_value);
         Ok(existing_value)
     }

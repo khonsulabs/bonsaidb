@@ -45,7 +45,7 @@ use tokio::sync::{oneshot, Notify};
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
 use crate::{
-    api::AnyHandler,
+    api::{AnyHandler, HandlerSession},
     backend::ConnectionHandling,
     dispatch::{register_api_handlers, ServerDispatcher},
     error::Error,
@@ -145,13 +145,16 @@ impl<B: Backend> CustomServer<B> {
                     // The Session needs to be looked up from the client based on the request's session id.
                     let result = match client_request.server.storage.assume_session(session) {
                         Ok(storage) => {
-                            let server = Self {
-                                data: client_request.server.data.clone(),
-                                storage,
+                            let client = HandlerSession {
+                                server: &client_request.server,
+                                client: &client_request.client,
+                                as_client: Self {
+                                    data: client_request.server.data.clone(),
+                                    storage,
+                                },
                             };
                             ServerDispatcher::dispatch_api_request(
-                                &server,
-                                &client_request.client,
+                                client,
                                 &request.name,
                                 request.value.unwrap(),
                             )

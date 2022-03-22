@@ -13,18 +13,15 @@ use bonsaidb::{
         connection::{AsyncStorageConnection, Authentication, SensitiveString},
         keyvalue::AsyncKeyValue,
         permissions::{
-            bonsai::{
-                database_resource_name, AuthenticationMethod, BonsaiAction, DatabaseAction,
-                KeyValueAction, ServerAction,
-            },
+            bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
             Action, Identifier, Statement,
         },
         schema::{ApiName, Qualified},
     },
     local::config::Builder,
     server::{
-        api::{Handler, HandlerResult},
-        Backend, ConnectedClient, CustomServer, ServerConfiguration,
+        api::{Handler, HandlerResult, HandlerSession},
+        Backend, CustomServer, ServerConfiguration,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -83,8 +80,7 @@ pub struct ExampleHandler;
 #[async_trait]
 impl Handler<ExampleBackend, Ping> for ExampleHandler {
     async fn handle(
-        _server: &CustomServer<ExampleBackend>,
-        _client: &ConnectedClient<ExampleBackend>,
+        _session: HandlerSession<'_, ExampleBackend>,
         _request: Ping,
     ) -> HandlerResult<Ping> {
         Ok(Pong)
@@ -103,9 +99,10 @@ pub enum ExampleActions {
 
 pub async fn increment_counter<S: AsyncStorageConnection<Database = C>, C: AsyncKeyValue>(
     storage: &S,
+    as_client: &S,
     amount: u64,
 ) -> Result<u64, bonsaidb::core::Error> {
-    if let Some(session) = storage.session() {
+    if let Some(session) = as_client.session() {
         session.check_permission(&[Identifier::from("increment")], &ExampleActions::Increment)?;
     }
     let database = storage.database::<()>("counter").await?;
@@ -115,11 +112,12 @@ pub async fn increment_counter<S: AsyncStorageConnection<Database = C>, C: Async
 #[async_trait]
 impl Handler<ExampleBackend, IncrementCounter> for ExampleHandler {
     async fn handle(
-        server: &CustomServer<ExampleBackend>,
-        _client: &ConnectedClient<ExampleBackend>,
+        session: HandlerSession<'_, ExampleBackend>,
         request: IncrementCounter,
     ) -> HandlerResult<IncrementCounter> {
-        Ok(Counter(increment_counter(server, request.amount).await?))
+        Ok(Counter(
+            increment_counter(session.server, &session.as_client, request.amount).await?,
+        ))
     }
 }
 // ANCHOR_END: permission-handles
@@ -138,13 +136,7 @@ async fn main() -> anyhow::Result<()> {
                     ))),
             ))
             .authenticated_permissions(Permissions::from(vec![
-                Statement::for_any().allowing(&ExampleActions::Increment),
-                // TODO -- these permissions should be granted to the API, not to the user.
-                Statement::for_resource(database_resource_name("counter"))
-                    // TODO -- granular keyvalue permissions?
-                    .allowing(&BonsaiAction::Database(DatabaseAction::KeyValue(
-                        KeyValueAction::ExecuteOperation,
-                    ))),
+                Statement::for_any().allowing(&ExampleActions::Increment)
             ]))
             .with_api::<ExampleHandler, Ping>()?
             .with_api::<ExampleHandler, IncrementCounter>()?

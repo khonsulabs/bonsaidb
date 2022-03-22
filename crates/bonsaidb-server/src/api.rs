@@ -8,7 +8,7 @@ use bonsaidb_core::{
     schema::{InsertError, InvalidNameError},
 };
 
-use crate::{Backend, ConnectedClient, CustomServer, Error};
+use crate::{Backend, ConnectedClient, CustomServer, Error, NoBackend};
 
 /// A trait that can dispatch requests for a [`Api`].
 #[async_trait]
@@ -16,21 +16,26 @@ pub trait Handler<B: Backend, Api: api::Api>: Send + Sync {
     /// Returns a dispatcher to handle custom api requests. The parameters are
     /// provided so that they can be cloned if needed during the processing of
     /// requests.
-    async fn handle(
-        server: &CustomServer<B>,
-        client: &ConnectedClient<B>,
-        request: Api,
-    ) -> HandlerResult<Api>;
+    async fn handle(session: HandlerSession<'_, B>, request: Api) -> HandlerResult<Api>;
+}
+
+/// A session for a [`Handler`], providing ways to access the server and
+/// connected client.
+pub struct HandlerSession<'a, B: Backend = NoBackend> {
+    /// The [`Handler`]'s server reference. This server instance is not limited
+    /// to the permissions of the connected user.
+    pub server: &'a CustomServer<B>,
+    /// The connected client's server reference. This server instance will
+    /// reject any database operations that the connected client is not
+    /// explicitly authorized to perform based on its authentication state.
+    pub as_client: CustomServer<B>,
+    /// The connected client making the API request.
+    pub client: &'a ConnectedClient<B>,
 }
 
 #[async_trait]
 pub(crate) trait AnyHandler<B: Backend>: Send + Sync + Debug {
-    async fn handle(
-        &self,
-        server: &CustomServer<B>,
-        client: &ConnectedClient<B>,
-        request: &[u8],
-    ) -> Result<Bytes, Error>;
+    async fn handle(&self, session: HandlerSession<'_, B>, request: &[u8]) -> Result<Bytes, Error>;
 }
 
 pub(crate) struct AnyWrapper<D: Handler<B, A>, B: Backend, A: Api>(
@@ -55,14 +60,9 @@ where
     T: Handler<B, A>,
     A: Api,
 {
-    async fn handle(
-        &self,
-        server: &CustomServer<B>,
-        client: &ConnectedClient<B>,
-        request: &[u8],
-    ) -> Result<Bytes, Error> {
+    async fn handle(&self, client: HandlerSession<'_, B>, request: &[u8]) -> Result<Bytes, Error> {
         let request = pot::from_slice(request)?;
-        let response = match T::handle(server, client, request).await {
+        let response = match T::handle(client, request).await {
             Ok(response) => Ok(response),
             Err(HandlerError::Api(err)) => Err(err),
             Err(HandlerError::Server(err)) => return Err(err),
