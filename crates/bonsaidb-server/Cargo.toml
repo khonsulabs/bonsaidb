@@ -68,7 +68,7 @@ pem = { version = "1", optional = true }
 async-acme = { version = "0.3", optional = true, features = ["hyper_rustls"] }
 rustls = "0.20"
 tokio-rustls = { version = "0.23" }
-parking_lot = "0.12"
+parking_lot = "0.12.0"
 hyper = { version = "0.14", optional = true }
 sha-1 = { version = "0.10", optional = true }
 base64 = { version = "0.13", optional = true }

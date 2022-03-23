@@ -11,7 +11,6 @@ use std::{
     },
 };
 
-use async_lock::Mutex;
 use async_trait::async_trait;
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::connection::Authentication;
@@ -31,6 +30,7 @@ use bonsaidb_core::{
 use bonsaidb_utils::fast_async_lock;
 use flume::Sender;
 use futures::{future::BoxFuture, Future, FutureExt};
+use parking_lot::Mutex;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::{runtime::Handle, task::JoinHandle};
 use url::Url;
@@ -52,8 +52,8 @@ mod wasm_websocket_worker;
 pub struct SubscriberMap(Arc<Mutex<HashMap<u64, flume::Sender<Message>>>>);
 
 impl SubscriberMap {
-    pub async fn clear(&self) {
-        let mut data = fast_async_lock!(self);
+    pub fn clear(&self) {
+        let mut data = self.lock();
         data.clear();
     }
 }
@@ -225,8 +225,6 @@ pub struct Data {
     #[cfg(not(target_arch = "wasm32"))]
     _worker: CancellableHandle<Result<(), Error>>,
     effective_permissions: Mutex<Option<Permissions>>,
-    #[cfg(not(target_arch = "wasm32"))]
-    tokio: Option<Handle>,
     schemas: Mutex<HashMap<TypeId, Arc<Schematic>>>,
     request_id: AtomicU32,
     subscribers: SubscriberMap,
@@ -298,7 +296,7 @@ impl Client {
                 move |message: MessageReceived| {
                     let callback_subscribers = callback_subscribers.clone();
                     async move {
-                        let mut subscribers = fast_async_lock!(callback_subscribers);
+                        let mut subscribers = callback_subscribers.lock();
                         if let Some(sender) = subscribers.get(&message.subscriber_id) {
                             if sender
                                 .send(bonsaidb_core::circulate::Message {
@@ -350,14 +348,17 @@ impl Client {
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
-        let worker = tokio::task::spawn(quic_worker::reconnecting_client_loop(
-            url,
-            protocol_version,
-            certificate,
-            request_receiver,
-            Arc::new(custom_apis),
-            subscribers.clone(),
-        ));
+        let worker = sync::spawn_client(
+            quic_worker::reconnecting_client_loop(
+                url,
+                protocol_version,
+                certificate,
+                request_receiver,
+                Arc::new(custom_apis),
+                subscribers.clone(),
+            ),
+            tokio,
+        );
 
         #[cfg(feature = "test-util")]
         let background_task_running = Arc::new(AtomicBool::new(true));
@@ -374,7 +375,6 @@ impl Client {
                 request_id: AtomicU32::default(),
                 effective_permissions: Mutex::default(),
                 subscribers,
-                tokio,
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
@@ -392,13 +392,16 @@ impl Client {
     ) -> Self {
         let (request_sender, request_receiver) = flume::unbounded();
 
-        let worker = tokio::task::spawn(tungstenite_worker::reconnecting_client_loop(
-            url,
-            protocol_version,
-            request_receiver,
-            Arc::new(custom_apis),
-            subscribers.clone(),
-        ));
+        let worker = sync::spawn_client(
+            tungstenite_worker::reconnecting_client_loop(
+                url,
+                protocol_version,
+                request_receiver,
+                Arc::new(custom_apis),
+                subscribers.clone(),
+            ),
+            tokio,
+        );
 
         #[cfg(feature = "test-util")]
         let background_task_running = Arc::new(AtomicBool::new(true));
@@ -416,7 +419,6 @@ impl Client {
                 request_id: AtomicU32::default(),
                 effective_permissions: Mutex::default(),
                 subscribers,
-                tokio,
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
@@ -524,7 +526,7 @@ impl Client {
     /// Returns the current effective permissions for the client. Returns None
     /// if unauthenticated.
     pub async fn effective_permissions(&self) -> Option<Permissions> {
-        let effective_permissions = fast_async_lock!(self.data.effective_permissions);
+        let effective_permissions = self.data.effective_permissions.lock();
         effective_permissions.clone()
     }
 
@@ -535,12 +537,12 @@ impl Client {
         self.data.background_task_running.clone()
     }
 
-    pub(crate) async fn register_subscriber(&self, id: u64, sender: flume::Sender<Message>) {
-        let mut subscribers = fast_async_lock!(self.data.subscribers);
+    pub(crate) fn register_subscriber(&self, id: u64, sender: flume::Sender<Message>) {
+        let mut subscribers = self.data.subscribers.lock();
         subscribers.insert(id, sender);
     }
 
-    pub(crate) async fn unregister_subscriber(&self, database: String, id: u64) {
+    pub(crate) async fn unregister_subscriber_async(&self, database: String, id: u64) {
         drop(
             self.send_api_request_async(&UnregisterSubscriber {
                 database,
@@ -548,8 +550,28 @@ impl Client {
             })
             .await,
         );
-        let mut subscribers = fast_async_lock!(self.data.subscribers);
+        let mut subscribers = self.data.subscribers.lock();
         subscribers.remove(&id);
+    }
+
+    fn database<DB: bonsaidb_core::schema::Schema>(
+        &self,
+        name: &str,
+    ) -> Result<RemoteDatabase, bonsaidb_core::Error> {
+        let mut schemas = self.data.schemas.lock();
+        let type_id = TypeId::of::<DB>();
+        let schematic = if let Some(schematic) = schemas.get(&type_id) {
+            schematic.clone()
+        } else {
+            let schematic = Arc::new(DB::schematic()?);
+            schemas.insert(type_id, schematic.clone());
+            schematic
+        };
+        Ok(RemoteDatabase::new(
+            self.clone(),
+            name.to_string(),
+            schematic,
+        ))
     }
 }
 
@@ -563,7 +585,7 @@ impl AsyncStorageConnection for Client {
     }
 
     async fn admin(&self) -> Self::Database {
-        self.database::<Admin>(ADMIN_DATABASE_NAME).await.unwrap()
+        self.database::<Admin>(ADMIN_DATABASE_NAME).unwrap()
     }
 
     async fn create_database_with_schema(
@@ -587,20 +609,7 @@ impl AsyncStorageConnection for Client {
         &self,
         name: &str,
     ) -> Result<Self::Database, bonsaidb_core::Error> {
-        let mut schemas = fast_async_lock!(self.data.schemas);
-        let type_id = TypeId::of::<DB>();
-        let schematic = if let Some(schematic) = schemas.get(&type_id) {
-            schematic.clone()
-        } else {
-            let schematic = Arc::new(DB::schematic()?);
-            schemas.insert(type_id, schematic.clone());
-            schematic
-        };
-        Ok(RemoteDatabase::new(
-            self.clone(),
-            name.to_string(),
-            schematic,
-        ))
+        self.database::<DB>(name)
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
@@ -761,7 +770,7 @@ impl AsyncStorageConnection for Client {
 }
 
 type OutstandingRequestMap = HashMap<u32, PendingRequest>;
-type OutstandingRequestMapHandle = Arc<Mutex<OutstandingRequestMap>>;
+type OutstandingRequestMapHandle = Arc<async_lock::Mutex<OutstandingRequestMap>>;
 type PendingRequestResponder = Sender<Result<Bytes, Error>>;
 
 #[derive(Debug)]

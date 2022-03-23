@@ -28,7 +28,7 @@ pub async fn reconnecting_client_loop(
         let _ = url.set_port(Some(5645));
     }
 
-    subscribers.clear().await;
+    subscribers.clear();
     while let Ok(request) = request_receiver.recv_async().await {
         if let Err((failed_request, err)) = connect_and_process(
             &url,

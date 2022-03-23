@@ -38,7 +38,7 @@ async fn create_websocket(
     custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
 ) {
-    subscribers.clear().await;
+    subscribers.clear();
 
     // Receive the next/initial request when we are reconnecting.
     let initial_request = match request_receiver.recv_async().await {

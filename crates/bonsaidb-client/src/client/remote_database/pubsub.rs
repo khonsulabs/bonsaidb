@@ -22,7 +22,7 @@ impl AsyncPubSub for super::RemoteDatabase {
             .await?;
 
         let (sender, receiver) = flume::unbounded();
-        self.client.register_subscriber(subscriber_id, sender).await;
+        self.client.register_subscriber(subscriber_id, sender);
         Ok(RemoteSubscriber {
             client: self.client.clone(),
             database: self.name.clone(),
@@ -66,17 +66,10 @@ impl AsyncPubSub for super::RemoteDatabase {
 /// A `PubSub` subscriber from a remote server.
 #[derive(Debug)]
 pub struct RemoteSubscriber {
-    client: Client,
-    database: Arc<String>,
-    id: u64,
-    receiver: Receiver,
-}
-
-impl RemoteSubscriber {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn tokio(&self) -> &tokio::runtime::Handle {
-        self.client.tokio()
-    }
+    pub(crate) client: Client,
+    pub(crate) database: Arc<String>,
+    pub(crate) id: u64,
+    pub(crate) receiver: Receiver,
 }
 
 #[async_trait]
@@ -110,11 +103,14 @@ impl AsyncSubscriber for RemoteSubscriber {
 
 impl Drop for RemoteSubscriber {
     fn drop(&mut self) {
+        // TODO sort out whether this should drop async or sync. For now defaulting to async is the safest.
         let client = self.client.clone();
         let database = self.database.to_string();
         let subscriber_id = self.id;
         let drop_future = async move {
-            client.unregister_subscriber(database, subscriber_id).await;
+            client
+                .unregister_subscriber_async(database, subscriber_id)
+                .await;
         };
         #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(drop_future);

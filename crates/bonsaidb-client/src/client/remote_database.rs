@@ -25,7 +25,7 @@ mod keyvalue;
 #[derive(Debug, Clone)]
 pub struct RemoteDatabase {
     pub(crate) client: Client,
-    name: Arc<String>,
+    pub(crate) name: Arc<String>,
     pub(crate) schema: Arc<Schematic>,
 }
 impl RemoteDatabase {
@@ -33,11 +33,6 @@ impl RemoteDatabase {
     #[must_use]
     pub fn name(&self) -> &str {
         self.name.as_ref()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn tokio(&self) -> &tokio::runtime::Handle {
-        self.client.tokio()
     }
 }
 
@@ -142,6 +137,21 @@ impl AsyncLowLevelConnection for RemoteDatabase {
             .await?)
     }
 
+    async fn get_multiple_from_collection(
+        &self,
+        ids: &[DocumentId],
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        Ok(self
+            .client
+            .send_api_request_async(&GetMultiple {
+                database: self.name.to_string(),
+                collection: collection.clone(),
+                ids: ids.to_vec(),
+            })
+            .await?)
+    }
+
     async fn list_from_collection(
         &self,
         ids: Range<DocumentId>,
@@ -195,28 +205,13 @@ impl AsyncLowLevelConnection for RemoteDatabase {
             .await?)
     }
 
-    async fn get_multiple_from_collection(
-        &self,
-        ids: &[DocumentId],
-        collection: &CollectionName,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        Ok(self
-            .client
-            .send_api_request_async(&GetMultiple {
-                database: self.name.to_string(),
-                collection: collection.clone(),
-                ids: ids.to_vec(),
-            })
-            .await?)
-    }
-
     async fn compact_collection_by_name(
         &self,
         collection: CollectionName,
     ) -> Result<(), bonsaidb_core::Error> {
         self.send_api_request_async(&CompactCollection {
             database: self.name.to_string(),
-            name: collection.clone(),
+            name: collection,
         })
         .await?;
         Ok(())

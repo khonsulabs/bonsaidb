@@ -25,7 +25,7 @@ pub async fn reconnecting_client_loop(
     subscribers: SubscriberMap,
 ) -> Result<(), Error> {
     while let Ok(request) = {
-        subscribers.clear().await;
+        subscribers.clear();
         request_receiver.recv_async().await
     } {
         let (stream, _) = match tokio_tungstenite::connect_async(
