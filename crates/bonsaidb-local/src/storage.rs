@@ -174,6 +174,20 @@ pub struct SessionSubscribers {
     pub last_id: u64,
 }
 
+impl SessionSubscribers {
+    pub fn unregister(&mut self, subscriber_id: u64) {
+        if let Some(session_id) = self
+            .subscribers
+            .remove(&subscriber_id)
+            .and_then(|sub| sub.session_id)
+        {
+            if let Some(session_subscribers) = self.subscribers_by_session.get_mut(&session_id) {
+                session_subscribers.remove(&subscriber_id);
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct SessionSubscriber {
     pub session_id: Option<SessionId>,

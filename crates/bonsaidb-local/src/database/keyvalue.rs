@@ -1037,6 +1037,10 @@ mod tests {
                 .watch_timeout(Duration::from_secs(5))
                 .unwrap();
             persistence_watcher.mark_read();
+            if timing.elapsed() > Duration::from_millis(1500) {
+                println!("Restarting");
+                continue;
+            }
             assert!(tree.get(b"atree\0akey")?.is_some());
             assert!(tree.get(b"atree\0bkey")?.is_some());
             assert!(tree.get(b"atree\0ckey")?.is_none());
@@ -1046,6 +1050,10 @@ mod tests {
                 .watch_timeout(Duration::from_secs(5))
                 .unwrap();
             persistence_watcher.mark_read();
+            if timing.elapsed() > Duration::from_millis(2500) {
+                println!("Restarting");
+                continue;
+            }
             assert!(tree.get(b"atree\0akey")?.is_some());
             assert!(tree.get(b"atree\0bkey")?.is_none());
 
@@ -1053,6 +1061,10 @@ mod tests {
             persistence_watcher
                 .watch_timeout(Duration::from_secs(5))
                 .unwrap();
+            if timing.elapsed() > Duration::from_millis(3500) {
+                println!("Restarting");
+                continue;
+            }
             assert!(tree.get(b"atree\0akey")?.is_none());
 
             return Ok(());

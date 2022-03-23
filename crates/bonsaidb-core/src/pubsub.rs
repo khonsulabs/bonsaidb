@@ -380,6 +380,32 @@ macro_rules! define_pubsub_test_suite {
         }
 
         #[tokio::test]
+        async fn pubsub_drop_cleanup_test() -> anyhow::Result<()> {
+            let harness = $harness::new($crate::test_util::HarnessTest::PubSubDropCleanup).await?;
+            let pubsub = harness.connect().await?;
+            let subscriber = AsyncPubSub::create_subscriber(&pubsub).await?;
+            AsyncSubscriber::subscribe_to(&subscriber, &"a").await?;
+
+            AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
+            let receiver = subscriber.receiver().clone();
+            drop(subscriber);
+
+            // The receiver should now be disconnected, but after receiving the
+            // first message. For when we're testing network connections, we
+            // need to insert a little delay here to allow the server to process
+            // the drop.
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
+
+            let message = receiver.receive_async().await?;
+            assert_eq!(message.payload::<String>()?, "a1");
+            let $crate::pubsub::Disconnected = receiver.receive_async().await.unwrap_err();
+
+            Ok(())
+        }
+
+        #[tokio::test]
         async fn publish_to_all_test() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::PubSubPublishAll).await?;
             let pubsub = harness.connect().await?;

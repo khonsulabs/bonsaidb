@@ -81,7 +81,7 @@ impl Subscriber {
 
 impl Drop for Subscriber {
     fn drop(&mut self) {
-        // TODO
+        self.database.storage().instance.unregister_subscriber(self);
     }
 }
 

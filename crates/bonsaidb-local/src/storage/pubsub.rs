@@ -33,4 +33,9 @@ impl crate::storage::StorageInstance {
             receiver,
         }
     }
+
+    pub(crate) fn unregister_subscriber(&self, subscriber: &Subscriber) {
+        let mut data = self.data.subscribers.write();
+        data.unregister(subscriber.id);
+    }
 }
