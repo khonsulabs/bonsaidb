@@ -72,7 +72,9 @@ impl Storage {
         };
 
         for name in databases {
-            let database = self.instance.database_without_schema(&name, Some(self))?;
+            let database = self
+                .instance
+                .database_without_schema(&name, Some(self), None)?;
             Self::backup_database(&database, location)?;
         }
 
@@ -92,9 +94,9 @@ impl Storage {
                 // The admin database is already going to be created by the process of creating a database.
                 self.create_database_with_schema(&database, schema.clone(), true)?;
 
-                let database = self
-                    .instance
-                    .database_without_schema(&database, Some(self))?;
+                let database =
+                    self.instance
+                        .database_without_schema(&database, Some(self), None)?;
                 Self::restore_database(&database, location)?;
             }
         }

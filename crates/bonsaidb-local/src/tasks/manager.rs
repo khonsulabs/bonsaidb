@@ -5,6 +5,7 @@ use parking_lot::RwLock;
 
 use crate::tasks::{
     handle::{Handle, Id},
+    traits::Executable,
     Job, Keyed,
 };
 
@@ -60,22 +61,19 @@ where
     /// Spawns a worker. In general, you shouldn't need to call this function
     /// directly.
     pub fn spawn_worker(&self) {
-        let manager = self.clone();
-        std::thread::Builder::new()
-            .name(String::from("bonsaidb-tasks"))
-            .spawn(move || {
-                manager.execute_jobs();
-            })
-            .unwrap();
-    }
-
-    fn execute_jobs(&self) {
         let receiver = {
             let jobs = self.jobs.read();
             jobs.queue()
         };
-        while let Ok(mut job) = receiver.recv() {
-            job.execute();
-        }
+        std::thread::Builder::new()
+            .name(String::from("bonsaidb-tasks"))
+            .spawn(move || worker_thread(&receiver))
+            .unwrap();
+    }
+}
+
+fn worker_thread(receiver: &flume::Receiver<Box<dyn Executable>>) {
+    while let Ok(mut job) = receiver.recv() {
+        job.execute();
     }
 }

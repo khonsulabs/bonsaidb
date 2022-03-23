@@ -367,7 +367,8 @@ impl Storage {
     #[doc(hidden)]
     pub fn database_without_schema(&self, name: &str) -> Result<Database, Error> {
         let name = name.to_owned();
-        self.instance.database_without_schema(&name, Some(self))
+        self.instance
+            .database_without_schema(&name, Some(self), None)
     }
 
     fn lookup_or_create_id(
@@ -601,9 +602,10 @@ impl StorageInstance {
         &self,
         name: &str,
         storage: Option<&Storage>,
+        expected_schema: Option<SchemaName>,
     ) -> Result<Database, Error> {
         // TODO switch to upgradable read now that we are on parking_lot
-        let schema = {
+        let stored_schema = {
             let available_databases = self.data.available_databases.read();
             available_databases
                 .get(name)
@@ -613,15 +615,27 @@ impl StorageInstance {
                 .clone()
         };
 
+        if let Some(expected_schema) = expected_schema {
+            if stored_schema != expected_schema {
+                return Err(Error::Core(bonsaidb_core::Error::SchemaMismatch {
+                    database_name: name.to_owned(),
+                    schema: expected_schema,
+                    stored_schema,
+                }));
+            }
+        }
+
         let mut schemas = self.data.schemas.write();
         let storage =
             storage.map_or_else(|| Cow::Owned(Storage::from(self.clone())), Cow::Borrowed);
-        if let Some(schema) = schemas.get_mut(&schema) {
+        if let Some(schema) = schemas.get_mut(&stored_schema) {
             let db = schema.open(name.to_string(), storage.as_ref())?;
             Ok(db)
         } else {
+            // The schema was stored, the user is requesting the same schema,
+            // but it isn't registerd with the storage currently.
             Err(Error::Core(bonsaidb_core::Error::SchemaNotRegistered(
-                schema,
+                stored_schema,
             )))
         }
     }
@@ -826,43 +840,26 @@ impl StorageConnection for StorageInstance {
 
         let mut available_databases = self.data.available_databases.write();
         let admin = self.admin();
-        if !admin
-            .view::<database::ByName>()
-            .with_key(name.to_ascii_lowercase())
-            .query()?
-            .is_empty()
-        {
-            if only_if_needed {
-                return Ok(());
-            }
-
+        if !available_databases.contains_key(name) {
+            admin
+                .collection::<DatabaseRecord>()
+                .push(&admin::Database {
+                    name: name.to_string(),
+                    schema: schema.clone(),
+                })?;
+            available_databases.insert(name.to_string(), schema);
+        } else if !only_if_needed {
             return Err(bonsaidb_core::Error::DatabaseNameAlreadyTaken(
                 name.to_string(),
             ));
         }
 
-        admin
-            .collection::<DatabaseRecord>()
-            .push(&admin::Database {
-                name: name.to_string(),
-                schema: schema.clone(),
-            })?;
-        available_databases.insert(name.to_string(), schema);
-
         Ok(())
     }
 
     fn database<DB: Schema>(&self, name: &str) -> Result<Self::Database, bonsaidb_core::Error> {
-        let db = self.database_without_schema(name, None)?;
-        if db.data.schema.name == DB::schema_name() {
-            Ok(db)
-        } else {
-            Err(bonsaidb_core::Error::SchemaMismatch {
-                database_name: name.to_owned(),
-                schema: DB::schema_name(),
-                stored_schema: db.data.schema.name.clone(),
-            })
-        }
+        self.database_without_schema(name, None, Some(DB::schema_name()))
+            .map_err(bonsaidb_core::Error::from)
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(name)))]

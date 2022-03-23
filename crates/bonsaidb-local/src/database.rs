@@ -1400,17 +1400,18 @@ impl Context {
             roots.clone(),
             background_worker_target,
         )));
+        let background_worker_state = Arc::downgrade(&key_value_state);
         let context = Self {
             data: Arc::new(ContextData {
                 roots,
-                key_value_state: key_value_state.clone(),
+                key_value_state,
             }),
         };
         std::thread::Builder::new()
             .name(String::from("keyvalue-worker"))
             .spawn(move || {
                 keyvalue::background_worker(
-                    &key_value_state,
+                    &background_worker_state,
                     &mut background_worker_target_watcher,
                 );
             })

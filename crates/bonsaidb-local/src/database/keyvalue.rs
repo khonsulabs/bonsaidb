@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{btree_map, BTreeMap, VecDeque},
-    sync::Arc,
+    sync::{Arc, Weak},
     time::Duration,
 };
 
@@ -751,7 +751,7 @@ impl KeyValueState {
 }
 
 pub fn background_worker(
-    key_value_state: &Arc<Mutex<KeyValueState>>,
+    key_value_state: &Weak<Mutex<KeyValueState>>,
     timestamp_receiver: &mut Watcher<BackgroundWorkerProcessTarget>,
 ) {
     loop {
@@ -787,12 +787,20 @@ pub fn background_worker(
             }
         };
 
+        let key_value_state = match key_value_state.upgrade() {
+            Some(state) => state,
+            None => {
+                // The last reference has been dropped.
+                break;
+            }
+        };
+
         if perform_operations {
             let mut state = key_value_state.lock();
             let now = Timestamp::now();
             state.remove_expired_keys(now);
             if state.needs_commit(now) {
-                state.commit_dirty_keys(key_value_state);
+                state.commit_dirty_keys(&key_value_state);
             }
             state.update_background_worker_target();
         }
