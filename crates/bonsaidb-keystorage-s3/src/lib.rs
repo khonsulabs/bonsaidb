@@ -215,8 +215,8 @@ async fn basic_test() {
     macro_rules! env_var {
         ($name:expr) => {{
             match std::env::var($name) {
-                Ok(value) => value,
-                Err(_) => {
+                Ok(value) if !value.is_empty() => value,
+                _ => {
                     log::error!(
                         "Ignoring basic_test because of missing environment variable: {}",
                         $name
