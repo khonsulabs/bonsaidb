@@ -554,6 +554,15 @@ impl Client {
         subscribers.remove(&id);
     }
 
+    pub(crate) fn unregister_subscriber(&self, database: String, id: u64) {
+        drop(self.send_api_request(&UnregisterSubscriber {
+            database,
+            subscriber_id: id,
+        }));
+        let mut subscribers = self.data.subscribers.lock();
+        subscribers.remove(&id);
+    }
+
     fn database<DB: bonsaidb_core::schema::Schema>(
         &self,
         name: &str,

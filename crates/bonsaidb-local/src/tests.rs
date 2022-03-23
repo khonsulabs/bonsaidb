@@ -13,81 +13,156 @@ use bonsaidb_core::{
         BasicCollectionWithOnlyBrokenParentId, BasicSchema, HarnessTest, TestDirectory,
     },
 };
-use config::StorageConfiguration;
 
-use super::*;
-use crate::{config::Builder, AsyncDatabase};
+use crate::{
+    config::{Builder, StorageConfiguration},
+    AsyncDatabase, AsyncStorage, Database, Storage,
+};
 
 macro_rules! define_local_suite {
     ($name:ident) => {
         mod $name {
             use super::*;
-            struct TestHarness {
-                _directory: TestDirectory,
-                db: AsyncDatabase,
-                storage: AsyncStorage,
-            }
+            mod r#async {
+                use super::*;
+                struct AsyncTestHarness {
+                    _directory: TestDirectory,
+                    db: AsyncDatabase,
+                    storage: AsyncStorage,
+                }
 
-            impl TestHarness {
-                async fn new(test: HarnessTest) -> anyhow::Result<Self> {
-                    let directory = TestDirectory::new(format!("{}-{}", stringify!($name), test));
-                    let mut config =
-                        StorageConfiguration::new(&directory).with_schema::<BasicSchema>()?;
-                    if stringify!($name) == "memory" {
-                        config = config.memory_only()
+                impl AsyncTestHarness {
+                    async fn new(test: HarnessTest) -> anyhow::Result<Self> {
+                        let directory =
+                            TestDirectory::new(format!("async-{}-{}", stringify!($name), test));
+                        let mut config =
+                            StorageConfiguration::new(&directory).with_schema::<BasicSchema>()?;
+                        if stringify!($name) == "memory" {
+                            config = config.memory_only()
+                        }
+
+                        #[cfg(feature = "compression")]
+                        {
+                            config = config.default_compression(crate::config::Compression::Lz4);
+                        }
+
+                        let storage = AsyncStorage::open(config).await?;
+                        let db = storage
+                            .create_database::<BasicSchema>("tests", false)
+                            .await?;
+
+                        Ok(Self {
+                            _directory: directory,
+                            storage,
+                            db,
+                        })
                     }
 
-                    #[cfg(feature = "compression")]
-                    {
-                        config = config.default_compression(crate::config::Compression::Lz4);
+                    const fn server_name() -> &'static str {
+                        stringify!($name)
                     }
 
-                    let storage = AsyncStorage::open(config).await?;
-                    let db = storage
-                        .create_database::<BasicSchema>("tests", false)
-                        .await?;
+                    fn server(&self) -> &'_ AsyncStorage {
+                        &self.storage
+                    }
 
-                    Ok(Self {
-                        _directory: directory,
-                        storage,
-                        db,
-                    })
+                    #[allow(dead_code)]
+                    async fn connect_with_permissions(
+                        &self,
+                        permissions: Vec<Statement>,
+                        _label: &str,
+                    ) -> anyhow::Result<AsyncDatabase> {
+                        Ok(self
+                            .db
+                            .with_effective_permissions(Permissions::from(permissions))
+                            .unwrap())
+                    }
+
+                    async fn connect(&self) -> anyhow::Result<AsyncDatabase> {
+                        Ok(self.db.clone())
+                    }
+
+                    pub async fn shutdown(&self) -> anyhow::Result<()> {
+                        Ok(())
+                    }
                 }
 
-                const fn server_name() -> &'static str {
-                    stringify!($name)
-                }
+                bonsaidb_core::define_async_connection_test_suite!(AsyncTestHarness);
 
-                fn server(&self) -> &'_ AsyncStorage {
-                    &self.storage
-                }
+                bonsaidb_core::define_async_pubsub_test_suite!(AsyncTestHarness);
 
-                #[allow(dead_code)]
-                async fn connect_with_permissions(
-                    &self,
-                    permissions: Vec<Statement>,
-                    _label: &str,
-                ) -> anyhow::Result<AsyncDatabase> {
-                    Ok(self
-                        .db
-                        .with_effective_permissions(Permissions::from(permissions))
-                        .unwrap())
-                }
-
-                async fn connect(&self) -> anyhow::Result<AsyncDatabase> {
-                    Ok(self.db.clone())
-                }
-
-                pub async fn shutdown(&self) -> anyhow::Result<()> {
-                    Ok(())
-                }
+                bonsaidb_core::define_async_kv_test_suite!(AsyncTestHarness);
             }
+            mod blocking {
+                use bonsaidb_core::connection::StorageConnection;
 
-            bonsaidb_core::define_connection_test_suite!(TestHarness);
+                use super::*;
+                struct BlockingTestHarness {
+                    _directory: TestDirectory,
+                    db: Database,
+                    storage: Storage,
+                }
 
-            bonsaidb_core::define_pubsub_test_suite!(TestHarness);
+                impl BlockingTestHarness {
+                    fn new(test: HarnessTest) -> anyhow::Result<Self> {
+                        let directory =
+                            TestDirectory::new(format!("blocking-{}-{}", stringify!($name), test));
+                        let mut config =
+                            StorageConfiguration::new(&directory).with_schema::<BasicSchema>()?;
+                        if stringify!($name) == "memory" {
+                            config = config.memory_only()
+                        }
 
-            bonsaidb_core::define_kv_test_suite!(TestHarness);
+                        #[cfg(feature = "compression")]
+                        {
+                            config = config.default_compression(crate::config::Compression::Lz4);
+                        }
+
+                        let storage = Storage::open(config)?;
+                        let db = storage.create_database::<BasicSchema>("tests", false)?;
+
+                        Ok(Self {
+                            _directory: directory,
+                            storage,
+                            db,
+                        })
+                    }
+
+                    const fn server_name() -> &'static str {
+                        stringify!($name)
+                    }
+
+                    fn server(&self) -> &'_ Storage {
+                        &self.storage
+                    }
+
+                    #[allow(dead_code)]
+                    fn connect_with_permissions(
+                        &self,
+                        permissions: Vec<Statement>,
+                        _label: &str,
+                    ) -> anyhow::Result<Database> {
+                        Ok(self
+                            .db
+                            .with_effective_permissions(Permissions::from(permissions))
+                            .unwrap())
+                    }
+
+                    fn connect(&self) -> anyhow::Result<Database> {
+                        Ok(self.db.clone())
+                    }
+
+                    pub fn shutdown(&self) -> anyhow::Result<()> {
+                        Ok(())
+                    }
+                }
+
+                bonsaidb_core::define_blocking_connection_test_suite!(BlockingTestHarness);
+
+                bonsaidb_core::define_blocking_pubsub_test_suite!(BlockingTestHarness);
+
+                bonsaidb_core::define_blocking_kv_test_suite!(BlockingTestHarness);
+            }
         }
     };
 }

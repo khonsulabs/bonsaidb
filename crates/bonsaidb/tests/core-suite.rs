@@ -6,7 +6,6 @@ use bonsaidb::{
         actionable::Permissions,
         admin::{Admin, PermissionGroup, ADMIN_DATABASE_NAME},
         circulate::flume,
-        connection::AsyncStorageConnection,
         keyvalue::AsyncKeyValue,
         permissions::{
             bonsai::{BonsaiAction, ServerAction},
@@ -82,6 +81,8 @@ fn run_shared_server(certificate_sender: flume::Sender<Certificate>) -> anyhow::
 
 #[cfg(feature = "websockets")]
 mod websockets {
+    use tokio::runtime::Runtime;
+
     use super::*;
 
     struct WebsocketTestHarness {
@@ -92,6 +93,8 @@ mod websockets {
 
     impl WebsocketTestHarness {
         pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
+            use bonsaidb_core::connection::AsyncStorageConnection;
+
             initialize_shared_server().await;
             let url = Url::parse("ws://localhost:6001")?;
             let client = Client::new(url.clone())?;
@@ -109,11 +112,11 @@ mod websockets {
             "websocket"
         }
 
-        pub fn server(&self) -> &'_ Client {
+        pub fn server(&self) -> &Client {
             &self.client
         }
 
-        pub async fn connect<'a, 'b>(&'a self) -> anyhow::Result<RemoteDatabase> {
+        pub async fn connect(&self) -> anyhow::Result<RemoteDatabase> {
             Ok(self.db.clone())
         }
 
@@ -132,6 +135,59 @@ mod websockets {
         }
     }
 
+    bonsaidb_core::define_async_connection_test_suite!(WebsocketTestHarness);
+
+    bonsaidb_core::define_async_pubsub_test_suite!(WebsocketTestHarness);
+    bonsaidb_core::define_async_kv_test_suite!(WebsocketTestHarness);
+
+    struct BlockingWebsocketTestHarness {
+        client: Client,
+        // url: Url,
+        db: RemoteDatabase,
+    }
+
+    impl BlockingWebsocketTestHarness {
+        pub fn new(test: HarnessTest) -> anyhow::Result<Self> {
+            use bonsaidb_core::connection::StorageConnection;
+            let runtime = Runtime::new()?;
+            runtime.block_on(initialize_shared_server());
+            let url = Url::parse("ws://localhost:6001")?;
+            let client = Client::new(url)?;
+
+            let dbname = format!("blocking-websockets-{}", test);
+            client.create_database::<BasicSchema>(&dbname, false)?;
+            let db = client.database::<BasicSchema>(&dbname)?;
+
+            Ok(Self { client, db })
+        }
+
+        pub const fn server_name() -> &'static str {
+            "websocket-blocking"
+        }
+
+        pub fn server(&self) -> &Client {
+            &self.client
+        }
+
+        pub fn connect(&self) -> anyhow::Result<RemoteDatabase> {
+            Ok(self.db.clone())
+        }
+
+        // #[allow(dead_code)] // We will want this in the future but it's currently unused
+        // pub  fn connect_with_permissions(
+        //     &self,
+        //     permissions: Vec<Statement>,
+        //     label: &str,
+        // ) -> anyhow::Result<RemoteDatabase> {
+        //     let client = Client::new(self.url.clone())?;
+        //     assume_permissions(client, label, self.db.name(), permissions)
+        // }
+
+        pub fn shutdown(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
     #[tokio::test]
     async fn incompatible_client_version() -> anyhow::Result<()> {
         let certificate = initialize_shared_server().await;
@@ -145,10 +201,10 @@ mod websockets {
         check_incompatible_client(client).await
     }
 
-    bonsaidb_core::define_connection_test_suite!(WebsocketTestHarness);
+    bonsaidb_core::define_blocking_connection_test_suite!(BlockingWebsocketTestHarness);
 
-    bonsaidb_core::define_pubsub_test_suite!(WebsocketTestHarness);
-    bonsaidb_core::define_kv_test_suite!(WebsocketTestHarness);
+    bonsaidb_core::define_blocking_pubsub_test_suite!(BlockingWebsocketTestHarness);
+    bonsaidb_core::define_blocking_kv_test_suite!(BlockingWebsocketTestHarness);
 }
 
 mod bonsai {
@@ -162,6 +218,7 @@ mod bonsai {
 
     impl BonsaiTestHarness {
         pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
+            use bonsaidb_core::connection::AsyncStorageConnection;
             let certificate = initialize_shared_server().await;
 
             let url = Url::parse(&format!(
@@ -231,12 +288,13 @@ mod bonsai {
         check_incompatible_client(client).await
     }
 
-    bonsaidb_core::define_connection_test_suite!(BonsaiTestHarness);
-    bonsaidb_core::define_pubsub_test_suite!(BonsaiTestHarness);
-    bonsaidb_core::define_kv_test_suite!(BonsaiTestHarness);
+    bonsaidb_core::define_async_connection_test_suite!(BonsaiTestHarness);
+    bonsaidb_core::define_async_pubsub_test_suite!(BonsaiTestHarness);
+    bonsaidb_core::define_async_kv_test_suite!(BonsaiTestHarness);
 }
 
 async fn check_incompatible_client(client: Client) -> anyhow::Result<()> {
+    use bonsaidb_core::connection::AsyncStorageConnection;
     match client
         .database::<()>("a database")
         .await?
@@ -266,6 +324,7 @@ async fn assume_permissions(
     database_name: &str,
     statements: Vec<Statement>,
 ) -> anyhow::Result<RemoteDatabase> {
+    use bonsaidb_core::connection::AsyncStorageConnection;
     let username = format!("{}-{}", database_name, label);
     let password = SensitiveString(
         rand::thread_rng()
@@ -321,6 +380,7 @@ async fn assume_permissions(
 
 #[tokio::test]
 async fn authenticated_permissions_test() -> anyhow::Result<()> {
+    use bonsaidb_core::connection::AsyncStorageConnection;
     let database_path = TestDirectory::new("authenticated-permissions");
     let server = Server::open(
         ServerConfiguration::new(&database_path)

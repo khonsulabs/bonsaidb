@@ -268,175 +268,332 @@ pub fn database_topic(database: &str, topic: &[u8]) -> Vec<u8> {
 /// Expands into a suite of pubsub unit tests using the passed type as the test harness.
 #[cfg(feature = "test-util")]
 #[macro_export]
-macro_rules! define_pubsub_test_suite {
+macro_rules! define_async_pubsub_test_suite {
     ($harness:ident) => {
         #[cfg(test)]
-        use $crate::pubsub::{AsyncPubSub, AsyncSubscriber};
+        mod r#async_pubsub {
+            use $crate::pubsub::{AsyncPubSub, AsyncSubscriber};
 
-        #[tokio::test]
-        async fn simple_pubsub_test() -> anyhow::Result<()> {
-            let harness = $harness::new($crate::test_util::HarnessTest::PubSubSimple).await?;
-            let pubsub = harness.connect().await?;
-            let subscriber = AsyncPubSub::create_subscriber(&pubsub).await?;
-            AsyncSubscriber::subscribe_to(&subscriber, &"mytopic").await?;
-            AsyncPubSub::publish(&pubsub, &"mytopic", &String::from("test")).await?;
-            AsyncPubSub::publish(&pubsub, &"othertopic", &String::from("test")).await?;
-            let receiver = subscriber.receiver().clone();
-            let message = receiver.receive_async().await.expect("No message received");
-            assert_eq!(message.topic::<String>()?, "mytopic");
-            assert_eq!(message.payload::<String>()?, "test");
-            // The message should only be received once.
-            assert!(matches!(
-                receiver.try_receive(),
-                Err($crate::pubsub::TryReceiveError::Empty)
-            ));
-            Ok(())
-        }
-
-        #[tokio::test]
-        async fn multiple_subscribers_test() -> anyhow::Result<()> {
-            let harness =
-                $harness::new($crate::test_util::HarnessTest::PubSubMultipleSubscribers).await?;
-            let pubsub = harness.connect().await?;
-            let subscriber_a = AsyncPubSub::create_subscriber(&pubsub).await?;
-            let subscriber_ab = AsyncPubSub::create_subscriber(&pubsub).await?;
-            AsyncSubscriber::subscribe_to(&subscriber_a, &"a").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_ab, &"a").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_ab, &"b").await?;
-
-            let mut messages_a = Vec::new();
-            let mut messages_ab = Vec::new();
-            AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
-            messages_a.push(
-                subscriber_a
-                    .receiver()
-                    .receive_async()
-                    .await?
-                    .payload::<String>()?,
-            );
-            messages_ab.push(
-                subscriber_ab
-                    .receiver()
-                    .receive_async()
-                    .await?
-                    .payload::<String>()?,
-            );
-
-            AsyncPubSub::publish(&pubsub, &"b", &String::from("b1")).await?;
-            messages_ab.push(
-                subscriber_ab
-                    .receiver()
-                    .receive_async()
-                    .await?
-                    .payload::<String>()?,
-            );
-
-            AsyncPubSub::publish(&pubsub, &"a", &String::from("a2")).await?;
-            messages_a.push(
-                subscriber_a
-                    .receiver()
-                    .receive_async()
-                    .await?
-                    .payload::<String>()?,
-            );
-            messages_ab.push(
-                subscriber_ab
-                    .receiver()
-                    .receive_async()
-                    .await?
-                    .payload::<String>()?,
-            );
-
-            assert_eq!(&messages_a[0], "a1");
-            assert_eq!(&messages_a[1], "a2");
-
-            assert_eq!(&messages_ab[0], "a1");
-            assert_eq!(&messages_ab[1], "b1");
-            assert_eq!(&messages_ab[2], "a2");
-
-            Ok(())
-        }
-
-        #[tokio::test]
-        async fn unsubscribe_test() -> anyhow::Result<()> {
-            let harness = $harness::new($crate::test_util::HarnessTest::PubSubUnsubscribe).await?;
-            let pubsub = harness.connect().await?;
-            let subscriber = AsyncPubSub::create_subscriber(&pubsub).await?;
-            AsyncSubscriber::subscribe_to(&subscriber, &"a").await?;
-
-            AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
-            AsyncSubscriber::unsubscribe_from(&subscriber, &"a").await?;
-            AsyncPubSub::publish(&pubsub, &"a", &String::from("a2")).await?;
-            AsyncSubscriber::subscribe_to(&subscriber, &"a").await?;
-            AsyncPubSub::publish(&pubsub, &"a", &String::from("a3")).await?;
-
-            // Check subscriber_a for a1 and a2.
-            let message = subscriber.receiver().receive_async().await?;
-            assert_eq!(message.payload::<String>()?, "a1");
-            let message = subscriber.receiver().receive_async().await?;
-            assert_eq!(message.payload::<String>()?, "a3");
-
-            Ok(())
-        }
-
-        #[tokio::test]
-        async fn pubsub_drop_cleanup_test() -> anyhow::Result<()> {
-            let harness = $harness::new($crate::test_util::HarnessTest::PubSubDropCleanup).await?;
-            let pubsub = harness.connect().await?;
-            let subscriber = AsyncPubSub::create_subscriber(&pubsub).await?;
-            AsyncSubscriber::subscribe_to(&subscriber, &"a").await?;
-
-            AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
-            let receiver = subscriber.receiver().clone();
-            drop(subscriber);
-
-            // The receiver should now be disconnected, but after receiving the
-            // first message. For when we're testing network connections, we
-            // need to insert a little delay here to allow the server to process
-            // the drop.
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-            AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
-
-            let message = receiver.receive_async().await?;
-            assert_eq!(message.payload::<String>()?, "a1");
-            let $crate::pubsub::Disconnected = receiver.receive_async().await.unwrap_err();
-
-            Ok(())
-        }
-
-        #[tokio::test]
-        async fn publish_to_all_test() -> anyhow::Result<()> {
-            let harness = $harness::new($crate::test_util::HarnessTest::PubSubPublishAll).await?;
-            let pubsub = harness.connect().await?;
-            let subscriber_a = AsyncPubSub::create_subscriber(&pubsub).await?;
-            let subscriber_b = AsyncPubSub::create_subscriber(&pubsub).await?;
-            let subscriber_c = AsyncPubSub::create_subscriber(&pubsub).await?;
-            AsyncSubscriber::subscribe_to(&subscriber_a, &"1").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_b, &"1").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_b, &"2").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_c, &"2").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_a, &"3").await?;
-            AsyncSubscriber::subscribe_to(&subscriber_c, &"3").await?;
-
-            AsyncPubSub::publish_to_all(&pubsub, [&"1", &"2", &"3"], &String::from("1")).await?;
-
-            // Each subscriber should get "1" twice on separate topics
-            for subscriber in &[subscriber_a, subscriber_b, subscriber_c] {
-                let mut message_topics = Vec::new();
-                for _ in 0..2_u8 {
-                    let message = subscriber.receiver().receive_async().await?;
-                    assert_eq!(message.payload::<String>()?, "1");
-                    message_topics.push(message.topic.clone());
-                }
+            use super::$harness;
+            #[tokio::test]
+            async fn simple_pubsub_test() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::PubSubSimple).await?;
+                let pubsub = harness.connect().await?;
+                let subscriber = AsyncPubSub::create_subscriber(&pubsub).await?;
+                AsyncSubscriber::subscribe_to(&subscriber, &"mytopic").await?;
+                AsyncPubSub::publish(&pubsub, &"mytopic", &String::from("test")).await?;
+                AsyncPubSub::publish(&pubsub, &"othertopic", &String::from("test")).await?;
+                let receiver = subscriber.receiver().clone();
+                let message = receiver.receive_async().await.expect("No message received");
+                assert_eq!(message.topic::<String>()?, "mytopic");
+                assert_eq!(message.payload::<String>()?, "test");
+                // The message should only be received once.
                 assert!(matches!(
-                    subscriber.receiver().try_receive(),
+                    receiver.try_receive(),
                     Err($crate::pubsub::TryReceiveError::Empty)
                 ));
-                assert!(message_topics[0] != message_topics[1]);
+                Ok(())
             }
 
-            Ok(())
+            #[tokio::test]
+            async fn multiple_subscribers_test() -> anyhow::Result<()> {
+                let harness =
+                    $harness::new($crate::test_util::HarnessTest::PubSubMultipleSubscribers)
+                        .await?;
+                let pubsub = harness.connect().await?;
+                let subscriber_a = AsyncPubSub::create_subscriber(&pubsub).await?;
+                let subscriber_ab = AsyncPubSub::create_subscriber(&pubsub).await?;
+                AsyncSubscriber::subscribe_to(&subscriber_a, &"a").await?;
+                AsyncSubscriber::subscribe_to(&subscriber_ab, &"a").await?;
+                AsyncSubscriber::subscribe_to(&subscriber_ab, &"b").await?;
+
+                let mut messages_a = Vec::new();
+                let mut messages_ab = Vec::new();
+                AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
+                messages_a.push(
+                    subscriber_a
+                        .receiver()
+                        .receive_async()
+                        .await?
+                        .payload::<String>()?,
+                );
+                messages_ab.push(
+                    subscriber_ab
+                        .receiver()
+                        .receive_async()
+                        .await?
+                        .payload::<String>()?,
+                );
+
+                AsyncPubSub::publish(&pubsub, &"b", &String::from("b1")).await?;
+                messages_ab.push(
+                    subscriber_ab
+                        .receiver()
+                        .receive_async()
+                        .await?
+                        .payload::<String>()?,
+                );
+
+                AsyncPubSub::publish(&pubsub, &"a", &String::from("a2")).await?;
+                messages_a.push(
+                    subscriber_a
+                        .receiver()
+                        .receive_async()
+                        .await?
+                        .payload::<String>()?,
+                );
+                messages_ab.push(
+                    subscriber_ab
+                        .receiver()
+                        .receive_async()
+                        .await?
+                        .payload::<String>()?,
+                );
+
+                assert_eq!(&messages_a[0], "a1");
+                assert_eq!(&messages_a[1], "a2");
+
+                assert_eq!(&messages_ab[0], "a1");
+                assert_eq!(&messages_ab[1], "b1");
+                assert_eq!(&messages_ab[2], "a2");
+
+                Ok(())
+            }
+
+            #[tokio::test]
+            async fn unsubscribe_test() -> anyhow::Result<()> {
+                let harness =
+                    $harness::new($crate::test_util::HarnessTest::PubSubUnsubscribe).await?;
+                let pubsub = harness.connect().await?;
+                let subscriber = AsyncPubSub::create_subscriber(&pubsub).await?;
+                AsyncSubscriber::subscribe_to(&subscriber, &"a").await?;
+
+                AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
+                AsyncSubscriber::unsubscribe_from(&subscriber, &"a").await?;
+                AsyncPubSub::publish(&pubsub, &"a", &String::from("a2")).await?;
+                AsyncSubscriber::subscribe_to(&subscriber, &"a").await?;
+                AsyncPubSub::publish(&pubsub, &"a", &String::from("a3")).await?;
+
+                // Check subscriber_a for a1 and a2.
+                let message = subscriber.receiver().receive_async().await?;
+                assert_eq!(message.payload::<String>()?, "a1");
+                let message = subscriber.receiver().receive_async().await?;
+                assert_eq!(message.payload::<String>()?, "a3");
+
+                Ok(())
+            }
+
+            #[tokio::test]
+            async fn pubsub_drop_cleanup_test() -> anyhow::Result<()> {
+                let harness =
+                    $harness::new($crate::test_util::HarnessTest::PubSubDropCleanup).await?;
+                let pubsub = harness.connect().await?;
+                let subscriber = AsyncPubSub::create_subscriber(&pubsub).await?;
+                AsyncSubscriber::subscribe_to(&subscriber, &"a").await?;
+
+                AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
+                let receiver = subscriber.receiver().clone();
+                drop(subscriber);
+
+                // The receiver should now be disconnected, but after receiving the
+                // first message. For when we're testing network connections, we
+                // need to insert a little delay here to allow the server to process
+                // the drop.
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+                AsyncPubSub::publish(&pubsub, &"a", &String::from("a1")).await?;
+
+                let message = receiver.receive_async().await?;
+                assert_eq!(message.payload::<String>()?, "a1");
+                let $crate::pubsub::Disconnected = receiver.receive_async().await.unwrap_err();
+
+                Ok(())
+            }
+
+            #[tokio::test]
+            async fn publish_to_all_test() -> anyhow::Result<()> {
+                let harness =
+                    $harness::new($crate::test_util::HarnessTest::PubSubPublishAll).await?;
+                let pubsub = harness.connect().await?;
+                let subscriber_a = AsyncPubSub::create_subscriber(&pubsub).await?;
+                let subscriber_b = AsyncPubSub::create_subscriber(&pubsub).await?;
+                let subscriber_c = AsyncPubSub::create_subscriber(&pubsub).await?;
+                AsyncSubscriber::subscribe_to(&subscriber_a, &"1").await?;
+                AsyncSubscriber::subscribe_to(&subscriber_b, &"1").await?;
+                AsyncSubscriber::subscribe_to(&subscriber_b, &"2").await?;
+                AsyncSubscriber::subscribe_to(&subscriber_c, &"2").await?;
+                AsyncSubscriber::subscribe_to(&subscriber_a, &"3").await?;
+                AsyncSubscriber::subscribe_to(&subscriber_c, &"3").await?;
+
+                AsyncPubSub::publish_to_all(&pubsub, [&"1", &"2", &"3"], &String::from("1"))
+                    .await?;
+
+                // Each subscriber should get "1" twice on separate topics
+                for subscriber in &[subscriber_a, subscriber_b, subscriber_c] {
+                    let mut message_topics = Vec::new();
+                    for _ in 0..2_u8 {
+                        let message = subscriber.receiver().receive_async().await?;
+                        assert_eq!(message.payload::<String>()?, "1");
+                        message_topics.push(message.topic.clone());
+                    }
+                    assert!(matches!(
+                        subscriber.receiver().try_receive(),
+                        Err($crate::pubsub::TryReceiveError::Empty)
+                    ));
+                    assert!(message_topics[0] != message_topics[1]);
+                }
+
+                Ok(())
+            }
+        }
+    };
+}
+
+/// Expands into a suite of pubsub unit tests using the passed type as the test harness.
+#[cfg(feature = "test-util")]
+#[macro_export]
+macro_rules! define_blocking_pubsub_test_suite {
+    ($harness:ident) => {
+        #[cfg(test)]
+        mod blocking_pubsub {
+            use $crate::pubsub::{PubSub, Subscriber};
+
+            use super::$harness;
+            #[test]
+            fn simple_pubsub_test() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::PubSubSimple)?;
+                let pubsub = harness.connect()?;
+                let subscriber = PubSub::create_subscriber(&pubsub)?;
+                Subscriber::subscribe_to(&subscriber, &"mytopic")?;
+                PubSub::publish(&pubsub, &"mytopic", &String::from("test"))?;
+                PubSub::publish(&pubsub, &"othertopic", &String::from("test"))?;
+                let receiver = subscriber.receiver().clone();
+                let message = receiver.receive().expect("No message received");
+                assert_eq!(message.topic::<String>()?, "mytopic");
+                assert_eq!(message.payload::<String>()?, "test");
+                // The message should only be received once.
+                assert!(matches!(
+                    receiver.try_receive(),
+                    Err($crate::pubsub::TryReceiveError::Empty)
+                ));
+                Ok(())
+            }
+
+            #[test]
+            fn multiple_subscribers_test() -> anyhow::Result<()> {
+                let harness =
+                    $harness::new($crate::test_util::HarnessTest::PubSubMultipleSubscribers)?;
+                let pubsub = harness.connect()?;
+                let subscriber_a = PubSub::create_subscriber(&pubsub)?;
+                let subscriber_ab = PubSub::create_subscriber(&pubsub)?;
+                Subscriber::subscribe_to(&subscriber_a, &"a")?;
+                Subscriber::subscribe_to(&subscriber_ab, &"a")?;
+                Subscriber::subscribe_to(&subscriber_ab, &"b")?;
+
+                let mut messages_a = Vec::new();
+                let mut messages_ab = Vec::new();
+                PubSub::publish(&pubsub, &"a", &String::from("a1"))?;
+                messages_a.push(subscriber_a.receiver().receive()?.payload::<String>()?);
+                messages_ab.push(subscriber_ab.receiver().receive()?.payload::<String>()?);
+
+                PubSub::publish(&pubsub, &"b", &String::from("b1"))?;
+                messages_ab.push(subscriber_ab.receiver().receive()?.payload::<String>()?);
+
+                PubSub::publish(&pubsub, &"a", &String::from("a2"))?;
+                messages_a.push(subscriber_a.receiver().receive()?.payload::<String>()?);
+                messages_ab.push(subscriber_ab.receiver().receive()?.payload::<String>()?);
+
+                assert_eq!(&messages_a[0], "a1");
+                assert_eq!(&messages_a[1], "a2");
+
+                assert_eq!(&messages_ab[0], "a1");
+                assert_eq!(&messages_ab[1], "b1");
+                assert_eq!(&messages_ab[2], "a2");
+
+                Ok(())
+            }
+
+            #[test]
+            fn unsubscribe_test() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::PubSubUnsubscribe)?;
+                let pubsub = harness.connect()?;
+                let subscriber = PubSub::create_subscriber(&pubsub)?;
+                Subscriber::subscribe_to(&subscriber, &"a")?;
+
+                PubSub::publish(&pubsub, &"a", &String::from("a1"))?;
+                Subscriber::unsubscribe_from(&subscriber, &"a")?;
+                PubSub::publish(&pubsub, &"a", &String::from("a2"))?;
+                Subscriber::subscribe_to(&subscriber, &"a")?;
+                PubSub::publish(&pubsub, &"a", &String::from("a3"))?;
+
+                // Check subscriber_a for a1 and a2.
+                let message = subscriber.receiver().receive()?;
+                assert_eq!(message.payload::<String>()?, "a1");
+                let message = subscriber.receiver().receive()?;
+                assert_eq!(message.payload::<String>()?, "a3");
+
+                Ok(())
+            }
+
+            #[test]
+            fn pubsub_drop_cleanup_test() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::PubSubDropCleanup)?;
+                let pubsub = harness.connect()?;
+                let subscriber = PubSub::create_subscriber(&pubsub)?;
+                Subscriber::subscribe_to(&subscriber, &"a")?;
+
+                PubSub::publish(&pubsub, &"a", &String::from("a1"))?;
+                let receiver = subscriber.receiver().clone();
+                drop(subscriber);
+
+                // The receiver should now be disconnected, but after receiving the
+                // first message. For when we're testing network connections, we
+                // need to insert a little delay here to allow the server to process
+                // the drop.
+                std::thread::sleep(std::time::Duration::from_millis(100));
+
+                PubSub::publish(&pubsub, &"a", &String::from("a1"))?;
+
+                let message = receiver.receive()?;
+                assert_eq!(message.payload::<String>()?, "a1");
+                let $crate::pubsub::Disconnected = receiver.receive().unwrap_err();
+
+                Ok(())
+            }
+
+            #[test]
+            fn publish_to_all_test() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::PubSubPublishAll)?;
+                let pubsub = harness.connect()?;
+                let subscriber_a = PubSub::create_subscriber(&pubsub)?;
+                let subscriber_b = PubSub::create_subscriber(&pubsub)?;
+                let subscriber_c = PubSub::create_subscriber(&pubsub)?;
+                Subscriber::subscribe_to(&subscriber_a, &"1")?;
+                Subscriber::subscribe_to(&subscriber_b, &"1")?;
+                Subscriber::subscribe_to(&subscriber_b, &"2")?;
+                Subscriber::subscribe_to(&subscriber_c, &"2")?;
+                Subscriber::subscribe_to(&subscriber_a, &"3")?;
+                Subscriber::subscribe_to(&subscriber_c, &"3")?;
+
+                PubSub::publish_to_all(&pubsub, [&"1", &"2", &"3"], &String::from("1"))?;
+
+                // Each subscriber should get "1" twice on separate topics
+                for subscriber in &[subscriber_a, subscriber_b, subscriber_c] {
+                    let mut message_topics = Vec::new();
+                    for _ in 0..2_u8 {
+                        let message = subscriber.receiver().receive()?;
+                        assert_eq!(message.payload::<String>()?, "1");
+                        message_topics.push(message.topic.clone());
+                    }
+                    assert!(matches!(
+                        subscriber.receiver().try_receive(),
+                        Err($crate::pubsub::TryReceiveError::Empty)
+                    ));
+                    assert!(message_topics[0] != message_topics[1]);
+                }
+
+                Ok(())
+            }
         }
     };
 }

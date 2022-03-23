@@ -28,6 +28,8 @@ impl AsyncPubSub for super::RemoteDatabase {
             database: self.name.clone(),
             id: subscriber_id,
             receiver: Receiver::new(receiver),
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio: tokio::runtime::Handle::try_current().ok(),
         })
     }
 
@@ -70,6 +72,8 @@ pub struct RemoteSubscriber {
     pub(crate) database: Arc<String>,
     pub(crate) id: u64,
     pub(crate) receiver: Receiver,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) tokio: Option<tokio::runtime::Handle>,
 }
 
 #[async_trait]
@@ -101,9 +105,9 @@ impl AsyncSubscriber for RemoteSubscriber {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
 impl Drop for RemoteSubscriber {
     fn drop(&mut self) {
-        // TODO sort out whether this should drop async or sync. For now defaulting to async is the safest.
         let client = self.client.clone();
         let database = self.database.to_string();
         let subscriber_id = self.id;
@@ -112,9 +116,25 @@ impl Drop for RemoteSubscriber {
                 .unregister_subscriber_async(database, subscriber_id)
                 .await;
         };
-        #[cfg(target_arch = "wasm32")]
         wasm_bindgen_futures::spawn_local(drop_future);
-        #[cfg(not(target_arch = "wasm32"))]
-        tokio::spawn(drop_future);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for RemoteSubscriber {
+    fn drop(&mut self) {
+        if let Some(tokio) = &self.tokio {
+            let client = self.client.clone();
+            let database = self.database.to_string();
+            let subscriber_id = self.id;
+            tokio.spawn(async move {
+                client
+                    .unregister_subscriber_async(database, subscriber_id)
+                    .await;
+            });
+        } else {
+            self.client
+                .unregister_subscriber(self.database.to_string(), self.id);
+        }
     }
 }

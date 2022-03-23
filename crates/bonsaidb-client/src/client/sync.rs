@@ -447,6 +447,7 @@ impl PubSub for RemoteDatabase {
             database: self.name.clone(),
             id: subscriber_id,
             receiver: Receiver::new(receiver),
+            tokio: None,
         })
     }
 

@@ -83,6 +83,6 @@ impl TestHarness {
     }
 }
 
-bonsaidb_core::define_connection_test_suite!(TestHarness);
-bonsaidb_core::define_pubsub_test_suite!(TestHarness);
-bonsaidb_core::define_kv_test_suite!(TestHarness);
+bonsaidb_core::define_async_connection_test_suite!(TestHarness);
+bonsaidb_core::define_async_pubsub_test_suite!(TestHarness);
+bonsaidb_core::define_async_kv_test_suite!(TestHarness);
