@@ -119,13 +119,13 @@ impl Schematic {
 
     /// Returns `true` if this schema contains the collection `C`.
     #[must_use]
-    pub fn contains<C: Collection + 'static>(&self) -> bool {
+    pub fn contains_collection<C: Collection + 'static>(&self) -> bool {
         self.collections_by_type_id.contains_key(&TypeId::of::<C>())
     }
 
     /// Returns `true` if this schema contains the collection `C`.
     #[must_use]
-    pub fn contains_collection_id(&self, collection: &CollectionName) -> bool {
+    pub fn contains_collection_name(&self, collection: &CollectionName) -> bool {
         self.contained_collections.contains(collection)
     }
 
@@ -136,26 +136,28 @@ impl Schematic {
         collection: &CollectionName,
         id: Option<DocumentId>,
     ) -> Result<DocumentId, Error> {
-        if let Some(generator) = self.collection_id_generators.get(collection) {
-            generator.next_id(id)
-        } else {
-            Err(Error::CollectionNotFound)
-        }
+        let generator = self
+            .collection_id_generators
+            .get(collection)
+            .ok_or(Error::CollectionNotFound)?;
+        generator.next_id(id)
     }
 
     /// Looks up a [`view::Serialized`] by name.
-    #[must_use]
-    pub fn view_by_name(&self, name: &ViewName) -> Option<&'_ dyn view::Serialized> {
+    pub fn view_by_name(&self, name: &ViewName) -> Result<&'_ dyn view::Serialized, Error> {
         self.views_by_name
             .get(name)
             .and_then(|type_id| self.views.get(type_id))
             .map(AsRef::as_ref)
+            .ok_or(Error::ViewNotFound)
     }
 
     /// Looks up a [`view::Serialized`] through the the type `V`.
-    #[must_use]
-    pub fn view<V: View + 'static>(&self) -> Option<&'_ dyn view::Serialized> {
-        self.views.get(&TypeId::of::<V>()).map(AsRef::as_ref)
+    pub fn view<V: View + 'static>(&self) -> Result<&'_ dyn view::Serialized, Error> {
+        self.views
+            .get(&TypeId::of::<V>())
+            .map(AsRef::as_ref)
+            .ok_or(Error::ViewNotFound)
     }
 
     /// Iterates over all registered views.

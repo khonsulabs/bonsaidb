@@ -24,7 +24,6 @@ included-from-omnibus = []
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "=0.3.0", default-features = false, features = [
-    "networking",
     "included-from-client",
 ] }
 bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.3.0" }

@@ -6,13 +6,15 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         async_trait::async_trait,
-        connection::{AccessPolicy, Connection, StorageConnection},
+        connection::{
+            AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
+        },
         define_basic_unique_mapped_view,
         document::{CollectionDocument, CollectionHeader, Emit},
         schema::{
             view::map::Mappings, Collection, CollectionName, CollectionViewSchema,
-            DefaultSerialization, InsertError, NamedCollection, ReduceResult, Schema, Schematic,
-            SerializedCollection, View, ViewMapResult, ViewMappedValue,
+            DefaultSerialization, InsertError, NamedCollection, Qualified, ReduceResult, Schema,
+            Schematic, SerializedCollection, View, ViewMapResult, ViewMappedValue,
         },
         transaction::{self, Transaction},
         Error,
@@ -141,14 +143,12 @@ impl Backend for BonsaiBackend {
                             .into_end_entity_certificate(),
                     )
                     .finish()
-                    .await
                     .unwrap();
                 AnyDatabase::Networked(client.database::<Commerce>("commerce").await.unwrap())
             }
             Bonsai::WebSockets => {
                 let client = Client::build(Url::parse("ws://localhost:7023").unwrap())
                     .finish()
-                    .await
                     .unwrap();
                 AnyDatabase::Networked(client.database::<Commerce>("commerce").await.unwrap())
             }
@@ -210,7 +210,7 @@ impl Operator<FindProduct> for BonsaiOperator {
         measurements: &Measurements,
     ) -> OperationResult {
         let measurement = measurements.begin(self.label, Metric::FindProduct);
-        let doc = Product::load(&operation.name, &self.database)
+        let doc = Product::load_async(&operation.name, &self.database)
             .await
             .unwrap()
             .unwrap();
@@ -240,7 +240,7 @@ impl Operator<LookupProduct> for BonsaiOperator {
         measurements: &Measurements,
     ) -> OperationResult {
         let measurement = measurements.begin(self.label, Metric::LookupProduct);
-        let doc = Product::get(operation.id, &self.database)
+        let doc = Product::get_async(operation.id, &self.database)
             .await
             .unwrap()
             .unwrap();
@@ -270,7 +270,10 @@ impl Operator<CreateCart> for BonsaiOperator {
         measurements: &Measurements,
     ) -> OperationResult {
         let measurement = measurements.begin(self.label, Metric::CreateCart);
-        let cart = Cart::default().push_into(&self.database).await.unwrap();
+        let cart = Cart::default()
+            .push_into_async(&self.database)
+            .await
+            .unwrap();
         measurement.finish();
         OperationResult::Cart { id: cart.header.id }
     }
@@ -294,9 +297,12 @@ impl Operator<AddProductToCart> for BonsaiOperator {
         };
 
         let measurement = measurements.begin(self.label, Metric::AddProductToCart);
-        let mut cart = Cart::get(cart, &self.database).await.unwrap().unwrap();
+        let mut cart = Cart::get_async(cart, &self.database)
+            .await
+            .unwrap()
+            .unwrap();
         cart.contents.product_ids.push(product);
-        cart.update(&self.database).await.unwrap();
+        cart.update_async(&self.database).await.unwrap();
         measurement.finish();
 
         OperationResult::CartProduct { id: product }
@@ -317,13 +323,16 @@ impl Operator<Checkout> for BonsaiOperator {
         };
 
         let measurement = measurements.begin(self.label, Metric::Checkout);
-        let cart = Cart::get(cart, &self.database).await.unwrap().unwrap();
-        cart.delete(&self.database).await.unwrap();
+        let cart = Cart::get_async(cart, &self.database)
+            .await
+            .unwrap()
+            .unwrap();
+        cart.delete_async(&self.database).await.unwrap();
         Order {
             customer_id: operation.customer_id,
             product_ids: cart.contents.product_ids,
         }
-        .push_into(&self.database)
+        .push_into_async(&self.database)
         .await
         .unwrap();
         measurement.finish();
@@ -354,7 +363,7 @@ impl Operator<ReviewProduct> for BonsaiOperator {
             rating: operation.rating,
         };
         // https://github.com/khonsulabs/bonsaidb/issues/189
-        match review.push_into(&self.database).await {
+        match review.push_into_async(&self.database).await {
             Ok(_) => {}
             Err(InsertError {
                 error:
@@ -367,7 +376,7 @@ impl Operator<ReviewProduct> for BonsaiOperator {
                     header: CollectionHeader::try_from(*existing_document).unwrap(),
                     contents,
                 }
-                .update(&self.database)
+                .update_async(&self.database)
                 .await
                 .unwrap();
             }

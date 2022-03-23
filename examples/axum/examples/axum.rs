@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use axum::{extract, extract::Extension, routing::get, Router};
 use bonsaidb::{
-    core::{connection::StorageConnection, keyvalue::KeyValue},
+    core::{connection::AsyncStorageConnection, keyvalue::AsyncKeyValue},
     local::config::Builder,
     server::{
         DefaultPermissions, HttpService, Peer, Server, ServerConfiguration, StandardTcpProtocols,
@@ -64,9 +64,8 @@ async fn main() -> anyhow::Result<()> {
         // This is silly to do over a websocket connection, because it can
         // easily be done by just using `server` instead. However, this is to
         // demonstrate that websocket connections work in this example.
-        let client = bonsaidb::client::Client::build(Url::parse("ws://localhost:8080/ws")?)
-            .finish()
-            .await?;
+        let client =
+            bonsaidb::client::Client::build(Url::parse("ws://localhost:8080/ws")?).finish()?;
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(1)).await;

@@ -1,6 +1,6 @@
 use bonsaidb::{
     core::{
-        connection::Connection,
+        connection::AsyncConnection,
         document::{BorrowedDocument, Emit},
         key::EnumKey,
         schema::{
@@ -11,7 +11,7 @@ use bonsaidb::{
     },
     local::{
         config::{Builder, StorageConfiguration},
-        Database,
+        AsyncDatabase,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -66,7 +66,7 @@ impl ViewSchema for BlogPostsByCategory {
 #[tokio::test]
 async fn example() -> Result<(), Error> {
     drop(tokio::fs::remove_dir_all("example.bonsaidb").await);
-    let db = Database::open::<BlogPost>(StorageConfiguration::new("example.bonsaidb")).await?;
+    let db = AsyncDatabase::open::<BlogPost>(StorageConfiguration::new("example.bonsaidb")).await?;
     // ANCHOR: query_with_docs
     let rust_posts = db
         .view::<BlogPostsByCategory>()

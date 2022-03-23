@@ -4,7 +4,7 @@ use async_acme::cache::AcmeCache;
 use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
-    connection::Connection,
+    connection::AsyncConnection,
     define_basic_unique_mapped_view,
     document::{CollectionDocument, Emit, KeyId},
     schema::{Collection, SerializedCollection},
@@ -68,13 +68,13 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
             .next();
         if let Some((_, mut account)) = mapped_account {
             account.contents.data = Bytes::from(contents);
-            account.update(&db).await?;
+            account.update_async(&db).await?;
         } else {
             AcmeAccount {
                 contacts: contacts.iter().map(|&c| c.to_string()).collect(),
                 data: Bytes::from(contents),
             }
-            .push_into(&db)
+            .push_into_async(&db)
             .await?;
         }
 

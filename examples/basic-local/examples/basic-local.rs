@@ -4,7 +4,7 @@ use bonsaidb::{
     core::schema::{Collection, SerializedCollection},
     local::{
         config::{Builder, StorageConfiguration},
-        Database,
+        AsyncDatabase,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ struct Message {
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
-    let db = Database::open::<Message>(StorageConfiguration::new("basic.bonsaidb")).await?;
+    let db = AsyncDatabase::open::<Message>(StorageConfiguration::new("basic.bonsaidb")).await?;
 
     // Insert a new `Message` into the database. `Message` is a `Collection`
     // implementor, which makes them act in a similar fashion to tables in other
@@ -31,12 +31,12 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
         contents: String::from("Hello, World!"),
         timestamp: SystemTime::now(),
     }
-    .push_into(&db)
+    .push_into_async(&db)
     .await?;
 
     // Retrieve the message using the id returned from the previous call. both
     // `document` and `message_doc` should be identical.
-    let message_doc = Message::get(document.header.id, &db)
+    let message_doc = Message::get_async(document.header.id, &db)
         .await?
         .expect("couldn't retrieve stored item");
 

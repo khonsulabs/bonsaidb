@@ -1,7 +1,5 @@
 use std::{borrow::Cow, collections::HashSet, convert::Infallible, hash::Hash, sync::Arc};
 
-use async_lock::Mutex;
-use async_trait::async_trait;
 use bonsaidb_core::{
     document::DocumentId,
     schema::{CollectionName, ViewName},
@@ -11,6 +9,7 @@ use nebari::{
     tree::{Operation, ScanEvaluation, Unversioned, Versioned},
     ArcBytes, Roots, Tree,
 };
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -39,14 +38,13 @@ pub struct IntegrityScan {
 
 pub type OptionalViewMapHandle = Option<Arc<Mutex<Option<Handle<u64, Error>>>>>;
 
-#[async_trait]
 impl Job for IntegrityScanner {
     type Output = OptionalViewMapHandle;
     type Error = Error;
 
     #[cfg_attr(feature = "tracing", tracing::instrument)]
     #[allow(clippy::too_many_lines)]
-    async fn execute(&mut self) -> Result<Self::Output, Self::Error> {
+    fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         let documents =
             self.database
                 .roots()
@@ -69,50 +67,42 @@ impl Job for IntegrityScanner {
         let view_name = self.scan.view_name.clone();
         let view_version = self.scan.view_version;
         let roots = self.database.roots().clone();
+        let version = view_versions
+            .get(view_name.to_string().as_bytes())?
+            .and_then(|version| ViewVersion::from_bytes(&version).ok())
+            .unwrap_or_default();
 
-        let needs_update = tokio::task::spawn_blocking::<_, Result<bool, Error>>(move || {
-            let version = view_versions
-                .get(view_name.to_string().as_bytes())?
-                .and_then(|version| ViewVersion::from_bytes(&version).ok())
-                .unwrap_or_default();
-            version.cleanup(&roots, &view_name)?;
+        // Remove any old files that are no longer used.
+        version.cleanup(&roots, &view_name)?;
 
-            if version.is_current(view_version) {
-                Ok(false)
-            } else {
-                // The view isn't the current version, queue up all documents.
-                let missing_entries = tree_keys::<Versioned>(&documents)?;
-                // Add all missing entries to the invalidated list. The view
-                // mapping job will update them on the next pass.
-                let transaction =
-                    roots.transaction(&[invalidated_entries_tree, view_versions_tree])?;
-                {
-                    let mut view_versions = transaction.tree::<Unversioned>(1).unwrap();
-                    view_versions.set(
-                        view_name.to_string().as_bytes().to_vec(),
-                        ViewVersion::current_for(view_version).to_vec()?,
-                    )?;
-                    let mut invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
-                    let mut missing_entries = missing_entries
-                        .into_iter()
-                        .map(|id| ArcBytes::from(id.to_vec()))
-                        .collect::<Vec<_>>();
-                    missing_entries.sort();
-                    invalidated_entries
-                        .modify(missing_entries, Operation::Set(ArcBytes::default()))?;
-                }
-                transaction.commit()?;
-
-                Ok(true)
+        let task = if version.is_current(view_version) {
+            None
+        } else {
+            // The view isn't the current version, queue up all documents.
+            let missing_entries = tree_keys::<Versioned>(&documents)?;
+            // Add all missing entries to the invalidated list. The view
+            // mapping job will update them on the next pass.
+            let transaction = roots.transaction(&[invalidated_entries_tree, view_versions_tree])?;
+            {
+                let mut view_versions = transaction.tree::<Unversioned>(1).unwrap();
+                view_versions.set(
+                    view_name.to_string().as_bytes().to_vec(),
+                    ViewVersion::current_for(view_version).to_vec()?,
+                )?;
+                let mut invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
+                let mut missing_entries = missing_entries
+                    .into_iter()
+                    .map(|id| ArcBytes::from(id.to_vec()))
+                    .collect::<Vec<_>>();
+                missing_entries.sort();
+                invalidated_entries.modify(missing_entries, Operation::Set(ArcBytes::default()))?;
             }
-        })
-        .await??;
+            transaction.commit()?;
 
-        let task = if needs_update {
             Some(Arc::new(Mutex::new(Some(
                 self.database
-                    .data
                     .storage
+                    .instance
                     .tasks()
                     .jobs
                     .lookup_or_enqueue(Mapper {
@@ -122,23 +112,19 @@ impl Job for IntegrityScanner {
                             collection: self.scan.collection.clone(),
                             view_name: self.scan.view_name.clone(),
                         },
-                    })
-                    .await,
+                    }),
             ))))
-        } else {
-            None
         };
 
         self.database
-            .data
             .storage
+            .instance
             .tasks()
             .mark_integrity_check_complete(
                 self.database.data.name.clone(),
                 self.scan.collection.clone(),
                 self.scan.view_name.clone(),
-            )
-            .await;
+            );
 
         Ok(task)
     }

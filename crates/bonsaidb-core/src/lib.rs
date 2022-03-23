@@ -34,12 +34,11 @@ pub mod transaction;
 pub mod keyvalue;
 
 /// Traits for tailoring a server.
-pub mod custom_api;
+pub mod api;
 
 /// Key trait and related types.
 pub mod key;
 
-#[cfg(feature = "networking")]
 /// Types for implementing the BonsaiDb network protocol.
 pub mod networking;
 
@@ -62,7 +61,7 @@ pub use transmog_pot;
 use crate::{
     document::{DocumentId, Header, InvalidHexadecimal},
     key::NextValueError,
-    schema::InsertError,
+    schema::{ApiName, InsertError},
 };
 
 /// an enumeration of errors that this crate can produce
@@ -106,6 +105,18 @@ pub enum Error {
     #[error("database '{0}' was not found")]
     DatabaseNotFound(String),
 
+    /// The view was not found.
+    #[error("view was not found")]
+    ViewNotFound,
+
+    /// The collection was not found.
+    #[error("collection was not found")]
+    CollectionNotFound,
+
+    /// The api invoked was not found.
+    #[error("api '{0}' was not found")]
+    ApiNotFound(ApiName),
+
     /// The database name already exists.
     #[error("a database with name '{0}' already exists")]
     DatabaseNameAlreadyTaken(String),
@@ -132,7 +143,6 @@ pub enum Error {
     Websocket(String),
 
     /// An error occurred from networking.
-    #[cfg(feature = "networking")]
     #[error("a networking error occurred: '{0}'")]
     Networking(networking::Error),
 
@@ -147,10 +157,6 @@ pub enum Error {
     /// An error occurred inside of the client.
     #[error("an io error in the client: '{0}'")]
     Client(String),
-
-    /// An attempt to use a `Collection` with a `Database` that it wasn't defined within.
-    #[error("attempted to access a collection not registered with this schema")]
-    CollectionNotFound,
 
     /// A `Collection` being added already exists. This can be caused by a collection name not being unique.
     #[error("attempted to define a collection that already has been defined")]

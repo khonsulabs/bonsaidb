@@ -98,10 +98,7 @@ impl<B: Backend> CustomServer<B> {
         connection: S,
         peer_address: std::net::SocketAddr,
     ) {
-        use bonsaidb_core::{
-            custom_api::CustomApi,
-            networking::{Payload, Request, Response},
-        };
+        use bonsaidb_core::networking::Payload;
         use futures::{SinkExt, StreamExt};
         use tokio_tungstenite::tungstenite::Message;
 
@@ -122,11 +119,13 @@ impl<B: Backend> CustomServer<B> {
         };
         let task_sender = response_sender.clone();
         tokio::spawn(async move {
-            while let Ok(response) = api_response_receiver.recv_async().await {
+            while let Ok((session_id, name, value)) = api_response_receiver.recv_async().await {
                 if task_sender
                     .send(Payload {
                         id: None,
-                        wrapped: Response::Api(response),
+                        session_id,
+                        name,
+                        value: Ok(value),
                     })
                     .is_err()
                 {
@@ -160,9 +159,7 @@ impl<B: Backend> CustomServer<B> {
         });
 
         let (request_sender, request_receiver) =
-            flume::bounded::<Payload<Request<<B::CustomApi as CustomApi>::Request>>>(
-                self.data.client_simultaneous_request_limit,
-            );
+            flume::bounded::<Payload>(self.data.client_simultaneous_request_limit);
         let task_self = self.clone();
         tokio::spawn(async move {
             task_self
@@ -172,18 +169,13 @@ impl<B: Backend> CustomServer<B> {
 
         while let Some(payload) = receiver.next().await {
             match payload {
-                Ok(Message::Binary(binary)) => {
-                    match bincode::deserialize::<
-                        Payload<Request<<B::CustomApi as CustomApi>::Request>>,
-                    >(&binary)
-                    {
-                        Ok(payload) => drop(request_sender.send_async(payload).await),
-                        Err(err) => {
-                            log::error!("[server] error decoding message: {:?}", err);
-                            break;
-                        }
+                Ok(Message::Binary(binary)) => match bincode::deserialize::<Payload>(&binary) {
+                    Ok(payload) => drop(request_sender.send_async(payload).await),
+                    Err(err) => {
+                        log::error!("[server] error decoding message: {:?}", err);
+                        break;
                     }
-                }
+                },
                 Ok(Message::Close(_)) => break,
                 Ok(Message::Ping(payload)) => {
                     drop(message_sender.send(Message::Pong(payload)));

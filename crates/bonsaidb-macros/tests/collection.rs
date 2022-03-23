@@ -4,7 +4,7 @@ use bonsaidb::core::{
     document::{CollectionDocument, Emit, KeyId},
     schema::{
         Collection, CollectionViewSchema, DefaultSerialization, DefaultViewSerialization, Name,
-        Schematic, SerializedCollection, View, ViewMapResult,
+        Qualified, Schematic, SerializedCollection, View, ViewMapResult,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -42,7 +42,9 @@ fn views() {
     }
 
     let schematic = Schematic::from_schema::<Shape>().unwrap();
-    assert!(schematic.view::<ShapesByNumberOfSides>().is_some());
+    schematic
+        .view::<ShapesByNumberOfSides>()
+        .expect("couldn't find view");
 
     #[derive(Debug, Clone)]
     struct ShapesByNumberOfSides;

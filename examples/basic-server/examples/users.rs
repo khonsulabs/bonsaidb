@@ -6,7 +6,7 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         admin::PermissionGroup,
-        connection::{Authentication, SensitiveString, StorageConnection},
+        connection::{AsyncStorageConnection, Authentication, SensitiveString},
         permissions::{
             bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
             Permissions, Statement,
@@ -26,7 +26,7 @@ async fn main() -> anyhow::Result<()> {
     let server = setup_server().await?;
 
     // Create a database user, or get its ID if it already existed.
-    let user_id = match dbg!(server.create_user("ecton").await) {
+    let user_id = match server.create_user("ecton").await {
         Ok(id) => {
             // Set the user's password.
             server
@@ -47,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
         name: String::from("administrators"),
         statements: vec![Statement::allow_all_for_any_resource()],
     }
-    .push_into(&admin)
+    .push_into_async(&admin)
     .await)
     {
         Ok(doc) => doc.header.id,
@@ -78,12 +78,11 @@ async fn main() -> anyhow::Result<()> {
                 .await?
                 .into_end_entity_certificate(),
         )
-        .finish()
-        .await?;
+        .finish()?;
     let db = client.database::<Shape>("my-database").await?;
 
     // Before authenticating, inserting a shape shouldn't work.
-    match Shape::new(3).push_into(&db).await {
+    match Shape::new(3).push_into_async(&db).await {
         Err(InsertError {
             error: bonsaidb::core::Error::PermissionDenied(denied),
             ..
@@ -97,14 +96,17 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Now, log in and try again.
-    client
+    let authenticated_client = client
         .authenticate(
             "ecton",
             Authentication::Password(SensitiveString(String::from("hunter2"))),
         )
         .await
         .unwrap();
-    let shape_doc = Shape::new(3).push_into(&db).await?;
+    let db = authenticated_client
+        .database::<Shape>("my-database")
+        .await?;
+    let shape_doc = Shape::new(3).push_into_async(&db).await?;
     log::info!("Successully inserted document {:?}", shape_doc);
 
     drop(db);

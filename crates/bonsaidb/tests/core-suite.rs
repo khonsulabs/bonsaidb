@@ -6,8 +6,8 @@ use bonsaidb::{
         actionable::Permissions,
         admin::{Admin, PermissionGroup, ADMIN_DATABASE_NAME},
         circulate::flume,
-        connection::StorageConnection,
-        keyvalue::KeyValue,
+        connection::AsyncStorageConnection,
+        keyvalue::AsyncKeyValue,
         permissions::{
             bonsai::{BonsaiAction, ServerAction},
             Statement,
@@ -94,7 +94,7 @@ mod websockets {
         pub async fn new(test: HarnessTest) -> anyhow::Result<Self> {
             initialize_shared_server().await;
             let url = Url::parse("ws://localhost:6001")?;
-            let client = Client::new(url.clone()).await?;
+            let client = Client::new(url.clone())?;
 
             let dbname = format!("websockets-{}", test);
             client
@@ -123,7 +123,7 @@ mod websockets {
             permissions: Vec<Statement>,
             label: &str,
         ) -> anyhow::Result<RemoteDatabase> {
-            let client = Client::new(self.url.clone()).await?;
+            let client = Client::new(self.url.clone())?;
             assume_permissions(client, label, self.db.name(), permissions).await
         }
 
@@ -140,8 +140,7 @@ mod websockets {
         let client = Client::build(url.clone())
             .with_certificate(certificate.clone())
             .with_protocol_version(INCOMPATIBLE_PROTOCOL_VERSION)
-            .finish()
-            .await?;
+            .finish()?;
 
         check_incompatible_client(client).await
     }
@@ -171,8 +170,7 @@ mod bonsai {
             ))?;
             let client = Client::build(url.clone())
                 .with_certificate(certificate.clone())
-                .finish()
-                .await?;
+                .finish()?;
 
             let dbname = format!("bonsai-{}", test);
             client
@@ -208,8 +206,7 @@ mod bonsai {
         ) -> anyhow::Result<RemoteDatabase> {
             let client = Client::build(self.url.clone())
                 .with_certificate(self.certificate.clone())
-                .finish()
-                .await?;
+                .finish()?;
             assume_permissions(client, label, self.db.name(), statements).await
         }
 
@@ -229,8 +226,7 @@ mod bonsai {
         let client = Client::build(url.clone())
             .with_certificate(certificate.clone())
             .with_protocol_version(INCOMPATIBLE_PROTOCOL_VERSION)
-            .finish()
-            .await?;
+            .finish()?;
 
         check_incompatible_client(client).await
     }
@@ -291,7 +287,7 @@ async fn assume_permissions(
                 name: String::from(label),
                 statements,
             }
-            .push_into(&admin)
+            .push_into_async(&admin)
             .await)
             {
                 Ok(doc) => doc.header.id,
@@ -356,23 +352,22 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     let url = Url::parse("bonsaidb://localhost:6002")?;
-    let client = Client::build(url)
-        .with_certificate(certificate)
-        .finish()
-        .await?;
+    let client = Client::build(url).with_certificate(certificate).finish()?;
     match client.create_user("otheruser").await {
         Err(bonsaidb_core::Error::PermissionDenied(_)) => {}
-        _ => unreachable!("should not have permission to create another user before logging in"),
+        other => unreachable!(
+            "should not have permission to create another user before logging in: {other:?}"
+        ),
     }
 
-    client
+    let authenticated_client = client
         .authenticate(
             "ecton",
             Authentication::Password(SensitiveString(String::from("hunter2"))),
         )
         .await
         .unwrap();
-    client
+    authenticated_client
         .create_user("otheruser")
         .await
         .expect("should be able to create user after logging in");

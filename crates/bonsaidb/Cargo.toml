@@ -32,7 +32,7 @@ name = "simultaneous-connections"
 required-features = ["server", "client"]
 
 [[test]]
-name = "custom-api"
+name = "apis"
 required-features = ["server", "client"]
 
 [features]
@@ -43,7 +43,6 @@ local-full = [
     "local-cli",
     "local-instrument",
     "local-encryption",
-    "local-multiuser",
     "local-password-hashing",
     "local-compression",
 ]
@@ -91,8 +90,6 @@ server-pem = ["bonsaidb-server/pem"]
 
 server-encryption = ["bonsaidb-server/encryption"]
 local-encryption = ["bonsaidb-local/encryption"]
-
-local-multiuser = ["bonsaidb-local/multiuser"]
 
 password-hashing = ["bonsaidb-core/password-hashing"]
 local-password-hashing = ["password-hashing", "bonsaidb-local/password-hashing"]

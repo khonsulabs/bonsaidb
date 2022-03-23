@@ -1,7 +1,6 @@
 use std::{
     collections::{hash_map, HashMap},
     fmt::Debug,
-    marker::PhantomData,
     net::SocketAddr,
     ops::Deref,
     path::PathBuf,
@@ -14,39 +13,23 @@ use std::{
 
 use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
-use bonsaidb_core::{
-    admin::User,
-    arc_bytes::serde::Bytes,
-    circulate::{Message, Relay, Subscriber},
-    connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    custom_api::{CustomApi, CustomApiResult},
-    document::DocumentId,
-    keyvalue::{KeyOperation, KeyValue},
-    networking::{
-        self, CreateDatabaseHandler, DatabaseRequest, DatabaseRequestDispatcher, DatabaseResponse,
-        DeleteDatabaseHandler, Payload, Request, RequestDispatcher, Response, ServerRequest,
-        ServerRequestDispatcher, ServerResponse, CURRENT_PROTOCOL_VERSION,
-    },
-    permissions::{
-        bonsai::{
-            bonsaidb_resource_name, collection_resource_name, database_resource_name,
-            document_resource_name, keyvalue_key_resource_name, kv_resource_name,
-            pubsub_topic_resource_name, user_resource_name, view_resource_name, BonsaiAction,
-            DatabaseAction, DocumentAction, KeyValueAction, PubSubAction, ServerAction,
-            TransactionAction, ViewAction,
-        },
-        Action, Dispatcher, PermissionDenied, Permissions, ResourceName,
-    },
-    pubsub::database_topic,
-    schema::{self, CollectionName, Nameable, NamedCollection, NamedReference, Schema, ViewName},
-    transaction::{Command, Transaction},
-};
 #[cfg(feature = "password-hashing")]
+use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
-    connection::{Authenticated, Authentication},
-    permissions::bonsai::AuthenticationMethod,
+    admin::{Admin, ADMIN_DATABASE_NAME},
+    api::{self, ApiResult},
+    arc_bytes::serde::Bytes,
+    connection::{
+        self, AsyncConnection, AsyncStorageConnection, IdentityReference, Session, SessionId,
+    },
+    networking::{self, Payload, CURRENT_PROTOCOL_VERSION},
+    permissions::{
+        bonsai::{bonsaidb_resource_name, BonsaiAction, ServerAction},
+        Permissions,
+    },
+    schema::{self, ApiName, Nameable, NamedCollection, Schema},
 };
-use bonsaidb_local::{config::Builder, Database, Storage};
+use bonsaidb_local::{config::Builder, AsyncStorage, Storage, StorageNonBlocking};
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
 use derive_where::derive_where;
 use fabruic::{self, CertificateChain, Endpoint, KeyPair, PrivateKey};
@@ -62,7 +45,9 @@ use tokio::sync::{oneshot, Notify};
 #[cfg(feature = "acme")]
 use crate::config::AcmeConfiguration;
 use crate::{
-    backend::{BackendError, ConnectionHandling, CustomApiDispatcher},
+    api::{AnyHandler, HandlerSession},
+    backend::ConnectionHandling,
+    dispatch::{register_api_handlers, ServerDispatcher},
     error::Error,
     hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
     server::shutdown::{Shutdown, ShutdownState},
@@ -82,7 +67,7 @@ mod websockets;
 use self::connected_client::OwnedClient;
 pub use self::{
     connected_client::{ConnectedClient, LockedClientDataGuard, Transport},
-    database::{ServerDatabase, ServerSubscriber},
+    database::ServerDatabase,
     tcp::{ApplicationProtocols, HttpService, Peer, StandardTcpProtocols, TcpService},
 };
 
@@ -93,6 +78,19 @@ static CONNECTED_CLIENT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 #[derive_where(Clone)]
 pub struct CustomServer<B: Backend = NoBackend> {
     data: Arc<Data<B>>,
+    pub(crate) storage: AsyncStorage,
+}
+
+impl<'a, B: Backend> From<&'a CustomServer<B>> for Storage {
+    fn from(server: &'a CustomServer<B>) -> Self {
+        Self::from(server.storage.clone())
+    }
+}
+
+impl<B: Backend> From<CustomServer<B>> for Storage {
+    fn from(server: CustomServer<B>) -> Self {
+        Self::from(server.storage)
+    }
 }
 
 /// A BonsaiDb server without a custom backend.
@@ -100,23 +98,19 @@ pub type Server = CustomServer<NoBackend>;
 
 #[derive(Debug)]
 struct Data<B: Backend = NoBackend> {
-    storage: Storage,
     clients: RwLock<HashMap<u32, ConnectedClient<B>>>,
     request_processor: flume::Sender<ClientRequest<B>>,
-    default_permissions: Permissions,
-    authenticated_permissions: Permissions,
+    default_session: Session,
     endpoint: RwLock<Option<Endpoint>>,
     client_simultaneous_request_limit: usize,
     primary_tls_key: CachedCertifiedKey,
     primary_domain: String,
+    custom_apis: parking_lot::RwLock<HashMap<ApiName, Arc<dyn AnyHandler<B>>>>,
     #[cfg(feature = "acme")]
     acme: AcmeConfiguration,
     #[cfg(feature = "acme")]
     alpn_keys: AlpnKeys,
     shutdown: Shutdown,
-    relay: Relay,
-    subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-    _backend: PhantomData<B>,
 }
 
 #[derive(Default)]
@@ -138,54 +132,67 @@ impl Deref for CachedCertifiedKey {
 
 impl<B: Backend> CustomServer<B> {
     /// Opens a server using `directory` for storage.
-    pub async fn open(configuration: ServerConfiguration) -> Result<Self, Error> {
+    pub async fn open(configuration: ServerConfiguration<B>) -> Result<Self, Error> {
+        let configuration = register_api_handlers(configuration)?;
         let (request_sender, request_receiver) = flume::unbounded::<ClientRequest<B>>();
         for _ in 0..configuration.request_workers {
             let request_receiver = request_receiver.clone();
             tokio::task::spawn(async move {
                 while let Ok(mut client_request) = request_receiver.recv_async().await {
                     let request = client_request.request.take().unwrap();
-                    let result = ServerDispatcher {
-                        server: &client_request.server,
-                        client: &client_request.client,
-                        subscribers: &client_request.subscribers,
-                        response_sender: &client_request.sender,
-                    }
-                    .dispatch(&client_request.client.permissions().await, request)
-                    .await;
-                    let result = result
-                        .unwrap_or_else(|err| Response::Error(bonsaidb_core::Error::from(err)));
-                    drop(client_request.result_sender.send(result));
+                    let session = client_request.session.clone();
+                    // TODO we should be able to upgrade a session-less Storage to one with a Session.
+                    // The Session needs to be looked up from the client based on the request's session id.
+                    let result = match client_request.server.storage.assume_session(session) {
+                        Ok(storage) => {
+                            let client = HandlerSession {
+                                server: &client_request.server,
+                                client: &client_request.client,
+                                as_client: Self {
+                                    data: client_request.server.data.clone(),
+                                    storage,
+                                },
+                            };
+                            ServerDispatcher::dispatch_api_request(
+                                client,
+                                &request.name,
+                                request.value.unwrap(),
+                            )
+                            .await
+                            .map_err(bonsaidb_core::Error::from)
+                        }
+                        Err(err) => Err(err),
+                    };
+                    drop(client_request.result_sender.send((request.name, result)));
                 }
             });
         }
 
-        let storage = Storage::open(configuration.storage.with_schema::<Hosted>()?).await?;
+        let storage = AsyncStorage::open(configuration.storage.with_schema::<Hosted>()?).await?;
 
         storage.create_database::<Hosted>("_hosted", true).await?;
 
         let default_permissions = Permissions::from(configuration.default_permissions);
-        let authenticated_permissions = Permissions::from(configuration.authenticated_permissions);
 
         let server = Self {
+            storage,
             data: Arc::new(Data {
                 clients: RwLock::default(),
-                storage,
                 endpoint: RwLock::default(),
                 request_processor: request_sender,
-                default_permissions,
-                authenticated_permissions,
+                default_session: Session {
+                    permissions: default_permissions,
+                    ..Session::default()
+                },
                 client_simultaneous_request_limit: configuration.client_simultaneous_request_limit,
                 primary_tls_key: CachedCertifiedKey::default(),
                 primary_domain: configuration.server_name,
+                custom_apis: parking_lot::RwLock::new(configuration.custom_apis),
                 #[cfg(feature = "acme")]
                 acme: configuration.acme,
                 #[cfg(feature = "acme")]
                 alpn_keys: AlpnKeys::default(),
                 shutdown: Shutdown::new(),
-                relay: Relay::default(),
-                subscribers: Arc::default(),
-                _backend: PhantomData::default(),
             }),
         };
         B::initialize(&server).await;
@@ -208,7 +215,7 @@ impl<B: Backend> CustomServer<B> {
 
     /// Returns the administration database.
     pub async fn admin(&self) -> ServerDatabase<B> {
-        let db = self.data.storage.admin().await;
+        let db = self.storage.admin().await;
         ServerDatabase {
             server: self.clone(),
             db,
@@ -216,16 +223,16 @@ impl<B: Backend> CustomServer<B> {
     }
 
     pub(crate) async fn hosted(&self) -> ServerDatabase<B> {
-        let db = self
-            .data
-            .storage
-            .database::<Hosted>("_hosted")
-            .await
-            .unwrap();
+        let db = self.storage.database::<Hosted>("_hosted").await.unwrap();
         ServerDatabase {
             server: self.clone(),
             db,
         }
+    }
+
+    pub(crate) fn custom_api_dispatcher(&self, name: &ApiName) -> Option<Arc<dyn AnyHandler<B>>> {
+        let dispatchers = self.data.custom_apis.read();
+        dispatchers.get(name).cloned()
     }
 
     /// Installs an X.509 certificate used for general purpose connections.
@@ -279,7 +286,7 @@ impl<B: Backend> CustomServer<B> {
     ) -> Result<(), Error> {
         let db = self.hosted().await;
 
-        TlsCertificate::entry(&self.data.primary_domain, &db)
+        TlsCertificate::entry_async(&self.data.primary_domain, &db)
             .update_with(|cert: &mut TlsCertificate| {
                 cert.certificate_chain = certificate_chain.clone();
                 cert.private_key = SerializablePrivateKey(private_key.clone());
@@ -419,10 +426,11 @@ impl<B: Backend> CustomServer<B> {
     }
 
     /// Sends a custom API response to all connected clients.
-    pub async fn broadcast(&self, response: CustomApiResult<B::CustomApi>) {
+    pub async fn broadcast<Api: api::Api>(&self, response: &ApiResult<Api>) {
         let clients = fast_async_read!(self.data.clients);
         for client in clients.values() {
-            drop(client.send(response.clone()));
+            // TODO should this broadcast to all sessions too rather than only the global session?
+            drop(client.send::<Api>(None, response));
         }
     }
 
@@ -430,9 +438,9 @@ impl<B: Backend> CustomServer<B> {
         &self,
         transport: Transport,
         address: SocketAddr,
-        sender: Sender<CustomApiResult<B::CustomApi>>,
+        sender: Sender<(Option<SessionId>, ApiName, Bytes)>,
     ) -> Option<OwnedClient<B>> {
-        if !self.data.default_permissions.allowed_to(
+        if !self.data.default_session.allowed_to(
             &bonsaidb_resource_name(),
             &BonsaiAction::Server(ServerAction::Connect),
         ) {
@@ -443,7 +451,14 @@ impl<B: Backend> CustomServer<B> {
             let next_id = CONNECTED_CLIENT_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
             let mut clients = fast_async_write!(self.data.clients);
             if let hash_map::Entry::Vacant(e) = clients.entry(next_id) {
-                let client = OwnedClient::new(next_id, address, transport, sender, self.clone());
+                let client = OwnedClient::new(
+                    next_id,
+                    address,
+                    transport,
+                    sender,
+                    self.clone(),
+                    self.data.default_session.clone(),
+                );
                 e.insert(client.clone());
                 break client;
             }
@@ -482,8 +497,9 @@ impl<B: Backend> CustomServer<B> {
             };
 
             match incoming
-            .accept::<networking::Payload<Response<CustomApiResult<B::CustomApi>>>, networking::Payload<Request<<B::CustomApi as CustomApi>::Request>>>()
-            .await {
+                .accept::<networking::Payload, networking::Payload>()
+                .await
+            {
                 Ok((sender, receiver)) => {
                     let (api_response_sender, api_response_receiver) = flume::unbounded();
                     if let Some(disconnector) = self
@@ -496,11 +512,15 @@ impl<B: Backend> CustomServer<B> {
                     {
                         let task_sender = sender.clone();
                         tokio::spawn(async move {
-                            while let Ok(response) = api_response_receiver.recv_async().await {
+                            while let Ok((session_id, name, bytes)) =
+                                api_response_receiver.recv_async().await
+                            {
                                 if task_sender
                                     .send(&Payload {
                                         id: None,
-                                        wrapped: Response::Api(response),
+                                        session_id,
+                                        name,
+                                        value: Ok(bytes),
                                     })
                                     .is_err()
                                 {
@@ -536,8 +556,8 @@ impl<B: Backend> CustomServer<B> {
     async fn handle_client_requests(
         &self,
         client: ConnectedClient<B>,
-        request_receiver: flume::Receiver<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
-        response_sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
+        request_receiver: flume::Receiver<Payload>,
+        response_sender: flume::Sender<Payload>,
     ) {
         let notify = Arc::new(Notify::new());
         let requests_in_queue = Arc::new(AtomicUsize::new(0));
@@ -559,17 +579,20 @@ impl<B: Backend> CustomServer<B> {
                     Ok(payload) => payload,
                     Err(_) => break,
                 };
+                let session_id = payload.session_id;
                 let id = payload.id;
                 let task_sender = response_sender.clone();
 
                 let notify = notify.clone();
                 let requests_in_queue = requests_in_queue.clone();
                 self.handle_request_through_worker(
-                    payload.wrapped,
-                    move |response| async move {
+                    payload,
+                    move |name, value| async move {
                         drop(task_sender.send(Payload {
+                            session_id,
                             id,
-                            wrapped: response,
+                            name,
+                            value,
                         }));
 
                         requests_in_queue.fetch_sub(1, Ordering::SeqCst);
@@ -579,8 +602,6 @@ impl<B: Backend> CustomServer<B> {
                         Ok(())
                     },
                     client.clone(),
-                    self.data.subscribers.clone(),
-                    response_sender.clone(),
                 )
                 .await
                 .unwrap();
@@ -589,37 +610,37 @@ impl<B: Backend> CustomServer<B> {
     }
 
     async fn handle_request_through_worker<
-        F: FnOnce(Response<CustomApiResult<B::CustomApi>>) -> R + Send + 'static,
+        F: FnOnce(ApiName, Result<Bytes, bonsaidb_core::Error>) -> R + Send + 'static,
         R: Future<Output = Result<(), Error>> + Send,
     >(
         &self,
-        request: Request<<B::CustomApi as CustomApi>::Request>,
+        request: Payload,
         callback: F,
         client: ConnectedClient<B>,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        response_sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
     ) -> Result<(), Error> {
         let (result_sender, result_receiver) = oneshot::channel();
+        let session = client
+            .session(request.session_id)
+            .unwrap_or_else(|| self.data.default_session.clone());
         self.data
             .request_processor
             .send(ClientRequest::<B>::new(
                 request,
                 self.clone(),
                 client,
-                subscribers,
-                response_sender,
+                session,
                 result_sender,
             ))
             .map_err(|_| Error::InternalCommunication)?;
         tokio::spawn(async move {
-            let result = result_receiver.await?;
+            let (name, result) = result_receiver.await?;
             // Map the error into a Response::Error. The jobs system supports
             // multiple receivers receiving output, and wraps Err to avoid
             // requiring the error to be cloneable. As such, we have to unwrap
             // it. Thankfully, we can guarantee nothing else is waiting on a
             // response to a request than the original requestor, so this can be
             // safely unwrapped.
-            callback(result).await?;
+            callback(name, result).await?;
             Result::<(), Error>::Ok(())
         });
         Ok(())
@@ -628,8 +649,8 @@ impl<B: Backend> CustomServer<B> {
     async fn handle_stream(
         &self,
         client: OwnedClient<B>,
-        sender: fabruic::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
-        mut receiver: fabruic::Receiver<Payload<Request<<B::CustomApi as CustomApi>::Request>>>,
+        sender: fabruic::Sender<Payload>,
+        mut receiver: fabruic::Receiver<Payload>,
     ) -> Result<(), Error> {
         let (payload_sender, payload_receiver) = flume::unbounded();
         tokio::spawn(async move {
@@ -641,9 +662,7 @@ impl<B: Backend> CustomServer<B> {
         });
 
         let (request_sender, request_receiver) =
-            flume::bounded::<Payload<Request<<B::CustomApi as CustomApi>::Request>>>(
-                self.data.client_simultaneous_request_limit,
-            );
+            flume::bounded::<Payload>(self.data.client_simultaneous_request_limit);
         let task_self = self.clone();
         tokio::spawn(async move {
             task_self
@@ -656,29 +675,6 @@ impl<B: Backend> CustomServer<B> {
         }
 
         Ok(())
-    }
-
-    async fn forward_notifications_for(
-        &self,
-        subscriber_id: u64,
-        receiver: flume::Receiver<Arc<Message>>,
-        sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
-    ) {
-        while let Ok(message) = receiver.recv_async().await {
-            if sender
-                .send(Payload {
-                    id: None,
-                    wrapped: Response::Database(DatabaseResponse::MessageReceived {
-                        subscriber_id,
-                        topic: message.topic.clone(),
-                        payload: Bytes::from(&message.payload[..]),
-                    }),
-                })
-                .is_err()
-            {
-                break;
-            }
-        }
     }
 
     /// Shuts the server down. If a `timeout` is provided, the server will stop
@@ -766,154 +762,55 @@ impl<B: Backend> CustomServer<B> {
 
         Ok(())
     }
-
-    /// Manually authenticates `client` as `user`. `user` can be the user's id
-    /// ([`u64`]) or the username ([`String`]/[`str`]). Returns the permissions
-    /// that the user now has.
-    pub async fn authenticate_client_as<'name, N: Nameable<'name, u64> + Send + Sync>(
-        &self,
-        user: N,
-        client: &ConnectedClient<B>,
-    ) -> Result<Permissions, Error> {
-        let admin = self.data.storage.admin().await;
-        let user = User::load(user, &admin)
-            .await?
-            .ok_or(bonsaidb_core::Error::UserNotFound)?;
-
-        let permissions = user.contents.effective_permissions(&admin).await?;
-        let permissions = Permissions::merged(
-            [
-                &permissions,
-                &self.data.authenticated_permissions,
-                &self.data.default_permissions,
-            ]
-            .into_iter(),
-        );
-        client
-            .logged_in_as(user.header.id, permissions.clone())
-            .await;
-        Ok(permissions)
-    }
-
-    async fn publish_message(&self, database: &str, topic: &str, payload: Vec<u8>) {
-        self.data
-            .relay
-            .publish_message(Message {
-                topic: database_topic(database, topic),
-                payload,
-            })
-            .await;
-    }
-
-    async fn publish_serialized_to_all(&self, database: &str, topics: &[String], payload: Vec<u8>) {
-        self.data
-            .relay
-            .publish_serialized_to_all(
-                topics
-                    .iter()
-                    .map(|topic| database_topic(database, topic))
-                    .collect(),
-                payload,
-            )
-            .await;
-    }
-
-    async fn create_subscriber(&self, database: String) -> ServerSubscriber<B> {
-        let subscriber = self.data.relay.create_subscriber().await;
-
-        let mut subscribers = fast_async_write!(self.data.subscribers);
-        let subscriber_id = subscriber.id();
-        let receiver = subscriber.receiver().clone();
-        subscribers.insert(subscriber_id, subscriber);
-
-        ServerSubscriber {
-            server: self.clone(),
-            database,
-            receiver,
-            id: subscriber_id,
-        }
-    }
-
-    async fn subscribe_to<S: Into<String> + Send>(
-        &self,
-        subscriber_id: u64,
-        database: &str,
-        topic: S,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let subscribers = fast_async_read!(self.data.subscribers);
-        if let Some(subscriber) = subscribers.get(&subscriber_id) {
-            subscriber
-                .subscribe_to(database_topic(database, &topic.into()))
-                .await;
-            Ok(())
-        } else {
-            Err(bonsaidb_core::Error::Server(String::from(
-                "invalid subscriber id",
-            )))
-        }
-    }
-
-    async fn unsubscribe_from(
-        &self,
-        subscriber_id: u64,
-        database: &str,
-        topic: &str,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let subscribers = fast_async_read!(self.data.subscribers);
-        if let Some(subscriber) = subscribers.get(&subscriber_id) {
-            subscriber
-                .unsubscribe_from(&database_topic(database, topic))
-                .await;
-            Ok(())
-        } else {
-            Err(bonsaidb_core::Error::Server(String::from(
-                "invalid subscriber id",
-            )))
-        }
-    }
 }
 
 impl<B: Backend> Deref for CustomServer<B> {
-    type Target = Storage;
+    type Target = AsyncStorage;
 
     fn deref(&self) -> &Self::Target {
-        &self.data.storage
+        &self.storage
     }
 }
 
 #[derive(Debug)]
 struct ClientRequest<B: Backend> {
-    request: Option<Request<<B::CustomApi as CustomApi>::Request>>,
+    request: Option<Payload>,
     client: ConnectedClient<B>,
+    session: Session,
     server: CustomServer<B>,
-    subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-    sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
-    result_sender: oneshot::Sender<Response<CustomApiResult<B::CustomApi>>>,
+    result_sender: oneshot::Sender<(ApiName, Result<Bytes, bonsaidb_core::Error>)>,
 }
 
 impl<B: Backend> ClientRequest<B> {
     pub fn new(
-        request: Request<<B::CustomApi as CustomApi>::Request>,
+        request: Payload,
         server: CustomServer<B>,
         client: ConnectedClient<B>,
-        subscribers: Arc<RwLock<HashMap<u64, Subscriber>>>,
-        sender: flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
-        result_sender: oneshot::Sender<Response<CustomApiResult<B::CustomApi>>>,
+        session: Session,
+        result_sender: oneshot::Sender<(ApiName, Result<Bytes, bonsaidb_core::Error>)>,
     ) -> Self {
         Self {
             request: Some(request),
             server,
             client,
-            subscribers,
-            sender,
+            session,
             result_sender,
         }
     }
 }
 
 #[async_trait]
-impl<B: Backend> StorageConnection for CustomServer<B> {
+impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
     type Database = ServerDatabase<B>;
+    type Authenticated = Self;
+
+    fn session(&self) -> Option<&Session> {
+        self.storage.session()
+    }
+
+    async fn admin(&self) -> Self::Database {
+        self.database::<Admin>(ADMIN_DATABASE_NAME).await.unwrap()
+    }
 
     async fn create_database_with_schema(
         &self,
@@ -921,8 +818,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         schema: SchemaName,
         only_if_needed: bool,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data
-            .storage
+        self.storage
             .create_database_with_schema(name, schema, only_if_needed)
             .await
     }
@@ -931,7 +827,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         &self,
         name: &str,
     ) -> Result<Self::Database, bonsaidb_core::Error> {
-        let db = self.data.storage.database::<DB>(name).await?;
+        let db = self.storage.database::<DB>(name).await?;
         Ok(ServerDatabase {
             server: self.clone(),
             db,
@@ -939,26 +835,26 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.delete_database(name).await
+        self.storage.delete_database(name).await
     }
 
     async fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
-        self.data.storage.list_databases().await
+        self.storage.list_databases().await
     }
 
     async fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
-        self.data.storage.list_available_schemas().await
+        self.storage.list_available_schemas().await
     }
 
     async fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
-        self.data.storage.create_user(username).await
+        self.storage.create_user(username).await
     }
 
     async fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.delete_user(user).await
+        self.storage.delete_user(user).await
     }
 
     #[cfg(feature = "password-hashing")]
@@ -967,7 +863,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         user: U,
         password: bonsaidb_core::connection::SensitiveString,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.set_user_password(user, password).await
+        self.storage.set_user_password(user, password).await
     }
 
     #[cfg(feature = "password-hashing")]
@@ -975,8 +871,23 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         &self,
         user: U,
         authentication: Authentication,
-    ) -> Result<Authenticated, bonsaidb_core::Error> {
-        self.data.storage.authenticate(user, authentication).await
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
+        let storage = self.storage.authenticate(user, authentication).await?;
+        Ok(Self {
+            data: self.data.clone(),
+            storage,
+        })
+    }
+
+    async fn assume_identity(
+        &self,
+        identity: IdentityReference<'_>,
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
+        let storage = self.storage.assume_identity(identity).await?;
+        Ok(Self {
+            data: self.data.clone(),
+            storage,
+        })
     }
 
     async fn add_permission_group_to_user<
@@ -989,8 +900,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         user: U,
         permission_group: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data
-            .storage
+        self.storage
             .add_permission_group_to_user(user, permission_group)
             .await
     }
@@ -1005,8 +915,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         user: U,
         permission_group: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data
-            .storage
+        self.storage
             .remove_permission_group_from_user(user, permission_group)
             .await
     }
@@ -1021,7 +930,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         user: U,
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.add_role_to_user(user, role).await
+        self.storage.add_role_to_user(user, role).await
     }
 
     async fn remove_role_from_user<
@@ -1034,1132 +943,7 @@ impl<B: Backend> StorageConnection for CustomServer<B> {
         user: U,
         role: G,
     ) -> Result<(), bonsaidb_core::Error> {
-        self.data.storage.remove_role_from_user(user, role).await
-    }
-}
-
-#[derive(Dispatcher, Debug)]
-#[dispatcher(input = Request<<B::CustomApi as CustomApi>::Request>, input = ServerRequest, actionable = bonsaidb_core::actionable)]
-struct ServerDispatcher<'s, B>
-where
-    B: Backend,
-{
-    server: &'s CustomServer<B>,
-    client: &'s ConnectedClient<B>,
-    subscribers: &'s Arc<RwLock<HashMap<u64, Subscriber>>>,
-    response_sender: &'s flume::Sender<Payload<Response<CustomApiResult<B::CustomApi>>>>,
-}
-
-#[async_trait]
-impl<'s, B: Backend> RequestDispatcher for ServerDispatcher<'s, B> {
-    type Subaction = <B::CustomApi as CustomApi>::Request;
-    type Output = Response<CustomApiResult<B::CustomApi>>;
-    type Error = Error;
-
-    async fn handle_subaction(
-        &self,
-        permissions: &Permissions,
-        subaction: Self::Subaction,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let dispatcher =
-            <B::CustomApiDispatcher as CustomApiDispatcher<B>>::new(self.server, self.client);
-        match dispatcher.dispatch(permissions, subaction).await {
-            Ok(response) => Ok(Response::Api(Ok(response))),
-            Err(err) => match err {
-                BackendError::Backend(backend) => Ok(Response::Api(Err(backend))),
-                BackendError::Server(server) => Err(server),
-            },
-        }
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ServerHandler for ServerDispatcher<'s, B> {
-    async fn handle(
-        &self,
-        permissions: &Permissions,
-        request: ServerRequest,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        ServerRequestDispatcher::dispatch_to_handlers(self, permissions, request).await
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::DatabaseHandler for ServerDispatcher<'s, B> {
-    async fn handle(
-        &self,
-        permissions: &Permissions,
-        database_name: String,
-        request: DatabaseRequest,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let database = self
-            .server
-            .database_without_schema_internal(&database_name)
-            .await?;
-        DatabaseDispatcher {
-            name: database_name,
-            database,
-            server_dispatcher: self,
-        }
-        .dispatch(permissions, request)
-        .await
-    }
-}
-
-impl<'s, B: Backend> ServerRequestDispatcher for ServerDispatcher<'s, B> {
-    type Output = Response<CustomApiResult<B::CustomApi>>;
-    type Error = Error;
-}
-
-#[async_trait]
-impl<'s, B: Backend> CreateDatabaseHandler for ServerDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        database: &'a bonsaidb_core::connection::Database,
-        _only_if_needed: &'a bool,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(database_resource_name(&database.name))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Server(ServerAction::CreateDatabase)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        database: bonsaidb_core::connection::Database,
-        only_if_needed: bool,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.server
-            .create_database_with_schema(&database.name, database.schema, only_if_needed)
-            .await?;
-        Ok(Response::Server(ServerResponse::DatabaseCreated {
-            name: database.name.clone(),
-        }))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> DeleteDatabaseHandler for ServerDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(&'a self, database: &'a String) -> Result<ResourceName<'a>, Error> {
-        Ok(database_resource_name(database))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Server(ServerAction::DeleteDatabase)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        name: String,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.server.delete_database(&name).await?;
-        Ok(Response::Server(ServerResponse::DatabaseDeleted { name }))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ListDatabasesHandler for ServerDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
-        Ok(bonsaidb_resource_name())
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Server(ServerAction::ListDatabases)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        Ok(Response::Server(ServerResponse::Databases(
-            self.server.list_databases().await?,
-        )))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ListAvailableSchemasHandler
-    for ServerDispatcher<'s, B>
-{
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
-        Ok(bonsaidb_resource_name())
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Server(ServerAction::ListAvailableSchemas)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        Ok(Response::Server(ServerResponse::AvailableSchemas(
-            self.server.list_available_schemas().await?,
-        )))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CreateUserHandler for ServerDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(&'a self, _username: &'a String) -> Result<ResourceName<'a>, Error> {
-        Ok(bonsaidb_resource_name())
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Server(ServerAction::CreateUser)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        username: String,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        Ok(Response::Server(ServerResponse::UserCreated {
-            id: self.server.create_user(&username).await?,
-        }))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::DeleteUserHandler for ServerDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        _primary_key: &'a NamedReference<'static, u64>,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(bonsaidb_resource_name())
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Server(ServerAction::DeleteUser)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        user: NamedReference<'static, u64>,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.server.delete_user(user).await?;
-        Ok(Response::Ok)
-    }
-}
-
-#[cfg(feature = "password-hashing")]
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::SetUserPasswordHandler for ServerDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        user: &'a NamedReference<'static, u64>,
-        _password: &'a bonsaidb_core::connection::SensitiveString,
-    ) -> Result<ResourceName<'a>, Error> {
-        let id = user
-            .id::<User, _>(&self.server.admin().await)
-            .await?
-            .ok_or(bonsaidb_core::Error::UserNotFound)?;
-
-        Ok(user_resource_name(id))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Server(ServerAction::SetPassword)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        username: NamedReference<'static, u64>,
-        password: bonsaidb_core::connection::SensitiveString,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.server.set_user_password(username, password).await?;
-        Ok(Response::Ok)
-    }
-}
-
-#[async_trait]
-#[cfg(feature = "password-hashing")]
-impl<'s, B: Backend> bonsaidb_core::networking::AuthenticateHandler for ServerDispatcher<'s, B> {
-    async fn verify_permissions(
-        &self,
-        permissions: &Permissions,
-        user: &NamedReference<'static, u64>,
-        authentication: &Authentication,
-    ) -> Result<(), Error> {
-        let id = user
-            .id::<User, _>(&self.server.admin().await)
-            .await?
-            .ok_or(bonsaidb_core::Error::UserNotFound)?;
-        match authentication {
-            Authentication::Password(_) => {
-                permissions.check(
-                    user_resource_name(id),
-                    &BonsaiAction::Server(ServerAction::Authenticate(
-                        AuthenticationMethod::PasswordHash,
-                    )),
-                )?;
-                Ok(())
-            }
-        }
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        username: NamedReference<'static, u64>,
-        authentication: Authentication,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let mut response = self
-            .server
-            .authenticate(username.clone(), authentication)
-            .await?;
-
-        // TODO this should be handled by the storage layer
-        response.permissions = Permissions::merged([
-            &response.permissions,
-            &self.server.data.authenticated_permissions,
-            &self.server.data.default_permissions,
-        ]);
-
-        self.client
-            .logged_in_as(response.user_id, response.permissions.clone())
-            .await;
-        Ok(Response::Server(ServerResponse::Authenticated(response)))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::AlterUserPermissionGroupMembershipHandler
-    for ServerDispatcher<'s, B>
-{
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        user: &'a NamedReference<'static, u64>,
-        _group: &'a NamedReference<'static, u64>,
-        _should_be_member: &'a bool,
-    ) -> Result<ResourceName<'a>, Error> {
-        let id = user
-            .id::<User, _>(&self.server.admin().await)
-            .await?
-            .ok_or(bonsaidb_core::Error::UserNotFound)?;
-
-        Ok(user_resource_name(id))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Server(ServerAction::ModifyUserPermissionGroups)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        user: NamedReference<'static, u64>,
-        group: NamedReference<'static, u64>,
-        should_be_member: bool,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        if should_be_member {
-            self.server
-                .add_permission_group_to_user(user, group)
-                .await?;
-        } else {
-            self.server
-                .remove_permission_group_from_user(user, group)
-                .await?;
-        }
-
-        Ok(Response::Ok)
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::AlterUserRoleMembershipHandler
-    for ServerDispatcher<'s, B>
-{
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        user: &'a NamedReference<'static, u64>,
-        _role: &'a NamedReference<'static, u64>,
-        _should_be_member: &'a bool,
-    ) -> Result<ResourceName<'a>, Error> {
-        let id = user
-            .id::<User, _>(&self.server.admin().await)
-            .await?
-            .ok_or(bonsaidb_core::Error::UserNotFound)?;
-
-        Ok(user_resource_name(id))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Server(ServerAction::ModifyUserRoles)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        user: NamedReference<'static, u64>,
-        role: NamedReference<'static, u64>,
-        should_be_member: bool,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        if should_be_member {
-            self.server.add_role_to_user(user, role).await?;
-        } else {
-            self.server.remove_role_from_user(user, role).await?;
-        }
-
-        Ok(Response::Ok)
-    }
-}
-
-#[derive(Dispatcher, Debug)]
-#[dispatcher(input = DatabaseRequest, actionable = bonsaidb_core::actionable)]
-struct DatabaseDispatcher<'s, B>
-where
-    B: Backend,
-{
-    name: String,
-    database: Database,
-    server_dispatcher: &'s ServerDispatcher<'s, B>,
-}
-
-impl<'s, B: Backend> DatabaseRequestDispatcher for DatabaseDispatcher<'s, B> {
-    type Output = Response<CustomApiResult<B::CustomApi>>;
-    type Error = Error;
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::GetHandler for DatabaseDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        collection: &'a CollectionName,
-        id: &'a DocumentId,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(document_resource_name(&self.name, collection, id))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        collection: CollectionName,
-        id: DocumentId,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let document = self
-            .database
-            .internal_get_from_collection_id(id, &collection)
-            .await?
-            .ok_or_else(|| {
-                Error::Core(bonsaidb_core::Error::DocumentNotFound(
-                    collection,
-                    Box::new(id),
-                ))
-            })?;
-        Ok(Response::Database(DatabaseResponse::Documents(vec![
-            document,
-        ])))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::GetMultipleHandler for DatabaseDispatcher<'s, B> {
-    async fn verify_permissions(
-        &self,
-        permissions: &Permissions,
-        collection: &CollectionName,
-        ids: &Vec<DocumentId>,
-    ) -> Result<(), Error> {
-        for id in ids {
-            let document_name = document_resource_name(&self.name, collection, id);
-            let action = BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get));
-            permissions.check(&document_name, &action)?;
-        }
-
-        Ok(())
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        collection: CollectionName,
-        ids: Vec<DocumentId>,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let documents = self
-            .database
-            .internal_get_multiple_from_collection_id(&ids, &collection)
-            .await?;
-        Ok(Response::Database(DatabaseResponse::Documents(documents)))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ListHandler for DatabaseDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        collection: &'a CollectionName,
-        _ids: &'a Range<DocumentId>,
-        _order: &'a Sort,
-        _limit: &'a Option<u32>,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(collection_resource_name(&self.name, collection))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::Document(DocumentAction::List))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        collection: CollectionName,
-        ids: Range<DocumentId>,
-        order: Sort,
-        limit: Option<u32>,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let documents = self
-            .database
-            .list_from_collection(ids, order, limit, &collection)
-            .await?;
-        Ok(Response::Database(DatabaseResponse::Documents(documents)))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ListHeadersHandler for DatabaseDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        collection: &'a CollectionName,
-        _ids: &'a Range<DocumentId>,
-        _order: &'a Sort,
-        _limit: &'a Option<u32>,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(collection_resource_name(&self.name, collection))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::Document(DocumentAction::ListHeaders))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        collection: CollectionName,
-        ids: Range<DocumentId>,
-        order: Sort,
-        limit: Option<u32>,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let documents = self
-            .database
-            .list_headers_from_collection(ids, order, limit, &collection)
-            .await?;
-        Ok(Response::Database(DatabaseResponse::DocumentHeaders(
-            documents,
-        )))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CountHandler for DatabaseDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        collection: &'a CollectionName,
-        _ids: &'a Range<DocumentId>,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(collection_resource_name(&self.name, collection))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Count))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        collection: CollectionName,
-        ids: Range<DocumentId>,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let documents = self
-            .database
-            .count_from_collection(ids, &collection)
-            .await?;
-        Ok(Response::Database(DatabaseResponse::Count(documents)))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::QueryHandler for DatabaseDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        view: &'a ViewName,
-        _key: &'a Option<QueryKey<Bytes>>,
-        _order: &'a Sort,
-        _limit: &'a Option<u32>,
-        _access_policy: &'a AccessPolicy,
-        _with_docs: &'a bool,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(view_resource_name(&self.name, view))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::View(ViewAction::Query))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        view: ViewName,
-        key: Option<QueryKey<Bytes>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-        with_docs: bool,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        if with_docs {
-            let mappings = self
-                .database
-                .query_by_name_with_docs(&view, key, order, limit, access_policy)
-                .await?;
-            Ok(Response::Database(DatabaseResponse::ViewMappingsWithDocs(
-                mappings,
-            )))
-        } else {
-            let mappings = self
-                .database
-                .query_by_name(&view, key, order, limit, access_policy)
-                .await?;
-            Ok(Response::Database(DatabaseResponse::ViewMappings(mappings)))
-        }
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ReduceHandler for DatabaseDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        view: &'a ViewName,
-        _key: &'a Option<QueryKey<Bytes>>,
-        _access_policy: &'a AccessPolicy,
-        _grouped: &'a bool,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(view_resource_name(&self.name, view))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::View(ViewAction::Reduce))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        view: ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-        grouped: bool,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        if grouped {
-            let values = self
-                .database
-                .reduce_grouped_by_name(&view, key, access_policy)
-                .await?;
-            Ok(Response::Database(DatabaseResponse::ViewGroupedReduction(
-                values,
-            )))
-        } else {
-            let value = self
-                .database
-                .reduce_by_name(&view, key, access_policy)
-                .await?;
-            Ok(Response::Database(DatabaseResponse::ViewReduction(
-                Bytes::from(value),
-            )))
-        }
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ApplyTransactionHandler
-    for DatabaseDispatcher<'s, B>
-{
-    async fn verify_permissions(
-        &self,
-        permissions: &Permissions,
-        transaction: &Transaction,
-    ) -> Result<(), Error> {
-        for op in &transaction.operations {
-            let (resource, action) = match &op.command {
-                Command::Insert { .. } => (
-                    collection_resource_name(&self.name, &op.collection),
-                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Insert)),
-                ),
-                Command::Update { header, .. } => (
-                    document_resource_name(&self.name, &op.collection, &header.id),
-                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Update)),
-                ),
-                Command::Overwrite { id, .. } => (
-                    document_resource_name(&self.name, &op.collection, id),
-                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Overwrite)),
-                ),
-                Command::Delete { header } => (
-                    document_resource_name(&self.name, &op.collection, &header.id),
-                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
-                ),
-            };
-            permissions.check(&resource, &action)?;
-        }
-
-        Ok(())
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        transaction: Transaction,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let results = self.database.apply_transaction(transaction).await?;
-        Ok(Response::Database(DatabaseResponse::TransactionResults(
-            results,
-        )))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::DeleteDocsHandler for DatabaseDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        view: &'a ViewName,
-        _key: &'a Option<QueryKey<Bytes>>,
-        _access_policy: &'a AccessPolicy,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(view_resource_name(&self.name, view))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::View(ViewAction::DeleteDocs))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        view: ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let count = self
-            .database
-            .delete_docs_by_name(&view, key, access_policy)
-            .await?;
-        Ok(Response::Database(DatabaseResponse::Count(count)))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ListExecutedTransactionsHandler
-    for DatabaseDispatcher<'s, B>
-{
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        _starting_id: &'a Option<u64>,
-        _result_limit: &'a Option<u32>,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(database_resource_name(&self.name))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::Transaction(TransactionAction::ListExecuted))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        starting_id: Option<u64>,
-        result_limit: Option<u32>,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        Ok(Response::Database(DatabaseResponse::ExecutedTransactions(
-            self.database
-                .list_executed_transactions(starting_id, result_limit)
-                .await?,
-        )))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::LastTransactionIdHandler
-    for DatabaseDispatcher<'s, B>
-{
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
-        Ok(database_resource_name(&self.name))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::Transaction(TransactionAction::GetLastId))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        Ok(Response::Database(DatabaseResponse::LastTransactionId(
-            self.database.last_transaction_id().await?,
-        )))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CreateSubscriberHandler
-    for DatabaseDispatcher<'s, B>
-{
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
-        Ok(database_resource_name(&self.name))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::CreateSuscriber))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let server = self.server_dispatcher.server;
-        let subscriber = server.create_subscriber(self.name.clone()).await;
-        let subscriber_id = subscriber.id;
-        self.server_dispatcher
-            .client
-            .register_subscriber(subscriber_id)
-            .await;
-
-        let task_self = server.clone();
-        let response_sender = self.server_dispatcher.response_sender.clone();
-        tokio::spawn(async move {
-            task_self
-                .forward_notifications_for(
-                    subscriber.id,
-                    subscriber.receiver,
-                    response_sender.clone(),
-                )
-                .await;
-        });
-        Ok(Response::Database(DatabaseResponse::SubscriberCreated {
-            subscriber_id,
-        }))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::PublishHandler for DatabaseDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        topic: &'a String,
-        _payload: &'a Bytes,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(pubsub_topic_resource_name(&self.name, topic))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        topic: String,
-        payload: Bytes,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.server_dispatcher
-            .server
-            .publish_message(&self.name, &topic, payload.into_vec())
-            .await;
-        Ok(Response::Ok)
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::PublishToAllHandler for DatabaseDispatcher<'s, B> {
-    async fn verify_permissions(
-        &self,
-        permissions: &Permissions,
-        topics: &Vec<String>,
-        _payload: &Bytes,
-    ) -> Result<(), Error> {
-        for topic in topics {
-            let topic_name = pubsub_topic_resource_name(&self.name, topic);
-            let action = BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::Publish));
-            if !permissions.allowed_to(&topic_name, &action) {
-                return Err(Error::from(PermissionDenied {
-                    resource: topic_name.to_owned(),
-                    action: action.name(),
-                }));
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        topics: Vec<String>,
-        payload: Bytes,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.server_dispatcher
-            .server
-            .publish_serialized_to_all(&self.name, &topics, payload.into_vec())
-            .await;
-        Ok(Response::Ok)
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::SubscribeToHandler for DatabaseDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        _subscriber_id: &'a u64,
-        topic: &'a String,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(pubsub_topic_resource_name(&self.name, topic))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::SubscribeTo))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        subscriber_id: u64,
-        topic: String,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        if self
-            .server_dispatcher
-            .client
-            .owns_subscriber(subscriber_id)
-            .await
-        {
-            self.server_dispatcher
-                .server
-                .subscribe_to(subscriber_id, &self.name, topic)
-                .await
-                .map(|_| Response::Ok)
-                .map_err(Error::from)
-        } else {
-            Err(Error::Transport(String::from("invalid subscriber_id")))
-        }
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::UnsubscribeFromHandler
-    for DatabaseDispatcher<'s, B>
-{
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        _subscriber_id: &'a u64,
-        topic: &'a String,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(pubsub_topic_resource_name(&self.name, topic))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::PubSub(PubSubAction::UnsubscribeFrom))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        subscriber_id: u64,
-        topic: String,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        if self
-            .server_dispatcher
-            .client
-            .owns_subscriber(subscriber_id)
-            .await
-        {
-            self.server_dispatcher
-                .server
-                .unsubscribe_from(subscriber_id, &self.name, &topic)
-                .await
-                .map(|_| Response::Ok)
-                .map_err(Error::from)
-        } else {
-            Err(Error::Transport(String::from("invalid subscriber_id")))
-        }
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::UnregisterSubscriberHandler
-    for DatabaseDispatcher<'s, B>
-{
-    async fn handle(
-        &self,
-        _permissions: &Permissions,
-        subscriber_id: u64,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        if self
-            .server_dispatcher
-            .client
-            .remove_subscriber(subscriber_id)
-            .await
-        {
-            let mut subscribers = fast_async_write!(self.server_dispatcher.subscribers);
-            if subscribers.remove(&subscriber_id).is_none() {
-                Ok(Response::Error(bonsaidb_core::Error::Server(String::from(
-                    "invalid subscriber id",
-                ))))
-            } else {
-                Ok(Response::Ok)
-            }
-        } else {
-            Err(Error::Transport(String::from("invalid subscriber_id")))
-        }
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::ExecuteKeyOperationHandler
-    for DatabaseDispatcher<'s, B>
-{
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(&'a self, op: &'a KeyOperation) -> Result<ResourceName<'a>, Error> {
-        Ok(keyvalue_key_resource_name(
-            &self.name,
-            op.namespace.as_deref(),
-            &op.key,
-        ))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::KeyValue(KeyValueAction::ExecuteOperation))
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        op: KeyOperation,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        let result = self.database.execute_key_operation(op).await?;
-        Ok(Response::Database(DatabaseResponse::KvOutput(result)))
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CompactCollectionHandler
-    for DatabaseDispatcher<'s, B>
-{
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(
-        &'a self,
-        collection: &'a CollectionName,
-    ) -> Result<ResourceName<'a>, Error> {
-        Ok(collection_resource_name(&self.name, collection))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::Compact)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-        collection: CollectionName,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.database.compact_collection_by_name(collection).await?;
-
-        Ok(Response::Ok)
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CompactKeyValueStoreHandler
-    for DatabaseDispatcher<'s, B>
-{
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
-        Ok(kv_resource_name(&self.name))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::Compact)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.database.compact_key_value_store().await?;
-
-        Ok(Response::Ok)
-    }
-}
-
-#[async_trait]
-impl<'s, B: Backend> bonsaidb_core::networking::CompactHandler for DatabaseDispatcher<'s, B> {
-    type Action = BonsaiAction;
-
-    async fn resource_name<'a>(&'a self) -> Result<ResourceName<'a>, Error> {
-        Ok(database_resource_name(&self.name))
-    }
-
-    fn action() -> Self::Action {
-        BonsaiAction::Database(DatabaseAction::Compact)
-    }
-
-    async fn handle_protected(
-        &self,
-        _permissions: &Permissions,
-    ) -> Result<Response<CustomApiResult<B::CustomApi>>, Error> {
-        self.database.compact().await?;
-
-        Ok(Response::Ok)
+        self.storage.remove_role_from_user(user, role).await
     }
 }
 

@@ -1,9 +1,9 @@
-use std::sync::{Arc, Mutex};
-
-use bonsaidb_core::{
-    custom_api::{CustomApi, CustomApiResult},
-    networking::{Payload, Response},
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
 };
+
+use bonsaidb_core::{networking::Payload, schema::ApiName};
 use bonsaidb_utils::fast_async_lock;
 use flume::Receiver;
 use url::Url;
@@ -11,31 +11,31 @@ use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
 
 use crate::{
-    client::{CustomApiCallback, OutstandingRequestMapHandle, PendingRequest, SubscriberMap},
+    client::{AnyApiCallback, OutstandingRequestMapHandle, PendingRequest, SubscriberMap},
     Error,
 };
 
-pub fn spawn_client<Api: CustomApi>(
+pub fn spawn_client(
     url: Arc<Url>,
     protocol_version: &'static str,
-    request_receiver: Receiver<PendingRequest<Api>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<Api>>>,
+    request_receiver: Receiver<PendingRequest>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
 ) {
     wasm_bindgen_futures::spawn_local(create_websocket(
         url,
         protocol_version,
         request_receiver,
-        custom_api_callback,
+        custom_apis,
         subscribers,
     ));
 }
 
-async fn create_websocket<Api: CustomApi>(
+async fn create_websocket(
     url: Arc<Url>,
     protocol_version: &'static str,
-    request_receiver: Receiver<PendingRequest<Api>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<Api>>>,
+    request_receiver: Receiver<PendingRequest>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
 ) {
     subscribers.clear().await;
@@ -61,7 +61,7 @@ async fn create_websocket<Api: CustomApi>(
                 url,
                 protocol_version,
                 request_receiver,
-                custom_api_callback.clone(),
+                custom_apis.clone(),
                 subscribers,
             );
             return;
@@ -88,11 +88,7 @@ async fn create_websocket<Api: CustomApi>(
     );
     ws.set_onopen(Some(onopen_callback.as_ref().unchecked_ref()));
 
-    let onmessage_callback = on_message_callback(
-        outstanding_requests,
-        custom_api_callback.clone(),
-        subscribers.clone(),
-    );
+    let onmessage_callback = on_message_callback(outstanding_requests, custom_apis.clone());
     ws.set_onmessage(Some(onmessage_callback.as_ref().unchecked_ref()));
 
     let onerror_callback =
@@ -106,17 +102,17 @@ async fn create_websocket<Api: CustomApi>(
         shutdown_sender,
         ws.clone(),
         initial_request,
-        custom_api_callback.clone(),
+        custom_apis.clone(),
         subscribers.clone(),
     );
     ws.set_onclose(Some(onclose_callback.as_ref().unchecked_ref()));
 }
 
 #[allow(clippy::mut_mut)] // futures::select!
-fn forward_request_with_shutdown<Api: CustomApi>(
-    request_receiver: flume::Receiver<PendingRequest<Api>>,
+fn forward_request_with_shutdown(
+    request_receiver: flume::Receiver<PendingRequest>,
     shutdown_receiver: flume::Receiver<()>,
-    request_sender: flume::Sender<PendingRequest<Api>>,
+    request_sender: flume::Sender<PendingRequest>,
 ) {
     wasm_bindgen_futures::spawn_local(async move {
         let mut receive_request = Box::pin(request_receiver.recv_async());
@@ -137,10 +133,10 @@ fn forward_request_with_shutdown<Api: CustomApi>(
     });
 }
 
-fn on_open_callback<Api: CustomApi>(
-    request_receiver: Receiver<PendingRequest<Api>>,
-    initial_request: Arc<Mutex<Option<PendingRequest<Api>>>>,
-    requests: OutstandingRequestMapHandle<Api>,
+fn on_open_callback(
+    request_receiver: Receiver<PendingRequest>,
+    initial_request: Arc<Mutex<Option<PendingRequest>>>,
+    requests: OutstandingRequestMapHandle,
     ws: WebSocket,
 ) -> JsValue {
     Closure::once_into_js(move || {
@@ -162,10 +158,10 @@ fn on_open_callback<Api: CustomApi>(
 }
 
 #[allow(clippy::future_not_send)]
-async fn send_request<Api: CustomApi>(
+async fn send_request(
     ws: &WebSocket,
-    pending: PendingRequest<Api>,
-    requests: &OutstandingRequestMapHandle<Api>,
+    pending: PendingRequest,
+    requests: &OutstandingRequestMapHandle,
 ) -> bool {
     let mut outstanding_requests = fast_async_lock!(requests);
     let bytes = match bincode::serialize(&pending.request) {
@@ -196,18 +192,15 @@ async fn send_request<Api: CustomApi>(
     }
 }
 
-fn on_message_callback<Api: CustomApi>(
-    outstanding_requests: OutstandingRequestMapHandle<Api>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<Api>>>,
-    subscribers: SubscriberMap,
+fn on_message_callback(
+    outstanding_requests: OutstandingRequestMapHandle,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
 ) -> JsValue {
     Closure::wrap(Box::new(move |e: MessageEvent| {
         // Handle difference Text/Binary,...
         if let Ok(abuf) = e.data().dyn_into::<js_sys::ArrayBuffer>() {
             let array = js_sys::Uint8Array::new(&abuf);
-            let payload = match bincode::deserialize::<Payload<Response<CustomApiResult<Api>>>>(
-                &array.to_vec(),
-            ) {
+            let payload = match bincode::deserialize::<Payload>(&array.to_vec()) {
                 Ok(payload) => payload,
                 Err(err) => {
                     log::error!("error deserializing response: {:?}", err);
@@ -216,16 +209,9 @@ fn on_message_callback<Api: CustomApi>(
             };
 
             let outstanding_requests = outstanding_requests.clone();
-            let subscribers = subscribers.clone();
-            let custom_api_callback = custom_api_callback.clone();
+            let custom_apis = custom_apis.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                super::process_response_payload::<Api>(
-                    payload,
-                    &outstanding_requests,
-                    custom_api_callback.as_deref(),
-                    &subscribers,
-                )
-                .await;
+                super::process_response_payload(payload, &outstanding_requests, &custom_apis).await;
             });
         } else {
             log::warn!("Unexpected WebSocket message received: {:?}", e.data());
@@ -234,9 +220,9 @@ fn on_message_callback<Api: CustomApi>(
     .into_js_value()
 }
 
-fn on_error_callback<Api: CustomApi>(
+fn on_error_callback(
     ws: WebSocket,
-    initial_request: Arc<Mutex<Option<PendingRequest<Api>>>>,
+    initial_request: Arc<Mutex<Option<PendingRequest>>>,
     shutdown: flume::Sender<()>,
 ) -> JsValue {
     Closure::once_into_js(move |e: ErrorEvent| {
@@ -261,22 +247,20 @@ fn on_error_callback<Api: CustomApi>(
     })
 }
 
-fn take_initial_request<Api: CustomApi>(
-    initial_request: &Mutex<Option<PendingRequest<Api>>>,
-) -> Option<PendingRequest<Api>> {
+fn take_initial_request(initial_request: &Mutex<Option<PendingRequest>>) -> Option<PendingRequest> {
     let mut initial_request = initial_request.lock().unwrap();
     initial_request.take()
 }
 
 #[allow(clippy::too_many_arguments)]
-fn on_close_callback<Api: CustomApi>(
+fn on_close_callback(
     url: Arc<Url>,
     protocol_version: &'static str,
-    request_receiver: Receiver<PendingRequest<Api>>,
+    request_receiver: Receiver<PendingRequest>,
     shutdown: flume::Sender<()>,
     ws: WebSocket,
-    initial_request: Arc<Mutex<Option<PendingRequest<Api>>>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<Api>>>,
+    initial_request: Arc<Mutex<Option<PendingRequest>>>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
 ) -> JsValue {
     Closure::once_into_js(move |c: CloseEvent| {
@@ -301,7 +285,7 @@ fn on_close_callback<Api: CustomApi>(
             url,
             protocol_version,
             request_receiver,
-            custom_api_callback.clone(),
+            custom_apis.clone(),
             subscribers,
         );
     })

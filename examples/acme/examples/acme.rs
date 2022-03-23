@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use bonsaidb::{
     client::{url::Url, Client},
-    core::connection::StorageConnection,
+    core::connection::AsyncStorageConnection,
     local::config::Builder,
     server::{DefaultPermissions, Server, ServerConfiguration, LETS_ENCRYPT_STAGING_DIRECTORY},
 };
@@ -52,9 +52,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Test connecting using both clients.
-    let client = Client::build(Url::parse(&format!("bonsaidb://{}", DOMAIN))?)
-        .finish()
-        .await?;
+    let client = Client::build(Url::parse(&format!("bonsaidb://{}", DOMAIN))?).finish()?;
     client.create_database::<()>("test-database", true).await?;
 
     #[cfg(feature = "websockets")]

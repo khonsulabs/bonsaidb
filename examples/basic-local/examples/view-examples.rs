@@ -1,6 +1,6 @@
 use bonsaidb::{
     core::{
-        connection::Connection,
+        connection::AsyncConnection,
         document::{CollectionDocument, Emit},
         schema::{
             view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection, View,
@@ -9,7 +9,7 @@ use bonsaidb::{
     },
     local::{
         config::{Builder, StorageConfiguration},
-        Database,
+        AsyncDatabase,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -47,10 +47,11 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
     // begin rustme snippet: snippet-b
-    let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
+    let db =
+        AsyncDatabase::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
 
     // Insert a new document into the Shape collection.
-    Shape { sides: 3 }.push_into(&db).await?;
+    Shape { sides: 3 }.push_into_async(&db).await?;
     // end rustme snippet
 
     // Views in BonsaiDb are written using a Map/Reduce approach. In this
@@ -59,12 +60,12 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     //
     // Let's start by seeding the database with some shapes of various sizes:
     for sides in 3..=20 {
-        Shape { sides }.push_into(&db).await?;
+        Shape { sides }.push_into_async(&db).await?;
     }
 
     // And, let's add a few shapes with the same number of sides
-    Shape { sides: 3 }.push_into(&db).await?;
-    Shape { sides: 4 }.push_into(&db).await?;
+    Shape { sides: 3 }.push_into_async(&db).await?;
+    Shape { sides: 4 }.push_into_async(&db).await?;
 
     // At this point, our database should have 3 triangles:
     // begin rustme snippet: snippet-c

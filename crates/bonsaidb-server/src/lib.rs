@@ -17,11 +17,14 @@
     clippy::module_name_repetitions,
 )]
 
+/// Types for defining API handlers.
+pub mod api;
 mod backend;
 /// Command-line interface for the server.
 #[cfg(feature = "cli")]
 pub mod cli;
 mod config;
+mod dispatch;
 mod error;
 pub(crate) mod hosted;
 mod server;
@@ -32,15 +35,12 @@ pub use config::{
 };
 
 pub use self::{
-    backend::{
-        Backend, BackendError, ConnectionHandling, CustomApiDispatcher, NoBackend, NoDispatcher,
-    },
+    backend::{Backend, BackendError, ConnectionHandling, NoBackend},
     config::{DefaultPermissions, ServerConfiguration},
     error::Error,
     server::{
         ApplicationProtocols, ConnectedClient, CustomServer, HttpService, LockedClientDataGuard,
-        Peer, Server, ServerDatabase, ServerSubscriber, StandardTcpProtocols, TcpService,
-        Transport,
+        Peer, Server, ServerDatabase, StandardTcpProtocols, TcpService, Transport,
     },
 };
 

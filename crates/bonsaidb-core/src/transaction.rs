@@ -122,7 +122,7 @@ impl Operation {
     /// Pushes a new document with the serialized representation of `contents`
     /// into `collection`.
     ///
-    /// ## Automatic Id Assignment
+    /// ## Automatic ID Assignment
     ///
     /// This function calls [`SerializedCollection::natural_id()`] to try to
     /// retrieve a primary key value from `contents`. If an id is returned, the
@@ -412,6 +412,8 @@ impl IntoIterator for DocumentChanges {
 
 #[test]
 fn document_changes_iter() {
+    use crate::schema::Qualified;
+
     let changes = DocumentChanges {
         collections: vec![CollectionName::private("a"), CollectionName::private("b")],
         documents: vec![

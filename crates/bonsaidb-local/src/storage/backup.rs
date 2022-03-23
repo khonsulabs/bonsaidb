@@ -1,4 +1,5 @@
 use std::{
+    fs::DirEntry,
     io::ErrorKind,
     path::{Path, PathBuf},
 };
@@ -6,25 +7,25 @@ use std::{
 use async_trait::async_trait;
 use bonsaidb_core::{
     admin,
-    connection::{Connection, Range, Sort, StorageConnection},
+    connection::{LowLevelConnection, Range, Sort, StorageConnection},
     document::DocumentId,
-    schema::{Collection, SchemaName},
+    schema::{Collection, Qualified, SchemaName},
     transaction::{Operation, Transaction},
     AnyError,
 };
-use futures::Future;
-use tokio::fs::DirEntry;
 
-use crate::{database::keyvalue::Entry, Database, Error, Storage};
+use crate::{
+    database::{keyvalue::Entry, DatabaseNonBlocking},
+    Database, Error, Storage,
+};
 
 /// A location to store and restore a database from.
-#[async_trait]
 pub trait BackupLocation: Send + Sync {
     /// The error type for the backup location.
     type Error: AnyError;
 
     /// Store `object` at `path` with `name`.
-    async fn store(
+    fn store(
         &self,
         schema: &SchemaName,
         database_name: &str,
@@ -34,13 +35,13 @@ pub trait BackupLocation: Send + Sync {
     ) -> Result<(), Self::Error>;
 
     /// Lists all of the schemas stored in this backup location.
-    async fn list_schemas(&self) -> Result<Vec<SchemaName>, Self::Error>;
+    fn list_schemas(&self) -> Result<Vec<SchemaName>, Self::Error>;
 
     /// List all of the names of the databases stored for `schema`.
-    async fn list_databases(&self, schema: &SchemaName) -> Result<Vec<String>, Self::Error>;
+    fn list_databases(&self, schema: &SchemaName) -> Result<Vec<String>, Self::Error>;
 
     /// List all stored named objects at `path`. The names should be the same that were provided when `store()` was called.
-    async fn list_stored(
+    fn list_stored(
         &self,
         schema: &SchemaName,
         database_name: &str,
@@ -48,7 +49,7 @@ pub trait BackupLocation: Send + Sync {
     ) -> Result<Vec<String>, Self::Error>;
 
     /// Load a previously stored object from `path` with `name`.
-    async fn load(
+    fn load(
         &self,
         schema: &SchemaName,
         database_name: &str,
@@ -59,90 +60,86 @@ pub trait BackupLocation: Send + Sync {
 
 impl Storage {
     /// Stores a copy of all data in this instance to `location`.
-    pub async fn backup<L: AnyBackupLocation>(&self, location: L) -> Result<(), Error> {
+    pub fn backup<L: AnyBackupLocation>(&self, location: &L) -> Result<(), Error> {
         let databases = {
-            self.data
+            self.instance
+                .data
                 .available_databases
                 .read()
-                .await
                 .keys()
                 .cloned()
                 .collect::<Vec<_>>()
         };
 
         for name in databases {
-            let database = self.database_without_schema(&name).await?;
-            self.backup_database(&database, &location).await?;
+            let database = self.instance.database_without_schema(&name, Some(self))?;
+            Self::backup_database(&database, location)?;
         }
 
         Ok(())
     }
 
-    /// Stores a copy of all data in this instance to `location`.
-    pub async fn restore<L: AnyBackupLocation>(&self, location: L) -> Result<(), Error> {
+    /// Restores all data from a previously stored backup `location`.
+    pub fn restore<L: AnyBackupLocation>(&self, location: &L) -> Result<(), Error> {
         for schema in location
             .list_schemas()
-            .await
             .map_err(|err| Error::Backup(Box::new(err)))?
         {
             for database in location
                 .list_databases(&schema)
-                .await
                 .map_err(|err| Error::Backup(Box::new(err)))?
             {
                 // The admin database is already going to be created by the process of creating a database.
-                self.create_database_with_schema(&database, schema.clone(), true)
-                    .await?;
+                self.create_database_with_schema(&database, schema.clone(), true)?;
 
-                let database = self.database_without_schema(&database).await?;
-                self.restore_database(&database, &location).await?;
+                let database = self
+                    .instance
+                    .database_without_schema(&database, Some(self))?;
+                Self::restore_database(&database, location)?;
             }
         }
 
         Ok(())
     }
 
-    pub(crate) async fn backup_database(
-        &self,
+    pub(crate) fn backup_database(
         database: &Database,
         location: &dyn AnyBackupLocation,
     ) -> Result<(), Error> {
         let schema = database.schematic().name.clone();
         for collection in database.schematic().collections() {
-            let documents = database
-                .list(Range::from(..), Sort::Ascending, None, &collection)
-                .await?;
+            let documents = database.list_from_collection(
+                Range::from(..),
+                Sort::Ascending,
+                None,
+                &collection,
+            )?;
             let collection_name = collection.encoded();
             // TODO consider how to best parallelize -- perhaps a location can opt into parallelization?
             for document in documents {
-                location
-                    .store(
-                        &schema,
-                        database.name(),
-                        &collection_name,
-                        &document.header.id.to_string(),
-                        &document.contents,
-                    )
-                    .await?;
+                location.store(
+                    &schema,
+                    database.name(),
+                    &collection_name,
+                    &document.header.id.to_string(),
+                    &document.contents,
+                )?;
             }
-            for ((namespace, key), entry) in database.all_key_value_entries().await? {
+            for ((namespace, key), entry) in database.all_key_value_entries()? {
                 let full_name = format!("{}._key._{}", namespace.as_deref().unwrap_or(""), key);
-                location
-                    .store(
-                        &schema,
-                        database.name(),
-                        "_kv",
-                        &full_name,
-                        &pot::to_vec(&entry)?,
-                    )
-                    .await?;
+                location.store(
+                    &schema,
+                    database.name(),
+                    "_kv",
+                    &full_name,
+                    &pot::to_vec(&entry)?,
+                )?;
             }
         }
         Ok(())
     }
 
-    pub(crate) async fn restore_database(
-        &self,
+    pub(crate) fn restore_database(
         database: &Database,
         location: &dyn AnyBackupLocation,
     ) -> Result<(), Error> {
@@ -160,8 +157,7 @@ impl Storage {
         {
             let collection_name = collection.encoded();
             for (id, id_string) in location
-                .list_stored(&schema, database.name(), &collection_name)
-                .await?
+                .list_stored(&schema, database.name(), &collection_name)?
                 .into_iter()
                 .filter_map(|id_string| {
                     id_string
@@ -170,29 +166,23 @@ impl Storage {
                         .map(|id| (id, id_string))
                 })
             {
-                let contents = location
-                    .load(&schema, database.name(), &collection_name, &id_string)
-                    .await?;
+                let contents =
+                    location.load(&schema, database.name(), &collection_name, &id_string)?;
                 transaction.push(Operation::insert(collection.clone(), Some(id), contents));
             }
         }
-        database.apply_transaction(transaction).await?;
+        database.apply_transaction(transaction)?;
 
-        for full_key in location
-            .list_stored(&schema, database.name(), "_kv")
-            .await?
-        {
+        for full_key in location.list_stored(&schema, database.name(), "_kv")? {
             if let Some((namespace, key)) = full_key.split_once("._key._") {
-                let entry = location
-                    .load(&schema, database.name(), "_kv", &full_key)
-                    .await?;
+                let entry = location.load(&schema, database.name(), "_kv", &full_key)?;
                 let entry = pot::from_slice::<Entry>(&entry)?;
                 let namespace = if namespace.is_empty() {
                     None
                 } else {
                     Some(namespace.to_string())
                 };
-                entry.restore(namespace, key.to_string(), database).await?;
+                entry.restore(namespace, key.to_string(), database)?;
             }
         }
 
@@ -202,7 +192,7 @@ impl Storage {
 
 #[async_trait]
 pub trait AnyBackupLocation: Send + Sync {
-    async fn store(
+    fn store(
         &self,
         schema: &SchemaName,
         database_name: &str,
@@ -211,18 +201,18 @@ pub trait AnyBackupLocation: Send + Sync {
         object: &[u8],
     ) -> Result<(), Error>;
 
-    async fn list_schemas(&self) -> Result<Vec<SchemaName>, Error>;
+    fn list_schemas(&self) -> Result<Vec<SchemaName>, Error>;
 
-    async fn list_databases(&self, schema: &SchemaName) -> Result<Vec<String>, Error>;
+    fn list_databases(&self, schema: &SchemaName) -> Result<Vec<String>, Error>;
 
-    async fn list_stored(
+    fn list_stored(
         &self,
         schema: &SchemaName,
         database_name: &str,
         container: &str,
     ) -> Result<Vec<String>, Error>;
 
-    async fn load(
+    fn load(
         &self,
         schema: &SchemaName,
         database_name: &str,
@@ -237,7 +227,7 @@ where
     L: BackupLocation<Error = E>,
     E: AnyError,
 {
-    async fn store(
+    fn store(
         &self,
         schema: &SchemaName,
         database_name: &str,
@@ -246,34 +236,30 @@ where
         object: &[u8],
     ) -> Result<(), Error> {
         self.store(schema, database_name, container, name, object)
-            .await
             .map_err(|err| Error::Backup(Box::new(err)))
     }
 
-    async fn list_schemas(&self) -> Result<Vec<SchemaName>, Error> {
+    fn list_schemas(&self) -> Result<Vec<SchemaName>, Error> {
         self.list_schemas()
-            .await
             .map_err(|err| Error::Backup(Box::new(err)))
     }
 
-    async fn list_databases(&self, schema: &SchemaName) -> Result<Vec<String>, Error> {
+    fn list_databases(&self, schema: &SchemaName) -> Result<Vec<String>, Error> {
         self.list_databases(schema)
-            .await
             .map_err(|err| Error::Backup(Box::new(err)))
     }
 
-    async fn list_stored(
+    fn list_stored(
         &self,
         schema: &SchemaName,
         database_name: &str,
         container: &str,
     ) -> Result<Vec<String>, Error> {
         self.list_stored(schema, database_name, container)
-            .await
             .map_err(|err| Error::Backup(Box::new(err)))
     }
 
-    async fn load(
+    fn load(
         &self,
         schema: &SchemaName,
         database_name: &str,
@@ -281,16 +267,14 @@ where
         name: &str,
     ) -> Result<Vec<u8>, Error> {
         self.load(schema, database_name, container, name)
-            .await
             .map_err(|err| Error::Backup(Box::new(err)))
     }
 }
 
-#[async_trait]
-impl<'a> BackupLocation for &'a Path {
+impl BackupLocation for Path {
     type Error = std::io::Error;
 
-    async fn store(
+    fn store(
         &self,
         schema: &SchemaName,
         database_name: &str,
@@ -299,38 +283,33 @@ impl<'a> BackupLocation for &'a Path {
         object: &[u8],
     ) -> Result<(), Self::Error> {
         let container_folder = container_folder(self, schema, database_name, container);
-        tokio::fs::create_dir_all(&container_folder).await?;
-        tokio::fs::write(container_folder.join(name), object).await?;
+        std::fs::create_dir_all(&container_folder)?;
+        std::fs::write(container_folder.join(name), object)?;
 
         Ok(())
     }
 
-    async fn list_schemas(&self) -> Result<Vec<SchemaName>, Self::Error> {
-        iterate_directory(self, |entry, file_name| async move {
-            if entry.file_type().await?.is_dir() {
+    fn list_schemas(&self) -> Result<Vec<SchemaName>, Self::Error> {
+        iterate_directory(self, |entry, file_name| {
+            if entry.file_type()?.is_dir() {
                 if let Ok(schema_name) = SchemaName::parse_encoded(file_name.as_str()) {
                     return Ok(Some(schema_name));
                 }
             }
             Ok(None)
         })
-        .await
     }
 
-    async fn list_databases(&self, schema: &SchemaName) -> Result<Vec<String>, Self::Error> {
-        iterate_directory(
-            &schema_folder(self, schema),
-            |entry, file_name| async move {
-                if entry.file_type().await?.is_dir() && file_name != "_kv" {
-                    return Ok(Some(file_name));
-                }
-                Ok(None)
-            },
-        )
-        .await
+    fn list_databases(&self, schema: &SchemaName) -> Result<Vec<String>, Self::Error> {
+        iterate_directory(&schema_folder(self, schema), |entry, file_name| {
+            if entry.file_type()?.is_dir() && file_name != "_kv" {
+                return Ok(Some(file_name));
+            }
+            Ok(None)
+        })
     }
 
-    async fn list_stored(
+    fn list_stored(
         &self,
         schema: &SchemaName,
         database_name: &str,
@@ -338,32 +317,30 @@ impl<'a> BackupLocation for &'a Path {
     ) -> Result<Vec<String>, Self::Error> {
         iterate_directory(
             &container_folder(self, schema, database_name, container),
-            |entry, file_name| async move {
-                if entry.file_type().await?.is_file() {
+            |entry, file_name| {
+                if entry.file_type()?.is_file() {
                     return Ok(Some(file_name));
                 }
                 Ok(None)
             },
         )
-        .await
     }
 
-    async fn load(
+    fn load(
         &self,
         schema: &SchemaName,
         database_name: &str,
         container: &str,
         name: &str,
     ) -> Result<Vec<u8>, Self::Error> {
-        tokio::fs::read(container_folder(self, schema, database_name, container).join(name)).await
+        std::fs::read(container_folder(self, schema, database_name, container).join(name))
     }
 }
 
-#[async_trait]
 impl BackupLocation for PathBuf {
     type Error = std::io::Error;
 
-    async fn store(
+    fn store(
         &self,
         schema: &SchemaName,
         database_name: &str,
@@ -371,56 +348,63 @@ impl BackupLocation for PathBuf {
         name: &str,
         object: &[u8],
     ) -> Result<(), Self::Error> {
-        BackupLocation::store(&*self, schema, database_name, container, name, object).await
+        BackupLocation::store(
+            self.as_path(),
+            schema,
+            database_name,
+            container,
+            name,
+            object,
+        )
     }
 
-    async fn list_schemas(&self) -> Result<Vec<SchemaName>, Self::Error> {
-        BackupLocation::list_schemas(&*self).await
+    fn list_schemas(&self) -> Result<Vec<SchemaName>, Self::Error> {
+        BackupLocation::list_schemas(self.as_path())
     }
 
-    async fn list_databases(&self, schema: &SchemaName) -> Result<Vec<String>, Self::Error> {
-        BackupLocation::list_databases(&*self, schema).await
+    fn list_databases(&self, schema: &SchemaName) -> Result<Vec<String>, Self::Error> {
+        BackupLocation::list_databases(self.as_path(), schema)
     }
 
-    async fn list_stored(
+    fn list_stored(
         &self,
         schema: &SchemaName,
         database_name: &str,
         container: &str,
     ) -> Result<Vec<String>, Self::Error> {
-        BackupLocation::list_stored(&*self, schema, database_name, container).await
+        BackupLocation::list_stored(self.as_path(), schema, database_name, container)
     }
 
-    async fn load(
+    fn load(
         &self,
         schema: &SchemaName,
         database_name: &str,
         container: &str,
         name: &str,
     ) -> Result<Vec<u8>, Self::Error> {
-        BackupLocation::load(&*self, schema, database_name, container, name).await
+        BackupLocation::load(self.as_path(), schema, database_name, container, name)
     }
 }
 
-async fn iterate_directory<
-    T,
-    F: FnMut(DirEntry, String) -> Fut,
-    Fut: Future<Output = Result<Option<T>, std::io::Error>>,
->(
+fn iterate_directory<T, F: FnMut(DirEntry, String) -> Result<Option<T>, std::io::Error>>(
     path: &Path,
     mut callback: F,
 ) -> Result<Vec<T>, std::io::Error> {
     let mut collected = Vec::new();
-    let mut directories =
-        if let Some(directories) = tokio::fs::read_dir(path).await.ignore_not_found()? {
-            directories
-        } else {
-            return Ok(collected);
-        };
+    let mut directories = if let Some(directories) = std::fs::read_dir(path).ignore_not_found()? {
+        directories
+    } else {
+        return Ok(collected);
+    };
 
-    while let Some(entry) = directories.next_entry().await.ignore_not_found()?.flatten() {
+    while let Some(entry) = directories
+        .next()
+        .map(IoResultExt::ignore_not_found)
+        .transpose()?
+        .flatten()
+    {
         if let Ok(file_name) = entry.file_name().into_string() {
-            if let Some(result) = callback(entry, file_name).await? {
+            if let Some(result) = callback(entry, file_name)? {
                 collected.push(result);
             }
         }
@@ -468,14 +452,16 @@ fn container_folder(
 #[cfg(test)]
 mod tests {
     use bonsaidb_core::{
-        connection::Connection as _,
-        keyvalue::KeyValue,
+        connection::{AsyncConnection as _, AsyncStorageConnection as _},
+        keyvalue::AsyncKeyValue,
         schema::SerializedCollection,
         test_util::{Basic, TestDirectory},
     };
 
-    use super::*;
-    use crate::config::{Builder, KeyValuePersistence, PersistenceThreshold, StorageConfiguration};
+    use crate::{
+        config::{Builder, KeyValuePersistence, PersistenceThreshold, StorageConfiguration},
+        AsyncStorage,
+    };
 
     #[tokio::test]
     async fn backup_restore() -> anyhow::Result<()> {
@@ -486,7 +472,7 @@ mod tests {
         // which is why we're creating a nested scope here.
         let test_doc = {
             let database_directory = TestDirectory::new("backup-restore.bonsaidb");
-            let storage = Storage::open(
+            let storage = AsyncStorage::open(
                 StorageConfiguration::new(&database_directory)
                     .key_value_persistence(KeyValuePersistence::lazy([
                         PersistenceThreshold::after_changes(2),
@@ -494,8 +480,8 @@ mod tests {
                     .with_schema::<Basic>()?,
             )
             .await?;
-            storage.create_database::<Basic>("basic", false).await?;
-            let db = storage.database::<Basic>("basic").await?;
+
+            let db = storage.create_database::<Basic>("basic", false).await?;
             let test_doc = db
                 .collection::<Basic>()
                 .push(&Basic::new("somevalue"))
@@ -505,23 +491,24 @@ mod tests {
             // This key will not be persisted right away.
             db.set_numeric_key("key3", 3_u64).await?;
 
-            storage.backup(&*backup_destination.0).await.unwrap();
+            storage.backup(backup_destination.0.clone()).await.unwrap();
 
             test_doc
         };
 
         // `backup_destination` now contains an export of the database, time to try loading it:
         let database_directory = TestDirectory::new("backup-restore.bonsaidb");
-        let restored_storage =
-            Storage::open(StorageConfiguration::new(&database_directory).with_schema::<Basic>()?)
-                .await?;
+        let restored_storage = AsyncStorage::open(
+            StorageConfiguration::new(&database_directory).with_schema::<Basic>()?,
+        )
+        .await?;
         restored_storage
-            .restore(&*backup_destination.0)
+            .restore(backup_destination.0.clone())
             .await
             .unwrap();
 
         let db = restored_storage.database::<Basic>("basic").await?;
-        let doc = Basic::get(test_doc.id, &db)
+        let doc = Basic::get_async(test_doc.id, &db)
             .await?
             .expect("Backed up document.not found");
         assert_eq!(doc.contents.value, "somevalue");
@@ -531,7 +518,7 @@ mod tests {
 
         // Calling restore again should generate an error.
         assert!(restored_storage
-            .restore(&*backup_destination.0)
+            .restore(backup_destination.0.clone())
             .await
             .is_err());
 

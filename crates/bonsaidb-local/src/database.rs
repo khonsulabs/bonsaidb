@@ -7,8 +7,6 @@ use std::{
     u8,
 };
 
-use async_lock::Mutex;
-use async_trait::async_trait;
 #[cfg(any(feature = "encryption", feature = "compression"))]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
@@ -16,26 +14,32 @@ use bonsaidb_core::{
         serde::{Bytes, CowBytes},
         ArcBytes,
     },
-    connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{AnyDocumentId, BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
+    connection::{
+        self, AccessPolicy, Connection, LowLevelConnection, QueryKey, Range, Session, Sort,
+        StorageConnection,
+    },
+    document::{BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
     key::Key,
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
-    permissions::Permissions,
+    permissions::{
+        bonsai::{
+            collection_resource_name, database_resource_name, document_resource_name,
+            kv_resource_name, view_resource_name, BonsaiAction, DatabaseAction, DocumentAction,
+            TransactionAction, ViewAction,
+        },
+        Action, Identifier, Permissions,
+    },
     schema::{
         self,
-        view::{
-            self,
-            map::{MappedDocuments, MappedSerializedValue},
-        },
-        Collection, CollectionName, Map, MappedValue, Schema, Schematic, ViewName,
+        view::{self, map::MappedSerializedValue},
+        CollectionName, Schema, Schematic, ViewName,
     },
     transaction::{
         self, ChangedDocument, Changes, Command, DocumentChanges, Operation, OperationResult,
         Transaction,
     },
 };
-use bonsaidb_utils::fast_async_lock;
 use itertools::Itertools;
 use nebari::{
     io::any::AnyFile,
@@ -45,8 +49,9 @@ use nebari::{
     },
     AbortError, ExecutingTransaction, Roots, Tree,
 };
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use watchable::Watchable;
 
 #[cfg(feature = "encryption")]
 use crate::storage::TreeVault;
@@ -80,7 +85,7 @@ pub mod pubsub;
 /// // `bonsaidb_local` is re-exported to `bonsaidb::local` if using the omnibus crate.
 /// use bonsaidb_local::{
 ///     config::{Builder, StorageConfiguration},
-///     Database,
+///     AsyncDatabase,
 /// };
 /// use serde::{Deserialize, Serialize};
 ///
@@ -93,7 +98,7 @@ pub mod pubsub;
 /// }
 ///
 /// # async fn test_fn() -> Result<(), bonsaidb_core::Error> {
-/// let db = Database::open::<BlogPost>(StorageConfiguration::new("my-db.bonsaidb")).await?;
+/// let db = AsyncDatabase::open::<BlogPost>(StorageConfiguration::new("my-db.bonsaidb")).await?;
 /// #     Ok(())
 /// # }
 /// ```
@@ -104,85 +109,61 @@ pub mod pubsub;
 ///
 /// In this example, `BlogPost` implements the [`Collection`] trait, and all
 /// collections can be used as a [`Schema`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Database {
     pub(crate) data: Arc<Data>,
+    pub(crate) storage: Storage,
 }
 
 #[derive(Debug)]
 pub struct Data {
     pub name: Arc<Cow<'static, str>>,
     context: Context,
-    pub(crate) storage: Storage,
     pub(crate) schema: Arc<Schematic>,
-    #[allow(dead_code)] // This code was previously used, it works, but is currently unused.
-    pub(crate) effective_permissions: Option<Permissions>,
-}
-impl Clone for Database {
-    fn clone(&self) -> Self {
-        Self {
-            data: self.data.clone(),
-        }
-    }
 }
 
 impl Database {
     /// Opens a local file as a bonsaidb.
-    pub(crate) async fn new<DB: Schema, S: Into<Cow<'static, str>> + Send>(
+    pub(crate) fn new<DB: Schema, S: Into<Cow<'static, str>> + Send>(
         name: S,
         context: Context,
-        storage: Storage,
+        storage: &Storage,
     ) -> Result<Self, Error> {
         let name = name.into();
         let schema = Arc::new(DB::schematic()?);
         let db = Self {
+            storage: storage.clone(),
             data: Arc::new(Data {
                 name: Arc::new(name),
                 context,
-                storage: storage.clone(),
                 schema,
-                effective_permissions: None,
             }),
         };
 
-        if db.data.storage.check_view_integrity_on_database_open() {
+        if storage.instance.check_view_integrity_on_database_open() {
             for view in db.data.schema.views() {
-                db.data
-                    .storage
-                    .tasks()
-                    .spawn_integrity_check(view, &db)
-                    .await?;
+                storage.instance.tasks().spawn_integrity_check(view, &db);
             }
         }
 
-        storage.tasks().spawn_key_value_expiration_loader(&db).await;
+        storage
+            .instance
+            .tasks()
+            .spawn_key_value_expiration_loader(&db);
 
         Ok(db)
     }
 
-    /// Returns a clone with `effective_permissions`. Replaces any previously applied permissions.
-    ///
-    /// # Unstable
-    ///
-    /// See [this issue](https://github.com/khonsulabs/bonsaidb/issues/68).
-    #[doc(hidden)]
+    /// Restricts an unauthenticated instance to having `effective_permissions`.
+    /// Returns `None` if a session has already been established.
     #[must_use]
-    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Self {
-        Self {
-            data: Arc::new(Data {
-                name: self.data.name.clone(),
-                context: self.data.context.clone(),
-                storage: self.data.storage.clone(),
-                schema: self.data.schema.clone(),
-                effective_permissions: Some(effective_permissions),
-            }),
-        }
-    }
-
-    /// Returns the name of the database.
-    #[must_use]
-    pub fn name(&self) -> &str {
-        self.data.name.as_ref()
+    pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Option<Self> {
+        self.storage
+            .with_effective_permissions(effective_permissions)
+            .map(|storage| Self {
+                storage,
+                data: self.data.clone(),
+            })
     }
 
     /// Creates a `Storage` with a single-database named "default" with its data
@@ -199,18 +180,10 @@ impl Database {
     /// have its own thread pool, cache, task worker pool, and more. By using a
     /// single [`Storage`] instance, BonsaiDb will use less resources and likely
     /// perform better.
-    pub async fn open<DB: Schema>(configuration: StorageConfiguration) -> Result<Self, Error> {
-        let storage = Storage::open(configuration.with_schema::<DB>()?).await?;
+    pub fn open<DB: Schema>(configuration: StorageConfiguration) -> Result<Self, Error> {
+        let storage = Storage::open(configuration.with_schema::<DB>()?)?;
 
-        storage.create_database::<DB>("default", true).await?;
-
-        Ok(storage.database::<DB>("default").await?)
-    }
-
-    /// Returns the [`Storage`] that this database belongs to.
-    #[must_use]
-    pub fn storage(&self) -> &'_ Storage {
-        &self.data.storage
+        Ok(storage.create_database::<DB>("default", true)?)
     }
 
     /// Returns the [`Schematic`] for the schema for this database.
@@ -223,9 +196,22 @@ impl Database {
         &self.data.context.roots
     }
 
-    async fn for_each_in_view<
-        F: FnMut(ViewEntry) -> Result<(), bonsaidb_core::Error> + Send + Sync,
-    >(
+    fn check_permission<'a, R: AsRef<[Identifier<'a>]>, P: Action>(
+        &self,
+        resource_name: R,
+        action: &P,
+    ) -> Result<(), Error> {
+        self.session().map_or_else(
+            || Ok(()),
+            |session| {
+                session
+                    .check_permission(resource_name, action)
+                    .map_err(Error::from)
+            },
+        )
+    }
+
+    fn for_each_in_view<F: FnMut(ViewEntry) -> Result<(), bonsaidb_core::Error> + Send + Sync>(
         &self,
         view: &dyn view::Serialized,
         key: Option<QueryKey<Bytes>>,
@@ -235,11 +221,10 @@ impl Database {
         mut callback: F,
     ) -> Result<(), bonsaidb_core::Error> {
         if matches!(access_policy, AccessPolicy::UpdateBefore) {
-            self.data
-                .storage
+            self.storage
+                .instance
                 .tasks()
-                .update_view_if_needed(view, self)
-                .await?;
+                .update_view_if_needed(view, self)?;
         }
 
         let view_entries = self
@@ -259,494 +244,18 @@ impl Database {
         if matches!(access_policy, AccessPolicy::UpdateAfter) {
             let db = self.clone();
             let view_name = view.view_name();
-            tokio::task::spawn(async move {
-                let view = db
-                    .data
-                    .schema
-                    .view_by_name(&view_name)
-                    .expect("query made with view that isn't registered with this database");
-                db.data
-                    .storage
-                    .tasks()
-                    .update_view_if_needed(view, &db)
-                    .await
-            });
+            let view = db
+                .data
+                .schema
+                .view_by_name(&view_name)
+                .expect("query made with view that isn't registered with this database");
+            db.storage
+                .instance
+                .tasks()
+                .update_view_if_needed(view, &db)?;
         }
 
         Ok(())
-    }
-
-    async fn for_each_view_entry<
-        V: schema::View,
-        F: FnMut(ViewEntry) -> Result<(), bonsaidb_core::Error> + Send + Sync,
-    >(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-        callback: F,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let view = self
-            .data
-            .schema
-            .view::<V>()
-            .expect("query made with view that isn't registered with this database");
-
-        self.for_each_in_view(
-            view,
-            key.map(|key| key.serialized()).transpose()?,
-            order,
-            limit,
-            access_policy,
-            callback,
-        )
-        .await
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub async fn internal_get_from_collection_id(
-        &self,
-        id: DocumentId,
-        collection: &CollectionName,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
-        self.get_from_collection_id(id, collection).await
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub async fn list_from_collection(
-        &self,
-        ids: Range<DocumentId>,
-        order: Sort,
-        limit: Option<u32>,
-        collection: &CollectionName,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        self.list(ids, order, limit, collection).await
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub async fn list_headers_from_collection(
-        &self,
-        ids: Range<DocumentId>,
-        order: Sort,
-        limit: Option<u32>,
-        collection: &CollectionName,
-    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
-        self.list_headers(ids, order, limit, collection).await
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub async fn count_from_collection(
-        &self,
-        ids: Range<DocumentId>,
-        collection: &CollectionName,
-    ) -> Result<u64, bonsaidb_core::Error> {
-        self.count(ids, collection).await
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub async fn internal_get_multiple_from_collection_id(
-        &self,
-        ids: &[DocumentId],
-        collection: &CollectionName,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        self.get_multiple_from_collection_id(ids, collection).await
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub async fn compact_collection_by_name(
-        &self,
-        collection: CollectionName,
-    ) -> Result<(), bonsaidb_core::Error> {
-        self.storage()
-            .tasks()
-            .compact_collection(self.clone(), collection)
-            .await?;
-        Ok(())
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub async fn query_by_name(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<bonsaidb_core::schema::view::map::Serialized>, bonsaidb_core::Error> {
-        if let Some(view) = self.schematic().view_by_name(view) {
-            let mut results = Vec::new();
-            self.for_each_in_view(view, key, order, limit, access_policy, |entry| {
-                for mapping in entry.mappings {
-                    results.push(bonsaidb_core::schema::view::map::Serialized {
-                        source: mapping.source,
-                        key: entry.key.clone(),
-                        value: mapping.value,
-                    });
-                }
-                Ok(())
-            })
-            .await?;
-
-            Ok(results)
-        } else {
-            Err(bonsaidb_core::Error::CollectionNotFound)
-        }
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub async fn query_by_name_with_docs(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        order: Sort,
-        limit: Option<u32>,
-        access_policy: AccessPolicy,
-    ) -> Result<bonsaidb_core::schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error>
-    {
-        let results = self
-            .query_by_name(view, key, order, limit, access_policy)
-            .await?;
-        let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
-
-        let documents = self
-            .get_multiple_from_collection_id(
-                &results.iter().map(|m| m.source.id).collect::<Vec<_>>(),
-                &view.collection(),
-            )
-            .await?
-            .into_iter()
-            .map(|doc| (doc.header.id, doc))
-            .collect::<BTreeMap<_, _>>();
-
-        Ok(
-            bonsaidb_core::schema::view::map::MappedSerializedDocuments {
-                mappings: results,
-                documents,
-            },
-        )
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub async fn reduce_by_name(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
-        self.reduce_in_view(view, key, access_policy).await
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub async fn reduce_grouped_by_name(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
-        self.grouped_reduce_in_view(view, key, access_policy).await
-    }
-
-    #[cfg(feature = "internal-apis")]
-    #[doc(hidden)]
-    pub async fn delete_docs_by_name(
-        &self,
-        view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error> {
-        let view = self
-            .data
-            .schema
-            .view_by_name(view)
-            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
-        let collection = view.collection();
-        let mut transaction = Transaction::default();
-        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
-            for mapping in entry.mappings {
-                transaction.push(Operation::delete(collection.clone(), mapping.source));
-            }
-
-            Ok(())
-        })
-        .await?;
-
-        let results = Connection::apply_transaction(self, transaction).await?;
-
-        Ok(results.len() as u64)
-    }
-
-    async fn get_from_collection_id(
-        &self,
-        id: DocumentId,
-        collection: &CollectionName,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
-        let task_self = self.clone();
-        let collection = collection.clone();
-        tokio::task::spawn_blocking(move || {
-            let tree = task_self
-                .data
-                .context
-                .roots
-                .tree(task_self.collection_tree::<Versioned, _>(
-                    &collection,
-                    document_tree_name(&collection),
-                )?)
-                .map_err(Error::from)?;
-            if let Some(vec) = tree.get(id.as_ref()).map_err(Error::from)? {
-                Ok(Some(deserialize_document(&vec)?.into_owned()))
-            } else {
-                Ok(None)
-            }
-        })
-        .await
-        .unwrap()
-    }
-
-    async fn get_multiple_from_collection_id(
-        &self,
-        ids: &[DocumentId],
-        collection: &CollectionName,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        let task_self = self.clone();
-        let mut ids = ids.to_vec();
-        let collection = collection.clone();
-        tokio::task::spawn_blocking(move || {
-            let tree = task_self
-                .data
-                .context
-                .roots
-                .tree(task_self.collection_tree::<Versioned, _>(
-                    &collection,
-                    document_tree_name(&collection),
-                )?)
-                .map_err(Error::from)?;
-            ids.sort();
-            let keys_and_values = tree
-                .get_multiple(ids.iter().map(|id| id.as_ref()))
-                .map_err(Error::from)?;
-
-            keys_and_values
-                .into_iter()
-                .map(|(_, value)| deserialize_document(&value).map(BorrowedDocument::into_owned))
-                .collect::<Result<Vec<_>, Error>>()
-        })
-        .await
-        .unwrap()
-        .map_err(bonsaidb_core::Error::from)
-    }
-
-    pub(crate) async fn list(
-        &self,
-        ids: Range<DocumentId>,
-        sort: Sort,
-        limit: Option<u32>,
-        collection: &CollectionName,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
-        let task_self = self.clone();
-        let collection = collection.clone();
-        tokio::task::spawn_blocking(move || {
-            let tree = task_self
-                .data
-                .context
-                .roots
-                .tree(task_self.collection_tree::<Versioned, _>(
-                    &collection,
-                    document_tree_name(&collection),
-                )?)
-                .map_err(Error::from)?;
-            let mut found_docs = Vec::new();
-            let mut keys_read = 0;
-            let ids = DocumentIdRange(ids);
-            tree.scan(
-                &ids.borrow_as_bytes(),
-                match sort {
-                    Sort::Ascending => true,
-                    Sort::Descending => false,
-                },
-                |_, _, _| ScanEvaluation::ReadData,
-                |_, _| {
-                    if let Some(limit) = limit {
-                        if keys_read >= limit {
-                            return ScanEvaluation::Stop;
-                        }
-
-                        keys_read += 1;
-                    }
-                    ScanEvaluation::ReadData
-                },
-                |_, _, doc| {
-                    found_docs.push(
-                        deserialize_document(&doc)
-                            .map(BorrowedDocument::into_owned)
-                            .map_err(AbortError::Other)?,
-                    );
-                    Ok(())
-                },
-            )
-            .map_err(|err| match err {
-                AbortError::Other(err) => err,
-                AbortError::Nebari(err) => crate::Error::from(err),
-            })
-            .unwrap();
-
-            Ok(found_docs)
-        })
-        .await
-        .unwrap()
-    }
-
-    pub(crate) async fn list_headers(
-        &self,
-        ids: Range<DocumentId>,
-        sort: Sort,
-        limit: Option<u32>,
-        collection: &CollectionName,
-    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
-        let task_self = self.clone();
-        let collection = collection.clone();
-        tokio::task::spawn_blocking(move || {
-            let tree = task_self
-                .data
-                .context
-                .roots
-                .tree(task_self.collection_tree::<Versioned, _>(
-                    &collection,
-                    document_tree_name(&collection),
-                )?)
-                .map_err(Error::from)?;
-            let mut found_headers = Vec::new();
-            let mut keys_read = 0;
-            let ids = DocumentIdRange(ids);
-            tree.scan(
-                &ids.borrow_as_bytes(),
-                match sort {
-                    Sort::Ascending => true,
-                    Sort::Descending => false,
-                },
-                |_, _, _| ScanEvaluation::ReadData,
-                |_, _| {
-                    if let Some(limit) = limit {
-                        if keys_read >= limit {
-                            return ScanEvaluation::Stop;
-                        }
-
-                        keys_read += 1;
-                    }
-                    ScanEvaluation::ReadData
-                },
-                |_, _, doc| {
-                    found_headers.push(
-                        deserialize_document(&doc)
-                            .map(BorrowedDocument::into_owned)
-                            .map(|doc| doc.header)
-                            .map_err(AbortError::Other)?,
-                    );
-                    Ok(())
-                },
-            )
-            .map_err(|err| match err {
-                AbortError::Other(err) => err,
-                AbortError::Nebari(err) => crate::Error::from(err),
-            })
-            .unwrap();
-
-            Ok(found_headers)
-        })
-        .await
-        .unwrap()
-    }
-
-    pub(crate) async fn count(
-        &self,
-        ids: Range<DocumentId>,
-        collection: &CollectionName,
-    ) -> Result<u64, bonsaidb_core::Error> {
-        let task_self = self.clone();
-        let collection = collection.clone();
-        // TODO this should be able to use a reduce operation from Nebari https://github.com/khonsulabs/nebari/issues/23
-        tokio::task::spawn_blocking(move || {
-            let tree = task_self
-                .data
-                .context
-                .roots
-                .tree(task_self.collection_tree::<Versioned, _>(
-                    &collection,
-                    document_tree_name(&collection),
-                )?)
-                .map_err(Error::from)?;
-            let ids = DocumentIdRange(ids);
-            let stats = tree.reduce(&ids.borrow_as_bytes()).map_err(Error::from)?;
-
-            Ok(stats.alive_keys)
-        })
-        .await
-        .unwrap()
-    }
-
-    async fn reduce_in_view(
-        &self,
-        view_name: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
-        let view = self
-            .data
-            .schema
-            .view_by_name(view_name)
-            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
-        let mut mappings = self
-            .grouped_reduce_in_view(view_name, key, access_policy)
-            .await?;
-
-        let result = if mappings.len() == 1 {
-            mappings.pop().unwrap().value.into_vec()
-        } else {
-            view.reduce(
-                &mappings
-                    .iter()
-                    .map(|map| (map.key.as_ref(), map.value.as_ref()))
-                    .collect::<Vec<_>>(),
-                true,
-            )
-            .map_err(Error::from)?
-        };
-
-        Ok(result)
-    }
-
-    async fn grouped_reduce_in_view(
-        &self,
-        view_name: &ViewName,
-        key: Option<QueryKey<Bytes>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
-        let view = self
-            .data
-            .schema
-            .view_by_name(view_name)
-            .ok_or(bonsaidb_core::Error::CollectionNotFound)?;
-        let mut mappings = Vec::new();
-        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
-            mappings.push(MappedSerializedValue {
-                key: entry.key,
-                value: entry.reduced_value,
-            });
-            Ok(())
-        })
-        .await?;
-
-        Ok(mappings)
     }
 
     fn apply_transaction_to_roots(
@@ -755,7 +264,7 @@ impl Database {
     ) -> Result<Vec<OperationResult>, Error> {
         let mut open_trees = OpenTrees::default();
         for op in &transaction.operations {
-            if !self.data.schema.contains_collection_id(&op.collection) {
+            if !self.data.schema.contains_collection_name(&op.collection) {
                 return Err(Error::Core(bonsaidb_core::Error::CollectionNotFound));
             }
 
@@ -1238,7 +747,7 @@ impl Database {
     pub(crate) fn collection_encryption_key(&self, collection: &CollectionName) -> Option<&KeyId> {
         self.schematic()
             .encryption_key_for_collection(collection)
-            .or_else(|| self.storage().default_encryption_key())
+            .or_else(|| self.storage.default_encryption_key())
     }
 
     #[cfg_attr(
@@ -1299,15 +808,14 @@ impl Database {
         Ok(tree)
     }
 
-    pub(crate) async fn update_key_expiration_async<'key>(
+    pub(crate) fn update_key_expiration<'key>(
         &self,
         tree_key: impl Into<Cow<'key, str>>,
         expiration: Option<Timestamp>,
     ) {
         self.data
             .context
-            .update_key_expiration_async(tree_key, expiration)
-            .await;
+            .update_key_expiration(tree_key, expiration);
     }
 }
 #[derive(Serialize, Deserialize)]
@@ -1344,14 +852,135 @@ fn serialize_document(document: &BorrowedDocument<'_>) -> Result<Vec<u8>, bonsai
         .map_err(bonsaidb_core::Error::from)
 }
 
-#[async_trait]
 impl Connection for Database {
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(transaction)))]
-    async fn apply_transaction(
+    type Storage = Storage;
+
+    fn storage(&self) -> Self::Storage {
+        self.storage.clone()
+    }
+
+    fn session(&self) -> Option<&Session> {
+        self.storage.session()
+    }
+
+    fn list_executed_transactions(
+        &self,
+        starting_id: Option<u64>,
+        result_limit: Option<u32>,
+    ) -> Result<Vec<transaction::Executed>, bonsaidb_core::Error> {
+        self.check_permission(
+            database_resource_name(self.name()),
+            &BonsaiAction::Database(DatabaseAction::Transaction(TransactionAction::ListExecuted)),
+        )?;
+        let result_limit = usize::try_from(
+            result_limit
+                .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
+                .min(LIST_TRANSACTIONS_MAX_RESULTS),
+        )
+        .unwrap();
+        if result_limit > 0 {
+            let range = if let Some(starting_id) = starting_id {
+                Range::from(starting_id..)
+            } else {
+                Range::from(..)
+            };
+
+            let mut entries = Vec::new();
+            self.roots()
+                .transactions()
+                .scan(range, |entry| {
+                    entries.push(entry);
+                    entries.len() < result_limit
+                })
+                .map_err(Error::from)?;
+
+            entries
+                .into_iter()
+                .map(|entry| {
+                    if let Some(data) = entry.data() {
+                        let changes = compat::deserialize_executed_transaction_changes(data)?;
+                        Ok(Some(transaction::Executed {
+                            id: entry.id,
+                            changes,
+                        }))
+                    } else {
+                        Ok(None)
+                    }
+                })
+                .filter_map(Result::transpose)
+                .collect::<Result<Vec<_>, Error>>()
+                .map_err(bonsaidb_core::Error::from)
+        } else {
+            // A request was made to return an empty result? This should probably be
+            // an error, but technically this is a correct response.
+            Ok(Vec::default())
+        }
+    }
+
+    fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
+        self.check_permission(
+            database_resource_name(self.name()),
+            &BonsaiAction::Database(DatabaseAction::Transaction(TransactionAction::GetLastId)),
+        )?;
+        Ok(self.roots().transactions().current_transaction_id())
+    }
+
+    fn compact(&self) -> Result<(), bonsaidb_core::Error> {
+        self.check_permission(
+            database_resource_name(self.name()),
+            &BonsaiAction::Database(DatabaseAction::Compact),
+        )?;
+        self.storage()
+            .instance
+            .tasks()
+            .compact_database(self.clone())?;
+        Ok(())
+    }
+
+    fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
+        self.check_permission(
+            kv_resource_name(self.name()),
+            &BonsaiAction::Database(DatabaseAction::Compact),
+        )?;
+        self.storage()
+            .instance
+            .tasks()
+            .compact_key_value_store(self.clone())?;
+        Ok(())
+    }
+}
+
+impl LowLevelConnection for Database {
+    fn schematic(&self) -> &Schematic {
+        &self.data.schema
+    }
+
+    fn apply_transaction(
         &self,
         transaction: Transaction,
     ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
-        let task_self = self.clone();
+        for op in &transaction.operations {
+            let (resource, action) = match &op.command {
+                Command::Insert { .. } => (
+                    collection_resource_name(self.name(), &op.collection),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Insert)),
+                ),
+                Command::Update { header, .. } => (
+                    document_resource_name(self.name(), &op.collection, &header.id),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Update)),
+                ),
+                Command::Overwrite { id, .. } => (
+                    document_resource_name(self.name(), &op.collection, id),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Overwrite)),
+                ),
+                Command::Delete { header } => (
+                    document_resource_name(self.name(), &op.collection, &header.id),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
+                ),
+            };
+            self.check_permission(&resource, &action)?;
+        }
+
         let mut unique_view_tasks = Vec::new();
         for collection_name in transaction
             .operations
@@ -1363,11 +992,10 @@ impl Connection for Database {
                 for view in views {
                     if view.unique() {
                         if let Some(task) = self
-                            .data
                             .storage
+                            .instance
                             .tasks()
                             .spawn_integrity_check(view, self)
-                            .await?
                         {
                             unique_view_tasks.push(task);
                         }
@@ -1378,353 +1006,345 @@ impl Connection for Database {
 
         let mut unique_view_mapping_tasks = Vec::new();
         for task in unique_view_tasks {
-            if let Some(spawned_task) = task
-                .receive()
-                .await
-                .map_err(Error::from)?
-                .map_err(Error::from)?
-            {
+            if let Some(spawned_task) = task.receive().map_err(Error::from)?.map_err(Error::from)? {
                 unique_view_mapping_tasks.push(spawned_task);
             }
         }
+
         for task in unique_view_mapping_tasks {
-            let mut task = fast_async_lock!(task);
+            let mut task = task.lock();
             if let Some(task) = task.take() {
-                task.receive()
-                    .await
-                    .map_err(Error::from)?
-                    .map_err(Error::from)?;
+                task.receive().map_err(Error::from)?.map_err(Error::from)?;
             }
         }
 
-        tokio::task::spawn_blocking(move || task_self.apply_transaction_to_roots(&transaction))
-            .await
-            .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?
+        self.apply_transaction_to_roots(&transaction)
             .map_err(bonsaidb_core::Error::from)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(id)))]
-    async fn get<C, PrimaryKey>(
+    fn get_from_collection(
         &self,
-        id: PrimaryKey,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        self.get_from_collection_id(id.into().to_document_id()?, &C::collection_name())
-            .await
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
-    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
-        &self,
-        ids: DocumentIds,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
-    {
-        self.get_multiple_from_collection_id(
-            &ids.into_iter()
-                .map(|id| id.into().to_document_id())
-                .collect::<Result<Vec<_>, _>>()?,
-            &C::collection_name(),
-        )
-        .await
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids, order, limit)))]
-    async fn list<C, R, PrimaryKey>(
-        &self,
-        ids: R,
-        order: Sort,
-        limit: Option<u32>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        self.list(
-            ids.into().map_result(|id| id.into().to_document_id())?,
-            order,
-            limit,
-            &C::collection_name(),
-        )
-        .await
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids, order, limit)))]
-    async fn list_headers<C, R, PrimaryKey>(
-        &self,
-        ids: R,
-        order: Sort,
-        limit: Option<u32>,
-    ) -> Result<Vec<Header>, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        self.list_headers(
-            ids.into().map_result(|id| id.into().to_document_id())?,
-            order,
-            limit,
-            &C::collection_name(),
-        )
-        .await
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(ids)))]
-    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
-    where
-        C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        self.count(
-            ids.into().map_result(|id| id.into().to_document_id())?,
-            &C::collection_name(),
-        )
-        .await
-    }
-
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip(starting_id, result_limit))
-    )]
-    async fn list_executed_transactions(
-        &self,
-        starting_id: Option<u64>,
-        result_limit: Option<u32>,
-    ) -> Result<Vec<transaction::Executed>, bonsaidb_core::Error> {
-        let result_limit = usize::try_from(
-            result_limit
-                .unwrap_or(LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT)
-                .min(LIST_TRANSACTIONS_MAX_RESULTS),
-        )
-        .unwrap();
-        if result_limit > 0 {
-            let task_self = self.clone();
-            tokio::task::spawn_blocking::<_, Result<Vec<transaction::Executed>, Error>>(move || {
-                let range = if let Some(starting_id) = starting_id {
-                    Range::from(starting_id..)
-                } else {
-                    Range::from(..)
-                };
-
-                let mut entries = Vec::new();
-                task_self.roots().transactions().scan(range, |entry| {
-                    entries.push(entry);
-                    entries.len() < result_limit
-                })?;
-
-                entries
-                    .into_iter()
-                    .map(|entry| {
-                        if let Some(data) = entry.data() {
-                            let changes = compat::deserialize_executed_transaction_changes(data)?;
-                            Ok(Some(transaction::Executed {
-                                id: entry.id,
-                                changes,
-                            }))
-                        } else {
-                            Ok(None)
-                        }
-                    })
-                    .filter_map(Result::transpose)
-                    .collect::<Result<Vec<_>, Error>>()
-            })
-            .await
-            .unwrap()
-            .map_err(bonsaidb_core::Error::from)
+        id: DocumentId,
+        collection: &CollectionName,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
+        self.check_permission(
+            document_resource_name(self.name(), collection, &id),
+            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
+        )?;
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
+            .map_err(Error::from)?;
+        if let Some(vec) = tree.get(id.as_ref()).map_err(Error::from)? {
+            Ok(Some(deserialize_document(&vec)?.into_owned()))
         } else {
-            // A request was made to return an empty result? This should probably be
-            // an error, but technically this is a correct response.
-            Ok(Vec::default())
+            Ok(None)
         }
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip(key, order, limit, access_policy))
-    )]
-    #[must_use]
-    async fn query<V: schema::SerializedView>(
+    fn list_from_collection(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        ids: Range<DocumentId>,
+        sort: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        self.check_permission(
+            collection_resource_name(self.name(), collection),
+            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::List)),
+        )?;
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
+            .map_err(Error::from)?;
+        let mut found_docs = Vec::new();
+        let mut keys_read = 0;
+        let ids = DocumentIdRange(ids);
+        tree.scan(
+            &ids.borrow_as_bytes(),
+            match sort {
+                Sort::Ascending => true,
+                Sort::Descending => false,
+            },
+            |_, _, _| ScanEvaluation::ReadData,
+            |_, _| {
+                if let Some(limit) = limit {
+                    if keys_read >= limit {
+                        return ScanEvaluation::Stop;
+                    }
+
+                    keys_read += 1;
+                }
+                ScanEvaluation::ReadData
+            },
+            |_, _, doc| {
+                found_docs.push(
+                    deserialize_document(&doc)
+                        .map(BorrowedDocument::into_owned)
+                        .map_err(AbortError::Other)?,
+                );
+                Ok(())
+            },
+        )
+        .map_err(|err| match err {
+            AbortError::Other(err) => err,
+            AbortError::Nebari(err) => crate::Error::from(err),
+        })?;
+
+        Ok(found_docs)
+    }
+
+    fn list_headers_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        sort: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
+        self.check_permission(
+            collection_resource_name(self.name(), collection),
+            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::ListHeaders)),
+        )?;
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
+            .map_err(Error::from)?;
+        let mut found_headers = Vec::new();
+        let mut keys_read = 0;
+        let ids = DocumentIdRange(ids);
+        tree.scan(
+            &ids.borrow_as_bytes(),
+            match sort {
+                Sort::Ascending => true,
+                Sort::Descending => false,
+            },
+            |_, _, _| ScanEvaluation::ReadData,
+            |_, _| {
+                if let Some(limit) = limit {
+                    if keys_read >= limit {
+                        return ScanEvaluation::Stop;
+                    }
+
+                    keys_read += 1;
+                }
+                ScanEvaluation::ReadData
+            },
+            |_, _, doc| {
+                found_headers.push(
+                    deserialize_document(&doc)
+                        .map(|doc| doc.header)
+                        .map_err(AbortError::Other)?,
+                );
+                Ok(())
+            },
+        )
+        .map_err(|err| match err {
+            AbortError::Other(err) => err,
+            AbortError::Nebari(err) => crate::Error::from(err),
+        })?;
+
+        Ok(found_headers)
+    }
+
+    fn count_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        collection: &CollectionName,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        self.check_permission(
+            collection_resource_name(self.name(), collection),
+            &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Count)),
+        )?;
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(self.collection_tree::<Versioned, _>(collection, document_tree_name(collection))?)
+            .map_err(Error::from)?;
+        let ids = DocumentIdRange(ids);
+        let stats = tree.reduce(&ids.borrow_as_bytes()).map_err(Error::from)?;
+
+        Ok(stats.alive_keys)
+    }
+
+    fn get_multiple_from_collection(
+        &self,
+        ids: &[DocumentId],
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        for id in ids {
+            self.check_permission(
+                document_resource_name(self.name(), collection, id),
+                &BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
+            )?;
+        }
+        let mut ids = ids.to_vec();
+        let collection = collection.clone();
+        let tree = self
+            .data
+            .context
+            .roots
+            .tree(
+                self.collection_tree::<Versioned, _>(&collection, document_tree_name(&collection))?,
+            )
+            .map_err(Error::from)?;
+        ids.sort();
+        let keys_and_values = tree
+            .get_multiple(ids.iter().map(|id| id.as_ref()))
+            .map_err(Error::from)?;
+
+        keys_and_values
+            .into_iter()
+            .map(|(_, value)| deserialize_document(&value).map(BorrowedDocument::into_owned))
+            .collect::<Result<Vec<_>, Error>>()
+            .map_err(bonsaidb_core::Error::from)
+    }
+
+    fn compact_collection_by_name(
+        &self,
+        collection: CollectionName,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.check_permission(
+            collection_resource_name(self.name(), &collection),
+            &BonsaiAction::Database(DatabaseAction::Compact),
+        )?;
+        self.storage()
+            .instance
+            .tasks()
+            .compact_collection(self.clone(), collection)?;
+        Ok(())
+    }
+
+    fn query_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
+    ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
+        let view = self.schematic().view_by_name(view)?;
+        self.check_permission(
+            view_resource_name(self.name(), &view.view_name()),
+            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Query)),
+        )?;
         let mut results = Vec::new();
-        self.for_each_view_entry::<V, _>(key, order, limit, access_policy, |entry| {
-            let key = <V::Key as Key>::from_ord_bytes(&entry.key)
-                .map_err(view::Error::key_serialization)
-                .map_err(Error::from)?;
-            for entry in entry.mappings {
-                results.push(Map::new(
-                    entry.source,
-                    key.clone(),
-                    V::deserialize(&entry.value)?,
-                ));
+        self.for_each_in_view(view, key, order, limit, access_policy, |entry| {
+            for mapping in entry.mappings {
+                results.push(bonsaidb_core::schema::view::map::Serialized {
+                    source: mapping.source,
+                    key: entry.key.clone(),
+                    value: mapping.value,
+                });
             }
             Ok(())
-        })
-        .await?;
+        })?;
 
         Ok(results)
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip(key, order, limit, access_policy))
-    )]
-    async fn query_with_docs<V: schema::SerializedView>(
+    fn query_by_name_with_docs(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let results = Connection::query::<V>(self, key, order, limit, access_policy).await?;
+    ) -> Result<schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error> {
+        let results = self.query_by_name(view, key, order, limit, access_policy)?;
+        let view = self.schematic().view_by_name(view).unwrap(); // query() will fail if it's not present
 
         let documents = self
-            .get_multiple::<V::Collection, _, _, _>(results.iter().map(|m| m.source.id))
-            .await?
+            .get_multiple_from_collection(
+                &results.iter().map(|m| m.source.id).collect::<Vec<_>>(),
+                &view.collection(),
+            )?
             .into_iter()
             .map(|doc| (doc.header.id, doc))
             .collect::<BTreeMap<_, _>>();
 
-        Ok(MappedDocuments {
-            mappings: results,
-            documents,
-        })
+        Ok(
+            bonsaidb_core::schema::view::map::MappedSerializedDocuments {
+                mappings: results,
+                documents,
+            },
+        )
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
-    async fn reduce<V: schema::SerializedView>(
+    fn reduce_by_name(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        view_name: &ViewName,
+        key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
-    ) -> Result<V::Value, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let view = self
-            .data
-            .schema
-            .view::<V>()
-            .expect("query made with view that isn't registered with this database");
+    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
+        let mut mappings = self.reduce_grouped_by_name(view_name, key, access_policy)?;
 
-        let result = self
-            .reduce_in_view(
-                &view.view_name(),
-                key.map(|key| key.serialized()).transpose()?,
-                access_policy,
+        let result = if mappings.len() == 1 {
+            mappings.pop().unwrap().value.into_vec()
+        } else {
+            let view = self.data.schema.view_by_name(view_name)?;
+            view.reduce(
+                &mappings
+                    .iter()
+                    .map(|map| (map.key.as_ref(), map.value.as_ref()))
+                    .collect::<Vec<_>>(),
+                true,
             )
-            .await?;
-        let value = V::deserialize(&result)?;
+            .map_err(Error::from)?
+        };
 
-        Ok(value)
+        Ok(result)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(key, access_policy)))]
-    async fn reduce_grouped<V: schema::SerializedView>(
+    fn reduce_grouped_by_name(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        view_name: &ViewName,
+        key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let view = self
-            .data
-            .schema
-            .view::<V>()
-            .expect("query made with view that isn't registered with this database");
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
+        let view = self.data.schema.view_by_name(view_name)?;
+        self.check_permission(
+            view_resource_name(self.name(), &view.view_name()),
+            &BonsaiAction::Database(DatabaseAction::View(ViewAction::Reduce)),
+        )?;
+        let mut mappings = Vec::new();
+        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
+            mappings.push(MappedSerializedValue {
+                key: entry.key,
+                value: entry.reduced_value,
+            });
+            Ok(())
+        })?;
 
-        let results = self
-            .grouped_reduce_in_view(
-                &view.view_name(),
-                key.map(|key| key.serialized()).transpose()?,
-                access_policy,
-            )
-            .await?;
-        results
-            .into_iter()
-            .map(|map| {
-                Ok(MappedValue::new(
-                    V::Key::from_ord_bytes(&map.key).map_err(view::Error::key_serialization)?,
-                    V::deserialize(&map.value)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, bonsaidb_core::Error>>()
+        Ok(mappings)
     }
 
-    async fn delete_docs<V: schema::SerializedView>(
+    fn delete_docs_by_name(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
         access_policy: AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        let collection = <V::Collection as Collection>::collection_name();
+    ) -> Result<u64, bonsaidb_core::Error> {
+        let view = self.data.schema.view_by_name(view)?;
+        let collection = view.collection();
         let mut transaction = Transaction::default();
-        self.for_each_view_entry::<V, _>(key, Sort::Ascending, None, access_policy, |entry| {
+        self.for_each_in_view(view, key, Sort::Ascending, None, access_policy, |entry| {
             for mapping in entry.mappings {
                 transaction.push(Operation::delete(collection.clone(), mapping.source));
             }
 
             Ok(())
-        })
-        .await?;
+        })?;
 
-        let results = Connection::apply_transaction(self, transaction).await?;
+        let results = LowLevelConnection::apply_transaction(self, transaction)?;
 
         Ok(results.len() as u64)
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
-        Ok(self.roots().transactions().current_transaction_id())
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn compact_collection<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
-        self.storage()
-            .tasks()
-            .compact_collection(self.clone(), C::collection_name())
-            .await?;
-        Ok(())
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
-        self.storage()
-            .tasks()
-            .compact_database(self.clone())
-            .await?;
-        Ok(())
-    }
-
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
-    async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
-        self.storage()
-            .tasks()
-            .compact_key_value_store(self.clone())
-            .await?;
-        Ok(())
     }
 }
 
@@ -1763,7 +1383,6 @@ impl Deref for Context {
 pub(crate) struct ContextData {
     pub(crate) roots: Roots<AnyFile>,
     key_value_state: Arc<Mutex<keyvalue::KeyValueState>>,
-    runtime: tokio::runtime::Handle,
 }
 
 impl Borrow<Roots<AnyFile>> for Context {
@@ -1774,54 +1393,63 @@ impl Borrow<Roots<AnyFile>> for Context {
 
 impl Context {
     pub(crate) fn new(roots: Roots<AnyFile>, key_value_persistence: KeyValuePersistence) -> Self {
-        let (background_sender, background_receiver) =
-            watch::channel(BackgroundWorkerProcessTarget::Never);
+        let background_worker_target = Watchable::new(BackgroundWorkerProcessTarget::Never);
+        let mut background_worker_target_watcher = background_worker_target.watch();
         let key_value_state = Arc::new(Mutex::new(keyvalue::KeyValueState::new(
             key_value_persistence,
             roots.clone(),
-            background_sender,
+            background_worker_target,
         )));
         let context = Self {
             data: Arc::new(ContextData {
                 roots,
                 key_value_state: key_value_state.clone(),
-                runtime: tokio::runtime::Handle::current(),
             }),
         };
-        tokio::task::spawn(keyvalue::background_worker(
-            key_value_state,
-            background_receiver,
-        ));
+        std::thread::Builder::new()
+            .name(String::from("keyvalue-worker"))
+            .spawn(move || {
+                keyvalue::background_worker(
+                    &key_value_state,
+                    &mut background_worker_target_watcher,
+                );
+            })
+            .unwrap();
         context
     }
 
-    pub(crate) async fn perform_kv_operation(
+    pub(crate) fn perform_kv_operation(
         &self,
         op: KeyOperation,
     ) -> Result<Output, bonsaidb_core::Error> {
-        let mut state = fast_async_lock!(self.data.key_value_state);
-        state
-            .perform_kv_operation(op, &self.data.key_value_state)
-            .await
+        let mut state = self.data.key_value_state.lock();
+        state.perform_kv_operation(op, &self.data.key_value_state)
     }
 
-    pub(crate) async fn update_key_expiration_async<'key>(
+    pub(crate) fn update_key_expiration<'key>(
         &self,
         tree_key: impl Into<Cow<'key, str>>,
         expiration: Option<Timestamp>,
     ) {
-        let mut state = fast_async_lock!(self.data.key_value_state);
+        let mut state = self.data.key_value_state.lock();
         state.update_key_expiration(tree_key, expiration);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn kv_persistence_watcher(&self) -> watchable::Watcher<Timestamp> {
+        let state = self.data.key_value_state.lock();
+        state.persistence_watcher()
     }
 }
 
 impl Drop for ContextData {
     fn drop(&mut self) {
-        let key_value_state = self.key_value_state.clone();
-        self.runtime.spawn(async move {
-            let mut state = fast_async_lock!(key_value_state);
-            state.shutdown(&key_value_state).await
-        });
+        if let Some(shutdown) = {
+            let mut state = self.key_value_state.lock();
+            state.shutdown(&self.key_value_state)
+        } {
+            let _ = shutdown.recv();
+        }
     }
 }
 
@@ -1845,5 +1473,19 @@ impl<'a> BorrowByteRange<'a> for DocumentIdRange {
                 connection::Bound::Excluded(docid) => ops::Bound::Excluded(docid.as_ref()),
             },
         }
+    }
+}
+
+/// Operations that can be performed on both [`Database`] and
+/// [`AsyncDatabase`](crate::AsyncDatabase).
+pub trait DatabaseNonBlocking {
+    /// Returns the name of the database.
+    #[must_use]
+    fn name(&self) -> &str;
+}
+
+impl DatabaseNonBlocking for Database {
+    fn name(&self) -> &str {
+        self.data.name.as_ref()
     }
 }

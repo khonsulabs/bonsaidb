@@ -52,6 +52,7 @@ jobs:
         uses: hecrj/setup-rust-action@v1
 
       - name: Run clippy
+        continue-on-error: true
         run: |
           cargo clippy --all-targets ${{ matrix.options.cargo_args }} -- -D warnings 
 

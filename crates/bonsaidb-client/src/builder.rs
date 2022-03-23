@@ -1,70 +1,76 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
-use bonsaidb_core::{custom_api::CustomApi, networking::CURRENT_PROTOCOL_VERSION};
+use bonsaidb_core::{
+    api::{self},
+    networking::CURRENT_PROTOCOL_VERSION,
+    schema::ApiName,
+};
 #[cfg(not(target_arch = "wasm32"))]
 use fabruic::Certificate;
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::runtime::Handle;
 use url::Url;
 
-use crate::{client::CustomApiCallback, Client, Error};
+use crate::{
+    client::{AnyApiCallback, ApiCallback},
+    Client, Error,
+};
 
 /// Builds a new [`Client`] with custom settings.
 #[must_use]
-pub struct Builder<A: CustomApi = ()> {
+pub struct Builder {
     url: Url,
     protocol_version: &'static str,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
+    custom_apis: HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
     #[cfg(not(target_arch = "wasm32"))]
     certificate: Option<fabruic::Certificate>,
-    _api: PhantomData<A>,
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio: Option<Handle>,
 }
 
-impl Builder<()> {
+impl Builder {
     /// Creates a new builder for a client connecting to `url`.
     pub(crate) fn new(url: Url) -> Self {
         Self {
             url,
             protocol_version: CURRENT_PROTOCOL_VERSION,
-            custom_api_callback: None,
+            custom_apis: HashMap::new(),
             #[cfg(not(target_arch = "wasm32"))]
             certificate: None,
-            _api: PhantomData::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio: Handle::try_current().ok(),
         }
     }
 
-    /// Enables using a [`CustomApi`] with this client. If you want to receive
+    /// Specifies the tokio runtime this client should use for its async tasks.
+    /// If not specified, `Client` will try to acquire a handle via
+    /// `tokio::runtime::Handle::try_current()`.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn with_runtime(mut self, handle: Handle) -> Self {
+        self.tokio = Some(handle);
+        self
+    }
+
+    /// Enables using a [`Api`] with this client. If you want to receive
     /// out-of-band API requests, set a callback using
     /// `with_custom_api_callback` instead.
-    pub fn with_custom_api<A: CustomApi>(self) -> Builder<A> {
-        Builder {
-            url: self.url,
-            protocol_version: self.protocol_version,
-            custom_api_callback: None,
-            #[cfg(not(target_arch = "wasm32"))]
-            certificate: self.certificate,
-            _api: PhantomData::default(),
-        }
+    pub fn with_api<Api: api::Api>(mut self) -> Self {
+        self.custom_apis.insert(Api::name(), None);
+        self
     }
 
-    /// Enables using a [`CustomApi`] with this client. `callback` will be
+    /// Enables using a [`Api`] with this client. `callback` will be
     /// invoked when custom API responses are received from the server.
-    pub fn with_custom_api_callback<A: CustomApi, C: CustomApiCallback<A>>(
-        self,
-        callback: C,
-    ) -> Builder<A> {
-        Builder {
-            url: self.url,
-            protocol_version: self.protocol_version,
-            custom_api_callback: Some(Arc::new(callback)),
-            #[cfg(not(target_arch = "wasm32"))]
-            certificate: self.certificate,
-            _api: PhantomData::default(),
-        }
+    pub fn with_api_callback<Api: api::Api>(mut self, callback: ApiCallback<Api>) -> Self {
+        self.custom_apis
+            .insert(Api::name(), Some(Arc::new(callback)));
+        self
     }
-}
 
-impl<A: CustomApi> Builder<A> {
     /// Connects to a server using a pinned `certificate`. Only supported with BonsaiDb protocol-based connections.
     #[cfg(not(target_arch = "wasm32"))]
+    #[allow(clippy::missing_const_for_fn)]
     pub fn with_certificate(mut self, certificate: Certificate) -> Self {
         self.certificate = Some(certificate);
         self
@@ -72,20 +78,22 @@ impl<A: CustomApi> Builder<A> {
 
     /// Overrides the protocol version. Only for testing purposes.
     #[cfg(feature = "test-util")]
+    #[allow(clippy::missing_const_for_fn)]
     pub fn with_protocol_version(mut self, version: &'static str) -> Self {
         self.protocol_version = version;
         self
     }
 
     /// Finishes building the client.
-    pub async fn finish(self) -> Result<Client<A>, Error<A::Error>> {
-        Client::<A>::new_from_parts(
+    pub fn finish(self) -> Result<Client, Error> {
+        Client::new_from_parts(
             self.url,
             self.protocol_version,
-            self.custom_api_callback,
+            self.custom_apis,
             #[cfg(not(target_arch = "wasm32"))]
             self.certificate,
+            #[cfg(not(target_arch = "wasm32"))]
+            self.tokio,
         )
-        .await
     }
 }

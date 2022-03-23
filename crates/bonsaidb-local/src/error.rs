@@ -2,7 +2,8 @@ use std::{convert::Infallible, str::Utf8Error, string::FromUtf8Error, sync::Arc}
 
 use bonsaidb_core::{
     permissions::PermissionDenied,
-    schema::{view, InvalidNameError},
+    pubsub::{Disconnected, TryReceiveError},
+    schema::{view, InsertError, InvalidNameError},
     AnyError,
 };
 use nebari::AbortError;
@@ -77,8 +78,26 @@ pub enum Error {
     PasswordHash(String),
 }
 
+impl<T> From<InsertError<T>> for Error {
+    fn from(err: InsertError<T>) -> Self {
+        Self::Core(err.error)
+    }
+}
+
 impl From<flume::RecvError> for Error {
     fn from(_: flume::RecvError) -> Self {
+        Self::InternalCommunication
+    }
+}
+
+impl From<TryReceiveError> for Error {
+    fn from(_: TryReceiveError) -> Self {
+        Self::InternalCommunication
+    }
+}
+
+impl From<Disconnected> for Error {
+    fn from(_: Disconnected) -> Self {
         Self::InternalCommunication
     }
 }

@@ -12,23 +12,22 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use transmog_pot::Pot;
 
-#[cfg(feature = "multiuser")]
-use crate::admin::{PermissionGroup, Role, User};
 use crate::{
-    connection::{AccessPolicy, Connection, StorageConnection},
+    admin::{PermissionGroup, Role, User},
+    connection::{AccessPolicy, AsyncConnection, AsyncStorageConnection},
     document::{
         AnyDocumentId, BorrowedDocument, CollectionDocument, CollectionHeader, DocumentId, Emit,
         Header, KeyId,
     },
-    keyvalue::KeyValue,
+    keyvalue::AsyncKeyValue,
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     schema::{
         view::{
             map::{Mappings, ViewMappedValue},
             ReduceResult, ViewSchema,
         },
-        Collection, CollectionName, MappedValue, NamedCollection, Schema, SchemaName, Schematic,
-        SerializedCollection, View, ViewMapResult,
+        Collection, CollectionName, MappedValue, NamedCollection, Qualified, Schema, SchemaName,
+        Schematic, SerializedCollection, View, ViewMapResult,
     },
     Error,
 };
@@ -463,7 +462,7 @@ macro_rules! assert_f64_eq {
     }};
 }
 
-/// Creates a test suite that tests methods available on [`Connection`]
+/// Creates a test suite that tests methods available on [`AsyncConnection`]
 #[macro_export]
 macro_rules! define_connection_test_suite {
     ($harness:ident) => {
@@ -627,7 +626,6 @@ macro_rules! define_connection_test_suite {
         }
 
         #[tokio::test]
-        #[cfg(any(feature = "multiuser", feature = "local-multiuser", feature = "server"))]
         async fn user_management() -> anyhow::Result<()> {
             let harness = $harness::new($crate::test_util::HarnessTest::UserManagement).await?;
             let _db = harness.connect().await?;
@@ -656,7 +654,7 @@ macro_rules! define_connection_test_suite {
     };
 }
 
-pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn store_retrieve_update_delete_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     let header = collection.push(&original_value).await?;
@@ -718,10 +716,10 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     assert!(changes.documents[0].deleted);
 
     // Use the Collection interface
-    let mut doc = original_value.clone().push_into(db).await?;
+    let mut doc = original_value.clone().push_into_async(db).await?;
     doc.contents.category = Some(String::from("updated"));
-    doc.update(db).await?;
-    let reloaded = Basic::get(doc.header.id, db).await?.unwrap();
+    doc.update_async(db).await?;
+    let reloaded = Basic::get_async(doc.header.id, db).await?.unwrap();
     assert_eq!(doc.contents, reloaded.contents);
 
     // Test Connection::insert with a specified id
@@ -730,19 +728,19 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
         .insert::<Basic, _, _>(Some(doc.header.id), doc.contents.into_vec())
         .await?;
     assert_eq!(document_42.id, 42);
-    let document_43 = Basic::new("43").insert_into(43, db).await?;
+    let document_43 = Basic::new("43").insert_into_async(43, db).await?;
     assert_eq!(document_43.header.id, 43);
 
     // Test that inserting a document with the same ID results in a conflict:
     let conflict_err = Basic::new("43")
-        .insert_into(doc.header.id, db)
+        .insert_into_async(doc.header.id, db)
         .await
         .unwrap_err();
     assert!(matches!(conflict_err.error, Error::DocumentConflict(..)));
 
     // Test that overwriting works
     let overwritten = Basic::new("43")
-        .overwrite_into(doc.header.id, db)
+        .overwrite_into_async(doc.header.id, db)
         .await
         .unwrap();
     assert!(overwritten.header.revision.id > doc.header.revision.id);
@@ -750,7 +748,7 @@ pub async fn store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow
     Ok(())
 }
 
-pub async fn not_found_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn not_found_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     assert!(db.collection::<Basic>().get(1).await?.is_none());
 
     assert!(db.last_transaction_id().await?.is_none());
@@ -758,7 +756,7 @@ pub async fn not_found_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn conflict_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     let header = collection.push(&original_value).await?;
@@ -793,18 +791,18 @@ pub async fn conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 
     // Now, let's use the CollectionDocument API to modify the document through a refetch.
     let mut doc = CollectionDocument::<Basic>::try_from(&doc)?;
-    doc.modify(db, |doc| {
+    doc.modify_async(db, |doc| {
         doc.contents.value = String::from("modify worked");
     })
     .await?;
     assert_eq!(doc.contents.value, "modify worked");
-    let doc = Basic::get(doc.header.id, db).await?.unwrap();
+    let doc = Basic::get_async(doc.header.id, db).await?.unwrap();
     assert_eq!(doc.contents.value, "modify worked");
 
     Ok(())
 }
 
-pub async fn bad_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn bad_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let mut doc = BorrowedDocument::with_contents::<Basic>(1, &Basic::default())?;
     match db.update::<Basic, _>(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
@@ -816,7 +814,7 @@ pub async fn bad_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     }
 }
 
-pub async fn no_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn no_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     let header = collection.push(&original_value).await?;
@@ -832,7 +830,7 @@ pub async fn no_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn get_multiple_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn get_multiple_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let doc1_value = Basic::new("initial_value");
     let doc1 = collection.push(&doc1_value).await?;
@@ -840,10 +838,10 @@ pub async fn get_multiple_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let doc2_value = Basic::new("second_value");
     let doc2 = collection.push(&doc2_value).await?;
 
-    let both_docs = Basic::get_multiple([doc1.id, doc2.id], db).await?;
+    let both_docs = Basic::get_multiple_async([doc1.id, doc2.id], db).await?;
     assert_eq!(both_docs.len(), 2);
 
-    let out_of_order = Basic::get_multiple([doc2.id, doc1.id], db).await?;
+    let out_of_order = Basic::get_multiple_async([doc2.id, doc1.id], db).await?;
     assert_eq!(out_of_order.len(), 2);
 
     // The order of get_multiple isn't guaranteed, so these two checks are done
@@ -862,7 +860,7 @@ pub async fn get_multiple_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn list_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn list_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let doc1_value = Basic::new("initial_value");
     let doc1 = collection.push(&doc1_value).await?;
@@ -870,29 +868,25 @@ pub async fn list_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let doc2_value = Basic::new("second_value");
     let doc2 = collection.push(&doc2_value).await?;
 
-    let all_docs = Basic::all(db).await?;
+    let all_docs = Basic::all_async(db).await?;
     assert_eq!(all_docs.len(), 2);
-    assert_eq!(Basic::all(db).count().await?, 2);
+    assert_eq!(Basic::all_async(db).count().await?, 2);
 
-    let both_docs = Basic::list(doc1.id..=doc2.id, db).await?;
+    let both_docs = Basic::list_async(doc1.id..=doc2.id, db).await?;
     assert_eq!(both_docs.len(), 2);
-    assert_eq!(Basic::list(doc1.id..=doc2.id, db).count().await?, 2);
+    assert_eq!(Basic::list_async(doc1.id..=doc2.id, db).count().await?, 2);
 
     assert_eq!(both_docs[0].contents.value, doc1_value.value);
     assert_eq!(both_docs[1].contents.value, doc2_value.value);
 
-    let both_headers = db
-        .collection::<Basic>()
-        .list(doc1.id..=doc2.id)
-        .headers()
-        .await?;
+    let both_headers = Basic::list_async(doc1.id..=doc2.id, db).headers().await?;
 
     assert_eq!(both_headers.len(), 2);
 
-    let one_doc = Basic::list(doc1.id..doc2.id, db).await?;
+    let one_doc = Basic::list_async(doc1.id..doc2.id, db).await?;
     assert_eq!(one_doc.len(), 1);
 
-    let limited = Basic::list(doc1.id..=doc2.id, db)
+    let limited = Basic::list_async(doc1.id..=doc2.id, db)
         .limit(1)
         .descending()
         .await?;
@@ -902,7 +896,7 @@ pub async fn list_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn list_transactions_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn list_transactions_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
 
     // create LIST_TRANSACTIONS_MAX_RESULTS + 1 items, giving us just enough
@@ -957,7 +951,7 @@ pub async fn list_transactions_tests<C: Connection>(db: &C) -> anyhow::Result<()
     Ok(())
 }
 
-pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn view_query_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let a = collection.push(&Basic::new("A")).await?;
     let b = collection.push(&Basic::new("B")).await?;
@@ -1056,7 +1050,7 @@ pub async fn view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn unassociated_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn unassociated_collection_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let result = db
         .collection::<UnassociatedCollection>()
         .push(&UnassociatedCollection)
@@ -1069,7 +1063,7 @@ pub async fn unassociated_collection_tests<C: Connection>(db: &C) -> anyhow::Res
     Ok(())
 }
 
-pub async fn unimplemented_reduce<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn unimplemented_reduce<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     assert!(matches!(
         db.view::<UniqueValue>().reduce().await,
         Err(Error::ReduceUnimplemented)
@@ -1077,7 +1071,7 @@ pub async fn unimplemented_reduce<C: Connection>(db: &C) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let a = collection.push(&Basic::new("A")).await?;
 
@@ -1162,16 +1156,16 @@ pub async fn view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn view_multi_emit_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn view_multi_emit_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let mut a = Basic::new("A")
         .with_tag("red")
         .with_tag("green")
-        .push_into(db)
+        .push_into_async(db)
         .await?;
     let mut b = Basic::new("B")
         .with_tag("blue")
         .with_tag("green")
-        .push_into(db)
+        .push_into_async(db)
         .await?;
 
     assert_eq!(db.view::<BasicByTag>().query().await?.len(), 4);
@@ -1205,7 +1199,7 @@ pub async fn view_multi_emit_tests<C: Connection>(db: &C) -> anyhow::Result<()> 
 
     // Change tags
     a.contents.tags = vec![String::from("red"), String::from("blue")];
-    a.update(db).await?;
+    a.update_async(db).await?;
 
     assert_eq!(
         db.view::<BasicByTag>()
@@ -1234,7 +1228,7 @@ pub async fn view_multi_emit_tests<C: Connection>(db: &C) -> anyhow::Result<()> 
         2
     );
     b.contents.tags.clear();
-    b.update(db).await?;
+    b.update_async(db).await?;
 
     assert_eq!(
         db.view::<BasicByTag>()
@@ -1266,7 +1260,7 @@ pub async fn view_multi_emit_tests<C: Connection>(db: &C) -> anyhow::Result<()> 
     Ok(())
 }
 
-pub async fn view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn view_access_policy_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let a = collection.push(&Basic::new("A")).await?;
 
@@ -1318,7 +1312,7 @@ pub async fn view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Result<(
     panic!("view never updated")
 }
 
-pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+pub async fn unique_view_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let first_doc = db.collection::<Unique>().push(&Unique::new("1")).await?;
 
     if let Err(Error::UniqueKeyViolation {
@@ -1358,15 +1352,15 @@ pub async fn unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn named_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    Unique::new("0").push_into(db).await?;
-    let original_entry = Unique::entry("1", db)
+pub async fn named_collection_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
+    Unique::new("0").push_into_async(db).await?;
+    let original_entry = Unique::entry_async("1", db)
         .update_with(|_existing: &mut Unique| unreachable!())
         .or_insert_with(|| Unique::new("1"))
         .await?
         .expect("Document not inserted");
 
-    let updated = Unique::entry("1", db)
+    let updated = Unique::entry_async("1", db)
         .update_with(|existing: &mut Unique| {
             existing.value = String::from("2");
         })
@@ -1376,10 +1370,10 @@ pub async fn named_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()>
     assert_eq!(original_entry.header.id, updated.header.id);
     assert_ne!(original_entry.contents.value, updated.contents.value);
 
-    let retrieved = Unique::entry("2", db).await?.unwrap();
+    let retrieved = Unique::entry_async("2", db).await?.unwrap();
     assert_eq!(retrieved.contents.value, updated.contents.value);
 
-    let conflict = Unique::entry("2", db)
+    let conflict = Unique::entry_async("2", db)
         .update_with(|existing: &mut Unique| {
             existing.value = String::from("0");
         })
@@ -1389,7 +1383,7 @@ pub async fn named_collection_tests<C: Connection>(db: &C) -> anyhow::Result<()>
     Ok(())
 }
 
-pub async fn compaction_tests<C: Connection + KeyValue>(db: &C) -> anyhow::Result<()> {
+pub async fn compaction_tests<C: AsyncConnection + AsyncKeyValue>(db: &C) -> anyhow::Result<()> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();
     collection.push(&original_value).await?;
@@ -1407,8 +1401,7 @@ pub async fn compaction_tests<C: Connection + KeyValue>(db: &C) -> anyhow::Resul
     Ok(())
 }
 
-#[cfg(feature = "multiuser")]
-pub async fn user_management_tests<C: Connection, S: StorageConnection>(
+pub async fn user_management_tests<C: AsyncConnection, S: AsyncStorageConnection>(
     admin: &C,
     server: S,
     server_name: &str,
@@ -1417,7 +1410,7 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
     let user_id = server.create_user(&username).await?;
     // Test the default created user state.
     {
-        let user = User::get(user_id, admin)
+        let user = User::get_async(user_id, admin)
             .await
             .unwrap()
             .expect("user not found");
@@ -1427,11 +1420,11 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
     }
 
     let role = Role::named(format!("role-{}", server_name))
-        .push_into(admin)
+        .push_into_async(admin)
         .await
         .unwrap();
     let group = PermissionGroup::named(format!("group-{}", server_name))
-        .push_into(admin)
+        .push_into_async(admin)
         .await
         .unwrap();
 
@@ -1444,7 +1437,7 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
 
     // Test the results
     {
-        let user = User::get(user_id, admin)
+        let user = User::get_async(user_id, admin)
             .await
             .unwrap()
             .expect("user not found");
@@ -1459,7 +1452,7 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
         .unwrap();
     server.add_role_to_user(&username, &role).await.unwrap();
     {
-        let user = User::load(&username, admin)
+        let user = User::load_async(&username, admin)
             .await
             .unwrap()
             .expect("user not found");
@@ -1474,7 +1467,7 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
         .unwrap();
     server.remove_role_from_user(user_id, &role).await.unwrap();
     {
-        let user = User::get(user_id, admin)
+        let user = User::get_async(user_id, admin)
             .await
             .unwrap()
             .expect("user not found");
@@ -1491,7 +1484,8 @@ pub async fn user_management_tests<C: Connection, S: StorageConnection>(
     // Remove the user
     server.delete_user(user_id).await?;
     // Test if user is removed.
-    assert!(User::get(user_id, admin).await.unwrap().is_none());
+
+    assert!(User::get_async(user_id, admin).await.unwrap().is_none());
 
     Ok(())
 }
@@ -1502,7 +1496,7 @@ macro_rules! define_kv_test_suite {
     ($harness:ident) => {
         #[tokio::test]
         async fn basic_kv_test() -> anyhow::Result<()> {
-            use $crate::keyvalue::{KeyStatus, KeyValue};
+            use $crate::keyvalue::{AsyncKeyValue, KeyStatus};
             let harness = $harness::new($crate::test_util::HarnessTest::KvBasic).await?;
             let db = harness.connect().await?;
             assert_eq!(
@@ -1544,7 +1538,7 @@ macro_rules! define_kv_test_suite {
 
         #[tokio::test]
         async fn kv_concurrency() -> anyhow::Result<()> {
-            use $crate::keyvalue::{KeyStatus, KeyValue};
+            use $crate::keyvalue::{AsyncKeyValue, KeyStatus};
             const WRITERS: usize = 100;
             const INCREMENTS: usize = 100;
             let harness = $harness::new($crate::test_util::HarnessTest::KvConcurrency).await?;
@@ -1572,7 +1566,7 @@ macro_rules! define_kv_test_suite {
 
         #[tokio::test]
         async fn kv_set_tests() -> anyhow::Result<()> {
-            use $crate::keyvalue::{KeyStatus, KeyValue};
+            use $crate::keyvalue::{AsyncKeyValue, KeyStatus};
             let harness = $harness::new($crate::test_util::HarnessTest::KvSet).await?;
             let db = harness.connect().await?;
             let kv = db.with_key_namespace("set");
@@ -1605,7 +1599,7 @@ macro_rules! define_kv_test_suite {
 
         #[tokio::test]
         async fn kv_increment_decrement_tests() -> anyhow::Result<()> {
-            use $crate::keyvalue::{KeyStatus, KeyValue};
+            use $crate::keyvalue::{AsyncKeyValue, KeyStatus};
             let harness =
                 $harness::new($crate::test_util::HarnessTest::KvIncrementDecrement).await?;
             let db = harness.connect().await?;
@@ -1789,7 +1783,7 @@ macro_rules! define_kv_test_suite {
         async fn kv_expiration_tests() -> anyhow::Result<()> {
             use std::time::Duration;
 
-            use $crate::keyvalue::{KeyStatus, KeyValue};
+            use $crate::keyvalue::{AsyncKeyValue, KeyStatus};
 
             let harness = $harness::new($crate::test_util::HarnessTest::KvExpiration).await?;
             let db = harness.connect().await?;
@@ -1839,7 +1833,7 @@ macro_rules! define_kv_test_suite {
 
                 // Before checking the value, make sure we haven't elapsed too
                 // much time. If so, just restart the test.
-                if !timing.wait_until(Duration::from_secs_f32(3.)).await {
+                if !timing.wait_until_async(Duration::from_secs_f32(3.)).await {
                     println!(
                         "Restarting test {}. Took too long {:?}",
                         line!(),
@@ -1850,7 +1844,7 @@ macro_rules! define_kv_test_suite {
 
                 assert_eq!(kv.get_key("b").await?, None, "b never expired");
 
-                timing.wait_until(Duration::from_secs_f32(5.)).await;
+                timing.wait_until_async(Duration::from_secs_f32(5.)).await;
                 assert_eq!(kv.get_key("a").await?, None, "a never expired");
                 break;
             }
@@ -1863,7 +1857,7 @@ macro_rules! define_kv_test_suite {
         async fn delete_expire_tests() -> anyhow::Result<()> {
             use std::time::Duration;
 
-            use $crate::keyvalue::{KeyStatus, KeyValue};
+            use $crate::keyvalue::{AsyncKeyValue, KeyStatus};
 
             let harness = $harness::new($crate::test_util::HarnessTest::KvDeleteExpire).await?;
             let db = harness.connect().await?;
@@ -1891,7 +1885,7 @@ macro_rules! define_kv_test_suite {
                     );
                     continue;
                 }
-                if !timing.wait_until(Duration::from_secs_f32(2.5)).await {
+                if !timing.wait_until_async(Duration::from_secs_f32(2.5)).await {
                     println!(
                         "Restarting test {}. Took too long {:?}",
                         line!(),
@@ -1910,13 +1904,17 @@ macro_rules! define_kv_test_suite {
         }
 
         #[tokio::test]
+        // This test can fail when the machine its running on is under high load or
+        // constrained resources. We need a command that persists (and waits until
+        // persist) to make this test fully deterministic.
         async fn kv_transaction_tests() -> anyhow::Result<()> {
             use std::time::Duration;
 
             use $crate::{
-                connection::Connection,
-                keyvalue::{KeyStatus, KeyValue},
+                connection::AsyncConnection,
+                keyvalue::{AsyncKeyValue, KeyStatus},
             };
+            // loop {
             let harness = $harness::new($crate::test_util::HarnessTest::KvTransactions).await?;
             let db = harness.connect().await?;
             // Generate several transactions that we can validate. Persisting
@@ -1925,46 +1923,44 @@ macro_rules! define_kv_test_suite {
             db.set_key("expires", &0_u32)
                 .expire_in(Duration::from_secs(1))
                 .await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
             db.set_key("akey", &String::from("avalue")).await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            db.get_key("akey").and_delete().await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
             db.set_numeric_key("nkey", 0_u64).await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
             db.increment_key_by("nkey", 1_u64).await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
             db.delete_key("nkey").await?;
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            db.get_key("akey").and_delete().await?;
+            tokio::time::sleep(Duration::from_millis(500)).await;
             // Ensure this doesn't generate a transaction.
             db.delete_key("nkey").await?;
 
             tokio::time::sleep(Duration::from_secs(1)).await;
 
-            let transactions = Connection::list_executed_transactions(&db, None, None).await?;
+            let transactions = AsyncConnection::list_executed_transactions(&db, None, None).await?;
             let deleted_keys = transactions
                 .iter()
                 .filter_map(|tx| tx.changes.keys())
                 .flatten()
-                .filter(|changed_key| changed_key.deleted)
+                .filter(|changed_key| dbg!(changed_key).deleted)
                 .count();
-            assert_eq!(deleted_keys, 3);
+            assert_eq!(deleted_keys, 3, "deleted keys wasn't 3");
             let akey_changes = transactions
                 .iter()
                 .filter_map(|tx| tx.changes.keys())
                 .flatten()
                 .filter(|changed_key| changed_key.key == "akey")
                 .count();
-            assert_eq!(akey_changes, 2);
+            assert_eq!(akey_changes, 2, "akey changes wasn't 2");
             let nkey_changes = transactions
                 .iter()
                 .filter_map(|tx| tx.changes.keys())
                 .flatten()
                 .filter(|changed_key| changed_key.key == "nkey")
                 .count();
-            assert_eq!(nkey_changes, 3);
+            assert_eq!(nkey_changes, 3, "nkey changes wasn't 3");
 
             harness.shutdown().await?;
+            // }
 
             Ok(())
         }
@@ -1985,7 +1981,20 @@ impl TimingTest {
         }
     }
 
-    pub async fn wait_until(&self, absolute_duration: Duration) -> bool {
+    #[allow(clippy::must_use_candidate)]
+    pub fn wait_until(&self, absolute_duration: Duration) -> bool {
+        let target = self.start + absolute_duration;
+        let mut now = Instant::now();
+        if let Some(sleep_duration) = target.checked_duration_since(now) {
+            std::thread::sleep(sleep_duration);
+            now = Instant::now();
+        }
+        let amount_past = now.checked_duration_since(target);
+        // Return false if we're beyond the tolerance given
+        amount_past.unwrap_or_default() < self.tolerance
+    }
+
+    pub async fn wait_until_async(&self, absolute_duration: Duration) -> bool {
         let target = self.start + absolute_duration;
         let mut now = Instant::now();
         if now < target {
@@ -2006,7 +2015,7 @@ impl TimingTest {
     }
 }
 
-pub async fn basic_server_connection_tests<C: StorageConnection>(
+pub async fn basic_server_connection_tests<C: AsyncStorageConnection>(
     server: C,
     newdb_name: &str,
 ) -> anyhow::Result<()> {

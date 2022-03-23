@@ -4,11 +4,11 @@ use bonsaidb::{
     cli::CommandLine,
     core::{
         actionable::async_trait,
-        connection::{Connection, StorageConnection},
+        connection::{AsyncConnection, AsyncStorageConnection},
         schema::SerializedCollection,
     },
     local::config::Builder,
-    server::{Backend, CustomServer, DefaultPermissions, NoDispatcher, ServerConfiguration},
+    server::{Backend, CustomServer, DefaultPermissions, ServerConfiguration},
     AnyServerConnection,
 };
 use clap::Subcommand;
@@ -33,9 +33,7 @@ enum Cli {
 
 #[async_trait]
 impl Backend for CliBackend {
-    type CustomApi = ();
     type ClientData = ();
-    type CustomApiDispatcher = NoDispatcher<Self>;
 
     async fn initialize(server: &CustomServer<Self>) {
         server
@@ -50,7 +48,7 @@ impl CommandLine for CliBackend {
     type Backend = Self;
     type Subcommand = Cli;
 
-    async fn configuration(&mut self) -> anyhow::Result<ServerConfiguration> {
+    async fn configuration(&mut self) -> anyhow::Result<ServerConfiguration<CliBackend>> {
         Ok(ServerConfiguration::new("cli.bonsaidb")
             .default_permissions(DefaultPermissions::AllowAll)
             .with_schema::<Shape>()?)
@@ -64,7 +62,7 @@ impl CommandLine for CliBackend {
         let database = connection.database::<Shape>("shapes").await?;
         match command {
             Cli::Add { sides } => {
-                let new_shape = Shape::new(sides).push_into(&database).await?;
+                let new_shape = Shape::new(sides).push_into_async(&database).await?;
                 println!(
                     "Shape #{} inserted with {} sides",
                     new_shape.header.id, sides

@@ -18,11 +18,10 @@ where
     J: Job,
     Key: Clone + std::hash::Hash + Eq + Send + Sync + Debug + 'static,
 {
-    async fn execute(&mut self) {
-        let result = self.job.execute().await;
+    fn execute(&mut self) {
+        let result = self.job.execute();
 
         self.manager
-            .job_completed(self.id, self.key.as_ref(), result)
-            .await;
+            .job_completed(self.id, self.key.as_ref(), result);
     }
 }

@@ -1,7 +1,5 @@
 use std::{fmt::Debug, sync::Arc};
 
-use tokio::sync::oneshot;
-
 /// he `Id` of an executing task.
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub struct Id(pub(crate) u64);
@@ -12,7 +10,7 @@ pub struct Handle<T, E> {
     /// The task's id.
     pub id: Id,
 
-    pub(crate) receiver: oneshot::Receiver<Result<T, Arc<E>>>,
+    pub(crate) receiver: flume::Receiver<Result<T, Arc<E>>>,
 }
 
 impl<T, E> Handle<T, E>
@@ -25,25 +23,7 @@ where
     /// # Errors
     ///
     /// Returns an error if the job is cancelled.
-    pub async fn receive(
-        self,
-    ) -> Result<Result<T, Arc<E>>, tokio::sync::oneshot::error::RecvError> {
-        self.receiver.await
-    }
-
-    // /// Tries to receive the status of the job. If available, it is returned.
-    // /// This function will not block.
-    // ///
-    // /// # Errors
-    // ///
-    // /// Returns an error if the job isn't complete.
-    // ///
-    // /// * [`TryRecvError::Disconnected`](flume::TryRecvError::Disconnected): The job has been cancelled.
-    // /// * [`TryRecvError::Empty`](flume::TryRecvError::Empty): The job has not completed yet.
-    #[cfg(test)]
-    pub fn try_receive(
-        &mut self,
-    ) -> Result<Result<T, Arc<E>>, tokio::sync::oneshot::error::TryRecvError> {
-        self.receiver.try_recv()
+    pub fn receive(self) -> Result<Result<T, Arc<E>>, flume::RecvError> {
+        self.receiver.recv()
     }
 }

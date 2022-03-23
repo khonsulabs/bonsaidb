@@ -5,7 +5,7 @@ use bonsaidb::{
     },
     local::{
         config::{Builder, StorageConfiguration},
-        Database,
+        AsyncDatabase,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -35,7 +35,8 @@ struct MultiKey {
 async fn main() -> Result<(), bonsaidb::core::Error> {
     drop(tokio::fs::remove_dir_all("primary-keys.bonsaidb").await);
     let db =
-        Database::open::<ExampleSchema>(StorageConfiguration::new("primary-keys.bonsaidb")).await?;
+        AsyncDatabase::open::<ExampleSchema>(StorageConfiguration::new("primary-keys.bonsaidb"))
+            .await?;
 
     // It's not uncommon to need to store data in a database that has an
     // "external" identifier. Some examples could be externally authenticated
@@ -51,9 +52,9 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
         external_id: 42,
         name: String::from("ecton"),
     }
-    .push_into(&db)
+    .push_into_async(&db)
     .await?;
-    let retrieved_from_database = UserProfile::get(42, &db)
+    let retrieved_from_database = UserProfile::get_async(42, &db)
         .await?
         .expect("document not found");
     assert_eq!(user, retrieved_from_database);
@@ -65,9 +66,9 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     let inserted = MultiKey {
         value: String::from("hello"),
     }
-    .insert_into((42, 64), &db)
+    .insert_into_async((42, 64), &db)
     .await?;
-    let retrieved = MultiKey::get((42, 64), &db)
+    let retrieved = MultiKey::get_async((42, 64), &db)
         .await?
         .expect("document not found");
     assert_eq!(inserted, retrieved);
@@ -79,7 +80,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
         MultiKey {
             value: String::from("error"),
         }
-        .push_into(&db)
+        .push_into_async(&db)
         .await
         .unwrap_err()
         .error,

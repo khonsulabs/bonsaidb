@@ -14,13 +14,13 @@ use std::{str::Chars, time::SystemTime};
 
 use bonsaidb::{
     core::{
-        connection::Connection,
+        connection::AsyncConnection,
         document::{CollectionDocument, Emit},
         schema::{Collection, CollectionViewSchema, SerializedCollection, View, ViewMapResult},
     },
     local::{
         config::{Builder, StorageConfiguration},
-        Database,
+        AsyncDatabase,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -68,17 +68,17 @@ impl CollectionViewSchema for MessagesByWords {
 
 #[tokio::main]
 async fn main() -> Result<(), bonsaidb::core::Error> {
-    let db =
-        Database::open::<Message>(StorageConfiguration::new("keyword-search.bonsaidb")).await?;
+    let db = AsyncDatabase::open::<Message>(StorageConfiguration::new("keyword-search.bonsaidb"))
+        .await?;
 
     Message::new("Groceries", "Can you pick up some milk on the way home?")
-        .push_into(&db)
+        .push_into_async(&db)
         .await?;
     Message::new("Re: Groceries", "2% milk? How are our eggs?")
-        .push_into(&db)
+        .push_into_async(&db)
         .await?;
     Message::new("Re: Groceries", "Yes. We could use another dozen eggs.")
-        .push_into(&db)
+        .push_into_async(&db)
         .await?;
 
     for result in &db

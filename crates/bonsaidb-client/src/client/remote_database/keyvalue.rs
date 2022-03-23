@@ -1,32 +1,19 @@
 use async_trait::async_trait;
-use bonsaidb_core::{
-    custom_api::CustomApi,
-    keyvalue::KeyValue,
-    networking::{DatabaseRequest, DatabaseResponse, Request, Response},
-};
+use bonsaidb_core::{keyvalue::AsyncKeyValue, networking::ExecuteKeyOperation};
 
 #[async_trait]
-impl<A> KeyValue for super::RemoteDatabase<A>
-where
-    A: CustomApi,
-{
+impl AsyncKeyValue for super::RemoteDatabase {
     async fn execute_key_operation(
         &self,
         op: bonsaidb_core::keyvalue::KeyOperation,
     ) -> Result<bonsaidb_core::keyvalue::Output, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request(Request::Database {
+            .send_api_request_async(&ExecuteKeyOperation {
                 database: self.name.to_string(),
-                request: DatabaseRequest::ExecuteKeyOperation(op),
+
+                op,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::KvOutput(output)) => Ok(output),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 }

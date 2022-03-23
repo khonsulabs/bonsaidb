@@ -1,6 +1,6 @@
 # Custom Api Server
 
-The [`CustomApi`]({{DOCS_BASE_URL}}/bonsaidb/core/custom_api/trait.CustomApi.html) trait defines three associated types, Request, Response, and Error. A backend "dispatches" `Request`s and expects a `Result<Response, Error>` in return.
+The [`Api`]({{DOCS_BASE_URL}}/bonsaidb/core/custom_api/trait.CustomApi.html) trait defines three associated types, Request, Response, and Error. A backend "dispatches" `Request`s and expects a `Result<Response, Error>` in return.
 
 > All code on this page comes from this example: [`examples/basic-server/examples/custom-api.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/custom-api.rs).
 
@@ -10,7 +10,7 @@ This example defines a Request and a Response type, but uses BonsaiDb's [`Infall
 {{#include ../../../../examples/basic-server/examples/custom-api.rs:api-types}}
 ```
 
-To implement the server, we must first implement a custom [`Backend`]({{DOCS_BASE_URL}}/bonsaidb/server/trait.Backend.html) that ties the server to the `CustomApi`. We also must define a [`CustomApiDispatcher`]({{DOCS_BASE_URL}}/bonsaidb/server/trait.CustomApiDispatcher.html), which gives an opportunity for the dispatcher to gain access to the [`ConnectedClient`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.ConnectedClient.html) and/or [`CustomServer]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html) instances if they are needed to handle requests.
+To implement the server, we must first implement a custom [`Backend`]({{DOCS_BASE_URL}}/bonsaidb/server/trait.Backend.html) that ties the server to the `Api`. We also must define a [`CustomApiDispatcher`]({{DOCS_BASE_URL}}/bonsaidb/server/trait.CustomApiDispatcher.html), which gives an opportunity for the dispatcher to gain access to the [`ConnectedClient`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.ConnectedClient.html) and/or [`CustomServer]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html) instances if they are needed to handle requests.
 
 Finally, either [`Dispatcher`]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/trait.Dispatcher.html) must be implemented manually or [`actionable`]({{DOCS_BASE_URL}}/bonsaidb/core/actionable/) can be used to derive an implementation that uses individual traits to handle each request. The example uses actionable:
 

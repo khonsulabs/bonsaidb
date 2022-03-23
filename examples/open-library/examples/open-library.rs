@@ -3,7 +3,7 @@ use std::{self, collections::BTreeMap, fmt::Debug, fs::File, io::Read, mem, path
 use bonsaidb::{
     core::{
         async_trait::async_trait,
-        connection::Connection,
+        connection::{AsyncConnection, AsyncLowLevelConnection},
         document::{CollectionDocument, Emit},
         keyvalue::Timestamp,
         schema::{
@@ -14,7 +14,7 @@ use bonsaidb::{
     },
     local::{
         config::{Builder, Compression, StorageConfiguration},
-        Database,
+        AsyncDatabase,
     },
 };
 use clap::{Parser, Subcommand};
@@ -33,7 +33,7 @@ pub trait LibraryEntity: SerializedCollection<PrimaryKey = String, Contents = Se
         format!("/{}/{}", Self::ID_PREFIX, id)
     }
 
-    async fn summarize(&self, database: &Database) -> anyhow::Result<()>;
+    async fn summarize(&self, database: &AsyncDatabase) -> anyhow::Result<()>;
 }
 
 #[derive(Debug, Serialize, Deserialize, Collection)]
@@ -64,7 +64,7 @@ struct Author {
 impl LibraryEntity for Author {
     const ID_PREFIX: &'static str = "authors";
 
-    async fn summarize(&self, database: &Database) -> anyhow::Result<()> {
+    async fn summarize(&self, database: &AsyncDatabase) -> anyhow::Result<()> {
         if let Some(name) = &self.name {
             println!("Name: {}", name);
         }
@@ -190,14 +190,14 @@ impl CollectionViewSchema for EditionsByWork {
 impl LibraryEntity for Edition {
     const ID_PREFIX: &'static str = "books";
 
-    async fn summarize(&self, database: &Database) -> anyhow::Result<()> {
+    async fn summarize(&self, database: &AsyncDatabase) -> anyhow::Result<()> {
         if let Some(title) = &self.title {
             println!("Title: {}", title);
         }
         if let Some(subtitle) = &self.subtitle {
             println!("Subtitle: {}", subtitle);
         }
-        let works = Work::get_multiple(
+        let works = Work::get_multiple_async(
             self.works
                 .iter()
                 .map(|w| w.to_key().replace("/b/", "/books/")),
@@ -282,7 +282,7 @@ impl CollectionViewSchema for WorksByAuthor {
 impl LibraryEntity for Work {
     const ID_PREFIX: &'static str = "works";
 
-    async fn summarize(&self, database: &Database) -> anyhow::Result<()> {
+    async fn summarize(&self, database: &AsyncDatabase) -> anyhow::Result<()> {
         if let Some(title) = &self.title {
             println!("Title: {}", title);
         }
@@ -480,7 +480,7 @@ fn parse_tsv(
     Ok(())
 }
 
-async fn import_ratings(database: &Database) -> anyhow::Result<()> {
+async fn import_ratings(database: &AsyncDatabase) -> anyhow::Result<()> {
     import_from_tsv(
         "./examples/open-library/ol_dump_ratings.txt",
         database,
@@ -520,7 +520,7 @@ where
     }
 }
 
-async fn import_primary_data(database: &Database) -> anyhow::Result<()> {
+async fn import_primary_data(database: &AsyncDatabase) -> anyhow::Result<()> {
     import_from_tsv(
         "./examples/open-library/ol_dump_all.txt",
         database,
@@ -543,11 +543,11 @@ async fn import_primary_data(database: &Database) -> anyhow::Result<()> {
 }
 
 async fn import_from_tsv<
-    Callback: Fn(Vec<Vec<String>>, Database) -> Fut + 'static,
+    Callback: Fn(Vec<Vec<String>>, AsyncDatabase) -> Fut + 'static,
     Fut: Future<Output = anyhow::Result<usize>>,
 >(
     path: &'static str,
-    database: &Database,
+    database: &AsyncDatabase,
     callback: Callback,
 ) -> anyhow::Result<()> {
     const CHUNK_SIZE: usize = 500_000;
@@ -582,11 +582,11 @@ enum Command {
     Work { id: String },
 }
 
-async fn get_entity<S>(id: &str, database: &Database) -> anyhow::Result<()>
+async fn get_entity<S>(id: &str, database: &AsyncDatabase) -> anyhow::Result<()>
 where
     S: LibraryEntity<Contents = S> + Debug,
 {
-    match S::get(S::full_id(id), database).await? {
+    match S::get_async(S::full_id(id), database).await? {
         Some(doc) => doc.contents.summarize(database).await,
         None => {
             anyhow::bail!("not found");
@@ -602,7 +602,7 @@ async fn main() -> anyhow::Result<()> {
     } else {
         StorageConfiguration::new("open-library.bonsaidb")
     };
-    let db = Database::open::<OpenLibrary>(config).await?;
+    let db = AsyncDatabase::open::<OpenLibrary>(config).await?;
     match args.command {
         Command::Import => {
             let primary_import = import_primary_data(&db);
@@ -618,10 +618,10 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Command::Count => {
-            println!("Total authors: {}", Author::all(&db).count().await?);
-            println!("Total works: {}", Work::all(&db).count().await?);
-            println!("Total editions: {}", Edition::all(&db).count().await?);
-            println!("Total ratings: {}", Rating::all(&db).count().await?);
+            println!("Total authors: {}", Author::all_async(&db).count().await?);
+            println!("Total works: {}", Work::all_async(&db).count().await?);
+            println!("Total editions: {}", Edition::all_async(&db).count().await?);
+            println!("Total ratings: {}", Rating::all_async(&db).count().await?);
 
             Ok(())
         }
