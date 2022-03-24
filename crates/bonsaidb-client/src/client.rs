@@ -554,6 +554,7 @@ impl Client {
         subscribers.remove(&id);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn unregister_subscriber(&self, database: String, id: u64) {
         drop(self.send_api_request(&UnregisterSubscriber {
             database,
