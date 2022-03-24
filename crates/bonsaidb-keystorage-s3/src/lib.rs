@@ -48,7 +48,7 @@
     clippy::module_name_repetitions,
 )]
 
-use std::fmt::Display;
+use std::{fmt::Display, future::Future};
 
 use async_trait::async_trait;
 use aws_config::meta::region::RegionProviderChain;
@@ -59,12 +59,13 @@ use bonsaidb_local::{
     StorageId,
 };
 pub use http;
+use tokio::runtime::{Handle, Runtime};
 
 /// S3-compatible [`VaultKeyStorage`] implementor.
-#[derive(Debug)]
+#[derive(Default, Debug)]
 #[must_use]
 pub struct S3VaultKeyStorage {
-    runtime: tokio::runtime::Handle,
+    runtime: Tokio,
     bucket: String,
     /// The S3 endpoint to use. If not specified, the endpoint will be
     /// determined automatically. This field can be used to support non-AWS S3
@@ -77,21 +78,31 @@ pub struct S3VaultKeyStorage {
     pub path: String,
 }
 
-impl Default for S3VaultKeyStorage {
+#[derive(Debug)]
+enum Tokio {
+    Runtime(Runtime),
+    Handle(Handle),
+}
+
+impl Default for Tokio {
     fn default() -> Self {
-        Self {
-            runtime: tokio::runtime::Handle::current(),
-            bucket: String::default(),
-            endpoint: None,
-            region: None,
-            path: String::default(),
+        Handle::try_current().map_or_else(|_| Self::Runtime(Runtime::new().unwrap()), Self::Handle)
+    }
+}
+
+impl Tokio {
+    pub fn block_on<F: Future<Output = R>, R>(&self, future: F) -> R {
+        match self {
+            Tokio::Runtime(rt) => rt.block_on(future),
+            Tokio::Handle(rt) => rt.block_on(future),
         }
     }
 }
 
 impl S3VaultKeyStorage {
-    /// Creates a new key storage instance for `bucket`. This function requires
-    /// a global `tokio` runtime to be installed.
+    /// Creates a new key storage instance for `bucket`. This instance will use
+    /// the currently available Tokio runtime or create one if none is
+    /// available.
     pub fn new(bucket: impl Display) -> Self {
         Self::new_with_runtime(bucket, tokio::runtime::Handle::current())
     }
@@ -101,7 +112,7 @@ impl S3VaultKeyStorage {
     pub fn new_with_runtime(bucket: impl Display, runtime: tokio::runtime::Handle) -> Self {
         Self {
             bucket: bucket.to_string(),
-            runtime,
+            runtime: Tokio::Handle(runtime),
             ..Self::default()
         }
     }
@@ -197,6 +208,22 @@ impl VaultKeyStorage for S3VaultKeyStorage {
 }
 
 #[cfg(test)]
+macro_rules! env_var {
+    ($name:expr) => {{
+        match std::env::var($name) {
+            Ok(value) if !value.is_empty() => value,
+            _ => {
+                log::error!(
+                    "Ignoring basic_test because of missing environment variable: {}",
+                    $name
+                );
+                return;
+            }
+        }
+    }};
+}
+
+#[cfg(test)]
 #[tokio::test]
 async fn basic_test() {
     use bonsaidb_core::{
@@ -211,21 +238,6 @@ async fn basic_test() {
     };
     use http::Uri;
     drop(dotenv::dotenv());
-
-    macro_rules! env_var {
-        ($name:expr) => {{
-            match std::env::var($name) {
-                Ok(value) if !value.is_empty() => value,
-                _ => {
-                    log::error!(
-                        "Ignoring basic_test because of missing environment variable: {}",
-                        $name
-                    );
-                    return;
-                }
-            }
-        }};
-    }
 
     let bucket = env_var!("S3_BUCKET");
     let endpoint = env_var!("S3_ENDPOINT");
@@ -275,4 +287,63 @@ async fn basic_test() {
             .await
             .is_err()
     );
+}
+
+#[test]
+fn blocking_test() {
+    use bonsaidb_core::{
+        connection::StorageConnection,
+        document::KeyId,
+        schema::SerializedCollection,
+        test_util::{Basic, BasicSchema, TestDirectory},
+    };
+    use bonsaidb_local::{
+        config::{Builder, StorageConfiguration},
+        Storage,
+    };
+    use http::Uri;
+    drop(dotenv::dotenv());
+
+    let bucket = env_var!("S3_BUCKET");
+    let endpoint = env_var!("S3_ENDPOINT");
+
+    let directory = TestDirectory::new("bonsaidb-keystorage-s3-blocking");
+
+    let configuration = |prefix| {
+        let mut vault_key_storage = S3VaultKeyStorage {
+            bucket: bucket.clone(),
+            endpoint: Some(Endpoint::immutable(Uri::try_from(&endpoint).unwrap())),
+            ..S3VaultKeyStorage::default()
+        };
+        if let Some(prefix) = prefix {
+            vault_key_storage = vault_key_storage.path(prefix);
+        }
+
+        StorageConfiguration::new(&directory)
+            .vault_key_storage(vault_key_storage)
+            .default_encryption_key(KeyId::Master)
+            .with_schema::<BasicSchema>()
+            .unwrap()
+    };
+    let document = {
+        let bonsai = Storage::open(configuration(None)).unwrap();
+        let db = bonsai
+            .create_database::<BasicSchema>("test", false)
+            .unwrap();
+        Basic::new("test").push_into(&db).unwrap()
+    };
+
+    {
+        // Should be able to access the storage again
+        let bonsai = Storage::open(configuration(None)).unwrap();
+
+        let db = bonsai.database::<BasicSchema>("test").unwrap();
+        let retrieved = Basic::get(document.header.id, &db)
+            .unwrap()
+            .expect("document not found");
+        assert_eq!(document, retrieved);
+    }
+
+    // Verify that we can't access the storage again without the vault
+    assert!(Storage::open(configuration(Some(String::from("path-prefix")))).is_err());
 }
