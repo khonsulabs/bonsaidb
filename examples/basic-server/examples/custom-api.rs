@@ -43,6 +43,9 @@ impl Api for Ping {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Pong;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IncrementCounter {
     amount: u64,
@@ -58,11 +61,7 @@ impl Api for IncrementCounter {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Pong;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Counter(pub u64);
-
 // ANCHOR_END: api-types
 
 // ANCHOR: server-traits
