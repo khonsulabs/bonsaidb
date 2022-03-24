@@ -27,9 +27,21 @@ use crate::{
 };
 
 /// A file-based, multi-database, multi-user database engine. This type is
-/// designed for use with [Tokio](https://tokio.rs). For non-asynchronous code,
-/// see the [`Storage`] type instead. This type can be converted using
-/// [`std::convert::From`].
+/// designed for use with [Tokio](https://tokio.rs). For blocking
+/// (non-asynchronous) code, see the [`Storage`] type instead.
+///
+/// ## Converting between Blocking and Async Types
+///
+/// [`AsyncDatabase`] and [`Database`] can be converted to and from each other
+/// using:
+///
+/// - [`AsyncStorage::into_blocking()`]
+/// - [`AsyncStorage::to_blocking()`]
+/// - [`AsyncStorage::as_blocking()`]
+/// - [`Storage::into_async()`]
+/// - [`Storage::to_async()`]
+/// - [`Storage::into_async_with_runtime()`]
+/// - [`Storage::to_async_with_runtime()`]
 ///
 /// ## Converting from `AsyncDatabase::open` to `AsyncStorage::open`
 ///
@@ -61,8 +73,8 @@ use crate::{
 ///
 /// ## Using multiple databases
 ///
-/// This example shows how to use `AsyncStorage` to create and use multiple databases
-/// with multiple schemas:
+/// This example shows how to use `AsyncStorage` to create and use multiple
+/// databases with multiple schemas:
 ///
 /// ```rust
 /// use bonsaidb_core::{
@@ -119,8 +131,8 @@ use crate::{
 #[derive(Debug, Clone)]
 #[must_use]
 pub struct AsyncStorage {
-    storage: Storage,
-    runtime: tokio::runtime::Handle,
+    pub(crate) storage: Storage,
+    pub(crate) runtime: tokio::runtime::Handle,
 }
 
 impl AsyncStorage {
@@ -128,7 +140,7 @@ impl AsyncStorage {
     pub async fn open(configuration: StorageConfiguration) -> Result<Self, Error> {
         tokio::task::spawn_blocking(move || Storage::open(configuration))
             .await?
-            .map(Self::from)
+            .map(Storage::into_async)
     }
 
     /// Restores all data from a previously stored backup `location`.
@@ -149,10 +161,14 @@ impl AsyncStorage {
 
     /// Restricts an unauthenticated instance to having `effective_permissions`.
     /// Returns `None` if a session has already been established.
+    #[must_use]
     pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Option<Self> {
         self.storage
             .with_effective_permissions(effective_permissions)
-            .map(Self::from)
+            .map(|storage| Self {
+                storage,
+                runtime: self.runtime.clone(),
+            })
     }
 
     #[cfg(feature = "internal-apis")]
@@ -161,39 +177,43 @@ impl AsyncStorage {
         let name = name.to_owned();
         let task_self = self.clone();
         self.runtime
-            .spawn_blocking(move || task_self.storage.database_without_schema(&name))
+            .spawn_blocking(move || {
+                task_self
+                    .storage
+                    .database_without_schema(&name)
+                    .map(Database::into_async)
+            })
             .await?
-            .map(AsyncDatabase::from)
     }
-}
 
-impl From<Storage> for AsyncStorage {
-    fn from(storage: Storage) -> Self {
-        Self {
-            storage,
-            runtime: tokio::runtime::Handle::current(),
-        }
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async.
+    pub fn into_blocking(self) -> Storage {
+        self.storage
     }
-}
 
-impl<'a> From<&'a Storage> for AsyncStorage {
-    fn from(storage: &'a Storage) -> Self {
-        Self {
-            storage: storage.clone(),
-            runtime: tokio::runtime::Handle::current(),
-        }
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async.
+    pub fn to_blocking(&self) -> Storage {
+        self.storage.clone()
+    }
+
+    /// Returns a reference to this instance's blocking version, which is able
+    /// to be used without async.
+    pub fn as_blocking(&self) -> &Storage {
+        &self.storage
     }
 }
 
 impl<'a> From<&'a AsyncStorage> for Storage {
     fn from(storage: &'a AsyncStorage) -> Self {
-        storage.storage.clone()
+        storage.to_blocking()
     }
 }
 
 impl From<AsyncStorage> for Storage {
     fn from(storage: AsyncStorage) -> Self {
-        storage.storage
+        storage.into_blocking()
     }
 }
 
@@ -210,52 +230,115 @@ impl StorageNonBlocking for AsyncStorage {
 }
 
 /// A database stored in BonsaiDb. This type is designed for use with
-/// [Tokio](https://tokio.rs). For non-asynchronous code, see the [`Database`]
-/// type instead. This type can be converted using [`std::convert::From`].
+/// [Tokio](https://tokio.rs). For blocking (non-asynchronous) code, see the
+/// [`Database`] type instead.
+///
+/// ## Converting between Async and Blocking Types
+///
+/// [`AsyncDatabase`] and [`Database`] can be converted to and from each other
+/// using:
+///
+/// - [`AsyncDatabase::into_blocking()`]
+/// - [`AsyncDatabase::to_blocking()`]
+/// - [`AsyncDatabase::as_blocking()`]
+/// - [`Database::into_async()`]
+/// - [`Database::to_async()`]
+/// - [`Database::into_async_with_runtime()`]
+/// - [`Database::to_async_with_runtime()`]
+///
+/// ## Using `Database` to create a single database
+///
+/// `Database`provides an easy mechanism to open and access a single database:
+///
+/// ```rust
+/// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_local::core`.
+/// use bonsaidb_core::schema::Collection;
+/// // `bonsaidb_local` is re-exported to `bonsaidb::local` if using the omnibus crate.
+/// use bonsaidb_local::{
+///     config::{Builder, StorageConfiguration},
+///     AsyncDatabase,
+/// };
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Debug, Serialize, Deserialize, Collection)]
+/// #[collection(name = "blog-posts")]
+/// # #[collection(core = bonsaidb_core)]
+/// struct BlogPost {
+///     pub title: String,
+///     pub contents: String,
+/// }
+///
+/// # async fn test_fn() -> Result<(), bonsaidb_core::Error> {
+/// let db = AsyncDatabase::open::<BlogPost>(StorageConfiguration::new("my-db.bonsaidb")).await?;
+/// #     Ok(())
+/// # }
+/// ```
+///
+/// Under the hood, this initializes a [`AsyncStorage`] instance pointing at
+/// "./my-db.bonsaidb". It then returns (or creates) a database named "default"
+/// with the schema `BlogPost`.
+///
+/// In this example, `BlogPost` implements the
+/// [`Collection`](schema::Collection) trait, and all collections can be used as
+/// a [`Schema`].
 #[derive(Debug, Clone)]
 pub struct AsyncDatabase {
     pub(crate) database: Database,
-    runtime: tokio::runtime::Handle,
+    pub(crate) runtime: tokio::runtime::Handle,
 }
 
 impl AsyncDatabase {
     /// Creates a `Storage` with a single-database named "default" with its data stored at `path`.
     pub async fn open<DB: Schema>(configuration: StorageConfiguration) -> Result<Self, Error> {
-        tokio::task::spawn_blocking(move || Database::open::<DB>(configuration))
-            .await?
-            .map(Self::from)
+        tokio::task::spawn_blocking(move || {
+            Database::open::<DB>(configuration).map(Database::into_async)
+        })
+        .await?
     }
 
     /// Restricts an unauthenticated instance to having `effective_permissions`.
     /// Returns `None` if a session has already been established.
+    #[must_use]
     pub fn with_effective_permissions(&self, effective_permissions: Permissions) -> Option<Self> {
         self.database
             .with_effective_permissions(effective_permissions)
-            .map(Self::from)
+            .map(|database| Self {
+                database,
+                runtime: self.runtime.clone(),
+            })
     }
-}
 
-impl From<Database> for AsyncDatabase {
-    fn from(database: Database) -> Self {
-        Self {
-            database,
-            runtime: tokio::runtime::Handle::current(),
-        }
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async.
+    #[must_use]
+    pub fn into_blocking(self) -> Database {
+        self.database
+    }
+
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async.
+    #[must_use]
+    pub fn to_blocking(&self) -> Database {
+        self.database.clone()
+    }
+
+    /// Returns a reference to this instance's blocking version, which is able
+    /// to be used without async.
+    #[must_use]
+    pub fn as_blocking(&self) -> &Database {
+        &self.database
     }
 }
 
 impl From<AsyncDatabase> for Database {
     fn from(database: AsyncDatabase) -> Self {
-        database.database
+        database.into_blocking()
     }
 }
 
-impl<'a> From<&'a Database> for AsyncDatabase {
-    fn from(database: &'a Database) -> Self {
-        Self {
-            database: database.clone(),
-            runtime: tokio::runtime::Handle::current(),
-        }
+impl<'a> From<&'a AsyncDatabase> for Database {
+    fn from(database: &'a AsyncDatabase) -> Self {
+        database.to_blocking()
     }
 }
 
@@ -272,12 +355,12 @@ impl AsyncStorageConnection for AsyncStorage {
 
     async fn admin(&self) -> Self::Database {
         let task_self = self.clone();
-        AsyncDatabase::from(
-            self.runtime
-                .spawn_blocking(move || task_self.storage.admin())
-                .await
-                .unwrap(),
-        )
+
+        self.runtime
+            .spawn_blocking(move || task_self.storage.admin())
+            .await
+            .unwrap()
+            .into_async()
     }
 
     fn session(&self) -> Option<&Session> {
@@ -312,10 +395,14 @@ impl AsyncStorageConnection for AsyncStorage {
         let task_self = self.clone();
         let name = name.to_owned();
         self.runtime
-            .spawn_blocking(move || task_self.storage.database::<DB>(&name))
+            .spawn_blocking(move || {
+                task_self
+                    .storage
+                    .database::<DB>(&name)
+                    .map(Database::into_async)
+            })
             .await
             .map_err(Error::from)?
-            .map(AsyncDatabase::from)
     }
 
     async fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
@@ -391,7 +478,7 @@ impl AsyncStorageConnection for AsyncStorage {
                 task_self
                     .storage
                     .authenticate(user, authentication)
-                    .map(Self::from)
+                    .map(Storage::into_async)
             })
             .await
             .map_err(Error::from)?
@@ -404,7 +491,12 @@ impl AsyncStorageConnection for AsyncStorage {
         let task_self = self.clone();
         let identity = identity.into_owned();
         self.runtime
-            .spawn_blocking(move || task_self.storage.assume_identity(identity).map(Self::from))
+            .spawn_blocking(move || {
+                task_self
+                    .storage
+                    .assume_identity(identity)
+                    .map(Storage::into_async)
+            })
             .await
             .map_err(Error::from)?
     }
@@ -495,7 +587,10 @@ impl AsyncConnection for AsyncDatabase {
     type Storage = AsyncStorage;
 
     fn storage(&self) -> Self::Storage {
-        AsyncStorage::from(self.database.storage())
+        AsyncStorage {
+            storage: self.database.storage(),
+            runtime: self.runtime.clone(),
+        }
     }
 
     #[cfg_attr(

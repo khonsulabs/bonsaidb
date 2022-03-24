@@ -85,9 +85,8 @@ impl<B: Backend> ServerConfiguration<B> {
         self
     }
 
-    /// Registers a `dispatcher` for a [`Api`]. When a [`Request::Api`] is
-    /// received for this [`Api`], the dispatcher will be invoked with the
-    /// incoming request.
+    /// Registers a `handler` for a [`Api`][api::Api]. When an [`Api`][api::Api] is
+    /// received by the server, the handler will be invoked
     pub fn register_custom_api<Dispatcher: Handler<B, Api> + 'static, Api: api::Api>(
         &mut self,
     ) -> Result<(), Error> {

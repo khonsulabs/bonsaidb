@@ -65,7 +65,22 @@ mod backup;
 mod pubsub;
 pub use backup::{AnyBackupLocation, BackupLocation};
 
-/// A file-based, multi-database, multi-user database engine.
+/// A file-based, multi-database, multi-user database engine. This type blocks
+/// the current thread when used. See [`AsyncDatabase`] for this type's async
+/// counterpart.
+///
+/// ## Converting between Blocking and Async Types
+///
+/// [`AsyncDatabase`] and [`Database`] can be converted to and from each other
+/// using:
+///
+/// - [`AsyncStorage::into_blocking()`](crate::AsyncStorage::into_blocking)
+/// - [`AsyncStorage::to_blocking()`](crate::AsyncStorage::to_blocking)
+/// - [`AsyncStorage::as_blocking()`](crate::AsyncStorage::as_blocking)
+/// - [`Storage::into_async()`]
+/// - [`Storage::to_async()`]
+/// - [`Storage::into_async_with_runtime()`]
+/// - [`Storage::to_async_with_runtime()`]
 ///
 /// ## Converting from `Database::open` to `Storage::open`
 ///
@@ -544,6 +559,49 @@ impl Storage {
                 }),
             })
         }
+    }
+
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async. The returned instance uses the current Tokio runtime
+    /// handle to spawn blocking tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called outside the context of a Tokio runtime.
+    #[cfg(feature = "async")]
+    pub fn into_async(self) -> crate::AsyncStorage {
+        self.into_async_with_runtime(tokio::runtime::Handle::current())
+    }
+
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async. The returned instance uses the provided runtime
+    /// handle to spawn blocking tasks.
+    #[cfg(feature = "async")]
+    pub fn into_async_with_runtime(self, runtime: tokio::runtime::Handle) -> crate::AsyncStorage {
+        crate::AsyncStorage {
+            storage: self,
+            runtime,
+        }
+    }
+
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async. The returned instance uses the current Tokio runtime
+    /// handle to spawn blocking tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called outside the context of a Tokio runtime.
+    #[cfg(feature = "async")]
+    pub fn to_async(&self) -> crate::AsyncStorage {
+        self.clone().into_async()
+    }
+
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async. The returned instance uses the provided runtime
+    /// handle to spawn blocking tasks.
+    #[cfg(feature = "async")]
+    pub fn to_async_with_runtime(&self, runtime: tokio::runtime::Handle) -> crate::AsyncStorage {
+        self.clone().into_async_with_runtime(runtime)
     }
 }
 

@@ -32,8 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `tokio::task::spawn_blocking()` to wrap calls to the database in an async
     API. New types, `AsyncDatabase` and `AsyncStorage` have been added that
     provide the previous behavior. The types can be converted between each other
-    using the `From` trait, or helpers that allow providing the Tokio runtime
-    handle.
+    using helpers as/into/to_blocking/async available on each type.
   - For `bonsaidb-server`, it still uses networking driven by Tokio.
     `Server`/`CustomServer` implement `AsyncStorageConnection`, and `Server` can
     convert to `Storage` via the `From` trait for synchronous database access.
@@ -124,6 +123,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Key` is now implemented for `[u8; N]`.
 - [221][221]: `headers()` has been as a function to all collection list
   builders, enabling querying just the headers of a document.
+- `Transaction` now has `apply()` and `apply_async()`, which the higher-level
+  API to `LowLevelConnection::apply_transaction`.
 
 [221]: https://github.com/khonsulabs/bonsaidb/pull/221
 

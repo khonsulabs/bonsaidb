@@ -73,7 +73,21 @@ pub mod keyvalue;
 pub(crate) mod compat;
 pub mod pubsub;
 
-/// A local, file-based database.
+/// A database stored in BonsaiDb. This type blocks the current thread when
+/// used. See [`AsyncDatabase`] for this type's async counterpart.
+///
+/// ## Converting between Blocking and Async Types
+///
+/// [`AsyncDatabase`] and [`Database`] can be converted to and from each other
+/// using:
+///
+/// - [`AsyncDatabase::into_blocking()`](crate::AsyncDatabase::into_blocking)
+/// - [`AsyncDatabase::to_blocking()`](crate::AsyncDatabase::to_blocking)
+/// - [`AsyncDatabase::as_blocking()`](crate::AsyncDatabase::as_blocking)
+/// - [`Database::into_async()`]
+/// - [`Database::to_async()`]
+/// - [`Database::into_async_with_runtime()`]
+/// - [`Database::to_async_with_runtime()`]
 ///
 /// ## Using `Database` to create a single database
 ///
@@ -107,7 +121,7 @@ pub mod pubsub;
 /// "./my-db.bonsaidb". It then returns (or creates) a database named "default"
 /// with the schema `BlogPost`.
 ///
-/// In this example, `BlogPost` implements the [`Collection`] trait, and all
+/// In this example, `BlogPost` implements the [`Collection`](schema::Collection) trait, and all
 /// collections can be used as a [`Schema`].
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -816,6 +830,53 @@ impl Database {
         self.data
             .context
             .update_key_expiration(tree_key, expiration);
+    }
+
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async. The returned instance uses the current Tokio runtime
+    /// handle to spawn blocking tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called outside the context of a Tokio runtime.
+    #[cfg(feature = "async")]
+    #[must_use]
+    pub fn into_async(self) -> crate::AsyncDatabase {
+        self.into_async_with_runtime(tokio::runtime::Handle::current())
+    }
+
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async. The returned instance uses the provided runtime
+    /// handle to spawn blocking tasks.
+    #[cfg(feature = "async")]
+    #[must_use]
+    pub fn into_async_with_runtime(self, runtime: tokio::runtime::Handle) -> crate::AsyncDatabase {
+        crate::AsyncDatabase {
+            database: self,
+            runtime,
+        }
+    }
+
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async. The returned instance uses the current Tokio runtime
+    /// handle to spawn blocking tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called outside the context of a Tokio runtime.
+    #[cfg(feature = "async")]
+    #[must_use]
+    pub fn to_async(&self) -> crate::AsyncDatabase {
+        self.clone().into_async()
+    }
+
+    /// Converts this instance into its blocking version, which is able to be
+    /// used without async. The returned instance uses the provided runtime
+    /// handle to spawn blocking tasks.
+    #[cfg(feature = "async")]
+    #[must_use]
+    pub fn to_async_with_runtime(&self, runtime: tokio::runtime::Handle) -> crate::AsyncDatabase {
+        self.clone().into_async_with_runtime(runtime)
     }
 }
 #[derive(Serialize, Deserialize)]
