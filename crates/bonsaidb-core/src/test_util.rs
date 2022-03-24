@@ -2938,6 +2938,8 @@ macro_rules! define_blocking_kv_test_suite {
         #[cfg(test)]
         mod blocking_kv {
             use super::$harness;
+
+            #[test]
             fn basic_kv_test() -> anyhow::Result<()> {
                 use $crate::keyvalue::{KeyStatus, KeyValue};
                 let harness = $harness::new($crate::test_util::HarnessTest::KvBasic)?;
@@ -2971,6 +2973,7 @@ macro_rules! define_blocking_kv_test_suite {
                 Ok(())
             }
 
+            #[test]
             fn kv_concurrency() -> anyhow::Result<()> {
                 use $crate::keyvalue::{KeyStatus, KeyValue};
                 const WRITERS: usize = 100;
@@ -3002,6 +3005,7 @@ macro_rules! define_blocking_kv_test_suite {
                 Ok(())
             }
 
+            #[test]
             fn kv_set_tests() -> anyhow::Result<()> {
                 use $crate::keyvalue::{KeyStatus, KeyValue};
                 let harness = $harness::new($crate::test_util::HarnessTest::KvSet)?;
@@ -3034,6 +3038,7 @@ macro_rules! define_blocking_kv_test_suite {
                 Ok(())
             }
 
+            #[test]
             fn kv_increment_decrement_tests() -> anyhow::Result<()> {
                 use $crate::keyvalue::{KeyStatus, KeyValue};
                 let harness = $harness::new($crate::test_util::HarnessTest::KvIncrementDecrement)?;
@@ -3198,6 +3203,7 @@ macro_rules! define_blocking_kv_test_suite {
                 Ok(())
             }
 
+            #[test]
             fn kv_expiration_tests() -> anyhow::Result<()> {
                 use std::time::Duration;
 
@@ -3275,6 +3281,7 @@ macro_rules! define_blocking_kv_test_suite {
                 Ok(())
             }
 
+            #[test]
             fn delete_expire_tests() -> anyhow::Result<()> {
                 use std::time::Duration;
 
