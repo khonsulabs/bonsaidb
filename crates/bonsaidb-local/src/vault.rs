@@ -58,7 +58,6 @@ use std::{
     sync::Arc,
 };
 
-use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     document::KeyId,
@@ -391,7 +390,6 @@ impl Vault {
 }
 
 /// Stores encrypted keys for a vault.
-#[async_trait]
 pub trait VaultKeyStorage: Send + Sync + Debug + 'static {
     /// The error type that the functions return.
     type Error: Display;
@@ -497,7 +495,6 @@ impl Debug for EncryptionKey {
 /// A [`VaultKeyStorage`] trait that wraps the Error type before returning. This
 /// type is used to allow the Vault to operate without any generic parameters.
 /// This trait is auto-implemented for all [`VaultKeyStorage`] implementors.
-#[async_trait]
 pub trait AnyVaultKeyStorage: Send + Sync + Debug + 'static {
     /// Retrieve all previously stored master keys for a given storage id.
     fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<KeyPair>, Error>;
@@ -570,7 +567,6 @@ pub enum LocalVaultKeyStorageError {
     InvalidFile,
 }
 
-#[async_trait]
 impl VaultKeyStorage for LocalVaultKeyStorage {
     type Error = LocalVaultKeyStorageError;
 
@@ -644,7 +640,6 @@ mod tests {
 
     #[derive(Debug)]
     struct NullKeyStorage;
-    #[async_trait]
     impl VaultKeyStorage for NullKeyStorage {
         type Error = anyhow::Error;
 

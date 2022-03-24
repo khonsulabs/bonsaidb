@@ -451,19 +451,19 @@ fn container_folder(
 #[cfg(test)]
 mod tests {
     use bonsaidb_core::{
-        connection::{AsyncConnection as _, AsyncStorageConnection as _},
-        keyvalue::AsyncKeyValue,
+        connection::{Connection as _, StorageConnection as _},
+        keyvalue::KeyValue,
         schema::SerializedCollection,
         test_util::{Basic, TestDirectory},
     };
 
     use crate::{
         config::{Builder, KeyValuePersistence, PersistenceThreshold, StorageConfiguration},
-        AsyncStorage,
+        Storage,
     };
 
-    #[tokio::test]
-    async fn backup_restore() -> anyhow::Result<()> {
+    #[test]
+    fn backup_restore() -> anyhow::Result<()> {
         let backup_destination = TestDirectory::new("backup-restore.bonsaidb.backup");
 
         // First, create a database that we'll be restoring. `TestDirectory`
@@ -471,55 +471,41 @@ mod tests {
         // which is why we're creating a nested scope here.
         let test_doc = {
             let database_directory = TestDirectory::new("backup-restore.bonsaidb");
-            let storage = AsyncStorage::open(
+            let storage = Storage::open(
                 StorageConfiguration::new(&database_directory)
                     .key_value_persistence(KeyValuePersistence::lazy([
                         PersistenceThreshold::after_changes(2),
                     ]))
                     .with_schema::<Basic>()?,
-            )
-            .await?;
+            )?;
 
-            let db = storage.create_database::<Basic>("basic", false).await?;
-            let test_doc = db
-                .collection::<Basic>()
-                .push(&Basic::new("somevalue"))
-                .await?;
-            db.set_numeric_key("key1", 1_u64).await?;
-            db.set_numeric_key("key2", 2_u64).await?;
+            let db = storage.create_database::<Basic>("basic", false)?;
+            let test_doc = db.collection::<Basic>().push(&Basic::new("somevalue"))?;
+            db.set_numeric_key("key1", 1_u64).execute()?;
+            db.set_numeric_key("key2", 2_u64).execute()?;
             // This key will not be persisted right away.
-            db.set_numeric_key("key3", 3_u64).await?;
+            db.set_numeric_key("key3", 3_u64).execute()?;
 
-            storage.backup(backup_destination.0.clone()).await.unwrap();
+            storage.backup(&backup_destination.0).unwrap();
 
             test_doc
         };
 
         // `backup_destination` now contains an export of the database, time to try loading it:
         let database_directory = TestDirectory::new("backup-restore.bonsaidb");
-        let restored_storage = AsyncStorage::open(
-            StorageConfiguration::new(&database_directory).with_schema::<Basic>()?,
-        )
-        .await?;
-        restored_storage
-            .restore(backup_destination.0.clone())
-            .await
-            .unwrap();
+        let restored_storage =
+            Storage::open(StorageConfiguration::new(&database_directory).with_schema::<Basic>()?)?;
+        restored_storage.restore(&backup_destination.0).unwrap();
 
-        let db = restored_storage.database::<Basic>("basic").await?;
-        let doc = Basic::get_async(test_doc.id, &db)
-            .await?
-            .expect("Backed up document.not found");
+        let db = restored_storage.database::<Basic>("basic")?;
+        let doc = Basic::get(test_doc.id, &db)?.expect("Backed up document.not found");
         assert_eq!(doc.contents.value, "somevalue");
-        assert_eq!(db.get_key("key1").into_u64().await?, Some(1));
-        assert_eq!(db.get_key("key2").into_u64().await?, Some(2));
-        assert_eq!(db.get_key("key3").into_u64().await?, Some(3));
+        assert_eq!(db.get_key("key1").into_u64()?, Some(1));
+        assert_eq!(db.get_key("key2").into_u64()?, Some(2));
+        assert_eq!(db.get_key("key3").into_u64()?, Some(3));
 
         // Calling restore again should generate an error.
-        assert!(restored_storage
-            .restore(backup_destination.0.clone())
-            .await
-            .is_err());
+        assert!(restored_storage.restore(&backup_destination.0).is_err());
 
         Ok(())
     }

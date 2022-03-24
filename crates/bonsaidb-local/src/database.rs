@@ -85,7 +85,7 @@ pub mod pubsub;
 /// // `bonsaidb_local` is re-exported to `bonsaidb::local` if using the omnibus crate.
 /// use bonsaidb_local::{
 ///     config::{Builder, StorageConfiguration},
-///     AsyncDatabase,
+///     Database,
 /// };
 /// use serde::{Deserialize, Serialize};
 ///
@@ -97,9 +97,9 @@ pub mod pubsub;
 ///     pub contents: String,
 /// }
 ///
-/// # async fn test_fn() -> Result<(), bonsaidb_core::Error> {
-/// let db = AsyncDatabase::open::<BlogPost>(StorageConfiguration::new("my-db.bonsaidb")).await?;
-/// #     Ok(())
+/// # fn test() -> Result<(), bonsaidb_local::Error> {
+/// let db = Database::open::<BlogPost>(StorageConfiguration::new("my-db.bonsaidb"))?;
+/// # Ok(())
 /// # }
 /// ```
 ///

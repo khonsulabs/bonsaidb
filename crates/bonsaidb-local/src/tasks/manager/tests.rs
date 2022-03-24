@@ -1,14 +1,11 @@
 use std::{convert::Infallible, fmt::Debug, hash::Hash};
 
-use async_trait::async_trait;
-
 use super::Manager;
 use crate::tasks::{Job, Keyed};
 
 #[derive(Debug)]
 struct Echo<T>(T);
 
-#[async_trait]
 impl<T> Job for Echo<T>
 where
     T: Clone + Eq + Hash + Debug + Send + Sync + 'static,
