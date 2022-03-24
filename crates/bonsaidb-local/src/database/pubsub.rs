@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 pub use bonsaidb_core::circulate::Relay;
 use bonsaidb_core::{
     arc_bytes::OwnedBytes,
@@ -85,7 +84,6 @@ impl Drop for Subscriber {
     }
 }
 
-#[async_trait]
 impl pubsub::Subscriber for Subscriber {
     fn subscribe_to_bytes(&self, topic: Vec<u8>) -> Result<(), Error> {
         self.database.check_permission(

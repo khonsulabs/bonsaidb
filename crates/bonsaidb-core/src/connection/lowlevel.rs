@@ -603,7 +603,7 @@ pub trait LowLevelConnection {
 /// This trait's methods are not designed for ergonomics. See
 /// [`AsyncConnection`](super::AsyncConnection) for a higher-level interface.
 #[async_trait]
-pub trait AsyncLowLevelConnection {
+pub trait AsyncLowLevelConnection: Send + Sync {
     /// Returns the schema for the database.
     fn schematic(&self) -> &Schematic;
 

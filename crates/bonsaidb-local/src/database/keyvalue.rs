@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use async_trait::async_trait;
 use bonsaidb_core::{
     connection::Connection,
     keyvalue::{
@@ -63,7 +62,6 @@ impl Entry {
     }
 }
 
-#[async_trait]
 impl KeyValue for Database {
     fn execute_key_operation(&self, op: KeyOperation) -> Result<Output, bonsaidb_core::Error> {
         self.check_permission(
@@ -826,7 +824,6 @@ impl Keyed<Task> for ExpirationLoader {
     }
 }
 
-#[async_trait]
 impl Job for ExpirationLoader {
     type Output = ();
     type Error = Error;

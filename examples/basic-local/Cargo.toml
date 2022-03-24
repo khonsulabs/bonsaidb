@@ -4,8 +4,15 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
+[[example]]
+name = "view-examples-async"
+required-features = ["async"]
+
+[features]
+async = ["tokio", "bonsaidb/local-async"]
+
 [dependencies]
-tokio = { version = "1.16.1", features = ["full"] }
+tokio = { version = "1.16.1", features = ["full"], optional = true }
 serde = { version = "1", features = ["derive"] }
 bonsaidb = { path = "../../crates/bonsaidb", version = "0.3.0", features = [
     "local",

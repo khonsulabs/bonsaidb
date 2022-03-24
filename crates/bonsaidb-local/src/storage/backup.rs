@@ -4,7 +4,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use async_trait::async_trait;
 use bonsaidb_core::{
     admin,
     connection::{LowLevelConnection, Range, Sort, StorageConnection},
@@ -192,7 +191,6 @@ impl Storage {
     }
 }
 
-#[async_trait]
 pub trait AnyBackupLocation: Send + Sync {
     fn store(
         &self,
@@ -223,7 +221,6 @@ pub trait AnyBackupLocation: Send + Sync {
     ) -> Result<Vec<u8>, Error>;
 }
 
-#[async_trait]
 impl<L, E> AnyBackupLocation for L
 where
     L: BackupLocation<Error = E>,

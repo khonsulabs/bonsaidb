@@ -1,7 +1,5 @@
 use std::fmt::Debug;
 
-use async_trait::async_trait;
-
 use crate::tasks::{handle::Id, manager::Manager, traits::Executable, Job};
 
 #[derive(Debug)]
@@ -12,7 +10,6 @@ pub struct ManagedJob<J, Key> {
     pub key: Option<Key>,
 }
 
-#[async_trait]
 impl<J, Key> Executable for ManagedJob<J, Key>
 where
     J: Job,

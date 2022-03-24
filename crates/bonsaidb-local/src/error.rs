@@ -57,12 +57,13 @@ pub enum Error {
     Core(#[from] bonsaidb_core::Error),
 
     /// A tokio task failed to execute.
+    #[cfg(feature = "async")]
     #[error("a concurrency error ocurred: {0}")]
     TaskJoin(#[from] tokio::task::JoinError),
 
-    /// A tokio task failed to execute.
+    /// An io error occurred.
     #[error("an IO error occurred: {0}")]
-    Io(#[from] tokio::io::Error),
+    Io(#[from] std::io::Error),
 
     /// An error occurred from a job and couldn't be unwrapped due to clones.
     #[error("an error from a job occurred: {0}")]
@@ -128,12 +129,14 @@ impl From<argon2::password_hash::Error> for Error {
     }
 }
 
+#[cfg(feature = "async")]
 impl From<tokio::sync::oneshot::error::RecvError> for Error {
     fn from(_: tokio::sync::oneshot::error::RecvError) -> Self {
         Self::InternalCommunication
     }
 }
 
+#[cfg(feature = "async")]
 impl From<tokio::sync::oneshot::error::TryRecvError> for Error {
     fn from(_: tokio::sync::oneshot::error::TryRecvError) -> Self {
         Self::InternalCommunication

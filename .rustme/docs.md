@@ -92,6 +92,7 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 - `local-full`: Enables all the flags below
 - `local`: Enables the [`local`]($bonsaidb-docs$/local/) module, which re-exports the crate
   `bonsaidb-local`.
+- `local-async`: Enables async support with Tokio.
 - `local-cli`: Enables the `clap` structures for embedding database
   management commands into your own command-line interface.
 - `local-compression`: Enables support for compressed storage using lz4.

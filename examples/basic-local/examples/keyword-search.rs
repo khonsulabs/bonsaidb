@@ -14,13 +14,13 @@ use std::{str::Chars, time::SystemTime};
 
 use bonsaidb::{
     core::{
-        connection::AsyncConnection,
+        connection::Connection,
         document::{CollectionDocument, Emit},
         schema::{Collection, CollectionViewSchema, SerializedCollection, View, ViewMapResult},
     },
     local::{
         config::{Builder, StorageConfiguration},
-        AsyncDatabase,
+        Database,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -66,26 +66,17 @@ impl CollectionViewSchema for MessagesByWords {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), bonsaidb::core::Error> {
-    let db = AsyncDatabase::open::<Message>(StorageConfiguration::new("keyword-search.bonsaidb"))
-        .await?;
+fn main() -> Result<(), bonsaidb::core::Error> {
+    let db = Database::open::<Message>(StorageConfiguration::new("keyword-search.bonsaidb"))?;
 
-    Message::new("Groceries", "Can you pick up some milk on the way home?")
-        .push_into_async(&db)
-        .await?;
-    Message::new("Re: Groceries", "2% milk? How are our eggs?")
-        .push_into_async(&db)
-        .await?;
-    Message::new("Re: Groceries", "Yes. We could use another dozen eggs.")
-        .push_into_async(&db)
-        .await?;
+    Message::new("Groceries", "Can you pick up some milk on the way home?").push_into(&db)?;
+    Message::new("Re: Groceries", "2% milk? How are our eggs?").push_into(&db)?;
+    Message::new("Re: Groceries", "Yes. We could use another dozen eggs.").push_into(&db)?;
 
     for result in &db
         .view::<MessagesByWords>()
         .with_key(String::from("eggs"))
-        .query_with_collection_docs()
-        .await?
+        .query_with_collection_docs()?
     {
         println!(
             "Contained `eggs` in field {} : {:?}",
@@ -96,8 +87,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     for message in db
         .view::<MessagesByWords>()
         .with_key_prefix(String::from("doz"))
-        .query_with_collection_docs()
-        .await?
+        .query_with_collection_docs()?
         .documents
     {
         println!("Contained a word starting with `doz`: {message:?}");

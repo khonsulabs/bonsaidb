@@ -2,6 +2,7 @@ use arc_bytes::serde::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    connection::{AsyncLowLevelConnection, LowLevelConnection},
     document::{CollectionHeader, DocumentId, Header},
     schema::{CollectionName, SerializedCollection},
     Error,
@@ -32,6 +33,26 @@ impl Transaction {
     pub fn with(mut self, operation: Operation) -> Self {
         self.push(operation);
         self
+    }
+
+    /// Applies the transaction to the `database`, returning the results of the
+    /// operations. All operations will succeed or none will be performed and an
+    /// error will be returned.
+    pub fn apply<Connection: LowLevelConnection>(
+        self,
+        db: &Connection,
+    ) -> Result<Vec<OperationResult>, Error> {
+        db.apply_transaction(self)
+    }
+
+    /// Applies the transaction to the `database`, returning the results of the
+    /// operations. All operations will succeed or none will be performed and an
+    /// error will be returned.
+    pub async fn apply_async<Connection: AsyncLowLevelConnection>(
+        self,
+        db: &Connection,
+    ) -> Result<Vec<OperationResult>, Error> {
+        db.apply_transaction(self).await
     }
 }
 

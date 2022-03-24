@@ -71,20 +71,16 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
 After you have your collection(s) and view(s) defined, you can open up a database and insert documents:
 
 ```rust,ignore
-let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
+let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb"))?;
 
 // Insert a new document into the Shape collection.
-Shape { sides: 3 }.push_into(&db).await?;
+Shape { sides: 3 }.push_into(&db)?;
 ```
 
 And query data using the Map-Reduce-powered view:
 
 ```rust,ignore
-let triangles = db
-    .view::<ShapesByNumberOfSides>()
-    .with_key(3)
-    .query()
-    .await?;
+let triangles = db.view::<ShapesByNumberOfSides>().with_key(3).query()?;
 println!("Number of triangles: {}", triangles.len());
 ```
 
@@ -128,12 +124,12 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 - `local-full`: Enables all the flags below
 - `local`: Enables the [`local`](https://dev.bonsaidb.io/main/docs/bonsaidb/local/) module, which re-exports the crate
   `bonsaidb-local`.
+- `local-async`: Enables async support with Tokio.
 - `local-cli`: Enables the `clap` structures for embedding database
   management commands into your own command-line interface.
 - `local-compression`: Enables support for compressed storage using lz4.
 - `local-encryption`: Enables at-rest encryption.
 - `local-instrument`: Enables instrumenting with `tracing`.
-- `local-multiuser`: Enables multi-user support.
 - `local-password-hashing`: Enables the ability to use password authentication
   using Argon2.
 

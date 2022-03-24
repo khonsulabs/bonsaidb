@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 
-use async_trait::async_trait;
 use bonsaidb_core::{connection::Connection, schema::CollectionName};
 use nebari::tree::{Root, Unversioned, Versioned};
 
@@ -82,7 +81,6 @@ impl Target {
     }
 }
 
-#[async_trait]
 impl Job for Compactor {
     type Output = ();
 

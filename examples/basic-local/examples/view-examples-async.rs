@@ -1,6 +1,6 @@
 use bonsaidb::{
     core::{
-        connection::Connection,
+        connection::AsyncConnection,
         document::{CollectionDocument, Emit},
         schema::{
             view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection, View,
@@ -9,7 +9,7 @@ use bonsaidb::{
     },
     local::{
         config::{Builder, StorageConfiguration},
-        Database,
+        AsyncDatabase,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -44,12 +44,14 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
 }
 // end rustme snippet
 
-fn main() -> Result<(), bonsaidb::core::Error> {
+#[tokio::main]
+async fn main() -> Result<(), bonsaidb::core::Error> {
     // begin rustme snippet: snippet-b
-    let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb"))?;
+    let db =
+        AsyncDatabase::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
 
     // Insert a new document into the Shape collection.
-    Shape { sides: 3 }.push_into(&db)?;
+    Shape { sides: 3 }.push_into_async(&db).await?;
     // end rustme snippet
 
     // Views in BonsaiDb are written using a Map/Reduce approach. In this
@@ -58,16 +60,20 @@ fn main() -> Result<(), bonsaidb::core::Error> {
     //
     // Let's start by seeding the database with some shapes of various sizes:
     for sides in 3..=20 {
-        Shape { sides }.push_into(&db)?;
+        Shape { sides }.push_into_async(&db).await?;
     }
 
     // And, let's add a few shapes with the same number of sides
-    Shape { sides: 3 }.push_into(&db)?;
-    Shape { sides: 4 }.push_into(&db)?;
+    Shape { sides: 3 }.push_into_async(&db).await?;
+    Shape { sides: 4 }.push_into_async(&db).await?;
 
     // At this point, our database should have 3 triangles:
     // begin rustme snippet: snippet-c
-    let triangles = db.view::<ShapesByNumberOfSides>().with_key(3).query()?;
+    let triangles = db
+        .view::<ShapesByNumberOfSides>()
+        .with_key(3)
+        .query()
+        .await?;
     println!("Number of triangles: {}", triangles.len());
     // end rustme snippet
 
@@ -79,7 +85,8 @@ fn main() -> Result<(), bonsaidb::core::Error> {
     for entry in &db
         .view::<ShapesByNumberOfSides>()
         .with_key(3)
-        .query_with_collection_docs()?
+        .query_with_collection_docs()
+        .await?
     {
         println!(
             "Shape ID {} has {} sides",
@@ -96,7 +103,10 @@ fn main() -> Result<(), bonsaidb::core::Error> {
     // So, here we're using reduce() to count the number of shapes with 4 sides.
     println!(
         "Number of quads: {} (expected 2)",
-        db.view::<ShapesByNumberOfSides>().with_key(4).reduce()?
+        db.view::<ShapesByNumberOfSides>()
+            .with_key(4)
+            .reduce()
+            .await?
     );
 
     // Or, 5 shapes that are triangles or quads
@@ -104,7 +114,8 @@ fn main() -> Result<(), bonsaidb::core::Error> {
         "Number of quads and triangles: {} (expected 5)",
         db.view::<ShapesByNumberOfSides>()
             .with_keys([3, 4])
-            .reduce()?
+            .reduce()
+            .await?
     );
 
     // And, 10 shapes that have more than 10 sides
@@ -112,7 +123,8 @@ fn main() -> Result<(), bonsaidb::core::Error> {
         "Number of shapes with more than 10 sides: {} (expected 10)",
         db.view::<ShapesByNumberOfSides>()
             .with_key_range(11..u32::MAX)
-            .reduce()?
+            .reduce()
+            .await?
     );
 
     Ok(())

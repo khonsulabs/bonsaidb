@@ -49,6 +49,7 @@ bonsaidb-core = { path = "../bonsaidb-core", version = "=0.3.0", default-feature
 ] }
 bonsaidb-local = { path = "../bonsaidb-local", version = "=0.3.0", default-features = false, features = [
     "internal-apis",
+    "async",
 ] }
 bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.3.0" }
 serde = { version = "1", features = ["derive"] }

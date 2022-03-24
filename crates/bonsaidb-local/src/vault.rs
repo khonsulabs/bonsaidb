@@ -559,7 +559,7 @@ impl LocalVaultKeyStorage {
 pub enum LocalVaultKeyStorageError {
     /// An error interacting with the filesystem.
     #[error("io error: {0}")]
-    Io(#[from] tokio::io::Error),
+    Io(#[from] std::io::Error),
 
     /// An error serializing or deserializing the keys.
     #[error("serialization error: {0}")]
