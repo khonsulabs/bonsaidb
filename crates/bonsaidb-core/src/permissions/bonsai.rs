@@ -174,7 +174,7 @@ pub enum DocumentAction {
     /// names.
     List,
     /// Allows listing documents through
-    /// [`Connection::list_headers()`](crate::connection::Connection::list_headers). See
+    /// [`Connection::list_headers()`](crate::connection::LowLevelConnection::list_headers). See
     /// [`collection_resource_name()`] for the format of collection resource
     /// names.
     ListHeaders,

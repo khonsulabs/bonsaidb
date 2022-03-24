@@ -66,13 +66,13 @@ mod pubsub;
 pub use backup::{AnyBackupLocation, BackupLocation};
 
 /// A file-based, multi-database, multi-user database engine. This type blocks
-/// the current thread when used. See [`AsyncDatabase`] for this type's async
-/// counterpart.
+/// the current thread when used. See [`AsyncStorage`](crate::AsyncStorage) for
+/// this type's async counterpart.
 ///
 /// ## Converting between Blocking and Async Types
 ///
-/// [`AsyncDatabase`] and [`Database`] can be converted to and from each other
-/// using:
+/// [`AsyncStorage`](crate::AsyncStorage) and [`Storage`] can be converted to
+/// and from each other using:
 ///
 /// - [`AsyncStorage::into_blocking()`](crate::AsyncStorage::into_blocking)
 /// - [`AsyncStorage::to_blocking()`](crate::AsyncStorage::to_blocking)

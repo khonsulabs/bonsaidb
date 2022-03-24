@@ -74,11 +74,11 @@ pub(crate) mod compat;
 pub mod pubsub;
 
 /// A database stored in BonsaiDb. This type blocks the current thread when
-/// used. See [`AsyncDatabase`] for this type's async counterpart.
+/// used. See [`AsyncDatabase`](crate::AsyncDatabase) for this type's async counterpart.
 ///
 /// ## Converting between Blocking and Async Types
 ///
-/// [`AsyncDatabase`] and [`Database`] can be converted to and from each other
+/// [`AsyncDatabase`](crate::AsyncDatabase) and [`Database`] can be converted to and from each other
 /// using:
 ///
 /// - [`AsyncDatabase::into_blocking()`](crate::AsyncDatabase::into_blocking)

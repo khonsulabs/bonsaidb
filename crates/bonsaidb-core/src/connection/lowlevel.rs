@@ -199,10 +199,10 @@ pub trait LowLevelConnection {
     /// This is the lower-level API. For better ergonomics, consider using one
     /// of:
     ///
-    /// - [`SerializedCollection::all_async().headers()`](schema::AsyncList::headers)
-    /// - [`self.collection::<Collection>().all().headers()`](super::AsyncList::headers)
-    /// - [`SerializedCollection::list_async().headers()`](schema::AsyncList::headers)
-    /// - [`self.collection::<Collection>().list().headers()`](super::AsyncList::headers)
+    /// - [`SerializedCollection::all_async().headers()`](schema::List::headers)
+    /// - [`self.collection::<Collection>().all().headers()`](super::List::headers)
+    /// - [`SerializedCollection::list_async().headers()`](schema::List::headers)
+    /// - [`self.collection::<Collection>().list().headers()`](super::List::headers)
     fn list_headers<C, R, PrimaryKey>(
         &self,
         ids: R,
@@ -479,9 +479,9 @@ pub trait LowLevelConnection {
     ///
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
-    /// - [`SerializedCollection::all_async()`]
-    /// - [`self.collection::<Collection>().all()`](super::AsyncCollection::all)
-    /// - [`SerializedCollection::list_async()`]
+    /// - [`SerializedCollection::all().headers()`](schema::List::headers)
+    /// - [`self.collection::<Collection>().all().headers()`](super::AsyncCollection::all)
+    /// - [`SerializedCollection::list().headers()`](schema::List::headers)
     /// - [`self.collection::<Collection>().list()`](super::AsyncCollection::list)
     fn list_headers_from_collection(
         &self,
@@ -783,10 +783,10 @@ pub trait AsyncLowLevelConnection: Send + Sync {
     /// This is the lower-level API. For better ergonomics, consider using one
     /// of:
     ///
-    /// - [`SerializedCollection::all()`]
-    /// - [`self.collection::<Collection>().all()`](Collection::all)
-    /// - [`SerializedCollection::list_headers()`]
-    /// - [`self.collection::<Collection>().list_headers()`](Collection::list_headers)
+    /// - [`SerializedCollection::all_async().headers()`](schema::AsyncList::headers)
+    /// - [`self.collection::<Collection>().all()`](super::AsyncList::headers)
+    /// - [`SerializedCollection::list_async().headers()`](schema::AsyncList::headers)
+    /// - [`self.collection::<Collection>().list().headers()`](super::AsyncList::headers)
     async fn list_headers<C, R, PrimaryKey>(
         &self,
         ids: R,
@@ -1069,7 +1069,7 @@ pub trait AsyncLowLevelConnection: Send + Sync {
     ///
     /// - [`SerializedCollection::all().headers()`](schema::List::headers)
     /// - [`self.collection::<Collection>().all().headers()`](super::List::headers)
-    /// - [`SerializedCollection::list()`](schema::List::headers)
+    /// - [`SerializedCollection::list().headers()`](schema::List::headers)
     /// - [`self.collection::<Collection>().list().headers()`](super::List::headers)
     async fn list_from_collection(
         &self,
@@ -1084,10 +1084,10 @@ pub trait AsyncLowLevelConnection: Send + Sync {
     ///
     /// This is a lower-level API. For better ergonomics, consider using one of:
     ///
-    /// - [`SerializedCollection::all().headers()`](schema::List::headers)
-    /// - [`self.collection::<Collection>().all().headers()`](super::List::headers)
-    /// - [`SerializedCollection::list()`](schema::List::headers)
-    /// - [`self.collection::<Collection>().list().headers()`](super::List::headers)
+    /// - [`SerializedCollection::all().headers()`](schema::AsyncList::headers)
+    /// - [`self.collection::<Collection>().all().headers()`](super::AsyncList::headers)
+    /// - [`SerializedCollection::list().headers()`](schema::AsyncList::headers)
+    /// - [`self.collection::<Collection>().list().headers()`](super::AsyncList::headers)
     async fn list_headers_from_collection(
         &self,
         ids: Range<DocumentId>,

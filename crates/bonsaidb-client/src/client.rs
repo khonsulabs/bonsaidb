@@ -141,8 +141,9 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 ///
 /// ## Using a `Api`
 ///
-/// Our user guide has a [section on creating and using a
-/// `Api`](https://dev.bonsaidb.io/release/guide/about/access-models/custom-api-server.html).
+/// Our user guide has a [section on creating and
+/// using](https://dev.bonsaidb.io/release/guide/about/access-models/custom-api-server.html)
+/// an [`Api`](api::Api).
 ///
 /// ```rust
 /// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
@@ -178,8 +179,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// ### Receiving out-of-band messages from the server
 ///
 /// If the server sends a message that isn't in response to a request, the
-/// client will invoke it's [custom api
-/// callback](Builder::with_custom_api_callback):
+/// client will invoke it's [api callback](Builder::with_api_callback):
 ///
 /// ```rust
 /// # use bonsaidb_client::{Client, ApiCallback, fabruic::Certificate, url::Url};
