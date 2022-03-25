@@ -5,8 +5,8 @@ use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     connection::{
         self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
-        Connection, IdentityReference, LowLevelConnection, QueryKey, Range, Session, Sort,
-        StorageConnection,
+        Connection, HasSession, IdentityReference, LowLevelConnection, QueryKey, Range, Session,
+        Sort, StorageConnection,
     },
     document::{DocumentId, Header, OwnedDocument},
     keyvalue::{AsyncKeyValue, KeyOperation, KeyValue, Output},
@@ -348,6 +348,12 @@ impl DatabaseNonBlocking for AsyncDatabase {
     }
 }
 
+impl HasSession for AsyncStorage {
+    fn session(&self) -> Option<&Session> {
+        self.storage.session()
+    }
+}
+
 #[async_trait]
 impl AsyncStorageConnection for AsyncStorage {
     type Database = AsyncDatabase;
@@ -361,10 +367,6 @@ impl AsyncStorageConnection for AsyncStorage {
             .await
             .unwrap()
             .into_async()
-    }
-
-    fn session(&self) -> Option<&Session> {
-        self.storage.session()
     }
 
     async fn create_database_with_schema(
@@ -579,6 +581,12 @@ impl AsyncStorageConnection for AsyncStorage {
             .spawn_blocking(move || task_self.storage.remove_role_from_user(user, role))
             .await
             .map_err(Error::from)?
+    }
+}
+
+impl HasSession for AsyncDatabase {
+    fn session(&self) -> Option<&Session> {
+        self.database.session()
     }
 }
 

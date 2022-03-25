@@ -15,8 +15,8 @@ use bonsaidb_core::{
         ArcBytes,
     },
     connection::{
-        self, AccessPolicy, Connection, LowLevelConnection, QueryKey, Range, Session, Sort,
-        StorageConnection,
+        self, AccessPolicy, Connection, HasSession, LowLevelConnection, QueryKey, Range, Session,
+        Sort, StorageConnection,
     },
     document::{BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
     key::Key,
@@ -28,7 +28,7 @@ use bonsaidb_core::{
             kv_resource_name, view_resource_name, BonsaiAction, DatabaseAction, DocumentAction,
             TransactionAction, ViewAction,
         },
-        Action, Identifier, Permissions,
+        Permissions,
     },
     schema::{
         self,
@@ -208,21 +208,6 @@ impl Database {
 
     pub(crate) fn roots(&self) -> &'_ nebari::Roots<AnyFile> {
         &self.data.context.roots
-    }
-
-    fn check_permission<'a, R: AsRef<[Identifier<'a>]>, P: Action>(
-        &self,
-        resource_name: R,
-        action: &P,
-    ) -> Result<(), Error> {
-        self.session().map_or_else(
-            || Ok(()),
-            |session| {
-                session
-                    .check_permission(resource_name, action)
-                    .map_err(Error::from)
-            },
-        )
     }
 
     fn for_each_in_view<F: FnMut(ViewEntry) -> Result<(), bonsaidb_core::Error> + Send + Sync>(
@@ -913,15 +898,17 @@ fn serialize_document(document: &BorrowedDocument<'_>) -> Result<Vec<u8>, bonsai
         .map_err(bonsaidb_core::Error::from)
 }
 
+impl HasSession for Database {
+    fn session(&self) -> Option<&Session> {
+        self.storage.session()
+    }
+}
+
 impl Connection for Database {
     type Storage = Storage;
 
     fn storage(&self) -> Self::Storage {
         self.storage.clone()
-    }
-
-    fn session(&self) -> Option<&Session> {
-        self.storage.session()
     }
 
     fn list_executed_transactions(

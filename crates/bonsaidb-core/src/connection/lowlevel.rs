@@ -5,7 +5,7 @@ use async_trait::async_trait;
 
 use super::GroupedReductions;
 use crate::{
-    connection::{AccessPolicy, QueryKey, Range, Sort, ViewMappings},
+    connection::{AccessPolicy, HasSession, QueryKey, Range, Sort, ViewMappings},
     document::{
         AnyDocumentId, CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader,
         Header, OwnedDocument,
@@ -31,7 +31,7 @@ use crate::{
 ///
 /// This trait's methods are not designed for ergonomics. See
 /// [`Connection`](super::Connection) for a higher-level interface.
-pub trait LowLevelConnection {
+pub trait LowLevelConnection: HasSession {
     /// Returns the schema for the database.
     fn schematic(&self) -> &Schematic;
 
@@ -603,7 +603,7 @@ pub trait LowLevelConnection {
 /// This trait's methods are not designed for ergonomics. See
 /// [`AsyncConnection`](super::AsyncConnection) for a higher-level interface.
 #[async_trait]
-pub trait AsyncLowLevelConnection: Send + Sync {
+pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// Returns the schema for the database.
     fn schematic(&self) -> &Schematic;
 

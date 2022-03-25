@@ -6,7 +6,7 @@ use std::{
 };
 
 use bonsaidb_core::{
-    connection::Connection,
+    connection::{Connection, HasSession},
     keyvalue::{
         Command, KeyCheck, KeyOperation, KeyStatus, KeyValue, Numeric, Output, SetCommand,
         Timestamp, Value,

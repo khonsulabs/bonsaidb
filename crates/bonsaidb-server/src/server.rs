@@ -20,7 +20,8 @@ use bonsaidb_core::{
     api::{self, ApiResult},
     arc_bytes::serde::Bytes,
     connection::{
-        self, AsyncConnection, AsyncStorageConnection, IdentityReference, Session, SessionId,
+        self, AsyncConnection, AsyncStorageConnection, HasSession, IdentityReference, Session,
+        SessionId,
     },
     networking::{self, Payload, CURRENT_PROTOCOL_VERSION},
     permissions::{
@@ -799,14 +800,16 @@ impl<B: Backend> ClientRequest<B> {
     }
 }
 
+impl<B: Backend> HasSession for CustomServer<B> {
+    fn session(&self) -> Option<&Session> {
+        self.storage.session()
+    }
+}
+
 #[async_trait]
 impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
     type Database = ServerDatabase<B>;
     type Authenticated = Self;
-
-    fn session(&self) -> Option<&Session> {
-        self.storage.session()
-    }
 
     async fn admin(&self) -> Self::Database {
         self.database::<Admin>(ADMIN_DATABASE_NAME).await.unwrap()

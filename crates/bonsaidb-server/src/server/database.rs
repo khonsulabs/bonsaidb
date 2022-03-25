@@ -3,7 +3,7 @@ use std::ops::Deref;
 use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
-    connection::{AccessPolicy, AsyncLowLevelConnection, QueryKey, Range, Sort},
+    connection::{AccessPolicy, AsyncLowLevelConnection, HasSession, QueryKey, Range, Sort},
     document::{DocumentId, Header, OwnedDocument},
     keyvalue::AsyncKeyValue,
     permissions::Permissions,
@@ -81,6 +81,12 @@ impl<B: Backend> AsyncPubSub for ServerDatabase<B> {
         payload: Vec<u8>,
     ) -> Result<(), bonsaidb_core::Error> {
         self.db.publish_bytes_to_all(topics, payload).await
+    }
+}
+
+impl<B: Backend> HasSession for ServerDatabase<B> {
+    fn session(&self) -> Option<&bonsaidb_core::connection::Session> {
+        self.server.session()
     }
 }
 

@@ -18,7 +18,7 @@ use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
     api::{self, Api},
     arc_bytes::{serde::Bytes, OwnedBytes},
-    connection::{AsyncStorageConnection, Database, IdentityReference, Session},
+    connection::{AsyncStorageConnection, Database, HasSession, IdentityReference, Session},
     networking::{
         AlterUserPermissionGroupMembership, AlterUserRoleMembership, AssumeIdentity,
         CreateDatabase, CreateUser, DeleteDatabase, DeleteUser, ListAvailableSchemas,
@@ -585,14 +585,16 @@ impl Client {
     }
 }
 
+impl HasSession for Client {
+    fn session(&self) -> Option<&Session> {
+        Some(&self.session)
+    }
+}
+
 #[async_trait]
 impl AsyncStorageConnection for Client {
     type Database = RemoteDatabase;
     type Authenticated = Self;
-
-    fn session(&self) -> Option<&Session> {
-        Some(&self.session)
-    }
 
     async fn admin(&self) -> Self::Database {
         self.database::<Admin>(ADMIN_DATABASE_NAME).unwrap()

@@ -2,7 +2,7 @@ pub use bonsaidb_core::circulate::Relay;
 use bonsaidb_core::{
     arc_bytes::OwnedBytes,
     circulate,
-    connection::Connection,
+    connection::{Connection, HasSession},
     permissions::bonsai::{
         database_resource_name, pubsub_topic_resource_name, BonsaiAction, DatabaseAction,
         PubSubAction,

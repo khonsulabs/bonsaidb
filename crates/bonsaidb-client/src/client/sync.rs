@@ -2,8 +2,7 @@ use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
     arc_bytes::serde::Bytes,
     connection::{
-        AsyncStorageConnection, Connection, Database, IdentityReference, LowLevelConnection, Range,
-        Sort, StorageConnection,
+        Connection, Database, IdentityReference, LowLevelConnection, Range, Sort, StorageConnection,
     },
     document::{DocumentId, Header, OwnedDocument},
     keyvalue::KeyValue,
@@ -30,10 +29,6 @@ use crate::{Client, RemoteDatabase, RemoteSubscriber};
 impl StorageConnection for Client {
     type Database = RemoteDatabase;
     type Authenticated = Self;
-
-    fn session(&self) -> Option<&bonsaidb_core::connection::Session> {
-        AsyncStorageConnection::session(self)
-    }
 
     fn admin(&self) -> Self::Database {
         self.database::<Admin>(ADMIN_DATABASE_NAME).unwrap()
@@ -215,10 +210,6 @@ impl Connection for RemoteDatabase {
 
     fn storage(&self) -> Self::Storage {
         self.client.clone()
-    }
-
-    fn session(&self) -> Option<&bonsaidb_core::connection::Session> {
-        Some(&self.session)
     }
 
     fn list_executed_transactions(

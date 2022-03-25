@@ -6,7 +6,7 @@ use bonsaidb_core::{
     async_trait::async_trait,
     connection::{
         self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
-        IdentityReference, QueryKey, Range, Session, Sort,
+        HasSession, IdentityReference, QueryKey, Range, Session, Sort,
     },
     document::{DocumentId, Header, OwnedDocument},
     schema::{
@@ -25,17 +25,19 @@ pub enum AnyServerConnection<B: Backend> {
     Networked(Client),
 }
 
-#[async_trait]
-impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
-    type Database = AnyDatabase<B>;
-    type Authenticated = Self;
-
+impl<B: Backend> HasSession for AnyServerConnection<B> {
     fn session(&self) -> Option<&Session> {
         match self {
             Self::Local(server) => server.session(),
             Self::Networked(client) => client.session(),
         }
     }
+}
+
+#[async_trait]
+impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
+    type Database = AnyDatabase<B>;
+    type Authenticated = Self;
 
     async fn admin(&self) -> Self::Database {
         match self {
@@ -243,6 +245,15 @@ pub enum AnyDatabase<B: Backend = NoBackend> {
     Local(ServerDatabase<B>),
     /// A networked database accessed with a [`Client`].
     Networked(RemoteDatabase),
+}
+
+impl<B: Backend> HasSession for AnyDatabase<B> {
+    fn session(&self) -> Option<&Session> {
+        match self {
+            Self::Local(server) => server.session(),
+            Self::Networked(client) => client.session(),
+        }
+    }
 }
 
 #[async_trait]

@@ -23,9 +23,13 @@ use crate::{
     Error,
 };
 
+mod has_session;
 mod lowlevel;
 
-pub use lowlevel::{AsyncLowLevelConnection, LowLevelConnection};
+pub use self::{
+    has_session::HasSession,
+    lowlevel::{AsyncLowLevelConnection, LowLevelConnection},
+};
 
 /// A connection to a database's [`Schema`](schema::Schema), giving access to
 /// [`Collection`s](crate::schema::Collection) and
@@ -38,9 +42,6 @@ pub trait Connection: LowLevelConnection + Sized + Send + Sync {
 
     /// Returns the [`StorageConnection`] implementor that this database belongs to.
     fn storage(&self) -> Self::Storage;
-
-    /// Returns the currently authenticated session, if any.
-    fn session(&self) -> Option<&Session>;
 
     /// Accesses a collection for the connected [`Schema`](schema::Schema).
     fn collection<C: schema::Collection>(&self) -> Collection<'_, Self, C> {
@@ -2442,14 +2443,11 @@ pub enum AccessPolicy {
 
 /// Functions for interacting with a multi-database BonsaiDb instance.
 #[async_trait]
-pub trait StorageConnection: Sized + Send + Sync {
+pub trait StorageConnection: HasSession + Sized + Send + Sync {
     /// The type that represents a database for this implementation.
     type Database: Connection;
     /// The [`StorageConnection`] type returned from authentication calls.
     type Authenticated: StorageConnection;
-
-    /// Returns the currently authenticated session, if any.
-    fn session(&self) -> Option<&Session>;
 
     /// Returns the administration database.
     fn admin(&self) -> Self::Database;
@@ -2591,14 +2589,11 @@ pub trait StorageConnection: Sized + Send + Sync {
 
 /// Functions for interacting with a multi-database BonsaiDb instance.
 #[async_trait]
-pub trait AsyncStorageConnection: Sized + Send + Sync {
+pub trait AsyncStorageConnection: HasSession + Sized + Send + Sync {
     /// The type that represents a database for this implementation.
     type Database: AsyncConnection;
     /// The [`StorageConnection`] type returned from authentication calls.
     type Authenticated: AsyncStorageConnection;
-
-    /// Returns the currently authenticated session, if any.
-    fn session(&self) -> Option<&Session>;
 
     /// Returns the currently authenticated session, if any.
     async fn admin(&self) -> Self::Database;

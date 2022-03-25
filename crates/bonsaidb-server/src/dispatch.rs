@@ -3,7 +3,7 @@ use bonsaidb_core::networking::{Authenticate, SetUserPassword};
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     async_trait::async_trait,
-    connection::{AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection},
+    connection::{AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection, HasSession},
     keyvalue::AsyncKeyValue,
     networking::{
         AlterUserPermissionGroupMembership, AlterUserRoleMembership, ApplyTransaction,

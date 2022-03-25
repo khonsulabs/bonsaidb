@@ -21,8 +21,8 @@ use bonsaidb_core::{
     },
     circulate,
     connection::{
-        self, Connection, Identity, IdentityReference, LowLevelConnection, Session, SessionId,
-        StorageConnection,
+        self, Connection, HasSession, Identity, IdentityReference, LowLevelConnection, Session,
+        SessionId, StorageConnection,
     },
     document::CollectionDocument,
     permissions::{
@@ -30,7 +30,7 @@ use bonsaidb_core::{
             bonsaidb_resource_name, database_resource_name, user_resource_name, BonsaiAction,
             ServerAction,
         },
-        Action, Identifier, Permissions,
+        Permissions,
     },
     schema::{Nameable, NamedCollection, Schema, SchemaName, Schematic},
 };
@@ -527,21 +527,6 @@ impl Storage {
         }
     }
 
-    fn check_permission<'a, R: AsRef<[Identifier<'a>]>, P: Action>(
-        &self,
-        resource_name: R,
-        action: &P,
-    ) -> Result<(), Error> {
-        self.session().map_or_else(
-            || Ok(()),
-            |session| {
-                session
-                    .check_permission(resource_name, action)
-                    .map_err(Error::from)
-            },
-        )
-    }
-
     /// Restricts an unauthenticated instance to having `effective_permissions`.
     /// Returns `None` if a session has already been established.
     #[must_use]
@@ -853,13 +838,15 @@ where
     }
 }
 
-impl StorageConnection for StorageInstance {
-    type Database = Database;
-    type Authenticated = Storage;
-
+impl HasSession for StorageInstance {
     fn session(&self) -> Option<&Session> {
         None
     }
+}
+
+impl StorageConnection for StorageInstance {
+    type Database = Database;
+    type Authenticated = Storage;
 
     fn admin(&self) -> Self::Database {
         Database::new::<Admin, _>(
@@ -1103,13 +1090,15 @@ impl StorageConnection for StorageInstance {
     }
 }
 
-impl StorageConnection for Storage {
-    type Database = Database;
-    type Authenticated = Self;
-
+impl HasSession for Storage {
     fn session(&self) -> Option<&Session> {
         self.effective_session.as_ref()
     }
+}
+
+impl StorageConnection for Storage {
+    type Database = Database;
+    type Authenticated = Self;
 
     fn admin(&self) -> Self::Database {
         self.instance.admin()

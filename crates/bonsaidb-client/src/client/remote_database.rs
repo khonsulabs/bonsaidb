@@ -3,7 +3,10 @@ use std::{ops::Deref, sync::Arc};
 use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
-    connection::{AccessPolicy, AsyncConnection, AsyncLowLevelConnection, QueryKey, Range, Sort},
+    connection::{
+        AccessPolicy, AsyncConnection, AsyncLowLevelConnection, HasSession, QueryKey, Range,
+        Session, Sort,
+    },
     document::{DocumentId, Header, OwnedDocument},
     networking::{
         ApplyTransaction, Compact, CompactCollection, CompactKeyValueStore, Count, DeleteDocs, Get,
@@ -51,6 +54,12 @@ impl RemoteDatabase {
             name: Arc::new(name),
             schema,
         }
+    }
+}
+
+impl HasSession for RemoteDatabase {
+    fn session(&self) -> Option<&Session> {
+        Some(&self.session)
     }
 }
 
