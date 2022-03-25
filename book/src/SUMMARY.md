@@ -18,6 +18,7 @@
 # Integration
 
 - [Overview](./integration/overview.md)
+- [Async vs Blocking](./integration/async.md)
 - [Local](./integration/local.md)
 - [Networked](./integration/server.md)
 - [Clustered (upcoming)](./integration/cluster.md)
