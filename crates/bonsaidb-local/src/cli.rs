@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Subcommand;
 
-use crate::{config::StorageConfiguration, AsyncStorage, Error, Storage};
+use crate::{config::StorageConfiguration, Error, Storage};
 
 /// Commands operating on local database storage.
 #[derive(Subcommand, Debug)]
@@ -41,7 +41,8 @@ impl StorageCommand {
     }
 
     /// Executes the command on `storage`.
-    pub async fn execute_on_async(&self, storage: &AsyncStorage) -> Result<(), Error> {
+    #[cfg(feature = "async")]
+    pub async fn execute_on_async(&self, storage: &crate::AsyncStorage) -> Result<(), Error> {
         match self {
             StorageCommand::Backup(location) => location.backup_async(storage).await,
             StorageCommand::Restore(location) => location.restore_async(storage).await,
@@ -64,14 +65,16 @@ impl Location {
         }
     }
     /// Backs-up `storage` to `self`.
-    pub async fn backup_async(&self, storage: &AsyncStorage) -> Result<(), Error> {
+    #[cfg(feature = "async")]
+    pub async fn backup_async(&self, storage: &crate::AsyncStorage) -> Result<(), Error> {
         match self {
             Location::Path { path } => storage.backup(path.clone()).await,
         }
     }
 
     /// Restores `storage` from `self`.
-    pub async fn restore_async(&self, storage: &AsyncStorage) -> Result<(), Error> {
+    #[cfg(feature = "async")]
+    pub async fn restore_async(&self, storage: &crate::AsyncStorage) -> Result<(), Error> {
         match self {
             Location::Path { path } => storage.restore(path.clone()).await,
         }
