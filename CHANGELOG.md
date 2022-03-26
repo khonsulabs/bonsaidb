@@ -104,6 +104,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   match the `CustomServer` being created. In general the Rust compiler should be
   able to infer this type based on usage, and therefore shouldn't be a breaking
   change to many people.
+- `Key` has had its encoding functionality moved to a new trait, `KeyEncoding`.
+  `KeyEncoding` has been implemented for borrowed representations of `Key`
+  types.
+
+  This change allows all view query and collection access to utilize borrowed
+  versions of their key types. For example, if a View's `Key` type is `String`,
+  it is now possible to query the view using an `&str` parameter.
   
 ### Added
 

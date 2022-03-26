@@ -18,7 +18,10 @@ use crate::{connection::Range, AnyError};
 
 /// A trait that enables a type to convert itself into a `memcmp`-compatible
 /// sequence of bytes.
-pub trait Key<'k>: Clone + std::fmt::Debug + Send + Sync {
+pub trait KeyEncoding<'k, K>: std::fmt::Debug + Send + Sync
+where
+    K: Key<'k>,
+{
     /// The error type that can be produced by either serialization or
     /// deserialization.
     type Error: AnyError;
@@ -31,9 +34,13 @@ pub trait Key<'k>: Clone + std::fmt::Debug + Send + Sync {
     /// compared via `memcmp` in a way that is comptaible with its own Ord
     /// implementation.
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error>;
+}
 
+/// A trait that enables a type to convert itself into a `memcmp`-compatible
+/// sequence of bytes.
+pub trait Key<'k>: KeyEncoding<'k, Self> + Clone + std::fmt::Debug + Send + Sync {
     /// Deserialize a sequence of bytes previously encoded with
-    /// [`Self::as_ord_bytes`].
+    /// [`KeyEncoding::as_ord_bytes`].
     fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error>;
 
     /// Return the first value in sequence for this type. Not all types
@@ -46,6 +53,19 @@ pub trait Key<'k>: Clone + std::fmt::Debug + Send + Sync {
     /// this. Instead of wrapping/overflowing, None should be returned.
     fn next_value(&self) -> Result<Self, NextValueError> {
         Err(NextValueError::Unsupported)
+    }
+}
+
+impl<'a, 'k, K> KeyEncoding<'k, K> for &'a K
+where
+    K: Key<'k>,
+{
+    type Error = K::Error;
+
+    const LENGTH: Option<usize> = K::LENGTH;
+
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+        (*self).as_ord_bytes()
     }
 }
 
@@ -82,6 +102,12 @@ fn next_byte_sequence(start: &[u8]) -> Option<Vec<u8>> {
 }
 
 impl<'k> Key<'k> for Cow<'k, [u8]> {
+    fn from_ord_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Cow::Owned(bytes.to_vec()))
+    }
+}
+
+impl<'k> KeyEncoding<'k, Self> for Cow<'k, [u8]> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
@@ -89,11 +115,23 @@ impl<'k> Key<'k> for Cow<'k, [u8]> {
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(self.clone())
     }
-
-    fn from_ord_bytes(bytes: &[u8]) -> Result<Self, Self::Error> {
-        Ok(Cow::Owned(bytes.to_vec()))
-    }
 }
+
+macro_rules! impl_u8_slice_key_encoding {
+    ($type:ty) => {
+        impl<'a, 'k> KeyEncoding<'k, $type> for &'a [u8] {
+            type Error = Infallible;
+
+            const LENGTH: Option<usize> = None;
+
+            fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+                Ok(Cow::Borrowed(self))
+            }
+        }
+    };
+}
+
+impl_u8_slice_key_encoding!(Cow<'k, [u8]>);
 
 impl<'k> IntoPrefixRange for Cow<'k, [u8]> {
     fn into_prefix_range(self) -> Range<Self> {
@@ -123,6 +161,12 @@ fn cow_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for Vec<u8> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Ok(bytes.to_vec())
+    }
+}
+
+impl<'a> KeyEncoding<'a, Self> for Vec<u8> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
@@ -130,11 +174,9 @@ impl<'a> Key<'a> for Vec<u8> {
     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
-
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Ok(bytes.to_vec())
-    }
 }
+
+impl_u8_slice_key_encoding!(Vec<u8>);
 
 impl<'k> IntoPrefixRange for Vec<u8> {
     fn into_prefix_range(self) -> Range<Self> {
@@ -147,14 +189,6 @@ impl<'k> IntoPrefixRange for Vec<u8> {
 }
 
 impl<'a, const N: usize> Key<'a> for [u8; N] {
-    type Error = IncorrectByteLength;
-
-    const LENGTH: Option<usize> = Some(N);
-
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
-        Ok(Cow::Borrowed(self))
-    }
-
     fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         if bytes.len() == N {
             let mut array = [0; N];
@@ -163,6 +197,16 @@ impl<'a, const N: usize> Key<'a> for [u8; N] {
         } else {
             Err(IncorrectByteLength)
         }
+    }
+}
+
+impl<'a, const N: usize> KeyEncoding<'a, Self> for [u8; N] {
+    type Error = IncorrectByteLength;
+
+    const LENGTH: Option<usize> = Some(N);
+
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+        Ok(Cow::Borrowed(self))
     }
 }
 
@@ -182,6 +226,12 @@ fn vec_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for ArcBytes<'a> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Ok(Self::from(bytes))
+    }
+}
+
+impl<'a> KeyEncoding<'a, Self> for ArcBytes<'a> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
@@ -189,11 +239,9 @@ impl<'a> Key<'a> for ArcBytes<'a> {
     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
-
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Ok(Self::from(bytes))
-    }
 }
+
+impl_u8_slice_key_encoding!(ArcBytes<'k>);
 
 impl<'k> IntoPrefixRange for ArcBytes<'k> {
     fn into_prefix_range(self) -> Range<Self> {
@@ -223,6 +271,12 @@ fn arcbytes_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for CowBytes<'a> {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Ok(Self::from(bytes))
+    }
+}
+
+impl<'a> KeyEncoding<'a, Self> for CowBytes<'a> {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
@@ -230,11 +284,9 @@ impl<'a> Key<'a> for CowBytes<'a> {
     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(self.0.clone())
     }
-
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Ok(Self::from(bytes))
-    }
 }
+
+impl_u8_slice_key_encoding!(CowBytes<'k>);
 
 impl<'k> IntoPrefixRange for CowBytes<'k> {
     fn into_prefix_range(self) -> Range<Self> {
@@ -264,6 +316,12 @@ fn cowbytes_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for Bytes {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Ok(Self::from(bytes))
+    }
+}
+
+impl<'a> KeyEncoding<'a, Self> for Bytes {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = None;
@@ -271,11 +329,9 @@ impl<'a> Key<'a> for Bytes {
     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self))
     }
-
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Ok(Self::from(bytes))
-    }
 }
+
+impl_u8_slice_key_encoding!(Bytes);
 
 impl IntoPrefixRange for Bytes {
     fn into_prefix_range(self) -> Range<Self> {
@@ -305,6 +361,12 @@ fn bytes_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for String {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Self::from_utf8(bytes.to_vec())
+    }
+}
+
+impl<'a> KeyEncoding<'a, Self> for String {
     type Error = FromUtf8Error;
 
     const LENGTH: Option<usize> = None;
@@ -312,9 +374,15 @@ impl<'a> Key<'a> for String {
     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
+}
 
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        Self::from_utf8(bytes.to_vec())
+impl<'a, 'k> KeyEncoding<'k, String> for &'a str {
+    type Error = FromUtf8Error;
+
+    const LENGTH: Option<usize> = None;
+
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+        Ok(Cow::Borrowed(self.as_bytes()))
     }
 }
 
@@ -368,6 +436,12 @@ fn string_prefix_range_tests() {
 }
 
 impl<'a> Key<'a> for () {
+    fn from_ord_bytes(_: &'a [u8]) -> Result<Self, Self::Error> {
+        Ok(())
+    }
+}
+
+impl<'a> KeyEncoding<'a, Self> for () {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = Some(0);
@@ -375,13 +449,19 @@ impl<'a> Key<'a> for () {
     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         Ok(Cow::default())
     }
-
-    fn from_ord_bytes(_: &'a [u8]) -> Result<Self, Self::Error> {
-        Ok(())
-    }
 }
 
 impl<'a> Key<'a> for bool {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        if bytes.is_empty() || bytes[0] == 0 {
+            Ok(false)
+        } else {
+            Ok(true)
+        }
+    }
+}
+
+impl<'a> KeyEncoding<'a, Self> for bool {
     type Error = Infallible;
 
     const LENGTH: Option<usize> = Some(1);
@@ -393,19 +473,28 @@ impl<'a> Key<'a> for bool {
             Ok(Cow::Borrowed(&[0_u8]))
         }
     }
-
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        if bytes.is_empty() || bytes[0] == 0 {
-            Ok(false)
-        } else {
-            Ok(true)
-        }
-    }
 }
 
 macro_rules! impl_key_for_tuple {
     ($(($index:tt, $varname:ident, $generic:ident)),+) => {
         impl<'a, $($generic),+> Key<'a> for ($($generic),+)
+        where
+            $($generic: Key<'a>),+
+        {
+            fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+                $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
+
+                if bytes.is_empty() {
+                    Ok(($($varname),+))
+                } else {
+                    Err(CompositeKeyError::new(std::io::Error::from(
+                        ErrorKind::InvalidData,
+                    )))
+                }
+            }
+        }
+
+        impl<'a, $($generic),+> KeyEncoding<'a, Self> for ($($generic),+)
         where
             $($generic: Key<'a>),+
         {
@@ -422,18 +511,6 @@ macro_rules! impl_key_for_tuple {
                 $(encode_composite_field(&self.$index, &mut bytes)?;)+
 
                 Ok(Cow::Owned(bytes))
-            }
-
-            fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-                $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
-
-                if bytes.is_empty() {
-                    Ok(($($varname),+))
-                } else {
-                    Err(CompositeKeyError::new(std::io::Error::from(
-                        ErrorKind::InvalidData,
-                    )))
-                }
             }
         }
     };
@@ -686,14 +763,6 @@ impl From<std::io::Error> for CompositeKeyError {
 }
 
 impl<'a> Key<'a> for Signed {
-    type Error = std::io::Error;
-
-    const LENGTH: Option<usize> = None;
-
-    fn as_ord_bytes(&self) -> Result<Cow<'a, [u8]>, Self::Error> {
-        self.to_variable_vec().map(Cow::Owned)
-    }
-
     fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes)
     }
@@ -711,15 +780,17 @@ impl<'a> Key<'a> for Signed {
     }
 }
 
-impl<'a> Key<'a> for Unsigned {
+impl<'a> KeyEncoding<'a, Self> for Signed {
     type Error = std::io::Error;
 
     const LENGTH: Option<usize> = None;
 
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+    fn as_ord_bytes(&self) -> Result<Cow<'a, [u8]>, Self::Error> {
         self.to_variable_vec().map(Cow::Owned)
     }
+}
 
+impl<'a> Key<'a> for Unsigned {
     fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         Self::decode_variable(bytes)
     }
@@ -737,8 +808,25 @@ impl<'a> Key<'a> for Unsigned {
     }
 }
 
+impl<'a> KeyEncoding<'a, Self> for Unsigned {
+    type Error = std::io::Error;
+
+    const LENGTH: Option<usize> = None;
+
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+        self.to_variable_vec().map(Cow::Owned)
+    }
+}
+
 #[cfg(feature = "uuid")]
 impl<'k> Key<'k> for uuid::Uuid {
+    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+        Ok(Self::from_bytes(bytes.try_into()?))
+    }
+}
+
+#[cfg(feature = "uuid")]
+impl<'k> KeyEncoding<'k, Self> for uuid::Uuid {
     type Error = std::array::TryFromSliceError;
 
     const LENGTH: Option<usize> = Some(16);
@@ -746,15 +834,59 @@ impl<'k> Key<'k> for uuid::Uuid {
     fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
         Ok(Cow::Borrowed(self.as_bytes()))
     }
-
-    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
-        Ok(Self::from_bytes(bytes.try_into()?))
-    }
 }
 
 impl<'a, T> Key<'a> for Option<T>
 where
     T: Key<'a>,
+    Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
+{
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        if bytes.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(T::from_ord_bytes(bytes)?))
+        }
+    }
+
+    fn first_value() -> Result<Self, NextValueError> {
+        Ok(Some(T::first_value()?))
+    }
+
+    fn next_value(&self) -> Result<Self, NextValueError> {
+        self.as_ref().map(T::next_value).transpose()
+    }
+}
+
+// impl<'a, T> KeyEncoding<'a, Self> for Option<T>
+// where
+//     T: KeyEncoding<'a, Self>,
+// {
+//     type Error = T::Error;
+
+//     const LENGTH: Option<usize> = T::LENGTH;
+
+//     /// # Panics
+//     ///
+//     /// Panics if `T::into_big_endian_bytes` returns an empty `IVec`.
+//     // TODO consider removing this panic limitation by adding a single byte to
+//     // each key (at the end preferrably) so that we can distinguish between None
+//     // and a 0-byte type
+//     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+//         if let Some(contents) = self {
+//             let contents = contents.as_ord_bytes()?;
+//             assert!(!contents.is_empty());
+//             Ok(contents)
+//         } else {
+//             Ok(Cow::default())
+//         }
+//     }
+// }
+
+impl<'a, K, T> KeyEncoding<'a, Option<K>> for Option<T>
+where
+    T: KeyEncoding<'a, K>,
+    K: for<'k> Key<'k>,
 {
     type Error = T::Error;
 
@@ -774,22 +906,6 @@ where
         } else {
             Ok(Cow::default())
         }
-    }
-
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        if bytes.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(T::from_ord_bytes(bytes)?))
-        }
-    }
-
-    fn first_value() -> Result<Self, NextValueError> {
-        Ok(Some(T::first_value()?))
-    }
-
-    fn next_value(&self) -> Result<Self, NextValueError> {
-        self.as_ref().map(T::next_value).transpose()
     }
 }
 
@@ -823,6 +939,17 @@ impl<'a, T> Key<'a> for T
 where
     T: EnumKey,
 {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        let primitive = u64::decode_variable(bytes)?;
+        Self::from_u64(primitive)
+            .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, UnknownEnumVariant))
+    }
+}
+
+impl<'a, T> KeyEncoding<'a, Self> for T
+where
+    T: EnumKey,
+{
     type Error = std::io::Error;
     const LENGTH: Option<usize> = None;
 
@@ -833,25 +960,12 @@ where
             .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, IncorrectByteLength))?;
         Ok(Cow::Owned(integer.to_variable_vec()?))
     }
-
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        let primitive = u64::decode_variable(bytes)?;
-        Self::from_u64(primitive)
-            .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, UnknownEnumVariant))
-    }
 }
 // ANCHOR_END: impl_key_for_enumkey
 
 macro_rules! impl_key_for_primitive {
     ($type:ident) => {
         impl<'a> Key<'a> for $type {
-            type Error = IncorrectByteLength;
-            const LENGTH: Option<usize> = Some(std::mem::size_of::<$type>());
-
-            fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
-                Ok(Cow::from(self.to_be_bytes().to_vec()))
-            }
-
             fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
                 Ok($type::from_be_bytes(bytes.try_into()?))
             }
@@ -862,6 +976,14 @@ macro_rules! impl_key_for_primitive {
 
             fn next_value(&self) -> Result<Self, NextValueError> {
                 self.checked_add(1).ok_or(NextValueError::WouldWrap)
+            }
+        }
+        impl<'a> KeyEncoding<'a, Self> for $type {
+            type Error = IncorrectByteLength;
+            const LENGTH: Option<usize> = Some(std::mem::size_of::<$type>());
+
+            fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+                Ok(Cow::from(self.to_be_bytes().to_vec()))
             }
         }
     };

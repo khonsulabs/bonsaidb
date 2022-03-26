@@ -28,7 +28,7 @@ use crate::{
         OperationResult, Plan, ReviewProduct, ShopperPlanConfig,
     },
     plot::{label_to_color, BACKGROUND_COLOR, TEXT_COLOR},
-    utils::{current_timestamp_string, local_git_rev},
+    utils::{current_timestamp_string, format_nanoseconds, local_git_rev},
 };
 
 pub fn execute_plans_for_all_backends(
@@ -407,33 +407,6 @@ impl Metric {
             Metric::RateProduct => "Measures the time spent adding or updating a review of a product by a customer. Each customer can only have one review per product. When this operation is complete, all subsequent calls to LookupProduct and FindProduct should reflect the new rating. This simulates an 'upsert' (insert or update) operation using a unique index.",
             Metric::Checkout => "Measures the time spent converting a shopping cart into an order for a customer."
         }
-    }
-}
-
-fn format_nanoseconds(nanoseconds: f64) -> String {
-    if nanoseconds <= f64::EPSILON {
-        String::from("0s")
-    } else if nanoseconds < 1_000. {
-        format_float(nanoseconds, "ns")
-    } else if nanoseconds < 1_000_000. {
-        format_float(nanoseconds / 1_000., "us")
-    } else if nanoseconds < 1_000_000_000. {
-        format_float(nanoseconds / 1_000_000., "ms")
-    } else if nanoseconds < 1_000_000_000_000. {
-        format_float(nanoseconds / 1_000_000_000., "s")
-    } else {
-        // this hopefully is unreachable...
-        format_float(nanoseconds / 1_000_000_000. / 60., "m")
-    }
-}
-
-fn format_float(value: f64, suffix: &str) -> String {
-    if value < 10. {
-        format!("{:.3}{}", value, suffix)
-    } else if value < 100. {
-        format!("{:.2}{}", value, suffix)
-    } else {
-        format!("{:.1}{}", value, suffix)
     }
 }
 

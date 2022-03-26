@@ -75,7 +75,7 @@ fn main() -> Result<(), bonsaidb::core::Error> {
 
     for result in &db
         .view::<MessagesByWords>()
-        .with_key(String::from("eggs"))
+        .with_key("eggs")
         .query_with_collection_docs()?
     {
         println!(

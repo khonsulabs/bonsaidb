@@ -37,7 +37,7 @@ mod revision;
 pub use self::{
     collection::{CollectionDocument, OwnedDocuments},
     header::{AnyHeader, CollectionHeader, Emit, HasHeader, Header},
-    id::{AnyDocumentId, DocumentId, InvalidHexadecimal},
+    id::{DocumentId, InvalidHexadecimal},
     revision::Revision,
 };
 /// Contains a serialized document in the database.
@@ -70,7 +70,7 @@ where
     type Bytes;
 
     /// Returns the unique key for this document.
-    fn key(&self) -> AnyDocumentId<C::PrimaryKey>;
+    fn id(&self) -> DocumentId;
     /// Returns the header of this document.
     fn header(&self) -> AnyHeader<C::PrimaryKey>;
     /// Sets the header to the new header.
@@ -134,8 +134,8 @@ where
         Ok(self.contents.to_vec())
     }
 
-    fn key(&self) -> AnyDocumentId<C::PrimaryKey> {
-        AnyDocumentId::Serialized(self.header.id)
+    fn id(&self) -> DocumentId {
+        self.header.id
     }
 }
 
@@ -160,8 +160,8 @@ where
         Ok(())
     }
 
-    fn key(&self) -> AnyDocumentId<C::PrimaryKey> {
-        AnyDocumentId::Serialized(self.header.id)
+    fn id(&self) -> DocumentId {
+        self.header.id
     }
 
     fn header(&self) -> AnyHeader<C::PrimaryKey> {

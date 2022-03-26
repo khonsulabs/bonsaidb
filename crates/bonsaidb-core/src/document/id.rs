@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     cmp::Ordering,
     fmt::{Display, Write},
     hash::Hash,
@@ -9,7 +10,7 @@ use std::{
 use actionable::Identifier;
 use serde::{de::Visitor, Deserialize, Serialize};
 
-use crate::key::Key;
+use crate::key::{Key, KeyEncoding};
 
 /// The serialized representation of a document's unique ID.
 #[derive(Clone, Copy)]
@@ -270,7 +271,9 @@ impl DocumentId {
     pub const MAX_LENGTH: usize = 63;
 
     /// Returns a new instance with `value` as the identifier..
-    pub fn new<PrimaryKey: for<'a> Key<'a>>(value: PrimaryKey) -> Result<Self, crate::Error> {
+    pub fn new<PrimaryKey: for<'k> Key<'k>, PrimaryKeyRef: for<'k> KeyEncoding<'k, PrimaryKey>>(
+        value: PrimaryKeyRef,
+    ) -> Result<Self, crate::Error> {
         let bytes = value
             .as_ord_bytes()
             .map_err(|err| crate::Error::Serialization(err.to_string()))?;
@@ -346,46 +349,21 @@ impl<'de> Visitor<'de> for DocumentIdVisitor {
     }
 }
 
-/// A unique id for a document, either serialized or deserialized.
-pub enum AnyDocumentId<PrimaryKey> {
-    /// A serialized id.
-    Serialized(DocumentId),
-    /// A deserialized id.
-    Deserialized(PrimaryKey),
+impl<'k> Key<'k> for DocumentId {
+    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+        Self::try_from(bytes)
+    }
 }
 
-impl<PrimaryKey> AnyDocumentId<PrimaryKey>
+impl<'k, PrimaryKey> KeyEncoding<'k, PrimaryKey> for DocumentId
 where
-    PrimaryKey: for<'k> Key<'k>,
+    PrimaryKey: for<'a> Key<'a>,
 {
-    /// Converts this value to a document id.
-    pub fn to_document_id(&self) -> Result<DocumentId, crate::Error> {
-        match self {
-            Self::Serialized(id) => Ok(*id),
-            Self::Deserialized(key) => DocumentId::new(key.clone()),
-        }
-    }
+    type Error = crate::Error;
 
-    /// Converts this value to the primary key type.
-    pub fn to_primary_key(&self) -> Result<PrimaryKey, crate::Error> {
-        match self {
-            Self::Serialized(id) => id.deserialize::<PrimaryKey>(),
-            Self::Deserialized(key) => Ok(key.clone()),
-        }
-    }
-}
+    const LENGTH: Option<usize> = None;
 
-impl<PrimaryKey> From<PrimaryKey> for AnyDocumentId<PrimaryKey>
-where
-    PrimaryKey: for<'k> Key<'k>,
-{
-    fn from(key: PrimaryKey) -> Self {
-        Self::Deserialized(key)
-    }
-}
-
-impl<PrimaryKey> From<DocumentId> for AnyDocumentId<PrimaryKey> {
-    fn from(id: DocumentId) -> Self {
-        Self::Serialized(id)
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+        Ok(Cow::Borrowed(self))
     }
 }

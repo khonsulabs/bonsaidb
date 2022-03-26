@@ -8,11 +8,8 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use crate::{
-    document::{
-        AnyDocumentId, CollectionDocument, CollectionHeader, Document, HasHeader, Header,
-        OwnedDocument,
-    },
-    key::{IntoPrefixRange, Key},
+    document::{CollectionDocument, CollectionHeader, Document, HasHeader, Header, OwnedDocument},
+    key::{IntoPrefixRange, Key, KeyEncoding},
     permissions::Permissions,
     schema::{
         self,
@@ -49,7 +46,7 @@ pub trait Connection: LowLevelConnection + Sized + Send + Sync {
     }
 
     /// Accesses a [`schema::View`] from this connection.
-    fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V> {
+    fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V, V::Key> {
         View::new(self)
     }
 
@@ -243,7 +240,7 @@ where
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
-        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
     {
         let contents = Cl::serialize(item)?;
         self.connection.insert::<Cl, _, _>(Some(id), contents)
@@ -310,7 +307,7 @@ where
     /// ```
     pub fn overwrite<D: Document<Cl> + Send + Sync>(&self, doc: &mut D) -> Result<(), Error> {
         let contents = doc.bytes()?;
-        doc.set_collection_header(self.connection.overwrite::<Cl, _>(doc.key(), contents)?)
+        doc.set_collection_header(self.connection.overwrite::<Cl, _>(doc.id(), contents)?)
     }
 
     /// Retrieves a `Document<Cl>` with `id` from the connection.
@@ -332,7 +329,7 @@ where
     /// ```
     pub fn get<PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
-        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
     {
         self.connection.get::<Cl, _>(id)
     }
@@ -359,7 +356,7 @@ where
     where
         DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
     {
         self.connection.get_multiple::<Cl, _, _, _>(ids)
     }
@@ -384,15 +381,12 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn list<PrimaryKey, R>(&'a self, ids: R) -> List<'a, Cn, Cl>
+    pub fn list<PrimaryKey, R>(&'a self, ids: R) -> List<'a, Cn, Cl, PrimaryKey>
     where
         R: Into<Range<PrimaryKey>>,
-        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>>,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
     {
-        List::new(
-            PossiblyOwned::Borrowed(self),
-            ids.into().map(PrimaryKey::into),
-        )
+        List::new(PossiblyOwned::Borrowed(self), ids.into())
     }
 
     /// Retrieves all documents with ids that start with `prefix`.
@@ -417,14 +411,11 @@ where
     ///         .query()
     /// }
     /// ```
-    pub fn list_with_prefix(&'a self, prefix: Cl::PrimaryKey) -> List<'a, Cn, Cl>
+    pub fn list_with_prefix(&'a self, prefix: Cl::PrimaryKey) -> List<'a, Cn, Cl, Cl::PrimaryKey>
     where
         Cl::PrimaryKey: IntoPrefixRange,
     {
-        List::new(
-            PossiblyOwned::Borrowed(self),
-            prefix.into_prefix_range().map(AnyDocumentId::Deserialized),
-        )
+        List::new(PossiblyOwned::Borrowed(self), prefix.into_prefix_range())
     }
 
     /// Retrieves all documents.
@@ -441,7 +432,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn all(&'a self) -> List<'a, Cn, Cl> {
+    pub fn all(&'a self) -> List<'a, Cn, Cl, Cl::PrimaryKey> {
         List::new(PossiblyOwned::Borrowed(self), Range::from(..))
     }
 
@@ -465,24 +456,25 @@ where
 /// Retrieves a list of documents from a collection. This structure also offers
 /// functions to customize the options for the operation.
 #[must_use]
-pub struct List<'a, Cn, Cl>
+pub struct List<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
 {
     collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-    range: Range<AnyDocumentId<Cl::PrimaryKey>>,
+    range: Range<PrimaryKey>,
     sort: Sort,
     limit: Option<u32>,
 }
 
-impl<'a, Cn, Cl> List<'a, Cn, Cl>
+impl<'a, Cn, Cl, PrimaryKey> List<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
     Cn: Connection,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
 {
     pub(crate) fn new(
         collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-        range: Range<AnyDocumentId<Cl::PrimaryKey>>,
+        range: Range<PrimaryKey>,
     ) -> Self {
         Self {
             collection,
@@ -641,11 +633,11 @@ where
 /// }
 /// ```
 #[must_use]
-pub struct View<'a, Cn, V: schema::SerializedView> {
+pub struct View<'a, Cn, V: schema::SerializedView, Key> {
     connection: &'a Cn,
 
     /// Key filtering criteria.
-    pub key: Option<QueryKey<V::Key>>,
+    pub key: Option<QueryKey<Key>>,
 
     /// The view's data access policy. The default value is [`AccessPolicy::UpdateBefore`].
     pub access_policy: AccessPolicy,
@@ -655,12 +647,15 @@ pub struct View<'a, Cn, V: schema::SerializedView> {
 
     /// The maximum number of results to return.
     pub limit: Option<u32>,
+
+    _view: PhantomData<V>,
 }
 
-impl<'a, Cn, V> View<'a, Cn, V>
+impl<'a, Cn, V, Key> View<'a, Cn, V, Key>
 where
     V: schema::SerializedView,
     Cn: Connection,
+    Key: for<'k> KeyEncoding<'k, V::Key>,
 {
     fn new(connection: &'a Cn) -> Self {
         Self {
@@ -669,6 +664,7 @@ where
             access_policy: AccessPolicy::UpdateBefore,
             sort: Sort::Ascending,
             limit: None,
+            _view: PhantomData,
         }
     }
 
@@ -686,9 +682,15 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key(mut self, key: V::Key) -> Self {
-        self.key = Some(QueryKey::Matches(key));
-        self
+    pub fn with_key<K: for<'k> KeyEncoding<'k, V::Key>>(self, key: K) -> View<'a, Cn, V, K> {
+        View {
+            connection: self.connection,
+            key: Some(QueryKey::Matches(key)),
+            access_policy: self.access_policy,
+            sort: self.sort,
+            limit: self.limit,
+            _view: PhantomData,
+        }
     }
 
     /// Filters for entries in the view with `keys`.
@@ -704,9 +706,18 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_keys<IntoIter: IntoIterator<Item = V::Key>>(mut self, keys: IntoIter) -> Self {
-        self.key = Some(QueryKey::Multiple(keys.into_iter().collect()));
-        self
+    pub fn with_keys<K, IntoIter: IntoIterator<Item = K>>(
+        self,
+        keys: IntoIter,
+    ) -> View<'a, Cn, V, K> {
+        View {
+            connection: self.connection,
+            key: Some(QueryKey::Multiple(keys.into_iter().collect())),
+            access_policy: self.access_policy,
+            sort: self.sort,
+            limit: self.limit,
+            _view: PhantomData,
+        }
     }
 
     /// Filters for entries in the view with the range `keys`.
@@ -723,9 +734,15 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key_range<R: Into<Range<V::Key>>>(mut self, range: R) -> Self {
-        self.key = Some(QueryKey::Range(range.into()));
-        self
+    pub fn with_key_range<K, R: Into<Range<K>>>(self, range: R) -> View<'a, Cn, V, K> {
+        View {
+            connection: self.connection,
+            key: Some(QueryKey::Range(range.into())),
+            access_policy: self.access_policy,
+            sort: self.sort,
+            limit: self.limit,
+            _view: PhantomData,
+        }
     }
 
     /// Filters for entries in the view with keys that begin with `prefix`.
@@ -751,12 +768,18 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key_prefix(mut self, prefix: V::Key) -> Self
+    pub fn with_key_prefix(self, prefix: V::Key) -> View<'a, Cn, V, V::Key>
     where
         V::Key: IntoPrefixRange,
     {
-        self.key = Some(QueryKey::Range(prefix.into_prefix_range()));
-        self
+        View {
+            connection: self.connection,
+            key: Some(QueryKey::Range(prefix.into_prefix_range())),
+            access_policy: self.access_policy,
+            sort: self.sort,
+            limit: self.limit,
+            _view: PhantomData,
+        }
     }
 
     /// Sets the access policy for queries.
@@ -850,7 +873,7 @@ where
     /// ```
     pub fn query(self) -> Result<ViewMappings<V>, Error> {
         self.connection
-            .query::<V>(self.key, self.sort, self.limit, self.access_policy)
+            .query::<V, Key>(self.key, self.sort, self.limit, self.access_policy)
     }
 
     /// Executes the query and retrieves the results with the associated [`Document`s](crate::document::OwnedDocument).
@@ -873,8 +896,12 @@ where
     /// # }
     /// ```
     pub fn query_with_docs(self) -> Result<MappedDocuments<OwnedDocument, V>, Error> {
-        self.connection
-            .query_with_docs::<V>(self.key, self.sort, self.limit, self.access_policy)
+        self.connection.query_with_docs::<V, Key>(
+            self.key,
+            self.sort,
+            self.limit,
+            self.access_policy,
+        )
     }
 
     /// Executes the query and retrieves the results with the associated [`CollectionDocument`s](crate::document::CollectionDocument).
@@ -903,7 +930,7 @@ where
         V::Collection: SerializedCollection,
         <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
     {
-        self.connection.query_with_collection_docs::<V>(
+        self.connection.query_with_collection_docs::<V, Key>(
             self.key,
             self.sort,
             self.limit,
@@ -924,7 +951,8 @@ where
     /// # }
     /// ```
     pub fn reduce(self) -> Result<V::Value, Error> {
-        self.connection.reduce::<V>(self.key, self.access_policy)
+        self.connection
+            .reduce::<V, Key>(self.key, self.access_policy)
     }
 
     /// Executes a reduce over the results of the query, grouping by key.
@@ -945,7 +973,7 @@ where
     /// ```
     pub fn reduce_grouped(self) -> Result<GroupedReductions<V>, Error> {
         self.connection
-            .reduce_grouped::<V>(self.key, self.access_policy)
+            .reduce_grouped::<V, Key>(self.key, self.access_policy)
     }
 
     /// Deletes all of the associated documents that match this view query.
@@ -960,7 +988,7 @@ where
     /// ```
     pub fn delete_docs(self) -> Result<u64, Error> {
         self.connection
-            .delete_docs::<V>(self.key, self.access_policy)
+            .delete_docs::<V, Key>(self.key, self.access_policy)
     }
 }
 
@@ -1197,7 +1225,7 @@ where
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
-        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
     {
         let contents = Cl::serialize(item)?;
         self.connection.insert::<Cl, _, _>(Some(id), contents).await
@@ -1275,7 +1303,7 @@ where
         let contents = doc.bytes()?;
         doc.set_collection_header(
             self.connection
-                .overwrite::<Cl, _>(doc.key(), contents)
+                .overwrite::<Cl, _>(doc.id(), contents)
                 .await?,
         )
     }
@@ -1301,7 +1329,7 @@ where
     /// ```
     pub async fn get<PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
-        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
     {
         self.connection.get::<Cl, _>(id).await
     }
@@ -1334,7 +1362,7 @@ where
     where
         DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
     {
         self.connection.get_multiple::<Cl, _, _, _>(ids).await
     }
@@ -1361,15 +1389,12 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn list<PrimaryKey, R>(&'a self, ids: R) -> AsyncList<'a, Cn, Cl>
+    pub fn list<PrimaryKey, R>(&'a self, ids: R) -> AsyncList<'a, Cn, Cl, PrimaryKey>
     where
         R: Into<Range<PrimaryKey>>,
-        PrimaryKey: Into<AnyDocumentId<Cl::PrimaryKey>>,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
     {
-        AsyncList::new(
-            PossiblyOwned::Borrowed(self),
-            ids.into().map(PrimaryKey::into),
-        )
+        AsyncList::new(PossiblyOwned::Borrowed(self), ids.into())
     }
 
     /// Retrieves all documents with ids that start with `prefix`.
@@ -1394,14 +1419,14 @@ where
     ///         .await
     /// }
     /// ```
-    pub fn list_with_prefix(&'a self, prefix: Cl::PrimaryKey) -> AsyncList<'a, Cn, Cl>
+    pub fn list_with_prefix(
+        &'a self,
+        prefix: Cl::PrimaryKey,
+    ) -> AsyncList<'a, Cn, Cl, Cl::PrimaryKey>
     where
         Cl::PrimaryKey: IntoPrefixRange,
     {
-        AsyncList::new(
-            PossiblyOwned::Borrowed(self),
-            prefix.into_prefix_range().map(AnyDocumentId::Deserialized),
-        )
+        AsyncList::new(PossiblyOwned::Borrowed(self), prefix.into_prefix_range())
     }
 
     /// Retrieves all documents.
@@ -1420,7 +1445,7 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn all(&'a self) -> AsyncList<'a, Cn, Cl> {
+    pub fn all(&'a self) -> AsyncList<'a, Cn, Cl, Cl::PrimaryKey> {
         AsyncList::new(PossiblyOwned::Borrowed(self), Range::from(..))
     }
 
@@ -1443,12 +1468,12 @@ where
     }
 }
 
-pub(crate) struct AsyncListBuilder<'a, Cn, Cl>
+pub(crate) struct AsyncListBuilder<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
 {
     collection: PossiblyOwned<'a, AsyncCollection<'a, Cn, Cl>>,
-    range: Range<AnyDocumentId<Cl::PrimaryKey>>,
+    range: Range<PrimaryKey>,
     sort: Sort,
     limit: Option<u32>,
 }
@@ -1469,32 +1494,33 @@ impl<'a, Cl> Deref for PossiblyOwned<'a, Cl> {
     }
 }
 
-pub(crate) enum ListState<'a, Cn, Cl>
+pub(crate) enum ListState<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
 {
-    Pending(Option<AsyncListBuilder<'a, Cn, Cl>>),
+    Pending(Option<AsyncListBuilder<'a, Cn, Cl, PrimaryKey>>),
     Executing(BoxFuture<'a, Result<Vec<OwnedDocument>, Error>>),
 }
 
 /// Retrieves a list of documents from a collection, when awaited. This
 /// structure also offers functions to customize the options for the operation.
 #[must_use]
-pub struct AsyncList<'a, Cn, Cl>
+pub struct AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
 {
-    state: ListState<'a, Cn, Cl>,
+    state: ListState<'a, Cn, Cl, PrimaryKey>,
 }
 
-impl<'a, Cn, Cl> AsyncList<'a, Cn, Cl>
+impl<'a, Cn, Cl, PrimaryKey> AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
     Cn: AsyncConnection,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
 {
     pub(crate) fn new(
         collection: PossiblyOwned<'a, AsyncCollection<'a, Cn, Cl>>,
-        range: Range<AnyDocumentId<Cl::PrimaryKey>>,
+        range: Range<PrimaryKey>,
     ) -> Self {
         Self {
             state: ListState::Pending(Some(AsyncListBuilder {
@@ -1506,7 +1532,7 @@ where
         }
     }
 
-    fn builder(&mut self) -> &mut AsyncListBuilder<'a, Cn, Cl> {
+    fn builder(&mut self) -> &mut AsyncListBuilder<'a, Cn, Cl, PrimaryKey> {
         if let ListState::Pending(Some(builder)) = &mut self.state {
             builder
         } else {
@@ -1600,11 +1626,13 @@ where
     }
 }
 
-impl<'a, Cn, Cl> Future for AsyncList<'a, Cn, Cl>
+#[allow(clippy::type_repetition_in_bounds)]
+impl<'a, Cn, Cl, PrimaryKey> Future for AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cn: AsyncConnection,
     Cl: schema::Collection + Unpin,
     Cl::PrimaryKey: Unpin,
+    PrimaryKey: Unpin + for<'k> KeyEncoding<'k, Cl::PrimaryKey> + 'a,
 {
     type Output = Result<Vec<OwnedDocument>, Error>;
 
@@ -2076,9 +2104,13 @@ pub enum QueryKey<K> {
 }
 
 #[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
-impl<K: for<'a> Key<'a>> QueryKey<K> {
+impl<K> QueryKey<K> {
     /// Converts this key to a serialized format using the [`Key`] trait.
-    pub fn serialized(&self) -> Result<QueryKey<Bytes>, Error> {
+    pub fn serialized<ViewKey>(&self) -> Result<QueryKey<Bytes>, Error>
+    where
+        K: for<'k> KeyEncoding<'k, ViewKey>,
+        ViewKey: for<'k> Key<'k>,
+    {
         match self {
             Self::Matches(key) => key
                 .as_ord_bytes()
@@ -2264,9 +2296,13 @@ fn range_constructors() {
     );
 }
 
-impl<'a, T: Key<'a>> Range<T> {
+impl<'a, T> Range<T> {
     /// Serializes the range's contained values to big-endian bytes.
-    pub fn as_ord_bytes(&'a self) -> Result<Range<Bytes>, T::Error> {
+    pub fn as_ord_bytes<K>(&'a self) -> Result<Range<Bytes>, T::Error>
+    where
+        T: KeyEncoding<'a, K>,
+        K: for<'k> Key<'k>,
+    {
         Ok(Range {
             start: self.start.as_ord_bytes()?,
             end: self.end.as_ord_bytes()?,
@@ -2279,7 +2315,9 @@ where
     B: AsRef<[u8]>,
 {
     /// Deserializes the range's contained values from big-endian bytes.
-    pub fn deserialize<T: for<'k> Key<'k>>(&'a self) -> Result<Range<T>, <T as Key<'_>>::Error> {
+    pub fn deserialize<T: for<'k> Key<'k>>(
+        &'a self,
+    ) -> Result<Range<T>, <T as KeyEncoding<'_, T>>::Error> {
         Ok(Range {
             start: self.start.deserialize()?,
             end: self.start.deserialize()?,
@@ -2317,9 +2355,13 @@ impl<T> Bound<T> {
     }
 }
 
-impl<'a, T: Key<'a>> Bound<T> {
+impl<'a, T> Bound<T> {
     /// Serializes the contained value to big-endian bytes.
-    pub fn as_ord_bytes(&'a self) -> Result<Bound<Bytes>, T::Error> {
+    pub fn as_ord_bytes<K>(&'a self) -> Result<Bound<Bytes>, T::Error>
+    where
+        T: KeyEncoding<'a, K>,
+        K: for<'k> Key<'k>,
+    {
         match self {
             Bound::Unbounded => Ok(Bound::Unbounded),
             Bound::Included(value) => {
@@ -2337,7 +2379,9 @@ where
     B: AsRef<[u8]>,
 {
     /// Deserializes the bound's contained value from big-endian bytes.
-    pub fn deserialize<T: for<'k> Key<'k>>(&'a self) -> Result<Bound<T>, <T as Key<'_>>::Error> {
+    pub fn deserialize<T: for<'k> Key<'k>>(
+        &'a self,
+    ) -> Result<Bound<T>, <T as KeyEncoding<'_, T>>::Error> {
         match self {
             Bound::Unbounded => Ok(Bound::Unbounded),
             Bound::Included(value) => Ok(Bound::Included(T::from_ord_bytes(value.as_ref())?)),

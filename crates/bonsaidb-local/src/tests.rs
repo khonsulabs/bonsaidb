@@ -6,7 +6,6 @@ use std::time::Duration;
 use bonsaidb_core::test_util::EncryptedBasic;
 use bonsaidb_core::{
     connection::{AccessPolicy, Connection},
-    document::DocumentId,
     permissions::{Permissions, Statement},
     test_util::{
         Basic, BasicByBrokenParentId, BasicByParentId, BasicCollectionWithNoViews,
@@ -189,7 +188,7 @@ fn integrity_checks() -> anyhow::Result<()> {
     {
         let db = Database::open::<BasicCollectionWithNoViews>(config.clone())?;
         let collection = db.collection::<BasicCollectionWithNoViews>();
-        collection.push(&Basic::default().with_parent_id(DocumentId::from_u64(1)))?;
+        collection.push(&Basic::default().with_parent_id(1))?;
     }
     // Connect with a new view and see the automatic update with a query
     {

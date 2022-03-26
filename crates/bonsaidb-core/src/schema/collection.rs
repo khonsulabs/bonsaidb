@@ -9,10 +9,10 @@ use transmog_pot::Pot;
 use crate::{
     connection::{self, AsyncConnection, Connection, Range},
     document::{
-        AnyDocumentId, BorrowedDocument, CollectionDocument, Document, DocumentId, Header, KeyId,
-        OwnedDocument, OwnedDocuments,
+        BorrowedDocument, CollectionDocument, Document, DocumentId, Header, KeyId, OwnedDocument,
+        OwnedDocuments,
     },
-    key::{IntoPrefixRange, Key},
+    key::{IntoPrefixRange, Key, KeyEncoding},
     schema::{CollectionName, Schematic},
     Error,
 };
@@ -199,16 +199,13 @@ use crate::{
 /// # #[collection(core = bonsaidb_core)]
 /// pub struct MyCollection;
 /// ```
-pub trait Collection: Debug + Send + Sync
-where
-    AnyDocumentId<Self::PrimaryKey>: From<Self::PrimaryKey>,
-{
+pub trait Collection: Debug + Send + Sync {
     /// The unique id type. Each document stored in a collection will be
     /// uniquely identified by this type.
     ///
     /// ## Primary Key Limits
     ///
-    /// The result of [`Key::as_ord_bytes()`] must be less than or equal
+    /// The result of [`KeyEncoding::as_ord_bytes()`] must be less than or equal
     /// to [`DocumentId::MAX_LENGTH`]. This is currently 63 bytes.
     type PrimaryKey: for<'k> Key<'k>;
 
@@ -323,7 +320,7 @@ pub trait SerializedCollection: Collection {
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
         C: Connection,
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Self: Sized,
     {
         let possible_doc = connection.get::<Self, _>(id)?;
@@ -353,7 +350,7 @@ pub trait SerializedCollection: Collection {
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
         C: AsyncConnection,
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Self: Sized,
     {
         let possible_doc = connection.get::<Self, _>(id).await?;
@@ -384,7 +381,7 @@ pub trait SerializedCollection: Collection {
         C: Connection,
         DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Self: Sized,
     {
         connection
@@ -419,7 +416,7 @@ pub trait SerializedCollection: Collection {
         C: AsyncConnection,
         DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Self: Sized,
     {
         connection
@@ -448,11 +445,11 @@ pub trait SerializedCollection: Collection {
     /// # Ok(())
     /// # }
     /// ```
-    fn list<R, PrimaryKey, C>(ids: R, connection: &'_ C) -> List<'_, C, Self>
+    fn list<R, PrimaryKey, C>(ids: R, connection: &'_ C) -> List<'_, C, Self, PrimaryKey>
     where
         R: Into<Range<PrimaryKey>>,
         C: Connection,
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Self: Sized,
     {
         List(connection::List::new(
@@ -482,11 +479,11 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    fn list_async<R, PrimaryKey, C>(ids: R, connection: &'_ C) -> AsyncList<'_, C, Self>
+    fn list_async<R, PrimaryKey, C>(ids: R, connection: &'_ C) -> AsyncList<'_, C, Self, PrimaryKey>
     where
         R: Into<Range<PrimaryKey>>,
         C: AsyncConnection,
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Self: Sized,
     {
         AsyncList(connection::AsyncList::new(
@@ -517,7 +514,10 @@ pub trait SerializedCollection: Collection {
     ///     MyCollection::list_with_prefix(String::from("a"), db).query()
     /// }
     /// ```
-    fn list_with_prefix<C>(prefix: Self::PrimaryKey, connection: &'_ C) -> List<'_, C, Self>
+    fn list_with_prefix<C>(
+        prefix: Self::PrimaryKey,
+        connection: &'_ C,
+    ) -> List<'_, C, Self, Self::PrimaryKey>
     where
         C: Connection,
         Self: Sized,
@@ -525,7 +525,7 @@ pub trait SerializedCollection: Collection {
     {
         List(connection::List::new(
             connection::PossiblyOwned::Owned(connection.collection::<Self>()),
-            prefix.into_prefix_range().map(AnyDocumentId::Deserialized),
+            prefix.into_prefix_range(),
         ))
     }
 
@@ -554,7 +554,7 @@ pub trait SerializedCollection: Collection {
     fn list_with_prefix_async<C>(
         prefix: Self::PrimaryKey,
         connection: &'_ C,
-    ) -> AsyncList<'_, C, Self>
+    ) -> AsyncList<'_, C, Self, Self::PrimaryKey>
     where
         C: AsyncConnection,
         Self: Sized,
@@ -562,7 +562,7 @@ pub trait SerializedCollection: Collection {
     {
         AsyncList(connection::AsyncList::new(
             connection::PossiblyOwned::Owned(connection.collection::<Self>()),
-            prefix.into_prefix_range().map(AnyDocumentId::Deserialized),
+            prefix.into_prefix_range(),
         ))
     }
 
@@ -583,7 +583,7 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    fn all<C: Connection>(connection: &C) -> List<'_, C, Self>
+    fn all<C: Connection>(connection: &C) -> List<'_, C, Self, Self::PrimaryKey>
     where
         Self: Sized,
     {
@@ -610,7 +610,7 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    fn all_async<C: AsyncConnection>(connection: &C) -> AsyncList<'_, C, Self>
+    fn all_async<C: AsyncConnection>(connection: &C) -> AsyncList<'_, C, Self, Self::PrimaryKey>
     where
         Self: Sized,
     {
@@ -785,7 +785,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Cn: Connection,
         Self: Sized + 'static,
     {
@@ -820,7 +820,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Cn: AsyncConnection,
         Self: Sized + 'static,
         Self::Contents: 'async_trait,
@@ -854,7 +854,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Cn: Connection,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
@@ -885,7 +885,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Cn: AsyncConnection,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
@@ -914,7 +914,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Cn: Connection,
         Self: Sized + 'static,
     {
@@ -952,7 +952,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
     where
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Cn: AsyncConnection,
         Self: Sized + 'static,
         Self::Contents: 'async_trait,
@@ -989,7 +989,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
         Self::overwrite(id, self, connection)
@@ -1021,7 +1021,7 @@ pub trait SerializedCollection: Collection {
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
-        PrimaryKey: Into<AnyDocumentId<Self::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
         Self: SerializedCollection<Contents = Self> + Sized + 'static,
     {
         Self::overwrite_async(id, self, connection).await
@@ -1790,14 +1790,15 @@ where
 /// Retrieves a list of documents from a collection. This
 /// structure also offers functions to customize the options for the operation.
 #[must_use]
-pub struct List<'a, Cn, Cl>(connection::List<'a, Cn, Cl>)
+pub struct List<'a, Cn, Cl, PrimaryKey>(connection::List<'a, Cn, Cl, PrimaryKey>)
 where
     Cl: Collection;
 
-impl<'a, Cn, Cl> List<'a, Cn, Cl>
+impl<'a, Cn, Cl, PrimaryKey> List<'a, Cn, Cl, PrimaryKey>
 where
     Cl: SerializedCollection,
     Cn: Connection,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
 {
     /// Lists documents by id in ascending order.
     pub fn ascending(mut self) -> Self {
@@ -1872,14 +1873,15 @@ where
 /// Retrieves a list of documents from a collection, when awaited. This
 /// structure also offers functions to customize the options for the operation.
 #[must_use]
-pub struct AsyncList<'a, Cn, Cl>(connection::AsyncList<'a, Cn, Cl>)
+pub struct AsyncList<'a, Cn, Cl, PrimaryKey>(connection::AsyncList<'a, Cn, Cl, PrimaryKey>)
 where
     Cl: Collection;
 
-impl<'a, Cn, Cl> AsyncList<'a, Cn, Cl>
+impl<'a, Cn, Cl, PrimaryKey> AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: Collection,
     Cn: AsyncConnection,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
 {
     /// Lists documents by id in ascending order.
     pub fn ascending(mut self) -> Self {
@@ -1948,11 +1950,13 @@ where
     }
 }
 
-impl<'a, Cn, Cl> Future for AsyncList<'a, Cn, Cl>
+#[allow(clippy::type_repetition_in_bounds)]
+impl<'a, Cn, Cl, PrimaryKey> Future for AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: SerializedCollection + Unpin,
     Cl::PrimaryKey: Unpin,
     Cn: AsyncConnection,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + Unpin + 'a,
 {
     type Output = Result<Vec<CollectionDocument<Cl>>, Error>;
 

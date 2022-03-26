@@ -8,6 +8,14 @@ publish = false
 name = "view-examples-async"
 required-features = ["async"]
 
+[[example]]
+name = "key-value-store-async"
+required-features = ["async"]
+
+[[example]]
+name = "pubsub-async"
+required-features = ["async"]
+
 [features]
 async = ["tokio", "bonsaidb/local-async"]
 

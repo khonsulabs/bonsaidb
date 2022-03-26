@@ -7,10 +7,10 @@ use super::GroupedReductions;
 use crate::{
     connection::{AccessPolicy, HasSession, QueryKey, Range, Sort, ViewMappings},
     document::{
-        AnyDocumentId, CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader,
-        Header, OwnedDocument,
+        CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader, Header,
+        OwnedDocument,
     },
-    key::Key,
+    key::{self, Key, KeyEncoding},
     schema::{
         self,
         view::{
@@ -47,19 +47,18 @@ pub trait LowLevelConnection: HasSession {
     /// - [`SerializedCollection::insert_into()`]
     /// - [`self.collection::<Collection>().insert()`](super::Collection::insert)
     /// - [`self.collection::<Collection>().push()`](super::Collection::push)
-    fn insert<
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-        B: Into<Bytes> + Send,
-    >(
+    fn insert<C: schema::Collection, PrimaryKey: Send, B: Into<Bytes> + Send>(
         &self,
         id: Option<PrimaryKey>,
         contents: B,
-    ) -> Result<CollectionHeader<C::PrimaryKey>, Error> {
+    ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
+    where
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+    {
         let contents = contents.into();
         let results = self.apply_transaction(Transaction::insert(
             C::collection_name(),
-            id.map(|id| id.into().to_document_id()).transpose()?,
+            id.map(|id| DocumentId::new(id)).transpose()?,
             contents,
         ))?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
@@ -115,11 +114,11 @@ pub trait LowLevelConnection: HasSession {
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
     where
         C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
         let results = self.apply_transaction(Transaction::overwrite(
             C::collection_name(),
-            id.into().to_document_id()?,
+            DocumentId::new(id)?,
             contents,
         ))?;
         if let Some(OperationResult::DocumentUpdated { header, .. }) = results.into_iter().next() {
@@ -140,9 +139,9 @@ pub trait LowLevelConnection: HasSession {
     fn get<C, PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
-        self.get_from_collection(id.into().to_document_id()?, &C::collection_name())
+        self.get_from_collection(DocumentId::new(id)?, &C::collection_name())
     }
 
     /// Retrieves all documents matching `ids`. Documents that are not found are
@@ -160,11 +159,11 @@ pub trait LowLevelConnection: HasSession {
         C: schema::Collection,
         DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
         let ids = ids
             .into_iter()
-            .map(|id| id.into().to_document_id())
+            .map(|id| DocumentId::new(id))
             .collect::<Result<Vec<_>, _>>()?;
         self.get_multiple_from_collection(&ids, &C::collection_name())
     }
@@ -187,9 +186,9 @@ pub trait LowLevelConnection: HasSession {
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
-        let ids = ids.into().map_result(|id| id.into().to_document_id())?;
+        let ids = ids.into().map_result(|id| DocumentId::new(id))?;
         self.list_from_collection(ids, order, limit, &C::collection_name())
     }
 
@@ -212,9 +211,9 @@ pub trait LowLevelConnection: HasSession {
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
-        let ids = ids.into().map_result(|id| id.into().to_document_id())?;
+        let ids = ids.into().map_result(|id| DocumentId::new(id))?;
         self.list_headers_from_collection(ids, order, limit, &C::collection_name())
     }
 
@@ -230,10 +229,10 @@ pub trait LowLevelConnection: HasSession {
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
         self.count_from_collection(
-            ids.into().map_result(|key| key.into().to_document_id())?,
+            ids.into().map_result(DocumentId::new)?,
             &C::collection_name(),
         )
     }
@@ -266,13 +265,16 @@ pub trait LowLevelConnection: HasSession {
     /// view using [`self.view::<View>().query()`](super::View::query) instead. The
     /// parameters for the query can be customized on the builder returned from
     /// [`Connection::view()`](super::Connection::view).
-    fn query<V: schema::SerializedView>(
+    fn query<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<ViewMappings<V>, Error> {
+    ) -> Result<ViewMappings<V>, Error>
+    where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
+    {
         let view = self.schematic().view::<V>()?;
         let mappings = self.query_by_name(
             &view.view_name(),
@@ -285,7 +287,7 @@ pub trait LowLevelConnection: HasSession {
             .into_iter()
             .map(|mapping| {
                 Ok(Map {
-                    key: <V::Key as Key>::from_ord_bytes(&mapping.key)
+                    key: <V::Key as key::Key>::from_ord_bytes(&mapping.key)
                         .map_err(view::Error::key_serialization)
                         .map_err(Error::from)?,
                     value: V::deserialize(&mapping.value)?,
@@ -301,15 +303,18 @@ pub trait LowLevelConnection: HasSession {
     /// the view using [`self.view::<View>().query_with_docs()`](super::View::query_with_docs) instead.
     /// The parameters for the query can be customized on the builder returned
     /// from [`Connection::view()`](super::Connection::view).
-    fn query_with_docs<V: schema::SerializedView>(
+    fn query_with_docs<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, Error> {
+    ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
+    where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
+    {
         // Query permission is checked by the query call
-        let results = self.query::<V>(key, order, limit, access_policy)?;
+        let results = self.query::<V, Key>(key, order, limit, access_policy)?;
 
         // Verify that there is permission to fetch each document
         let mut ids = Vec::with_capacity(results.len());
@@ -333,19 +338,20 @@ pub trait LowLevelConnection: HasSession {
     /// the view using [`self.view::<View>().query_with_collection_docs()`](super::View::query_with_collection_docs) instead.
     /// The parameters for the query can be customized on the builder returned
     /// from [`Connection::view()`](super::Connection::view).
-    fn query_with_collection_docs<V>(
+    fn query_with_collection_docs<V, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
         V: schema::SerializedView,
         V::Collection: SerializedCollection,
         <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
     {
-        let mapped_docs = self.query_with_docs::<V>(key, order, limit, access_policy)?;
+        let mapped_docs = self.query_with_docs::<V, Key>(key, order, limit, access_policy)?;
         let mut collection_docs = BTreeMap::new();
         for (id, doc) in mapped_docs.documents {
             collection_docs.insert(id, CollectionDocument::<V::Collection>::try_from(&doc)?);
@@ -362,11 +368,14 @@ pub trait LowLevelConnection: HasSession {
     /// the view using [`self.view::<View>().reduce()`](super::View::reduce) instead.
     /// The parameters for the query can be customized on the builder returned
     /// from [`Connection::view()`](super::Connection::view).
-    fn reduce<V: schema::SerializedView>(
+    fn reduce<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<V::Value, Error> {
+    ) -> Result<V::Value, Error>
+    where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
+    {
         let view = self.schematic().view::<V>()?;
         self.reduce_by_name(
             &view.view_name(),
@@ -384,11 +393,14 @@ pub trait LowLevelConnection: HasSession {
     /// [`self.view::<View>().reduce_grouped()`](super::View::reduce_grouped) instead.
     /// The parameters for the query can be customized on the builder returned
     /// from [`Connection::view()`](super::Connection::view).
-    fn reduce_grouped<V: schema::SerializedView>(
+    fn reduce_grouped<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<GroupedReductions<V>, Error> {
+    ) -> Result<GroupedReductions<V>, Error>
+    where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
+    {
         let view = self.schematic().view::<V>()?;
         self.reduce_grouped_by_name(
             &view.view_name(),
@@ -412,11 +424,14 @@ pub trait LowLevelConnection: HasSession {
     /// [`self.view::<View>().delete_docs()`](super::View::delete_docs())
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`Connection::view()`](super::Connection::view).
-    fn delete_docs<V: schema::SerializedView>(
+    fn delete_docs<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<u64, Error> {
+    ) -> Result<u64, Error>
+    where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
+    {
         let view = self.schematic().view::<V>()?;
         self.delete_docs_by_name(
             &view.view_name(),
@@ -619,20 +634,19 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// - [`SerializedCollection::insert_into_async()`]
     /// - [`self.collection::<Collection>().insert()`](super::AsyncCollection::insert)
     /// - [`self.collection::<Collection>().push()`](super::AsyncCollection::push)
-    async fn insert<
-        C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-        B: Into<Bytes> + Send,
-    >(
+    async fn insert<C: schema::Collection, PrimaryKey: Send, B: Into<Bytes> + Send>(
         &self,
         id: Option<PrimaryKey>,
         contents: B,
-    ) -> Result<CollectionHeader<C::PrimaryKey>, Error> {
+    ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
+    where
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+    {
         let contents = contents.into();
         let results = self
             .apply_transaction(Transaction::insert(
                 C::collection_name(),
-                id.map(|id| id.into().to_document_id()).transpose()?,
+                id.map(|id| DocumentId::new(id)).transpose()?,
                 contents,
             ))
             .await?;
@@ -691,12 +705,12 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
     where
         C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
         let results = self
             .apply_transaction(Transaction::overwrite(
                 C::collection_name(),
-                id.into().to_document_id()?,
+                DocumentId::new(id)?,
                 contents,
             ))
             .await?;
@@ -719,9 +733,9 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     async fn get<C, PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
-        self.get_from_collection(id.into().to_document_id()?, &C::collection_name())
+        self.get_from_collection(DocumentId::new(id)?, &C::collection_name())
             .await
     }
 
@@ -741,11 +755,11 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
         C: schema::Collection,
         DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
         let ids = ids
             .into_iter()
-            .map(|id| id.into().to_document_id())
+            .map(DocumentId::new)
             .collect::<Result<Vec<_>, _>>()?;
         self.get_multiple_from_collection(&ids, &C::collection_name())
             .await
@@ -770,9 +784,9 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
-        let ids = ids.into().map_result(|id| id.into().to_document_id())?;
+        let ids = ids.into().map_result(DocumentId::new)?;
         self.list_from_collection(ids, order, limit, &C::collection_name())
             .await
     }
@@ -796,9 +810,9 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
-        let ids = ids.into().map_result(|id| id.into().to_document_id())?;
+        let ids = ids.into().map_result(DocumentId::new)?;
         self.list_headers_from_collection(ids, order, limit, &C::collection_name())
             .await
     }
@@ -816,10 +830,10 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     where
         C: schema::Collection,
         R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
     {
         self.count_from_collection(
-            ids.into().map_result(|key| key.into().to_document_id())?,
+            ids.into().map_result(DocumentId::new)?,
             &C::collection_name(),
         )
         .await

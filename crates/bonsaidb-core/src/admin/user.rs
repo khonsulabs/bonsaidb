@@ -70,7 +70,7 @@ impl User {
         let role_groups = if self.roles.is_empty() {
             Vec::default()
         } else {
-            let roles = role::Role::get_multiple(self.groups.iter().copied(), admin)?;
+            let roles = role::Role::get_multiple(self.groups.iter(), admin)?;
             roles
                 .into_iter()
                 .flat_map(|doc| doc.contents.groups)
@@ -79,7 +79,7 @@ impl User {
         };
         // Retrieve all of the groups.
         let groups = if role_groups.is_empty() {
-            group::PermissionGroup::get_multiple(self.groups.iter().copied(), admin)?
+            group::PermissionGroup::get_multiple(self.groups.iter(), admin)?
         } else {
             let mut all_groups = role_groups;
             all_groups.extend(self.groups.iter().copied());
@@ -108,7 +108,7 @@ impl User {
         let role_groups = if self.roles.is_empty() {
             Vec::default()
         } else {
-            let roles = role::Role::get_multiple_async(self.groups.iter().copied(), admin).await?;
+            let roles = role::Role::get_multiple_async(self.groups.iter(), admin).await?;
             roles
                 .into_iter()
                 .flat_map(|doc| doc.contents.groups)
@@ -117,7 +117,7 @@ impl User {
         };
         // Retrieve all of the groups.
         let groups = if role_groups.is_empty() {
-            group::PermissionGroup::get_multiple_async(self.groups.iter().copied(), admin).await?
+            group::PermissionGroup::get_multiple_async(self.groups.iter(), admin).await?
         } else {
             let mut all_groups = role_groups;
             all_groups.extend(self.groups.iter().copied());

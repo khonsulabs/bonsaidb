@@ -22,8 +22,7 @@ use crate::{
         AccessPolicy, AsyncConnection, AsyncStorageConnection, Connection, StorageConnection,
     },
     document::{
-        AnyDocumentId, BorrowedDocument, CollectionDocument, CollectionHeader, DocumentId, Emit,
-        Header, KeyId,
+        BorrowedDocument, CollectionDocument, CollectionHeader, DocumentId, Emit, Header, KeyId,
     },
     keyvalue::{AsyncKeyValue, KeyValue},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
@@ -70,8 +69,8 @@ impl Basic {
         self
     }
 
-    pub fn with_parent_id(mut self, parent_id: impl Into<AnyDocumentId<u64>>) -> Self {
-        self.parent_id = Some(parent_id.into().to_primary_key().unwrap());
+    pub const fn with_parent_id(mut self, parent_id: u64) -> Self {
+        self.parent_id = Some(parent_id);
         self
     }
 }
