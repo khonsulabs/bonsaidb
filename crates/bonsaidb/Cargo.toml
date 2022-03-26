@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "A programmable, ACID-compliant, document-database inspired by CouchDB."
@@ -109,19 +109,19 @@ server-compression = ["bonsaidb-server/compression"]
 local-async = ["bonsaidb-local/async"]
 
 [dependencies]
-bonsaidb-core = { path = "../bonsaidb-core", version = "=0.3.0", default-features = false, features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "=0.4.0", default-features = false, features = [
     "included-from-omnibus",
 ] }
-bonsaidb-local = { path = "../bonsaidb-local", version = "=0.3.0", default-features = false, features = [
+bonsaidb-local = { path = "../bonsaidb-local", version = "=0.4.0", default-features = false, features = [
     "included-from-omnibus",
 ], optional = true }
-bonsaidb-client = { path = "../bonsaidb-client", version = "=0.3.0", default-features = false, features = [
+bonsaidb-client = { path = "../bonsaidb-client", version = "=0.4.0", default-features = false, features = [
     "included-from-omnibus",
 ], optional = true }
-bonsaidb-server = { path = "../bonsaidb-server", version = "=0.3.0", default-features = false, features = [
+bonsaidb-server = { path = "../bonsaidb-server", version = "=0.4.0", default-features = false, features = [
     "included-from-omnibus",
 ], optional = true }
-bonsaidb-keystorage-s3 = { path = "../bonsaidb-keystorage-s3", version = "0.3.0", default-features = false, optional = true }
+bonsaidb-keystorage-s3 = { path = "../bonsaidb-keystorage-s3", version = "0.4.0", default-features = false, optional = true }
 
 tokio = { version = "1.16.1", features = ["full"], optional = true }
 clap = { version = "3", optional = true, features = ["derive"] }
@@ -132,7 +132,7 @@ url = { version = "2.2", optional = true }
 tokio = { version = "1.16.1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 anyhow = "1"
-bonsaidb-core = { path = "../bonsaidb-core", version = "=0.3.0", default-features = false, features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "=0.4.0", default-features = false, features = [
     "test-util",
 ] }
 futures = "0.3"

@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-server"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Database server for BonsaiDb."
@@ -43,15 +43,15 @@ compression = ["bonsaidb-local/compression"]
 included-from-omnibus = []
 
 [dependencies]
-bonsaidb-core = { path = "../bonsaidb-core", version = "=0.3.0", default-features = false, features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "=0.4.0", default-features = false, features = [
     "actionable-traits",
     "included-from-server",
 ] }
-bonsaidb-local = { path = "../bonsaidb-local", version = "=0.3.0", default-features = false, features = [
+bonsaidb-local = { path = "../bonsaidb-local", version = "=0.4.0", default-features = false, features = [
     "internal-apis",
     "async",
 ] }
-bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.3.0" }
+bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.4.0" }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.16.1", features = ["full"] }
 thiserror = "1"
@@ -84,7 +84,7 @@ async-lock = "2"
 
 
 [dev-dependencies]
-bonsaidb-core = { path = "../bonsaidb-core", version = "=0.3.0", default-features = false, features = [
+bonsaidb-core = { path = "../bonsaidb-core", version = "=0.4.0", default-features = false, features = [
     "test-util",
 ] }
 anyhow = "1"

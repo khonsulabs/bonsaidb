@@ -19,7 +19,7 @@ compression = ["bonsaidb/server-compression", "bonsaidb/local-compression"]
 
 [dependencies]
 redis = { version = "0.21", optional = true, features = ["tokio-comp"] }
-bonsaidb = { path = "../crates/bonsaidb", version = "0.3.0", features = [
+bonsaidb = { path = "../crates/bonsaidb", version = "0.4.0", features = [
     "client",
     "client-websockets",
     "server",
