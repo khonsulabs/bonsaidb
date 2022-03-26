@@ -9,8 +9,59 @@ use crate::{
 };
 
 /// A list of operations to execute as a single unit. If any operation fails,
-/// all changes are aborted. Reads that happen while the transaction is in
-/// progress will return old data and not block.
+/// all changes are aborted. Transactions are ACID-compliant. ACID stands for:
+///
+/// - Atomic: All transactions are atomically applied. Readers outside of the
+///   active transaction will never be able to read partially written data. In
+///   BonsaiDb, readers are not blocked while writes are happening -- reads will
+///   continue to read the existing value until the transaction is fully
+///   executed. Once the transaction is fully executed, all future queries will
+///   reflect the updated state immediately.
+///
+/// - Consistent: All transactions will be applied only if the data model is
+///   able to remain fully consistent. This means that all constraints, such as
+///   unique view keys, are validated before a transaction is allowed to be
+///   committed.
+///
+/// - Isolated: Each transaction is executed in an isolated environment.
+///   Currently, BonsaiDb does not offer interactive transactions, so this is
+///   easily guaranteed. When BonsaiDb eventually has interactive transactions,
+///   the transaction will have a fully isolated state until it is committed. No
+///   two transactions can be affected by each other's changes.
+///
+///   In the event of a transaction being aborted or a power outage occurs while
+///   a transaction is being applied, this isolation ensures that once BonsaiDb
+///   opens the database again, the database will reflect the most recently
+///   committed.
+///
+/// - Durable: When the transaction apply function has finished exectuing,
+///   BonsaiDb guarantees that all data has been confirmed by the operating
+///   system as being fully written to disk. This ensures that in the event of a
+///   power outage, no data that has been confirmed will be lost.
+///
+/// When using one of the high-level functions to push/insert/update/delete
+/// documents, behind the scenes single-[`Operation`] `Transaction`s are
+/// applied. To ensure multiple changes happen in the same database operation,
+/// multiple operations can be added to a `Transaction`:
+///
+/// ```rust
+/// # bonsaidb_core::__doctest_prelude!();
+/// # use bonsaidb_core::connection::Connection;
+/// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
+/// use bonsaidb_core::transaction::{Operation, Transaction};
+/// let mut tx = Transaction::new();
+/// tx.push(Operation::push_serialized::<MyCollection>(
+///     &MyCollection::default(),
+/// )?);
+/// tx.push(Operation::push_serialized::<MyCollection>(
+///     &MyCollection::default(),
+/// )?);
+/// let results = tx.apply(db)?;
+/// assert_eq!(results.len(), 2);
+/// println!("Two new documents inserted: {results:?}");
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
 #[must_use]
 pub struct Transaction {
