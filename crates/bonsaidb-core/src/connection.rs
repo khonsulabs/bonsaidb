@@ -2970,7 +2970,13 @@ pub enum Identity {
         /// The username of the user.
         username: String,
     },
-    // for role assumption someday: Role{ id: u64, name: String } ,
+    /// A [`Role`](crate::admin::Role).
+    Role {
+        /// The unique ID of the role.
+        id: u64,
+        /// The name of the role.
+        name: String,
+    },
 }
 
 impl Eq for Identity {}
@@ -2978,7 +2984,9 @@ impl Eq for Identity {}
 impl PartialEq for Identity {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::User { id: l_id, .. }, Self::User { id: r_id, .. }) => l_id == r_id,
+            (Self::User { id: l_id, .. }, Self::User { id: r_id, .. })
+            | (Self::Role { id: l_id, .. }, Self::Role { id: r_id, .. }) => l_id == r_id,
+            _ => false,
         }
     }
 }
@@ -2988,6 +2996,10 @@ impl std::hash::Hash for Identity {
         match self {
             Identity::User { id, .. } => {
                 0_u8.hash(state); // "Tag" for the variant
+                id.hash(state);
+            }
+            Identity::Role { id, .. } => {
+                1_u8.hash(state); // "Tag" for the variant
                 id.hash(state);
             }
         }
@@ -3000,7 +3012,8 @@ impl std::hash::Hash for Identity {
 pub enum IdentityReference<'name> {
     /// A reference to a [`User`](crate::admin::User).
     User(NamedReference<'name, u64>),
-    // for role assumption someday: Role(NamedReference<'name, u64>),
+    /// A reference to a [`Role`](crate::admin::Role).
+    Role(NamedReference<'name, u64>),
 }
 
 impl<'name> IdentityReference<'name> {
@@ -3009,6 +3022,7 @@ impl<'name> IdentityReference<'name> {
     pub fn into_owned(self) -> IdentityReference<'static> {
         match self {
             IdentityReference::User(user) => IdentityReference::User(user.into_owned()),
+            IdentityReference::Role(role) => IdentityReference::Role(role.into_owned()),
         }
     }
 }

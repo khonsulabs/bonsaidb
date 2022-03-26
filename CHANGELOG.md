@@ -70,9 +70,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `multiuser` feature flag has been removed. In the end this caused a lot of
   needless conditional compilation for removing a single lightweight dependency.
 
-- `User::assume_identity` allows assuming the identity of a user by their unique
-  ID or their username. The connection must be permitted with the newly added
-  `ServerAction::AssumeIdentity`.
+- `User::assume_identity` and `Role::assume_identity` allow assuming the
+  identity of a user or role by their unique ID or name. The connection must be
+  permitted with the newly added `ServerAction::AssumeIdentity` for the
+  appropriate resource name (`user_resource_name` or `role_resource_name`).
 
 - `StorageConnection::authenticate` and `StorageConnection::assume_identity`
   both return a new instance with the new authentication. This enables

@@ -27,8 +27,8 @@ use bonsaidb_core::{
     document::CollectionDocument,
     permissions::{
         bonsai::{
-            bonsaidb_resource_name, database_resource_name, user_resource_name, BonsaiAction,
-            ServerAction,
+            bonsaidb_resource_name, database_resource_name, role_resource_name, user_resource_name,
+            BonsaiAction, ServerAction,
         },
         Permissions,
     },
@@ -762,6 +762,40 @@ impl StorageInstance {
         })
     }
 
+    fn assume_role(
+        &self,
+        role: CollectionDocument<Role>,
+        admin: &Database,
+    ) -> Result<Storage, bonsaidb_core::Error> {
+        let permissions = role.contents.effective_permissions(
+            admin,
+            &admin.storage().instance.data.authenticated_permissions,
+        )?;
+
+        let mut sessions = self.data.sessions.write();
+        sessions.last_session_id += 1;
+        let session_id = SessionId(sessions.last_session_id);
+        let session = Session {
+            id: Some(session_id),
+            identity: Some(Arc::new(Identity::Role {
+                id: role.header.id,
+                name: role.contents.name,
+            })),
+            permissions,
+        };
+        let authentication = Arc::new(AuthenticatedSession {
+            storage: Arc::downgrade(&self.data),
+            session: session.clone(),
+        });
+        sessions.sessions.insert(session_id, authentication.clone());
+
+        Ok(Storage {
+            instance: self.clone(),
+            authentication: Some(authentication),
+            effective_session: Some(session),
+        })
+    }
+
     fn add_permission_group_to_user_inner(
         user: &mut CollectionDocument<User>,
         permission_group_id: u64,
@@ -1007,7 +1041,12 @@ impl StorageConnection for StorageInstance {
                     User::load(user, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
                 self.assume_user(user, &admin).map(Storage::from)
             }
-            _ => todo!(),
+            IdentityReference::Role(role) => {
+                let role =
+                    Role::load(role, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+                self.assume_role(role, &admin).map(Storage::from)
+            }
+            _ => Err(bonsaidb_core::Error::InvalidCredentials),
         }
     }
 
@@ -1237,9 +1276,18 @@ impl StorageConnection for Storage {
                 )?;
                 self.instance.assume_user(user, &admin)
             }
+            IdentityReference::Role(role) => {
+                let admin = self.admin();
+                let role =
+                    Role::load(role, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+                self.check_permission(
+                    role_resource_name(role.header.id),
+                    &BonsaiAction::Server(ServerAction::AssumeIdentity),
+                )?;
+                self.instance.assume_role(role, &admin)
+            }
 
-            // TODO better error
-            _ => Err(bonsaidb_core::Error::UserNotFound),
+            _ => Err(bonsaidb_core::Error::InvalidCredentials),
         }
     }
 

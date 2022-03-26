@@ -4,13 +4,12 @@ use serde::{Deserialize, Serialize};
 use crate::{
     admin::{group, role},
     connection::{
-        AsyncConnection, AsyncStorageConnection, Connection, IdentityReference, SensitiveString,
-        StorageConnection,
+        AsyncStorageConnection, Connection, IdentityReference, SensitiveString, StorageConnection,
     },
     define_basic_unique_mapped_view,
     document::{CollectionDocument, Emit, KeyId},
     permissions::Permissions,
-    schema::{Collection, NamedCollection, NamedReference, SerializedCollection},
+    schema::{Collection, Nameable, NamedCollection, SerializedCollection},
 };
 
 /// A user that can authenticate with BonsaiDb.
@@ -36,18 +35,18 @@ pub struct User {
 
 impl User {
     pub fn assume_identity<'name, Storage: StorageConnection>(
-        name_or_id: impl Into<NamedReference<'name, u64>>,
+        name_or_id: impl Nameable<'name, u64>,
         storage: &Storage,
     ) -> Result<Storage::Authenticated, crate::Error> {
-        storage.assume_identity(IdentityReference::User(name_or_id.into()))
+        storage.assume_identity(IdentityReference::User(name_or_id.name()?))
     }
 
     pub async fn assume_identity_async<'name, Storage: AsyncStorageConnection>(
-        name_or_id: impl Into<NamedReference<'name, u64>> + Send,
+        name_or_id: impl Nameable<'name, u64> + Send,
         storage: &Storage,
     ) -> Result<Storage::Authenticated, crate::Error> {
         storage
-            .assume_identity(IdentityReference::User(name_or_id.into()))
+            .assume_identity(IdentityReference::User(name_or_id.name()?))
             .await
     }
 
@@ -95,43 +94,6 @@ impl User {
                 .collect::<Vec<_>>()
                 .iter()
                 .chain(std::iter::once(inherit_permissions)),
-        );
-
-        Ok(merged_permissions)
-    }
-
-    pub async fn effective_permissions_async<C: AsyncConnection>(
-        &self,
-        admin: &C,
-    ) -> Result<Permissions, crate::Error> {
-        // List all of the groups that this user belongs to because of role associations.
-        let role_groups = if self.roles.is_empty() {
-            Vec::default()
-        } else {
-            let roles = role::Role::get_multiple_async(self.groups.iter(), admin).await?;
-            roles
-                .into_iter()
-                .flat_map(|doc| doc.contents.groups)
-                .unique()
-                .collect::<Vec<_>>()
-        };
-        // Retrieve all of the groups.
-        let groups = if role_groups.is_empty() {
-            group::PermissionGroup::get_multiple_async(self.groups.iter(), admin).await?
-        } else {
-            let mut all_groups = role_groups;
-            all_groups.extend(self.groups.iter().copied());
-            all_groups.dedup();
-            group::PermissionGroup::get_multiple_async(all_groups, admin).await?
-        };
-
-        // Combine the permissions from all the groups into one.
-        let merged_permissions = Permissions::merged(
-            groups
-                .into_iter()
-                .map(|group| Permissions::from(group.contents.statements))
-                .collect::<Vec<_>>()
-                .iter(),
         );
 
         Ok(merged_permissions)

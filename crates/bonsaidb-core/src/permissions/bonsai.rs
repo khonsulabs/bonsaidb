@@ -92,6 +92,12 @@ pub fn user_resource_name<'a>(user_id: u64) -> ResourceName<'a> {
     bonsaidb_resource_name().and("user").and(user_id)
 }
 
+/// Creates a resource name for `role_id`.
+#[must_use]
+pub fn role_resource_name<'a>(role_id: u64) -> ResourceName<'a> {
+    bonsaidb_resource_name().and("role").and(role_id)
+}
+
 /// Actions that can be permitted within BonsaiDb.
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum BonsaiAction {
