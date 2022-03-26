@@ -113,7 +113,7 @@ fn write_basic(db: &Database) {
     db.set_numeric_key("integer", 1_u64).execute().unwrap();
     db.set_key("string", &"test").execute().unwrap();
     // Give the kv-store time to persist
-    std::thread::sleep(Duration::from_millis(10));
+    std::thread::sleep(Duration::from_millis(100));
 
     Basic {
         key: String::from("a"),
