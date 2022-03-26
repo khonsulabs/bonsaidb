@@ -125,6 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builders, enabling querying just the headers of a document.
 - `Transaction` now has `apply()` and `apply_async()`, which the higher-level
   API to `LowLevelConnection::apply_transaction`.
+- `ArgonConfiguration` can now be specified when building
+  `StorageConfiguration`/`ServerConfiguration` using `Builder::argon`.
 
 [221]: https://github.com/khonsulabs/bonsaidb/pull/221
 

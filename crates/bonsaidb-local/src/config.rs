@@ -363,6 +363,10 @@ pub trait Builder: Default {
     /// Sets [`Self::authenticated_permissions`](Self#structfield.authenticated_permissions) to `authenticated_permissions` and returns self.
     #[must_use]
     fn authenticated_permissions<P: Into<Permissions>>(self, authenticated_permissions: P) -> Self;
+    /// Sets [`StorageConfiguration::argon`](StorageConfiguration#structfield.argon) to `argon` and returns self.
+    #[cfg(feature = "password-hashing")]
+    #[must_use]
+    fn argon(self, argon: ArgonConfiguration) -> Self;
 }
 
 impl Builder for StorageConfiguration {
@@ -432,6 +436,12 @@ impl Builder for StorageConfiguration {
         authenticated_permissions: P,
     ) -> Self {
         self.authenticated_permissions = authenticated_permissions.into();
+        self
+    }
+
+    #[cfg(feature = "password-hashing")]
+    fn argon(mut self, argon: ArgonConfiguration) -> Self {
+        self.argon = argon;
         self
     }
 }

@@ -244,4 +244,10 @@ impl<B: Backend> Builder for ServerConfiguration<B> {
         self.storage.authenticated_permissions = authenticated_permissions.into();
         self
     }
+
+    #[cfg(feature = "password-hashing")]
+    fn argon(mut self, argon: bonsaidb_local::config::ArgonConfiguration) -> Self {
+        self.storage.argon = argon;
+        self
+    }
 }
