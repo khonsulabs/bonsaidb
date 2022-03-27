@@ -165,7 +165,7 @@ pub use backup::{AnyBackupLocation, BackupLocation};
 pub struct Storage {
     pub(crate) instance: StorageInstance,
     pub(crate) authentication: Option<Arc<AuthenticatedSession>>,
-    effective_session: Option<Session>,
+    effective_session: Option<Arc<Session>>,
 }
 
 #[derive(Debug, Clone)]
@@ -537,11 +537,11 @@ impl Storage {
             Some(Self {
                 instance: self.instance.clone(),
                 authentication: self.authentication.clone(),
-                effective_session: Some(Session {
+                effective_session: Some(Arc::new(Session {
                     id: None,
                     identity: None,
                     permissions: effective_permissions,
-                }),
+                })),
             })
         }
     }
@@ -565,7 +565,7 @@ impl Storage {
     pub fn into_async_with_runtime(self, runtime: tokio::runtime::Handle) -> crate::AsyncStorage {
         crate::AsyncStorage {
             storage: self,
-            runtime,
+            runtime: Arc::new(runtime),
         }
     }
 
@@ -758,7 +758,7 @@ impl StorageInstance {
         Ok(Storage {
             instance: self.clone(),
             authentication: Some(authentication),
-            effective_session: Some(session),
+            effective_session: Some(Arc::new(session)),
         })
     }
 
@@ -792,7 +792,7 @@ impl StorageInstance {
         Ok(Storage {
             instance: self.clone(),
             authentication: Some(authentication),
-            effective_session: Some(session),
+            effective_session: Some(Arc::new(session)),
         })
     }
 
@@ -1131,7 +1131,7 @@ impl StorageConnection for StorageInstance {
 
 impl HasSession for Storage {
     fn session(&self) -> Option<&Session> {
-        self.effective_session.as_ref()
+        self.effective_session.as_deref()
     }
 }
 
@@ -1558,7 +1558,7 @@ impl StorageNonBlocking for Storage {
                 return Ok(Self {
                     instance: self.instance.clone(),
                     authentication: None,
-                    effective_session: Some(session),
+                    effective_session: Some(Arc::new(session)),
                 })
             }
         };
@@ -1581,7 +1581,7 @@ impl StorageNonBlocking for Storage {
         Ok(Self {
             instance: self.instance.clone(),
             authentication: Some(authentication.clone()),
-            effective_session: Some(effective_session),
+            effective_session: Some(Arc::new(effective_session)),
         })
     }
 }

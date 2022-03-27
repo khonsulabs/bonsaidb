@@ -40,3 +40,36 @@ pub mod keystorage {
 }
 #[cfg(all(feature = "client", feature = "server"))]
 pub use any_connection::*;
+
+#[test]
+fn struct_sizes() {
+    fn print_size<T: Sized>() {
+        println!(
+            "{}: {} bytes",
+            std::any::type_name::<T>(),
+            std::mem::size_of::<T>()
+        );
+    }
+    #[cfg(feature = "client")]
+    {
+        print_size::<client::Client>();
+        print_size::<client::RemoteDatabase>();
+        print_size::<client::RemoteSubscriber>();
+    }
+    #[cfg(feature = "local")]
+    {
+        print_size::<local::Storage>();
+        print_size::<local::Database>();
+        print_size::<local::Subscriber>();
+        #[cfg(feature = "local-async")]
+        {
+            print_size::<local::AsyncStorage>();
+            print_size::<local::AsyncDatabase>();
+        }
+    }
+    #[cfg(feature = "server")]
+    {
+        print_size::<server::Server>();
+        print_size::<server::ServerDatabase<server::NoBackend>>();
+    }
+}

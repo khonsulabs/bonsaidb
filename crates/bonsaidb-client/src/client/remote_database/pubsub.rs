@@ -29,7 +29,7 @@ impl AsyncPubSub for super::RemoteDatabase {
             id: subscriber_id,
             receiver: Receiver::new(receiver),
             #[cfg(not(target_arch = "wasm32"))]
-            tokio: tokio::runtime::Handle::try_current().ok(),
+            tokio: tokio::runtime::Handle::try_current().ok().map(Arc::new),
         })
     }
 
@@ -73,7 +73,7 @@ pub struct RemoteSubscriber {
     pub(crate) id: u64,
     pub(crate) receiver: Receiver,
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) tokio: Option<tokio::runtime::Handle>,
+    pub(crate) tokio: Option<Arc<tokio::runtime::Handle>>,
 }
 
 #[async_trait]

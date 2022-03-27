@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
     arc_bytes::serde::Bytes,
@@ -117,7 +119,7 @@ impl StorageConnection for Client {
         })?;
         Ok(Self {
             data: self.data.clone(),
-            session,
+            session: Arc::new(session),
         })
     }
 
@@ -128,7 +130,7 @@ impl StorageConnection for Client {
         let session = self.send_api_request(&AssumeIdentity(identity.into_owned()))?;
         Ok(Self {
             data: self.data.clone(),
-            session,
+            session: Arc::new(session),
         })
     }
 

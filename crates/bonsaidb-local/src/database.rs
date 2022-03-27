@@ -838,7 +838,7 @@ impl Database {
     pub fn into_async_with_runtime(self, runtime: tokio::runtime::Handle) -> crate::AsyncDatabase {
         crate::AsyncDatabase {
             database: self,
-            runtime,
+            runtime: Arc::new(runtime),
         }
     }
 

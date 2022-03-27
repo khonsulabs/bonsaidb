@@ -210,7 +210,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 #[derive(Debug, Clone)]
 pub struct Client {
     pub(crate) data: Arc<Data>,
-    session: Session,
+    session: Arc<Session>,
 }
 
 impl PartialEq for Client {
@@ -378,7 +378,7 @@ impl Client {
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
-            session: Session::default(),
+            session: Arc::new(Session::default()),
         }
     }
 
@@ -422,7 +422,7 @@ impl Client {
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
-            session: Session::default(),
+            session: Arc::new(Session::default()),
         }
     }
 
@@ -687,7 +687,7 @@ impl AsyncStorageConnection for Client {
             .await?;
         Ok(Self {
             data: self.data.clone(),
-            session,
+            session: Arc::new(session),
         })
     }
 
@@ -700,7 +700,7 @@ impl AsyncStorageConnection for Client {
             .await?;
         Ok(Self {
             data: self.data.clone(),
-            session,
+            session: Arc::new(session),
         })
     }
 

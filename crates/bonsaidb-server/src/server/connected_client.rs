@@ -240,7 +240,7 @@ impl<'client, ClientData> DerefMut for LockedClientDataGuard<'client, ClientData
 #[derive(Debug)]
 pub struct OwnedClient<B: Backend> {
     client: ConnectedClient<B>,
-    runtime: tokio::runtime::Handle,
+    runtime: Arc<tokio::runtime::Handle>,
     server: Option<CustomServer<B>>,
 }
 
@@ -272,7 +272,7 @@ impl<B: Backend> OwnedClient<B> {
                     client_data: Mutex::default(),
                 }),
             },
-            runtime: tokio::runtime::Handle::current(),
+            runtime: Arc::new(tokio::runtime::Handle::current()),
             server: Some(server),
         }
     }

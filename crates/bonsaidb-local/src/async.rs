@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::connection::Authentication;
@@ -132,7 +134,7 @@ use crate::{
 #[must_use]
 pub struct AsyncStorage {
     pub(crate) storage: Storage,
-    pub(crate) runtime: tokio::runtime::Handle,
+    pub(crate) runtime: Arc<tokio::runtime::Handle>,
 }
 
 impl AsyncStorage {
@@ -284,7 +286,7 @@ impl StorageNonBlocking for AsyncStorage {
 #[derive(Debug, Clone)]
 pub struct AsyncDatabase {
     pub(crate) database: Database,
-    pub(crate) runtime: tokio::runtime::Handle,
+    pub(crate) runtime: Arc<tokio::runtime::Handle>,
 }
 
 impl AsyncDatabase {
