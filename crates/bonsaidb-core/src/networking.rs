@@ -178,6 +178,19 @@ impl Api for AssumeIdentity {
     }
 }
 
+/// Logs out from a session.
+#[derive(Clone, Deserialize, Serialize, Debug)]
+pub struct LogOutSession(pub SessionId);
+
+impl Api for LogOutSession {
+    type Response = ();
+    type Error = crate::Error;
+
+    fn name() -> ApiName {
+        ApiName::new("bonsaidb", "LogOutSession")
+    }
+}
+
 /// Alter's a user's membership in a permission group.
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct AlterUserPermissionGroupMembership {

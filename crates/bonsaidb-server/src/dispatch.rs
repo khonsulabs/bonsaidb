@@ -10,8 +10,8 @@ use bonsaidb_core::{
         AssumeIdentity, Compact, CompactCollection, CompactKeyValueStore, Count, CreateDatabase,
         CreateSubscriber, CreateUser, DeleteDatabase, DeleteDocs, DeleteUser, ExecuteKeyOperation,
         Get, GetMultiple, LastTransactionId, List, ListAvailableSchemas, ListDatabases,
-        ListExecutedTransactions, ListHeaders, Publish, PublishToAll, Query, QueryWithDocs, Reduce,
-        ReduceGrouped, SubscribeTo, UnregisterSubscriber, UnsubscribeFrom,
+        ListExecutedTransactions, ListHeaders, LogOutSession, Publish, PublishToAll, Query,
+        QueryWithDocs, Reduce, ReduceGrouped, SubscribeTo, UnregisterSubscriber, UnsubscribeFrom,
     },
     pubsub::AsyncPubSub,
     schema::ApiName,
@@ -50,6 +50,7 @@ pub fn register_api_handlers<B: Backend>(
         .with_api::<ServerDispatcher, ListAvailableSchemas>()?
         .with_api::<ServerDispatcher, ListDatabases>()?
         .with_api::<ServerDispatcher, ListExecutedTransactions>()?
+        .with_api::<ServerDispatcher, LogOutSession>()?
         .with_api::<ServerDispatcher, Publish>()?
         .with_api::<ServerDispatcher, PublishToAll>()?
         .with_api::<ServerDispatcher, Query>()?
@@ -217,6 +218,18 @@ impl<B: Backend> Handler<B, AssumeIdentity> for ServerDispatcher {
         session.client.logged_in_as(new_session.clone());
 
         Ok(new_session)
+    }
+}
+
+#[async_trait]
+impl<B: Backend> Handler<B, LogOutSession> for ServerDispatcher {
+    async fn handle(
+        session: HandlerSession<'_, B>,
+        command: LogOutSession,
+    ) -> HandlerResult<LogOutSession> {
+        session.client.log_out(command.0);
+
+        Ok(())
     }
 }
 

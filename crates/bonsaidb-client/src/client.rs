@@ -22,7 +22,8 @@ use bonsaidb_core::{
     networking::{
         AlterUserPermissionGroupMembership, AlterUserRoleMembership, AssumeIdentity,
         CreateDatabase, CreateUser, DeleteDatabase, DeleteUser, ListAvailableSchemas,
-        ListDatabases, MessageReceived, Payload, UnregisterSubscriber, CURRENT_PROTOCOL_VERSION,
+        ListDatabases, LogOutSession, MessageReceived, Payload, UnregisterSubscriber,
+        CURRENT_PROTOCOL_VERSION,
     },
     permissions::Permissions,
     schema::{ApiName, Nameable, Schema, SchemaName, Schematic},
@@ -211,6 +212,17 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 pub struct Client {
     pub(crate) data: Arc<Data>,
     session: Arc<Session>,
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.session) == 1 {
+            if let Some(session_id) = self.session.id {
+                // Final reference to an authenticated session
+                drop(self.invoke_api_request(&LogOutSession(session_id)));
+            }
+        }
+    }
 }
 
 impl PartialEq for Client {
@@ -466,7 +478,11 @@ impl Client {
         }
     }
 
-    async fn send_request_async(&self, name: ApiName, bytes: Bytes) -> Result<Bytes, Error> {
+    fn send_request_without_confirmation(
+        &self,
+        name: ApiName,
+        bytes: Bytes,
+    ) -> Result<flume::Receiver<Result<Bytes, Error>>, Error> {
         let (result_sender, result_receiver) = flume::bounded(1);
         let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
         self.data.request_sender.send(PendingRequest {
@@ -478,22 +494,18 @@ impl Client {
             },
             responder: result_sender,
         })?;
+
+        Ok(result_receiver)
+    }
+
+    async fn send_request_async(&self, name: ApiName, bytes: Bytes) -> Result<Bytes, Error> {
+        let result_receiver = self.send_request_without_confirmation(name, bytes)?;
 
         result_receiver.recv_async().await?
     }
 
     fn send_request(&self, name: ApiName, bytes: Bytes) -> Result<Bytes, Error> {
-        let (result_sender, result_receiver) = flume::bounded(1);
-        let id = self.data.request_id.fetch_add(1, Ordering::SeqCst);
-        self.data.request_sender.send(PendingRequest {
-            request: Payload {
-                session_id: self.session.id,
-                id: Some(id),
-                name,
-                value: Ok(bytes),
-            },
-            responder: result_sender,
-        })?;
+        let result_receiver = self.send_request_without_confirmation(name, bytes)?;
 
         result_receiver.recv()?
     }
@@ -508,6 +520,14 @@ impl Client {
         let response =
             pot::from_slice::<Result<Api::Response, Api::Error>>(&response).map_err(Error::from)?;
         response.map_err(ApiError::Api)
+    }
+
+    /// Sends an api `request` without waiting for a result. The response from
+    /// the server will be ignored.
+    pub fn invoke_api_request<Api: api::Api>(&self, request: &Api) -> Result<(), Error> {
+        let request = Bytes::from(pot::to_vec(request).map_err(Error::from)?);
+        self.send_request_without_confirmation(Api::name(), request)
+            .map(|_| ())
     }
 
     /// Sends an api `request`.
@@ -814,13 +834,16 @@ async fn process_response_payload(
     custom_apis: &HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
 ) {
     if let Some(payload_id) = payload.id {
-        let request = {
+        if let Some(outstanding_request) = {
             let mut outstanding_requests = fast_async_lock!(outstanding_requests);
-            outstanding_requests
-                .remove(&payload_id)
-                .expect("missing responder")
-        };
-        drop(request.responder.send(payload.value.map_err(Error::from)));
+            outstanding_requests.remove(&payload_id)
+        } {
+            drop(
+                outstanding_request
+                    .responder
+                    .send(payload.value.map_err(Error::from)),
+            );
+        }
     } else if let (Some(custom_api_callback), Ok(value)) = (
         custom_apis.get(&payload.name).and_then(Option::as_ref),
         payload.value,

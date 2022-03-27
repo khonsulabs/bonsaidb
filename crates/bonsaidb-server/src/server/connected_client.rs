@@ -79,6 +79,11 @@ impl<B: Backend> ConnectedClient<B> {
         );
     }
 
+    pub(crate) fn log_out(&self, session: SessionId) {
+        let mut sessions = self.data.sessions.write();
+        sessions.remove(&Some(session));
+    }
+
     /// Sends a custom API response to the client.
     pub fn send<Api: api::Api>(
         &self,

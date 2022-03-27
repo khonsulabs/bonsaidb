@@ -161,59 +161,59 @@ async fn main() -> anyhow::Result<()> {
     // Give a moment for the listeners to start.
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    let client = Client::build(Url::parse("bonsaidb://localhost")?)
-        .with_certificate(
-            server
-                .certificate_chain()
-                .await?
-                .into_end_entity_certificate(),
-        )
-        .finish()?;
-    let db = client.database::<Shape>("my-database").await?;
+    {
+        let client = Client::build(Url::parse("bonsaidb://localhost")?)
+            .with_certificate(
+                server
+                    .certificate_chain()
+                    .await?
+                    .into_end_entity_certificate(),
+            )
+            .finish()?;
+        let db = client.database::<Shape>("my-database").await?;
 
-    // Before authenticating, inserting a shape shouldn't work.
-    match Shape::new(3).push_into_async(&db).await {
-        Err(InsertError {
-            error: bonsaidb::core::Error::PermissionDenied(denied),
-            ..
-        }) => {
-            log::info!(
-                "Permission was correctly denied before logging in: {:?}",
-                denied
-            );
+        // Before authenticating, inserting a shape shouldn't work.
+        match Shape::new(3).push_into_async(&db).await {
+            Err(InsertError {
+                error: bonsaidb::core::Error::PermissionDenied(denied),
+                ..
+            }) => {
+                log::info!(
+                    "Permission was correctly denied before logging in: {:?}",
+                    denied
+                );
+            }
+            _ => unreachable!("permission shouldn't be allowed"),
         }
-        _ => unreachable!("permission shouldn't be allowed"),
+
+        // Now, log in and try again.
+        let authenticated_client = client
+            .authenticate(
+                "ecton",
+                Authentication::Password(SensitiveString(String::from("hunter2"))),
+            )
+            .await?;
+
+        let db = authenticated_client
+            .database::<Shape>("my-database")
+            .await?;
+        let shape_doc = Shape::new(3).push_into_async(&db).await?;
+        println!("Successully inserted document {:?}", shape_doc);
+
+        // The "basic-users" group and "administrators" groups do not give
+        // permission to delete documents:
+        assert!(matches!(
+            shape_doc.delete_async(&db).await.unwrap_err(),
+            bonsaidb::core::Error::PermissionDenied { .. }
+        ));
+
+        // But we can assume the Superuser role to delete the document:
+        let as_superuser =
+            Role::assume_identity_async(superuser_role_id, &authenticated_client).await?;
+        shape_doc
+            .delete_async(&as_superuser.database::<Shape>("my-database").await?)
+            .await?;
     }
-
-    // Now, log in and try again.
-    let authenticated_client = client
-        .authenticate(
-            "ecton",
-            Authentication::Password(SensitiveString(String::from("hunter2"))),
-        )
-        .await?;
-    let db = authenticated_client
-        .database::<Shape>("my-database")
-        .await?;
-    let shape_doc = Shape::new(3).push_into_async(&db).await?;
-    println!("Successully inserted document {:?}", shape_doc);
-
-    // The "basic-users" group and "administrators" groups do not give
-    // permission to delete documents:
-    assert!(matches!(
-        shape_doc.delete_async(&db).await.unwrap_err(),
-        bonsaidb::core::Error::PermissionDenied { .. }
-    ));
-
-    // But we can assume the Superuser role to delete the document:
-    let as_superuser =
-        Role::assume_identity_async(superuser_role_id, &authenticated_client).await?;
-    shape_doc
-        .delete_async(&as_superuser.database::<Shape>("my-database").await?)
-        .await?;
-
-    drop(db);
-    drop(client);
 
     // Shut the server down gracefully (or forcefully after 5 seconds).
     server.shutdown(Some(Duration::from_secs(5))).await?;
