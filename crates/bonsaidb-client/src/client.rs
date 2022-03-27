@@ -474,7 +474,7 @@ impl Client {
                 #[cfg(feature = "test-util")]
                 background_task_running,
             }),
-            session: Session::default(),
+            session: Arc::new(Session::default()),
         }
     }
 
