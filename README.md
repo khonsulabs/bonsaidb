@@ -1,5 +1,6 @@
 # BonsaiDb
 
+![BonsaiDb forbids unsafe code](https://img.shields.io/badge/unsafe-forbid-success)
 ![BonsaiDb is considered alpha](https://img.shields.io/badge/status-alpha-orange)
 [![crate version](https://img.shields.io/crates/v/bonsaidb.svg)](https://crates.io/crates/bonsaidb)
 [![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/main)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
@@ -88,6 +89,10 @@ You can review the [full example in the repository][view-examples], or see all a
 
 [view-examples]: https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-local/examples/view-examples.rs
 [examples-readme]: https://github.com/khonsulabs/bonsaidb/blob/main/examples/README.md
+
+## User's Guide
+
+Our user's guide is early in development, but is available at: <https://dev.bonsaidb.io/main/guide/>
 
 ## Minimum Supported Rust Version (MSRV)
 
