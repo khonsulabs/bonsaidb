@@ -49,7 +49,19 @@ pub type ViewMapResult<V> = Result<Mappings<<V as View>::Key, <V as View>::Value
 /// A type alias for the result of `ViewSchema::reduce()`.
 pub type ReduceResult<V> = Result<<V as View>::Value, crate::Error>;
 
-/// A mechanism for accessing mapped and/or reduced data from a [`Collection`].
+/// An lazy index of mapped and/or reduced data from a [`Collection`].
+///
+/// A view provides an efficient way to query data within a collection. BonsaiDb
+/// indexes the associated [`View::Collection`] by calling
+/// [`CollectionViewSchema::map()`]/[`ViewSchema::map()`] every time a document
+/// is created or updated. The result [`Mappings`] form a sorted index that can
+/// be efficiently queried using the [`View::Key`] type.
+///
+/// A View behaves similarly to the standard library's BTreeMap with these
+/// types: `BTreeMap<View::Key, Vec<(Header, View::Value)>>`
+///
+/// For a deeper dive on Views, see [the section in our user's
+/// guide](https://dev.bonsaidb.io/main/guide/about/concepts/view.html).
 #[doc = "\n"]
 #[doc = include_str!("./view-overview.md")]
 pub trait View: Send + Sync + Debug + 'static {

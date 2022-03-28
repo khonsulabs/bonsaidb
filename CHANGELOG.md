@@ -135,6 +135,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   API to `LowLevelConnection::apply_transaction`.
 - `ArgonConfiguration` can now be specified when building
   `StorageConfiguration`/`ServerConfiguration` using `Builder::argon`.
+- `SystemTime` and `Duration` now have `Key` implementations.
+- `bonsaidb_core::key::time` has been added which contains a wide array of types
+  that enable storing timestamps and durations with limited resolution, powered
+  by variable integer encoding to reduce the number of bytes needed to encode
+  the values.
+
+  These types are powered by two traits: `TimeResolution` and `TimeEpoch`. Using
+  these traits, the `LimitedResolutionDuration` and `LimitedResolutionTimestamp`
+  types can be used for completely custom resolutions (e.g., 15 minutes) and
+  epochs (the base moment in time to store the limited resolution relative to).
+
+  By constraining the resolution and using an epoch that is closer to the
+  average timestamp being stored, we can reduce the number of bytes required to
+  represent the values from 12 bytes to significantly fewer.
+  
+  These type aliases have been added in these three categories:
+
+  - Durations: `Weeks`, `Days`, `Hours`, `Minutes`, `Seconds`, `Milliseconds`,
+    `Microseconds`, and `Nanoseconds`.
+  - Timestamps relative to the Unix Epoch (Jan 1, 1970 00:00:00 UTC):
+    `WeeksSinceUnixEpoch`, `DaysSinceUnixEpoch`, ...
+  - Timestamps relative to the Bonsai Epoch (Mar 20, 2031 04:31:47 UTC):
+    `TimestampAsWeeks`, `TimestampAsDays`, ...
 
 [221]: https://github.com/khonsulabs/bonsaidb/pull/221
 

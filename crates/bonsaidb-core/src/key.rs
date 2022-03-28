@@ -1,3 +1,6 @@
+/// [`Key`] implementations for time types.
+pub mod time;
+
 use std::{
     borrow::Cow,
     convert::Infallible,
@@ -857,31 +860,6 @@ where
         self.as_ref().map(T::next_value).transpose()
     }
 }
-
-// impl<'a, T> KeyEncoding<'a, Self> for Option<T>
-// where
-//     T: KeyEncoding<'a, Self>,
-// {
-//     type Error = T::Error;
-
-//     const LENGTH: Option<usize> = T::LENGTH;
-
-//     /// # Panics
-//     ///
-//     /// Panics if `T::into_big_endian_bytes` returns an empty `IVec`.
-//     // TODO consider removing this panic limitation by adding a single byte to
-//     // each key (at the end preferrably) so that we can distinguish between None
-//     // and a 0-byte type
-//     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
-//         if let Some(contents) = self {
-//             let contents = contents.as_ord_bytes()?;
-//             assert!(!contents.is_empty());
-//             Ok(contents)
-//         } else {
-//             Ok(Cow::default())
-//         }
-//     }
-// }
 
 impl<'a, K, T> KeyEncoding<'a, Option<K>> for Option<T>
 where

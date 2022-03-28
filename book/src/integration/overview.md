@@ -6,7 +6,7 @@ Because of this model, it makes it easy to transition a local database to a netw
 
 ## When to use the [Local Integration](./local.md)
 
-* You're going to databases from one process at a time. BonsaiDb is designed for concurrency and can scale with the capabilities of the hardware. However, the underlying storage layer that BonsaiDb is built upon, [sled](http://sled.rs), does not support multiple processes writing its data simultaneously. If you need to access the database from multiple processes, the [server integration](./server.md) is what you should use. While it doesn't offer IPC communication today, a pull-request would be accepted to that added that functionality (along with the corresponding unit tests).
+* You're going to databases from one process at a time. BonsaiDb is designed for concurrency and can scale with the capabilities of the hardware. However, the underlying storage layer that BonsaiDb is built upon, [Nebari][nebari], does not support multiple processes writing its data simultaneously. If you need to access the database from multiple processes, the [server integration](./server.md) is what you should use. While it doesn't offer IPC communication today, a pull-request would be accepted to that added that functionality (along with the corresponding unit tests).
 * You have no public API/PubSub/access needs or have implemented those with another stack.
 
 ## When to use the [Server Integration](./server.md)
@@ -22,3 +22,4 @@ Because of this model, it makes it easy to transition a local database to a netw
 * You need/want to split load between multiple machines.
 
 [HA]: https://en.wikipedia.org/wiki/High_availability
+[nebari]: https://github.com/khonsulabs/nebari
