@@ -1388,7 +1388,7 @@ pub fn blocking_list_transactions_tests<C: Connection + Clone + 'static>(
 ) -> anyhow::Result<()> {
     // create LIST_TRANSACTIONS_MAX_RESULTS + 1 items, giving us just enough
     // transactions to test the edge cases of `list_transactions`
-    let mut threads = Vec::with_capacity(std::thread::available_parallelism().unwrap().get());
+    let mut threads = Vec::with_capacity(num_cpus::get());
     let transaction_counter = Arc::new(AtomicU32::new(0));
     for _ in 0..threads.capacity() {
         let db = db.clone();

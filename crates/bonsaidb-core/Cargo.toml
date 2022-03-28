@@ -14,7 +14,7 @@ rust-version = "1.58"
 
 [features]
 default = []
-test-util = ["tokio", "anyhow"]
+test-util = ["tokio", "anyhow", "num_cpus"]
 websockets = []
 actionable-traits = []
 instrument = ["pot/tracing"]
@@ -46,6 +46,7 @@ transmog = "0.1.0"
 transmog-pot = "0.1.0"
 arc-bytes = { version = "0.3.3", features = ["serde"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
+num_cpus = { version = "1.13.1", optional = true }
 
 [dev-dependencies]
 hex-literal = "0.3"
@@ -54,6 +55,7 @@ futures = { version = "0.3" }
 num-derive = "0.3"
 anyhow = "1"
 transmog-bincode = "0.1"
+num_cpus = "1"
 
 [package.metadata.docs.rs]
 features = ["websockets", "encryption", "password-hashing"]
