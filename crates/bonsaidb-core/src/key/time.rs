@@ -796,8 +796,8 @@ pub mod limited {
         ///
         /// The difference between this function and `to_string()`] is that
         /// `to_string()` will revert to using the underlying
-        /// [`LimitedResolutionDuration::to_string()`] if a value is unable to be
-        /// converted.
+        /// [`LimitedResolutionDuration`]'s `to_string()` if a value is unable
+        /// to be converted to a value relative to the unix epoch.
         pub fn to_timestamp_string(&self) -> Result<String, TimeError> {
             let mut string = String::new();
             self.display(&mut string).map(|_| string)
