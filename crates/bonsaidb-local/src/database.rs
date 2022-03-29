@@ -61,9 +61,8 @@ use crate::{
     error::Error,
     open_trees::OpenTrees,
     views::{
-        mapper::{self},
-        view_document_map_tree_name, view_entries_tree_name, view_invalidated_docs_tree_name,
-        ViewEntry,
+        mapper, view_document_map_tree_name, view_entries_tree_name,
+        view_invalidated_docs_tree_name, ViewEntry,
     },
     Storage,
 };

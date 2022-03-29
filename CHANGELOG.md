@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     API. New types, `AsyncDatabase` and `AsyncStorage` have been added that
     provide the previous behavior. The types can be converted between each other
     using helpers as/into/to_blocking/async available on each type.
+
+    These changes allow `bonsaidb-local` to be compiled without Tokio. To enable
+    tokio, enable feature `async` if using `bonsaidb-local` directly, or enable
+    feature `local-async` when using the `bonsaidb` crate.
   - For `bonsaidb-server`, it still uses networking driven by Tokio.
     `Server`/`CustomServer` implement `AsyncStorageConnection`, and `Server` can
     convert to `Storage` via the `From` trait for synchronous database access.
@@ -105,6 +109,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   match the `CustomServer` being created. In general the Rust compiler should be
   able to infer this type based on usage, and therefore shouldn't be a breaking
   change to many people.
+- The `Backend` trait now has an associated `Error` type, which allows for
+  custom error types to be used. When an error occurs during initialization, it
+  is returned. Currently, errors that are returned during client connection
+  handling are printed using `log::error` and ignored.
 - `Key` has had its encoding functionality moved to a new trait, `KeyEncoding`.
   `KeyEncoding` has been implemented for borrowed representations of `Key`
   types.
@@ -158,6 +166,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `WeeksSinceUnixEpoch`, `DaysSinceUnixEpoch`, ...
   - Timestamps relative to the Bonsai Epoch (Mar 20, 2031 04:31:47 UTC):
     `TimestampAsWeeks`, `TimestampAsDays`, ...
+- `Backend::configure()` is a new function that allows a `Backend` to set
+  configuration options on `ServerConfiguration` before the server is
+  initialized. This is a good location for `Backend`s to define their `Api`s and
+  `Schema`s.
 
 [221]: https://github.com/khonsulabs/bonsaidb/pull/221
 

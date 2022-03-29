@@ -5,12 +5,12 @@ use std::path::Path;
 use bonsaidb_core::{connection::AsyncStorageConnection, test_util::BasicSchema};
 use bonsaidb_local::config::Builder;
 
-use crate::{config::DefaultPermissions, Error, Server, ServerConfiguration};
+use crate::{config::DefaultPermissions, BackendError, Server, ServerConfiguration};
 
 pub const BASIC_SERVER_NAME: &str = "basic-server";
 
 #[cfg_attr(not(feature = "compression"), allow(unused_mut))]
-pub async fn initialize_basic_server(path: &Path) -> Result<Server, Error> {
+pub async fn initialize_basic_server(path: &Path) -> Result<Server, BackendError> {
     let mut config = ServerConfiguration::new(path)
         .server_name(BASIC_SERVER_NAME)
         .default_permissions(DefaultPermissions::AllowAll)

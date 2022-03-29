@@ -66,6 +66,7 @@ pub struct Counter(pub u64);
 
 // ANCHOR: server-traits
 impl Backend for ExampleBackend {
+    type Error = Infallible;
     type ClientData = ();
 }
 

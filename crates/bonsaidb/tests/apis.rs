@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 struct CustomBackend;
 
 impl Backend for CustomBackend {
+    type Error = Infallible;
     type ClientData = u64;
 }
 

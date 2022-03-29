@@ -848,9 +848,7 @@ async fn process_response_payload(
         custom_apis.get(&payload.name).and_then(Option::as_ref),
         payload.value,
     ) {
-        // if let Some(custom_api_callback) = custom_api_callback {
         custom_api_callback.response_received(value).await;
-        // }
     } else {
         log::warn!("unexpected api response received ({})", payload.name);
     }
@@ -894,6 +892,24 @@ impl<Api: api::Api> ApiCallback<Api> {
     ) -> Self {
         Self {
             generator: Box::new(ApiFutureBoxer::<Api::Response, Fut>(Box::new(callback))),
+        }
+    }
+    /// Returns a new instance wrapping the provided function.
+    pub fn new_with_context<
+        Context: Send + Sync + Clone + 'static,
+        F: Fn(Api::Response, Context) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + Sync + 'static,
+    >(
+        context: Context,
+        callback: F,
+    ) -> Self {
+        Self {
+            generator: Box::new(ApiFutureBoxer::<Api::Response, Fut>(Box::new(
+                move |request| {
+                    let context = context.clone();
+                    callback(request, context)
+                },
+            ))),
         }
     }
 }
