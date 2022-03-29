@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.4.0
 
 ### Breaking Changes
 
@@ -131,13 +131,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nearly every range pattern. The built-in range operators do not support
   specifying an excluded start bound, while the new method `Range::after` allows
   setting an excluded start bound.
+- [#215][215]: `StorageConnection::delete_user()` is a new function that allows
+    deleting a user by name or id. Deleting a user is permitted with the
+    `ServerAction::DeleteUser` action.
 - `bonsaidb_core::key::encode_composite_field` and
   `bonsaidb_core::key::decode_composite_field` have been added which allow
   building more complex `Key` implementations that are composed of multiple
   fields. These functions are what the `Key` implementation for tuples is
   powered by.
 - `Key` is now implemented for `[u8; N]`.
-- [221][221]: `headers()` has been as a function to all collection list
+- [#221][221]: `headers()` has been as a function to all collection list
   builders, enabling querying just the headers of a document.
 - `Transaction` now has `apply()` and `apply_async()`, which the higher-level
   API to `LowLevelConnection::apply_transaction`.
@@ -172,6 +175,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Schema`s.
 
 [221]: https://github.com/khonsulabs/bonsaidb/pull/221
+[215]: https://github.com/khonsulabs/bonsaidb/pull/215
 
 ### Changed
 
