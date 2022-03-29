@@ -13,6 +13,7 @@
 #![allow(
     clippy::missing_errors_doc, // TODO clippy::missing_errors_doc
     clippy::option_if_let_else,
+    clippy::module_name_repetitions,
 )]
 
 pub use url;
@@ -26,6 +27,6 @@ pub use fabruic;
 
 pub use self::{
     builder::Builder,
-    client::{Client, CustomApiCallback, RemoteDatabase, RemoteSubscriber},
-    error::Error,
+    client::{ApiCallback, Client, RemoteDatabase, RemoteSubscriber},
+    error::{ApiError, Error},
 };

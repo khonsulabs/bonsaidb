@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-client"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Client for accessing BonsaiDb servers."
@@ -23,11 +23,10 @@ password-hashing = ["bonsaidb-core/password-hashing"]
 included-from-omnibus = []
 
 [dependencies]
-bonsaidb-core = { path = "../bonsaidb-core", version = "=0.3.0", default-features = false, features = [
-    "networking",
+bonsaidb-core = { path = "../bonsaidb-core", version = "=0.4.0", default-features = false, features = [
     "included-from-client",
 ] }
-bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.3.0" }
+bonsaidb-utils = { path = "../bonsaidb-utils", version = "=0.4.0" }
 thiserror = "1"
 url = "2.2"
 flume = "0.10"
@@ -41,6 +40,7 @@ async-lock = "2"
 js-sys = "0.3"
 log = "0.4"
 derive-where = "=1.0.0-rc.2"
+parking_lot = "0.12.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = [

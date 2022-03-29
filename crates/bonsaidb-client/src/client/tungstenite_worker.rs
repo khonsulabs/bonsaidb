@@ -1,9 +1,6 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use bonsaidb_core::{
-    custom_api::{CustomApi, CustomApiResult},
-    networking::{Payload, Response},
-};
+use bonsaidb_core::{networking::Payload, schema::ApiName};
 use bonsaidb_utils::fast_async_lock;
 use flume::Receiver;
 use futures::{
@@ -14,21 +11,21 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
-use super::{CustomApiCallback, PendingRequest};
+use super::PendingRequest;
 use crate::{
-    client::{OutstandingRequestMapHandle, SubscriberMap},
+    client::{AnyApiCallback, OutstandingRequestMapHandle, SubscriberMap},
     Error,
 };
 
-pub async fn reconnecting_client_loop<A: CustomApi>(
+pub async fn reconnecting_client_loop(
     url: Url,
     protocol_version: &str,
-    request_receiver: Receiver<PendingRequest<A>>,
-    custom_api_callback: Option<Arc<dyn CustomApiCallback<A>>>,
+    request_receiver: Receiver<PendingRequest>,
+    custom_apis: Arc<HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>>,
     subscribers: SubscriberMap,
-) -> Result<(), Error<A::Error>> {
+) -> Result<(), Error> {
     while let Ok(request) = {
-        subscribers.clear().await;
+        subscribers.clear();
         request_receiver.recv_async().await
     } {
         let (stream, _) = match tokio_tungstenite::connect_async(
@@ -66,12 +63,7 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
 
         if let Err(err) = tokio::try_join!(
             request_sender(&request_receiver, sender, outstanding_requests.clone()),
-            response_processor(
-                receiver,
-                outstanding_requests.clone(),
-                custom_api_callback.as_deref(),
-                subscribers.clone()
-            )
+            response_processor(receiver, outstanding_requests.clone(), &custom_apis,)
         ) {
             // Our socket was disconnected, clear the outstanding requests before returning.
             let mut outstanding_requests = fast_async_lock!(outstanding_requests);
@@ -85,11 +77,11 @@ pub async fn reconnecting_client_loop<A: CustomApi>(
     Ok(())
 }
 
-async fn request_sender<Api: CustomApi>(
-    request_receiver: &Receiver<PendingRequest<Api>>,
+async fn request_sender(
+    request_receiver: &Receiver<PendingRequest>,
     mut sender: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    outstanding_requests: OutstandingRequestMapHandle<Api>,
-) -> Result<(), Error<Api::Error>> {
+    outstanding_requests: OutstandingRequestMapHandle,
+) -> Result<(), Error> {
     while let Ok(pending) = request_receiver.recv_async().await {
         let mut outstanding_requests = fast_async_lock!(outstanding_requests);
         sender
@@ -106,26 +98,18 @@ async fn request_sender<Api: CustomApi>(
 }
 
 #[allow(clippy::collapsible_else_if)] // not possible due to cfg statement
-async fn response_processor<A: CustomApi>(
+async fn response_processor(
     mut receiver: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-    outstanding_requests: OutstandingRequestMapHandle<A>,
-    custom_api_callback: Option<&dyn CustomApiCallback<A>>,
-    subscribers: SubscriberMap,
-) -> Result<(), Error<A::Error>> {
+    outstanding_requests: OutstandingRequestMapHandle,
+    custom_apis: &HashMap<ApiName, Option<Arc<dyn AnyApiCallback>>>,
+) -> Result<(), Error> {
     while let Some(message) = receiver.next().await {
         let message = message?;
         match message {
             Message::Binary(response) => {
-                let payload =
-                    bincode::deserialize::<Payload<Response<CustomApiResult<A>>>>(&response)?;
+                let payload = bincode::deserialize::<Payload>(&response)?;
 
-                super::process_response_payload(
-                    payload,
-                    &outstanding_requests,
-                    custom_api_callback,
-                    &subscribers,
-                )
-                .await;
+                super::process_response_payload(payload, &outstanding_requests, custom_apis).await;
             }
             other => {
                 log::error!("Unexpected websocket message: {:?}", other);

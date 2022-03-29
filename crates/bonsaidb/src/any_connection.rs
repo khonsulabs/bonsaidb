@@ -1,13 +1,17 @@
 use bonsaidb_client::{Client, RemoteDatabase};
 #[cfg(feature = "password-hashing")]
-use bonsaidb_core::connection::{Authenticated, Authentication};
+use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
+    arc_bytes::serde::Bytes,
     async_trait::async_trait,
-    connection::{self, AccessPolicy, Connection, QueryKey, Range, Sort, StorageConnection},
-    document::{AnyDocumentId, OwnedDocument},
+    connection::{
+        self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
+        HasSession, IdentityReference, QueryKey, Range, Session, Sort,
+    },
+    document::{DocumentId, Header, OwnedDocument},
     schema::{
-        view::map::MappedDocuments, Collection, Map, MappedValue, Nameable, Schema, SchemaName,
-        SerializedView,
+        self, view::map::MappedSerializedValue, Collection, CollectionName, Nameable, Schema,
+        SchemaName, Schematic, ViewName,
     },
     transaction::{Executed, OperationResult, Transaction},
 };
@@ -18,12 +22,29 @@ pub enum AnyServerConnection<B: Backend> {
     /// A local server.
     Local(CustomServer<B>),
     /// A server accessed with a [`Client`].
-    Networked(Client<B::CustomApi>),
+    Networked(Client),
+}
+
+impl<B: Backend> HasSession for AnyServerConnection<B> {
+    fn session(&self) -> Option<&Session> {
+        match self {
+            Self::Local(server) => server.session(),
+            Self::Networked(client) => client.session(),
+        }
+    }
 }
 
 #[async_trait]
-impl<B: Backend> StorageConnection for AnyServerConnection<B> {
+impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
     type Database = AnyDatabase<B>;
+    type Authenticated = Self;
+
+    async fn admin(&self) -> Self::Database {
+        match self {
+            Self::Local(server) => AnyDatabase::Local(server.admin().await),
+            Self::Networked(client) => AnyDatabase::Networked(client.admin().await),
+        }
+    }
 
     async fn database<DB: Schema>(
         &self,
@@ -113,10 +134,26 @@ impl<B: Backend> StorageConnection for AnyServerConnection<B> {
         &self,
         user: U,
         authentication: Authentication,
-    ) -> Result<Authenticated, bonsaidb_core::Error> {
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         match self {
-            Self::Local(server) => server.authenticate(user, authentication).await,
-            Self::Networked(client) => client.authenticate(user, authentication).await,
+            Self::Local(server) => server
+                .authenticate(user, authentication)
+                .await
+                .map(Self::Local),
+            Self::Networked(client) => client
+                .authenticate(user, authentication)
+                .await
+                .map(Self::Networked),
+        }
+    }
+
+    async fn assume_identity(
+        &self,
+        identity: IdentityReference<'_>,
+    ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.assume_identity(identity).await.map(Self::Local),
+            Self::Networked(client) => client.assume_identity(identity).await.map(Self::Networked),
         }
     }
 
@@ -207,166 +244,33 @@ pub enum AnyDatabase<B: Backend = NoBackend> {
     /// A local database.
     Local(ServerDatabase<B>),
     /// A networked database accessed with a [`Client`].
-    Networked(RemoteDatabase<B::CustomApi>),
+    Networked(RemoteDatabase),
+}
+
+impl<B: Backend> HasSession for AnyDatabase<B> {
+    fn session(&self) -> Option<&Session> {
+        match self {
+            Self::Local(server) => server.session(),
+            Self::Networked(client) => client.session(),
+        }
+    }
 }
 
 #[async_trait]
-impl<B: Backend> Connection for AnyDatabase<B> {
-    async fn get<C, PrimaryKey>(
-        &self,
-        id: PrimaryKey,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        match self {
-            Self::Local(server) => server.get::<C, _>(id).await,
-            Self::Networked(client) => client.get::<C, _>(id).await,
-        }
-    }
+impl<B: Backend> AsyncConnection for AnyDatabase<B> {
+    type Storage = AnyServerConnection<B>;
 
-    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
-        &self,
-        ids: DocumentIds,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: Collection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
-    {
+    fn storage(&self) -> Self::Storage {
         match self {
-            Self::Local(server) => server.get_multiple::<C, _, _, _>(ids).await,
-            Self::Networked(client) => client.get_multiple::<C, _, _, _>(ids).await,
-        }
-    }
-
-    async fn list<C, R, PrimaryKey>(
-        &self,
-        ids: R,
-        order: Sort,
-        limit: Option<usize>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        match self {
-            Self::Local(server) => server.list::<C, _, _>(ids, order, limit).await,
-            Self::Networked(client) => client.list::<C, _, _>(ids, order, limit).await,
-        }
-    }
-
-    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
-    where
-        C: Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        match self {
-            Self::Local(server) => server.count::<C, _, _>(ids).await,
-            Self::Networked(client) => client.count::<C, _, _>(ids).await,
-        }
-    }
-
-    async fn query<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<usize>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        match self {
-            Self::Local(server) => server.query::<V>(key, order, limit, access_policy).await,
-            Self::Networked(client) => client.query::<V>(key, order, limit, access_policy).await,
-        }
-    }
-
-    async fn query_with_docs<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<usize>,
-        access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        match self {
-            Self::Local(server) => {
-                server
-                    .query_with_docs::<V>(key, order, limit, access_policy)
-                    .await
-            }
-            Self::Networked(client) => {
-                client
-                    .query_with_docs::<V>(key, order, limit, access_policy)
-                    .await
-            }
-        }
-    }
-
-    async fn reduce<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<V::Value, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        match self {
-            Self::Local(server) => server.reduce::<V>(key, access_policy).await,
-            Self::Networked(client) => client.reduce::<V>(key, access_policy).await,
-        }
-    }
-
-    async fn reduce_grouped<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        match self {
-            Self::Local(server) => server.reduce_grouped::<V>(key, access_policy).await,
-            Self::Networked(client) => client.reduce_grouped::<V>(key, access_policy).await,
-        }
-    }
-
-    async fn delete_docs<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        match self {
-            Self::Local(server) => server.delete_docs::<V>(key, access_policy).await,
-            Self::Networked(client) => client.delete_docs::<V>(key, access_policy).await,
-        }
-    }
-
-    async fn apply_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
-        match self {
-            Self::Local(server) => server.apply_transaction(transaction).await,
-            Self::Networked(client) => client.apply_transaction(transaction).await,
+            Self::Local(server) => AnyServerConnection::Local(server.storage()),
+            Self::Networked(client) => AnyServerConnection::Networked(client.storage()),
         }
     }
 
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
-        result_limit: Option<usize>,
+        result_limit: Option<u32>,
     ) -> Result<Vec<Executed>, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => {
@@ -407,6 +311,199 @@ impl<B: Backend> Connection for AnyDatabase<B> {
         match self {
             Self::Local(server) => server.compact_key_value_store().await,
             Self::Networked(client) => client.compact_key_value_store().await,
+        }
+    }
+}
+
+#[async_trait]
+impl<B: Backend> AsyncLowLevelConnection for AnyDatabase<B> {
+    fn schematic(&self) -> &Schematic {
+        match self {
+            Self::Local(server) => server.schematic(),
+            Self::Networked(client) => client.schematic(),
+        }
+    }
+
+    async fn apply_transaction(
+        &self,
+        transaction: Transaction,
+    ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.apply_transaction(transaction).await,
+            Self::Networked(client) => client.apply_transaction(transaction).await,
+        }
+    }
+
+    async fn get_from_collection(
+        &self,
+        id: DocumentId,
+        collection: &CollectionName,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.get_from_collection(id, collection).await,
+            Self::Networked(client) => client.get_from_collection(id, collection).await,
+        }
+    }
+
+    async fn list_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => {
+                server
+                    .list_from_collection(ids, order, limit, collection)
+                    .await
+            }
+            Self::Networked(client) => {
+                client
+                    .list_from_collection(ids, order, limit, collection)
+                    .await
+            }
+        }
+    }
+
+    async fn list_headers_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => {
+                server
+                    .list_headers_from_collection(ids, order, limit, collection)
+                    .await
+            }
+            Self::Networked(client) => {
+                client
+                    .list_headers_from_collection(ids, order, limit, collection)
+                    .await
+            }
+        }
+    }
+
+    async fn count_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        collection: &CollectionName,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.count_from_collection(ids, collection).await,
+            Self::Networked(client) => client.count_from_collection(ids, collection).await,
+        }
+    }
+
+    async fn get_multiple_from_collection(
+        &self,
+        ids: &[DocumentId],
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.get_multiple_from_collection(ids, collection).await,
+            Self::Networked(client) => client.get_multiple_from_collection(ids, collection).await,
+        }
+    }
+
+    async fn compact_collection_by_name(
+        &self,
+        collection: CollectionName,
+    ) -> Result<(), bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.compact_collection_by_name(collection).await,
+            Self::Networked(client) => client.compact_collection_by_name(collection).await,
+        }
+    }
+
+    async fn query_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        order: Sort,
+        limit: Option<u32>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => {
+                server
+                    .query_by_name(view, key, order, limit, access_policy)
+                    .await
+            }
+            Self::Networked(client) => {
+                client
+                    .query_by_name(view, key, order, limit, access_policy)
+                    .await
+            }
+        }
+    }
+
+    async fn query_by_name_with_docs(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        order: Sort,
+        limit: Option<u32>,
+        access_policy: AccessPolicy,
+    ) -> Result<schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => {
+                server
+                    .query_by_name_with_docs(view, key, order, limit, access_policy)
+                    .await
+            }
+            Self::Networked(client) => {
+                client
+                    .query_by_name_with_docs(view, key, order, limit, access_policy)
+                    .await
+            }
+        }
+    }
+
+    async fn reduce_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.reduce_by_name(view, key, access_policy).await,
+            Self::Networked(client) => client.reduce_by_name(view, key, access_policy).await,
+        }
+    }
+
+    async fn reduce_grouped_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => {
+                server
+                    .reduce_grouped_by_name(view, key, access_policy)
+                    .await
+            }
+            Self::Networked(client) => {
+                client
+                    .reduce_grouped_by_name(view, key, access_policy)
+                    .await
+            }
+        }
+    }
+
+    async fn delete_docs_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        match self {
+            Self::Local(server) => server.delete_docs_by_name(view, key, access_policy).await,
+            Self::Networked(client) => client.delete_docs_by_name(view, key, access_policy).await,
         }
     }
 }

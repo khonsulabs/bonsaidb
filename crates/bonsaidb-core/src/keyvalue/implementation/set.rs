@@ -11,14 +11,152 @@ use super::{
     Timestamp,
 };
 use crate::{
-    keyvalue::{SetCommand, Value},
+    keyvalue::{AsyncKeyValue, SetCommand, Value},
     Error,
 };
 
-/// Executes [`Command::Set`] when awaited. Also offers methods to customize the
-/// options for the operation.
-#[must_use = "futures do nothing unless you `.await` or poll them"]
+/// Builder for a [`Command::Set`] key-value operation.
+#[must_use = "the key-value operation is not performed until execute() is called"]
 pub struct Builder<'a, KeyValue, V> {
+    kv: &'a KeyValue,
+    namespace: Option<String>,
+    key: String,
+    value: PendingValue<'a, V>,
+    expiration: Option<Timestamp>,
+    keep_existing_expiration: bool,
+    check: Option<KeyCheck>,
+}
+
+impl<'a, K, V> Builder<'a, K, V>
+where
+    K: KeyValue,
+    V: Serialize + Send + Sync,
+{
+    pub(crate) fn new(
+        kv: &'a K,
+        namespace: Option<String>,
+        key: String,
+        value: PendingValue<'a, V>,
+    ) -> Self {
+        Self {
+            key,
+            value,
+            kv,
+            namespace,
+            expiration: None,
+            keep_existing_expiration: false,
+            check: None,
+        }
+    }
+
+    /// Set this key to expire after `duration` from now.
+    pub fn expire_in(mut self, duration: Duration) -> Self {
+        // TODO consider using checked_add here and making it return an error.
+        self.expiration = Some(Timestamp::from(SystemTime::now().add(duration)));
+        self
+    }
+
+    /// Set this key to expire at the provided `time`.
+    pub fn expire_at(mut self, time: SystemTime) -> Self {
+        // TODO consider using checked_add here and making it return an error.
+        self.expiration = Some(Timestamp::from(time));
+        self
+    }
+
+    /// If the key already exists, do not update the currently set expiration.
+    pub fn keep_existing_expiration(mut self) -> Self {
+        self.keep_existing_expiration = true;
+        self
+    }
+
+    /// Only set the value if this key already exists.
+    pub fn only_if_exists(mut self) -> Self {
+        self.check = Some(KeyCheck::OnlyIfPresent);
+        self
+    }
+
+    /// Only set the value if this key isn't present.
+    pub fn only_if_vacant(mut self) -> Self {
+        self.check = Some(KeyCheck::OnlyIfVacant);
+        self
+    }
+
+    /// Executes the Set operation, requesting the previous value be returned.
+    /// If no change is made, None will be returned.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn returning_previous(self) -> Result<Option<Value>, Error> {
+        let Self {
+            kv,
+            namespace,
+            key,
+            value,
+            expiration,
+            keep_existing_expiration,
+            check,
+        } = self;
+
+        let result = kv.execute_key_operation(KeyOperation {
+            namespace,
+            key,
+            command: Command::Set(SetCommand {
+                value: value.prepare()?,
+                expiration,
+                keep_existing_expiration,
+                check,
+                return_previous_value: true,
+            }),
+        })?;
+        match result {
+            Output::Value(value) => Ok(value),
+            Output::Status(KeyStatus::NotChanged) => Ok(None),
+            Output::Status(_) => unreachable!("Unexpected output from Set"),
+        }
+    }
+
+    /// Executes the Set operation, requesting the previous value be returned.
+    /// If no change is made, None will be returned.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn returning_previous_as<OtherV: for<'de> Deserialize<'de>>(
+        self,
+    ) -> Result<Option<OtherV>, Error> {
+        self.returning_previous()?
+            .map(|value| value.deserialize())
+            .transpose()
+    }
+
+    /// Executes the operation using the configured options.
+    pub fn execute(self) -> Result<KeyStatus, Error> {
+        let Self {
+            kv,
+            namespace,
+            key,
+            value,
+            expiration,
+            keep_existing_expiration,
+            check,
+        } = self;
+        let result = kv.execute_key_operation(KeyOperation {
+            namespace,
+            key,
+            command: Command::Set(SetCommand {
+                value: value.prepare()?,
+                expiration,
+                keep_existing_expiration,
+                check,
+                return_previous_value: false,
+            }),
+        })?;
+        if let Output::Status(status) = result {
+            Ok(status)
+        } else {
+            unreachable!("Unexpected output from Set")
+        }
+    }
+}
+
+/// Builder for a [`Command::Set`] key-value operation.
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct AsyncBuilder<'a, KeyValue, V> {
     state: BuilderState<'a, Options<'a, KeyValue, V>, Result<KeyStatus, Error>>,
 }
 
@@ -32,9 +170,9 @@ struct Options<'a, KeyValue, V> {
     check: Option<KeyCheck>,
 }
 
-impl<'a, K, V> Builder<'a, K, V>
+impl<'a, K, V> AsyncBuilder<'a, K, V>
 where
-    K: KeyValue,
+    K: AsyncKeyValue,
     V: Serialize + Send + Sync,
 {
     pub(crate) fn new(
@@ -147,9 +285,9 @@ where
     }
 }
 
-impl<'a, K, V> Future for Builder<'a, K, V>
+impl<'a, K, V> Future for AsyncBuilder<'a, K, V>
 where
-    K: KeyValue,
+    K: AsyncKeyValue,
     V: Serialize + Send + Sync,
 {
     type Output = Result<KeyStatus, Error>;

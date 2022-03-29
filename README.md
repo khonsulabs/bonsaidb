@@ -1,5 +1,6 @@
 # BonsaiDb
 
+![BonsaiDb forbids unsafe code](https://img.shields.io/badge/unsafe-forbid-success)
 ![BonsaiDb is considered alpha](https://img.shields.io/badge/status-alpha-orange)
 [![crate version](https://img.shields.io/crates/v/bonsaidb.svg)](https://crates.io/crates/bonsaidb)
 [![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/release)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
@@ -71,20 +72,16 @@ impl CollectionViewSchema for ShapesByNumberOfSides {
 After you have your collection(s) and view(s) defined, you can open up a database and insert documents:
 
 ```rust,ignore
-let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb")).await?;
+let db = Database::open::<Shape>(StorageConfiguration::new("view-examples.bonsaidb"))?;
 
 // Insert a new document into the Shape collection.
-Shape { sides: 3 }.push_into(&db).await?;
+Shape { sides: 3 }.push_into(&db)?;
 ```
 
 And query data using the Map-Reduce-powered view:
 
 ```rust,ignore
-let triangles = db
-    .view::<ShapesByNumberOfSides>()
-    .with_key(3)
-    .query()
-    .await?;
+let triangles = db.view::<ShapesByNumberOfSides>().with_key(3).query()?;
 println!("Number of triangles: {}", triangles.len());
 ```
 
@@ -92,6 +89,10 @@ You can review the [full example in the repository][view-examples], or see all a
 
 [view-examples]: https://github.com/khonsulabs/bonsaidb/blob/release/examples/basic-local/examples/view-examples.rs
 [examples-readme]: https://github.com/khonsulabs/bonsaidb/blob/release/examples/README.md
+
+## User's Guide
+
+Our user's guide is early in development, but is available at: <https://dev.bonsaidb.io/release/guide/>
 
 ## Minimum Supported Rust Version (MSRV)
 
@@ -128,12 +129,12 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 - `local-full`: Enables all the flags below
 - `local`: Enables the [`local`](https://dev.bonsaidb.io/release/docs/bonsaidb/local/) module, which re-exports the crate
   `bonsaidb-local`.
+- `local-async`: Enables async support with Tokio.
 - `local-cli`: Enables the `clap` structures for embedding database
   management commands into your own command-line interface.
 - `local-compression`: Enables support for compressed storage using lz4.
 - `local-encryption`: Enables at-rest encryption.
 - `local-instrument`: Enables instrumenting with `tracing`.
-- `local-multiuser`: Enables multi-user support.
 - `local-password-hashing`: Enables the ability to use password authentication
   using Argon2.
 

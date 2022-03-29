@@ -49,41 +49,37 @@ impl ViewSchema for BlogPostsByCategory {
 // ANCHOR_END: view
 
 #[allow(unused_variables)]
-#[tokio::test]
-async fn example() -> Result<(), Error> {
-    drop(tokio::fs::remove_dir_all("example.bonsaidb").await);
-    let db = Database::open::<BlogPost>(StorageConfiguration::new("example.bonsaidb")).await?;
+#[test]
+fn example() -> Result<(), Error> {
+    drop(std::fs::remove_dir_all("example.bonsaidb"));
+    let db = Database::open::<BlogPost>(StorageConfiguration::new("example.bonsaidb"))?;
     // ANCHOR: insert_data
     BlogPost {
         title: String::from("New version of BonsaiDb released"),
         body: String::from("..."),
         category: Some(String::from("Rust")),
     }
-    .push_into(&db)
-    .await?;
+    .push_into(&db)?;
 
     BlogPost {
         title: String::from("New Rust version released"),
         body: String::from("..."),
         category: Some(String::from("Rust")),
     }
-    .push_into(&db)
-    .await?;
+    .push_into(&db)?;
 
     BlogPost {
         title: String::from("Check out this great cinnamon roll recipe"),
         body: String::from("..."),
         category: Some(String::from("Cooking")),
     }
-    .push_into(&db)
-    .await?;
+    .push_into(&db)?;
     // ANCHOR_END: insert_data
     // ANCHOR: query_with_docs
     let rust_posts = db
         .view::<BlogPostsByCategory>()
-        .with_key(Some(String::from("Rust")))
-        .query_with_docs()
-        .await?;
+        .with_key(Some("Rust"))
+        .query_with_docs()?;
     for mapping in &rust_posts {
         let post = BlogPost::document_contents(mapping.document)?;
         println!(
@@ -96,9 +92,8 @@ async fn example() -> Result<(), Error> {
     // ANCHOR: query_with_collection_docs
     let rust_posts = db
         .view::<BlogPostsByCategory>()
-        .with_key(Some(String::from("Rust")))
-        .query_with_collection_docs()
-        .await?;
+        .with_key(Some("Rust"))
+        .query_with_collection_docs()?;
     for mapping in &rust_posts {
         println!(
             "Retrieved post #{} \"{}\"",
@@ -110,13 +105,12 @@ async fn example() -> Result<(), Error> {
     // ANCHOR: reduce_one_key
     let rust_post_count = db
         .view::<BlogPostsByCategory>()
-        .with_key(Some(String::from("Rust")))
-        .reduce()
-        .await?;
+        .with_key(Some("Rust"))
+        .reduce()?;
     assert_eq!(rust_post_count, 2);
     // ANCHOR_END: reduce_one_key
     // ANCHOR: reduce_multiple_keys
-    let total_post_count = db.view::<BlogPostsByCategory>().reduce().await?;
+    let total_post_count = db.view::<BlogPostsByCategory>().reduce()?;
     assert_eq!(total_post_count, 3);
     // ANCHOR_END: reduce_multiple_keys
     Ok(())

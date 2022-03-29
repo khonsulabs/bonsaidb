@@ -7,7 +7,10 @@ use std::{
 
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
-use bonsaidb_core::schema::{Schema, SchemaName};
+use bonsaidb_core::{
+    permissions::Permissions,
+    schema::{Schema, SchemaName},
+};
 use sysinfo::{RefreshKind, System, SystemExt};
 
 #[cfg(feature = "encryption")]
@@ -72,6 +75,9 @@ pub struct StorageConfiguration {
     #[cfg(feature = "compression")]
     pub default_compression: Option<Compression>,
 
+    /// The permissions granted to authenticated connections to this server.
+    pub authenticated_permissions: Permissions,
+
     /// Password hashing configuration.
     #[cfg(feature = "password-hashing")]
     pub argon: ArgonConfiguration,
@@ -97,6 +103,7 @@ impl Default for StorageConfiguration {
             workers: Tasks::default_for(&system),
             views: Views::default(),
             key_value_persistence: KeyValuePersistence::default(),
+            authenticated_permissions: Permissions::default(),
             #[cfg(feature = "password-hashing")]
             argon: ArgonConfiguration::default_for(&system),
             initial_schemas: HashMap::default(),
@@ -107,6 +114,7 @@ impl Default for StorageConfiguration {
 impl StorageConfiguration {
     /// Registers the schema provided.
     pub fn register_schema<S: Schema>(&mut self) -> Result<(), Error> {
+        // TODO this should error on duplicate registration.
         self.initial_schemas
             .insert(S::schema_name(), Arc::new(StorageSchemaOpener::<S>::new()?));
         Ok(())
@@ -241,19 +249,19 @@ impl KeyValuePersistence {
         elapsed_since_last_commit: Duration,
     ) -> bool {
         self.duration_until_next_commit(number_of_changes, elapsed_since_last_commit)
-            == Duration::ZERO
+            == Some(Duration::ZERO)
     }
 
     pub(crate) fn duration_until_next_commit(
         &self,
         number_of_changes: usize,
         elapsed_since_last_commit: Duration,
-    ) -> Duration {
+    ) -> Option<Duration> {
         if number_of_changes == 0 {
-            Duration::MAX
+            None
         } else {
             match &self.0 {
-                KeyValuePersistenceInner::Immediate => Duration::ZERO,
+                KeyValuePersistenceInner::Immediate => Some(Duration::ZERO),
                 KeyValuePersistenceInner::Lazy(rules) => {
                     let mut shortest_duration = Duration::MAX;
                     for rule in rules
@@ -268,7 +276,7 @@ impl KeyValuePersistence {
                             break;
                         }
                     }
-                    shortest_duration
+                    (shortest_duration < Duration::MAX).then(|| shortest_duration)
                 }
             }
         }
@@ -313,7 +321,6 @@ pub trait Builder: Default {
     fn new<P: AsRef<Path>>(path: P) -> Self {
         Self::default().path(path)
     }
-
     /// Registers the schema and returns self.
     fn with_schema<S: Schema>(self) -> Result<Self, Error>;
 
@@ -353,6 +360,13 @@ pub trait Builder: Default {
     /// Sets [`StorageConfiguration::key_value_persistence`](StorageConfiguration#structfield.key_value_persistence) to `persistence` and returns self.
     #[must_use]
     fn key_value_persistence(self, persistence: KeyValuePersistence) -> Self;
+    /// Sets [`Self::authenticated_permissions`](Self#structfield.authenticated_permissions) to `authenticated_permissions` and returns self.
+    #[must_use]
+    fn authenticated_permissions<P: Into<Permissions>>(self, authenticated_permissions: P) -> Self;
+    /// Sets [`StorageConfiguration::argon`](StorageConfiguration#structfield.argon) to `argon` and returns self.
+    #[cfg(feature = "password-hashing")]
+    #[must_use]
+    fn argon(self, argon: ArgonConfiguration) -> Self;
 }
 
 impl Builder for StorageConfiguration {
@@ -414,6 +428,20 @@ impl Builder for StorageConfiguration {
 
     fn key_value_persistence(mut self, persistence: KeyValuePersistence) -> Self {
         self.key_value_persistence = persistence;
+        self
+    }
+
+    fn authenticated_permissions<P: Into<Permissions>>(
+        mut self,
+        authenticated_permissions: P,
+    ) -> Self {
+        self.authenticated_permissions = authenticated_permissions.into();
+        self
+    }
+
+    #[cfg(feature = "password-hashing")]
+    fn argon(mut self, argon: ArgonConfiguration) -> Self {
+        self.argon = argon;
         self
     }
 }

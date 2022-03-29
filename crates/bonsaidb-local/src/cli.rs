@@ -27,32 +27,56 @@ pub enum Location {
 
 impl StorageCommand {
     /// Executes the command after opening a [`Storage`] instance using `config`.
-    pub async fn execute(&self, config: StorageConfiguration) -> Result<(), Error> {
-        let storage = Storage::open(config).await?;
-        self.execute_on(&storage).await
+    pub fn execute(&self, config: StorageConfiguration) -> Result<(), Error> {
+        let storage = Storage::open(config)?;
+        self.execute_on(&storage)
     }
 
     /// Executes the command on `storage`.
-    pub async fn execute_on(&self, storage: &Storage) -> Result<(), Error> {
+    pub fn execute_on(&self, storage: &Storage) -> Result<(), Error> {
         match self {
-            StorageCommand::Backup(location) => location.backup(storage).await,
-            StorageCommand::Restore(location) => location.restore(storage).await,
+            StorageCommand::Backup(location) => location.backup(storage),
+            StorageCommand::Restore(location) => location.restore(storage),
+        }
+    }
+
+    /// Executes the command on `storage`.
+    #[cfg(feature = "async")]
+    pub async fn execute_on_async(&self, storage: &crate::AsyncStorage) -> Result<(), Error> {
+        match self {
+            StorageCommand::Backup(location) => location.backup_async(storage).await,
+            StorageCommand::Restore(location) => location.restore_async(storage).await,
         }
     }
 }
 
 impl Location {
     /// Backs-up `storage` to `self`.
-    pub async fn backup(&self, storage: &Storage) -> Result<(), Error> {
+    pub fn backup(&self, storage: &Storage) -> Result<(), Error> {
         match self {
-            Location::Path { path } => storage.backup(path.as_path()).await,
+            Location::Path { path } => storage.backup(path),
         }
     }
 
     /// Restores `storage` from `self`.
-    pub async fn restore(&self, storage: &Storage) -> Result<(), Error> {
+    pub fn restore(&self, storage: &Storage) -> Result<(), Error> {
         match self {
-            Location::Path { path } => storage.restore(path.as_path()).await,
+            Location::Path { path } => storage.restore(path),
+        }
+    }
+    /// Backs-up `storage` to `self`.
+    #[cfg(feature = "async")]
+    pub async fn backup_async(&self, storage: &crate::AsyncStorage) -> Result<(), Error> {
+        match self {
+            Location::Path { path } => storage.backup(path.clone()).await,
+        }
+    }
+
+    /// Restores `storage` from `self`.
+    #[cfg(feature = "async")]
+    pub async fn restore_async(&self, storage: &crate::AsyncStorage) -> Result<(), Error> {
+        match self {
+            Location::Path { path } => storage.restore(path.clone()).await,
         }
     }
 }

@@ -110,8 +110,12 @@ fn main() {
         execute::Benchmark {
             label: options.label,
             seed: options.seed,
-            agents: options.agents,
-            shoppers: options.shoppers,
+            agents: if is_testing { Some(1) } else { options.agents },
+            shoppers: if is_testing {
+                Some(256)
+            } else {
+                options.shoppers
+            },
             data_config: &InitialDataSetConfig {
                 number_of_customers: options.min_customers..=options.max_customers,
                 number_of_products: options.min_products..=options.max_products,

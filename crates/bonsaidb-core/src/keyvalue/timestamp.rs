@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::key::{IncorrectByteLength, Key};
+use crate::key::{IncorrectByteLength, Key, KeyEncoding};
 
 /// A timestamp relative to [`UNIX_EPOCH`].
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Default)]
@@ -17,19 +17,22 @@ pub struct Timestamp {
 }
 
 impl Timestamp {
+    /// The minimum representable Timestamp. This is equivalent to [`UNIX_EPOCH`].
+    pub const MIN: Self = Self {
+        seconds: 0,
+        nanos: 0,
+    };
+
+    /// The maximum valid value of Timestamp.
+    pub const MAX: Self = Self {
+        seconds: u64::MAX,
+        nanos: 999_999_999,
+    };
+
     /// Returns the current timestamp according to the OS. Uses [`SystemTime::now()`].
     #[must_use]
     pub fn now() -> Self {
         Self::from(SystemTime::now())
-    }
-
-    /// Returns the maximum value for this type.
-    #[must_use]
-    pub const fn max() -> Self {
-        Self {
-            seconds: u64::MAX,
-            nanos: 999_999_999,
-        }
     }
 }
 
@@ -74,15 +77,6 @@ impl std::ops::Add<Duration> for Timestamp {
 }
 
 impl<'a> Key<'a> for Timestamp {
-    type Error = IncorrectByteLength;
-    const LENGTH: Option<usize> = Some(12);
-
-    fn as_ord_bytes(&'a self) -> Result<std::borrow::Cow<'a, [u8]>, Self::Error> {
-        let seconds_bytes: &[u8] = &self.seconds.to_be_bytes();
-        let nanos_bytes = &self.nanos.to_be_bytes();
-        Ok(Cow::Owned([seconds_bytes, nanos_bytes].concat()))
-    }
-
     fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         if bytes.len() != 12 {
             return Err(IncorrectByteLength);
@@ -92,6 +86,18 @@ impl<'a> Key<'a> for Timestamp {
             seconds: u64::from_ord_bytes(&bytes[0..8])?,
             nanos: u32::from_ord_bytes(&bytes[8..12])?,
         })
+    }
+}
+
+impl<'a> KeyEncoding<'a, Self> for Timestamp {
+    type Error = IncorrectByteLength;
+
+    const LENGTH: Option<usize> = Some(12);
+
+    fn as_ord_bytes(&'a self) -> Result<std::borrow::Cow<'a, [u8]>, Self::Error> {
+        let seconds_bytes: &[u8] = &self.seconds.to_be_bytes();
+        let nanos_bytes = &self.nanos.to_be_bytes();
+        Ok(Cow::Owned([seconds_bytes, nanos_bytes].concat()))
     }
 }
 

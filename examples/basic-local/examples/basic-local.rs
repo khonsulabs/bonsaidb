@@ -16,9 +16,8 @@ struct Message {
     pub contents: String,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), bonsaidb::core::Error> {
-    let db = Database::open::<Message>(StorageConfiguration::new("basic.bonsaidb")).await?;
+fn main() -> Result<(), bonsaidb::core::Error> {
+    let db = Database::open::<Message>(StorageConfiguration::new("basic.bonsaidb"))?;
 
     // Insert a new `Message` into the database. `Message` is a `Collection`
     // implementor, which makes them act in a similar fashion to tables in other
@@ -31,14 +30,12 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
         contents: String::from("Hello, World!"),
         timestamp: SystemTime::now(),
     }
-    .push_into(&db)
-    .await?;
+    .push_into(&db)?;
 
     // Retrieve the message using the id returned from the previous call. both
     // `document` and `message_doc` should be identical.
-    let message_doc = Message::get(document.header.id, &db)
-        .await?
-        .expect("couldn't retrieve stored item");
+    let message_doc =
+        Message::get(document.header.id, &db)?.expect("couldn't retrieve stored item");
 
     println!(
         "Inserted message '{:?}' with id {}",

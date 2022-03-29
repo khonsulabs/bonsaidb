@@ -1,19 +1,28 @@
-use std::path::Path;
+use std::{collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
 
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
-use bonsaidb_core::{permissions::Permissions, schema::Schema};
+use bonsaidb_core::{
+    api::{self},
+    permissions::Permissions,
+    schema::{ApiName, Schema},
+};
 #[cfg(feature = "compression")]
 use bonsaidb_local::config::Compression;
 use bonsaidb_local::config::{Builder, KeyValuePersistence, StorageConfiguration};
 #[cfg(feature = "encryption")]
 use bonsaidb_local::vault::AnyVaultKeyStorage;
 
+use crate::{
+    api::{AnyHandler, AnyWrapper, Handler},
+    Backend, Error, NoBackend,
+};
+
 /// Configuration options for [`Server`](crate::Server)
 #[derive(Debug, Clone)]
 #[must_use]
 #[non_exhaustive]
-pub struct ServerConfiguration {
+pub struct ServerConfiguration<B: Backend = NoBackend> {
     /// The DNS name of the server.
     pub server_name: String,
     /// Number of sumultaneous requests a single client can have in flight at a
@@ -27,14 +36,14 @@ pub struct ServerConfiguration {
     pub storage: StorageConfiguration,
     /// The permissions granted to all connections to this server.
     pub default_permissions: DefaultPermissions,
-    /// The permissions granted to authenticated connections to this server.
-    pub authenticated_permissions: DefaultPermissions,
     /// The ACME settings for automatic TLS certificate management.
     #[cfg(feature = "acme")]
     pub acme: AcmeConfiguration,
+
+    pub(crate) custom_apis: HashMap<ApiName, Arc<dyn AnyHandler<B>>>,
 }
 
-impl ServerConfiguration {
+impl<B: Backend> ServerConfiguration<B> {
     /// Sets [`Self::server_name`](Self#structfield.server_name) to `server_name` and returns self.
     pub fn server_name(mut self, server_name: impl Into<String>) -> Self {
         self.server_name = server_name.into();
@@ -42,13 +51,13 @@ impl ServerConfiguration {
     }
 
     /// Sets [`Self::client_simultaneous_request_limit`](Self#structfield.client_simultaneous_request_limit) to `request_limit` and returns self.
-    pub const fn client_simultaneous_request_limit(mut self, request_limit: usize) -> Self {
+    pub fn client_simultaneous_request_limit(mut self, request_limit: usize) -> Self {
         self.client_simultaneous_request_limit = request_limit;
         self
     }
 
     /// Sets [`Self::request_workers`](Self#structfield.request_workers) to `workers` and returns self.
-    pub const fn request_workers(mut self, workers: usize) -> Self {
+    pub fn request_workers(mut self, workers: usize) -> Self {
         self.request_workers = workers;
         self
     }
@@ -59,15 +68,6 @@ impl ServerConfiguration {
         default_permissions: P,
     ) -> Self {
         self.default_permissions = default_permissions.into();
-        self
-    }
-
-    /// Sets [`Self::authenticated_permissions`](Self#structfield.authenticated_permissions) to `authenticated_permissions` and returns self.
-    pub fn authenticated_permissions<P: Into<DefaultPermissions>>(
-        mut self,
-        authenticated_permissions: P,
-    ) -> Self {
-        self.authenticated_permissions = authenticated_permissions.into();
         self
     }
 
@@ -84,9 +84,30 @@ impl ServerConfiguration {
         self.acme.directory = directory.into();
         self
     }
+
+    /// Registers a `handler` for a [`Api`][api::Api]. When an [`Api`][api::Api] is
+    /// received by the server, the handler will be invoked
+    pub fn register_custom_api<Dispatcher: Handler<B, Api> + 'static, Api: api::Api>(
+        &mut self,
+    ) -> Result<(), Error> {
+        // TODO this should error on duplicate registration.
+        self.custom_apis.insert(
+            Api::name(),
+            Arc::new(AnyWrapper::<Dispatcher, B, Api>(PhantomData)),
+        );
+        Ok(())
+    }
+
+    /// Registers the custom api dispatcher and returns self.
+    pub fn with_api<Dispatcher: Handler<B, Api> + 'static, Api: api::Api>(
+        mut self,
+    ) -> Result<Self, Error> {
+        self.register_custom_api::<Dispatcher, Api>()?;
+        Ok(self)
+    }
 }
 
-impl Default for ServerConfiguration {
+impl<B: Backend> Default for ServerConfiguration<B> {
     fn default() -> Self {
         Self {
             server_name: String::from("bonsaidb"),
@@ -96,7 +117,7 @@ impl Default for ServerConfiguration {
             request_workers: 16,
             storage: bonsaidb_local::config::StorageConfiguration::default(),
             default_permissions: DefaultPermissions::Permissions(Permissions::default()),
-            authenticated_permissions: DefaultPermissions::Permissions(Permissions::default()),
+            custom_apis: HashMap::default(),
             #[cfg(feature = "acme")]
             acme: AcmeConfiguration::default(),
         }
@@ -154,19 +175,19 @@ impl From<Permissions> for DefaultPermissions {
     }
 }
 
-impl Builder for ServerConfiguration {
+impl<B: Backend> Builder for ServerConfiguration<B> {
     fn with_schema<S: Schema>(mut self) -> Result<Self, bonsaidb_local::Error> {
         self.storage.register_schema::<S>()?;
         Ok(self)
     }
 
-    fn path<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.storage.path = Some(path.as_ref().to_owned());
+    fn memory_only(mut self) -> Self {
+        self.storage.memory_only = true;
         self
     }
 
-    fn memory_only(mut self) -> Self {
-        self.storage.memory_only = true;
+    fn path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.storage.path = Some(path.as_ref().to_owned());
         self
     }
 
@@ -190,12 +211,6 @@ impl Builder for ServerConfiguration {
         self
     }
 
-    #[cfg(feature = "compression")]
-    fn default_compression(mut self, compression: Compression) -> Self {
-        self.storage.default_compression = Some(compression);
-        self
-    }
-
     fn tasks_worker_count(mut self, worker_count: usize) -> Self {
         self.storage.workers.worker_count = worker_count;
         self
@@ -211,8 +226,28 @@ impl Builder for ServerConfiguration {
         self
     }
 
+    #[cfg(feature = "compression")]
+    fn default_compression(mut self, compression: Compression) -> Self {
+        self.storage.default_compression = Some(compression);
+        self
+    }
+
     fn key_value_persistence(mut self, persistence: KeyValuePersistence) -> Self {
         self.storage.key_value_persistence = persistence;
+        self
+    }
+
+    fn authenticated_permissions<P: Into<Permissions>>(
+        mut self,
+        authenticated_permissions: P,
+    ) -> Self {
+        self.storage.authenticated_permissions = authenticated_permissions.into();
+        self
+    }
+
+    #[cfg(feature = "password-hashing")]
+    fn argon(mut self, argon: bonsaidb_local::config::ArgonConfiguration) -> Self {
+        self.storage.argon = argon;
         self
     }
 }

@@ -1,17 +1,26 @@
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     net::SocketAddr,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
 
-use async_lock::{Mutex, MutexGuard, RwLock};
-use bonsaidb_core::{custom_api::CustomApiResult, permissions::Permissions};
-use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};
+use async_lock::{Mutex, MutexGuard};
+use bonsaidb_core::{
+    api::{self, ApiResult},
+    arc_bytes::serde::Bytes,
+    connection::{Session, SessionId},
+    networking::MessageReceived,
+    pubsub::{Receiver, Subscriber as _},
+    schema::ApiName,
+};
+use bonsaidb_local::Subscriber;
+use bonsaidb_utils::fast_async_lock;
 use derive_where::derive_where;
 use flume::Sender;
+use parking_lot::RwLock;
 
-use crate::{Backend, CustomServer, NoBackend};
+use crate::{Backend, CustomServer, Error, NoBackend};
 
 /// The ways a client can be connected to the server.
 #[derive(Debug, PartialEq, Eq)]
@@ -33,18 +42,17 @@ pub struct ConnectedClient<B: Backend = NoBackend> {
 #[derive(Debug)]
 struct Data<B: Backend = NoBackend> {
     id: u32,
+    sessions: RwLock<HashMap<Option<SessionId>, ClientSession>>,
     address: SocketAddr,
     transport: Transport,
-    response_sender: Sender<CustomApiResult<B::CustomApi>>,
-    auth_state: RwLock<AuthenticationState>,
+    response_sender: Sender<(Option<SessionId>, ApiName, Bytes)>,
     client_data: Mutex<Option<B::ClientData>>,
-    subscriber_ids: Mutex<HashSet<u64>>,
 }
 
-#[derive(Debug, Default)]
-struct AuthenticationState {
-    user_id: Option<u64>,
-    permissions: Permissions,
+#[derive(Debug)]
+struct ClientSession {
+    session: Session,
+    subscribers: HashMap<u64, Subscriber>,
 }
 
 impl<B: Backend> ConnectedClient<B> {
@@ -60,47 +68,35 @@ impl<B: Backend> ConnectedClient<B> {
         &self.data.transport
     }
 
-    /// Returns the current permissions for this client. Will reflect the
-    /// current state of authentication.
-    pub async fn permissions(&self) -> Permissions {
-        let auth_state = fast_async_read!(self.data.auth_state);
-        auth_state.permissions.clone()
+    pub(crate) fn logged_in_as(&self, session: Session) {
+        let mut sessions = self.data.sessions.write();
+        sessions.insert(
+            session.id,
+            ClientSession {
+                session,
+                subscribers: HashMap::default(),
+            },
+        );
     }
 
-    /// Returns the unique id of the user this client is connected as. Returns
-    /// None if the connection isn't authenticated.
-    pub async fn user_id(&self) -> Option<u64> {
-        let auth_state = fast_async_read!(self.data.auth_state);
-        auth_state.user_id
-    }
-
-    pub(crate) async fn logged_in_as(&self, user_id: u64, new_permissions: Permissions) {
-        let mut auth_state = fast_async_write!(self.data.auth_state);
-        auth_state.user_id = Some(user_id);
-        auth_state.permissions = new_permissions;
-    }
-
-    pub(crate) async fn owns_subscriber(&self, subscriber_id: u64) -> bool {
-        let subscriber_ids = fast_async_lock!(self.data.subscriber_ids);
-        subscriber_ids.contains(&subscriber_id)
-    }
-
-    pub(crate) async fn register_subscriber(&self, subscriber_id: u64) {
-        let mut subscriber_ids = fast_async_lock!(self.data.subscriber_ids);
-        subscriber_ids.insert(subscriber_id);
-    }
-
-    pub(crate) async fn remove_subscriber(&self, subscriber_id: u64) -> bool {
-        let mut subscriber_ids = fast_async_lock!(self.data.subscriber_ids);
-        subscriber_ids.remove(&subscriber_id)
+    pub(crate) fn log_out(&self, session: SessionId) {
+        let mut sessions = self.data.sessions.write();
+        sessions.remove(&Some(session));
     }
 
     /// Sends a custom API response to the client.
-    pub fn send(
+    pub fn send<Api: api::Api>(
         &self,
-        response: CustomApiResult<B::CustomApi>,
-    ) -> Result<(), flume::SendError<CustomApiResult<B::CustomApi>>> {
-        self.data.response_sender.send(response)
+        session: Option<&Session>,
+        response: &ApiResult<Api>,
+    ) -> Result<(), Error> {
+        let encoded = pot::to_vec(&response)?;
+        self.data.response_sender.send((
+            session.and_then(|session| session.id),
+            Api::name(),
+            Bytes::from(encoded),
+        ))?;
+        Ok(())
     }
 
     /// Returns a locked reference to the stored client data.
@@ -108,10 +104,124 @@ impl<B: Backend> ConnectedClient<B> {
         LockedClientDataGuard(fast_async_lock!(self.data.client_data))
     }
 
+    /// Looks up an active authentication session by its unique id. `None`
+    /// represents the unauthenticated session, and the result can be used to
+    /// check what permissions are allowed by default.
+    #[must_use]
+    pub fn session(&self, session_id: Option<SessionId>) -> Option<Session> {
+        let sessions = self.data.sessions.read();
+        sessions.get(&session_id).map(|data| data.session.clone())
+    }
+
+    pub(crate) fn register_subscriber(
+        &self,
+        subscriber: Subscriber,
+        session_id: Option<SessionId>,
+    ) {
+        let subscriber_id = subscriber.id();
+        let receiver = subscriber.receiver().clone();
+        {
+            let mut sessions = self.data.sessions.write();
+            if let Some(client_session) = sessions.get_mut(&session_id) {
+                client_session
+                    .subscribers
+                    .insert(subscriber.id(), subscriber);
+            } else {
+                // TODO return error for session not found.
+                return;
+            }
+        }
+        let task_self = self.clone();
+        tokio::task::spawn(async move {
+            task_self
+                .forward_notifications_for(session_id, subscriber_id, receiver)
+                .await;
+        });
+    }
+
     /// Sets the associated data for this client.
     pub async fn set_client_data(&self, data: B::ClientData) {
         let mut client_data = fast_async_lock!(self.data.client_data);
         *client_data = Some(data);
+    }
+
+    async fn forward_notifications_for(
+        &self,
+        session_id: Option<SessionId>,
+        subscriber_id: u64,
+        receiver: Receiver,
+    ) {
+        let session = self.session(session_id);
+        while let Ok(message) = receiver.receive_async().await {
+            if self
+                .send::<MessageReceived>(
+                    session.as_ref(),
+                    &Ok(MessageReceived {
+                        subscriber_id,
+                        topic: Bytes::from(message.topic.0.into_vec()),
+                        payload: Bytes::from(&message.payload[..]),
+                    }),
+                )
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+
+    pub(crate) fn subscribe_by_id(
+        &self,
+        subscriber_id: u64,
+        topic: Bytes,
+        check_session_id: Option<SessionId>,
+    ) -> Result<(), crate::Error> {
+        let mut sessions = self.data.sessions.write();
+        if let Some(client_session) = sessions.get_mut(&check_session_id) {
+            if let Some(subscriber) = client_session.subscribers.get(&subscriber_id) {
+                subscriber.subscribe_to_bytes(topic.0)?;
+                Ok(())
+            } else {
+                Err(Error::Transport(String::from("invalid subscriber id")))
+            }
+        } else {
+            Err(Error::Transport(String::from("invalid session id")))
+        }
+    }
+
+    pub(crate) fn unsubscribe_by_id(
+        &self,
+        subscriber_id: u64,
+        topic: &[u8],
+        check_session_id: Option<SessionId>,
+    ) -> Result<(), crate::Error> {
+        let mut sessions = self.data.sessions.write();
+        if let Some(client_session) = sessions.get_mut(&check_session_id) {
+            if let Some(subscriber) = client_session.subscribers.get(&subscriber_id) {
+                subscriber.unsubscribe_from_bytes(topic)?;
+                Ok(())
+            } else {
+                Err(Error::Transport(String::from("invalid subscriber id")))
+            }
+        } else {
+            Err(Error::Transport(String::from("invalid session id")))
+        }
+    }
+
+    pub(crate) fn unregister_subscriber_by_id(
+        &self,
+        subscriber_id: u64,
+        check_session_id: Option<SessionId>,
+    ) -> Result<(), crate::Error> {
+        let mut sessions = self.data.sessions.write();
+        if let Some(client_session) = sessions.get_mut(&check_session_id) {
+            if client_session.subscribers.remove(&subscriber_id).is_some() {
+                Ok(())
+            } else {
+                Err(Error::Transport(String::from("invalid subscriber id")))
+            }
+        } else {
+            Err(Error::Transport(String::from("invalid session id")))
+        }
     }
 }
 
@@ -135,7 +245,7 @@ impl<'client, ClientData> DerefMut for LockedClientDataGuard<'client, ClientData
 #[derive(Debug)]
 pub struct OwnedClient<B: Backend> {
     client: ConnectedClient<B>,
-    runtime: tokio::runtime::Handle,
+    runtime: Arc<tokio::runtime::Handle>,
     server: Option<CustomServer<B>>,
 }
 
@@ -144,9 +254,18 @@ impl<B: Backend> OwnedClient<B> {
         id: u32,
         address: SocketAddr,
         transport: Transport,
-        response_sender: Sender<CustomApiResult<B::CustomApi>>,
+        response_sender: Sender<(Option<SessionId>, ApiName, Bytes)>,
         server: CustomServer<B>,
+        default_session: Session,
     ) -> Self {
+        let mut session = HashMap::new();
+        session.insert(
+            None,
+            ClientSession {
+                session: default_session,
+                subscribers: HashMap::default(),
+            },
+        );
         Self {
             client: ConnectedClient {
                 data: Arc::new(Data {
@@ -154,15 +273,11 @@ impl<B: Backend> OwnedClient<B> {
                     address,
                     transport,
                     response_sender,
-                    auth_state: RwLock::new(AuthenticationState {
-                        permissions: server.data.default_permissions.clone(),
-                        user_id: None,
-                    }),
+                    sessions: RwLock::new(session),
                     client_data: Mutex::default(),
-                    subscriber_ids: Mutex::default(),
                 }),
             },
-            runtime: tokio::runtime::Handle::current(),
+            runtime: Arc::new(tokio::runtime::Handle::current()),
             server: Some(server),
         }
     }

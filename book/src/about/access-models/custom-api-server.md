@@ -1,18 +1,16 @@
 # Custom Api Server
 
-The [`CustomApi`]({{DOCS_BASE_URL}}/bonsaidb/core/custom_api/trait.CustomApi.html) trait defines three associated types, Request, Response, and Error. A backend "dispatches" `Request`s and expects a `Result<Response, Error>` in return.
+The [`Api`]({{DOCS_BASE_URL}}/bonsaidb/core/api/trait.Api.html) trait defines two associated types, Response, and Error. The `Api` type is akin to a "request" that the server receives. The server will invoke a [`Handler`][handler], expecting a result with the associated Response and Error types.
 
-> All code on this page comes from this example: [`examples/basic-server/examples/custom-api.rs`](https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/custom-api.rs).
+> All code on this page comes from this example: [`examples/basic-server/examples/custom-api.rs`][full-example].
 
-This example defines a Request and a Response type, but uses BonsaiDb's [`Infallible`]({{DOCS_BASE_URL}}/bonsaidb/core/custom_api/enum.Infallible.html) type for the error:
+This example defines two Api types with associated output types, but uses BonsaiDb's [`Infallible`]({{DOCS_BASE_URL}}/bonsaidb/core/api/enum.Infallible.html) type for the Error associated type:
 
 ```rust,noplayground,no_run
 {{#include ../../../../examples/basic-server/examples/custom-api.rs:api-types}}
 ```
 
-To implement the server, we must first implement a custom [`Backend`]({{DOCS_BASE_URL}}/bonsaidb/server/trait.Backend.html) that ties the server to the `CustomApi`. We also must define a [`CustomApiDispatcher`]({{DOCS_BASE_URL}}/bonsaidb/server/trait.CustomApiDispatcher.html), which gives an opportunity for the dispatcher to gain access to the [`ConnectedClient`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.ConnectedClient.html) and/or [`CustomServer]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html) instances if they are needed to handle requests.
-
-Finally, either [`Dispatcher`]({{DOCS_BASE_URL}}/bonsaidb/core/permissions/trait.Dispatcher.html) must be implemented manually or [`actionable`]({{DOCS_BASE_URL}}/bonsaidb/core/actionable/) can be used to derive an implementation that uses individual traits to handle each request. The example uses actionable:
+To implement the server, we must define a [`Handler`][handler], which is invoked each time the `Api` type is received by the server.
 
 ```rust,noplayground,no_run
 {{#include ../../../../examples/basic-server/examples/custom-api.rs:server-traits}}
@@ -26,16 +24,24 @@ Finally, the client can issue the API call and receive the response, without nee
 
 ## Permissions
 
-One of the strengths of using BonsaiDb's custom api functionality is the ability to tap into the permissions handling that BonsaiDb uses. The Ping request was defined with `protection = "none"` which skips all permission validation. However, `DoSomethingSimple` uses the "simple" protection model, and `DoSomethingCustom` uses the "custom" protection model. The comments in the example below should help explain the rationale:
+One of the strengths of using BonsaiDb's custom api functionality is the ability to tap into the permissions handling that BonsaiDb uses. The Ping request has no permissions, but let's add permission handling to our `IncrementCounter` API. We will do this by creating an `increment_counter` function that expects two parameters: a connection to the storage layer with unrestricted permissions, and a second connection to the storage layer which has been restricted to the permissions the client invoking it is authorized to perform:
 
 ```rust,noplayground,no_run
 {{#include ../../../../examples/basic-server/examples/custom-api.rs:permission-handles}}
 ```
 
-This example uses `authenticated_permissions` to grant access to `ExampleAction::DoSomethingSimple` and `ExampleAction::DoSomethingCustom` to all users who have logged in:
+The [`Handler`][handler] is provided a [`HandlerSession`][handler-session] as well as the `Api` type, which provides all the context information needed to verify the connected client's authenticated identity and permissions. Additionally, it provides two ways to access the storage layer: with unrestricted permissions or restricted to the permissions granted to the client.
+
+Let's finish configuring the server to allow all unauthenticated users the abilty to `Ping`, and all authenticated users the ability to `Increment` the counter:
 
 ```rust,noplayground,no_run
 {{#include ../../../../examples/basic-server/examples/custom-api.rs:server-init}}
 ```
 
-For more information on managing permissions, [see Administration/Permissions](../../administration/permissions.md)
+For more information on managing permissions, [see Administration/Permissions](../../administration/permissions.md).
+
+The full example these snippets are taken from is [available in the repository][full-example].
+
+[handler]: {{DOCS_BASE_URL}}/bonsaidb/server/api/trait.Handler.html
+[handler-session]: {{DOCS_BASE_URL}}/bonsaidb/server/api/struct.HandlerSession.html
+[full-example]: https://github.com/khonsulabs/bonsaidb/blob/main/examples/basic-server/examples/custom-api.rs

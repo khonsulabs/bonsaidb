@@ -66,7 +66,7 @@ graph LR
   backend <--> server
 ```
 
-The BonsaiDb [`CustomServer`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html) type accepts one generic parameter that implements the [`Backend`]({{DOCS_BASE_URL}}/bonsaidb/server/trait.Backend.html) trait. This trait is used to customize the server in many ways, but one of the associated types is a [`CustomApi`]({{DOCS_BASE_URL}}/bonsaidb/core/custom_api/trait.CustomApi.html) implementor.
+The BonsaiDb [`CustomServer`]({{DOCS_BASE_URL}}/bonsaidb/server/struct.CustomServer.html) type accepts one generic parameter that implements the [`Backend`]({{DOCS_BASE_URL}}/bonsaidb/server/trait.Backend.html) trait. This trait is used to customize the server in many ways, but one of the associated types is a [`Api`]({{DOCS_BASE_URL}}/bonsaidb/core/api/trait.Api.html) implementor.
 
 See [this page](./access-models/custom-api-server.md) for an overview of how to set up a custom api server.
 

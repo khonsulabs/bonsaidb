@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-core"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "Core functionality and types for BonsaiDb."
@@ -14,22 +14,20 @@ rust-version = "1.58"
 
 [features]
 default = []
-test-util = ["tokio", "anyhow"]
-networking = ["multiuser"]
+test-util = ["tokio", "anyhow", "num_cpus"]
 websockets = []
 actionable-traits = []
 instrument = ["pot/tracing"]
-multiuser = ["zeroize"]
 encryption = []
-password-hashing = ["multiuser"]
+password-hashing = []
 included-from-omnibus = ["bonsaidb-macros/omnibus-path"]
 included-from-server = ["bonsaidb-macros/server-path"]
 included-from-local = ["bonsaidb-macros/local-path"]
 included-from-client = ["bonsaidb-macros/client-path"]
 
 [dependencies]
-bonsaidb-macros = { path = "../bonsaidb-macros", version = "=0.3.0" }
-circulate = { version = "0.2.1" }
+bonsaidb-macros = { path = "../bonsaidb-macros", version = "=0.4.0" }
+circulate = { version = "0.3.0" }
 serde = { version = "1", features = ["derive"] }
 pot = "1.0.0"
 async-trait = "0.1"
@@ -47,7 +45,8 @@ derive-where = "=1.0.0-rc.2"
 transmog = "0.1.0"
 transmog-pot = "0.1.0"
 arc-bytes = { version = "0.3.3", features = ["serde"] }
-zeroize = { version = "1", optional = true, features = ["zeroize_derive"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+num_cpus = { version = "1.13.1", optional = true }
 
 [dev-dependencies]
 hex-literal = "0.3"
@@ -56,6 +55,7 @@ futures = { version = "0.3" }
 num-derive = "0.3"
 anyhow = "1"
 transmog-bincode = "0.1"
+num_cpus = "1"
 
 [package.metadata.docs.rs]
-features = ["networking", "websockets", "encryption", "password-hashing"]
+features = ["websockets", "encryption", "password-hashing"]

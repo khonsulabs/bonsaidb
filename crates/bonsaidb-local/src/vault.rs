@@ -52,11 +52,12 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     fmt::{Debug, Display},
+    fs::{self, File},
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use async_trait::async_trait;
 use bonsaidb_core::{
     arc_bytes::serde::Bytes,
     document::KeyId,
@@ -69,7 +70,6 @@ use chacha20poly1305::{
     aead::{generic_array::GenericArray, Aead, NewAead, Payload},
     XChaCha20Poly1305,
 };
-use futures::TryFutureExt;
 use hpke::{
     self,
     aead::{AeadTag, ChaCha20Poly1305},
@@ -79,10 +79,6 @@ use hpke::{
 };
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use tokio::{
-    fs::{self, File},
-    io::{AsyncReadExt, AsyncWriteExt},
-};
 use zeroize::{Zeroize, Zeroizing};
 
 /// A private encryption key.
@@ -192,21 +188,20 @@ impl From<bincode::Error> for Error {
 }
 
 impl Vault {
-    pub async fn initialize(
+    pub fn initialize(
         server_id: StorageId,
         server_directory: &Path,
         master_key_storage: Arc<dyn AnyVaultKeyStorage>,
     ) -> Result<Self, Error> {
         let master_keys_path = server_directory.join("master-keys");
         if master_keys_path.exists() {
-            Self::unseal(&master_keys_path, server_id, master_key_storage).await
+            Self::unseal(&master_keys_path, server_id, master_key_storage)
         } else {
             Self::initialize_vault_key_storage(&master_keys_path, server_id, master_key_storage)
-                .await
         }
     }
 
-    async fn initialize_vault_key_storage(
+    fn initialize_vault_key_storage(
         master_keys_path: &Path,
         server_id: StorageId,
         master_key_storage: Arc<dyn AnyVaultKeyStorage>,
@@ -218,11 +213,10 @@ impl Vault {
             .set_vault_key_for(
                 server_id,
                 KeyPair::P256 {
-                    private: private.clone(),
+                    private,
                     public: public.clone(),
                 },
             )
-            .await
             .map_err(|err| Error::VaultKeyStorage(err.to_string()))?;
         let mut master_keys = HashMap::new();
         master_keys.insert(0_u32, master_key);
@@ -230,7 +224,6 @@ impl Vault {
         // retrieve the key before we store the sealing key.
         let retrieved = master_key_storage
             .vault_key_for(server_id)
-            .await
             .map_err(|err| Error::VaultKeyStorage(err.to_string()))?;
         let expected_public_key_bytes = PublicKey::P256(public.clone()).to_bytes().unwrap();
         let retrieved_key_matches = retrieved
@@ -263,11 +256,7 @@ impl Vault {
             })?;
 
             File::create(master_keys_path)
-                .and_then(|mut file| async move {
-                    file.write_all(&encrypted_master_keys_payload).await?;
-                    file.shutdown().await
-                })
-                .await
+                .and_then(move |mut file| file.write_all(&encrypted_master_keys_payload))
                 .map_err(|err| Error::Initializing(format!("error saving vault key: {:?}", err)))?;
 
             Ok(Self {
@@ -283,21 +272,19 @@ impl Vault {
         }
     }
 
-    async fn unseal(
+    fn unseal(
         master_keys_path: &Path,
         server_id: StorageId,
         master_key_storage: Arc<dyn AnyVaultKeyStorage>,
     ) -> Result<Self, Error> {
         // The vault has been initilized previously. Do not overwrite this file voluntarily.
-        let encrypted_master_keys = tokio::fs::read(master_keys_path)
-            .await
+        let encrypted_master_keys = std::fs::read(master_keys_path)
             .map_err(|err| Error::Initializing(format!("error reading master keys: {:?}", err)))?;
         let mut encrypted_master_keys =
             bincode::deserialize::<HpkePayload>(&encrypted_master_keys)?;
         let PublicKeyEncryption::DhP256HkdfSha256ChaCha20 = &encrypted_master_keys.encryption;
         if let Some(vault_key) = master_key_storage
             .vault_key_for(server_id)
-            .await
             .map_err(|err| Error::VaultKeyStorage(err.to_string()))?
         {
             let master_keys = match &vault_key {
@@ -403,19 +390,14 @@ impl Vault {
 }
 
 /// Stores encrypted keys for a vault.
-#[async_trait]
 pub trait VaultKeyStorage: Send + Sync + Debug + 'static {
     /// The error type that the functions return.
     type Error: Display;
     /// Store a key. Each server id should have unique storage.
-    async fn set_vault_key_for(
-        &self,
-        storage_id: StorageId,
-        key: KeyPair,
-    ) -> Result<(), Self::Error>;
+    fn set_vault_key_for(&self, storage_id: StorageId, key: KeyPair) -> Result<(), Self::Error>;
 
     /// Retrieve all previously stored vault key for a given storage id.
-    async fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<KeyPair>, Self::Error>;
+    fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<KeyPair>, Self::Error>;
 }
 
 #[derive(Serialize, Deserialize)]
@@ -513,31 +495,27 @@ impl Debug for EncryptionKey {
 /// A [`VaultKeyStorage`] trait that wraps the Error type before returning. This
 /// type is used to allow the Vault to operate without any generic parameters.
 /// This trait is auto-implemented for all [`VaultKeyStorage`] implementors.
-#[async_trait]
 pub trait AnyVaultKeyStorage: Send + Sync + Debug + 'static {
     /// Retrieve all previously stored master keys for a given storage id.
-    async fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<KeyPair>, Error>;
+    fn vault_key_for(&self, storage_id: StorageId) -> Result<Option<KeyPair>, Error>;
 
     /// Store a key. Each server id should have unique storage. The keys are
     /// uniquely encrypted per storage id and can only be decrypted by keys
     /// contained in the storage itself.
-    async fn set_vault_key_for(&self, storage_id: StorageId, key: KeyPair) -> Result<(), Error>;
+    fn set_vault_key_for(&self, storage_id: StorageId, key: KeyPair) -> Result<(), Error>;
 }
 
-#[async_trait]
 impl<T> AnyVaultKeyStorage for T
 where
     T: VaultKeyStorage + 'static,
 {
-    async fn vault_key_for(&self, server_id: StorageId) -> Result<Option<KeyPair>, Error> {
+    fn vault_key_for(&self, server_id: StorageId) -> Result<Option<KeyPair>, Error> {
         VaultKeyStorage::vault_key_for(self, server_id)
-            .await
             .map_err(|err| Error::VaultKeyStorage(err.to_string()))
     }
 
-    async fn set_vault_key_for(&self, server_id: StorageId, key: KeyPair) -> Result<(), Error> {
+    fn set_vault_key_for(&self, server_id: StorageId, key: KeyPair) -> Result<(), Error> {
         VaultKeyStorage::set_vault_key_for(self, server_id, key)
-            .await
             .map_err(|err| Error::VaultKeyStorage(err.to_string()))
     }
 }
@@ -564,10 +542,10 @@ impl LocalVaultKeyStorage {
     /// Creates a new file-based vaultr key storage, storing files within
     /// `path`. The path provided shouod be a directory. If it doesn't exist, it
     /// will be created.
-    pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self, tokio::io::Error> {
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, std::io::Error> {
         let directory = path.as_ref().to_owned();
         if !directory.exists() {
-            fs::create_dir_all(&directory).await?;
+            fs::create_dir_all(&directory)?;
         }
         Ok(Self { directory })
     }
@@ -578,7 +556,7 @@ impl LocalVaultKeyStorage {
 pub enum LocalVaultKeyStorageError {
     /// An error interacting with the filesystem.
     #[error("io error: {0}")]
-    Io(#[from] tokio::io::Error),
+    Io(#[from] std::io::Error),
 
     /// An error serializing or deserializing the keys.
     #[error("serialization error: {0}")]
@@ -589,21 +567,18 @@ pub enum LocalVaultKeyStorageError {
     InvalidFile,
 }
 
-#[async_trait]
 impl VaultKeyStorage for LocalVaultKeyStorage {
     type Error = LocalVaultKeyStorageError;
 
-    async fn vault_key_for(&self, server_id: StorageId) -> Result<Option<KeyPair>, Self::Error> {
+    fn vault_key_for(&self, server_id: StorageId) -> Result<Option<KeyPair>, Self::Error> {
         let server_file = self.directory.join(server_id.to_string());
         if !server_file.exists() {
             return Ok(None);
         }
-        let mut contents = File::open(server_file)
-            .and_then(|mut f| async move {
-                let mut bytes = Vec::new();
-                f.read_to_end(&mut bytes).await.map(|_| bytes)
-            })
-            .await?;
+        let mut contents = File::open(server_file).and_then(|mut f| {
+            let mut bytes = Vec::new();
+            f.read_to_end(&mut bytes).map(|_| bytes)
+        })?;
 
         let key = bincode::deserialize::<KeyPair>(&contents)?;
         contents.zeroize();
@@ -611,19 +586,10 @@ impl VaultKeyStorage for LocalVaultKeyStorage {
         Ok(Some(key))
     }
 
-    async fn set_vault_key_for(
-        &self,
-        server_id: StorageId,
-        key: KeyPair,
-    ) -> Result<(), Self::Error> {
+    fn set_vault_key_for(&self, server_id: StorageId, key: KeyPair) -> Result<(), Self::Error> {
         let server_file = self.directory.join(server_id.to_string());
         let bytes = bincode::serialize(&key)?;
-        File::create(server_file)
-            .and_then(|mut file| async move {
-                file.write_all(&bytes).await?;
-                file.shutdown().await
-            })
-            .await?;
+        File::create(server_file).and_then(|mut file| file.write_all(&bytes))?;
         Ok(())
     }
 }
@@ -674,11 +640,10 @@ mod tests {
 
     #[derive(Debug)]
     struct NullKeyStorage;
-    #[async_trait]
     impl VaultKeyStorage for NullKeyStorage {
         type Error = anyhow::Error;
 
-        async fn set_vault_key_for(
+        fn set_vault_key_for(
             &self,
             _storage_id: StorageId,
             _key: KeyPair,
@@ -686,10 +651,7 @@ mod tests {
             unreachable!()
         }
 
-        async fn vault_key_for(
-            &self,
-            _storage_id: StorageId,
-        ) -> Result<Option<KeyPair>, Self::Error> {
+        fn vault_key_for(&self, _storage_id: StorageId) -> Result<Option<KeyPair>, Self::Error> {
             unreachable!()
         }
     }

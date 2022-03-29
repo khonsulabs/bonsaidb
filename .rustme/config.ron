@@ -65,12 +65,11 @@ Configuration(
         {
             "ref-name": (
                 default: "release",
-                release: "v0.3.0",
-
+                release: "v0.4.0",
             ),
             "pages-base": (
                 default: "https://dev.bonsaidb.io/release",
-                release: "https://dev.bonsaidb.io/v0.3.0",
+                release: "https://dev.bonsaidb.io/v0.4.0",
             ),
             "bonsaidb-docs": (
                 default: "https://dev.bonsaidb.io/release/docs/bonsaidb",

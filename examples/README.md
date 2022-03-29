@@ -31,6 +31,14 @@ Source code: [`basic-local/examples/view-examples.rs`](./basic-local/examples/vi
 cargo run --example view-examples
 ```
 
+## Using a View for Keyword Search
+
+Source code: [`basic-local/examples/keyword-search.rs`](./basic-local/examples/keyword-search.rs)
+
+```sh
+cargo run --example keyword-search
+```
+
 ## Using Views with `hdrhistogram`
 
 Source code: [`view-histogram/examples/view-histogram.rs`](./view-histogram/examples/view-histogram.rs)

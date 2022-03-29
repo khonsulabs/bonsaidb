@@ -85,10 +85,11 @@
     <ul>
         {% for operation in operations %}
         <li>
-            <a href="#{{ operation.metric }}">{{ operation.metric }}</a>
+            <a href="#{{ operation.metric | urlencode }}">{{ operation.metric }}</a>
             <ul>
                 {% for summary in operation.summaries %}
-                <li><a href="#{{ summary.backend }}-{{ operation.metric }}">{{ summary.backend }}</a></li>
+                <li><a href="#{{ summary.backend | urlencode }}-{{ operation.metric | urlencode }}">{{ summary.backend
+                        }}</a></li>
                 {% endfor %}
             </ul>
         </li>
@@ -99,14 +100,15 @@
 <h3>Operation Results</h3>
 
 {% for operation in operations %}
-<h5><a name="{{ operation.metric }}" href="#{{ operation.metric }}">{{ operation.metric }}</a></h5>
+<h5><a name="{{ operation.metric | urlencode }}" href="#{{ operation.metric | urlencode }}">{{ operation.metric }}</a>
+</h5>
 
 <p>{{ operation.description }}</p>
 
 <p>This operation was executed {{ operation.invocations }} time(s) across each backend.</p>
 
 {% if operation.metric != "Load" %}
-<img src="{{ operation.metric }}.png" class="diagram" />
+<img src="{{ operation.metric | urlencode }}.png" class="diagram" />
 {% endif %}
 
 <table>
@@ -135,8 +137,9 @@
 </table>
 
 {% for summary in summaries %}
-<a href="#{{ summary.backend }}-{{ operation.metric }}" name="{{ summary.backend }}-{{ operation.metric }}"></a>
-<img src="{{ summary.backend }}-{{ operation.metric }}.png" class="diagram" />
+<a href="#{{ summary.backend | urlencode }}-{{ operation.metric | urlencode }}"
+    name="{{ summary.backend }}-{{ operation.metric }}"></a>
+<img src="{{ summary.backend | urlencode }}-{{ operation.metric | urlencode }}.png" class="diagram" />
 {% endfor %}
 
 {% endfor %}

@@ -18,6 +18,7 @@
 # Integration
 
 - [Overview](./integration/overview.md)
+- [Async vs Blocking](./integration/async.md)
 - [Local](./integration/local.md)
 - [Networked](./integration/server.md)
 - [Clustered (upcoming)](./integration/cluster.md)
@@ -28,6 +29,8 @@
 - [StorageConnection](./traits/storage_connection.md)
 - [PubSub](./traits/pubsub.md)
 - [KeyValue](./traits/key-value.md)
+- [Key](./traits/key.md)
+  - [Using an Enum as a Key](./traits/key/enum.md)
 
 # Administration
 

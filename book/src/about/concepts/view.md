@@ -1,8 +1,8 @@
 # View
 
-A [View][view-trait] is a [map/reduce](https://en.wikipedia.org/wiki/MapReduce)-powered method of quickly accessing information inside of a [Collection](./collection.md). A View can only belong to one Collection.
+A [View][view-trait] is a [map/reduce](https://en.wikipedia.org/wiki/MapReduce)-powered method of quickly accessing information inside of a [Collection](./collection.md). Each View can only belong to one Collection.
 
-Views define two important associated types: a Key type and a Value type. You can think of these as the equivalent entries in a map/dictionary-like collection that supports more than one entry for each Key. The Key is used to filter the View's results, and the Value is used by your application or the `reduce()` function.
+Views define two important associated types: a [Key][key] type and a Value type. You can think of these as the equivalent entries in a map/dictionary-like collection that supports more than one entry for each Key. The Key is used to filter the View's results, and the Value is used by your application or the `reduce()` function.
 
 Views are a powerful, yet abstract concept. Let's look at a concrete example: blog posts with categories.
 
@@ -46,7 +46,7 @@ The first line of the `map` function calls [`SerializedCollection::document_cont
 {{#include ../../../book-examples/tests/view-example-string.rs:query_with_docs}}
 ```
 
-The above snippet queries the [Database](./database.md) for all documents in the `BlogPost` Collection that emitted a Key of `Some("Rust")`.
+The above snippet queries the [Database](./database.md) for all documents in the `BlogPost` Collection that emitted a [Key][key] of `Some("Rust")`.
 
 If you're using a [`SerializedCollection`][serialized-collection], you can use [`query_with_collection_docs()`]({{DOCS_BASE_URL}}/bonsaidb/core/connection/struct.View.html#method.query_with_collection_docs) to have the deserialization done automatically for you:
 
@@ -121,37 +121,10 @@ If multiple simulataneous queries are being evaluted for the same View and the V
 
 ## Using arbitrary types as a View Key
 
-In our previous example, we used `String` for the Key type. The reason is important: Keys must be sortable by [our underlying storage engine](http://sled.rs/), which means special care must be taken. Most serialization types do not guarantee binary sort order. Instead, BonsaiDb exposes the [`Key`][key] trait. On that documentation page, you can see that BonsaiDb implements `Key` for many built-in types.
+In our previous example, we used `String` for the Key type. The reason is important: Keys must be sortable by [our underlying storage engine][nebari], which means special care must be taken. Most serialization types do not guarantee binary sort order. Instead, BonsaiDb exposes the [`Key` trait][key].
 
-### Using an enum as a View Key
-
-The easiest way to expose an enum is to derive [`num_traits::FromPrimitive`](https://docs.rs/num-traits/0.2.14/num_traits/cast/trait.FromPrimitive.html) and [`num_traits::ToPrimitive`](https://docs.rs/num-traits/0.2.14/num_traits/cast/trait.ToPrimitive.html) using [num-derive](https://crates.io/crates/num-derive), and add an `impl EnumKey` line:
-
-```rust,noplayground,no_run
-{{#include ../../../book-examples/tests/view-example-enum.rs:enum}}
-```
-
-The View code remains unchanged, although the associated Key type can now be set to `Option<Category>`. The queries can now use the enum instead of a `String`:
-
-```rust,noplayground,no_run
-{{#include ../../../book-examples/tests/view-example-enum.rs:reduce_one_key}}
-```
-
-BonsaiDb will convert the enum to a u64 and use that value as the Key. A u64 was chosen to ensure fairly wide compatibility even with some extreme usages of bitmasks. If you wish to customize this behavior, you can implement `Key` directly.
-
-### Implementing the `Key` trait
-
-The [`Key`][key] trait declares two functions: [`as_ord_bytes()`]({{DOCS_BASE_URL}}/bonsaidb/core/key/trait.Key.html#tymethod.as_ord_bytes) and [`from_ord_bytes`]({{DOCS_BASE_URL}}/bonsaidb/core/key/trait.Key.html#tymethod.from_ord_bytes). The intention is to convert the type to bytes using a network byte order for numerical types, and for non-numerical types, the bytes need to be stored in binary-sortable order.
-
-Here is how BonsaiDb implements Key for `EnumKey`:
-
-```rust,noplayground,no_run
-{{#include ../../../../crates/bonsaidb-core/src/key.rs:impl_key_for_enumkey}}
-```
-
-By implementing `Key` you can take full control of converting your view keys.
-
-[key]: {{DOCS_BASE_URL}}/bonsaidb/core/key/trait.Key.html
+[nebari]: https://github.com/khonsulabs/nebari
+[key]: ../../traits/key.md
 [view-trait]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.View.html
 [viewschema-trait]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.ViewSchema.html
 [viewschema-version]: {{DOCS_BASE_URL}}/bonsaidb/core/schema/trait.ViewSchema.html#method.version

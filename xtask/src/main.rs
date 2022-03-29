@@ -109,13 +109,13 @@ fn all_tests() -> &'static [TestSuite] {
             cargo_args: "--package bonsaidb-local --no-default-features --features compression",
         },
         TestSuite {
-            cargo_args: "--package bonsaidb-local --no-default-features --features encryption,compression",
-        },
-        TestSuite {
-            cargo_args: "--package bonsaidb-local --no-default-features --features multiuser",
+            cargo_args: "--package bonsaidb-local --no-default-features --features async",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-local --no-default-features --features password-hashing",
+        },
+        TestSuite {
+            cargo_args: "--package bonsaidb-local --no-default-features --features encryption,compression",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features",

@@ -63,26 +63,24 @@ impl ViewSchema for BlogPostsByCategory {
 // ANCHOR_END: view
 
 #[allow(unused_variables)]
-#[tokio::test]
-async fn example() -> Result<(), Error> {
-    drop(tokio::fs::remove_dir_all("example.bonsaidb").await);
-    let db = Database::open::<BlogPost>(StorageConfiguration::new("example.bonsaidb")).await?;
+#[test]
+fn example() -> Result<(), Error> {
+    drop(std::fs::remove_dir_all("example.bonsaidb"));
+    let db = Database::open::<BlogPost>(StorageConfiguration::new("example.bonsaidb"))?;
     // ANCHOR: query_with_docs
     let rust_posts = db
         .view::<BlogPostsByCategory>()
         .with_key(Some(Category::Rust))
-        .query_with_docs()
-        .await?;
+        .query_with_docs()?;
     // ANCHOR_END: query_with_docs
     // ANCHOR: reduce_one_key
     let rust_post_count = db
         .view::<BlogPostsByCategory>()
         .with_key(Some(Category::Rust))
-        .reduce()
-        .await?;
+        .reduce()?;
     // ANCHOR_END: reduce_one_key
     // ANCHOR: reduce_multiple_keys
-    let total_post_count = db.view::<BlogPostsByCategory>().reduce().await?;
+    let total_post_count = db.view::<BlogPostsByCategory>().reduce()?;
     // ANCHOR_END: reduce_multiple_keys
     Ok(())
 }

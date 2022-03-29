@@ -80,6 +80,12 @@ impl From<flume::RecvError> for Error {
     }
 }
 
+impl<T> From<flume::SendError<T>> for Error {
+    fn from(_: flume::SendError<T>) -> Self {
+        Self::InternalCommunication
+    }
+}
+
 impl From<tokio::sync::oneshot::error::RecvError> for Error {
     fn from(_: tokio::sync::oneshot::error::RecvError) -> Self {
         Self::InternalCommunication
@@ -128,6 +134,11 @@ impl<R> ResultExt<R> for Result<R, Error> {
         Self: Sized,
     {
         self.map_err(bonsaidb_core::Error::from)
+    }
+}
+impl From<pot::Error> for Error {
+    fn from(other: pot::Error) -> Self {
+        Self::Core(bonsaidb_core::Error::from(other))
     }
 }
 

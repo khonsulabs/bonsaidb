@@ -1,15 +1,85 @@
+use std::marker::PhantomData;
+
 use futures::{Future, FutureExt};
 
 use super::{BuilderState, Command, KeyOperation, KeyValue, Output};
 use crate::{
-    keyvalue::{IncompatibleTypeError, Numeric, Value},
+    keyvalue::{AsyncKeyValue, IncompatibleTypeError, Numeric, Value},
     Error,
 };
 
-/// Executes [`Command::Set`] when awaited. Also offers methods to customize the
-/// options for the operation.
-#[must_use = "futures do nothing unless you `.await` or poll them"]
+/// Executes a [`Command::Increment`] or [`Command::Decrement`] key-value operation.
+#[must_use = "the key-value operation is not performed until execute() is called"]
 pub struct Builder<'a, KeyValue, V> {
+    kv: &'a KeyValue,
+    namespace: Option<String>,
+    key: String,
+    increment: bool,
+    amount: Numeric,
+    saturating: bool,
+    _value: PhantomData<V>,
+}
+
+impl<'a, K, V> Builder<'a, K, V>
+where
+    K: KeyValue,
+    V: TryFrom<Numeric, Error = IncompatibleTypeError>,
+{
+    pub(crate) fn new(
+        kv: &'a K,
+        namespace: Option<String>,
+        increment: bool,
+        key: String,
+        amount: Numeric,
+    ) -> Self {
+        Self {
+            key,
+            kv,
+            namespace,
+            increment,
+            amount,
+            saturating: true,
+            _value: PhantomData,
+        }
+    }
+
+    /// Allows overflowing the value.
+    pub fn allow_overflow(mut self) -> Self {
+        self.saturating = false;
+        self
+    }
+
+    /// Executes the operation using the configured options.
+    pub fn execute(self) -> Result<V, Error> {
+        let Self {
+            kv,
+            namespace,
+            key,
+            increment,
+            amount,
+            saturating,
+            ..
+        } = self;
+        let result = kv.execute_key_operation(KeyOperation {
+            namespace,
+            key,
+            command: if increment {
+                Command::Increment { amount, saturating }
+            } else {
+                Command::Decrement { amount, saturating }
+            },
+        })?;
+        if let Output::Value(Some(Value::Numeric(value))) = result {
+            Ok(V::try_from(value).expect("server should send back identical type"))
+        } else {
+            unreachable!("Unexpected result from key value operation")
+        }
+    }
+}
+
+/// Executes a [`Command::Increment`] or [`Command::Decrement`] key-value operation when awaited.
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct AsyncBuilder<'a, KeyValue, V> {
     state: BuilderState<'a, Options<'a, KeyValue>, Result<V, Error>>,
 }
 
@@ -22,9 +92,9 @@ struct Options<'a, KeyValue> {
     saturating: bool,
 }
 
-impl<'a, K, V> Builder<'a, K, V>
+impl<'a, K, V> AsyncBuilder<'a, K, V>
 where
-    K: KeyValue,
+    K: AsyncKeyValue,
 {
     pub(crate) fn new(
         kv: &'a K,
@@ -60,9 +130,9 @@ where
     }
 }
 
-impl<'a, K, V> Future for Builder<'a, K, V>
+impl<'a, K, V> Future for AsyncBuilder<'a, K, V>
 where
-    K: KeyValue,
+    K: AsyncKeyValue,
     V: TryFrom<Numeric, Error = IncompatibleTypeError>,
 {
     type Output = Result<V, Error>;

@@ -3,7 +3,7 @@
 use bonsaidb::{
     client::{url::Url, Client},
     core::{
-        connection::StorageConnection,
+        connection::AsyncStorageConnection,
         test_util::{self, BasicSchema, TestDirectory},
     },
     local::config::Builder,
@@ -28,8 +28,7 @@ async fn simultaneous_connections() -> anyhow::Result<()> {
 
     let client = Client::build(Url::parse("bonsaidb://localhost:12345")?)
         .with_certificate(certificate)
-        .finish()
-        .await?;
+        .finish()?;
 
     let mut tasks = Vec::new();
     for i in 0usize..10 {

@@ -31,11 +31,9 @@ struct MultiKey {
 }
 // ANCHOR_END: derive
 
-#[tokio::main]
-async fn main() -> Result<(), bonsaidb::core::Error> {
-    drop(tokio::fs::remove_dir_all("primary-keys.bonsaidb").await);
-    let db =
-        Database::open::<ExampleSchema>(StorageConfiguration::new("primary-keys.bonsaidb")).await?;
+fn main() -> Result<(), bonsaidb::core::Error> {
+    drop(std::fs::remove_dir_all("primary-keys.bonsaidb"));
+    let db = Database::open::<ExampleSchema>(StorageConfiguration::new("primary-keys.bonsaidb"))?;
 
     // It's not uncommon to need to store data in a database that has an
     // "external" identifier. Some examples could be externally authenticated
@@ -51,11 +49,8 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
         external_id: 42,
         name: String::from("ecton"),
     }
-    .push_into(&db)
-    .await?;
-    let retrieved_from_database = UserProfile::get(42, &db)
-        .await?
-        .expect("document not found");
+    .push_into(&db)?;
+    let retrieved_from_database = UserProfile::get(42, &db)?.expect("document not found");
     assert_eq!(user, retrieved_from_database);
     // ANCHOR_END: natural_id_query
 
@@ -65,11 +60,8 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     let inserted = MultiKey {
         value: String::from("hello"),
     }
-    .insert_into((42, 64), &db)
-    .await?;
-    let retrieved = MultiKey::get((42, 64), &db)
-        .await?
-        .expect("document not found");
+    .insert_into((42, 64), &db)?;
+    let retrieved = MultiKey::get((42, 64), &db)?.expect("document not found");
     assert_eq!(inserted, retrieved);
     // ANCHOR_END: query
 
@@ -80,7 +72,6 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
             value: String::from("error"),
         }
         .push_into(&db)
-        .await
         .unwrap_err()
         .error,
         bonsaidb::core::Error::DocumentPush(_, NextValueError::Unsupported)

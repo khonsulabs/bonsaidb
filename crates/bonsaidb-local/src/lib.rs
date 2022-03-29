@@ -35,10 +35,16 @@ pub use argon2;
 pub use bonsaidb_core as core;
 
 pub use self::{
-    database::{pubsub::Subscriber, Database},
+    database::{pubsub::Subscriber, Database, DatabaseNonBlocking},
     error::Error,
-    storage::{BackupLocation, Storage, StorageId},
+    storage::{BackupLocation, Storage, StorageId, StorageNonBlocking},
 };
+
+#[cfg(feature = "async")]
+mod r#async;
+
+#[cfg(feature = "async")]
+pub use r#async::*;
 
 #[cfg(test)]
 mod tests;

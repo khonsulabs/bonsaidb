@@ -5,6 +5,176 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Breaking Changes
+
+- BonsaiDb now has both an async interface as well as a blocking interface. This
+  has caused significant changes, but they can be summarized simply:
+
+  - Connection-related async-compatible traits have had the `Async` prefix added
+    to them.
+  
+    | Blocking           | Async                   |
+    |--------------------|-------------------------|
+    | Connection         | AsyncConnection         |
+    | StorageConnection  | AsyncStorageConnection  |
+    | PubSub             | AsyncPubSub             |
+    | Subscriber         | AsyncSubscriber         |
+    | KeyValue           | AsyncKeyValue           |
+    | LowLevelConnection | AsyncLowLevelConnection |
+  - Functions that take parameters of the above traits now are offered in pairs:
+    a blocking function and an async function with "_async" at the end of the
+    name. For example, `SerializedCollection::get()` is the blocking version of
+    `SerializedCollection::get_async()`.
+  - For `bonsaidb-local`, the `Database` and `Storage` types are now blocking
+    implementations. Under the hood, BonsaiDb previously used
+    `tokio::task::spawn_blocking()` to wrap calls to the database in an async
+    API. New types, `AsyncDatabase` and `AsyncStorage` have been added that
+    provide the previous behavior. The types can be converted between each other
+    using helpers as/into/to_blocking/async available on each type.
+  - For `bonsaidb-server`, it still uses networking driven by Tokio.
+    `Server`/`CustomServer` implement `AsyncStorageConnection`, and `Server` can
+    convert to `Storage` via the `From` trait for synchronous database access.
+  - For `bonsaidb-client`, `Client` implements both `AsyncStorageConnection` and
+    `StorageConnection` and is safe for use in both synchronous and asynchronous
+    contexts. In WASM, `Client` only implements `AsyncStorageConnection`. For
+    all other platforms, the `Client` builder supports specifying the Tokio
+    runtime handle if needed. Otherwise, the current runtime will be used or a
+    default runtime will be created automatically if unavailable.
+- `Connection::query_with_docs`/`Connection::query_with_connection_docs` now
+  verify the user has permission to `DocumentAction::Get`. This allows schema
+  authors to allow querying views without allowing the documents themselves to
+  be fetched.
+- `ViewAction::DeleteDocs` has been removed. Delete docs is now composed of two
+  permissions checks: `ViewAction::Query` to retrieve the list of documents to
+  delete, and `DocumentAction::Delete` for each document retrieved. This ensures
+  if permission is denied to delete a specific document, it still cannot be
+  deleted through `delete_docs()`.
+- All APIs have had their `limit` parameters changed from `usize` to `u32`.
+  Since `usize` is platform-dependent, picking a fixed-width type is more
+  appropriate.
+- `CustomApi` has been renamed to `Api` and changed significantly.
+
+  On the Server, `Api`s are registered on the `ServerConfiguration`. The `Api`
+  implementor is treated as the "request" type and is what `Client`s send to the
+  Server. The `Api::Response` type is what the Server sends to the `Client`.
+  Out-of-band responses can still be delivered.
+
+  On the Client, `Api`s can simply be used without any extra steps. If you
+  expect out-of-band responses, callbacks can be registered when building the
+  client.
+
+  Internally, all BonsaiDb APIs have been refactored to use this -- there is no
+  distinction.
+- The `multiuser` feature flag has been removed. In the end this caused a lot of
+  needless conditional compilation for removing a single lightweight dependency.
+
+- `User::assume_identity` and `Role::assume_identity` allow assuming the
+  identity of a user or role by their unique ID or name. The connection must be
+  permitted with the newly added `ServerAction::AssumeIdentity` for the
+  appropriate resource name (`user_resource_name` or `role_resource_name`).
+
+- `StorageConnection::authenticate` and `StorageConnection::assume_identity`
+  both return a new instance with the new authentication. This enables
+  authenticating as multiple roles with the same underlying storage connection.
+
+  `StorageConnection::session()` is a new function that returns the current
+  `Session`, if one exists. This new type contains information about any
+  currently authenticated identity, the unique id of the session, and the
+  current effective permissions.
+
+  This release note applies equally to `AsyncStorageConnection`.
+- `LowLevelConnection` and `AsyncLowLevelConnection` have been added to group
+  functionality that is not generally meant for the average user to utilize. The
+  methods that were documented as low-level in `Connection`/`AsyncConnection`
+  have been moved to this trait. Additionally, new methods that allow performing
+  operations without the generic types have been added to this trait. This
+  functionality is what will be useful in providing applications that can
+  interact with BonsaiDb without having the Schema definitions available.
+- `PubSub`/`AsyncPubSub` now allows any `Serialize` implementation to be used as
+  the topic parameter. New methods `publish_bytes` and `publish_bytes_to_all`
+  have been added enabling publishing raw payloads.
+- `CollectionName`/`SchemaName` have had common methods extracted to a trait,
+  `Qualified`. This was part of a refactoring to share code between these two
+  types and the newly introduced `ApiName` type.
+- `BackupLocation` and `VaultKeyStorage` have been changed to blocking traits.
+  `bonsaidb-keystorage-s3` wraps a tokio Runtime handle as the AWS SDK requires
+  Tokio.
+- `ServerConfiguration` now takes a `Backend` generic parameter, which must
+  match the `CustomServer` being created. In general the Rust compiler should be
+  able to infer this type based on usage, and therefore shouldn't be a breaking
+  change to many people.
+- `Key` has had its encoding functionality moved to a new trait, `KeyEncoding`.
+  `KeyEncoding` has been implemented for borrowed representations of `Key`
+  types.
+
+  This change allows all view query and collection access to utilize borrowed
+  versions of their key types. For example, if a View's `Key` type is `String`,
+  it is now possible to query the view using an `&str` parameter.
+  
+### Added
+
+- `Range::default()` now returns an unbounded range, and `Bound::default()`
+  returns `Bound::Unbounded`.
+- `Range` now has several builder-pattern style methods to help construct
+  ranges. In general, users should simply use the built-in range operators
+  (`..`, `start..`, `start..end`, `start..=end`), as they are able to represent
+  nearly every range pattern. The built-in range operators do not support
+  specifying an excluded start bound, while the new method `Range::after` allows
+  setting an excluded start bound.
+- `bonsaidb_core::key::encode_composite_field` and
+  `bonsaidb_core::key::decode_composite_field` have been added which allow
+  building more complex `Key` implementations that are composed of multiple
+  fields. These functions are what the `Key` implementation for tuples is
+  powered by.
+- `Key` is now implemented for `[u8; N]`.
+- [221][221]: `headers()` has been as a function to all collection list
+  builders, enabling querying just the headers of a document.
+- `Transaction` now has `apply()` and `apply_async()`, which the higher-level
+  API to `LowLevelConnection::apply_transaction`.
+- `ArgonConfiguration` can now be specified when building
+  `StorageConfiguration`/`ServerConfiguration` using `Builder::argon`.
+- `SystemTime` and `Duration` now have `Key` implementations.
+- `bonsaidb_core::key::time` has been added which contains a wide array of types
+  that enable storing timestamps and durations with limited resolution, powered
+  by variable integer encoding to reduce the number of bytes needed to encode
+  the values.
+
+  These types are powered by two traits: `TimeResolution` and `TimeEpoch`. Using
+  these traits, the `LimitedResolutionDuration` and `LimitedResolutionTimestamp`
+  types can be used for completely custom resolutions (e.g., 15 minutes) and
+  epochs (the base moment in time to store the limited resolution relative to).
+
+  By constraining the resolution and using an epoch that is closer to the
+  average timestamp being stored, we can reduce the number of bytes required to
+  represent the values from 12 bytes to significantly fewer.
+  
+  These type aliases have been added in these three categories:
+
+  - Durations: `Weeks`, `Days`, `Hours`, `Minutes`, `Seconds`, `Milliseconds`,
+    `Microseconds`, and `Nanoseconds`.
+  - Timestamps relative to the Unix Epoch (Jan 1, 1970 00:00:00 UTC):
+    `WeeksSinceUnixEpoch`, `DaysSinceUnixEpoch`, ...
+  - Timestamps relative to the Bonsai Epoch (Mar 20, 2031 04:31:47 UTC):
+    `TimestampAsWeeks`, `TimestampAsDays`, ...
+
+[221]: https://github.com/khonsulabs/bonsaidb/pull/221
+
+### Changed
+
+- Counting a list of documents now uses `reduce()` in Nebari, a new feature that
+  allows aggregating the embedded statistics without traversing the entire tree.
+  The net result is that retrieving a Collection's count should be near instant
+  and returning the count of a range of keys should be very fast as well.
+- `StorageConnection::create_database`/`AsyncStorageConnection::create_database`
+  now returns the newly created database.
+
+### Fixed
+
+- Defining multiple views with the same name for the same collection will now
+  return an error.
+
 ## v0.3.0
 
 ### Breaking Changes

@@ -2,22 +2,20 @@ use std::{ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    connection::{AccessPolicy, Connection, QueryKey, Range, Sort},
-    custom_api::CustomApi,
-    document::{AnyDocumentId, OwnedDocument},
-    key::Key,
-    networking::{DatabaseRequest, DatabaseResponse, Request, Response},
-    schema::{
-        view::{
-            self,
-            map::{self, MappedDocuments},
-            SerializedView,
-        },
-        Collection, Map, MappedValue, Schematic,
+    arc_bytes::serde::Bytes,
+    connection::{
+        AccessPolicy, AsyncConnection, AsyncLowLevelConnection, HasSession, QueryKey, Range,
+        Session, Sort,
     },
+    document::{DocumentId, Header, OwnedDocument},
+    networking::{
+        ApplyTransaction, Compact, CompactCollection, CompactKeyValueStore, Count, DeleteDocs, Get,
+        GetMultiple, LastTransactionId, List, ListExecutedTransactions, ListHeaders, Query,
+        QueryWithDocs, Reduce, ReduceGrouped,
+    },
+    schema::{self, view::map::MappedSerializedValue, CollectionName, Schematic, ViewName},
     transaction::{Executed, OperationResult, Transaction},
 };
-use derive_where::derive_where;
 
 use crate::Client;
 
@@ -27,14 +25,13 @@ pub use pubsub::*;
 mod keyvalue;
 
 /// A database on a remote server.
-#[derive(Debug)]
-#[derive_where(Clone)]
-pub struct RemoteDatabase<A: CustomApi = ()> {
-    client: Client<A>,
-    name: Arc<String>,
-    schema: Arc<Schematic>,
+#[derive(Debug, Clone)]
+pub struct RemoteDatabase {
+    pub(crate) client: Client,
+    pub(crate) name: Arc<String>,
+    pub(crate) schema: Arc<Schematic>,
 }
-impl<A: CustomApi> RemoteDatabase<A> {
+impl RemoteDatabase {
     /// Returns the name of the database.
     #[must_use]
     pub fn name(&self) -> &str {
@@ -42,16 +39,16 @@ impl<A: CustomApi> RemoteDatabase<A> {
     }
 }
 
-impl<A: CustomApi> Deref for RemoteDatabase<A> {
-    type Target = Client<A>;
+impl Deref for RemoteDatabase {
+    type Target = Client;
 
     fn deref(&self) -> &Self::Target {
         &self.client
     }
 }
 
-impl<A: CustomApi> RemoteDatabase<A> {
-    pub(crate) fn new(client: Client<A>, name: String, schema: Arc<Schematic>) -> Self {
+impl RemoteDatabase {
+    pub(crate) fn new(client: Client, name: String, schema: Arc<Schematic>) -> Self {
         Self {
             client,
             name: Arc::new(name),
@@ -60,428 +57,266 @@ impl<A: CustomApi> RemoteDatabase<A> {
     }
 }
 
+impl HasSession for RemoteDatabase {
+    fn session(&self) -> Option<&Session> {
+        Some(&self.session)
+    }
+}
+
 #[async_trait]
-impl<A: CustomApi> Connection for RemoteDatabase<A> {
-    async fn get<C, PrimaryKey>(
-        &self,
-        id: PrimaryKey,
-    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: Collection,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        match self
-            .client
-            .send_request(Request::Database {
-                database: self.name.to_string(),
-                request: DatabaseRequest::Get {
-                    collection: C::collection_name(),
-                    id: id.into().to_document_id()?,
-                },
-            })
-            .await?
-        {
-            Response::Database(DatabaseResponse::Documents(documents)) => {
-                Ok(documents.into_iter().next())
-            }
-            Response::Error(bonsaidb_core::Error::DocumentNotFound(_, _)) => Ok(None),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+impl AsyncConnection for RemoteDatabase {
+    type Storage = Client;
+
+    fn storage(&self) -> Self::Storage {
+        self.client.clone()
     }
 
-    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
+    async fn list_executed_transactions(
         &self,
-        ids: DocumentIds,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: Collection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send + Sync,
-    {
-        match self
+        starting_id: Option<u64>,
+        result_limit: Option<u32>,
+    ) -> Result<Vec<Executed>, bonsaidb_core::Error> {
+        Ok(self
             .client
-            .send_request(Request::Database {
+            .send_api_request_async(&ListExecutedTransactions {
                 database: self.name.to_string(),
-                request: DatabaseRequest::GetMultiple {
-                    collection: C::collection_name(),
-                    ids: ids
-                        .into_iter()
-                        .map(|id| id.into().to_document_id())
-                        .collect::<Result<Vec<_>, _>>()?,
-                },
+                starting_id,
+                result_limit,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::Documents(documents)) => Ok(documents),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
-    async fn list<C, R, PrimaryKey>(
-        &self,
-        ids: R,
-        order: Sort,
-        limit: Option<usize>,
-    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error>
-    where
-        C: Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        match self
+    async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
+        Ok(self
             .client
-            .send_request(Request::Database {
+            .send_api_request_async(&LastTransactionId {
                 database: self.name.to_string(),
-                request: DatabaseRequest::List {
-                    collection: C::collection_name(),
-                    ids: ids.into().map_result(|id| id.into().to_document_id())?,
-                    order,
-                    limit,
-                },
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::Documents(documents)) => Ok(documents),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
-    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, bonsaidb_core::Error>
-    where
-        C: Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: Into<AnyDocumentId<C::PrimaryKey>> + Send,
-    {
-        match self
-            .client
-            .send_request(Request::Database {
-                database: self.name.to_string(),
-                request: DatabaseRequest::Count {
-                    collection: C::collection_name(),
-                    ids: ids.into().map_result(|id| id.into().to_document_id())?,
-                },
-            })
-            .await?
-        {
-            Response::Database(DatabaseResponse::Count(count)) => Ok(count),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+    async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
+        self.send_api_request_async(&Compact {
+            database: self.name.to_string(),
+        })
+        .await?;
+        Ok(())
     }
 
-    async fn query<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<usize>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<Map<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        match self
-            .client
-            .send_request(Request::Database {
-                database: self.name.to_string(),
-                request: DatabaseRequest::Query {
-                    view: self
-                        .schema
-                        .view::<V>()
-                        .ok_or(bonsaidb_core::Error::CollectionNotFound)?
-                        .view_name(),
-                    key: key.map(|key| key.serialized()).transpose()?,
-                    order,
-                    limit,
-                    access_policy,
-                    with_docs: false,
-                },
-            })
-            .await?
-        {
-            Response::Database(DatabaseResponse::ViewMappings(mappings)) => Ok(mappings
-                .iter()
-                .map(map::Serialized::deserialized::<V>)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+    async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
+        self.send_api_request_async(&CompactKeyValueStore {
+            database: self.name.to_string(),
+        })
+        .await?;
+        Ok(())
     }
+}
 
-    async fn query_with_docs<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        order: Sort,
-        limit: Option<usize>,
-        access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        match self
-            .client
-            .send_request(Request::Database {
-                database: self.name.to_string(),
-                request: DatabaseRequest::Query {
-                    view: self
-                        .schema
-                        .view::<V>()
-                        .ok_or(bonsaidb_core::Error::CollectionNotFound)?
-                        .view_name(),
-                    key: key.map(|key| key.serialized()).transpose()?,
-                    order,
-                    limit,
-                    access_policy,
-                    with_docs: true,
-                },
-            })
-            .await?
-        {
-            Response::Database(DatabaseResponse::ViewMappingsWithDocs(mappings)) => Ok(mappings
-                .deserialized::<V>()
-                .map_err(|err| bonsaidb_core::Error::Database(err.to_string()))?),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
-    }
-
-    async fn reduce<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<V::Value, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        match self
-            .client
-            .send_request(Request::Database {
-                database: self.name.to_string(),
-                request: DatabaseRequest::Reduce {
-                    view: self
-                        .schema
-                        .view::<V>()
-                        .ok_or(bonsaidb_core::Error::CollectionNotFound)?
-                        .view_name(),
-                    key: key.map(|key| key.serialized()).transpose()?,
-                    access_policy,
-                    grouped: false,
-                },
-            })
-            .await?
-        {
-            Response::Database(DatabaseResponse::ViewReduction(value)) => {
-                let value = V::deserialize(&value)?;
-                Ok(value)
-            }
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
-    }
-
-    async fn reduce_grouped<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<Vec<MappedValue<V::Key, V::Value>>, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        match self
-            .client
-            .send_request(Request::Database {
-                database: self.name.to_string(),
-                request: DatabaseRequest::Reduce {
-                    view: self
-                        .schema
-                        .view::<V>()
-                        .ok_or(bonsaidb_core::Error::CollectionNotFound)?
-                        .view_name(),
-                    key: key.map(|key| key.serialized()).transpose()?,
-                    access_policy,
-                    grouped: true,
-                },
-            })
-            .await?
-        {
-            Response::Database(DatabaseResponse::ViewGroupedReduction(values)) => values
-                .into_iter()
-                .map(|map| {
-                    Ok(MappedValue::new(
-                        V::Key::from_ord_bytes(&map.key).map_err(|err| {
-                            bonsaidb_core::Error::Database(
-                                view::Error::key_serialization(err).to_string(),
-                            )
-                        })?,
-                        V::deserialize(&map.value)?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, bonsaidb_core::Error>>(),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
-    }
-
-    async fn delete_docs<V: SerializedView>(
-        &self,
-        key: Option<QueryKey<V::Key>>,
-        access_policy: AccessPolicy,
-    ) -> Result<u64, bonsaidb_core::Error>
-    where
-        Self: Sized,
-    {
-        match self
-            .client
-            .send_request(Request::Database {
-                database: self.name.to_string(),
-                request: DatabaseRequest::DeleteDocs {
-                    view: self
-                        .schema
-                        .view::<V>()
-                        .ok_or(bonsaidb_core::Error::CollectionNotFound)?
-                        .view_name(),
-                    key: key.map(|key| key.serialized()).transpose()?,
-                    access_policy,
-                },
-            })
-            .await?
-        {
-            Response::Database(DatabaseResponse::Count(count)) => Ok(count),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+#[async_trait]
+impl AsyncLowLevelConnection for RemoteDatabase {
+    fn schematic(&self) -> &Schematic {
+        &self.schema
     }
 
     async fn apply_transaction(
         &self,
         transaction: Transaction,
     ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
-        match self
+        Ok(self
             .client
-            .send_request(Request::Database {
+            .send_api_request_async(&ApplyTransaction {
                 database: self.name.to_string(),
-                request: DatabaseRequest::ApplyTransaction { transaction },
+                transaction,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::TransactionResults(results)) => Ok(results),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
-    async fn list_executed_transactions(
+    async fn get_from_collection(
         &self,
-        starting_id: Option<u64>,
-        result_limit: Option<usize>,
-    ) -> Result<Vec<Executed>, bonsaidb_core::Error> {
-        match self
+        id: DocumentId,
+        collection: &CollectionName,
+    ) -> Result<Option<OwnedDocument>, bonsaidb_core::Error> {
+        Ok(self
             .client
-            .send_request(Request::Database {
+            .send_api_request_async(&Get {
                 database: self.name.to_string(),
-                request: DatabaseRequest::ListExecutedTransactions {
-                    starting_id,
-                    result_limit,
-                },
+                collection: collection.clone(),
+                id,
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::ExecutedTransactions(results)) => Ok(results),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
-    async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
-        match self
+    async fn get_multiple_from_collection(
+        &self,
+        ids: &[DocumentId],
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        Ok(self
             .client
-            .send_request(Request::Database {
+            .send_api_request_async(&GetMultiple {
                 database: self.name.to_string(),
-                request: DatabaseRequest::LastTransactionId,
+                collection: collection.clone(),
+                ids: ids.to_vec(),
             })
-            .await?
-        {
-            Response::Database(DatabaseResponse::LastTransactionId(result)) => Ok(result),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
-    async fn compact_collection<C: Collection>(&self) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request(Request::Database {
+    async fn list_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<OwnedDocument>, bonsaidb_core::Error> {
+        Ok(self
+            .client
+            .send_api_request_async(&List {
                 database: self.name.to_string(),
-                request: DatabaseRequest::CompactCollection {
-                    name: C::collection_name(),
-                },
+                collection: collection.clone(),
+                ids,
+                order,
+                limit,
             })
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .await?)
     }
 
-    async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request(Request::Database {
+    async fn list_headers_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        order: Sort,
+        limit: Option<u32>,
+        collection: &CollectionName,
+    ) -> Result<Vec<Header>, bonsaidb_core::Error> {
+        Ok(self
+            .client
+            .send_api_request_async(&ListHeaders(List {
                 database: self.name.to_string(),
-                request: DatabaseRequest::Compact,
-            })
-            .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+                collection: collection.clone(),
+                ids,
+                order,
+                limit,
+            }))
+            .await?)
     }
 
-    async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
-        match self
-            .send_request(Request::Database {
+    async fn count_from_collection(
+        &self,
+        ids: Range<DocumentId>,
+        collection: &CollectionName,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        Ok(self
+            .client
+            .send_api_request_async(&Count {
                 database: self.name.to_string(),
-                request: DatabaseRequest::CompactKeyValueStore,
+                collection: collection.clone(),
+                ids,
+            })
+            .await?)
+    }
+
+    async fn compact_collection_by_name(
+        &self,
+        collection: CollectionName,
+    ) -> Result<(), bonsaidb_core::Error> {
+        self.send_api_request_async(&CompactCollection {
+            database: self.name.to_string(),
+            name: collection,
+        })
+        .await?;
+        Ok(())
+    }
+
+    async fn query_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        order: Sort,
+        limit: Option<u32>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<schema::view::map::Serialized>, bonsaidb_core::Error> {
+        Ok(self
+            .client
+            .send_api_request_async(&Query {
+                database: self.name.to_string(),
+                view: view.clone(),
+                key,
+                order,
+                limit,
+                access_policy,
+            })
+            .await?)
+    }
+
+    async fn query_by_name_with_docs(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        order: Sort,
+        limit: Option<u32>,
+        access_policy: AccessPolicy,
+    ) -> Result<schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error> {
+        Ok(self
+            .client
+            .send_api_request_async(&QueryWithDocs(Query {
+                database: self.name.to_string(),
+                view: view.clone(),
+                key,
+                order,
+                limit,
+                access_policy,
+            }))
+            .await?)
+    }
+
+    async fn reduce_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<u8>, bonsaidb_core::Error> {
+        Ok(self
+            .client
+            .send_api_request_async(&Reduce {
+                database: self.name.to_string(),
+                view: view.clone(),
+                key,
+                access_policy,
             })
             .await?
-        {
-            Response::Ok => Ok(()),
-            Response::Error(err) => Err(err),
-            other => Err(bonsaidb_core::Error::Networking(
-                bonsaidb_core::networking::Error::UnexpectedResponse(format!("{:?}", other)),
-            )),
-        }
+            .into_vec())
+    }
+
+    async fn reduce_grouped_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
+        Ok(self
+            .client
+            .send_api_request_async(&ReduceGrouped(Reduce {
+                database: self.name.to_string(),
+                view: view.clone(),
+                key,
+                access_policy,
+            }))
+            .await?)
+    }
+
+    async fn delete_docs_by_name(
+        &self,
+        view: &ViewName,
+        key: Option<QueryKey<Bytes>>,
+        access_policy: AccessPolicy,
+    ) -> Result<u64, bonsaidb_core::Error> {
+        Ok(self
+            .client
+            .send_api_request_async(&DeleteDocs {
+                database: self.name.to_string(),
+                view: view.clone(),
+                key,
+                access_policy,
+            })
+            .await?)
     }
 }

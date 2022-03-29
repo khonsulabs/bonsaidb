@@ -19,28 +19,21 @@ struct Message {
     pub contents: String,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), bonsaidb::core::Error> {
+fn main() -> Result<(), bonsaidb::core::Error> {
     let storage =
-        Storage::open(StorageConfiguration::new("basic.bonsaidb").with_schema::<Message>()?)
-            .await?;
-    // Before you can create a database, you must register the schema you're
-    // wanting to use.
-    storage.create_database::<Message>("messages", true).await?;
-    let messages = storage.database::<Message>("messages").await?;
-    storage
-        .create_database::<Message>("private-messages", true)
-        .await?;
-    let private_messages = storage.database::<Message>("private-messages").await?;
+        Storage::open(StorageConfiguration::new("basic.bonsaidb").with_schema::<Message>()?)?;
+    let messages = storage.create_database::<Message>("messages", true)?;
 
-    insert_a_message(&messages, "Hello, World!").await?;
-    insert_a_message(&private_messages, "Hey!").await?;
+    let private_messages = storage.create_database::<Message>("private-messages", true)?;
+
+    insert_a_message(&messages, "Hello, World!")?;
+    insert_a_message(&private_messages, "Hey!")?;
 
     Ok(())
 }
 
 // ANCHOR: reusable-code
-async fn insert_a_message<C: Connection>(
+fn insert_a_message<C: Connection>(
     connection: &C,
     value: &str,
 ) -> Result<(), bonsaidb::core::Error> {
@@ -48,8 +41,7 @@ async fn insert_a_message<C: Connection>(
         contents: String::from(value),
         timestamp: SystemTime::now(),
     }
-    .push_into(connection)
-    .await?;
+    .push_into(connection)?;
     Ok(())
 }
 // ANCHOR_END: reusable-code

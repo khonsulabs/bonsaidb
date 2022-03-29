@@ -1,6 +1,6 @@
 use bonsaidb_core::{
     actionable::{Permissions, Statement},
-    connection::StorageConnection,
+    connection::AsyncStorageConnection,
     test_util::{self, BasicSchema, HarnessTest, TestDirectory},
 };
 
@@ -72,7 +72,8 @@ impl TestHarness {
         let mut db = self.connect().await?;
         db.db = db
             .db
-            .with_effective_permissions(Permissions::from(permissions));
+            .with_effective_permissions(Permissions::from(permissions))
+            .unwrap();
         Ok(db)
     }
 
@@ -82,6 +83,6 @@ impl TestHarness {
     }
 }
 
-bonsaidb_core::define_connection_test_suite!(TestHarness);
-bonsaidb_core::define_pubsub_test_suite!(TestHarness);
-bonsaidb_core::define_kv_test_suite!(TestHarness);
+bonsaidb_core::define_async_connection_test_suite!(TestHarness);
+bonsaidb_core::define_async_pubsub_test_suite!(TestHarness);
+bonsaidb_core::define_async_kv_test_suite!(TestHarness);

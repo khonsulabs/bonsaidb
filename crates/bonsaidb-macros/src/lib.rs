@@ -167,8 +167,8 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     };
 
     let name = authority.map_or_else(
-        || quote!(#core::schema::CollectionName::private(#name)),
-        |authority| quote!(#core::schema::CollectionName::new(#authority, #name)),
+        || quote!(<#core::schema::CollectionName as #core::schema::Qualified>::private(#name)),
+        |authority| quote!(<#core::schema::CollectionName as #core::schema::Qualified>::new(#authority, #name)),
     );
 
     let encryption = encryption_key.map(|encryption_key| {
@@ -345,8 +345,8 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     let name = authority.map_or_else(
-        || quote!(#core::schema::SchemaName::private(#name)),
-        |authority| quote!(#core::schema::SchemaName::new(#authority, #name)),
+        || quote!(<#core::schema::SchemaName as #core::schema::Qualified>::private(#name)),
+        |authority| quote!(<#core::schema::SchemaName as #core::schema::Qualified>::new(#authority, #name)),
     );
 
     quote! {

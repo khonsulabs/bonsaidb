@@ -1,3 +1,4 @@
+![BonsaiDb forbids unsafe code](https://img.shields.io/badge/unsafe-forbid-success)
 ![BonsaiDb is considered alpha](https://img.shields.io/badge/status-alpha-orange)
 [![crate version](https://img.shields.io/crates/v/bonsaidb.svg)](https://crates.io/crates/bonsaidb)
 [![Live Build Status](https://img.shields.io/github/workflow/status/khonsulabs/bonsaidb/Tests/$ref-name$)](https://github.com/khonsulabs/bonsaidb/actions?query=workflow:Tests)
@@ -57,6 +58,10 @@ You can review the [full example in the repository][view-examples], or see all a
 [view-examples]: https://github.com/khonsulabs/bonsaidb/blob/$ref-name$/examples/basic-local/examples/view-examples.rs
 [examples-readme]: https://github.com/khonsulabs/bonsaidb/blob/$ref-name$/examples/README.md
 
+## User's Guide
+
+Our user's guide is early in development, but is available at: <$pages-base$/guide/>
+
 ## Minimum Supported Rust Version (MSRV)
 
 While this project is alpha, we are actively adopting the current version of
@@ -92,12 +97,12 @@ bonsaidb = { version = "*", default-features = false, features = "local-full" }
 - `local-full`: Enables all the flags below
 - `local`: Enables the [`local`]($bonsaidb-docs$/local/) module, which re-exports the crate
   `bonsaidb-local`.
+- `local-async`: Enables async support with Tokio.
 - `local-cli`: Enables the `clap` structures for embedding database
   management commands into your own command-line interface.
 - `local-compression`: Enables support for compressed storage using lz4.
 - `local-encryption`: Enables at-rest encryption.
 - `local-instrument`: Enables instrumenting with `tracing`.
-- `local-multiuser`: Enables multi-user support.
 - `local-password-hashing`: Enables the ability to use password authentication
   using Argon2.
 
