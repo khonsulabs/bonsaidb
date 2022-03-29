@@ -84,6 +84,7 @@ impl publish::Config for Config {
 #[derive(Serialize)]
 struct TestSuite {
     cargo_args: &'static str,
+    toolchain: &'static str,
 }
 
 #[derive(Serialize)]
@@ -94,72 +95,98 @@ struct TestMatrix {
 fn all_tests() -> &'static [TestSuite] {
     &[
         TestSuite {
-            cargo_args: "--package bonsaidb-core --no-default-features",
-        },
-        TestSuite {
-            cargo_args: "--package bonsaidb-local --no-default-features",
+            cargo_args: "--all-features",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--all-features",
+            toolchain: "1.58",
+        },
+        TestSuite {
+            cargo_args: "--package bonsaidb-core --no-default-features",
+            toolchain: "stable",
+        },
+        TestSuite {
+            cargo_args: "--package bonsaidb-local --no-default-features",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-local --no-default-features --features encryption",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-local --no-default-features --features compression",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-local --no-default-features --features async",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-local --no-default-features --features password-hashing",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-local --no-default-features --features encryption,compression",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features --features password-hashing",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features --features encryption",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features --features encryption,compression",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features --features compression",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features --features websockets",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features --features acme",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,websockets",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,server-acme",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,server-compression",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,server-encryption",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args:
                 "--package bonsaidb --no-default-features --features server,client,test-util,server-acme,websockets",
+            toolchain: "stable",
         },
         TestSuite {
             cargo_args:
                 "--package bonsaidb --no-default-features --features server,client,test-util,server-acme,websockets,server-password-hashing,client-password-hashing",
+            toolchain: "stable",
         },
     ]
 }
@@ -185,7 +212,10 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
     for (index, test) in all_tests {
         println!("Running clippy for {}", test.cargo_args);
         let mut clippy = Cmd::new("cargo");
-        let mut clippy = clippy.arg("clippy").arg("--all-targets");
+        let mut clippy = clippy
+            .arg("clippy")
+            .arg("--all-targets")
+            .env("RUST_TOOLCHAIN", test.toolchain);
 
         for arg in test.cargo_args.split(' ') {
             clippy = clippy.arg(arg);
@@ -199,7 +229,10 @@ fn run_all_tests(fail_on_warnings: bool) -> anyhow::Result<()> {
 
         println!("Running tests for {}", test.cargo_args);
         let mut cargo = Cmd::new("cargo");
-        let mut cargo = cargo.arg("test").arg("--all-targets");
+        let mut cargo = cargo
+            .arg("test")
+            .arg("--all-targets")
+            .env("RUST_TOOLCHAIN", test.toolchain);
 
         for arg in test.cargo_args.split(' ') {
             cargo = cargo.arg(arg);
