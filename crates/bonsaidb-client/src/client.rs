@@ -894,7 +894,10 @@ impl<Api: api::Api> ApiCallback<Api> {
             generator: Box::new(ApiFutureBoxer::<Api::Response, Fut>(Box::new(callback))),
         }
     }
-    /// Returns a new instance wrapping the provided function.
+    /// Returns a new instance wrapping the provided function, passing a clone
+    /// of `context` as the second parameter. This is just a convenience wrapper
+    /// around `new()` that produces more readable code when needing to access
+    /// external information inside of the callback.
     pub fn new_with_context<
         Context: Send + Sync + Clone + 'static,
         F: Fn(Api::Response, Context) -> Fut + Send + Sync + 'static,
