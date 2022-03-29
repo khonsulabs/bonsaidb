@@ -17,7 +17,7 @@ use async_trait::async_trait;
 use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
-    api::{self, ApiResult},
+    api,
     arc_bytes::serde::Bytes,
     connection::{
         self, AsyncConnection, AsyncStorageConnection, HasSession, IdentityReference, Session,
@@ -52,7 +52,7 @@ use crate::{
     error::Error,
     hosted::{Hosted, SerializablePrivateKey, TlsCertificate, TlsCertificatesByDomain},
     server::shutdown::{Shutdown, ShutdownState},
-    Backend, NoBackend, ServerConfiguration,
+    Backend, BackendError, NoBackend, ServerConfiguration,
 };
 
 #[cfg(feature = "acme")]
@@ -133,8 +133,10 @@ impl Deref for CachedCertifiedKey {
 
 impl<B: Backend> CustomServer<B> {
     /// Opens a server using `directory` for storage.
-    pub async fn open(configuration: ServerConfiguration<B>) -> Result<Self, Error> {
-        let configuration = register_api_handlers(configuration)?;
+    pub async fn open(
+        configuration: ServerConfiguration<B>,
+    ) -> Result<Self, BackendError<B::Error>> {
+        let configuration = register_api_handlers(B::configure(configuration)?)?;
         let (request_sender, request_receiver) = flume::unbounded::<ClientRequest<B>>();
         for _ in 0..configuration.request_workers {
             let request_receiver = request_receiver.clone();
@@ -196,7 +198,7 @@ impl<B: Backend> CustomServer<B> {
                 shutdown: Shutdown::new(),
             }),
         };
-        B::initialize(&server).await;
+        B::initialize(&server).await?;
         Ok(server)
     }
 
@@ -427,7 +429,7 @@ impl<B: Backend> CustomServer<B> {
     }
 
     /// Sends a custom API response to all connected clients.
-    pub async fn broadcast<Api: api::Api>(&self, response: &ApiResult<Api>) {
+    pub async fn broadcast<Api: api::Api>(&self, response: &Api::Response) {
         let clients = fast_async_read!(self.data.clients);
         for client in clients.values() {
             // TODO should this broadcast to all sessions too rather than only the global session?
@@ -465,13 +467,15 @@ impl<B: Backend> CustomServer<B> {
             }
         };
 
-        if matches!(
-            B::client_connected(&client, self).await,
-            ConnectionHandling::Accept
-        ) {
-            Some(client)
-        } else {
-            None
+        match B::client_connected(&client, self).await {
+            Ok(ConnectionHandling::Accept) => Some(client),
+            Ok(ConnectionHandling::Reject) => None,
+            Err(err) => {
+                log::error!(
+                    "[server] Rejecting connection due to error in `client_connected`: {err:?}"
+                );
+                None
+            }
         }
     }
 
@@ -480,7 +484,9 @@ impl<B: Backend> CustomServer<B> {
             let mut clients = fast_async_write!(self.data.clients);
             clients.remove(&id)
         } {
-            B::client_disconnected(client, self).await;
+            if let Err(err) = B::client_disconnected(client, self).await {
+                log::error!("[server] Error in `client_disconnected`: {err:?}");
+            }
         }
     }
 
@@ -492,7 +498,7 @@ impl<B: Backend> CustomServer<B> {
             let incoming = match incoming {
                 Ok(incoming) => incoming,
                 Err(err) => {
-                    log::error!("[server] Error establishing a stream: {:?}", err);
+                    log::error!("[server] Error establishing a stream: {err:?}");
                     return Ok(());
                 }
             };
@@ -537,7 +543,7 @@ impl<B: Backend> CustomServer<B> {
                                 .handle_stream(disconnector, sender, receiver)
                                 .await
                             {
-                                log::error!("[server] Error handling stream: {:?}", err);
+                                log::error!("[server] Error handling stream: {err:?}");
                             }
                         });
                     } else {
@@ -546,7 +552,7 @@ impl<B: Backend> CustomServer<B> {
                     }
                 }
                 Err(err) => {
-                    log::error!("[server] Error accepting incoming stream: {:?}", err);
+                    log::error!("[server] Error accepting incoming stream: {err:?}");
                     return Ok(());
                 }
             }
@@ -713,7 +719,7 @@ impl<B: Backend> CustomServer<B> {
             Result::<(), std::io::Error>::Ok(())
         };
         if let Err(err) = register_hook(&flag) {
-            log::error!("Error installing signals for graceful shutdown: {:?}", err);
+            log::error!("Error installing signals for graceful shutdown: {err:?}");
             tokio::time::sleep(Duration::MAX).await;
         } else {
             loop {

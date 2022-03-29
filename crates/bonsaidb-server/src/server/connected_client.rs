@@ -7,7 +7,7 @@ use std::{
 
 use async_lock::{Mutex, MutexGuard};
 use bonsaidb_core::{
-    api::{self, ApiResult},
+    api,
     arc_bytes::serde::Bytes,
     connection::{Session, SessionId},
     networking::MessageReceived,
@@ -88,9 +88,9 @@ impl<B: Backend> ConnectedClient<B> {
     pub fn send<Api: api::Api>(
         &self,
         session: Option<&Session>,
-        response: &ApiResult<Api>,
+        response: &Api::Response,
     ) -> Result<(), Error> {
-        let encoded = pot::to_vec(&response)?;
+        let encoded = pot::to_vec(&Result::<&Api::Response, Api::Error>::Ok(response))?;
         self.data.response_sender.send((
             session.and_then(|session| session.id),
             Api::name(),
@@ -156,11 +156,11 @@ impl<B: Backend> ConnectedClient<B> {
             if self
                 .send::<MessageReceived>(
                     session.as_ref(),
-                    &Ok(MessageReceived {
+                    &MessageReceived {
                         subscriber_id,
                         topic: Bytes::from(message.topic.0.into_vec()),
                         payload: Bytes::from(&message.payload[..]),
-                    }),
+                    },
                 )
                 .is_err()
             {

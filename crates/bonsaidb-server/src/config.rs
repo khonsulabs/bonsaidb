@@ -3,7 +3,7 @@ use std::{collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
 #[cfg(feature = "encryption")]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
-    api::{self},
+    api,
     permissions::Permissions,
     schema::{ApiName, Schema},
 };

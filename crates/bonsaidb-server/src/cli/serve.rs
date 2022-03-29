@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use clap::Args;
 
-use crate::{Backend, CustomServer, Error, TcpService};
+use crate::{Backend, BackendError, CustomServer, TcpService};
 
 /// Execute the server
 #[derive(Args, Debug)]
@@ -33,7 +33,7 @@ pub struct Serve<B: Backend> {
 
 impl<B: Backend> Serve<B> {
     /// Starts the server.
-    pub async fn execute(&self, server: &CustomServer<B>) -> Result<(), Error> {
+    pub async fn execute(&self, server: &CustomServer<B>) -> Result<(), BackendError<B::Error>> {
         self.execute_with(server, ()).await
     }
 
@@ -46,7 +46,7 @@ impl<B: Backend> Serve<B> {
         &self,
         server: &CustomServer<B>,
         service: S,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BackendError<B::Error>> {
         // Try to initialize a logger, but ignore it if it fails. This API is
         // public and another logger may already be installed.
         drop(env_logger::try_init());

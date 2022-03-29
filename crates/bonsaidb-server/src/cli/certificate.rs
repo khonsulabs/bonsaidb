@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::Subcommand;
 use tokio::io::AsyncReadExt;
 
-use crate::{Backend, CustomServer, Error};
+use crate::{Backend, BackendError, CustomServer};
 
 /// Command to manage the server's certificates.
 #[derive(Subcommand, Debug)]
@@ -35,7 +35,10 @@ pub enum Command {
 
 impl Command {
     /// Executes the command.
-    pub async fn execute<B: Backend>(&self, server: &CustomServer<B>) -> Result<(), Error> {
+    pub async fn execute<B: Backend>(
+        &self,
+        server: &CustomServer<B>,
+    ) -> Result<(), BackendError<B::Error>> {
         match self {
             Self::InstallSelfSigned { overwrite } => {
                 server.install_self_signed_certificate(*overwrite).await?;

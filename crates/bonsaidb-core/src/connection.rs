@@ -16,8 +16,7 @@ use crate::{
         view::{self, map::MappedDocuments},
         Map, MappedValue, Nameable, NamedReference, Schema, SchemaName, SerializedCollection,
     },
-    transaction::{self},
-    Error,
+    transaction, Error,
 };
 
 mod has_session;

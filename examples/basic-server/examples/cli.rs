@@ -1,5 +1,7 @@
 //! Shows how to utilize the built-in CLI helpers.
 
+use std::convert::Infallible;
+
 use bonsaidb::{
     cli::CommandLine,
     core::{
@@ -8,7 +10,7 @@ use bonsaidb::{
         schema::SerializedCollection,
     },
     local::config::Builder,
-    server::{Backend, CustomServer, DefaultPermissions, ServerConfiguration},
+    server::{Backend, BackendError, CustomServer, DefaultPermissions, ServerConfiguration},
     AnyServerConnection,
 };
 use clap::Subcommand;
@@ -33,13 +35,12 @@ enum Cli {
 
 #[async_trait]
 impl Backend for CliBackend {
+    type Error = Infallible;
     type ClientData = ();
 
-    async fn initialize(server: &CustomServer<Self>) {
-        server
-            .create_database::<Shape>("shapes", true)
-            .await
-            .unwrap();
+    async fn initialize(server: &CustomServer<Self>) -> Result<(), BackendError> {
+        server.create_database::<Shape>("shapes", true).await?;
+        Ok(())
     }
 }
 
