@@ -480,7 +480,7 @@ impl<'a> KeyEncoding<'a, Self> for bool {
 
 macro_rules! impl_key_for_tuple {
     ($(($index:tt, $varname:ident, $generic:ident)),+) => {
-        impl<'a, $($generic),+> Key<'a> for ($($generic),+)
+        impl<'a, $($generic),+> Key<'a> for ($($generic),+,)
         where
             $($generic: Key<'a>),+
         {
@@ -488,7 +488,7 @@ macro_rules! impl_key_for_tuple {
                 $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
 
                 if bytes.is_empty() {
-                    Ok(($($varname),+))
+                    Ok(($($varname),+,))
                 } else {
                     Err(CompositeKeyError::new(std::io::Error::from(
                         ErrorKind::InvalidData,
@@ -497,14 +497,14 @@ macro_rules! impl_key_for_tuple {
             }
         }
 
-        impl<'a, $($generic),+> KeyEncoding<'a, Self> for ($($generic),+)
+        impl<'a, $($generic),+> KeyEncoding<'a, Self> for ($($generic),+,)
         where
             $($generic: Key<'a>),+
         {
             type Error = CompositeKeyError;
 
-            const LENGTH: Option<usize> = match ($($generic::LENGTH),+) {
-                ($(Some($varname)),+) => Some($($varname +)+ 0),
+            const LENGTH: Option<usize> = match ($($generic::LENGTH),+,) {
+                ($(Some($varname)),+,) => Some($($varname +)+ 0),
                 _ => None,
             };
 
@@ -519,42 +519,26 @@ macro_rules! impl_key_for_tuple {
     };
 }
 
-impl_key_for_tuple!((0, t1, T1), (1, t2, T2));
-impl_key_for_tuple!((0, t1, T1), (1, t2, T2), (2, t3, T3));
-impl_key_for_tuple!((0, t1, T1), (1, t2, T2), (2, t3, T3), (3, t4, T4));
-impl_key_for_tuple!(
-    (0, t1, T1),
-    (1, t2, T2),
-    (2, t3, T3),
-    (3, t4, T4),
-    (4, t5, T5)
-);
-impl_key_for_tuple!(
-    (0, t1, T1),
-    (1, t2, T2),
-    (2, t3, T3),
-    (3, t4, T4),
-    (4, t5, T5),
-    (5, t6, T6)
-);
-impl_key_for_tuple!(
-    (0, t1, T1),
-    (1, t2, T2),
-    (2, t3, T3),
-    (3, t4, T4),
-    (4, t5, T5),
-    (5, t6, T6),
-    (6, t7, T7)
-);
-impl_key_for_tuple!(
-    (0, t1, T1),
-    (1, t2, T2),
-    (2, t3, T3),
-    (3, t4, T4),
-    (4, t5, T5),
-    (5, t6, T6),
+macro_rules! recursive_impl_key_for_tuple {
+    (($first_index:tt, $first_varname:ident, $first_generic:ident), $(($index:tt, $varname:ident, $generic:ident)),+) => {
+        impl_key_for_tuple!(($first_index, $first_varname, $first_generic), $(($index, $varname, $generic)),+);
+        recursive_impl_key_for_tuple!($(($index, $varname, $generic)),+);
+    };
+
+    (($index:tt, $varname:ident, $generic:ident)) => {
+        impl_key_for_tuple!(($index, $varname, $generic));
+    };
+}
+
+recursive_impl_key_for_tuple!(
+    (7, t8, T8),
     (6, t7, T7),
-    (7, t8, T8)
+    (5, t6, T6),
+    (4, t5, T5),
+    (3, t4, T4),
+    (2, t3, T3),
+    (1, t2, T2),
+    (0, t1, T1)
 );
 
 /// Encodes a value using the `Key` trait in such a way that multiple values can
@@ -624,9 +608,18 @@ pub fn decode_composite_field<'a, T: Key<'a>>(
 }
 
 #[test]
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // couldn't figure out how to macro-ize it
+#[allow(clippy::cognitive_complexity)] // There's no way to please clippy with this
 fn composite_key_tests() {
-    fn roundtrip<T: for<'a> Key<'a> + Ord + Eq + std::fmt::Debug>(mut cases: Vec<T>) {
+    /// This test generates various combinations of every tuple type supported.
+    /// Each test calls this function, which builds a second Vec containing all
+    /// of the encoded key values. Next, both the original vec and the encoded
+    /// vec are sorted. The encoded entries are decoded, and the sorted original
+    /// vec is compared against the decoded vec to ensure the ordering is the
+    /// same.
+    ///
+    /// The macros just make it less verbose to create the nested loops which
+    /// create the tuples.
+    fn verify_key_ordering<T: for<'a> Key<'a> + Ord + Eq + std::fmt::Debug>(mut cases: Vec<T>) {
         let mut encoded = {
             cases
                 .iter()
@@ -635,6 +628,7 @@ fn composite_key_tests() {
         };
         cases.sort();
         encoded.sort();
+        println!("Tested {} entries", cases.len());
         let decoded = encoded
             .iter()
             .map(|encoded| T::from_ord_bytes(encoded).unwrap())
@@ -642,104 +636,34 @@ fn composite_key_tests() {
         assert_eq!(cases, decoded);
     }
 
-    let values = [Unsigned::from(0_u8), Unsigned::from(16_u8)];
-    let mut cases = Vec::new();
-    for t1 in values {
-        for t2 in values {
-            cases.push((t1, t2));
-        }
-    }
-    roundtrip(cases);
-
-    let mut cases = Vec::new();
-    for t1 in values {
-        for t2 in values {
-            for t3 in values {
-                cases.push((t1, t2, t3));
+    let values = [0_u16, 0xFF00, 0x0FF0, 0xFF];
+    macro_rules! test_enum_variations {
+        ($($ident:ident),+) => {
+            let mut cases = Vec::new();
+            test_enum_variations!(for cases $($ident),+; $($ident),+);
+            verify_key_ordering(cases);
+        };
+        (for $cases:ident $first:ident, $($ident:ident),+; $($variable:ident),+) => {
+            for $first in values {
+                test_enum_variations!(for $cases $($ident),+; $($variable),+);
             }
-        }
-    }
-    roundtrip(cases);
-
-    let mut cases = Vec::new();
-    for t1 in values {
-        for t2 in values {
-            for t3 in values {
-                for t4 in values {
-                    cases.push((t1, t2, t3, t4));
-                }
+        };
+        (for $cases:ident $first:ident; $($ident:ident),+) => {
+            for $first in values {
+                $cases.push(($($ident),+,));
             }
+        };
+    }
+    macro_rules! recursive_test_enum_variations {
+        ($ident:ident, $($last_ident:ident),+) => {
+            recursive_test_enum_variations!($($last_ident),+);
+            test_enum_variations!($ident, $($last_ident),+);
+        };
+        ($ident:ident) => {
+            test_enum_variations!($ident);
         }
     }
-    roundtrip(cases);
-
-    let mut cases = Vec::new();
-    for t1 in values {
-        for t2 in values {
-            for t3 in values {
-                for t4 in values {
-                    for t5 in values {
-                        cases.push((t1, t2, t3, t4, t5));
-                    }
-                }
-            }
-        }
-    }
-    roundtrip(cases);
-
-    let mut cases = Vec::new();
-    for t1 in values {
-        for t2 in values {
-            for t3 in values {
-                for t4 in values {
-                    for t5 in values {
-                        for t6 in values {
-                            cases.push((t1, t2, t3, t4, t5, t6));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    roundtrip(cases);
-
-    let mut cases = Vec::new();
-    for t1 in values {
-        for t2 in values {
-            for t3 in values {
-                for t4 in values {
-                    for t5 in values {
-                        for t6 in values {
-                            for t7 in values {
-                                cases.push((t1, t2, t3, t4, t5, t6, t7));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    roundtrip(cases);
-
-    let mut cases = Vec::new();
-    for t1 in values {
-        for t2 in values {
-            for t3 in values {
-                for t4 in values {
-                    for t5 in values {
-                        for t6 in values {
-                            for t7 in values {
-                                for t8 in values {
-                                    cases.push((t1, t2, t3, t4, t5, t6, t7, t8));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    roundtrip(cases);
+    recursive_test_enum_variations!(t1, t2, t3, t4, t5, t6, t7, t8);
 }
 
 /// An error occurred inside of one of the composite key fields.
