@@ -443,7 +443,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             let (encode_variants, decode_variants): (TokenStream, TokenStream) = variants
                 .into_iter()
                 .enumerate()
-                .map(|(idx, Variant { fields, ident, .. })| { 
+                .map(|(idx, Variant { fields, ident, .. })| {
                     let idx = idx as u64;
                     match fields {
                     Fields::Named(FieldsNamed { named, .. }) => {
