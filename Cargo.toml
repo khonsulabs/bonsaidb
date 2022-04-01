@@ -4,6 +4,7 @@ members = [
     "crates/bonsaidb",
     "crates/bonsaidb-client",
     "crates/bonsaidb-core",
+    "crates/bonsaidb-files",
     "crates/bonsaidb-local",
     "crates/bonsaidb-macros",
     "crates/bonsaidb-server",
