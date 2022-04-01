@@ -535,26 +535,43 @@ macro_rules! impl_key_for_tuple {
     };
 }
 
-macro_rules! recursive_impl_key_for_tuple {
-    (($first_index:tt, $first_varname:ident, $first_generic:ident), $(($index:tt, $varname:ident, $generic:ident)),+) => {
-        impl_key_for_tuple!(($first_index, $first_varname, $first_generic), $(($index, $varname, $generic)),+);
-        recursive_impl_key_for_tuple!($(($index, $varname, $generic)),+);
-    };
-
-    (($index:tt, $varname:ident, $generic:ident)) => {
-        impl_key_for_tuple!(($index, $varname, $generic));
-    };
-}
-
-recursive_impl_key_for_tuple!(
-    (7, t8, T8),
-    (6, t7, T7),
-    (5, t6, T6),
-    (4, t5, T5),
-    (3, t4, T4),
-    (2, t3, T3),
+impl_key_for_tuple!((0, t1, T1));
+impl_key_for_tuple!((0, t1, T1), (1, t2, T2));
+impl_key_for_tuple!((0, t1, T1), (1, t2, T2), (2, t3, T3));
+impl_key_for_tuple!((0, t1, T1), (1, t2, T2), (2, t3, T3), (3, t4, T4));
+impl_key_for_tuple!(
+    (0, t1, T1),
     (1, t2, T2),
-    (0, t1, T1)
+    (2, t3, T3),
+    (3, t4, T4),
+    (4, t5, T5)
+);
+impl_key_for_tuple!(
+    (0, t1, T1),
+    (1, t2, T2),
+    (2, t3, T3),
+    (3, t4, T4),
+    (4, t5, T5),
+    (5, t6, T6)
+);
+impl_key_for_tuple!(
+    (0, t1, T1),
+    (1, t2, T2),
+    (2, t3, T3),
+    (3, t4, T4),
+    (4, t5, T5),
+    (5, t6, T6),
+    (6, t7, T7)
+);
+impl_key_for_tuple!(
+    (0, t1, T1),
+    (1, t2, T2),
+    (2, t3, T3),
+    (3, t4, T4),
+    (4, t5, T5),
+    (5, t6, T6),
+    (6, t7, T7),
+    (7, t8, T8)
 );
 
 /// Encodes a value using the `Key` trait in such a way that multiple values can
@@ -626,6 +643,7 @@ pub fn decode_composite_field<'a, T: Key<'a>>(
 #[test]
 #[allow(clippy::cognitive_complexity)] // There's no way to please clippy with this
 fn composite_key_tests() {
+    assert!((0_u32, 0_u32).as_ord_bytes().unwrap() < (1_u32, 0_u32).as_ord_bytes().unwrap());
     /// This test generates various combinations of every tuple type supported.
     /// Each test calls this function, which builds a second Vec containing all
     /// of the encoded key values. Next, both the original vec and the encoded
