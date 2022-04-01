@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{connection::Range, AnyError};
 
+pub use bonsaidb_macros::Key;
+
 /// A trait that enables a type to convert itself into a `memcmp`-compatible
 /// sequence of bytes.
 pub trait KeyEncoding<'k, K>: std::fmt::Debug + Send + Sync
