@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Breaking Changes
+
+- The `Key` implementation for `Option<T>` has changed. If you wish to preserve
+  backwards compatibility, wrap the key type with `LegacyOptionKey`.
+
+  The old behavior was broken in two ways:
+
+  - The length of the key was improperly always reported as a constant length.
+    This only affects code that was using composite keys.
+  - When using a type that can encode itself as 0 bytes, there was no way to
+    distinguish between a 0-length contained value and None. Thus, `Some("")`
+    would panic as a precaution. However, this type of lurking panic in an
+    esoteric edge case is exactly the behavior a database should never exhibit.
+
+### Added
+
+- `Key` is now implemented for `Cow<'a, str>`.
+
 ## v0.4.0
 
 ### Breaking Changes

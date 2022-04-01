@@ -415,6 +415,22 @@ impl IntoPrefixRange for String {
     }
 }
 
+impl<'k> Key<'k> for Cow<'k, str> {
+    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+        std::str::from_utf8(bytes).map(Cow::Borrowed)
+    }
+}
+
+impl<'k> KeyEncoding<'k, Self> for Cow<'k, str> {
+    type Error = std::str::Utf8Error;
+
+    const LENGTH: Option<usize> = None;
+
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+        Ok(Cow::Borrowed(self.as_bytes()))
+    }
+}
+
 #[test]
 fn string_prefix_range_tests() {
     use std::ops::RangeBounds;
@@ -769,10 +785,10 @@ where
     Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
 {
     fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        if bytes.is_empty() {
+        if bytes.is_empty() || bytes[0] == 0 {
             Ok(None)
         } else {
-            Ok(Some(T::from_ord_bytes(bytes)?))
+            Ok(Some(T::from_ord_bytes(&bytes[1..])?))
         }
     }
 
@@ -792,6 +808,58 @@ where
 {
     type Error = T::Error;
 
+    const LENGTH: Option<usize> = None;
+
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+        if let Some(contents) = self {
+            let mut contents = contents.as_ord_bytes()?.to_vec();
+            contents.insert(0, 1);
+            Ok(Cow::Owned(contents))
+        } else {
+            Ok(Cow::Borrowed(b"\0"))
+        }
+    }
+}
+
+/// A type that preserves the original implementation of [`Key`] for
+/// `Option<T>`. This should not be used in new code and will be removed in a
+/// future version.
+#[derive(Clone, Debug, Copy, Eq, PartialEq)]
+#[deprecated = "this type should not be used in new code and should only be used in transitionary code."]
+#[allow(deprecated)]
+pub struct LegacyOptionKey<T>(pub Option<T>);
+
+#[allow(deprecated)]
+impl<'a, T> Key<'a> for LegacyOptionKey<T>
+where
+    T: Key<'a>,
+    Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
+{
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        if bytes.is_empty() {
+            Ok(Self(None))
+        } else {
+            Ok(Self(Some(T::from_ord_bytes(bytes)?)))
+        }
+    }
+
+    fn first_value() -> Result<Self, NextValueError> {
+        Ok(Self(Some(T::first_value()?)))
+    }
+
+    fn next_value(&self) -> Result<Self, NextValueError> {
+        self.0.as_ref().map(T::next_value).transpose().map(Self)
+    }
+}
+
+#[allow(deprecated)]
+impl<'a, K, T> KeyEncoding<'a, LegacyOptionKey<K>> for LegacyOptionKey<T>
+where
+    T: KeyEncoding<'a, K>,
+    K: for<'k> Key<'k>,
+{
+    type Error = T::Error;
+
     const LENGTH: Option<usize> = T::LENGTH;
 
     /// # Panics
@@ -801,7 +869,7 @@ where
     // each key (at the end preferrably) so that we can distinguish between None
     // and a 0-byte type
     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
-        if let Some(contents) = self {
+        if let Some(contents) = &self.0 {
             let contents = contents.as_ord_bytes()?;
             assert!(!contents.is_empty());
             Ok(contents)
@@ -938,11 +1006,44 @@ fn primitive_key_encoding_tests() -> anyhow::Result<()> {
 
 #[test]
 fn optional_key_encoding_tests() -> anyhow::Result<()> {
-    assert!(Option::<i8>::None.as_ord_bytes()?.is_empty());
+    let some_string = Some("hello").as_ord_bytes()?;
+    let empty_string = Some("").as_ord_bytes()?;
+    let none_string = Option::<String>::None.as_ord_bytes()?;
     assert_eq!(
-        Some(1_i8),
-        Option::from_ord_bytes(&Some(1_i8).as_ord_bytes()?)?
+        Option::<String>::from_ord_bytes(&some_string)
+            .unwrap()
+            .as_deref(),
+        Some("hello")
     );
+    assert_eq!(
+        Option::<String>::from_ord_bytes(&empty_string)
+            .unwrap()
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        Option::<String>::from_ord_bytes(&none_string).unwrap(),
+        None
+    );
+
+    #[allow(deprecated)]
+    {
+        let some_string = LegacyOptionKey(Some("hello")).as_ord_bytes()?;
+        let none_string = LegacyOptionKey::<String>(None).as_ord_bytes()?;
+        assert_eq!(
+            LegacyOptionKey::<String>::from_ord_bytes(&some_string)
+                .unwrap()
+                .0
+                .as_deref(),
+            Some("hello")
+        );
+        assert_eq!(
+            LegacyOptionKey::<String>::from_ord_bytes(&none_string)
+                .unwrap()
+                .0,
+            None
+        );
+    }
     Ok(())
 }
 
@@ -968,7 +1069,10 @@ fn bool_key_encoding_tests() -> anyhow::Result<()> {
 fn vec_key_encoding_tests() -> anyhow::Result<()> {
     const ORIGINAL_VALUE: &[u8] = b"bonsaidb";
     let vec = Cow::<'_, [u8]>::from(ORIGINAL_VALUE);
-    assert_eq!(vec.clone(), Cow::from_ord_bytes(&vec.as_ord_bytes()?)?);
+    assert_eq!(
+        vec.clone(),
+        Cow::<'_, [u8]>::from_ord_bytes(&vec.as_ord_bytes()?)?
+    );
     Ok(())
 }
 
