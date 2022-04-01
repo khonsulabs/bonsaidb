@@ -797,8 +797,13 @@ where
         self
     }
 
-    /// Queries the view in ascending order. This is the default sorting
-    /// behavior.
+    /// Returns the matching mappings in ascending key order. This is the
+    /// default sorting behavior.
+    ///
+    /// When more than one mapping exists for a single key, all matching
+    /// mappings are returned as a unique entry. The resulting mappings are
+    /// sorted only by the key, and as such, the order of mappings with the same
+    /// key is undefined.
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
@@ -816,7 +821,12 @@ where
         self
     }
 
-    /// Queries the view in descending order.
+    /// Returns the matching mappings in descending key order.
+    ///
+    /// When more than one mapping exists for a single key, all matching
+    /// mappings are returned as a unique entry. The resulting mappings are
+    /// sorted only by the key, and as such, the order of mappings with the same
+    /// key is undefined.
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
@@ -1862,8 +1872,13 @@ where
         self
     }
 
-    /// Queries the view in ascending order. This is the default sorting
-    /// behavior.
+    /// Returns the matching mappings in ascending key order. This is the
+    /// default sorting behavior.
+    ///
+    /// When more than one mapping exists for a single key, all matching
+    /// mappings are returned as a unique entry. The resulting mappings are
+    /// sorted only by the key, and as such, the order of mappings with the same
+    /// key is undefined.
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
@@ -1883,7 +1898,12 @@ where
         self
     }
 
-    /// Queries the view in descending order.
+    /// Returns the matching mappings in descending key order.
+    ///
+    /// When more than one mapping exists for a single key, all matching
+    /// mappings are returned as a unique entry. The resulting mappings are
+    /// sorted only by the key, and as such, the order of mappings with the same
+    /// key is undefined.
     ///
     /// ```rust
     /// # bonsaidb_core::__doctest_prelude!();
