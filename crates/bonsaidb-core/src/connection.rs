@@ -208,10 +208,7 @@ where
     pub fn push_bytes<B: Into<Bytes> + Send>(
         &self,
         contents: B,
-    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
-    where
-        Cl: schema::SerializedCollection,
-    {
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error> {
         self.connection
             .insert::<Cl, _, B>(Option::<Cl::PrimaryKey>::None, contents)
     }
@@ -263,10 +260,7 @@ where
         &self,
         id: Cl::PrimaryKey,
         contents: B,
-    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
-    where
-        Cl: schema::SerializedCollection,
-    {
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error> {
         self.connection.insert::<Cl, _, B>(Some(id), contents)
     }
 
@@ -1189,10 +1183,7 @@ where
     pub async fn push_bytes<B: Into<Bytes> + Send>(
         &self,
         contents: B,
-    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
-    where
-        Cl: schema::SerializedCollection,
-    {
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error> {
         self.connection
             .insert::<Cl, _, B>(Option::<Cl::PrimaryKey>::None, contents)
             .await
@@ -1253,10 +1244,7 @@ where
         &self,
         id: Cl::PrimaryKey,
         contents: B,
-    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
-    where
-        Cl: schema::SerializedCollection,
-    {
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error> {
         self.connection.insert::<Cl, _, B>(Some(id), contents).await
     }
 

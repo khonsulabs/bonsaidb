@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     would panic as a precaution. However, this type of lurking panic in an
     esoteric edge case is exactly the behavior a database should never exhibit.
 
+### Fixed
+
+- `insert_bytes`/`push_bytes` no longer require `SerializedCollection` to be
+  implemented.
+
 ### Added
 
 - `Key` is now implemented for `Cow<'a, str>`.
