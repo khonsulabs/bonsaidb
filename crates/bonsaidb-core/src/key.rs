@@ -637,7 +637,7 @@ impl CompositeKeyEncoder {
     #[allow(clippy::missing_panics_doc)] // All unreachable
     pub fn finish(mut self) -> Vec<u8> {
         self.bytes.reserve_exact(self.encoded_lengths.len() * 2);
-        for length in self.encoded_lengths {
+        for length in self.encoded_lengths.into_iter().rev() {
             match length {
                 0..=0x7F => {
                     self.bytes.push(u8::try_from(length).unwrap());
@@ -828,14 +828,14 @@ fn composite_key_tests() {
 
     // Two byte length (0x80)
     verify_key_ordering(
-        vec![(vec![1; 128], vec![2; 128]), (vec![1; 128], vec![2; 128])],
+        vec![(vec![1; 127], vec![2; 128]), (vec![1; 128], vec![2; 127])],
         true,
     );
     // Three byte length (0x80)
     verify_key_ordering(
         vec![
-            (vec![1; 16384], vec![1; 16384]),
-            (vec![1; 16384], vec![2; 16384]),
+            (vec![1; 16383], vec![1; 16384]),
+            (vec![1; 16384], vec![2; 16383]),
         ],
         true,
     );
