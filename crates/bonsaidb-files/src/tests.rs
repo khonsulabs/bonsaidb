@@ -16,7 +16,7 @@ fn simple_file_test() {
     let directory = TestDirectory::new("simple-file");
     let database = Database::open::<BonsaiFiles>(StorageConfiguration::new(&directory)).unwrap();
 
-    let file: File = CreateFile::at_path("hello.txt")
+    let file: File = CreateFile::named("hello.txt")
         .contents(b"hello, world!")
         .execute(&database)
         .unwrap();
@@ -24,6 +24,54 @@ fn simple_file_test() {
     println!("Created file: {file:?}, length: {}", contents.len());
     let bytes = contents.into_vec().unwrap();
     assert_eq!(bytes, b"hello, world!");
+
+    let file = File::<BonsaiFiles>::load("/hello.txt", &database)
+        .unwrap()
+        .unwrap();
+    assert_eq!(file.name(), "hello.txt");
+    assert_eq!(file.containing_path(), "/");
+}
+
+#[test]
+fn simple_path_test() {
+    let directory = TestDirectory::new("simple-path");
+    let database = Database::open::<BonsaiFiles>(StorageConfiguration::new(&directory)).unwrap();
+
+    let file: File = CreateFile::named("hello.txt")
+        .at_path("/some/containing/path")
+        .creating_missing_directories()
+        .contents(b"hello, world!")
+        .execute(&database)
+        .unwrap();
+    let contents = file.contents(&database).unwrap();
+    println!("Created file: {file:?}, length: {}", contents.len());
+    let bytes = contents.into_vec().unwrap();
+    assert_eq!(bytes, b"hello, world!");
+
+    let file = File::<BonsaiFiles>::load("/some/containing/path/hello.txt", &database)
+        .unwrap()
+        .unwrap();
+    assert_eq!(file.name(), "hello.txt");
+    assert_eq!(file.containing_path(), "/some/containing/path/");
+
+    // Internally `ExactPathKey` will append a `/` to the end of the key, and
+    // the code in File::list() uses `File::path()` to construct the path to
+    // list. This constructed path has no trailing `/`, so each of the
+    // `children()` calls below will test the path in `ExactKeyPath` where the
+    // `/` is appended. This query has the trailing slash to test the path where
+    // no `/` is added.
+    let some_contents = File::<BonsaiFiles>::list("/some/", &database).unwrap();
+    assert_eq!(some_contents.len(), 1);
+    assert_eq!(some_contents[0].name(), "containing");
+    let containing_contents = some_contents[0].children(&database).unwrap();
+    assert_eq!(containing_contents.len(), 1);
+    assert_eq!(containing_contents[0].name(), "path");
+    let path_contents = containing_contents[0].children(&database).unwrap();
+    assert_eq!(path_contents.len(), 1);
+    assert_eq!(path_contents[0].name(), "hello.txt");
+
+    // let all_contents = File::<BonsaiFiles>::list_recursive("/", &database).unwrap();
+    // assert_eq!(all_contents.len(), 4);
 }
 
 #[test]
@@ -36,7 +84,7 @@ fn blocked_file_test() {
     let directory = TestDirectory::new("blocked-file");
     let database = Database::open::<BonsaiFiles>(StorageConfiguration::new(&directory)).unwrap();
 
-    let file: File = CreateFile::at_path("hello.txt")
+    let file: File = CreateFile::named("hello.txt")
         .contents(&big_file)
         .execute(&database)
         .unwrap();
@@ -56,7 +104,7 @@ fn seek_read_test() {
     let directory = TestDirectory::new("seek-read");
     let database = Database::open::<BonsaiFiles>(StorageConfiguration::new(&directory)).unwrap();
 
-    let file: File = CreateFile::at_path("hello.bin")
+    let file: File = CreateFile::named("hello.bin")
         .contents(&afile)
         .execute(&database)
         .unwrap();

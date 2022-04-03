@@ -14,11 +14,10 @@ pub mod metadata;
 mod schema;
 
 use derive_where::derive_where;
-use metadata::Permissions;
 
 use crate::metadata::Metadata;
 
-pub trait FileConfig: Sized + Send + Sync + 'static {
+pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
     const BLOCK_SIZE: usize;
     fn files_name() -> CollectionName;
     fn blocks_name() -> CollectionName;
@@ -65,13 +64,20 @@ where
     Config: FileConfig,
 {
     fn new_file<Database: Connection>(
-        path: String,
-        permissions: Option<Permissions>,
+        path: Option<String>,
+        name: String,
+        create_directories: bool,
         contents: &[u8],
         database: &Database,
     ) -> Result<Self, bonsaidb_core::Error> {
         Ok(Self {
-            doc: schema::file::File::create_file(path, permissions, contents, database)?,
+            doc: schema::file::File::create_file(
+                path,
+                name,
+                create_directories,
+                contents,
+                database,
+            )?,
         })
     }
 
@@ -82,32 +88,72 @@ where
         schema::file::File::<Config>::get(id, database).map(|doc| doc.map(|doc| Self { doc }))
     }
 
+    pub fn load<Database: Connection>(
+        path: &str,
+        database: &Database,
+    ) -> Result<Option<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::find(path, database).map(|opt| opt.map(|doc| Self { doc }))
+    }
+
+    pub fn list<Database: Connection>(
+        path: &str,
+        database: &Database,
+    ) -> Result<Vec<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::list_path_contents(path, database)
+            .map(|vec| vec.into_iter().map(|doc| Self { doc }).collect())
+    }
+
+    // TODO this is broken because encode/decode composite field do the wrong ordering.
+    //
+    // pub fn list_recursive<Database: Connection>(
+    //     path: &str,
+    //     database: &Database,
+    // ) -> Result<Vec<Self>, bonsaidb_core::Error> {
+    //     schema::file::File::<Config>::list_recursive_path_contents(path, database)
+    //         .map(|vec| vec.into_iter().map(|doc| Self { doc }).collect())
+    // }
+
     pub fn id(&self) -> u32 {
         self.doc.header.id
     }
 
-    pub fn parent_id(&self) -> Option<u32> {
-        self.doc.contents.parent
+    pub fn containing_path(&self) -> &str {
+        self.doc.contents.path.as_deref().unwrap_or("/")
     }
 
     pub fn name(&self) -> &str {
         &self.doc.contents.name
     }
 
+    pub fn path(&self) -> String {
+        let containing_path = self.containing_path();
+        let ends_in_slash = self.containing_path().ends_with('/');
+        let mut full_path = String::with_capacity(
+            containing_path.len() + if ends_in_slash { 0 } else { 1 } + self.name().len(),
+        );
+        full_path.push_str(containing_path);
+        if !ends_in_slash {
+            full_path.push('/');
+        }
+        full_path.push_str(self.name());
+
+        full_path
+    }
+
     pub fn metadata(&self) -> &Metadata {
         &self.doc.contents.metadata
     }
 
-    pub fn parent<Database: Connection>(
-        &self,
-        database: &Database,
-    ) -> Result<Option<Self>, bonsaidb_core::Error> {
-        if let Some(id) = self.doc.contents.parent {
-            Self::get(id, database)
-        } else {
-            Ok(None)
-        }
-    }
+    // pub fn parent<Database: Connection>(
+    //     &self,
+    //     database: &Database,
+    // ) -> Result<Option<Self>, bonsaidb_core::Error> {
+    //     if let Some(id) = self.doc.contents.parent {
+    //         Self::get(id, database)
+    //     } else {
+    //         Ok(None)
+    //     }
+    // }
 
     pub fn contents<'a, Database: Connection>(
         &self,
@@ -125,26 +171,36 @@ where
             _config: PhantomData,
         })
     }
+
+    pub fn children<Database: Connection>(
+        &self,
+        database: &Database,
+    ) -> Result<Vec<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::list_path_contents(&self.path(), database)
+            .map(|docs| docs.into_iter().map(|doc| Self { doc }).collect())
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct CreateFile<'a> {
-    path: String,
-    permissions: Option<Permissions>,
+    path: Option<String>,
+    name: String,
+    create_directories: bool,
     contents: &'a [u8],
 }
 
 impl<'a> CreateFile<'a> {
-    pub fn at_path<Path: Into<String>>(path: Path) -> Self {
+    pub fn named<Name: Into<String>>(name: Name) -> Self {
         Self {
-            path: path.into(),
-            permissions: None,
+            path: None,
+            name: name.into(),
+            create_directories: false,
             contents: b"",
         }
     }
 
-    pub fn permissions(mut self, permissions: Permissions) -> Self {
-        self.permissions = Some(permissions);
+    pub fn at_path<Path: Into<String>>(mut self, path: Path) -> Self {
+        self.path = Some(path.into());
         self
     }
 
@@ -153,11 +209,22 @@ impl<'a> CreateFile<'a> {
         self
     }
 
+    pub fn creating_missing_directories(mut self) -> Self {
+        self.create_directories = true;
+        self
+    }
+
     pub fn execute<Config: FileConfig, Database: Connection>(
         self,
         database: &Database,
     ) -> Result<File<Config>, bonsaidb_core::Error> {
-        File::new_file(self.path, self.permissions, self.contents, database)
+        File::new_file(
+            self.path,
+            self.name,
+            self.create_directories,
+            self.contents,
+            database,
+        )
     }
 }
 
@@ -202,7 +269,7 @@ impl<'a, Database: Connection, Config: FileConfig> Contents<'a, Database, Config
     fn load_blocks(&mut self) -> std::io::Result<()> {
         self.loaded.clear();
         let last_block = (self.current_block + self.batch_size).min(self.blocks.len());
-        for (index, (id, contents)) in schema::block::Block::<Config>::load(
+        for (index, (_, contents)) in schema::block::Block::<Config>::load(
             self.blocks[self.current_block..last_block]
                 .iter()
                 .map(|info| info.id),
@@ -212,7 +279,6 @@ impl<'a, Database: Connection, Config: FileConfig> Contents<'a, Database, Config
         .into_iter()
         .enumerate()
         {
-            println!("Received {index} {id}");
             self.loaded.push_back(LoadedBlock {
                 index: self.current_block + index,
                 contents,
