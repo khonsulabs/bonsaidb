@@ -1,18 +1,17 @@
 /// [`Key`] implementations for time types.
 pub mod time;
 
+mod deprecated;
+
 use std::{
-    borrow::Cow,
-    convert::Infallible,
-    io::{ErrorKind, Write},
-    num::TryFromIntError,
-    string::FromUtf8Error,
+    borrow::Cow, convert::Infallible, io::ErrorKind, num::TryFromIntError, string::FromUtf8Error,
 };
 
 use arc_bytes::{
     serde::{Bytes, CowBytes},
     ArcBytes,
 };
+pub use deprecated::*;
 use num_traits::{FromPrimitive, ToPrimitive};
 use ordered_varint::{Signed, Unsigned, Variable};
 use serde::{Deserialize, Serialize};
@@ -501,15 +500,11 @@ macro_rules! impl_key_for_tuple {
             $($generic: Key<'a>),+
         {
             fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-                $(let ($varname, bytes) = decode_composite_field::<$generic>(bytes)?;)+
+                let mut decoder = CompositeKeyDecoder::new(bytes);
+                $(let $varname = decoder.decode::<$generic>()?;)+
+                decoder.finish()?;
 
-                if bytes.is_empty() {
                     Ok(($($varname),+,))
-                } else {
-                    Err(CompositeKeyError::new(std::io::Error::from(
-                        ErrorKind::InvalidData,
-                    )))
-                }
             }
         }
 
@@ -525,102 +520,267 @@ macro_rules! impl_key_for_tuple {
             };
 
             fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
-                let mut bytes = Vec::new();
+                let mut encoder = CompositeKeyEncoder::default();
 
-                $(encode_composite_field(&self.$index, &mut bytes)?;)+
+                $(encoder.encode(&self.$index)?;)+
 
-                Ok(Cow::Owned(bytes))
+                Ok(Cow::Owned(encoder.finish()))
             }
         }
     };
 }
 
-macro_rules! recursive_impl_key_for_tuple {
-    (($first_index:tt, $first_varname:ident, $first_generic:ident), $(($index:tt, $varname:ident, $generic:ident)),+) => {
-        impl_key_for_tuple!(($first_index, $first_varname, $first_generic), $(($index, $varname, $generic)),+);
-        recursive_impl_key_for_tuple!($(($index, $varname, $generic)),+);
-    };
-
-    (($index:tt, $varname:ident, $generic:ident)) => {
-        impl_key_for_tuple!(($index, $varname, $generic));
-    };
-}
-
-recursive_impl_key_for_tuple!(
-    (7, t8, T8),
-    (6, t7, T7),
-    (5, t6, T6),
-    (4, t5, T5),
-    (3, t4, T4),
-    (2, t3, T3),
+impl_key_for_tuple!((0, t1, T1));
+impl_key_for_tuple!((0, t1, T1), (1, t2, T2));
+impl_key_for_tuple!((0, t1, T1), (1, t2, T2), (2, t3, T3));
+impl_key_for_tuple!((0, t1, T1), (1, t2, T2), (2, t3, T3), (3, t4, T4));
+impl_key_for_tuple!(
+    (0, t1, T1),
     (1, t2, T2),
-    (0, t1, T1)
+    (2, t3, T3),
+    (3, t4, T4),
+    (4, t5, T5)
+);
+impl_key_for_tuple!(
+    (0, t1, T1),
+    (1, t2, T2),
+    (2, t3, T3),
+    (3, t4, T4),
+    (4, t5, T5),
+    (5, t6, T6)
+);
+impl_key_for_tuple!(
+    (0, t1, T1),
+    (1, t2, T2),
+    (2, t3, T3),
+    (3, t4, T4),
+    (4, t5, T5),
+    (5, t6, T6),
+    (6, t7, T7)
+);
+impl_key_for_tuple!(
+    (0, t1, T1),
+    (1, t2, T2),
+    (2, t3, T3),
+    (3, t4, T4),
+    (4, t5, T5),
+    (5, t6, T6),
+    (6, t7, T7),
+    (7, t8, T8)
 );
 
-/// Encodes a value using the `Key` trait in such a way that multiple values can
-/// still be ordered at the byte level when chained together.
+/// Encodes multiple [`KeyEncoding`] implementors into a single byte buffer,
+/// preserving the ordering guarantees necessary for [`Key`].
 ///
-/// ```rust
-/// # use bonsaidb_core::key::{encode_composite_field, decode_composite_field};
-///
-/// let value1 = String::from("hello");
-/// let value2 = 42_u32;
-/// let mut key_bytes = Vec::new();
-/// encode_composite_field(&value1, &mut key_bytes).unwrap();
-/// encode_composite_field(&value2, &mut key_bytes).unwrap();
-///
-/// let (decoded_string, remaining_bytes) = decode_composite_field::<String>(&key_bytes).unwrap();
-/// assert_eq!(decoded_string, value1);
-/// let (decoded_u32, remaining_bytes) = decode_composite_field::<u32>(&remaining_bytes).unwrap();
-/// assert_eq!(decoded_u32, value2);
-/// assert!(remaining_bytes.is_empty());
-/// ```
-pub fn encode_composite_field<'a, T: Key<'a>, Bytes: Write>(
-    value: &'a T,
-    bytes: &mut Bytes,
-) -> Result<(), CompositeKeyError> {
-    let t2 = T::as_ord_bytes(value).map_err(CompositeKeyError::new)?;
-    if T::LENGTH.is_none() {
-        (t2.len() as u64)
-            .encode_variable(bytes)
-            .map_err(CompositeKeyError::new)?;
-    }
-    bytes.write_all(&t2)?;
-    Ok(())
+/// The produced bytes can be decoded using [`CompositeKeyDecoder`].
+#[derive(Default)]
+pub struct CompositeKeyEncoder {
+    bytes: Vec<u8>,
+    encoded_lengths: Vec<u16>,
+    allow_null_bytes: bool,
 }
 
-/// Decodes a value previously encoded using [`encode_composite_field()`].
-/// The result is a tuple with the first element being the decoded value, and
-/// the second element is the remainig byte slice.
+impl CompositeKeyEncoder {
+    /// Prevents checking for null bytes in variable length fields. [`Key`]
+    /// types that have a fixed width have no edge cases with null bytes. See
+    /// [`CompositeKeyFieldContainsNullByte`] for an explanation and example of
+    /// the edge case introduced when allowing null bytes to be encoded.
+    pub fn allow_null_bytes_in_variable_fields(&mut self) {
+        self.allow_null_bytes = true;
+    }
+
+    /// Encodes a single [`KeyEncoding`] implementing value.
+    ///
+    /// ```rust
+    /// # use bonsaidb_core::key::{CompositeKeyEncoder, CompositeKeyDecoder};
+    ///
+    /// let value1 = String::from("hello");
+    /// let value2 = 42_u32;
+    /// let mut encoder = CompositeKeyEncoder::default();
+    /// encoder.encode(&value1).unwrap();
+    /// encoder.encode(&value2).unwrap();
+    /// let encoded = encoder.finish();
+    ///
+    /// let mut decoder = CompositeKeyDecoder::new(&encoded);
+    /// let decoded_string = decoder.decode::<String>().unwrap();
+    /// assert_eq!(decoded_string, value1);
+    /// let decoded_u32 = decoder.decode::<u32>().unwrap();
+    /// assert_eq!(decoded_u32, value2);
+    /// decoder.finish().expect("trailing bytes");
+    /// ```
+    pub fn encode<'a, K: Key<'a>, T: KeyEncoding<'a, K>>(
+        &mut self,
+        value: &'a T,
+    ) -> Result<(), CompositeKeyError> {
+        let encoded = T::as_ord_bytes(value).map_err(CompositeKeyError::new)?;
+        if T::LENGTH.is_none() {
+            if !self.allow_null_bytes && encoded.iter().any(|b| *b == 0) {
+                return Err(CompositeKeyError::new(std::io::Error::new(
+                    ErrorKind::InvalidData,
+                    CompositeKeyFieldContainsNullByte,
+                )));
+            }
+            let encoded_length = u16::try_from(encoded.len())?;
+            self.encoded_lengths.push(encoded_length);
+        }
+        self.bytes.extend_from_slice(&encoded);
+        if T::LENGTH.is_none() {
+            // With variable length data, we need the key to have a delimiter to
+            // ensure that "a" sorts before "aa".
+            self.bytes.push(0);
+        }
+        Ok(())
+    }
+
+    /// Finishes encoding the field and returns the encoded bytes.
+    #[must_use]
+    #[allow(clippy::missing_panics_doc)] // All unreachable
+    pub fn finish(mut self) -> Vec<u8> {
+        self.bytes.reserve_exact(self.encoded_lengths.len() * 2);
+        for length in self.encoded_lengths {
+            match length {
+                0..=0x7F => {
+                    self.bytes.push(u8::try_from(length).unwrap());
+                }
+                0x80..=0x3FFF => {
+                    self.bytes.push(u8::try_from(length >> 7).unwrap());
+                    self.bytes
+                        .push(u8::try_from((length & 0x7F) | 0x80).unwrap());
+                }
+                0x4000.. => {
+                    self.bytes.push(u8::try_from(length >> 14).unwrap());
+                    self.bytes
+                        .push(u8::try_from(((length >> 7) & 0x7F) | 0x80).unwrap());
+                    self.bytes
+                        .push(u8::try_from((length & 0x7F) | 0x80).unwrap());
+                }
+            }
+        }
+        self.bytes
+    }
+}
+
+/// Null bytes in variable fields encoded with [`CompositeKeyEncoder`] can cause
+/// sort order to misbehave.
 ///
-/// ```rust
-/// # use bonsaidb_core::key::{encode_composite_field, decode_composite_field};
+/// Consider these tuples:
 ///
-/// let value1 = String::from("hello");
-/// let value2 = 42_u32;
-/// let mut key_bytes = Vec::new();
-/// encode_composite_field(&value1, &mut key_bytes).unwrap();
-/// encode_composite_field(&value2, &mut key_bytes).unwrap();
+/// | Tuple          | Encoded          |
+/// |----------------|------------------|
+/// | `("a", "b")`   | `9700 9800 0101` |
+/// | `("a\0", "a")` | `9700 9700 0101` |
 ///
-/// let (decoded_string, remaining_bytes) = decode_composite_field::<String>(&key_bytes).unwrap();
-/// assert_eq!(decoded_string, value1);
-/// let (decoded_u32, remaining_bytes) = decode_composite_field::<u32>(&remaining_bytes).unwrap();
-/// assert_eq!(decoded_u32, value2);
-/// assert!(remaining_bytes.is_empty());
-/// ```
-pub fn decode_composite_field<'a, T: Key<'a>>(
-    mut bytes: &'a [u8],
-) -> Result<(T, &[u8]), CompositeKeyError> {
-    let length = if let Some(length) = T::LENGTH {
-        length
-    } else {
-        usize::try_from(u64::decode_variable(&mut bytes)?)?
-    };
-    let (t2, remaining) = bytes.split_at(length);
-    Ok((
-        T::from_ord_bytes(t2).map_err(CompositeKeyError::new)?,
-        remaining,
-    ))
+/// The encoded bytes, when compared, will produce a different sort result than
+/// when comparing the tuples.
+///
+/// By default, [`CompositeKeyEncoder`] checks for null bytes and returns an
+/// error when a null byte is found. See
+/// [`CompositeKeyEncoder::allow_null_bytes_in_variable_fields()`] if you wish
+/// to allow null bytes despite this edge case.
+#[derive(thiserror::Error, Debug)]
+#[error("a variable length field contained a null byte.")]
+pub struct CompositeKeyFieldContainsNullByte;
+
+/// Decodes multiple [`Key`] values from a byte slice previously encoded with
+/// [`CompositeKeyEncoder`].
+#[derive(Default)]
+pub struct CompositeKeyDecoder<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> CompositeKeyDecoder<'a> {
+    /// Returns a new decoder for `bytes`.
+    #[must_use]
+    pub const fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    /// Decodes a value previously encoded using [`CompositeKeyEncoder`]. Calls
+    /// to decode must be made in the same order as the values were encoded in.
+    ///
+    /// ```rust
+    /// # use bonsaidb_core::key::{CompositeKeyEncoder, CompositeKeyDecoder};
+    ///
+    /// let value1 = String::from("hello");
+    /// let value2 = 42_u32;
+    /// let mut encoder = CompositeKeyEncoder::default();
+    /// encoder.encode(&value1).unwrap();
+    /// encoder.encode(&value2).unwrap();
+    /// let encoded = encoder.finish();
+    ///
+    /// let mut decoder = CompositeKeyDecoder::new(&encoded);
+    /// let decoded_string = decoder.decode::<String>().unwrap();
+    /// assert_eq!(decoded_string, value1);
+    /// let decoded_u32 = decoder.decode::<u32>().unwrap();
+    /// assert_eq!(decoded_u32, value2);
+    /// decoder.finish().expect("trailing bytes");
+    /// ```
+    pub fn decode<T: Key<'a>>(&mut self) -> Result<T, CompositeKeyError> {
+        let length = if let Some(length) = T::LENGTH {
+            length
+        } else {
+            // Read a variable-encoded length from the tail of the bytes.
+            let mut length = 0;
+            let mut bytes_read = 0;
+            let mut found_end = false;
+            while let Some(&tail) = self.bytes.last() {
+                length |= usize::from(tail & 0x7F) << (bytes_read * 7);
+                bytes_read += 1;
+                self.bytes = &self.bytes[..self.bytes.len() - 1];
+                if tail & 0x80 == 0 {
+                    found_end = true;
+                    break;
+                }
+            }
+            if !found_end {
+                return Err(CompositeKeyError::new(std::io::Error::from(
+                    ErrorKind::UnexpectedEof,
+                )));
+            }
+            length
+        };
+        let end = self.offset + length;
+        if end <= self.bytes.len() {
+            let decoded =
+                T::from_ord_bytes(&self.bytes[self.offset..end]).map_err(CompositeKeyError::new)?;
+            self.offset = end;
+            if T::LENGTH.is_none() {
+                // Variable fields always have an extra null byte to delimit the data
+                self.offset += 1;
+            }
+            Ok(decoded)
+        } else {
+            Err(CompositeKeyError::new(std::io::Error::from(
+                ErrorKind::UnexpectedEof,
+            )))
+        }
+    }
+
+    /// Verifies the underlying byte slice has been fully consumed.
+    pub fn finish(self) -> Result<(), CompositeKeyError> {
+        if self.offset == self.bytes.len() {
+            Ok(())
+        } else {
+            Err(CompositeKeyError::new(std::io::Error::from(
+                ErrorKind::InvalidData,
+            )))
+        }
+    }
+}
+
+#[test]
+fn composite_key_null_check_test() {
+    let mut encoder = CompositeKeyEncoder::default();
+    encoder.encode(&vec![0_u8]).unwrap_err();
+
+    let mut encoder = CompositeKeyEncoder::default();
+    encoder.allow_null_bytes_in_variable_fields();
+    encoder.encode(&vec![0_u8]).unwrap();
+    let bytes = encoder.finish();
+    let mut decoder = CompositeKeyDecoder::new(&bytes);
+    let decoded_value = decoder.decode::<Cow<'_, [u8]>>().unwrap();
+    assert_eq!(decoded_value.as_ref(), &[0]);
 }
 
 #[test]
@@ -635,14 +795,19 @@ fn composite_key_tests() {
     ///
     /// The macros just make it less verbose to create the nested loops which
     /// create the tuples.
-    fn verify_key_ordering<T: for<'a> Key<'a> + Ord + Eq + std::fmt::Debug>(mut cases: Vec<T>) {
+    fn verify_key_ordering<T: for<'a> Key<'a> + Ord + Eq + std::fmt::Debug>(
+        mut cases: Vec<T>,
+        already_ordered: bool,
+    ) {
         let mut encoded = {
             cases
                 .iter()
                 .map(|tuple| tuple.as_ord_bytes().unwrap().to_vec())
                 .collect::<Vec<Vec<u8>>>()
         };
-        cases.sort();
+        if !already_ordered {
+            cases.sort();
+        }
         encoded.sort();
         println!("Tested {} entries", cases.len());
         let decoded = encoded
@@ -652,12 +817,35 @@ fn composite_key_tests() {
         assert_eq!(cases, decoded);
     }
 
+    // Simple mixed-length tests
+    let a2 = (String::from("a"), 2_u8);
+    let aa1 = (String::from("aa"), 1_u8);
+    let aa2 = (String::from("aa"), 2_u8);
+    let b1 = (String::from("b"), 1_u8);
+    let b2 = (String::from("b"), 2_u8);
+    verify_key_ordering(vec![a2.clone(), aa1.clone()], true);
+    verify_key_ordering(vec![a2, aa1, aa2, b1, b2], true);
+
+    // Two byte length (0x80)
+    verify_key_ordering(
+        vec![(vec![1; 128], vec![2; 128]), (vec![1; 128], vec![2; 128])],
+        true,
+    );
+    // Three byte length (0x80)
+    verify_key_ordering(
+        vec![
+            (vec![1; 16384], vec![1; 16384]),
+            (vec![1; 16384], vec![2; 16384]),
+        ],
+        true,
+    );
+
     let values = [0_u16, 0xFF00, 0x0FF0, 0xFF];
     macro_rules! test_enum_variations {
         ($($ident:ident),+) => {
             let mut cases = Vec::new();
             test_enum_variations!(for cases $($ident),+; $($ident),+);
-            verify_key_ordering(cases);
+            verify_key_ordering(cases, false);
         };
         (for $cases:ident $first:ident, $($ident:ident),+; $($variable:ident),+) => {
             for $first in values {
@@ -804,7 +992,7 @@ where
 impl<'a, K, T> KeyEncoding<'a, Option<K>> for Option<T>
 where
     T: KeyEncoding<'a, K>,
-    K: for<'k> Key<'k>,
+    K: Key<'a>,
 {
     type Error = T::Error;
 
@@ -817,64 +1005,6 @@ where
             Ok(Cow::Owned(contents))
         } else {
             Ok(Cow::Borrowed(b"\0"))
-        }
-    }
-}
-
-/// A type that preserves the original implementation of [`Key`] for
-/// `Option<T>`. This should not be used in new code and will be removed in a
-/// future version.
-#[derive(Clone, Debug, Copy, Eq, PartialEq)]
-#[deprecated = "this type should not be used in new code and should only be used in transitionary code."]
-#[allow(deprecated)]
-pub struct LegacyOptionKey<T>(pub Option<T>);
-
-#[allow(deprecated)]
-impl<'a, T> Key<'a> for LegacyOptionKey<T>
-where
-    T: Key<'a>,
-    Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
-{
-    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        if bytes.is_empty() {
-            Ok(Self(None))
-        } else {
-            Ok(Self(Some(T::from_ord_bytes(bytes)?)))
-        }
-    }
-
-    fn first_value() -> Result<Self, NextValueError> {
-        Ok(Self(Some(T::first_value()?)))
-    }
-
-    fn next_value(&self) -> Result<Self, NextValueError> {
-        self.0.as_ref().map(T::next_value).transpose().map(Self)
-    }
-}
-
-#[allow(deprecated)]
-impl<'a, K, T> KeyEncoding<'a, LegacyOptionKey<K>> for LegacyOptionKey<T>
-where
-    T: KeyEncoding<'a, K>,
-    K: for<'k> Key<'k>,
-{
-    type Error = T::Error;
-
-    const LENGTH: Option<usize> = T::LENGTH;
-
-    /// # Panics
-    ///
-    /// Panics if `T::into_big_endian_bytes` returns an empty `IVec`.
-    // TODO consider removing this panic limitation by adding a single byte to
-    // each key (at the end preferrably) so that we can distinguish between None
-    // and a 0-byte type
-    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
-        if let Some(contents) = &self.0 {
-            let contents = contents.as_ord_bytes()?;
-            assert!(!contents.is_empty());
-            Ok(contents)
-        } else {
-            Ok(Cow::default())
         }
     }
 }
@@ -1028,17 +1158,17 @@ fn optional_key_encoding_tests() -> anyhow::Result<()> {
 
     #[allow(deprecated)]
     {
-        let some_string = LegacyOptionKey(Some("hello")).as_ord_bytes()?;
-        let none_string = LegacyOptionKey::<String>(None).as_ord_bytes()?;
+        let some_string = OptionKeyV1(Some("hello")).as_ord_bytes()?;
+        let none_string = OptionKeyV1::<String>(None).as_ord_bytes()?;
         assert_eq!(
-            LegacyOptionKey::<String>::from_ord_bytes(&some_string)
+            OptionKeyV1::<String>::from_ord_bytes(&some_string)
                 .unwrap()
                 .0
                 .as_deref(),
             Some("hello")
         );
         assert_eq!(
-            LegacyOptionKey::<String>::from_ord_bytes(&none_string)
+            OptionKeyV1::<String>::from_ord_bytes(&none_string)
                 .unwrap()
                 .0,
             None
