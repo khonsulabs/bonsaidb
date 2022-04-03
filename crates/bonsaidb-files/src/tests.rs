@@ -70,8 +70,8 @@ fn simple_path_test() {
     assert_eq!(path_contents.len(), 1);
     assert_eq!(path_contents[0].name(), "hello.txt");
 
-    // let all_contents = File::<BonsaiFiles>::list_recursive("/", &database).unwrap();
-    // assert_eq!(all_contents.len(), 4);
+    let all_contents = File::<BonsaiFiles>::list_recursive("/", &database).unwrap();
+    assert_eq!(all_contents.len(), 4);
 }
 
 #[test]

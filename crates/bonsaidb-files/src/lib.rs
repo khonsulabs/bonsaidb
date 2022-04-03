@@ -103,15 +103,13 @@ where
             .map(|vec| vec.into_iter().map(|doc| Self { doc }).collect())
     }
 
-    // TODO this is broken because encode/decode composite field do the wrong ordering.
-    //
-    // pub fn list_recursive<Database: Connection>(
-    //     path: &str,
-    //     database: &Database,
-    // ) -> Result<Vec<Self>, bonsaidb_core::Error> {
-    //     schema::file::File::<Config>::list_recursive_path_contents(path, database)
-    //         .map(|vec| vec.into_iter().map(|doc| Self { doc }).collect())
-    // }
+    pub fn list_recursive<Database: Connection>(
+        path: &str,
+        database: &Database,
+    ) -> Result<Vec<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::list_recursive_path_contents(path, database)
+            .map(|vec| vec.into_iter().map(|doc| Self { doc }).collect())
+    }
 
     pub fn id(&self) -> u32 {
         self.doc.header.id

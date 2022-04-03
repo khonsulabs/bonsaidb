@@ -4,10 +4,9 @@ use bonsaidb_core::{
     connection::{Connection, Range},
     document::{CollectionDocument, Emit},
     key::{
-        decode_composite_field, encode_composite_field, time::TimestampAsSeconds,
-        CompositeKeyError, IntoPrefixRange, Key, KeyEncoding,
+        time::TimestampAsSeconds, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError,
+        IntoPrefixRange, Key, KeyEncoding,
     },
-    ordered_varint::Variable,
     schema::{
         Collection, CollectionName, CollectionViewSchema, DefaultSerialization,
         SerializedCollection, View, ViewMapResult,
@@ -156,19 +155,19 @@ where
             .collect())
     }
 
-    // pub fn list_recursive_path_contents<Database: Connection>(
-    //     path: &str,
-    //     database: &Database,
-    // ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
-    //     Ok(database
-    //         .view::<ByPath<Config>>()
-    //         .with_key_range(RecursivePathKey { path, start: true }.into_prefix_range())
-    //         .query_with_collection_docs()?
-    //         .documents
-    //         .into_iter()
-    //         .map(|(_, doc)| doc)
-    //         .collect())
-    // }
+    pub fn list_recursive_path_contents<Database: Connection>(
+        path: &str,
+        database: &Database,
+    ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
+        Ok(database
+            .view::<ByPath<Config>>()
+            .with_key_range(RecursivePathKey { path, start: true }.into_prefix_range())
+            .query_with_collection_docs()?
+            .documents
+            .into_iter()
+            .map(|(_, doc)| doc)
+            .collect())
+    }
 }
 
 impl<Config> Collection for File<Config>
@@ -237,25 +236,18 @@ impl<'k, 'pk> KeyEncoding<'k, OwnedFileKey> for ExactPathKey<'pk> {
         // The path needs to end with a /. Rather than force an allocation to
         // append it to a string before calling encode_composite_key, we're
         // manually encoding the key taking this adjustment into account.
-        let mut path_length = u64::try_from(self.path.len())?;
-        let append_separator = if self.path.as_bytes()[self.path.len() - 1] == b'/' {
-            false
-        } else {
-            path_length += 1;
-            true
-        };
-        path_length.encode_variable(&mut bytes)?;
+
         bytes.extend(self.path.bytes());
-        if append_separator {
+
+        if !self.path.as_bytes().ends_with(b"/") {
             bytes.push(b'/');
         }
-
+        // Variable encoding adds a null byte at the end of the string, we can
+        // use this padding byte to create our exclusive range
         if self.start {
-            // The start encodes a length of 0
-            u64::MIN.encode_variable(&mut bytes)?;
+            bytes.push(0)
         } else {
-            // The end encodes a maximum length
-            u64::MAX.encode_variable(&mut bytes)?;
+            bytes.push(1);
         }
         Ok(Cow::Owned(bytes))
     }
@@ -284,15 +276,15 @@ impl<'k, 'pk> KeyEncoding<'k, OwnedFileKey> for RecursivePathKey<'pk> {
     const LENGTH: Option<usize> = None;
 
     fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
-        let mut bytes = Vec::new();
+        let mut encoder = CompositeKeyEncoder::default();
         if self.start {
-            encode_composite_field(&self.path, &mut bytes)?;
+            encoder.encode(&self.path)?;
         } else {
             let next = next_string_sequence(self.path);
-            encode_composite_field(&next, &mut bytes)?;
+            encoder.encode(&next)?;
         }
 
-        Ok(Cow::Owned(bytes))
+        Ok(Cow::Owned(encoder.finish()))
     }
 }
 
@@ -315,9 +307,11 @@ struct OwnedFileKey {
 
 impl<'k> Key<'k> for OwnedFileKey {
     fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
-        let (path, bytes) = decode_composite_field(bytes)?;
-        let (name, _bytes) = decode_composite_field(bytes)?;
-        // TODO verify eof
+        let mut decoder = CompositeKeyDecoder::new(bytes);
+
+        let path = decoder.decode()?;
+        let name = decoder.decode()?;
+        decoder.finish()?;
         Ok(Self { path, name })
     }
 }
@@ -328,10 +322,10 @@ impl<'k> KeyEncoding<'k, Self> for OwnedFileKey {
     const LENGTH: Option<usize> = None;
 
     fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
-        let mut bytes = Vec::new();
-        encode_composite_field(&self.path, &mut bytes)?;
-        encode_composite_field(&self.name, &mut bytes)?;
-        Ok(Cow::Owned(bytes))
+        let mut encoder = CompositeKeyEncoder::default();
+        encoder.encode(&self.path)?;
+        encoder.encode(&self.name)?;
+        Ok(Cow::Owned(encoder.finish()))
     }
 }
 
@@ -347,9 +341,9 @@ impl<'k, 'fk> KeyEncoding<'k, OwnedFileKey> for FileKey<'fk> {
     const LENGTH: Option<usize> = None;
 
     fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
-        let mut bytes = Vec::new();
-        encode_composite_field(&self.path, &mut bytes)?;
-        encode_composite_field(&self.name, &mut bytes)?;
-        Ok(Cow::Owned(bytes))
+        let mut encoder = CompositeKeyEncoder::default();
+        encoder.encode(&self.path)?;
+        encoder.encode(&self.name)?;
+        Ok(Cow::Owned(encoder.finish()))
     }
 }
