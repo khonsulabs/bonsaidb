@@ -1,5 +1,5 @@
 use std::{
-    io::{Read, Seek},
+    io::{Read, Seek, Write},
     mem::size_of,
 };
 
@@ -145,6 +145,21 @@ fn blocked_file_test() {
     let contents = file.contents(&database).unwrap();
     assert_eq!(contents.len(), new_length);
     assert_eq!(contents.to_vec().unwrap(), big_file);
+
+    // Clear the file.
+    file.truncate(0, TruncateFrom::End, &database).unwrap();
+
+    let mut writer = file.append_buffered(&database);
+    let buffer_size = SmallBlocks::BLOCK_SIZE * 3 / 2;
+    writer.set_buffer_size(buffer_size).unwrap();
+    // Write more than the single buffer size.
+    let data_written = &bytes[0..SmallBlocks::BLOCK_SIZE * 2];
+    writer.write_all(data_written).unwrap();
+    assert_eq!(writer.buffer.len(), SmallBlocks::BLOCK_SIZE / 2);
+    drop(writer);
+
+    let contents = file.contents(&database).unwrap();
+    assert_eq!(contents.to_vec().unwrap(), data_written);
 }
 
 #[test]

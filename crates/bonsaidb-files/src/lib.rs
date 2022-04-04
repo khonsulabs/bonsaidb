@@ -1,6 +1,6 @@
 use std::{
     collections::VecDeque,
-    io::{ErrorKind, Read, Seek, SeekFrom},
+    io::{ErrorKind, Read, Seek, SeekFrom, Write},
     marker::PhantomData,
 };
 
@@ -179,12 +179,32 @@ where
     }
 
     pub fn truncate<Database: Connection>(
-        &mut self,
+        &self,
         new_length: u64,
         from: TruncateFrom,
         database: &Database,
     ) -> Result<(), bonsaidb_core::Error> {
         schema::file::File::<Config>::truncate(&self.doc, new_length, from, database)
+    }
+
+    pub fn append<Database: Connection>(
+        &self,
+        data: &[u8],
+        database: &Database,
+    ) -> Result<(), bonsaidb_core::Error> {
+        schema::block::Block::<Config>::append(data, self.doc.header.id, database)
+    }
+
+    pub fn append_buffered<'a, Database: Connection>(
+        &'a mut self,
+        database: &'a Database,
+    ) -> BufferedAppend<'a, Config, Database> {
+        BufferedAppend {
+            file: self,
+            database,
+            buffer: Vec::new(),
+            _config: PhantomData,
+        }
     }
 }
 
@@ -408,6 +428,59 @@ struct BlockInfo {
 pub enum TruncateFrom {
     Start,
     End,
+}
+
+pub struct BufferedAppend<'a, Config: FileConfig, Database: Connection> {
+    file: &'a mut File<Config>,
+    buffer: Vec<u8>,
+    database: &'a Database,
+    _config: PhantomData<Config>,
+}
+
+impl<'a, Config: FileConfig, Database: Connection> BufferedAppend<'a, Config, Database> {
+    pub fn set_buffer_size(&mut self, capacity: usize) -> std::io::Result<()> {
+        if self.buffer.capacity() > 0 {
+            self.flush()?;
+        }
+        self.buffer = Vec::with_capacity(capacity);
+        Ok(())
+    }
+}
+
+impl<'a, Config: FileConfig, Database: Connection> Write for BufferedAppend<'a, Config, Database> {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if self.buffer.capacity() == 0 {
+            const ONE_MEGABYTE: usize = 1024 * 1024;
+            // By default, reserve the largest multiple of BLOCK_SIZE that is
+            // less than or equal to 1 megabyte.
+            self.buffer
+                .reserve_exact(ONE_MEGABYTE / Config::BLOCK_SIZE * Config::BLOCK_SIZE);
+        } else if self.buffer.capacity() == self.buffer.len() {
+            self.flush()?;
+        }
+
+        if data.is_empty() {
+            Ok(0)
+        } else {
+            let bytes_to_write = data.len().min(self.buffer.capacity() - self.buffer.len());
+            self.buffer.extend(&data[..bytes_to_write]);
+            Ok(bytes_to_write)
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file
+            .append(&self.buffer, self.database)
+            .map_err(|err| std::io::Error::new(ErrorKind::Other, err))?;
+        self.buffer.clear();
+        Ok(())
+    }
+}
+
+impl<'a, Config: FileConfig, Database: Connection> Drop for BufferedAppend<'a, Config, Database> {
+    fn drop(&mut self) {
+        drop(self.flush())
+    }
 }
 
 #[derive(thiserror::Error, Debug)]

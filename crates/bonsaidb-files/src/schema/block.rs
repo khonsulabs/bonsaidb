@@ -106,7 +106,7 @@ where
 
 #[derive_where(Clone, Debug, Default)]
 #[derive(View)]
-#[view(name = "by-name", collection = Block<Config>, key = u32, value = u32)]
+#[view(name = "by-file", collection = Block<Config>, key = u32, value = u32)]
 #[view(core = bonsaidb_core)]
 struct ByFile<Config>(PhantomData<Config>)
 where
@@ -120,10 +120,10 @@ where
 
     fn map(&self, doc: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
         let mut file_id = [0; 4];
-        let length_offset = doc.contents.len() - 4;
-        file_id.copy_from_slice(&doc.contents[length_offset..]);
+        let file_id_offset = doc.contents.len() - 4;
+        file_id.copy_from_slice(&doc.contents[file_id_offset..]);
         let file_id = u32::from_be_bytes(file_id);
-        let length = u32::try_from(doc.contents[..length_offset].len()).unwrap();
+        let length = u32::try_from(file_id_offset).unwrap();
 
         doc.header.emit_key_and_value(file_id, length)
     }
