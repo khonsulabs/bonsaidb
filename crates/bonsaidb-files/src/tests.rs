@@ -9,7 +9,7 @@ use bonsaidb_local::{
     Database,
 };
 
-use crate::{BonsaiFiles, CreateFile, File, FileConfig, FilesSchema, TruncateFrom};
+use crate::{BonsaiFiles, CreateFile, Error, File, FileConfig, FilesSchema, TruncateFrom};
 
 #[test]
 fn simple_file_test() {
@@ -30,6 +30,18 @@ fn simple_file_test() {
         .unwrap();
     assert_eq!(file.name(), "hello.txt");
     assert_eq!(file.containing_path(), "/");
+}
+
+#[test]
+fn invalid_name_test() {
+    let directory = TestDirectory::new("invalid-name");
+    let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
+
+    let err = CreateFile::named("/hello.txt")
+        .contents(b"hello, world!")
+        .execute::<BonsaiFiles, _>(&database)
+        .unwrap_err();
+    assert!(matches!(err, Error::InvalidName));
 }
 
 #[test]
@@ -105,26 +117,32 @@ fn blocked_file_test() {
     let database =
         Database::open::<FilesSchema<SmallBlocks>>(StorageConfiguration::new(&directory)).unwrap();
 
-    let file: File<SmallBlocks> = CreateFile::named("hello.txt")
+    let mut file: File<SmallBlocks> = CreateFile::named("hello.txt")
         .contents(&big_file)
         .execute(&database)
         .unwrap();
-    let mut contents = file.contents(&database).unwrap();
+    let contents = file.contents(&database).unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
-    let bytes = contents.to_vec().unwrap();
+    let bytes = contents.into_vec().unwrap();
     assert_eq!(bytes, big_file);
 
     // Truncate the beginning of the file
     let new_length = u64::try_from(SmallBlocks::BLOCK_SIZE * 3).unwrap();
     big_file.splice(..big_file.len() - SmallBlocks::BLOCK_SIZE * 3, []);
-    contents.truncate(new_length, TruncateFrom::Start).unwrap();
+    file.truncate(new_length, TruncateFrom::Start, &database)
+        .unwrap();
+
+    let contents = file.contents(&database).unwrap();
     assert_eq!(contents.len(), new_length);
-    assert_eq!(contents.to_vec().unwrap(), big_file);
+    assert_eq!(contents.into_vec().unwrap(), big_file);
 
     // Truncate the end of the file.
     let new_length = u64::try_from(SmallBlocks::BLOCK_SIZE).unwrap();
     big_file.truncate(SmallBlocks::BLOCK_SIZE);
-    contents.truncate(new_length, TruncateFrom::End).unwrap();
+    file.truncate(new_length, TruncateFrom::End, &database)
+        .unwrap();
+
+    let contents = file.contents(&database).unwrap();
     assert_eq!(contents.len(), new_length);
     assert_eq!(contents.to_vec().unwrap(), big_file);
 }

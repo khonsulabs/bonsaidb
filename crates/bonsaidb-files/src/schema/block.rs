@@ -5,6 +5,7 @@ use bonsaidb_core::{
     document::{BorrowedDocument, Emit},
     key::KeyEncoding,
     schema::{Collection, CollectionName, View, ViewMapResult, ViewSchema},
+    transaction::{Operation, Transaction},
 };
 use derive_where::derive_where;
 
@@ -25,12 +26,15 @@ where
         database: &Database,
     ) -> Result<(), bonsaidb_core::Error> {
         if !data.is_empty() {
+            let mut tx = Transaction::new();
+            let block_collection = Self::collection_name();
             for chunk in data.chunks(Config::BLOCK_SIZE) {
                 let mut block = Vec::with_capacity(chunk.len() + size_of::<u32>());
                 block.extend(chunk);
                 block.extend(file_id.to_be_bytes());
-                database.collection::<Self>().push_bytes(block)?;
+                tx.push(Operation::insert(block_collection.clone(), None, block));
             }
+            tx.apply(database)?;
         }
         Ok(())
     }

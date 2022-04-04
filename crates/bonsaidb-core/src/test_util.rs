@@ -1069,17 +1069,13 @@ pub async fn conflict_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     // To generate a conflict, let's try to do the same update again by
     // reverting the header
     doc.header = Header::try_from(header).unwrap();
-    match db
+    let conflicting_header = db
         .update::<Basic, _>(&mut doc)
         .await
         .expect_err("conflict should have generated an error")
-    {
-        Error::DocumentConflict(collection, header) => {
-            assert_eq!(collection, Basic::collection_name());
-            assert_eq!(header.id, doc.header.id);
-        }
-        other => return Err(anyhow::Error::from(other)),
-    }
+        .conflicting_document::<Basic>()
+        .expect("conflict not detected");
+    assert_eq!(conflicting_header.id, doc.header.id);
 
     // Let's force an update through overwrite. After this succeeds, the header
     // is updated to the new revision.
@@ -1114,16 +1110,12 @@ pub fn blocking_conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     // To generate a conflict, let's try to do the same update again by
     // reverting the header
     doc.header = Header::try_from(header).unwrap();
-    match db
+    let conflicting_header = db
         .update::<Basic, _>(&mut doc)
         .expect_err("conflict should have generated an error")
-    {
-        Error::DocumentConflict(collection, header) => {
-            assert_eq!(collection, Basic::collection_name());
-            assert_eq!(header.id, doc.header.id);
-        }
-        other => return Err(anyhow::Error::from(other)),
-    }
+        .conflicting_document::<Basic>()
+        .expect("conflict not detected");
+    assert_eq!(conflicting_header.id, doc.header.id);
 
     // Let's force an update through overwrite. After this succeeds, the header
     // is updated to the new revision.

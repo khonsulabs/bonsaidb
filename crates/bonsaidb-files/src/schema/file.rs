@@ -4,26 +4,27 @@ use bonsaidb_core::{
     connection::{Connection, Range},
     document::{CollectionDocument, Emit},
     key::{
-        time::TimestampAsSeconds, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError,
+        time::TimestampAsNanoseconds, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError,
         IntoPrefixRange, Key, KeyEncoding,
     },
     schema::{
         Collection, CollectionName, CollectionViewSchema, DefaultSerialization,
         SerializedCollection, View, ViewMapResult,
     },
+    transaction::{Operation, Transaction},
 };
 use bonsaidb_utils::next_string_sequence;
 use derive_where::derive_where;
 use serde::{Deserialize, Serialize};
 
-use crate::{metadata::Metadata, schema::block::Block, BonsaiFiles, FileConfig};
+use crate::{schema::block::Block, BonsaiFiles, Error, FileConfig, TruncateFrom};
 
 #[derive_where(Debug)]
 #[derive(Serialize, Deserialize)]
 pub struct File<Config = BonsaiFiles> {
     pub path: Option<String>,
     pub name: String,
-    pub metadata: Metadata,
+    pub created_at: TimestampAsNanoseconds,
 
     #[serde(skip)]
     _name: PhantomData<Config>,
@@ -39,14 +40,19 @@ where
         create_directories: bool,
         contents: &[u8],
         database: &Database,
-    ) -> Result<CollectionDocument<Self>, bonsaidb_core::Error> {
-        let now = TimestampAsSeconds::now();
+    ) -> Result<CollectionDocument<Self>, Error> {
+        if name.contains('/') {
+            return Err(Error::InvalidName);
+        }
+
+        let now = TimestampAsNanoseconds::now();
         if let Some(path) = &path {
             if path != "/" && create_directories {
                 let mut segments = path.split_terminator('/');
                 let first_segment = segments.next().unwrap();
                 if !first_segment.is_empty() {
-                    todo!("path needs a leading slash")
+                    // The first character wasn't a `/`.
+                    return Err(Error::InvalidPath);
                 }
 
                 let mut parent_ids = Vec::new();
@@ -72,13 +78,18 @@ where
                     let mut parents = parents.into_iter();
                     for parent_id in parent_ids {
                         if parents.next().is_none() {
-                            Self::create_file(
+                            match Self::create_file(
                                 Some(parent_id.path.to_string()),
                                 parent_id.name.to_string(),
                                 false,
                                 b"",
                                 database,
-                            )?;
+                            ) {
+                                Ok(_) => {}
+                                Err(Error::Database(err))
+                                    if err.is_unique_key_error::<ByPath<Config>, _>(database) => {}
+                                other => return other,
+                            }
                         }
                     }
                 }
@@ -95,10 +106,7 @@ where
         let file = File {
             path,
             name,
-            metadata: Metadata {
-                created_at: now,
-                last_updated_at: now,
-            },
+            created_at: now,
             _name: PhantomData,
         }
         .push_into(database)?;
@@ -109,12 +117,13 @@ where
     pub fn find<Database: Connection>(
         mut path: &str,
         database: &Database,
-    ) -> Result<Option<CollectionDocument<Self>>, bonsaidb_core::Error> {
-        // If the search is for a directory, the name is of the last component. Remove the trailing slash if it's present
+    ) -> Result<Option<CollectionDocument<Self>>, Error> {
         if path.is_empty() {
-            todo!("error");
+            return Err(Error::InvalidPath);
         }
 
+        // If the search is for a directory, the name is of the last component.
+        // Remove the trailing slash if it's present
         if path.as_bytes()[path.len() - 1] == b'/' {
             path = &path[..path.len() - 1];
         }
@@ -168,6 +177,49 @@ where
             .map(|(_, doc)| doc)
             .collect())
     }
+
+    pub fn truncate<Database: Connection>(
+        file: &CollectionDocument<Self>,
+        new_length: u64,
+        from: TruncateFrom,
+        database: &Database,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let mut blocks = Block::<Config>::for_file(file.header.id, database)?;
+        let total_length: u64 = blocks
+            .iter()
+            .map(|b| u64::try_from(b.length).unwrap())
+            .sum();
+        let mut bytes_to_remove = if let Some(bytes) = total_length.checked_sub(new_length) {
+            bytes
+        } else {
+            return Ok(());
+        };
+
+        let mut tx = Transaction::new();
+        let block_collection = Config::blocks_name();
+        while bytes_to_remove > 0 && !blocks.is_empty() {
+            let offset = match from {
+                TruncateFrom::Start => 0,
+                TruncateFrom::End => blocks.len() - 1,
+            };
+            let block_length = u64::try_from(blocks[offset].length).unwrap();
+            if block_length <= bytes_to_remove {
+                tx.push(Operation::delete(
+                    block_collection.clone(),
+                    blocks[offset].header.clone(),
+                ));
+                blocks.remove(offset);
+                bytes_to_remove -= block_length;
+            } else {
+                // Partial removal. For now, we're just not going to support
+                // partial removes. This is just purely to keep things simple.
+                break;
+            }
+        }
+
+        tx.apply(database)?;
+        Ok(())
+    }
 }
 
 impl<Config> Collection for File<Config>
@@ -193,7 +245,7 @@ impl<Config> DefaultSerialization for File<Config> where Config: FileConfig {}
 
 #[derive_where(Clone, Debug, Default)]
 #[derive(View)]
-#[view(name = "by-path", collection = File<Config>, key = OwnedFileKey, value = Metadata)]
+#[view(name = "by-path", collection = File<Config>, key = OwnedFileKey, value = TimestampAsNanoseconds)]
 #[view(core = bonsaidb_core)]
 struct ByPath<Config>(PhantomData<Config>)
 where
@@ -215,7 +267,7 @@ where
                 path: doc.contents.path.unwrap_or_else(|| String::from("/")),
                 name: doc.contents.name,
             },
-            doc.contents.metadata,
+            doc.contents.created_at,
         )
     }
 }

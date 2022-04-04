@@ -7,18 +7,15 @@ use std::{
 use bonsaidb_core::{
     connection::Connection,
     document::{CollectionDocument, Header},
+    key::time::TimestampAsNanoseconds,
     schema::{
-        Collection, CollectionName, Qualified, Schema, SchemaName, Schematic, SerializedCollection,
+        CollectionName, InsertError, Qualified, Schema, SchemaName, Schematic, SerializedCollection,
     },
-    transaction::{Operation, Transaction},
 };
 
-pub mod metadata;
 mod schema;
 
 use derive_where::derive_where;
-
-use crate::metadata::Metadata;
 
 pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
     const BLOCK_SIZE: usize;
@@ -75,7 +72,7 @@ where
         create_directories: bool,
         contents: &[u8],
         database: &Database,
-    ) -> Result<Self, bonsaidb_core::Error> {
+    ) -> Result<Self, Error> {
         Ok(Self {
             doc: schema::file::File::create_file(
                 path,
@@ -97,7 +94,7 @@ where
     pub fn load<Database: Connection>(
         path: &str,
         database: &Database,
-    ) -> Result<Option<Self>, bonsaidb_core::Error> {
+    ) -> Result<Option<Self>, Error> {
         schema::file::File::<Config>::find(path, database).map(|opt| opt.map(|doc| Self { doc }))
     }
 
@@ -144,20 +141,25 @@ where
         full_path
     }
 
-    pub fn metadata(&self) -> &Metadata {
-        &self.doc.contents.metadata
+    pub fn created_at(&self) -> TimestampAsNanoseconds {
+        self.doc.contents.created_at
     }
 
-    pub fn parent<Database: Connection>(
-        &self,
-        database: &Database,
-    ) -> Result<Option<Self>, bonsaidb_core::Error> {
+    pub fn parent<Database: Connection>(&self, database: &Database) -> Result<Option<Self>, Error> {
         let path = self.containing_path();
         if path == "/" {
             Ok(None)
         } else {
             Self::load(path, database)
         }
+    }
+
+    pub fn children<Database: Connection>(
+        &self,
+        database: &Database,
+    ) -> Result<Vec<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::list_path_contents(&self.path(), database)
+            .map(|docs| docs.into_iter().map(|doc| Self { doc }).collect())
     }
 
     pub fn contents<'a, Database: Connection>(
@@ -176,12 +178,13 @@ where
         })
     }
 
-    pub fn children<Database: Connection>(
-        &self,
+    pub fn truncate<Database: Connection>(
+        &mut self,
+        new_length: u64,
+        from: TruncateFrom,
         database: &Database,
-    ) -> Result<Vec<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::list_path_contents(&self.path(), database)
-            .map(|docs| docs.into_iter().map(|doc| Self { doc }).collect())
+    ) -> Result<(), bonsaidb_core::Error> {
+        schema::file::File::<Config>::truncate(&self.doc, new_length, from, database)
     }
 }
 
@@ -221,7 +224,7 @@ impl<'a> CreateFile<'a> {
     pub fn execute<Config: FileConfig, Database: Connection>(
         self,
         database: &Database,
-    ) -> Result<File<Config>, bonsaidb_core::Error> {
+    ) -> Result<File<Config>, Error> {
         File::new_file(
             self.path,
             self.name,
@@ -287,60 +290,6 @@ impl<'a, Database: Connection, Config: FileConfig> Contents<'a, Database, Config
     pub fn batching_by_blocks(mut self, block_count: usize) -> Self {
         self.batch_size = block_count;
         self
-    }
-
-    pub fn truncate(
-        &mut self,
-        new_length: u64,
-        from: TruncateFrom,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let total_length = self.len();
-        let mut bytes_to_remove = if let Some(bytes) = total_length.checked_sub(new_length) {
-            bytes
-        } else {
-            return Ok(());
-        };
-
-        let mut tx = Transaction::new();
-        let block_collection = schema::block::Block::<Config>::collection_name();
-        while bytes_to_remove > 0 && !self.blocks.is_empty() {
-            let offset = match from {
-                TruncateFrom::Start => 0,
-                TruncateFrom::End => self.blocks.len() - 1,
-            };
-            let block_length = u64::try_from(self.blocks[offset].length).unwrap();
-            if block_length <= bytes_to_remove {
-                tx.push(Operation::delete(
-                    block_collection.clone(),
-                    self.blocks[offset].header.clone(),
-                ));
-                self.blocks.remove(offset);
-                bytes_to_remove -= block_length;
-            } else {
-                // Partial removal. For now, we're just not going to support
-                // partial removes. This is just purely to keep things simple.
-                break;
-            }
-        }
-
-        tx.apply(self.database)?;
-
-        // Adjust all of the block offsets to be correct again
-        let mut offset = 0;
-        for block in &mut self.blocks {
-            block.offset = offset;
-            offset += u64::try_from(block.length).unwrap();
-        }
-
-        // We could attempt to be smart about moving the reader position, but
-        // resetting it is frankly more predictable. Since the cursor is only
-        // used for reading, it isn't as meaningful as trying to ensure writing
-        // is still done at the "correct" location.
-        self.offset = 0;
-        self.current_block = 0;
-        self.loaded.clear();
-
-        Ok(())
     }
 
     fn load_blocks(&mut self) -> std::io::Result<()> {
@@ -459,6 +408,22 @@ struct BlockInfo {
 pub enum TruncateFrom {
     Start,
     End,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("database error: {0}")]
+    Database(#[from] bonsaidb_core::Error),
+    #[error("names must not contain '/'")]
+    InvalidName,
+    #[error("all paths must start with a leading '/'")]
+    InvalidPath,
+}
+
+impl<T> From<InsertError<T>> for Error {
+    fn from(err: InsertError<T>) -> Self {
+        Self::Database(err.error)
+    }
 }
 
 #[cfg(test)]

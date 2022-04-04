@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `Key` is now implemented for `Cow<'a, str>`.
+- `bonsaidb_core::Error::is_unique_key_error()` is a convenience function to
+  quickly check if an error is a result of a unique key violation from a
+  specific view.
+- `bonsaidb_core::Error::conflicting_document()` is a convenience function to
+  return the conflicting document's header if the error is a conflict from a
+  specific collection.
 
 ## v0.4.0
 
