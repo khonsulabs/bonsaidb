@@ -6,8 +6,11 @@ use std::{
 
 use bonsaidb_core::{
     connection::Connection,
-    document::CollectionDocument,
-    schema::{CollectionName, Qualified, Schema, SchemaName, Schematic, SerializedCollection},
+    document::{CollectionDocument, Header},
+    schema::{
+        Collection, CollectionName, Qualified, Schema, SchemaName, Schematic, SerializedCollection,
+    },
+    transaction::{Operation, Transaction},
 };
 
 pub mod metadata;
@@ -44,13 +47,16 @@ impl FileConfig for BonsaiFiles {
     }
 }
 
-impl Schema for BonsaiFiles {
+#[derive_where(Default, Debug)]
+pub struct FilesSchema<Config: FileConfig = BonsaiFiles>(PhantomData<Config>);
+
+impl<Config: FileConfig> Schema for FilesSchema<Config> {
     fn schema_name() -> SchemaName {
         SchemaName::new("bonsaidb", "files")
     }
 
     fn define_collections(schema: &mut Schematic) -> Result<(), bonsaidb_core::Error> {
-        Self::register_collections(schema)
+        Config::register_collections(schema)
     }
 }
 
@@ -142,23 +148,23 @@ where
         &self.doc.contents.metadata
     }
 
-    // pub fn parent<Database: Connection>(
-    //     &self,
-    //     database: &Database,
-    // ) -> Result<Option<Self>, bonsaidb_core::Error> {
-    //     if let Some(id) = self.doc.contents.parent {
-    //         Self::get(id, database)
-    //     } else {
-    //         Ok(None)
-    //     }
-    // }
+    pub fn parent<Database: Connection>(
+        &self,
+        database: &Database,
+    ) -> Result<Option<Self>, bonsaidb_core::Error> {
+        let path = self.containing_path();
+        if path == "/" {
+            Ok(None)
+        } else {
+            Self::load(path, database)
+        }
+    }
 
     pub fn contents<'a, Database: Connection>(
         &self,
         database: &'a Database,
     ) -> Result<Contents<'a, Database, Config>, bonsaidb_core::Error> {
-        let mut blocks = schema::block::Block::<Config>::for_file(self.id(), database)?;
-        blocks.sort_by(|a, b| a.id.cmp(&b.id));
+        let blocks = schema::block::Block::<Config>::for_file(self.id(), database)?;
         Ok(Contents {
             database,
             blocks,
@@ -236,6 +242,21 @@ pub struct Contents<'a, Database: Connection, Config: FileConfig> {
     _config: PhantomData<Config>,
 }
 
+impl<'a, Database: Connection, Config: FileConfig> Clone for Contents<'a, Database, Config> {
+    fn clone(&self) -> Self {
+        Self {
+            database: self.database,
+            blocks: self.blocks.clone(),
+            loaded: self.loaded.clone(),
+            current_block: self.current_block,
+            offset: self.offset,
+            batch_size: self.batch_size,
+            _config: PhantomData,
+        }
+    }
+}
+
+#[derive(Clone)]
 struct LoadedBlock {
     index: usize,
     contents: Vec<u8>,
@@ -253,6 +274,10 @@ impl<'a, Database: Connection, Config: FileConfig> Contents<'a, Database, Config
         self.blocks.is_empty() || (self.blocks.len() == 1 && self.blocks[0].length == 0)
     }
 
+    pub fn to_vec(&self) -> std::io::Result<Vec<u8>> {
+        self.clone().into_vec()
+    }
+
     pub fn into_vec(mut self) -> std::io::Result<Vec<u8>> {
         let mut contents = Vec::with_capacity(usize::try_from(self.len()).unwrap());
         self.read_to_end(&mut contents)?;
@@ -264,13 +289,67 @@ impl<'a, Database: Connection, Config: FileConfig> Contents<'a, Database, Config
         self
     }
 
+    pub fn truncate(
+        &mut self,
+        new_length: u64,
+        from: TruncateFrom,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let total_length = self.len();
+        let mut bytes_to_remove = if let Some(bytes) = total_length.checked_sub(new_length) {
+            bytes
+        } else {
+            return Ok(());
+        };
+
+        let mut tx = Transaction::new();
+        let block_collection = schema::block::Block::<Config>::collection_name();
+        while bytes_to_remove > 0 && !self.blocks.is_empty() {
+            let offset = match from {
+                TruncateFrom::Start => 0,
+                TruncateFrom::End => self.blocks.len() - 1,
+            };
+            let block_length = u64::try_from(self.blocks[offset].length).unwrap();
+            if block_length <= bytes_to_remove {
+                tx.push(Operation::delete(
+                    block_collection.clone(),
+                    self.blocks[offset].header.clone(),
+                ));
+                self.blocks.remove(offset);
+                bytes_to_remove -= block_length;
+            } else {
+                // Partial removal. For now, we're just not going to support
+                // partial removes. This is just purely to keep things simple.
+                break;
+            }
+        }
+
+        tx.apply(self.database)?;
+
+        // Adjust all of the block offsets to be correct again
+        let mut offset = 0;
+        for block in &mut self.blocks {
+            block.offset = offset;
+            offset += u64::try_from(block.length).unwrap();
+        }
+
+        // We could attempt to be smart about moving the reader position, but
+        // resetting it is frankly more predictable. Since the cursor is only
+        // used for reading, it isn't as meaningful as trying to ensure writing
+        // is still done at the "correct" location.
+        self.offset = 0;
+        self.current_block = 0;
+        self.loaded.clear();
+
+        Ok(())
+    }
+
     fn load_blocks(&mut self) -> std::io::Result<()> {
         self.loaded.clear();
         let last_block = (self.current_block + self.batch_size).min(self.blocks.len());
         for (index, (_, contents)) in schema::block::Block::<Config>::load(
             self.blocks[self.current_block..last_block]
                 .iter()
-                .map(|info| info.id),
+                .map(|info| info.header.id),
             self.database,
         )
         .map_err(|err| std::io::Error::new(ErrorKind::Other, err))?
@@ -370,10 +449,16 @@ impl<'a, Database: Connection, Config: FileConfig> Seek for Contents<'a, Databas
     }
 }
 
+#[derive(Clone)]
 struct BlockInfo {
     offset: u64,
     length: usize,
-    id: u64,
+    header: Header,
+}
+
+pub enum TruncateFrom {
+    Start,
+    End,
 }
 
 #[cfg(test)]

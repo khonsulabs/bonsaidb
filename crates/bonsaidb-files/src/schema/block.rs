@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, marker::PhantomData, mem::size_of};
 use bonsaidb_core::{
     connection::Connection,
     document::{BorrowedDocument, Emit},
+    key::KeyEncoding,
     schema::{Collection, CollectionName, View, ViewMapResult, ViewSchema},
 };
 use derive_where::derive_where;
@@ -35,11 +36,12 @@ where
     }
 
     pub fn load<
-        Ids: IntoIterator<Item = u64, IntoIter = IdsIter> + Send + Sync,
-        IdsIter: Iterator<Item = u64> + Send + Sync,
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, u64>,
         Database: Connection,
     >(
-        block_ids: Ids,
+        block_ids: DocumentIds,
         database: &Database,
     ) -> Result<BTreeMap<u64, Vec<u8>>, bonsaidb_core::Error> {
         database
@@ -64,12 +66,12 @@ where
             .query()?
             .into_iter()
             .map(|mapping| BlockInfo {
-                id: mapping.source.id.deserialize().unwrap(),
+                header: mapping.source,
                 length: usize::try_from(mapping.value).unwrap(),
                 offset: 0,
             })
             .collect::<Vec<_>>();
-        blocks.sort_by(|a, b| a.id.cmp(&b.id));
+        blocks.sort_by(|a, b| a.header.id.cmp(&b.header.id));
         let mut offset = 0;
         for block in &mut blocks {
             block.offset = offset;

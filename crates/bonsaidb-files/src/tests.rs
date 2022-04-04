@@ -9,12 +9,12 @@ use bonsaidb_local::{
     Database,
 };
 
-use crate::{BonsaiFiles, CreateFile, File, FileConfig};
+use crate::{BonsaiFiles, CreateFile, File, FileConfig, FilesSchema, TruncateFrom};
 
 #[test]
 fn simple_file_test() {
     let directory = TestDirectory::new("simple-file");
-    let database = Database::open::<BonsaiFiles>(StorageConfiguration::new(&directory)).unwrap();
+    let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
 
     let file: File = CreateFile::named("hello.txt")
         .contents(b"hello, world!")
@@ -35,7 +35,7 @@ fn simple_file_test() {
 #[test]
 fn simple_path_test() {
     let directory = TestDirectory::new("simple-path");
-    let database = Database::open::<BonsaiFiles>(StorageConfiguration::new(&directory)).unwrap();
+    let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
 
     let file: File = CreateFile::named("hello.txt")
         .at_path("/some/containing/path")
@@ -70,28 +70,63 @@ fn simple_path_test() {
     assert_eq!(path_contents.len(), 1);
     assert_eq!(path_contents[0].name(), "hello.txt");
 
+    // Test parent()
+    let some = some_contents[0].parent(&database).unwrap().unwrap();
+    assert_eq!(some.name(), "some");
+    assert!(matches!(some.parent(&database).unwrap(), None));
+
     let all_contents = File::<BonsaiFiles>::list_recursive("/", &database).unwrap();
     assert_eq!(all_contents.len(), 4);
 }
 
 #[test]
 fn blocked_file_test() {
-    // Generate a file that's slightly longer than 3 full chunks (10 blocks).
-    let mut big_file = Vec::with_capacity(BonsaiFiles::BLOCK_SIZE * 97 / 3);
-    while big_file.len() + size_of::<usize>() < big_file.capacity() {
-        big_file.extend(big_file.len().to_be_bytes());
+    enum SmallBlocks {}
+    impl FileConfig for SmallBlocks {
+        const BLOCK_SIZE: usize = 8;
+
+        fn files_name() -> bonsaidb_core::schema::CollectionName {
+            BonsaiFiles::files_name()
+        }
+
+        fn blocks_name() -> bonsaidb_core::schema::CollectionName {
+            BonsaiFiles::blocks_name()
+        }
+    }
+    let mut big_file = Vec::with_capacity(SmallBlocks::BLOCK_SIZE * 31 / 2);
+    let mut counter = 0_u8;
+    while big_file.len() + 4 < big_file.capacity() {
+        counter += 1;
+        for _ in 0..4 {
+            big_file.push(counter);
+        }
     }
     let directory = TestDirectory::new("blocked-file");
-    let database = Database::open::<BonsaiFiles>(StorageConfiguration::new(&directory)).unwrap();
+    let database =
+        Database::open::<FilesSchema<SmallBlocks>>(StorageConfiguration::new(&directory)).unwrap();
 
-    let file: File = CreateFile::named("hello.txt")
+    let file: File<SmallBlocks> = CreateFile::named("hello.txt")
         .contents(&big_file)
         .execute(&database)
         .unwrap();
-    let contents = file.contents(&database).unwrap();
+    let mut contents = file.contents(&database).unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
-    let bytes = contents.into_vec().unwrap();
+    let bytes = contents.to_vec().unwrap();
     assert_eq!(bytes, big_file);
+
+    // Truncate the beginning of the file
+    let new_length = u64::try_from(SmallBlocks::BLOCK_SIZE * 3).unwrap();
+    big_file.splice(..big_file.len() - SmallBlocks::BLOCK_SIZE * 3, []);
+    contents.truncate(new_length, TruncateFrom::Start).unwrap();
+    assert_eq!(contents.len(), new_length);
+    assert_eq!(contents.to_vec().unwrap(), big_file);
+
+    // Truncate the end of the file.
+    let new_length = u64::try_from(SmallBlocks::BLOCK_SIZE).unwrap();
+    big_file.truncate(SmallBlocks::BLOCK_SIZE);
+    contents.truncate(new_length, TruncateFrom::End).unwrap();
+    assert_eq!(contents.len(), new_length);
+    assert_eq!(contents.to_vec().unwrap(), big_file);
 }
 
 #[test]
@@ -102,7 +137,7 @@ fn seek_read_test() {
         afile.extend(afile.len().to_be_bytes());
     }
     let directory = TestDirectory::new("seek-read");
-    let database = Database::open::<BonsaiFiles>(StorageConfiguration::new(&directory)).unwrap();
+    let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
 
     let file: File = CreateFile::named("hello.bin")
         .contents(&afile)
