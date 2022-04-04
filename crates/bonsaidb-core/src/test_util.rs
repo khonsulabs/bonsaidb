@@ -1740,6 +1740,15 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
         vec![MappedValue::new(None, 1,),]
     );
 
+    // Remove the final document, which has a parent id of None. We'll add a new
+    // document with None to verify that the mapper handles the edge case of a
+    // delete/insert in the same mapping operation.
+    db.view::<BasicByParentId>().delete_docs().await?;
+    collection.push(&Basic::new("B")).await?;
+
+    let all_entries = db.view::<BasicByParentId>().query().await?;
+    assert_eq!(all_entries.len(), 1);
+
     Ok(())
 }
 
@@ -1801,6 +1810,15 @@ pub fn blocking_view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         db.view::<BasicByParentId>().reduce_grouped()?,
         vec![MappedValue::new(None, 1,),]
     );
+
+    // Remove the final document, which has a parent id of None. We'll add a new
+    // document with None to verify that the mapper handles the edge case of a
+    // delete/insert in the same mapping operation.
+    db.view::<BasicByParentId>().delete_docs()?;
+    collection.push(&Basic::new("B"))?;
+
+    let all_entries = db.view::<BasicByParentId>().query()?;
+    assert_eq!(all_entries.len(), 1);
 
     Ok(())
 }

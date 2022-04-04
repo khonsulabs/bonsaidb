@@ -446,7 +446,7 @@ impl<'a> ViewEntryUpdater<'a> {
                 .mappings
                 .retain(|m| !document_ids.contains(m.source.id.as_ref()));
 
-            if view_entry.mappings.is_empty() {
+            if view_entry.mappings.is_empty() && !self.new_mappings.contains_key(&key[..]) {
                 return KeyOperation::Remove;
             } else if self.has_reduce {
                 let mappings = view_entry

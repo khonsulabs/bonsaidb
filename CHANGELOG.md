@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `insert_bytes`/`push_bytes` no longer require `SerializedCollection` to be
   implemented.
+- The View indexing system had a bug when deleting the last view entries for a
+  key while also inserting new entries for that key in the same mapping update
+  operation. This prevented the recording of new entries being made during that
+  mapping operation.
 
 ### Added
 
