@@ -59,7 +59,7 @@ use bonsaidb_local::{
     StorageId,
 };
 pub use http;
-use tokio::runtime::{Handle, Runtime};
+use tokio::runtime::{self, Handle, Runtime};
 
 /// S3-compatible [`VaultKeyStorage`] implementor.
 #[derive(Default, Debug)]
@@ -86,7 +86,17 @@ enum Tokio {
 
 impl Default for Tokio {
     fn default() -> Self {
-        Handle::try_current().map_or_else(|_| Self::Runtime(Runtime::new().unwrap()), Self::Handle)
+        Handle::try_current().map_or_else(
+            |_| {
+                Self::Runtime(
+                    runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap(),
+                )
+            },
+            Self::Handle,
+        )
     }
 }
 
