@@ -1,6 +1,6 @@
 [package]
 name = "bonsaidb-keystorage-s3"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Jonathan Johnson <jon@khonsulabs.com>"]
 edition = "2021"
 description = "BonsaiDb `VaultKeyStorage` using S3-compatible storage."
@@ -16,7 +16,7 @@ rust-version = "1.58"
 aws-sdk-s3 = { version = "0.9.0" }
 aws-config = { version = "0.9.0" }
 aws-smithy-client = { version = "0.39.0" }
-bonsaidb-local = { version = "0.4.0", path = "../bonsaidb-local", default-features = false, features = [
+bonsaidb-local = { version = "0.4.1", path = "../bonsaidb-local", default-features = false, features = [
     "encryption",
 ] }
 async-trait = "0.1"
@@ -28,9 +28,9 @@ tokio = { version = "1.16.1", default-features = false, features = ["rt"] }
 [dev-dependencies]
 tokio = { version = "1.16.1", features = ["full"] }
 dotenv = "0.15"
-bonsaidb-core = { version = "0.4.0", path = "../bonsaidb-core", features = [
+bonsaidb-core = { version = "0.4.1", path = "../bonsaidb-core", features = [
     "test-util",
 ] }
-bonsaidb-local = { version = "0.4.0", path = "../bonsaidb-local", default-features = false, features = [
+bonsaidb-local = { version = "0.4.1", path = "../bonsaidb-local", default-features = false, features = [
     "async",
 ] }
