@@ -69,18 +69,11 @@ where
     fn new_file<Database: Connection>(
         path: Option<String>,
         name: String,
-        create_directories: bool,
         contents: &[u8],
         database: &Database,
     ) -> Result<Self, Error> {
         Ok(Self {
-            doc: schema::file::File::create_file(
-                path,
-                name,
-                create_directories,
-                contents,
-                database,
-            )?,
+            doc: schema::file::File::create_file(path, name, contents, database)?,
         })
     }
 
@@ -145,15 +138,6 @@ where
         self.doc.contents.created_at
     }
 
-    pub fn parent<Database: Connection>(&self, database: &Database) -> Result<Option<Self>, Error> {
-        let path = self.containing_path();
-        if path == "/" {
-            Ok(None)
-        } else {
-            Self::load(path, database)
-        }
-    }
-
     pub fn children<Database: Connection>(
         &self,
         database: &Database,
@@ -206,13 +190,64 @@ where
             _config: PhantomData,
         }
     }
+
+    pub fn move_to<Database: Connection>(
+        &mut self,
+        new_path: &str,
+        database: &Database,
+    ) -> Result<(), Error> {
+        if !new_path.as_bytes().starts_with(b"/") {
+            return Err(Error::InvalidPath);
+        }
+
+        // Prevent mutating self until after the database is updated.
+        let mut doc = self.doc.clone();
+        if new_path.as_bytes().ends_with(b"/") {
+            if new_path.len() > 1 {
+                doc.contents.path = Some(new_path.to_string());
+            } else {
+                doc.contents.path = None;
+            }
+        } else {
+            let (path, name) = new_path.rsplit_once('/').unwrap();
+            doc.contents.path = (!path.is_empty()).then(|| path.to_string());
+            doc.contents.name = name.to_string();
+        }
+
+        // Force path to end in a slash
+        if let Some(path) = doc.contents.path.as_mut() {
+            if path.bytes().last() != Some(b'/') {
+                path.push('/');
+            }
+        }
+
+        doc.update(database)?;
+        self.doc = doc;
+        Ok(())
+    }
+
+    pub fn rename<Database: Connection>(
+        &mut self,
+        new_name: String,
+        database: &Database,
+    ) -> Result<(), Error> {
+        if new_name.as_bytes().contains(&b'/') {
+            return Err(Error::InvalidName);
+        }
+
+        // Prevent mutating self until after the database is updated.
+        let mut doc = self.doc.clone();
+        doc.contents.name = new_name;
+        doc.update(database)?;
+        self.doc = doc;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct CreateFile<'a> {
     path: Option<String>,
     name: String,
-    create_directories: bool,
     contents: &'a [u8],
 }
 
@@ -221,7 +256,6 @@ impl<'a> CreateFile<'a> {
         Self {
             path: None,
             name: name.into(),
-            create_directories: false,
             contents: b"",
         }
     }
@@ -236,22 +270,11 @@ impl<'a> CreateFile<'a> {
         self
     }
 
-    pub fn creating_missing_directories(mut self) -> Self {
-        self.create_directories = true;
-        self
-    }
-
     pub fn execute<Config: FileConfig, Database: Connection>(
         self,
         database: &Database,
     ) -> Result<File<Config>, Error> {
-        File::new_file(
-            self.path,
-            self.name,
-            self.create_directories,
-            self.contents,
-            database,
-        )
+        File::new_file(self.path, self.name, self.contents, database)
     }
 }
 

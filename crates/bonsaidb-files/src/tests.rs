@@ -51,7 +51,6 @@ fn simple_path_test() {
 
     let file: File = CreateFile::named("hello.txt")
         .at_path("/some/containing/path")
-        .creating_missing_directories()
         .contents(b"hello, world!")
         .execute(&database)
         .unwrap();
@@ -66,29 +65,40 @@ fn simple_path_test() {
     assert_eq!(file.name(), "hello.txt");
     assert_eq!(file.containing_path(), "/some/containing/path/");
 
-    // Internally `ExactPathKey` will append a `/` to the end of the key, and
-    // the code in File::list() uses `File::path()` to construct the path to
-    // list. This constructed path has no trailing `/`, so each of the
-    // `children()` calls below will test the path in `ExactKeyPath` where the
-    // `/` is appended. This query has the trailing slash to test the path where
-    // no `/` is added.
+    // One query intentionally ends with a / and one doesn't.
     let some_contents = File::<BonsaiFiles>::list("/some/", &database).unwrap();
-    assert_eq!(some_contents.len(), 1);
-    assert_eq!(some_contents[0].name(), "containing");
-    let containing_contents = some_contents[0].children(&database).unwrap();
-    assert_eq!(containing_contents.len(), 1);
-    assert_eq!(containing_contents[0].name(), "path");
-    let path_contents = containing_contents[0].children(&database).unwrap();
+    assert_eq!(some_contents.len(), 0);
+    let path_contents = File::<BonsaiFiles>::list("/some/containing/path", &database).unwrap();
     assert_eq!(path_contents.len(), 1);
     assert_eq!(path_contents[0].name(), "hello.txt");
 
-    // Test parent()
-    let some = some_contents[0].parent(&database).unwrap().unwrap();
-    assert_eq!(some.name(), "some");
-    assert!(matches!(some.parent(&database).unwrap(), None));
-
     let all_contents = File::<BonsaiFiles>::list_recursive("/", &database).unwrap();
-    assert_eq!(all_contents.len(), 4);
+    assert_eq!(all_contents.len(), 1);
+
+    // Test renaming and moving
+    let mut file = file;
+    file.rename(String::from("new-name.txt"), &database)
+        .unwrap();
+    assert!(
+        File::<BonsaiFiles>::load("/some/containing/path/hello.txt", &database)
+            .unwrap()
+            .is_none()
+    );
+    let mut file = File::<BonsaiFiles>::load("/some/containing/path/new-name.txt", &database)
+        .unwrap()
+        .unwrap();
+    file.move_to("/new/path/", &database).unwrap();
+    assert!(
+        File::<BonsaiFiles>::load("/new/path/new-name.txt", &database)
+            .unwrap()
+            .is_some()
+    );
+    file.move_to("/final/path/and_name.txt", &database).unwrap();
+    let file = File::<BonsaiFiles>::load("/final/path/and_name.txt", &database)
+        .unwrap()
+        .unwrap();
+    let contents = file.contents(&database).unwrap().into_vec().unwrap();
+    assert_eq!(contents, b"hello, world!");
 }
 
 #[test]

@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{schema::block::Block, BonsaiFiles, Error, FileConfig, TruncateFrom};
 
-#[derive_where(Debug)]
+#[derive_where(Debug, Clone)]
 #[derive(Serialize, Deserialize)]
 pub struct File<Config = BonsaiFiles> {
     pub path: Option<String>,
@@ -37,63 +37,11 @@ where
     pub fn create_file<Database: Connection>(
         mut path: Option<String>,
         name: String,
-        create_directories: bool,
         contents: &[u8],
         database: &Database,
     ) -> Result<CollectionDocument<Self>, Error> {
         if name.contains('/') {
             return Err(Error::InvalidName);
-        }
-
-        let now = TimestampAsNanoseconds::now();
-        if let Some(path) = &path {
-            if path != "/" && create_directories {
-                let mut segments = path.split_terminator('/');
-                let first_segment = segments.next().unwrap();
-                if !first_segment.is_empty() {
-                    // The first character wasn't a `/`.
-                    return Err(Error::InvalidPath);
-                }
-
-                let mut parent_ids = Vec::new();
-                let mut offset = 0;
-                for name in segments {
-                    parent_ids.push(FileKey {
-                        path: if offset == 0 {
-                            Cow::Borrowed("/")
-                        } else {
-                            Cow::Borrowed(&path[..offset])
-                        },
-                        name: Cow::Borrowed(name),
-                    });
-                    offset += name.len() + 1;
-                }
-                let mut parents = database
-                    .view::<ByPath<Config>>()
-                    .with_keys(parent_ids.iter().cloned())
-                    .query()?;
-                parents.sort_by(|a, b| a.key.path.cmp(&b.key.path));
-                if parent_ids.len() != parents.len() {
-                    // Missing directories
-                    let mut parents = parents.into_iter();
-                    for parent_id in parent_ids {
-                        if parents.next().is_none() {
-                            match Self::create_file(
-                                Some(parent_id.path.to_string()),
-                                parent_id.name.to_string(),
-                                false,
-                                b"",
-                                database,
-                            ) {
-                                Ok(_) => {}
-                                Err(Error::Database(err))
-                                    if err.is_unique_key_error::<ByPath<Config>, _>(database) => {}
-                                other => return other,
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         // Force path to end with a /
@@ -103,6 +51,7 @@ where
             }
         }
 
+        let now = TimestampAsNanoseconds::now();
         let file = File {
             path,
             name,
