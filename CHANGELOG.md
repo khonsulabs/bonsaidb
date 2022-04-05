@@ -34,15 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 
-### Fixed
-
-- `insert_bytes`/`push_bytes` no longer require `SerializedCollection` to be
-  implemented.
-- The View indexing system had a bug when deleting the last view entries for a
-  key while also inserting new entries for that key in the same mapping update
-  operation. This prevented the recording of new entries being made during that
-  mapping operation.
-
 ### Added
 
 - `Key` is now implemented for `Cow<'a, str>`.
@@ -52,6 +43,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `bonsaidb_core::Error::conflicting_document()` is a convenience function to
   return the conflicting document's header if the error is a conflict from a
   specific collection.
+
+## v0.4.1
+
+### Fixed
+
+- The View indexing system had a bug when deleting the last view entries for a
+  key while also inserting new entries for that key in the same mapping update
+  operation. This prevented the recording of new entries being made during that
+  mapping operation. This bug was introduced during the optimizations in v0.3.0.
+
+  All views will be reindexed automatically on upgrade.
+- `insert_bytes`/`push_bytes` no longer require `SerializedCollection` to be
+  implemented.
 
 ## v0.4.0
 
