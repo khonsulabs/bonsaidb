@@ -5,7 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.4.1
+
+### Fixed
+
+- `insert_bytes`/`push_bytes` no longer require `SerializedCollection` to be
+  implemented.
+- The View indexing system had a bug when deleting the last view entries for a
+  key while also inserting new entries for that key in the same mapping update
+  operation. This prevented the recording of new entries being made during that
+  mapping operation. This bug was introduced during the optimizations in v0.3.0.
+
+  All views will be reindexed automatically on upgrade.
+
+## v0.4.0
 
 ### Breaking Changes
 
