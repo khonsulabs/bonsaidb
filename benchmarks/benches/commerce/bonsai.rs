@@ -160,16 +160,18 @@ impl Backend for BonsaiBackend {
     }
 }
 
-impl BackendOperator for BonsaiOperator {}
+impl BackendOperator for BonsaiOperator {
+    type Id = u32;
+}
 
 #[async_trait]
-impl Operator<Load> for BonsaiOperator {
+impl Operator<Load, u32> for BonsaiOperator {
     async fn operate(
         &mut self,
         operation: &Load,
-        _results: &[OperationResult],
+        _results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let measurement = measurements.begin(self.label, Metric::Load);
         let mut tx = Transaction::default();
         for (id, category) in &operation.initial_data.categories {
@@ -202,13 +204,13 @@ impl Operator<Load> for BonsaiOperator {
 }
 
 #[async_trait]
-impl Operator<FindProduct> for BonsaiOperator {
+impl Operator<FindProduct, u32> for BonsaiOperator {
     async fn operate(
         &mut self,
         operation: &FindProduct,
-        _results: &[OperationResult],
+        _results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let measurement = measurements.begin(self.label, Metric::FindProduct);
         let doc = Product::load_async(&operation.name, &self.database)
             .await
@@ -232,13 +234,13 @@ impl Operator<FindProduct> for BonsaiOperator {
 }
 
 #[async_trait]
-impl Operator<LookupProduct> for BonsaiOperator {
+impl Operator<LookupProduct, u32> for BonsaiOperator {
     async fn operate(
         &mut self,
         operation: &LookupProduct,
-        _results: &[OperationResult],
+        _results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let measurement = measurements.begin(self.label, Metric::LookupProduct);
         let doc = Product::get_async(operation.id, &self.database)
             .await
@@ -262,13 +264,13 @@ impl Operator<LookupProduct> for BonsaiOperator {
 }
 
 #[async_trait]
-impl Operator<CreateCart> for BonsaiOperator {
+impl Operator<CreateCart, u32> for BonsaiOperator {
     async fn operate(
         &mut self,
         _operation: &CreateCart,
-        _results: &[OperationResult],
+        _results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let measurement = measurements.begin(self.label, Metric::CreateCart);
         let cart = Cart::default()
             .push_into_async(&self.database)
@@ -280,13 +282,13 @@ impl Operator<CreateCart> for BonsaiOperator {
 }
 
 #[async_trait]
-impl Operator<AddProductToCart> for BonsaiOperator {
+impl Operator<AddProductToCart, u32> for BonsaiOperator {
     async fn operate(
         &mut self,
         operation: &AddProductToCart,
-        results: &[OperationResult],
+        results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let cart = match &results[operation.cart.0] {
             OperationResult::Cart { id } => *id,
             _ => unreachable!("Invalid operation result"),
@@ -310,13 +312,13 @@ impl Operator<AddProductToCart> for BonsaiOperator {
 }
 
 #[async_trait]
-impl Operator<Checkout> for BonsaiOperator {
+impl Operator<Checkout, u32> for BonsaiOperator {
     async fn operate(
         &mut self,
         operation: &Checkout,
-        results: &[OperationResult],
+        results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let cart = match &results[operation.cart.0] {
             OperationResult::Cart { id } => *id,
             _ => unreachable!("Invalid operation result"),
@@ -342,13 +344,13 @@ impl Operator<Checkout> for BonsaiOperator {
 }
 
 #[async_trait]
-impl Operator<ReviewProduct> for BonsaiOperator {
+impl Operator<ReviewProduct, u32> for BonsaiOperator {
     async fn operate(
         &mut self,
         operation: &ReviewProduct,
-        results: &[OperationResult],
+        results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let product_id = match &results[operation.product_id.0] {
             OperationResult::Product { id, .. } => *id,
             OperationResult::CartProduct { id, .. } => *id,

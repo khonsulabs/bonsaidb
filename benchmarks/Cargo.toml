@@ -16,6 +16,7 @@ harness = false
 sqlite = ["rusqlite", "sqlx", "sqlx/sqlite"]
 postgresql = ["sqlx", "sqlx/postgres"]
 compression = ["bonsaidb/server-compression", "bonsaidb/local-compression"]
+mongo = ["mongodb"]
 
 [dependencies]
 redis = { version = "0.21", optional = true, features = ["tokio-comp"] }
@@ -49,3 +50,4 @@ plotters = "0.3"
 plotters-backend = "0.3"
 tera = "1"
 time = { version = "0.3", features = ["formatting"] }
+mongodb = { version = "2.1.0", features = ["tokio-runtime"], optional = true }

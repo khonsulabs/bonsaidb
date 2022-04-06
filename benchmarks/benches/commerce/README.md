@@ -23,6 +23,15 @@ Run occasionally at [Scaleway](https://scaleway.com) on a GP1-XS instance runnin
 
 [![Commerce Benchmark Overview](https://khonsulabs-storage.s3.us-west-000.backblazeb2.com/bonsaidb-scaleway-gp1-xs/commerce/Overview.png)](https://khonsulabs-storage.s3.us-west-000.backblazeb2.com/bonsaidb-scaleway-gp1-xs/commerce/index.html)
 
+Click on either image for the full report.
+
+The GitHub Actions version attempts to use the latest release of either database.
+
+The Scaleway instance currently has these database versions installed:
+
+- PostgreSQL 14.2
+- MongoDB CE 5.0.6
+
 ## Benchmark Notes
 
 ### Filesystem Bloat
@@ -49,13 +58,41 @@ keys, most benchmarks showed a reduction in speed by leaving the foreign keys
 in. As such this benchmark currently has no foreign keys, but they can be
 re-enabled easily by removing the SQL comments.
 
+All other databases added after PostgreSQL will not have foreign key
+enforcements added unless they serve a performance gain for some reason.
+
 ### Product Ratings
 
-Product Ratings are implemented using pure database features for aggregation. In BonsaiDb, this means utilizing a [Map/Reduce view](https://dev.bonsaidb.io/main/guide/about/concepts/view.html), and in PostgreSQL, this means using a [materialized view](https://www.postgresql.org/docs/current/rules-materializedviews.html). Because Views are the primary mechanism for querying data in BonsaiDb, they are more feature rich than PostgreSQL's materialized views.
+Product Ratings are implemented using pure database features for aggregation. In
+BonsaiDb, this means utilizing a [Map/Reduce
+view](https://dev.bonsaidb.io/main/guide/about/concepts/view.html), and in
+PostgreSQL, this means using a [materialized
+view](https://www.postgresql.org/docs/current/rules-materializedviews.html).
+Because Views are the primary mechanism for querying data in BonsaiDb, they are
+more feature rich than PostgreSQL's materialized views.
 
-The current implementation of the product review operation will not only insert or update any existing review, it will also refresh the view to ensure that the new information is available. BonsaiDb has the ability to control when to update the view using the [AccessPolicy](https://dev.bonsaidb.io/main/bonsaidb/core/connection/enum.AccessPolicy.html) enum.
+The current implementation of the product review operation will not only insert
+or update any existing review, it will also refresh the view to ensure that the
+new information is available. BonsaiDb has the ability to control when to update
+the view using the
+[AccessPolicy](https://dev.bonsaidb.io/main/bonsaidb/core/connection/enum.AccessPolicy.html)
+enum.
 
-BonsaiDb's implementation isn't optimized in another way: the benchmark is making two database requests to fulfill queries for products -- one for the product data, and another for the ratings. With the local version of BonsaiDb, there is no network latency, so this isn't really a concern. But once network latency is involved, a [`Api`](https://dev.bonsaidb.io/main/guide/about/access-models/custom-api-server.html) could have been written to make it a single request. We didn't take this route because to us `Api` isn't a pure database function, and this benchmark suite is meant to test database functionality.
+BonsaiDb's implementation isn't optimized in another way: the benchmark is
+making two database requests to fulfill queries for products -- one for the
+product data, and another for the ratings. With the local version of BonsaiDb,
+there is no network latency, so this isn't really a concern. But once network
+latency is involved, a
+[`Api`](https://dev.bonsaidb.io/main/guide/about/access-models/custom-api-server.html)
+could have been written to make it a single request. We didn't take this route
+because to us `Api` isn't a pure database function, and this benchmark suite is
+meant to test database functionality.
+
+MongoDB's implementation of product ratings mirrors BonsaiDb's closely, but uses
+what MongoDB's documentations recommend for new collections -- their aggregation
+pipelines. This implementation uses a materialized view with partial updates to
+mirror the effect of BonsaiDb's map/reduce. MongoDB has a map/reduce
+implementation, but their documentation recommends against using it.
 
 ## Preparing PostgreSQL for Benchmarks
 
@@ -78,4 +115,34 @@ Finally, run with the `postgresql` feature enabled:
 
 ```sh
 cargo bench --bench commerce --features postgresql
+```
+
+## Preparing MongoDB for Benchmarks
+
+The benchmark suite currently does not support authentication. Our benchmarks
+shown use a default configuration, except the server has been [switched into a
+single-node replication
+set](https://www.mongodb.com/docs/manual/tutorial/convert-standalone-to-replica-set/).
+This is for two reasons:
+
+1. This enables recording the oplog, which mirrors the transaction log that
+   BonsaiDb maintains to eventually support replication. While BonsaiDb does not
+   currently support replication, the transaction log entries are still being
+   written to enable that capability in the future. Enabling the feature makes
+   the contents of the databases that BonsaiDb and MongoDB create more equal.
+2. The documentation explicitly recommends against running a standalone server
+   in production.
+
+The only configuration necessary is to configure the connection URL. This is
+done via an environment variable. The easiest way to configure this is to create
+a file named `.env` in the root of the repository with contents similar to this:
+
+```ini
+COMMERCE_MONGODB_URL=mongodb://localhost:27017
+```
+
+With the environment variable present, run with the `mongo` feature enabled:
+
+```sh
+cargo bench --bench commerce --features mongo
 ```

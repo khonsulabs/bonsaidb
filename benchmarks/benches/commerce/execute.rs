@@ -103,6 +103,21 @@ pub fn execute_plans_for_all_backends(
             eprintln!("postgresql feature is enabled, but environment variable COMMERCE_POSTGRESQL_URL is missing.");
         }
     }
+    #[cfg(feature = "mongo")]
+    if name_filter.is_empty() || name_filter.starts_with("mongo") {
+        if let Ok(url) = std::env::var("COMMERCE_MONGODB_URL") {
+            println!("Executing mongodb");
+            crate::mongo::MongoBackend::execute_async(
+                url,
+                plans,
+                initial_data,
+                number_of_agents,
+                measurements,
+            );
+        } else {
+            eprintln!("mongo feature is enabled, but environment variable COMMERCE_MONGODB_URL is missing.");
+        }
+    }
 }
 
 #[async_trait]
@@ -169,13 +184,13 @@ pub trait Backend: Sized + Send + Sync + 'static {
 }
 
 #[async_trait]
-pub trait Operator<T> {
+pub trait Operator<T, R> {
     async fn operate(
         &mut self,
         operation: &T,
-        results: &[OperationResult],
+        results: &[OperationResult<R>],
         measurements: &Measurements,
-    ) -> OperationResult;
+    ) -> OperationResult<R>;
 }
 
 async fn agent<B: Backend>(
@@ -192,29 +207,30 @@ async fn agent<B: Backend>(
 }
 
 pub trait BackendOperator:
-    Operator<Load>
-    + Operator<LookupProduct>
-    + Operator<FindProduct>
-    + Operator<CreateCart>
-    + Operator<AddProductToCart>
-    + Operator<ReviewProduct>
-    + Operator<Checkout>
+    Operator<Load, Self::Id>
+    + Operator<LookupProduct, Self::Id>
+    + Operator<FindProduct, Self::Id>
+    + Operator<CreateCart, Self::Id>
+    + Operator<AddProductToCart, Self::Id>
+    + Operator<ReviewProduct, Self::Id>
+    + Operator<Checkout, Self::Id>
     + Send
     + Sync
 {
+    type Id: Send + Sync;
 }
 
 #[async_trait]
-impl<T> Operator<Operation> for T
+impl<T> Operator<Operation, T::Id> for T
 where
     T: BackendOperator,
 {
     async fn operate(
         &mut self,
         operation: &Operation,
-        results: &[OperationResult],
+        results: &[OperationResult<T::Id>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<T::Id> {
         match operation {
             Operation::FindProduct(op) => self.operate(op, results, measurements).await,
             Operation::LookupProduct(op) => self.operate(op, results, measurements).await,

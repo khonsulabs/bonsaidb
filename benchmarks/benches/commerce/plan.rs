@@ -82,7 +82,7 @@ impl Plan {
 pub struct ResultId(pub usize);
 #[derive(Debug)]
 #[must_use]
-pub enum OperationResult {
+pub enum OperationResult<T> {
     Ok,
     Product {
         id: u32,
@@ -90,7 +90,7 @@ pub enum OperationResult {
         rating: Option<f32>,
     },
     Cart {
-        id: u32,
+        id: T,
     },
     CartProduct {
         id: u32,

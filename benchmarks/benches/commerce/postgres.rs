@@ -167,16 +167,18 @@ pub struct PostgresOperator {
     sqlite: PgPool,
 }
 
-impl BackendOperator for PostgresOperator {}
+impl BackendOperator for PostgresOperator {
+    type Id = u32;
+}
 
 #[async_trait]
-impl Operator<Load> for PostgresOperator {
+impl Operator<Load, u32> for PostgresOperator {
     async fn operate(
         &mut self,
         operation: &Load,
-        _results: &[OperationResult],
+        _results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let measurement = measurements.begin("postgresql", Metric::Load);
         let mut conn = self.sqlite.acquire().await.unwrap();
         let mut tx = conn.begin().await.unwrap();
@@ -295,13 +297,13 @@ impl Operator<Load> for PostgresOperator {
     }
 }
 #[async_trait]
-impl Operator<CreateCart> for PostgresOperator {
+impl Operator<CreateCart, u32> for PostgresOperator {
     async fn operate(
         &mut self,
         _operation: &CreateCart,
-        _results: &[OperationResult],
+        _results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let measurement = measurements.begin("postgresql", Metric::CreateCart);
         let mut conn = self.sqlite.acquire().await.unwrap();
         let mut tx = conn.begin().await.unwrap();
@@ -319,13 +321,13 @@ impl Operator<CreateCart> for PostgresOperator {
     }
 }
 #[async_trait]
-impl Operator<AddProductToCart> for PostgresOperator {
+impl Operator<AddProductToCart, u32> for PostgresOperator {
     async fn operate(
         &mut self,
         operation: &AddProductToCart,
-        results: &[OperationResult],
+        results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let cart = match &results[operation.cart.0] {
             OperationResult::Cart { id } => *id,
             _ => unreachable!("Invalid operation result"),
@@ -358,13 +360,13 @@ impl Operator<AddProductToCart> for PostgresOperator {
     }
 }
 #[async_trait]
-impl Operator<FindProduct> for PostgresOperator {
+impl Operator<FindProduct, u32> for PostgresOperator {
     async fn operate(
         &mut self,
         operation: &FindProduct,
-        _results: &[OperationResult],
+        _results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let measurement = measurements.begin("postgresql", Metric::FindProduct);
         let mut conn = self.sqlite.acquire().await.unwrap();
         let statement = conn
@@ -427,13 +429,13 @@ impl Operator<FindProduct> for PostgresOperator {
     }
 }
 #[async_trait]
-impl Operator<LookupProduct> for PostgresOperator {
+impl Operator<LookupProduct, u32> for PostgresOperator {
     async fn operate(
         &mut self,
         operation: &LookupProduct,
-        _results: &[OperationResult],
+        _results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let measurement = measurements.begin("postgresql", Metric::LookupProduct);
         let mut conn = self.sqlite.acquire().await.unwrap();
         let statement = conn
@@ -498,13 +500,13 @@ impl Operator<LookupProduct> for PostgresOperator {
 }
 
 #[async_trait]
-impl Operator<Checkout> for PostgresOperator {
+impl Operator<Checkout, u32> for PostgresOperator {
     async fn operate(
         &mut self,
         operation: &Checkout,
-        results: &[OperationResult],
+        results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let cart = match &results[operation.cart.0] {
             OperationResult::Cart { id } => *id as i32,
             _ => unreachable!("Invalid operation result"),
@@ -554,13 +556,13 @@ impl Operator<Checkout> for PostgresOperator {
 }
 
 #[async_trait]
-impl Operator<ReviewProduct> for PostgresOperator {
+impl Operator<ReviewProduct, u32> for PostgresOperator {
     async fn operate(
         &mut self,
         operation: &ReviewProduct,
-        results: &[OperationResult],
+        results: &[OperationResult<u32>],
         measurements: &Measurements,
-    ) -> OperationResult {
+    ) -> OperationResult<u32> {
         let product = match &results[operation.product_id.0] {
             OperationResult::Product { id, .. } => *id,
             OperationResult::CartProduct { id, .. } => *id,

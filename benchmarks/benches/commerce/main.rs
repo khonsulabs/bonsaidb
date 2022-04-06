@@ -14,6 +14,8 @@ use crate::{
 };
 
 mod bonsai;
+#[cfg(feature = "mongo")]
+mod mongo;
 mod plan;
 #[cfg(feature = "postgresql")]
 mod postgres;
