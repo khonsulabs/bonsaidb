@@ -17,7 +17,7 @@ simulate various levels of concurrency.
 
 From GitHub Actions:
 
-[![Commerce Benchmark Overview](https://dev.bonsaidb.io/benchmarks/commerce/Overview.png)](https://dev.bonsaidb.io/benchmarks/commerce/)
+[![Commerce Benchmark Overview](https://dev.bonsaidb.io/main/benchmarks/commerce/Overview.png)](https://dev.bonsaidb.io/main/benchmarks/commerce/)
 
 Run occasionally at [Scaleway](https://scaleway.com) on a GP1-XS instance running Ubuntu 20.04 with 4 CPU cores, 16GB of RAM, and local NVME storage:
 
