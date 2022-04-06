@@ -43,6 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `bonsaidb_core::Error::conflicting_document()` is a convenience function to
   return the conflicting document's header if the error is a conflict from a
   specific collection.
+- `Operation::Check` is a new operation that can be performed during a
+  transaction. It checks whether a document exists in a given collection, and
+  optionally can verify that a revision matches the currently stored revision.
+
+  These constructor functions provide more ergonomic ways to create this variant:
+
+  - `Operation::check_document_id_exists(CollectionName,DocumentId)`
+  - `Operation::check_document_exists<Collection>(Collection::PrimaryKey)`
+  - `Operation::check_document_is_current(&impl HasHeader)`
 
 ## v0.4.1
 

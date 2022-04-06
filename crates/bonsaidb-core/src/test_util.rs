@@ -34,6 +34,7 @@ use crate::{
         Collection, CollectionName, MappedValue, NamedCollection, Qualified, Schema, SchemaName,
         Schematic, SerializedCollection, View, ViewMapResult,
     },
+    transaction::{Operation, Transaction},
     Error,
 };
 
@@ -418,6 +419,7 @@ pub enum HarnessTest {
     GetMultiple,
     List,
     ListTransactions,
+    TransactionCheck,
     ViewQuery,
     UnassociatedCollection,
     Compact,
@@ -557,6 +559,16 @@ macro_rules! define_async_connection_test_suite {
                 let db = harness.connect().await?;
 
                 $crate::test_util::list_transactions_tests(&db).await?;
+                harness.shutdown().await
+            }
+
+            #[tokio::test]
+            async fn transaction_check() -> anyhow::Result<()> {
+                let harness =
+                    $harness::new($crate::test_util::HarnessTest::TransactionCheck).await?;
+                let db = harness.connect().await?;
+
+                $crate::test_util::transaction_check_tests(&db).await?;
                 harness.shutdown().await
             }
 
@@ -753,6 +765,15 @@ macro_rules! define_blocking_connection_test_suite {
                 let db = harness.connect()?;
 
                 $crate::test_util::blocking_list_transactions_tests(&db)?;
+                harness.shutdown()
+            }
+
+            #[test]
+            fn transaction_check() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::TransactionCheck)?;
+                let db = harness.connect()?;
+
+                $crate::test_util::blocking_transaction_check_tests(&db)?;
                 harness.shutdown()
             }
 
@@ -1436,6 +1457,78 @@ pub fn blocking_list_transactions_tests<C: Connection + Clone + 'static>(
         u32::try_from(transactions.len()).unwrap(),
         LIST_TRANSACTIONS_MAX_RESULTS + 1
     );
+
+    Ok(())
+}
+
+pub async fn transaction_check_tests<C: AsyncConnection + 'static>(db: &C) -> anyhow::Result<()> {
+    let mut doc = Basic::new("test").push_into_async(db).await?;
+    let initial_header = doc.header;
+    doc.contents.value = String::from("updated");
+    doc.update_async(db).await?;
+
+    // Positive flow, check id, as well as id + header.
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_exists::<Basic>(doc.header.id)?);
+    tx.push(Operation::check_document_is_current::<Basic, _>(&doc)?);
+    tx.push(Operation::insert_serialized::<Basic>(
+        None,
+        &Basic::new("new doc"),
+    )?);
+    tx.apply_async(db).await?;
+
+    // Error flows. Ensure the first violation is the error returned.
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_is_current::<Basic, _>(
+        &initial_header,
+    )?);
+    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    let result = tx.apply_async(db).await.unwrap_err();
+    assert!(matches!(result, Error::DocumentConflict(_, _)));
+
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    tx.push(Operation::check_document_is_current::<Basic, _>(
+        &initial_header,
+    )?);
+    let result = tx.apply_async(db).await.unwrap_err();
+    assert!(matches!(result, Error::DocumentNotFound(_, _)));
+
+    Ok(())
+}
+
+pub fn blocking_transaction_check_tests<C: Connection + 'static>(db: &C) -> anyhow::Result<()> {
+    let mut doc = Basic::new("test").push_into(db)?;
+    let initial_header = doc.header;
+    doc.contents.value = String::from("updated");
+    doc.update(db)?;
+
+    // Positive flow, check id, as well as id + header.
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_exists::<Basic>(doc.header.id)?);
+    tx.push(Operation::check_document_is_current::<Basic, _>(&doc)?);
+    tx.push(Operation::insert_serialized::<Basic>(
+        None,
+        &Basic::new("new doc"),
+    )?);
+    tx.apply(db)?;
+
+    // Error flows. Ensure the first violation is the error returned.
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_is_current::<Basic, _>(
+        &initial_header,
+    )?);
+    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    let result = tx.apply(db).unwrap_err();
+    assert!(matches!(result, Error::DocumentConflict(_, _)));
+
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    tx.push(Operation::check_document_is_current::<Basic, _>(
+        &initial_header,
+    )?);
+    let result = tx.apply(db).unwrap_err();
+    assert!(matches!(result, Error::DocumentNotFound(_, _)));
 
     Ok(())
 }

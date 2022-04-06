@@ -9,7 +9,7 @@ use bonsaidb_core::{
 };
 use derive_where::derive_where;
 
-use crate::{BlockInfo, FileConfig};
+use crate::{schema::file::File, BlockInfo, FileConfig};
 
 #[derive_where(Debug, Default)]
 pub struct Block<Config>(PhantomData<Config>)
@@ -27,6 +27,11 @@ where
     ) -> Result<(), bonsaidb_core::Error> {
         if !data.is_empty() {
             let mut tx = Transaction::new();
+            // Verify the file exists as part of appending. If the file was
+            // deleted out from underneath the appender, this will ensure no
+            // blocks are orphaned.
+            tx.push(Operation::check_document_exists::<File<Config>>(file_id)?);
+
             let block_collection = Self::collection_name();
             for chunk in data.chunks(Config::BLOCK_SIZE) {
                 let mut block = Vec::with_capacity(chunk.len() + size_of::<u32>());
@@ -34,6 +39,7 @@ where
                 block.extend(file_id.to_be_bytes());
                 tx.push(Operation::insert(block_collection.clone(), None, block));
             }
+
             tx.apply(database)?;
         }
         Ok(())
@@ -82,6 +88,17 @@ where
             offset += u64::try_from(block.length).unwrap();
         }
         Ok(blocks)
+    }
+
+    pub fn delete_for_file<Database: Connection>(
+        file_id: u32,
+        database: &Database,
+    ) -> Result<(), bonsaidb_core::Error> {
+        database
+            .view::<ByFile<Config>>()
+            .with_key(file_id)
+            .delete_docs()?;
+        Ok(())
     }
 }
 

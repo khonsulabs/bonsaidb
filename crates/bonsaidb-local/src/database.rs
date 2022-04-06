@@ -420,6 +420,9 @@ impl Database {
             Command::Delete { header } => {
                 self.execute_delete(operation, transaction, tree_index_map, header)
             }
+            Command::Check { id, revision } => {
+                Self::execute_check(operation, transaction, tree_index_map, *id, *revision)
+            }
         }
     }
 
@@ -647,6 +650,38 @@ impl Database {
         }
 
         Ok(())
+    }
+
+    fn execute_check(
+        operation: &Operation,
+        transaction: &mut ExecutingTransaction<AnyFile>,
+        tree_index_map: &HashMap<String, usize>,
+        id: DocumentId,
+        revision: Option<Revision>,
+    ) -> Result<OperationResult, Error> {
+        let mut documents = transaction
+            .tree::<Versioned>(tree_index_map[&document_tree_name(&operation.collection)])
+            .unwrap();
+        if let Some(vec) = documents.get(id.as_ref())? {
+            drop(documents);
+
+            if let Some(revision) = revision {
+                let doc = deserialize_document(&vec)?;
+                if doc.header.revision != revision {
+                    return Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
+                        operation.collection.clone(),
+                        Box::new(Header { id, revision }),
+                    )));
+                }
+            }
+
+            Ok(OperationResult::Success)
+        } else {
+            Err(Error::Core(bonsaidb_core::Error::DocumentNotFound(
+                operation.collection.clone(),
+                Box::new(id),
+            )))
+        }
     }
 
     fn create_view_iterator<'a, K: for<'k> Key<'k> + 'a>(
@@ -1023,6 +1058,10 @@ impl LowLevelConnection for Database {
                 Command::Delete { header } => (
                     document_resource_name(self.name(), &op.collection, &header.id),
                     BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Delete)),
+                ),
+                Command::Check { id, .. } => (
+                    document_resource_name(self.name(), &op.collection, id),
+                    BonsaiAction::Database(DatabaseAction::Document(DocumentAction::Get)),
                 ),
             };
             self.check_permission(&resource, &action)?;

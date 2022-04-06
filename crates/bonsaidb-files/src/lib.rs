@@ -242,6 +242,12 @@ where
         self.doc = doc;
         Ok(())
     }
+
+    pub fn delete<Database: Connection>(&self, database: &Database) -> Result<(), Error> {
+        self.doc.delete(database)?;
+        schema::block::Block::<Config>::delete_for_file(self.doc.header.id, database)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]

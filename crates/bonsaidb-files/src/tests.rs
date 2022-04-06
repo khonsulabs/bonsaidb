@@ -30,6 +30,11 @@ fn simple_file_test() {
         .unwrap();
     assert_eq!(file.name(), "hello.txt");
     assert_eq!(file.containing_path(), "/");
+
+    file.delete(&database).unwrap();
+    assert!(File::<BonsaiFiles>::load("/hello.txt", &database)
+        .unwrap()
+        .is_none());
 }
 
 #[test]
