@@ -178,7 +178,7 @@ where
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
         Ok(database
             .view::<ByPath<Config>>()
-            .with_key_range(ExactPathKey { path, start: true }.into_prefix_range())
+            .with_key_prefix(ExactPathKey { path, start: true })
             .query_with_collection_docs()?
             .documents
             .into_iter()
@@ -193,7 +193,7 @@ where
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
         Ok(database
             .view::<ByPath<Config>>()
-            .with_key_range(ExactPathKey { path, start: true }.into_prefix_range())
+            .with_key_prefix(ExactPathKey { path, start: true })
             .query_with_collection_docs()
             .await?
             .documents
@@ -208,7 +208,7 @@ where
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
         Ok(database
             .view::<ByPath<Config>>()
-            .with_key_range(RecursivePathKey { path, start: true }.into_prefix_range())
+            .with_key_prefix(RecursivePathKey { path, start: true })
             .query_with_collection_docs()?
             .documents
             .into_iter()
@@ -223,7 +223,7 @@ where
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
         Ok(database
             .view::<ByPath<Config>>()
-            .with_key_range(RecursivePathKey { path, start: true }.into_prefix_range())
+            .with_key_prefix(RecursivePathKey { path, start: true })
             .query_with_collection_docs()
             .await?
             .documents

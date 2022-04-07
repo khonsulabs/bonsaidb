@@ -11,7 +11,7 @@ use bonsaidb_local::{
     Database,
 };
 #[cfg(feature = "async")]
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::{
     direct::{CreateFile, File},
@@ -331,7 +331,7 @@ async fn async_blocked_file_test() {
             .await
             .unwrap();
 
-    let file: File<SmallBlocks> = CreateFile::named("hello.txt")
+    let mut file: File<SmallBlocks> = CreateFile::named("hello.txt")
         .contents(&big_file)
         .execute_async(&database)
         .await
@@ -340,7 +340,6 @@ async fn async_blocked_file_test() {
     println!("Created file: {file:?}, length: {}", contents.len());
     let bytes = contents.into_vec_async().await.unwrap();
     assert_eq!(bytes, big_file);
-    println!("a");
     // Truncate the beginning of the file
     let new_length = u64::try_from(SmallBlocks::BLOCK_SIZE * 3).unwrap();
     big_file.splice(..big_file.len() - SmallBlocks::BLOCK_SIZE * 3, []);
@@ -348,7 +347,6 @@ async fn async_blocked_file_test() {
         .await
         .unwrap();
 
-    println!("b");
     let contents = file.contents_async(&database).await.unwrap();
     assert_eq!(contents.len(), new_length);
     assert_eq!(contents.into_vec_async().await.unwrap(), big_file);
@@ -369,17 +367,20 @@ async fn async_blocked_file_test() {
         .await
         .unwrap();
 
-    // let mut writer = file.append_buffered(&database);
-    // let buffer_size = SmallBlocks::BLOCK_SIZE * 3 / 2;
-    // writer.set_buffer_size(buffer_size).unwrap();
-    // // Write more than the single buffer size.
-    // let data_written = &bytes[0..SmallBlocks::BLOCK_SIZE * 2];
-    // writer.write_all(data_written).unwrap();
-    // assert_eq!(writer.buffer.len(), SmallBlocks::BLOCK_SIZE / 2);
-    // drop(writer);
+    let mut writer = file.append_buffered_async(&database);
+    let buffer_size = SmallBlocks::BLOCK_SIZE * 3 / 2;
+    writer.set_buffer_size(buffer_size).await.unwrap();
+    // Write more than the single buffer size.
+    let data_written = &bytes[0..SmallBlocks::BLOCK_SIZE * 2];
+    writer.write_all(data_written).await.unwrap();
+    assert_eq!(writer.buffer.len(), SmallBlocks::BLOCK_SIZE / 2);
+    drop(writer);
 
-    // let contents = file.contents(&database).unwrap();
-    // assert_eq!(contents.to_vec().unwrap(), data_written);
+    // Dropping an unflushed writer will flush it in the background.
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    let contents = file.contents_async(&database).await.unwrap();
+    assert_eq!(contents.to_vec_async().await.unwrap(), data_written);
 }
 
 #[test]

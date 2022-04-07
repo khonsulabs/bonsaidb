@@ -32,4 +32,4 @@ bonsaidb-core = { version = "0.4.0", path = "../bonsaidb-core", features = [
 bonsaidb-local = { version = "0.4.0", path = "../bonsaidb-local", default-features = false, features = [
     "async",
 ] }
-tokio = { version = "1.16.1", features = ["macros"] }
+tokio = { version = "1.16.1", features = ["macros", "time"] }

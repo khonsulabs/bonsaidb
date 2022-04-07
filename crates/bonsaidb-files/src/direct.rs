@@ -17,14 +17,17 @@ use bonsaidb_core::{
     schema::SerializedCollection,
 };
 use derive_where::derive_where;
+use futures::future::BoxFuture;
 #[cfg(feature = "async")]
 use futures::ready;
 #[cfg(feature = "async")]
 use futures::FutureExt;
+#[cfg(feature = "async")]
+use tokio::io::AsyncWriteExt;
 
 use crate::{schema, BonsaiFiles, Error, FileConfig, TruncateFrom};
 
-#[derive_where(Debug)]
+#[derive_where(Debug, Clone)]
 pub struct File<Config: FileConfig = BonsaiFiles> {
     doc: CollectionDocument<schema::file::File<Config>>,
 }
@@ -237,6 +240,29 @@ where
             file: self,
             database,
             buffer: Vec::new(),
+            _config: PhantomData,
+        }
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn append_async<Database: AsyncConnection>(
+        &self,
+        data: &[u8],
+        database: &Database,
+    ) -> Result<(), bonsaidb_core::Error> {
+        schema::block::Block::<Config>::append_async(data, self.doc.header.id, database).await
+    }
+
+    #[cfg(feature = "async")]
+    pub fn append_buffered_async<'a, Database: AsyncConnection + Clone>(
+        &'a mut self,
+        database: &'a Database,
+    ) -> AsyncBufferedAppend<'a, Config, Database> {
+        AsyncBufferedAppend {
+            file: self,
+            database,
+            buffer: Vec::new(),
+            flush_future: None,
             _config: PhantomData,
         }
     }
@@ -634,7 +660,6 @@ impl<
             let task_database = self.database.clone();
             tokio::task::spawn(async move {
                 while let Ok(doc_ids) = request_receiver.recv_async().await {
-                    println!("Requesting {:?}", doc_ids);
                     let blocks =
                         schema::block::Block::<Config>::load_async(doc_ids, &task_database)
                             .await
@@ -659,9 +684,7 @@ impl<
                 bytes_to_read
             }) {
                 NonBlockingReadResult::NeedBlocks => {
-                    println!("Need blocks");
                     if self.async_blocks.as_mut().unwrap().requested {
-                        println!("Polling");
                         match ready!(self
                             .async_blocks
                             .as_mut()
@@ -693,7 +716,6 @@ impl<
                             }
                         }
                     } else {
-                        println!("Requesting");
                         let blocks = self.next_blocks();
                         if blocks.is_empty() {
                             return Poll::Ready(Ok(()));
@@ -716,7 +738,6 @@ impl<
                     }
                 }
                 NonBlockingReadResult::ReadBytes(bytes) => {
-                    println!("Read bytes {bytes}");
                     if bytes == 0 || buf.remaining() == 0 {
                         return Poll::Ready(Ok(()));
                     }
@@ -784,5 +805,132 @@ impl<'a, Config: FileConfig, Database: Connection> Write for BufferedAppend<'a, 
 impl<'a, Config: FileConfig, Database: Connection> Drop for BufferedAppend<'a, Config, Database> {
     fn drop(&mut self) {
         drop(self.flush())
+    }
+}
+
+pub struct AsyncBufferedAppend<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static>
+{
+    file: &'a mut File<Config>,
+    pub(crate) buffer: Vec<u8>,
+    database: &'a Database,
+    flush_future: Option<BoxFuture<'a, Result<(), std::io::Error>>>,
+    _config: PhantomData<Config>,
+}
+
+impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static>
+    AsyncBufferedAppend<'a, Config, Database>
+{
+    pub async fn set_buffer_size(&mut self, capacity: usize) -> std::io::Result<()> {
+        if self.buffer.capacity() > 0 {
+            self.flush().await?;
+        }
+        self.buffer = Vec::with_capacity(capacity);
+        Ok(())
+    }
+}
+
+impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static> tokio::io::AsyncWrite
+    for AsyncBufferedAppend<'a, Config, Database>
+{
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        data: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        if self.buffer.capacity() == 0 {
+            const ONE_MEGABYTE: usize = 1024 * 1024;
+            // By default, reserve the largest multiple of BLOCK_SIZE that is
+            // less than or equal to 1 megabyte.
+            self.buffer
+                .reserve_exact(ONE_MEGABYTE / Config::BLOCK_SIZE * Config::BLOCK_SIZE);
+        }
+
+        if self.flush_future.is_some() {
+            if let Err(err) = ready!(std::pin::Pin::new(&mut self).poll_flush(cx)) {
+                return Poll::Ready(Err(err));
+            }
+        } else if self.buffer.capacity() == self.buffer.len() {
+            match ready!(std::pin::Pin::new(&mut self).poll_flush(cx)) {
+                Ok(_) => {}
+                Err(err) => {
+                    return Poll::Ready(Err(err));
+                }
+            }
+        }
+
+        if data.is_empty() {
+            Poll::Ready(Ok(0))
+        } else {
+            let bytes_to_write = data.len().min(self.buffer.capacity() - self.buffer.len());
+            self.buffer.extend(&data[..bytes_to_write]);
+            Poll::Ready(Ok(bytes_to_write))
+        }
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        if let Some(flush_future) = &mut self.flush_future {
+            let result = ready!(flush_future.poll_unpin(cx));
+            self.flush_future = None;
+            Poll::Ready(result)
+        } else if self.buffer.is_empty() {
+            Poll::Ready(Ok(()))
+        } else {
+            let database = self.database.clone();
+            let file = self.file.clone();
+
+            let mut buffer = Vec::with_capacity(self.buffer.capacity());
+            std::mem::swap(&mut buffer, &mut self.buffer);
+
+            let mut flush_task = async move {
+                file.append_async(&buffer, &database)
+                    .await
+                    .map_err(|err| std::io::Error::new(ErrorKind::Other, err))
+            }
+            .boxed();
+            let poll_result = flush_task.poll_unpin(cx);
+            self.flush_future = Some(flush_task);
+            poll_result
+        }
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        self.poll_flush(cx)
+    }
+}
+
+impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static> Drop
+    for AsyncBufferedAppend<'a, Config, Database>
+{
+    fn drop(&mut self) {
+        if !self.buffer.is_empty() {
+            assert!(
+                self.flush_future.is_none(),
+                "flush() was started but not completed before dropped"
+            );
+            let mut buffer = Vec::new();
+            std::mem::swap(&mut buffer, &mut self.buffer);
+            let database = self.database.clone();
+            let mut file = self.file.clone();
+
+            tokio::runtime::Handle::current().spawn(async move {
+                drop(
+                    AsyncBufferedAppend {
+                        file: &mut file,
+                        buffer,
+                        database: &database,
+                        flush_future: None,
+                        _config: PhantomData,
+                    }
+                    .flush()
+                    .await,
+                );
+            });
+        }
     }
 }
