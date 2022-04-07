@@ -11,6 +11,9 @@ readme = "./README.md"
 homepage = "https://bonsaidb.io/"
 rust-version = "1.58"
 
+[features]
+async = ["tokio", "futures"]
+
 [dependencies]
 bonsaidb-core = { version = "0.4.0", path = "../bonsaidb-core" }
 bonsaidb-utils = { version = "0.4.0", path = "../bonsaidb-utils" }
@@ -19,9 +22,14 @@ serde = { version = "1", features = ["derive"] }
 parking_lot = "0.12.0"
 lru = "0.7.3"
 thiserror = "1"
+tokio = { version = "1.16.1", optional = true, features = ["rt", "io-util"] }
+futures = { version = "0.3", optional = true }
 
 [dev-dependencies]
 bonsaidb-core = { version = "0.4.0", path = "../bonsaidb-core", features = [
     "test-util",
 ] }
-bonsaidb-local = { version = "0.4.0", path = "../bonsaidb-local", default-features = false }
+bonsaidb-local = { version = "0.4.0", path = "../bonsaidb-local", default-features = false, features = [
+    "async",
+] }
+tokio = { version = "1.16.1", features = ["macros"] }

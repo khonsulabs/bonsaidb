@@ -188,6 +188,10 @@ fn all_tests() -> &'static [TestSuite] {
                 "--package bonsaidb --no-default-features --features server,client,test-util,server-acme,websockets,server-password-hashing,client-password-hashing",
             toolchain: "stable",
         },
+        TestSuite {
+            cargo_args: "--package bonsaidb-files --no-default-features",
+            toolchain: "stable",
+        },
     ]
 }
 

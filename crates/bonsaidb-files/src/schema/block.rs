@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, marker::PhantomData, mem::size_of};
 
+#[cfg(feature = "async")]
+use bonsaidb_core::connection::AsyncConnection;
 use bonsaidb_core::{
     connection::Connection,
     document::{BorrowedDocument, Emit},
@@ -9,7 +11,7 @@ use bonsaidb_core::{
 };
 use derive_where::derive_where;
 
-use crate::{schema::file::File, BlockInfo, FileConfig};
+use crate::{direct::BlockInfo, schema::file::File, FileConfig};
 
 #[derive_where(Debug, Default)]
 pub struct Block<Config>(PhantomData<Config>)
@@ -45,6 +47,32 @@ where
         Ok(())
     }
 
+    #[cfg(feature = "async")]
+    pub async fn append_async<Database: AsyncConnection>(
+        data: &[u8],
+        file_id: u32,
+        database: &Database,
+    ) -> Result<(), bonsaidb_core::Error> {
+        if !data.is_empty() {
+            let mut tx = Transaction::new();
+            // Verify the file exists as part of appending. If the file was
+            // deleted out from underneath the appender, this will ensure no
+            // blocks are orphaned.
+            tx.push(Operation::check_document_exists::<File<Config>>(file_id)?);
+
+            let block_collection = Self::collection_name();
+            for chunk in data.chunks(Config::BLOCK_SIZE) {
+                let mut block = Vec::with_capacity(chunk.len() + size_of::<u32>());
+                block.extend(chunk);
+                block.extend(file_id.to_be_bytes());
+                tx.push(Operation::insert(block_collection.clone(), None, block));
+            }
+
+            tx.apply_async(database).await?;
+        }
+        Ok(())
+    }
+
     pub fn load<
         DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
         I: Iterator<Item = PrimaryKey> + Send + Sync,
@@ -57,6 +85,29 @@ where
         database
             .collection::<Self>()
             .get_multiple(block_ids)?
+            .into_iter()
+            .map(|block| {
+                let mut contents = block.contents.into_vec();
+                contents.truncate(contents.len() - 4);
+                block.header.id.deserialize().map(|id| (id, contents))
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn load_async<
+        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = PrimaryKey> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, u64>,
+        Database: AsyncConnection,
+    >(
+        block_ids: DocumentIds,
+        database: &Database,
+    ) -> Result<BTreeMap<u64, Vec<u8>>, bonsaidb_core::Error> {
+        database
+            .collection::<Self>()
+            .get_multiple(block_ids)
+            .await?
             .into_iter()
             .map(|block| {
                 let mut contents = block.contents.into_vec();
@@ -90,6 +141,32 @@ where
         Ok(blocks)
     }
 
+    #[cfg(feature = "async")]
+    pub(crate) async fn for_file_async<Database: AsyncConnection>(
+        file_id: u32,
+        database: &Database,
+    ) -> Result<Vec<BlockInfo>, bonsaidb_core::Error> {
+        let mut blocks = database
+            .view::<ByFile<Config>>()
+            .with_key(file_id)
+            .query()
+            .await?
+            .into_iter()
+            .map(|mapping| BlockInfo {
+                header: mapping.source,
+                length: usize::try_from(mapping.value).unwrap(),
+                offset: 0,
+            })
+            .collect::<Vec<_>>();
+        blocks.sort_by(|a, b| a.header.id.cmp(&b.header.id));
+        let mut offset = 0;
+        for block in &mut blocks {
+            block.offset = offset;
+            offset += u64::try_from(block.length).unwrap();
+        }
+        Ok(blocks)
+    }
+
     pub fn delete_for_file<Database: Connection>(
         file_id: u32,
         database: &Database,
@@ -98,6 +175,19 @@ where
             .view::<ByFile<Config>>()
             .with_key(file_id)
             .delete_docs()?;
+        Ok(())
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn delete_for_file_async<Database: AsyncConnection>(
+        file_id: u32,
+        database: &Database,
+    ) -> Result<(), bonsaidb_core::Error> {
+        database
+            .view::<ByFile<Config>>()
+            .with_key(file_id)
+            .delete_docs()
+            .await?;
         Ok(())
     }
 }

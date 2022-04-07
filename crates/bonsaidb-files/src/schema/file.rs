@@ -1,5 +1,7 @@
 use std::{borrow::Cow, marker::PhantomData};
 
+#[cfg(feature = "async")]
+use bonsaidb_core::connection::AsyncConnection;
 use bonsaidb_core::{
     connection::{Connection, Range},
     document::{CollectionDocument, Emit},
@@ -17,7 +19,9 @@ use bonsaidb_utils::next_string_sequence;
 use derive_where::derive_where;
 use serde::{Deserialize, Serialize};
 
-use crate::{schema::block::Block, BonsaiFiles, Error, FileConfig, TruncateFrom};
+use crate::{
+    direct::BlockInfo, schema::block::Block, BonsaiFiles, Error, FileConfig, TruncateFrom,
+};
 
 #[derive_where(Debug, Clone)]
 #[derive(Serialize, Deserialize)]
@@ -63,6 +67,37 @@ where
         Ok(file)
     }
 
+    #[cfg(feature = "async")]
+    pub async fn create_file_async<Database: AsyncConnection>(
+        mut path: Option<String>,
+        name: String,
+        contents: &[u8],
+        database: &Database,
+    ) -> Result<CollectionDocument<Self>, Error> {
+        if name.contains('/') {
+            return Err(Error::InvalidName);
+        }
+
+        // Force path to end with a /
+        if let Some(path) = path.as_mut() {
+            if path.bytes().last() != Some(b'/') {
+                path.push('/');
+            }
+        }
+
+        let now = TimestampAsNanoseconds::now();
+        let file = File {
+            path,
+            name,
+            created_at: now,
+            _name: PhantomData,
+        }
+        .push_into_async(database)
+        .await?;
+        Block::<Config>::append_async(contents, file.header.id, database).await?;
+        Ok(file)
+    }
+
     pub fn find<Database: Connection>(
         mut path: &str,
         database: &Database,
@@ -99,6 +134,44 @@ where
             .next())
     }
 
+    #[cfg(feature = "async")]
+    pub async fn find_async<Database: AsyncConnection>(
+        mut path: &str,
+        database: &Database,
+    ) -> Result<Option<CollectionDocument<Self>>, Error> {
+        if path.is_empty() {
+            return Err(Error::InvalidPath);
+        }
+
+        // If the search is for a directory, the name is of the last component.
+        // Remove the trailing slash if it's present
+        if path.as_bytes()[path.len() - 1] == b'/' {
+            path = &path[..path.len() - 1];
+        }
+
+        let key = if let Some(separator_index) = path.rfind('/') {
+            let (path, name) = path.split_at(separator_index + 1);
+            FileKey {
+                path: Cow::Borrowed(if path.is_empty() { "/" } else { path }),
+                name: Cow::Borrowed(name),
+            }
+        } else {
+            FileKey {
+                path: Cow::Borrowed("/"),
+                name: Cow::Borrowed(path),
+            }
+        };
+        Ok(database
+            .view::<ByPath<Config>>()
+            .with_key(key)
+            .query_with_collection_docs()
+            .await?
+            .documents
+            .into_iter()
+            .map(|(_, doc)| doc)
+            .next())
+    }
+
     pub fn list_path_contents<Database: Connection>(
         path: &str,
         database: &Database,
@@ -107,6 +180,22 @@ where
             .view::<ByPath<Config>>()
             .with_key_range(ExactPathKey { path, start: true }.into_prefix_range())
             .query_with_collection_docs()?
+            .documents
+            .into_iter()
+            .map(|(_, doc)| doc)
+            .collect())
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn list_path_contents_async<Database: AsyncConnection>(
+        path: &str,
+        database: &Database,
+    ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
+        Ok(database
+            .view::<ByPath<Config>>()
+            .with_key_range(ExactPathKey { path, start: true }.into_prefix_range())
+            .query_with_collection_docs()
+            .await?
             .documents
             .into_iter()
             .map(|(_, doc)| doc)
@@ -127,46 +216,87 @@ where
             .collect())
     }
 
+    #[cfg(feature = "async")]
+    pub async fn list_recursive_path_contents_async<Database: AsyncConnection>(
+        path: &str,
+        database: &Database,
+    ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
+        Ok(database
+            .view::<ByPath<Config>>()
+            .with_key_range(RecursivePathKey { path, start: true }.into_prefix_range())
+            .query_with_collection_docs()
+            .await?
+            .documents
+            .into_iter()
+            .map(|(_, doc)| doc)
+            .collect())
+    }
+
     pub fn truncate<Database: Connection>(
         file: &CollectionDocument<Self>,
         new_length: u64,
         from: TruncateFrom,
         database: &Database,
     ) -> Result<(), bonsaidb_core::Error> {
-        let mut blocks = Block::<Config>::for_file(file.header.id, database)?;
+        let tx = Self::create_truncate_transaction(
+            Block::<Config>::for_file(file.header.id, database)?,
+            new_length,
+            from,
+        )?;
+
+        tx.apply(database)?;
+        Ok(())
+    }
+
+    fn create_truncate_transaction(
+        mut blocks: Vec<BlockInfo>,
+        new_length: u64,
+        from: TruncateFrom,
+    ) -> Result<Transaction, bonsaidb_core::Error> {
         let total_length: u64 = blocks
             .iter()
             .map(|b| u64::try_from(b.length).unwrap())
             .sum();
-        let mut bytes_to_remove = if let Some(bytes) = total_length.checked_sub(new_length) {
-            bytes
-        } else {
-            return Ok(());
-        };
-
         let mut tx = Transaction::new();
-        let block_collection = Config::blocks_name();
-        while bytes_to_remove > 0 && !blocks.is_empty() {
-            let offset = match from {
-                TruncateFrom::Start => 0,
-                TruncateFrom::End => blocks.len() - 1,
-            };
-            let block_length = u64::try_from(blocks[offset].length).unwrap();
-            if block_length <= bytes_to_remove {
-                tx.push(Operation::delete(
-                    block_collection.clone(),
-                    blocks[offset].header.clone(),
-                ));
-                blocks.remove(offset);
-                bytes_to_remove -= block_length;
-            } else {
-                // Partial removal. For now, we're just not going to support
-                // partial removes. This is just purely to keep things simple.
-                break;
+        if let Some(mut bytes_to_remove) = total_length.checked_sub(new_length) {
+            let block_collection = Config::blocks_name();
+            while bytes_to_remove > 0 && !blocks.is_empty() {
+                let offset = match from {
+                    TruncateFrom::Start => 0,
+                    TruncateFrom::End => blocks.len() - 1,
+                };
+                let block_length = u64::try_from(blocks[offset].length).unwrap();
+                if block_length <= bytes_to_remove {
+                    tx.push(Operation::delete(
+                        block_collection.clone(),
+                        blocks[offset].header.clone(),
+                    ));
+                    blocks.remove(offset);
+                    bytes_to_remove -= block_length;
+                } else {
+                    // Partial removal. For now, we're just not going to support
+                    // partial removes. This is just purely to keep things simple.
+                    break;
+                }
             }
         }
+        Ok(tx)
+    }
 
-        tx.apply(database)?;
+    #[cfg(feature = "async")]
+    pub async fn truncate_async<Database: AsyncConnection>(
+        file: &CollectionDocument<Self>,
+        new_length: u64,
+        from: TruncateFrom,
+        database: &Database,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let tx = Self::create_truncate_transaction(
+            Block::<Config>::for_file_async(file.header.id, database).await?,
+            new_length,
+            from,
+        )?;
+
+        tx.apply_async(database).await?;
         Ok(())
     }
 }
