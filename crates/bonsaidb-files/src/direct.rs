@@ -17,118 +17,334 @@ use bonsaidb_core::{
     schema::SerializedCollection,
 };
 use derive_where::derive_where;
-use futures::future::BoxFuture;
 #[cfg(feature = "async")]
-use futures::ready;
-#[cfg(feature = "async")]
-use futures::FutureExt;
+use futures::{future::BoxFuture, ready, FutureExt};
 #[cfg(feature = "async")]
 use tokio::io::AsyncWriteExt;
 
 use crate::{schema, BonsaiFiles, Error, FileConfig, TruncateFrom};
 
 #[derive_where(Debug, Clone)]
-pub struct File<Config: FileConfig = BonsaiFiles> {
+pub struct File<Database: Clone, Config: FileConfig = BonsaiFiles> {
     doc: CollectionDocument<schema::file::File<Config>>,
+    #[derive_where(skip(Debug))]
+    database: Database,
 }
 
-impl<Config> File<Config>
+#[derive(Clone)]
+pub struct Blocking<Database: Connection>(Database);
+
+#[cfg(feature = "async")]
+#[derive(Clone)]
+pub struct Async<Database: AsyncConnection>(Database);
+
+impl<Database, Config> File<Blocking<Database>, Config>
 where
+    Database: Connection + Clone,
     Config: FileConfig,
 {
-    fn new_file<Database: Connection>(
+    fn new_file(
         path: Option<String>,
         name: String,
         contents: &[u8],
-        database: &Database,
+        database: Database,
     ) -> Result<Self, Error> {
         Ok(Self {
-            doc: schema::file::File::create_file(path, name, contents, database)?,
+            doc: schema::file::File::create_file(path, name, contents, &database)?,
+            database: Blocking(database),
         })
     }
 
-    #[cfg(feature = "async")]
-    async fn new_file_async<Database: AsyncConnection>(
+    pub fn get(id: u32, database: Database) -> Result<Option<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::get(id, &database).map(|doc| {
+            doc.map(|doc| Self {
+                doc,
+                database: Blocking(database),
+            })
+        })
+    }
+
+    pub fn load(path: &str, database: Database) -> Result<Option<Self>, Error> {
+        schema::file::File::<Config>::find(path, &database).map(|opt| {
+            opt.map(|doc| Self {
+                doc,
+                database: Blocking(database),
+            })
+        })
+    }
+
+    pub fn list(path: &str, database: Database) -> Result<Vec<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::list_path_contents(path, &database).map(|vec| {
+            vec.into_iter()
+                .map(|doc| Self {
+                    doc,
+                    database: Blocking(database.clone()),
+                })
+                .collect()
+        })
+    }
+
+    pub fn list_recursive(
+        path: &str,
+        database: Database,
+    ) -> Result<Vec<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::list_recursive_path_contents(path, &database).map(|vec| {
+            vec.into_iter()
+                .map(|doc| Self {
+                    doc,
+                    database: Blocking(database.clone()),
+                })
+                .collect()
+        })
+    }
+
+    pub fn children(&self) -> Result<Vec<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::list_path_contents(&self.path(), &self.database.0).map(
+            |docs| {
+                docs.into_iter()
+                    .map(|doc| Self {
+                        doc,
+                        database: self.database.clone(),
+                    })
+                    .collect()
+            },
+        )
+    }
+
+    pub fn move_to(&mut self, new_path: &str) -> Result<(), Error> {
+        if !new_path.as_bytes().starts_with(b"/") {
+            return Err(Error::InvalidPath);
+        }
+
+        let mut doc = self.update_document_for_move(new_path);
+        doc.update(&self.database.0)?;
+        self.doc = doc;
+        Ok(())
+    }
+
+    pub fn rename(&mut self, new_name: String) -> Result<(), Error> {
+        if new_name.as_bytes().contains(&b'/') {
+            return Err(Error::InvalidName);
+        }
+
+        // Prevent mutating self until after the database is updated.
+        let mut doc = self.doc.clone();
+        doc.contents.name = new_name;
+        doc.update(&self.database.0)?;
+        self.doc = doc;
+        Ok(())
+    }
+
+    pub fn delete(&self) -> Result<(), Error> {
+        self.doc.delete(&self.database.0)?;
+        schema::block::Block::<Config>::delete_for_file(self.doc.header.id, &self.database.0)?;
+        Ok(())
+    }
+
+    pub fn contents(
+        &self,
+    ) -> Result<Contents<'_, Blocking<Database>, Config>, bonsaidb_core::Error> {
+        let blocks = schema::block::Block::<Config>::for_file(self.id(), &self.database.0)?;
+        Ok(Contents {
+            file: self,
+            blocks,
+            loaded: VecDeque::default(),
+            current_block: 0,
+            offset: 0,
+            batch_size: 10,
+            #[cfg(feature = "async")]
+            async_blocks: None,
+            _config: PhantomData,
+        })
+    }
+
+    pub fn truncate(
+        &self,
+        new_length: u64,
+        from: TruncateFrom,
+    ) -> Result<(), bonsaidb_core::Error> {
+        schema::file::File::<Config>::truncate(&self.doc, new_length, from, &self.database.0)
+    }
+
+    pub fn append(&self, data: &[u8]) -> Result<(), bonsaidb_core::Error> {
+        schema::block::Block::<Config>::append(data, self.doc.header.id, &self.database.0)
+    }
+
+    pub fn append_buffered(&mut self) -> BufferedAppend<'_, Config, Database> {
+        BufferedAppend {
+            file: self,
+            buffer: Vec::new(),
+            _config: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+impl<Database, Config> File<Async<Database>, Config>
+where
+    Database: AsyncConnection + Clone,
+    Config: FileConfig,
+{
+    async fn new_file_async(
         path: Option<String>,
         name: String,
         contents: &[u8],
-        database: &Database,
+        database: Database,
     ) -> Result<Self, Error> {
         Ok(Self {
-            doc: schema::file::File::create_file_async(path, name, contents, database).await?,
+            doc: schema::file::File::create_file_async(path, name, contents, &database).await?,
+            database: Async(database),
         })
     }
 
-    pub fn get<Database: Connection>(
+    pub async fn get_async(
         id: u32,
-        database: &Database,
+        database: Database,
     ) -> Result<Option<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::get(id, database).map(|doc| doc.map(|doc| Self { doc }))
-    }
-
-    #[cfg(feature = "async")]
-    pub async fn get_async<Database: AsyncConnection>(
-        id: u32,
-        database: &Database,
-    ) -> Result<Option<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::get_async(id, database)
+        schema::file::File::<Config>::get_async(id, &database)
             .await
-            .map(|doc| doc.map(|doc| Self { doc }))
+            .map(|doc| {
+                doc.map(|doc| Self {
+                    doc,
+                    database: Async(database),
+                })
+            })
     }
 
-    pub fn load<Database: Connection>(
-        path: &str,
-        database: &Database,
-    ) -> Result<Option<Self>, Error> {
-        schema::file::File::<Config>::find(path, database).map(|opt| opt.map(|doc| Self { doc }))
-    }
-
-    #[cfg(feature = "async")]
-    pub async fn load_async<Database: AsyncConnection>(
-        path: &str,
-        database: &Database,
-    ) -> Result<Option<Self>, Error> {
-        schema::file::File::<Config>::find_async(path, database)
+    pub async fn load_async(path: &str, database: Database) -> Result<Option<Self>, Error> {
+        schema::file::File::<Config>::find_async(path, &database)
             .await
-            .map(|opt| opt.map(|doc| Self { doc }))
+            .map(|opt| {
+                opt.map(|doc| Self {
+                    doc,
+                    database: Async(database),
+                })
+            })
     }
 
-    pub fn list<Database: Connection>(
+    pub async fn list_async(
         path: &str,
-        database: &Database,
+        database: Database,
     ) -> Result<Vec<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::list_path_contents(path, database)
-            .map(|vec| vec.into_iter().map(|doc| Self { doc }).collect())
-    }
-
-    #[cfg(feature = "async")]
-    pub async fn list_async<Database: AsyncConnection>(
-        path: &str,
-        database: &Database,
-    ) -> Result<Vec<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::list_path_contents_async(path, database)
+        schema::file::File::<Config>::list_path_contents_async(path, &database)
             .await
-            .map(|vec| vec.into_iter().map(|doc| Self { doc }).collect())
+            .map(|vec| {
+                vec.into_iter()
+                    .map(|doc| Self {
+                        doc,
+                        database: Async(database.clone()),
+                    })
+                    .collect()
+            })
     }
 
-    pub fn list_recursive<Database: Connection>(
+    pub async fn list_recursive_async(
         path: &str,
-        database: &Database,
+        database: Database,
     ) -> Result<Vec<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::list_recursive_path_contents(path, database)
-            .map(|vec| vec.into_iter().map(|doc| Self { doc }).collect())
-    }
-
-    #[cfg(feature = "async")]
-    pub async fn list_recursive_async<Database: AsyncConnection>(
-        path: &str,
-        database: &Database,
-    ) -> Result<Vec<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::list_recursive_path_contents_async(path, database)
+        schema::file::File::<Config>::list_recursive_path_contents_async(path, &database)
             .await
-            .map(|vec| vec.into_iter().map(|doc| Self { doc }).collect())
+            .map(|vec| {
+                vec.into_iter()
+                    .map(|doc| Self {
+                        doc,
+                        database: Async(database.clone()),
+                    })
+                    .collect()
+            })
     }
 
+    pub async fn children(&self) -> Result<Vec<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::list_path_contents_async(&self.path(), &self.database.0)
+            .await
+            .map(|docs| {
+                docs.into_iter()
+                    .map(|doc| Self {
+                        doc,
+                        database: self.database.clone(),
+                    })
+                    .collect()
+            })
+    }
+
+    pub async fn contents(
+        &self,
+    ) -> Result<Contents<'_, Async<Database>, Config>, bonsaidb_core::Error> {
+        let blocks =
+            schema::block::Block::<Config>::for_file_async(self.id(), &self.database.0).await?;
+        Ok(Contents {
+            file: self,
+            blocks,
+            loaded: VecDeque::default(),
+            current_block: 0,
+            offset: 0,
+            batch_size: 10,
+            #[cfg(feature = "async")]
+            async_blocks: None,
+            _config: PhantomData,
+        })
+    }
+
+    pub async fn truncate(
+        &self,
+        new_length: u64,
+        from: TruncateFrom,
+    ) -> Result<(), bonsaidb_core::Error> {
+        schema::file::File::<Config>::truncate_async(&self.doc, new_length, from, &self.database.0)
+            .await
+    }
+
+    pub async fn append(&self, data: &[u8]) -> Result<(), bonsaidb_core::Error> {
+        schema::block::Block::<Config>::append_async(data, self.doc.header.id, &self.database.0)
+            .await
+    }
+
+    pub fn append_buffered(&mut self) -> AsyncBufferedAppend<'_, Config, Database> {
+        AsyncBufferedAppend {
+            file: self,
+            buffer: Vec::new(),
+            flush_future: None,
+            _config: PhantomData,
+        }
+    }
+
+    pub async fn move_to(&mut self, new_path: &str) -> Result<(), Error> {
+        if !new_path.as_bytes().starts_with(b"/") {
+            return Err(Error::InvalidPath);
+        }
+
+        let mut doc = self.update_document_for_move(new_path);
+        doc.update_async(&self.database.0).await?;
+        self.doc = doc;
+        Ok(())
+    }
+
+    pub async fn rename(&mut self, new_name: String) -> Result<(), Error> {
+        if new_name.as_bytes().contains(&b'/') {
+            return Err(Error::InvalidName);
+        }
+
+        // Prevent mutating self until after the database is updated.
+        let mut doc = self.doc.clone();
+        doc.contents.name = new_name;
+        doc.update_async(&self.database.0).await?;
+        self.doc = doc;
+        Ok(())
+    }
+
+    pub async fn delete(&self) -> Result<(), Error> {
+        self.doc.delete_async(&self.database.0).await?;
+        schema::block::Block::<Config>::delete_for_file_async(self.doc.header.id, &self.database.0)
+            .await?;
+        Ok(())
+    }
+}
+
+impl<Database, Config> File<Database, Config>
+where
+    Database: Clone,
+    Config: FileConfig,
+{
     pub fn id(&self) -> u32 {
         self.doc.header.id
     }
@@ -160,113 +376,6 @@ where
         self.doc.contents.created_at
     }
 
-    pub fn children<Database: Connection>(
-        &self,
-        database: &Database,
-    ) -> Result<Vec<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::list_path_contents(&self.path(), database)
-            .map(|docs| docs.into_iter().map(|doc| Self { doc }).collect())
-    }
-
-    pub fn contents<'a, Database: Connection>(
-        &self,
-        database: &'a Database,
-    ) -> Result<Contents<'a, Database, Config>, bonsaidb_core::Error> {
-        let blocks = schema::block::Block::<Config>::for_file(self.id(), database)?;
-        Ok(Contents {
-            database,
-            blocks,
-            loaded: VecDeque::default(),
-            current_block: 0,
-            offset: 0,
-            batch_size: 10,
-            #[cfg(feature = "async")]
-            async_blocks: None,
-            _config: PhantomData,
-        })
-    }
-
-    #[cfg(feature = "async")]
-    pub async fn contents_async<'a, Database: AsyncConnection>(
-        &self,
-        database: &'a Database,
-    ) -> Result<Contents<'a, Database, Config>, bonsaidb_core::Error> {
-        let blocks = schema::block::Block::<Config>::for_file_async(self.id(), database).await?;
-        Ok(Contents {
-            database,
-            blocks,
-            loaded: VecDeque::default(),
-            current_block: 0,
-            offset: 0,
-            batch_size: 10,
-            #[cfg(feature = "async")]
-            async_blocks: None,
-            _config: PhantomData,
-        })
-    }
-
-    pub fn truncate<Database: Connection>(
-        &self,
-        new_length: u64,
-        from: TruncateFrom,
-        database: &Database,
-    ) -> Result<(), bonsaidb_core::Error> {
-        schema::file::File::<Config>::truncate(&self.doc, new_length, from, database)
-    }
-
-    #[cfg(feature = "async")]
-    pub async fn truncate_async<Database: AsyncConnection>(
-        &self,
-        new_length: u64,
-        from: TruncateFrom,
-        database: &Database,
-    ) -> Result<(), bonsaidb_core::Error> {
-        schema::file::File::<Config>::truncate_async(&self.doc, new_length, from, database).await
-    }
-
-    pub fn append<Database: Connection>(
-        &self,
-        data: &[u8],
-        database: &Database,
-    ) -> Result<(), bonsaidb_core::Error> {
-        schema::block::Block::<Config>::append(data, self.doc.header.id, database)
-    }
-
-    pub fn append_buffered<'a, Database: Connection>(
-        &'a mut self,
-        database: &'a Database,
-    ) -> BufferedAppend<'a, Config, Database> {
-        BufferedAppend {
-            file: self,
-            database,
-            buffer: Vec::new(),
-            _config: PhantomData,
-        }
-    }
-
-    #[cfg(feature = "async")]
-    pub async fn append_async<Database: AsyncConnection>(
-        &self,
-        data: &[u8],
-        database: &Database,
-    ) -> Result<(), bonsaidb_core::Error> {
-        schema::block::Block::<Config>::append_async(data, self.doc.header.id, database).await
-    }
-
-    #[cfg(feature = "async")]
-    pub fn append_buffered_async<'a, Database: AsyncConnection + Clone>(
-        &'a mut self,
-        database: &'a Database,
-    ) -> AsyncBufferedAppend<'a, Config, Database> {
-        AsyncBufferedAppend {
-            file: self,
-            database,
-            buffer: Vec::new(),
-            flush_future: None,
-            _config: PhantomData,
-        }
-    }
-
     fn update_document_for_move(
         &self,
         new_path: &str,
@@ -293,103 +402,23 @@ where
 
         doc
     }
-
-    pub fn move_to<Database: Connection>(
-        &mut self,
-        new_path: &str,
-        database: &Database,
-    ) -> Result<(), Error> {
-        if !new_path.as_bytes().starts_with(b"/") {
-            return Err(Error::InvalidPath);
-        }
-
-        let mut doc = self.update_document_for_move(new_path);
-        doc.update(database)?;
-        self.doc = doc;
-        Ok(())
-    }
-
-    #[cfg(feature = "async")]
-    pub async fn move_to_async<Database: AsyncConnection>(
-        &mut self,
-        new_path: &str,
-        database: &Database,
-    ) -> Result<(), Error> {
-        if !new_path.as_bytes().starts_with(b"/") {
-            return Err(Error::InvalidPath);
-        }
-
-        let mut doc = self.update_document_for_move(new_path);
-        doc.update_async(database).await?;
-        self.doc = doc;
-        Ok(())
-    }
-
-    pub fn rename<Database: Connection>(
-        &mut self,
-        new_name: String,
-        database: &Database,
-    ) -> Result<(), Error> {
-        if new_name.as_bytes().contains(&b'/') {
-            return Err(Error::InvalidName);
-        }
-
-        // Prevent mutating self until after the database is updated.
-        let mut doc = self.doc.clone();
-        doc.contents.name = new_name;
-        doc.update(database)?;
-        self.doc = doc;
-        Ok(())
-    }
-
-    #[cfg(feature = "async")]
-    pub async fn rename_async<Database: AsyncConnection>(
-        &mut self,
-        new_name: String,
-        database: &Database,
-    ) -> Result<(), Error> {
-        if new_name.as_bytes().contains(&b'/') {
-            return Err(Error::InvalidName);
-        }
-
-        // Prevent mutating self until after the database is updated.
-        let mut doc = self.doc.clone();
-        doc.contents.name = new_name;
-        doc.update_async(database).await?;
-        self.doc = doc;
-        Ok(())
-    }
-
-    pub fn delete<Database: Connection>(&self, database: &Database) -> Result<(), Error> {
-        self.doc.delete(database)?;
-        schema::block::Block::<Config>::delete_for_file(self.doc.header.id, database)?;
-        Ok(())
-    }
-
-    #[cfg(feature = "async")]
-    pub async fn delete_async<Database: AsyncConnection>(
-        &self,
-        database: &Database,
-    ) -> Result<(), Error> {
-        self.doc.delete_async(database).await?;
-        schema::block::Block::<Config>::delete_for_file_async(self.doc.header.id, database).await?;
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone)]
-pub struct CreateFile<'a> {
+pub struct CreateFile<'a, Config> {
     path: Option<String>,
     name: String,
     contents: &'a [u8],
+    _config: PhantomData<Config>,
 }
 
-impl<'a> CreateFile<'a> {
+impl<'a, Config: FileConfig> CreateFile<'a, Config> {
     pub fn named<Name: Into<String>>(name: Name) -> Self {
         Self {
             path: None,
             name: name.into(),
             contents: b"",
+            _config: PhantomData,
         }
     }
 
@@ -403,27 +432,24 @@ impl<'a> CreateFile<'a> {
         self
     }
 
-    pub fn execute<Config: FileConfig, Database: Connection>(
+    pub fn create<Database: Connection + Clone>(
         self,
-        database: &Database,
-    ) -> Result<File<Config>, Error> {
+        database: Database,
+    ) -> Result<File<Blocking<Database>, Config>, Error> {
         File::new_file(self.path, self.name, self.contents, database)
     }
 
     #[cfg(feature = "async")]
-    pub async fn execute_async<
-        Config: FileConfig,
-        Database: bonsaidb_core::connection::AsyncConnection,
-    >(
+    pub async fn create_async<Database: bonsaidb_core::connection::AsyncConnection + Clone>(
         self,
-        database: &Database,
-    ) -> Result<File<Config>, Error> {
+        database: Database,
+    ) -> Result<File<Async<Database>, Config>, Error> {
         File::new_file_async(self.path, self.name, self.contents, database).await
     }
 }
 
-pub struct Contents<'a, Database, Config: FileConfig> {
-    database: &'a Database,
+pub struct Contents<'a, Database: Clone, Config: FileConfig> {
+    file: &'a File<Database, Config>,
     blocks: Vec<BlockInfo>,
     loaded: VecDeque<LoadedBlock>,
     current_block: usize,
@@ -442,10 +468,10 @@ struct AsyncBlockTask {
     request_sender: flume::Sender<Vec<DocumentId>>,
 }
 
-impl<'a, Database, Config: FileConfig> Clone for Contents<'a, Database, Config> {
+impl<'a, Database: Clone, Config: FileConfig> Clone for Contents<'a, Database, Config> {
     fn clone(&self) -> Self {
         Self {
-            database: self.database,
+            file: self.file,
             blocks: self.blocks.clone(),
             loaded: VecDeque::new(),
             current_block: self.current_block,
@@ -464,7 +490,9 @@ struct LoadedBlock {
     contents: Vec<u8>,
 }
 
-impl<'a, Database: Connection, Config: FileConfig> Contents<'a, Database, Config> {
+impl<'a, Database: Connection + Clone, Config: FileConfig>
+    Contents<'a, Blocking<Database>, Config>
+{
     pub fn to_vec(&self) -> std::io::Result<Vec<u8>> {
         self.clone().into_vec()
     }
@@ -478,7 +506,7 @@ impl<'a, Database: Connection, Config: FileConfig> Contents<'a, Database, Config
     fn load_blocks(&mut self) -> std::io::Result<()> {
         self.loaded.clear();
         for (index, (_, contents)) in
-            schema::block::Block::<Config>::load(self.next_blocks(), self.database)
+            schema::block::Block::<Config>::load(self.next_blocks(), &self.file.database.0)
                 .map_err(|err| std::io::Error::new(ErrorKind::Other, err))?
                 .into_iter()
                 .enumerate()
@@ -498,20 +526,20 @@ impl<
         'a,
         Database: bonsaidb_core::connection::AsyncConnection + Clone + 'static,
         Config: FileConfig,
-    > Contents<'a, Database, Config>
+    > Contents<'a, Async<Database>, Config>
 {
-    pub async fn to_vec_async(&self) -> std::io::Result<Vec<u8>> {
-        self.clone().into_vec_async().await
+    pub async fn to_vec(&self) -> std::io::Result<Vec<u8>> {
+        self.clone().into_vec().await
     }
 
-    pub async fn into_vec_async(mut self) -> std::io::Result<Vec<u8>> {
+    pub async fn into_vec(mut self) -> std::io::Result<Vec<u8>> {
         let mut contents = vec![0; usize::try_from(self.len()).unwrap()];
         <Self as tokio::io::AsyncReadExt>::read_exact(&mut self, &mut contents).await?;
         Ok(contents)
     }
 }
 
-impl<'a, Database, Config: FileConfig> Contents<'a, Database, Config> {
+impl<'a, Database: Clone, Config: FileConfig> Contents<'a, Database, Config> {
     fn next_blocks(&self) -> Vec<DocumentId> {
         let last_block = (self.current_block + self.batch_size).min(self.blocks.len());
         self.blocks[self.current_block..last_block]
@@ -573,7 +601,9 @@ enum NonBlockingReadResult {
     Eof,
 }
 
-impl<'a, Database: Connection, Config: FileConfig> Read for Contents<'a, Database, Config> {
+impl<'a, Database: Connection + Clone, Config: FileConfig> Read
+    for Contents<'a, Blocking<Database>, Config>
+{
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         loop {
             match self.non_blocking_read(|block| {
@@ -589,7 +619,7 @@ impl<'a, Database: Connection, Config: FileConfig> Read for Contents<'a, Databas
     }
 }
 
-impl<'a, Database, Config: FileConfig> Seek for Contents<'a, Database, Config> {
+impl<'a, Database: Clone, Config: FileConfig> Seek for Contents<'a, Database, Config> {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
         let seek_to = match pos {
             SeekFrom::Start(offset) => offset,
@@ -645,7 +675,7 @@ impl<
         'a,
         Database: bonsaidb_core::connection::AsyncConnection + Clone + 'static,
         Config: FileConfig,
-    > tokio::io::AsyncRead for Contents<'a, Database, Config>
+    > tokio::io::AsyncRead for Contents<'a, Async<Database>, Config>
 {
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
@@ -657,7 +687,7 @@ impl<
             let (block_sender, block_receiver) = flume::unbounded();
             let (request_sender, request_receiver) = flume::unbounded();
 
-            let task_database = self.database.clone();
+            let task_database = self.file.database.0.clone();
             tokio::task::spawn(async move {
                 while let Ok(doc_ids) = request_receiver.recv_async().await {
                     let blocks =
@@ -755,14 +785,13 @@ pub(crate) struct BlockInfo {
     pub header: Header,
 }
 
-pub struct BufferedAppend<'a, Config: FileConfig, Database: Connection> {
-    file: &'a mut File<Config>,
+pub struct BufferedAppend<'a, Config: FileConfig, Database: Connection + Clone> {
+    file: &'a mut File<Blocking<Database>, Config>,
     pub(crate) buffer: Vec<u8>,
-    database: &'a Database,
     _config: PhantomData<Config>,
 }
 
-impl<'a, Config: FileConfig, Database: Connection> BufferedAppend<'a, Config, Database> {
+impl<'a, Config: FileConfig, Database: Connection + Clone> BufferedAppend<'a, Config, Database> {
     pub fn set_buffer_size(&mut self, capacity: usize) -> std::io::Result<()> {
         if self.buffer.capacity() > 0 {
             self.flush()?;
@@ -772,7 +801,9 @@ impl<'a, Config: FileConfig, Database: Connection> BufferedAppend<'a, Config, Da
     }
 }
 
-impl<'a, Config: FileConfig, Database: Connection> Write for BufferedAppend<'a, Config, Database> {
+impl<'a, Config: FileConfig, Database: Connection + Clone> Write
+    for BufferedAppend<'a, Config, Database>
+{
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         if self.buffer.capacity() == 0 {
             const ONE_MEGABYTE: usize = 1024 * 1024;
@@ -795,28 +826,31 @@ impl<'a, Config: FileConfig, Database: Connection> Write for BufferedAppend<'a, 
 
     fn flush(&mut self) -> std::io::Result<()> {
         self.file
-            .append(&self.buffer, self.database)
+            .append(&self.buffer)
             .map_err(|err| std::io::Error::new(ErrorKind::Other, err))?;
         self.buffer.clear();
         Ok(())
     }
 }
 
-impl<'a, Config: FileConfig, Database: Connection> Drop for BufferedAppend<'a, Config, Database> {
+impl<'a, Config: FileConfig, Database: Connection + Clone> Drop
+    for BufferedAppend<'a, Config, Database>
+{
     fn drop(&mut self) {
         drop(self.flush())
     }
 }
 
+#[cfg(feature = "async")]
 pub struct AsyncBufferedAppend<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static>
 {
-    file: &'a mut File<Config>,
+    file: &'a mut File<Async<Database>, Config>,
     pub(crate) buffer: Vec<u8>,
-    database: &'a Database,
     flush_future: Option<BoxFuture<'a, Result<(), std::io::Error>>>,
     _config: PhantomData<Config>,
 }
 
+#[cfg(feature = "async")]
 impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static>
     AsyncBufferedAppend<'a, Config, Database>
 {
@@ -829,6 +863,7 @@ impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static>
     }
 }
 
+#[cfg(feature = "async")]
 impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static> tokio::io::AsyncWrite
     for AsyncBufferedAppend<'a, Config, Database>
 {
@@ -878,14 +913,13 @@ impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static> tokio:
         } else if self.buffer.is_empty() {
             Poll::Ready(Ok(()))
         } else {
-            let database = self.database.clone();
             let file = self.file.clone();
 
             let mut buffer = Vec::with_capacity(self.buffer.capacity());
             std::mem::swap(&mut buffer, &mut self.buffer);
 
             let mut flush_task = async move {
-                file.append_async(&buffer, &database)
+                file.append(&buffer)
                     .await
                     .map_err(|err| std::io::Error::new(ErrorKind::Other, err))
             }
@@ -904,6 +938,7 @@ impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static> tokio:
     }
 }
 
+#[cfg(feature = "async")]
 impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static> Drop
     for AsyncBufferedAppend<'a, Config, Database>
 {
@@ -915,7 +950,6 @@ impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static> Drop
             );
             let mut buffer = Vec::new();
             std::mem::swap(&mut buffer, &mut self.buffer);
-            let database = self.database.clone();
             let mut file = self.file.clone();
 
             tokio::runtime::Handle::current().spawn(async move {
@@ -923,7 +957,6 @@ impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static> Drop
                     AsyncBufferedAppend {
                         file: &mut file,
                         buffer,
-                        database: &database,
                         flush_future: None,
                         _config: PhantomData,
                     }

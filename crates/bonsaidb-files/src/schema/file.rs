@@ -31,6 +31,7 @@ pub struct File<Config = BonsaiFiles> {
     pub created_at: TimestampAsNanoseconds,
 
     #[serde(skip)]
+    #[derive_where(skip)]
     _name: PhantomData<Config>,
 }
 
