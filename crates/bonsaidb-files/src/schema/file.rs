@@ -19,9 +19,7 @@ use bonsaidb_utils::next_string_sequence;
 use derive_where::derive_where;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    direct::BlockInfo, schema::block::Block, BonsaiFiles, Error, FileConfig, TruncateFrom,
-};
+use crate::{direct::BlockInfo, schema::block::Block, BonsaiFiles, Error, FileConfig, Truncate};
 
 #[derive_where(Debug, Clone)]
 #[derive(Serialize, Deserialize)]
@@ -236,14 +234,14 @@ where
     pub fn truncate<Database: Connection>(
         file: &CollectionDocument<Self>,
         new_length: u64,
-        from: TruncateFrom,
+        from: Truncate,
         database: &Database,
     ) -> Result<(), bonsaidb_core::Error> {
         let tx = Self::create_truncate_transaction(
             Block::<Config>::for_file(file.header.id, database)?,
             new_length,
             from,
-        )?;
+        );
 
         tx.apply(database)?;
         Ok(())
@@ -252,8 +250,8 @@ where
     fn create_truncate_transaction(
         mut blocks: Vec<BlockInfo>,
         new_length: u64,
-        from: TruncateFrom,
-    ) -> Result<Transaction, bonsaidb_core::Error> {
+        from: Truncate,
+    ) -> Transaction {
         let total_length: u64 = blocks
             .iter()
             .map(|b| u64::try_from(b.length).unwrap())
@@ -263,8 +261,8 @@ where
             let block_collection = Config::blocks_name();
             while bytes_to_remove > 0 && !blocks.is_empty() {
                 let offset = match from {
-                    TruncateFrom::Start => 0,
-                    TruncateFrom::End => blocks.len() - 1,
+                    Truncate::RemovingStart => 0,
+                    Truncate::RemovingEnd => blocks.len() - 1,
                 };
                 let block_length = u64::try_from(blocks[offset].length).unwrap();
                 if block_length <= bytes_to_remove {
@@ -281,21 +279,21 @@ where
                 }
             }
         }
-        Ok(tx)
+        tx
     }
 
     #[cfg(feature = "async")]
     pub async fn truncate_async<Database: AsyncConnection>(
         file: &CollectionDocument<Self>,
         new_length: u64,
-        from: TruncateFrom,
+        from: Truncate,
         database: &Database,
     ) -> Result<(), bonsaidb_core::Error> {
         let tx = Self::create_truncate_transaction(
             Block::<Config>::for_file_async(file.header.id, database).await?,
             new_length,
             from,
-        )?;
+        );
 
         tx.apply_async(database).await?;
         Ok(())
@@ -377,7 +375,7 @@ impl<'k, 'pk> KeyEncoding<'k, OwnedFileKey> for ExactPathKey<'pk> {
         // Variable encoding adds a null byte at the end of the string, we can
         // use this padding byte to create our exclusive range
         if self.start {
-            bytes.push(0)
+            bytes.push(0);
         } else {
             bytes.push(1);
         }

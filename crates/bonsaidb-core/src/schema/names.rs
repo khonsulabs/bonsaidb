@@ -277,6 +277,12 @@ impl Deref for SchemaName {
     }
 }
 
+impl From<CollectionName> for SchemaName {
+    fn from(name: CollectionName) -> Self {
+        Self(name.0)
+    }
+}
+
 /// The namespaced name of a [`Collection`](super::Collection).
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
 #[serde(transparent)]

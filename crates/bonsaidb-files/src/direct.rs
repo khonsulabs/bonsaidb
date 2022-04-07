@@ -22,8 +22,9 @@ use futures::{future::BoxFuture, ready, FutureExt};
 #[cfg(feature = "async")]
 use tokio::io::AsyncWriteExt;
 
-use crate::{schema, BonsaiFiles, Error, FileConfig, TruncateFrom};
+use crate::{schema, BonsaiFiles, Error, FileConfig, Truncate};
 
+/// A handle to a file stored in a database.
 #[derive_where(Debug, Clone)]
 pub struct File<Database: Clone, Config: FileConfig = BonsaiFiles> {
     doc: CollectionDocument<schema::file::File<Config>>,
@@ -31,9 +32,11 @@ pub struct File<Database: Clone, Config: FileConfig = BonsaiFiles> {
     database: Database,
 }
 
+/// A blocking database connection.
 #[derive(Clone)]
 pub struct Blocking<Database: Connection>(Database);
 
+/// An async database connection.
 #[cfg(feature = "async")]
 #[derive(Clone)]
 pub struct Async<Database: AsyncConnection>(Database);
@@ -55,7 +58,7 @@ where
         })
     }
 
-    pub fn get(id: u32, database: Database) -> Result<Option<Self>, bonsaidb_core::Error> {
+    pub(crate) fn get(id: u32, database: Database) -> Result<Option<Self>, bonsaidb_core::Error> {
         schema::file::File::<Config>::get(id, &database).map(|doc| {
             doc.map(|doc| Self {
                 doc,
@@ -64,7 +67,7 @@ where
         })
     }
 
-    pub fn load(path: &str, database: Database) -> Result<Option<Self>, Error> {
+    pub(crate) fn load(path: &str, database: Database) -> Result<Option<Self>, Error> {
         schema::file::File::<Config>::find(path, &database).map(|opt| {
             opt.map(|doc| Self {
                 doc,
@@ -73,8 +76,8 @@ where
         })
     }
 
-    pub fn list(path: &str, database: Database) -> Result<Vec<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::list_path_contents(path, &database).map(|vec| {
+    pub(crate) fn list(path: &str, database: &Database) -> Result<Vec<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::list_path_contents(path, database).map(|vec| {
             vec.into_iter()
                 .map(|doc| Self {
                     doc,
@@ -84,11 +87,11 @@ where
         })
     }
 
-    pub fn list_recursive(
+    pub(crate) fn list_recursive(
         path: &str,
-        database: Database,
+        database: &Database,
     ) -> Result<Vec<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::list_recursive_path_contents(path, &database).map(|vec| {
+        schema::file::File::<Config>::list_recursive_path_contents(path, database).map(|vec| {
             vec.into_iter()
                 .map(|doc| Self {
                     doc,
@@ -98,6 +101,15 @@ where
         })
     }
 
+    /// Return all direct descendents of this file. For example, consider this
+    /// list of files:
+    ///
+    /// - /top-level
+    /// - /top-level/sub-level
+    /// - /top-level/sub-level/file.txt
+    ///
+    /// If this instance were `/top-level`, this function would return
+    /// `sub-level` but not `sub-level/file.txt`.
     pub fn children(&self) -> Result<Vec<Self>, bonsaidb_core::Error> {
         schema::file::File::<Config>::list_path_contents(&self.path(), &self.database.0).map(
             |docs| {
@@ -111,6 +123,13 @@ where
         )
     }
 
+    /// Moves this file to a new location. If `new_path` ends with a `/`, the
+    /// file will be moved to that path with its name preserved. Otherwise, the
+    /// file will be renamed as part of the move.
+    ///
+    /// For example, moving `/a/file.txt` to `/b/` will result in the full path
+    /// being `/b/file.txt`. Moivng `/a/file.txt` to `/b/new-name.txt` will
+    /// result in the full path being `/b/new-name.txt`.
     pub fn move_to(&mut self, new_path: &str) -> Result<(), Error> {
         if !new_path.as_bytes().starts_with(b"/") {
             return Err(Error::InvalidPath);
@@ -122,6 +141,7 @@ where
         Ok(())
     }
 
+    /// Renames this file to the new name.
     pub fn rename(&mut self, new_name: String) -> Result<(), Error> {
         if new_name.as_bytes().contains(&b'/') {
             return Err(Error::InvalidName);
@@ -135,12 +155,15 @@ where
         Ok(())
     }
 
+    /// Deletes the file.
     pub fn delete(&self) -> Result<(), Error> {
         self.doc.delete(&self.database.0)?;
         schema::block::Block::<Config>::delete_for_file(self.doc.header.id, &self.database.0)?;
         Ok(())
     }
 
+    /// Returns the contents of the file, which allows random and buffered
+    /// access to the file stored in the database.
     pub fn contents(
         &self,
     ) -> Result<Contents<'_, Blocking<Database>, Config>, bonsaidb_core::Error> {
@@ -158,18 +181,21 @@ where
         })
     }
 
-    pub fn truncate(
-        &self,
-        new_length: u64,
-        from: TruncateFrom,
-    ) -> Result<(), bonsaidb_core::Error> {
+    /// Truncates the file, removing data from either the start or end of the
+    /// file until the file is within
+    /// [`Config::BLOCK_SIZE`](FileConfig::BLOCK_SIZE) of `new_length`.
+    pub fn truncate(&self, new_length: u64, from: Truncate) -> Result<(), bonsaidb_core::Error> {
         schema::file::File::<Config>::truncate(&self.doc, new_length, from, &self.database.0)
     }
 
+    /// Appends `data` to the end of the file. The data will be split into
+    /// chunks no larger than [`Config::BLOCK_SIZE`](FileConfig::BLOCK_SIZE)
+    /// when stored in the database.
     pub fn append(&self, data: &[u8]) -> Result<(), bonsaidb_core::Error> {
         schema::block::Block::<Config>::append(data, self.doc.header.id, &self.database.0)
     }
 
+    /// Returns a writer that will buffer writes to the end of the file.
     pub fn append_buffered(&mut self) -> BufferedAppend<'_, Config, Database> {
         BufferedAppend {
             file: self,
@@ -197,7 +223,7 @@ where
         })
     }
 
-    pub async fn get_async(
+    pub(crate) async fn get_async(
         id: u32,
         database: Database,
     ) -> Result<Option<Self>, bonsaidb_core::Error> {
@@ -211,7 +237,7 @@ where
             })
     }
 
-    pub async fn load_async(path: &str, database: Database) -> Result<Option<Self>, Error> {
+    pub(crate) async fn load_async(path: &str, database: Database) -> Result<Option<Self>, Error> {
         schema::file::File::<Config>::find_async(path, &database)
             .await
             .map(|opt| {
@@ -222,11 +248,11 @@ where
             })
     }
 
-    pub async fn list_async(
+    pub(crate) async fn list_async(
         path: &str,
-        database: Database,
+        database: &Database,
     ) -> Result<Vec<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::list_path_contents_async(path, &database)
+        schema::file::File::<Config>::list_path_contents_async(path, database)
             .await
             .map(|vec| {
                 vec.into_iter()
@@ -238,11 +264,11 @@ where
             })
     }
 
-    pub async fn list_recursive_async(
+    pub(crate) async fn list_recursive_async(
         path: &str,
-        database: Database,
+        database: &Database,
     ) -> Result<Vec<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::list_recursive_path_contents_async(path, &database)
+        schema::file::File::<Config>::list_recursive_path_contents_async(path, database)
             .await
             .map(|vec| {
                 vec.into_iter()
@@ -254,6 +280,15 @@ where
             })
     }
 
+    /// Return all direct descendents of this file. For example, consider this
+    /// list of files:
+    ///
+    /// - /top-level
+    /// - /top-level/sub-level
+    /// - /top-level/sub-level/file.txt
+    ///
+    /// If this instance were `/top-level`, this function would return
+    /// `sub-level` but not `sub-level/file.txt`.
     pub async fn children(&self) -> Result<Vec<Self>, bonsaidb_core::Error> {
         schema::file::File::<Config>::list_path_contents_async(&self.path(), &self.database.0)
             .await
@@ -267,6 +302,53 @@ where
             })
     }
 
+    /// Moves this file to a new location. If `new_path` ends with a `/`, the
+    /// file will be moved to that path with its name preserved. Otherwise, the
+    /// file will be renamed as part of the move.
+    ///
+    /// For example, moving `/a/file.txt` to `/b/` will result in the full path
+    /// being `/b/file.txt`. Moivng `/a/file.txt` to `/b/new-name.txt` will
+    /// result in the full path being `/b/new-name.txt`.
+    pub async fn move_to(&mut self, new_path: &str) -> Result<(), Error> {
+        if !new_path.as_bytes().starts_with(b"/") {
+            return Err(Error::InvalidPath);
+        }
+
+        let mut doc = self.update_document_for_move(new_path);
+        doc.update_async(&self.database.0).await?;
+        self.doc = doc;
+        Ok(())
+    }
+
+    /// Renames this file to the new name.
+    pub async fn rename(&mut self, new_name: String) -> Result<(), Error> {
+        if new_name.as_bytes().contains(&b'/') {
+            return Err(Error::InvalidName);
+        }
+
+        // Prevent mutating self until after the database is updated.
+        let mut doc = self.doc.clone();
+        doc.contents.name = new_name;
+        doc.update_async(&self.database.0).await?;
+        self.doc = doc;
+        Ok(())
+    }
+
+    /// Deletes the file.
+    pub async fn delete(&self) -> Result<(), Error> {
+        self.doc.delete_async(&self.database.0).await?;
+        schema::block::Block::<Config>::delete_for_file_async(self.doc.header.id, &self.database.0)
+            .await?;
+        Ok(())
+    }
+
+    /// Moves this file to a new location. If `new_path` ends with a `/`, the
+    /// file will be moved to that path with its name preserved. Otherwise, the
+    /// file will be renamed as part of the move.
+    ///
+    /// For example, moving `/a/file.txt` to `/b/` will result in the full path
+    /// being `/b/file.txt`. Moivng `/a/file.txt` to `/b/new-name.txt` will
+    /// result in the full path being `/b/new-name.txt`.
     pub async fn contents(
         &self,
     ) -> Result<Contents<'_, Async<Database>, Config>, bonsaidb_core::Error> {
@@ -285,20 +367,25 @@ where
         })
     }
 
+    /// Renames this file to the new name.
     pub async fn truncate(
         &self,
         new_length: u64,
-        from: TruncateFrom,
+        from: Truncate,
     ) -> Result<(), bonsaidb_core::Error> {
         schema::file::File::<Config>::truncate_async(&self.doc, new_length, from, &self.database.0)
             .await
     }
 
+    /// Appends `data` to the end of the file. The data will be split into
+    /// chunks no larger than [`Config::BLOCK_SIZE`](FileConfig::BLOCK_SIZE)
+    /// when stored in the database.
     pub async fn append(&self, data: &[u8]) -> Result<(), bonsaidb_core::Error> {
         schema::block::Block::<Config>::append_async(data, self.doc.header.id, &self.database.0)
             .await
     }
 
+    /// Returns a writer that will buffer writes to the end of the file.
     pub fn append_buffered(&mut self) -> AsyncBufferedAppend<'_, Config, Database> {
         AsyncBufferedAppend {
             file: self,
@@ -307,37 +394,6 @@ where
             _config: PhantomData,
         }
     }
-
-    pub async fn move_to(&mut self, new_path: &str) -> Result<(), Error> {
-        if !new_path.as_bytes().starts_with(b"/") {
-            return Err(Error::InvalidPath);
-        }
-
-        let mut doc = self.update_document_for_move(new_path);
-        doc.update_async(&self.database.0).await?;
-        self.doc = doc;
-        Ok(())
-    }
-
-    pub async fn rename(&mut self, new_name: String) -> Result<(), Error> {
-        if new_name.as_bytes().contains(&b'/') {
-            return Err(Error::InvalidName);
-        }
-
-        // Prevent mutating self until after the database is updated.
-        let mut doc = self.doc.clone();
-        doc.contents.name = new_name;
-        doc.update_async(&self.database.0).await?;
-        self.doc = doc;
-        Ok(())
-    }
-
-    pub async fn delete(&self) -> Result<(), Error> {
-        self.doc.delete_async(&self.database.0).await?;
-        schema::block::Block::<Config>::delete_for_file_async(self.doc.header.id, &self.database.0)
-            .await?;
-        Ok(())
-    }
 }
 
 impl<Database, Config> File<Database, Config>
@@ -345,18 +401,25 @@ where
     Database: Clone,
     Config: FileConfig,
 {
+    /// Returns the unique id of this file. The file id is only unique within a
+    /// single database and [`FileConfig`].
     pub fn id(&self) -> u32 {
         self.doc.header.id
     }
 
+    /// Returns the path containing this file. For example, if the full path to
+    /// the file is `/some-path/file.txt`, this function will return
+    /// `/some-path/`.
     pub fn containing_path(&self) -> &str {
         self.doc.contents.path.as_deref().unwrap_or("/")
     }
 
+    /// Returns the name of this file.
     pub fn name(&self) -> &str {
         &self.doc.contents.name
     }
 
+    /// Returns the absolute path of this file.
     pub fn path(&self) -> String {
         let containing_path = self.containing_path();
         let ends_in_slash = self.containing_path().ends_with('/');
@@ -372,6 +435,7 @@ where
         full_path
     }
 
+    /// Returns the timestamp the file was created at.
     pub fn created_at(&self) -> TimestampAsNanoseconds {
         self.doc.contents.created_at
     }
@@ -404,16 +468,18 @@ where
     }
 }
 
+/// A builder to create a [`File`].
 #[derive(Debug, Clone)]
-pub struct CreateFile<'a, Config> {
+#[must_use]
+pub struct FileBuilder<'a, Config> {
     path: Option<String>,
     name: String,
     contents: &'a [u8],
     _config: PhantomData<Config>,
 }
 
-impl<'a, Config: FileConfig> CreateFile<'a, Config> {
-    pub fn named<Name: Into<String>>(name: Name) -> Self {
+impl<'a, Config: FileConfig> FileBuilder<'a, Config> {
+    pub(crate) fn named<Name: Into<String>>(name: Name) -> Self {
         Self {
             path: None,
             name: name.into(),
@@ -422,16 +488,20 @@ impl<'a, Config: FileConfig> CreateFile<'a, Config> {
         }
     }
 
+    /// Creates this file at `path`. This does not change the file's name
+    /// specified when creating the builder.
     pub fn at_path<Path: Into<String>>(mut self, path: Path) -> Self {
         self.path = Some(path.into());
         self
     }
 
+    /// Sets the file's initial contents.
     pub fn contents(mut self, contents: &'a [u8]) -> Self {
         self.contents = contents;
         self
     }
 
+    /// Creates the file and returns a handle to the created file.
     pub fn create<Database: Connection + Clone>(
         self,
         database: Database,
@@ -439,6 +509,7 @@ impl<'a, Config: FileConfig> CreateFile<'a, Config> {
         File::new_file(self.path, self.name, self.contents, database)
     }
 
+    /// Creates the file and returns a handle to the created file.
     #[cfg(feature = "async")]
     pub async fn create_async<Database: bonsaidb_core::connection::AsyncConnection + Clone>(
         self,
@@ -448,6 +519,8 @@ impl<'a, Config: FileConfig> CreateFile<'a, Config> {
     }
 }
 
+/// Buffered access to the contents of a [`File`].
+#[must_use]
 pub struct Contents<'a, Database: Clone, Config: FileConfig> {
     file: &'a File<Database, Config>,
     blocks: Vec<BlockInfo>,
@@ -493,10 +566,15 @@ struct LoadedBlock {
 impl<'a, Database: Connection + Clone, Config: FileConfig>
     Contents<'a, Blocking<Database>, Config>
 {
+    /// Returns the remaining contents as a `Vec<u8>`. If no bytes have been
+    /// read, this returns the entire contents.
     pub fn to_vec(&self) -> std::io::Result<Vec<u8>> {
         self.clone().into_vec()
     }
 
+    /// Returns the remaining contents as a `Vec<u8>`. If no bytes have been
+    /// read, this returns the entire contents.
+    #[allow(clippy::missing_panics_doc)] // Not reachable
     pub fn into_vec(mut self) -> std::io::Result<Vec<u8>> {
         let mut contents = Vec::with_capacity(usize::try_from(self.len()).unwrap());
         self.read_to_end(&mut contents)?;
@@ -528,10 +606,15 @@ impl<
         Config: FileConfig,
     > Contents<'a, Async<Database>, Config>
 {
+    /// Returns the remaining contents as a `Vec<u8>`. If no bytes have been
+    /// read, this returns the entire contents.
     pub async fn to_vec(&self) -> std::io::Result<Vec<u8>> {
         self.clone().into_vec().await
     }
 
+    /// Returns the remaining contents as a `Vec<u8>`. If no bytes have been
+    /// read, this returns the entire contents.
+    #[allow(clippy::missing_panics_doc)] // Not reachable
     pub async fn into_vec(mut self) -> std::io::Result<Vec<u8>> {
         let mut contents = vec![0; usize::try_from(self.len()).unwrap()];
         <Self as tokio::io::AsyncReadExt>::read_exact(&mut self, &mut contents).await?;
@@ -553,6 +636,9 @@ impl<'a, Database: Clone, Config: FileConfig> Contents<'a, Database, Config> {
         self
     }
 
+    /// Returns the total length of the file.
+    #[allow(clippy::missing_panics_doc)] // Not reachable
+    #[must_use]
     pub fn len(&self) -> u64 {
         self.blocks
             .last()
@@ -560,6 +646,8 @@ impl<'a, Database: Clone, Config: FileConfig> Contents<'a, Database, Config> {
             .unwrap_or_default()
     }
 
+    /// Returns true if the file's length is 0.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.blocks.is_empty() || (self.blocks.len() == 1 && self.blocks[0].length == 0)
     }
@@ -576,20 +664,20 @@ impl<'a, Database: Clone, Config: FileConfig> Contents<'a, Database, Config> {
                     || (is_last_block && self.offset < self.blocks.last().unwrap().length)
                 {
                     return NonBlockingReadResult::NeedBlocks;
-                } else {
-                    return NonBlockingReadResult::Eof;
                 }
+
+                return NonBlockingReadResult::Eof;
             }
             while let Some(block) = self.loaded.front() {
                 let read_length = read_callback(&block.contents[self.offset..]);
                 if read_length > 0 {
                     self.offset += read_length;
                     return NonBlockingReadResult::ReadBytes(read_length);
-                } else {
-                    self.loaded.pop_front();
-                    self.offset = 0;
-                    self.current_block += 1;
                 }
+
+                self.loaded.pop_front();
+                self.offset = 0;
+                self.current_block += 1;
             }
         }
     }
@@ -634,17 +722,17 @@ impl<'a, Database: Clone, Config: FileConfig> Seek for Contents<'a, Database, Co
             SeekFrom::Current(from_current) => {
                 if self.blocks.is_empty() {
                     return Ok(0);
-                } else {
-                    u64::try_from(
-                        i64::try_from(
-                            self.blocks[self.current_block].offset
-                                + u64::try_from(self.offset).unwrap(),
-                        )
-                        .unwrap()
-                            + from_current,
+                }
+
+                u64::try_from(
+                    i64::try_from(
+                        self.blocks[self.current_block].offset
+                            + u64::try_from(self.offset).unwrap(),
                     )
                     .unwrap()
-                }
+                        + from_current,
+                )
+                .unwrap()
             }
         };
         if let Some((index, block)) = self
@@ -666,6 +754,32 @@ impl<'a, Database: Clone, Config: FileConfig> Seek for Contents<'a, Database, Co
             self.current_block = 0;
             self.offset = 0;
             Ok(0)
+        }
+    }
+}
+#[cfg(feature = "async")]
+impl<
+        'a,
+        Database: bonsaidb_core::connection::AsyncConnection + Clone + 'static,
+        Config: FileConfig,
+    > tokio::io::AsyncSeek for Contents<'a, Async<Database>, Config>
+{
+    fn start_seek(mut self: std::pin::Pin<&mut Self>, position: SeekFrom) -> std::io::Result<()> {
+        self.seek(position).map(|_| ())
+    }
+
+    fn poll_complete(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<std::io::Result<u64>> {
+        if self.blocks.is_empty() {
+            Poll::Ready(Ok(0))
+        } else if self.current_block < self.blocks.len() {
+            Poll::Ready(Ok(
+                self.blocks[self.current_block].offset + u64::try_from(self.offset).unwrap()
+            ))
+        } else {
+            Poll::Ready(Ok(self.len()))
         }
     }
 }
@@ -749,21 +863,20 @@ impl<
                         let blocks = self.next_blocks();
                         if blocks.is_empty() {
                             return Poll::Ready(Ok(()));
-                        } else {
-                            self.loaded.clear();
-                            self.async_blocks.as_mut().unwrap().requested = true;
-                            if let Err(err) = self
-                                .async_blocks
-                                .as_mut()
-                                .unwrap()
-                                .request_sender
-                                .send(blocks)
-                            {
-                                return Poll::Ready(Err(std::io::Error::new(
-                                    ErrorKind::BrokenPipe,
-                                    err,
-                                )));
-                            }
+                        }
+                        self.loaded.clear();
+                        self.async_blocks.as_mut().unwrap().requested = true;
+                        if let Err(err) = self
+                            .async_blocks
+                            .as_mut()
+                            .unwrap()
+                            .request_sender
+                            .send(blocks)
+                        {
+                            return Poll::Ready(Err(std::io::Error::new(
+                                ErrorKind::BrokenPipe,
+                                err,
+                            )));
                         }
                     }
                 }
@@ -785,6 +898,8 @@ pub(crate) struct BlockInfo {
     pub header: Header,
 }
 
+/// A buffered [`std::io::Write`] and [`std::io::Seek`] implementor for a
+/// [`File`].
 pub struct BufferedAppend<'a, Config: FileConfig, Database: Connection + Clone> {
     file: &'a mut File<Blocking<Database>, Config>,
     pub(crate) buffer: Vec<u8>,
@@ -792,6 +907,11 @@ pub struct BufferedAppend<'a, Config: FileConfig, Database: Connection + Clone> 
 }
 
 impl<'a, Config: FileConfig, Database: Connection + Clone> BufferedAppend<'a, Config, Database> {
+    /// Sets the size of the buffer. For optimal use, this should be a multiple
+    /// of [`Config::BLOCK_SIZE`](FileConfig::BLOCK_SIZE).
+    ///
+    /// If any data is already buffered, it will be flushed before the buffer is
+    /// resized.
     pub fn set_buffer_size(&mut self, capacity: usize) -> std::io::Result<()> {
         if self.buffer.capacity() > 0 {
             self.flush()?;
@@ -837,10 +957,12 @@ impl<'a, Config: FileConfig, Database: Connection + Clone> Drop
     for BufferedAppend<'a, Config, Database>
 {
     fn drop(&mut self) {
-        drop(self.flush())
+        drop(self.flush());
     }
 }
 
+/// A buffered [`tokio::io::AsyncWrite`] and [`std::io::Seek`] implementor for a
+/// [`File`].
 #[cfg(feature = "async")]
 pub struct AsyncBufferedAppend<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static>
 {
@@ -854,6 +976,11 @@ pub struct AsyncBufferedAppend<'a, Config: FileConfig, Database: AsyncConnection
 impl<'a, Config: FileConfig, Database: AsyncConnection + Clone + 'static>
     AsyncBufferedAppend<'a, Config, Database>
 {
+    /// Sets the size of the buffer. For optimal use, this should be a multiple
+    /// of [`Config::BLOCK_SIZE`](FileConfig::BLOCK_SIZE).
+    ///
+    /// If any data is already buffered, it will be flushed before the buffer is
+    /// resized.
     pub async fn set_buffer_size(&mut self, capacity: usize) -> std::io::Result<()> {
         if self.buffer.capacity() > 0 {
             self.flush().await?;

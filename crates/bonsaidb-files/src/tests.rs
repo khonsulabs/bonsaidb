@@ -13,7 +13,7 @@ use bonsaidb_local::{
 #[cfg(feature = "async")]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::{BonsaiFiles, Error, FileConfig, FilesSchema, TruncateFrom};
+use crate::{BonsaiFiles, Error, FileConfig, FilesSchema, Truncate};
 
 #[test]
 fn simple_file_test() {
@@ -121,13 +121,13 @@ fn simple_path_test() {
     assert_eq!(file.containing_path(), "/some/containing/path/");
 
     // One query intentionally ends with a / and one doesn't.
-    let some_contents = BonsaiFiles::list("/some/", database.clone()).unwrap();
+    let some_contents = BonsaiFiles::list("/some/", &database).unwrap();
     assert_eq!(some_contents.len(), 0);
-    let path_contents = BonsaiFiles::list("/some/containing/path", database.clone()).unwrap();
+    let path_contents = BonsaiFiles::list("/some/containing/path", &database).unwrap();
     assert_eq!(path_contents.len(), 1);
     assert_eq!(path_contents[0].name(), "hello.txt");
 
-    let all_contents = BonsaiFiles::list_recursive("/", database.clone()).unwrap();
+    let all_contents = BonsaiFiles::list_recursive("/", &database).unwrap();
     assert_eq!(all_contents.len(), 1);
 
     // Test renaming and moving
@@ -182,17 +182,15 @@ async fn async_simple_path_test() {
     assert_eq!(file.containing_path(), "/some/containing/path/");
 
     // One query intentionally ends with a / and one doesn't.
-    let some_contents = BonsaiFiles::list_async("/some/", database.clone())
-        .await
-        .unwrap();
+    let some_contents = BonsaiFiles::list_async("/some/", &database).await.unwrap();
     assert_eq!(some_contents.len(), 0);
-    let path_contents = BonsaiFiles::list_async("/some/containing/path", database.clone())
+    let path_contents = BonsaiFiles::list_async("/some/containing/path", &database)
         .await
         .unwrap();
     assert_eq!(path_contents.len(), 1);
     assert_eq!(path_contents[0].name(), "hello.txt");
 
-    let all_contents = BonsaiFiles::list_recursive_async("/", database.clone())
+    let all_contents = BonsaiFiles::list_recursive_async("/", &database)
         .await
         .unwrap();
     assert_eq!(all_contents.len(), 1);
@@ -265,7 +263,7 @@ fn blocked_file_test() {
     // Truncate the beginning of the file
     let new_length = u64::try_from(SmallBlocks::BLOCK_SIZE * 3).unwrap();
     big_file.splice(..big_file.len() - SmallBlocks::BLOCK_SIZE * 3, []);
-    file.truncate(new_length, TruncateFrom::Start).unwrap();
+    file.truncate(new_length, Truncate::RemovingStart).unwrap();
 
     let contents = file.contents().unwrap();
     assert_eq!(contents.len(), new_length);
@@ -274,14 +272,14 @@ fn blocked_file_test() {
     // Truncate the end of the file.
     let new_length = u64::try_from(SmallBlocks::BLOCK_SIZE).unwrap();
     big_file.truncate(SmallBlocks::BLOCK_SIZE);
-    file.truncate(new_length, TruncateFrom::End).unwrap();
+    file.truncate(new_length, Truncate::RemovingEnd).unwrap();
 
     let contents = file.contents().unwrap();
     assert_eq!(contents.len(), new_length);
     assert_eq!(contents.to_vec().unwrap(), big_file);
 
     // Clear the file.
-    file.truncate(0, TruncateFrom::End).unwrap();
+    file.truncate(0, Truncate::RemovingEnd).unwrap();
 
     let mut writer = file.append_buffered();
     let buffer_size = SmallBlocks::BLOCK_SIZE * 3 / 2;
@@ -325,7 +323,7 @@ async fn async_blocked_file_test() {
     // Truncate the beginning of the file
     let new_length = u64::try_from(SmallBlocks::BLOCK_SIZE * 3).unwrap();
     big_file.splice(..big_file.len() - SmallBlocks::BLOCK_SIZE * 3, []);
-    file.truncate(new_length, TruncateFrom::Start)
+    file.truncate(new_length, Truncate::RemovingStart)
         .await
         .unwrap();
 
@@ -336,14 +334,16 @@ async fn async_blocked_file_test() {
     // Truncate the end of the file.
     let new_length = u64::try_from(SmallBlocks::BLOCK_SIZE).unwrap();
     big_file.truncate(SmallBlocks::BLOCK_SIZE);
-    file.truncate(new_length, TruncateFrom::End).await.unwrap();
+    file.truncate(new_length, Truncate::RemovingEnd)
+        .await
+        .unwrap();
 
     let contents = file.contents().await.unwrap();
     assert_eq!(contents.len(), new_length);
     assert_eq!(contents.to_vec().await.unwrap(), big_file);
 
     // Clear the file.
-    file.truncate(0, TruncateFrom::End).await.unwrap();
+    file.truncate(0, Truncate::RemovingEnd).await.unwrap();
 
     let mut writer = file.append_buffered();
     let buffer_size = SmallBlocks::BLOCK_SIZE * 3 / 2;
@@ -363,16 +363,16 @@ async fn async_blocked_file_test() {
 
 #[test]
 fn seek_read_test() {
-    let mut afile = Vec::with_capacity(BonsaiFiles::BLOCK_SIZE * 3);
+    let mut file_contents = Vec::with_capacity(BonsaiFiles::BLOCK_SIZE * 3);
     let word_size = size_of::<usize>();
-    while afile.len() + word_size < afile.capacity() {
-        afile.extend(afile.len().to_be_bytes());
+    while file_contents.len() + word_size < file_contents.capacity() {
+        file_contents.extend(file_contents.len().to_be_bytes());
     }
     let directory = TestDirectory::new("seek-read");
     let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
 
     let file = BonsaiFiles::build("hello.bin")
-        .contents(&afile)
+        .contents(&file_contents)
         .create(database)
         .unwrap();
     let mut contents = file.contents().unwrap().batching_by_blocks(1);
@@ -380,12 +380,12 @@ fn seek_read_test() {
     contents.seek(std::io::SeekFrom::End(-16)).unwrap();
     let mut buffer = [0; 16];
     contents.read_exact(&mut buffer).unwrap();
-    assert_eq!(&afile[afile.len() - 16..], &buffer);
+    assert_eq!(&file_contents[file_contents.len() - 16..], &buffer);
 
     // Seek slightly ahead of the start, and read 16 bytes.
     contents.seek(std::io::SeekFrom::Start(16)).unwrap();
     contents.read_exact(&mut buffer).unwrap();
-    assert_eq!(&afile[16..32], &buffer);
+    assert_eq!(&file_contents[16..32], &buffer);
 
     // Move foward into the next block.
     contents
@@ -395,13 +395,13 @@ fn seek_read_test() {
         .unwrap();
     contents.read_exact(&mut buffer).unwrap();
     assert_eq!(
-        &afile[BonsaiFiles::BLOCK_SIZE + 32..BonsaiFiles::BLOCK_SIZE + 48],
+        &file_contents[BonsaiFiles::BLOCK_SIZE + 32..BonsaiFiles::BLOCK_SIZE + 48],
         &buffer
     );
     // Re-read the last 16 bytes
     contents.seek(std::io::SeekFrom::Current(-16)).unwrap();
     assert_eq!(
-        &afile[BonsaiFiles::BLOCK_SIZE + 32..BonsaiFiles::BLOCK_SIZE + 48],
+        &file_contents[BonsaiFiles::BLOCK_SIZE + 32..BonsaiFiles::BLOCK_SIZE + 48],
         &buffer
     );
     // Try seeking to the end of the universe. It should return the file's length.
@@ -416,10 +416,10 @@ fn seek_read_test() {
 #[cfg(feature = "async")]
 #[tokio::test]
 async fn async_seek_read_test() {
-    let mut afile = Vec::with_capacity(BonsaiFiles::BLOCK_SIZE * 3);
+    let mut file_contents = Vec::with_capacity(BonsaiFiles::BLOCK_SIZE * 3);
     let word_size = size_of::<usize>();
-    while afile.len() + word_size < afile.capacity() {
-        afile.extend(afile.len().to_be_bytes());
+    while file_contents.len() + word_size < file_contents.capacity() {
+        file_contents.extend(file_contents.len().to_be_bytes());
     }
     let directory = TestDirectory::new("seek-read-async");
     let database = AsyncDatabase::open::<FilesSchema>(StorageConfiguration::new(&directory))
@@ -427,7 +427,7 @@ async fn async_seek_read_test() {
         .unwrap();
 
     let file = BonsaiFiles::build("hello.bin")
-        .contents(&afile)
+        .contents(&file_contents)
         .create_async(database.clone())
         .await
         .unwrap();
@@ -436,12 +436,12 @@ async fn async_seek_read_test() {
     contents.seek(std::io::SeekFrom::End(-16)).unwrap();
     let mut buffer = [0; 16];
     contents.read_exact(&mut buffer).await.unwrap();
-    assert_eq!(&afile[afile.len() - 16..], &buffer);
+    assert_eq!(&file_contents[file_contents.len() - 16..], &buffer);
 
     // Seek slightly ahead of the start, and read 16 bytes.
     contents.seek(std::io::SeekFrom::Start(16)).unwrap();
     contents.read_exact(&mut buffer).await.unwrap();
-    assert_eq!(&afile[16..32], &buffer);
+    assert_eq!(&file_contents[16..32], &buffer);
 
     // Move foward into the next block.
     contents
@@ -451,13 +451,13 @@ async fn async_seek_read_test() {
         .unwrap();
     contents.read_exact(&mut buffer).await.unwrap();
     assert_eq!(
-        &afile[BonsaiFiles::BLOCK_SIZE + 32..BonsaiFiles::BLOCK_SIZE + 48],
+        &file_contents[BonsaiFiles::BLOCK_SIZE + 32..BonsaiFiles::BLOCK_SIZE + 48],
         &buffer
     );
     // Re-read the last 16 bytes
     contents.seek(std::io::SeekFrom::Current(-16)).unwrap();
     assert_eq!(
-        &afile[BonsaiFiles::BLOCK_SIZE + 32..BonsaiFiles::BLOCK_SIZE + 48],
+        &file_contents[BonsaiFiles::BLOCK_SIZE + 32..BonsaiFiles::BLOCK_SIZE + 48],
         &buffer
     );
     // Try seeking to the end of the universe. It should return the file's length.
