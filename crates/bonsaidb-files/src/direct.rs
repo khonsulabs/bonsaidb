@@ -164,6 +164,9 @@ where
 
     /// Returns the contents of the file, which allows random and buffered
     /// access to the file stored in the database.
+    ///
+    /// The default buffer size is ten times
+    /// [`Config::BLOCK_SIZE`](FileConfig::BLOCK_SIZE).
     pub fn contents(
         &self,
     ) -> Result<Contents<'_, Blocking<Database>, Config>, bonsaidb_core::Error> {
@@ -174,7 +177,7 @@ where
             loaded: VecDeque::default(),
             current_block: 0,
             offset: 0,
-            batch_size: 10,
+            buffer_size: Config::BLOCK_SIZE * 10,
             #[cfg(feature = "async")]
             async_blocks: None,
             _config: PhantomData,
@@ -360,7 +363,7 @@ where
             loaded: VecDeque::default(),
             current_block: 0,
             offset: 0,
-            batch_size: 10,
+            buffer_size: Config::BLOCK_SIZE * 10,
             #[cfg(feature = "async")]
             async_blocks: None,
             _config: PhantomData,
@@ -527,7 +530,7 @@ pub struct Contents<'a, Database: Clone, Config: FileConfig> {
     loaded: VecDeque<LoadedBlock>,
     current_block: usize,
     offset: usize,
-    batch_size: usize,
+    buffer_size: usize,
     #[cfg(feature = "async")]
     async_blocks: Option<AsyncBlockTask>,
     _config: PhantomData<Config>,
@@ -549,7 +552,7 @@ impl<'a, Database: Clone, Config: FileConfig> Clone for Contents<'a, Database, C
             loaded: VecDeque::new(),
             current_block: self.current_block,
             offset: self.offset,
-            batch_size: self.batch_size,
+            buffer_size: self.buffer_size,
             #[cfg(feature = "async")]
             async_blocks: None,
             _config: PhantomData,
@@ -624,15 +627,29 @@ impl<
 
 impl<'a, Database: Clone, Config: FileConfig> Contents<'a, Database, Config> {
     fn next_blocks(&self) -> Vec<DocumentId> {
-        let last_block = (self.current_block + self.batch_size).min(self.blocks.len());
-        self.blocks[self.current_block..last_block]
+        let mut last_block = self.current_block;
+        let mut requesting_size = 0;
+        for index in self.current_block..self.blocks.len() {
+            let size_if_requested = self.blocks[index].length.saturating_add(requesting_size);
+            if size_if_requested > self.buffer_size {
+                break;
+            }
+
+            requesting_size = size_if_requested;
+            last_block = index;
+        }
+
+        self.blocks[self.current_block..=last_block]
             .iter()
             .map(|info| info.header.id)
             .collect()
     }
 
-    pub fn batching_by_blocks(mut self, block_count: usize) -> Self {
-        self.batch_size = block_count;
+    /// Sets the maximum buffer size in bytes and returns `self`. When buffering
+    /// reads from the database, requests will be made to fill at-most
+    /// `size_in_bytes` of memory.
+    pub fn with_buffer_size(mut self, size_in_bytes: usize) -> Self {
+        self.buffer_size = size_in_bytes;
         self
     }
 

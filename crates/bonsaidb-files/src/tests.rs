@@ -375,7 +375,10 @@ fn seek_read_test() {
         .contents(&file_contents)
         .create(database)
         .unwrap();
-    let mut contents = file.contents().unwrap().batching_by_blocks(1);
+    let mut contents = file
+        .contents()
+        .unwrap()
+        .with_buffer_size(BonsaiFiles::BLOCK_SIZE);
     // Read the last 16 bytes
     contents.seek(std::io::SeekFrom::End(-16)).unwrap();
     let mut buffer = [0; 16];
@@ -431,7 +434,11 @@ async fn async_seek_read_test() {
         .create_async(database.clone())
         .await
         .unwrap();
-    let mut contents = file.contents().await.unwrap().batching_by_blocks(1);
+    let mut contents = file
+        .contents()
+        .await
+        .unwrap()
+        .with_buffer_size(BonsaiFiles::BLOCK_SIZE);
     // Read the last 16 bytes
     contents.seek(std::io::SeekFrom::End(-16)).unwrap();
     let mut buffer = [0; 16];

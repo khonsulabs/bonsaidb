@@ -1,4 +1,35 @@
 //! Large file storage support for BonsaiDb.
+//!
+//! This crate provides support for storing large files in
+//! [BonsaiDb](https://bonsaidb.io/). While BonsaiDb's document size limit is 4
+//! gigabytes, the requirement that each document is loaded in memory fully can
+//! cause higher memory usage when storing larger files.
+//!
+//! # `FileConfig`
+//!
+//! The [`FileConfig`] trait allows customizing the [`CollectionName`]s and
+//! block size. If you want to use smaller or larger blocks, you can. If you
+//! want to store more than one set of files in the same database, you can use
+//! two [`FileConfig`] implementors with different [`CollectionName`]s.
+//!
+//! For most users, the provided implementation [`BonsaiFiles`] will work for
+//! them.
+//!
+//! # Basic Example
+//!
+//! ```rust
+#![doc = include_str!("../examples/basic-files.rs")]
+//! ```
+//!
+//! # Async Support
+//!
+//! This crate adds implementations of `tokio::io::AsyncRead` and
+//! `tokio::io::AsyncWrite` when the `async` feature flag is enabled.
+//!
+//! ```rust
+#![doc = include_str!("../examples/basic-files-async.rs")]
+//! ```
+
 #![forbid(unsafe_code)]
 #![warn(
     clippy::cargo,

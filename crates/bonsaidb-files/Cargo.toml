@@ -14,6 +14,10 @@ rust-version = "1.58"
 [features]
 async = ["tokio", "futures"]
 
+[[example]]
+name = "basic-files-async"
+required-features = ["async"]
+
 [dependencies]
 bonsaidb-core = { version = "0.4.0", path = "../bonsaidb-core" }
 bonsaidb-utils = { version = "0.4.0", path = "../bonsaidb-utils" }
@@ -33,3 +37,4 @@ bonsaidb-local = { version = "0.4.0", path = "../bonsaidb-local", default-featur
     "async",
 ] }
 tokio = { version = "1.16.1", features = ["macros", "time"] }
+anyhow = "1"
