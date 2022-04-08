@@ -20,13 +20,13 @@
 //! ```rust
 #![doc = include_str!("../examples/basic-files.rs")]
 //! ```
-//! 
+//!
 //! # Async Support
 //!
 //! This crate adds implementations of `tokio::io::AsyncRead` and
 //! `tokio::io::AsyncWrite` when the `async` feature flag is enabled.
 //! ```rust
-#![doc = include_str!("../examples/basic-files-async.rs")]
+#![cfg_attr(feature = "async", doc = include_str!("../examples/basic-files-async.rs"))]
 //! ```
 
 #![forbid(unsafe_code)]

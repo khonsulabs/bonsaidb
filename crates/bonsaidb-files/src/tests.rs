@@ -20,7 +20,7 @@ fn simple_file_test() {
     let directory = TestDirectory::new("simple-file");
     let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
 
-    let file = BonsaiFiles::build("hello.txt")
+    let file = BonsaiFiles::build("/hello/world.txt")
         .contents(b"hello, world!")
         .create(database.clone())
         .unwrap();
@@ -29,14 +29,16 @@ fn simple_file_test() {
     let bytes = contents.into_vec().unwrap();
     assert_eq!(bytes, b"hello, world!");
 
-    let file = BonsaiFiles::load("/hello.txt", database.clone())
+    let file = BonsaiFiles::load("/hello/world.txt", database.clone())
         .unwrap()
         .unwrap();
-    assert_eq!(file.name(), "hello.txt");
-    assert_eq!(file.containing_path(), "/");
+    assert_eq!(file.name(), "world.txt");
+    assert_eq!(file.containing_path(), "/hello/");
 
     file.delete().unwrap();
-    assert!(BonsaiFiles::load("/hello.txt", database).unwrap().is_none());
+    assert!(BonsaiFiles::load("/hello/world.txt", database)
+        .unwrap()
+        .is_none());
 }
 
 #[cfg(feature = "async")]
@@ -47,7 +49,7 @@ async fn async_simple_file_test() {
         .await
         .unwrap();
 
-    let file = BonsaiFiles::build("hello.txt")
+    let file = BonsaiFiles::build("/hello/world.txt")
         .contents(b"hello, world!")
         .create_async(database.clone())
         .await
@@ -57,15 +59,15 @@ async fn async_simple_file_test() {
     let bytes = contents.into_vec().await.unwrap();
     assert_eq!(bytes, b"hello, world!");
 
-    let file = BonsaiFiles::load_async("/hello.txt", database.clone())
+    let file = BonsaiFiles::load_async("/hello/world.txt", database.clone())
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(file.name(), "hello.txt");
-    assert_eq!(file.containing_path(), "/");
+    assert_eq!(file.name(), "world.txt");
+    assert_eq!(file.containing_path(), "/hello/");
 
     file.delete().await.unwrap();
-    assert!(BonsaiFiles::load_async("/hello.txt", database)
+    assert!(BonsaiFiles::load_async("/hello/world.txt", database)
         .await
         .unwrap()
         .is_none());
@@ -76,7 +78,7 @@ fn invalid_name_test() {
     let directory = TestDirectory::new("invalid-name");
     let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
 
-    let err = BonsaiFiles::build("/hello.txt")
+    let err = BonsaiFiles::build("hello/.txt")
         .contents(b"hello, world!")
         .create(database)
         .unwrap_err();
@@ -91,7 +93,7 @@ async fn async_invalid_name_test() {
         .await
         .unwrap();
 
-    let err = BonsaiFiles::build("/hello.txt")
+    let err = BonsaiFiles::build("hello/.txt")
         .contents(b"hello, world!")
         .create_async(database)
         .await
