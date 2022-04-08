@@ -111,7 +111,7 @@ fn main() -> Result<(), bonsaidb::core::Error> {
     println!(
         "Number of shapes with more than 10 sides: {} (expected 10)",
         db.view::<ShapesByNumberOfSides>()
-            .with_key_range(11..u32::MAX)
+            .with_key_range(11..)
             .reduce()?
     );
 

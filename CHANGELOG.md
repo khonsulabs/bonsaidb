@@ -34,14 +34,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 
-### Fixed
-
-- `insert_bytes`/`push_bytes` no longer require `SerializedCollection` to be
-  implemented.
-
 ### Added
 
 - `Key` is now implemented for `Cow<'a, str>`.
+- `bonsaidb_core::Error::is_unique_key_error()` is a convenience function to
+  quickly check if an error is a result of a unique key violation from a
+  specific view.
+- `bonsaidb_core::Error::conflicting_document()` is a convenience function to
+  return the conflicting document's header if the error is a conflict from a
+  specific collection.
+- `Operation::Check` is a new operation that can be performed during a
+  transaction. It checks whether a document exists in a given collection, and
+  optionally can verify that a revision matches the currently stored revision.
+
+  These constructor functions provide more ergonomic ways to create this variant:
+
+  - `Operation::check_document_id_exists(CollectionName,DocumentId)`
+  - `Operation::check_document_exists<Collection>(Collection::PrimaryKey)`
+  - `Operation::check_document_is_current(&impl HasHeader)`
+
+## v0.4.1
+
+### Fixed
+
+- The View indexing system had a bug when deleting the last view entries for a
+  key while also inserting new entries for that key in the same mapping update
+  operation. This prevented the recording of new entries being made during that
+  mapping operation. This bug was introduced during the optimizations in v0.3.0.
+
+  All views will be reindexed automatically on upgrade.
+- `insert_bytes`/`push_bytes` no longer require `SerializedCollection` to be
+  implemented.
 
 ## v0.4.0
 

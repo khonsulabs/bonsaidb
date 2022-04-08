@@ -59,6 +59,7 @@ pub use transmog;
 pub use transmog_pot;
 
 use crate::{
+    connection::LowLevelConnection,
     document::{DocumentId, Header, InvalidHexadecimal},
     key::NextValueError,
     schema::{ApiName, InsertError},
@@ -228,6 +229,37 @@ pub enum Error {
     /// A floating point operation yielded Not a Number.
     #[error("floating point operation yielded NaN")]
     NotANumber,
+}
+
+impl Error {
+    /// Returns true if this error is a [`Error::UniqueKeyViolation`] from
+    /// `View`.
+    pub fn is_unique_key_error<View: schema::View, C: LowLevelConnection>(
+        &self,
+        connection: &C,
+    ) -> bool {
+        if let Self::UniqueKeyViolation { view, .. } = self {
+            if let Ok(schema_view) = connection.schematic().view::<View>() {
+                return view == &schema_view.view_name();
+            }
+        }
+
+        false
+    }
+
+    /// Returns the header of the conflicting document if this error is a
+    /// [`Error::DocumentConflict`] from `Collection`.
+    #[must_use]
+    pub fn conflicting_document<Collection: schema::Collection>(&self) -> Option<Header> {
+        match self {
+            Self::DocumentConflict(collection, header)
+                if collection == &Collection::collection_name() =>
+            {
+                Some(header.as_ref().clone())
+            }
+            _ => None,
+        }
+    }
 }
 
 impl From<pot::Error> for Error {

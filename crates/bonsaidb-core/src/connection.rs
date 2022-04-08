@@ -761,9 +761,12 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key_prefix(self, prefix: V::Key) -> View<'a, Cn, V, V::Key>
+    pub fn with_key_prefix<K: for<'k> KeyEncoding<'k, V::Key>>(
+        self,
+        prefix: K,
+    ) -> View<'a, Cn, V, K>
     where
-        V::Key: IntoPrefixRange,
+        K: IntoPrefixRange,
     {
         View {
             connection: self.connection,
@@ -1026,7 +1029,7 @@ pub trait AsyncConnection: AsyncLowLevelConnection + Sized + Send + Sync {
     }
 
     /// Initializes [`View`] for [`schema::View`] `V`.
-    fn view<V: schema::SerializedView>(&'_ self) -> AsyncView<'_, Self, V> {
+    fn view<V: schema::SerializedView>(&'_ self) -> AsyncView<'_, Self, V, V::Key> {
         AsyncView::new(self)
     }
 
@@ -1710,11 +1713,11 @@ where
 /// }
 /// ```
 #[must_use]
-pub struct AsyncView<'a, Cn, V: schema::SerializedView> {
+pub struct AsyncView<'a, Cn, V: schema::SerializedView, Key> {
     connection: &'a Cn,
 
     /// Key filtering criteria.
-    pub key: Option<QueryKey<V::Key>>,
+    pub key: Option<QueryKey<Key>>,
 
     /// The view's data access policy. The default value is [`AccessPolicy::UpdateBefore`].
     pub access_policy: AccessPolicy,
@@ -1724,12 +1727,15 @@ pub struct AsyncView<'a, Cn, V: schema::SerializedView> {
 
     /// The maximum number of results to return.
     pub limit: Option<u32>,
+
+    _view: PhantomData<V>,
 }
 
-impl<'a, Cn, V> AsyncView<'a, Cn, V>
+impl<'a, Cn, V, Key> AsyncView<'a, Cn, V, Key>
 where
     V: schema::SerializedView,
     Cn: AsyncConnection,
+    Key: for<'k> KeyEncoding<'k, V::Key>,
 {
     fn new(connection: &'a Cn) -> Self {
         Self {
@@ -1738,6 +1744,7 @@ where
             access_policy: AccessPolicy::UpdateBefore,
             sort: Sort::Ascending,
             limit: None,
+            _view: PhantomData,
         }
     }
 
@@ -1757,9 +1764,15 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn with_key(mut self, key: V::Key) -> Self {
-        self.key = Some(QueryKey::Matches(key));
-        self
+    pub fn with_key<K: for<'k> KeyEncoding<'k, V::Key>>(self, key: K) -> AsyncView<'a, Cn, V, K> {
+        AsyncView {
+            connection: self.connection,
+            key: Some(QueryKey::Matches(key)),
+            access_policy: self.access_policy,
+            sort: self.sort,
+            limit: self.limit,
+            _view: PhantomData,
+        }
     }
 
     /// Filters for entries in the view with `keys`.
@@ -1782,9 +1795,18 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn with_keys<IntoIter: IntoIterator<Item = V::Key>>(mut self, keys: IntoIter) -> Self {
-        self.key = Some(QueryKey::Multiple(keys.into_iter().collect()));
-        self
+    pub fn with_keys<K, IntoIter: IntoIterator<Item = K>>(
+        self,
+        keys: IntoIter,
+    ) -> AsyncView<'a, Cn, V, K> {
+        AsyncView {
+            connection: self.connection,
+            key: Some(QueryKey::Multiple(keys.into_iter().collect())),
+            access_policy: self.access_policy,
+            sort: self.sort,
+            limit: self.limit,
+            _view: PhantomData,
+        }
     }
 
     /// Filters for entries in the view with the range `keys`.
@@ -1808,9 +1830,15 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn with_key_range<R: Into<Range<V::Key>>>(mut self, range: R) -> Self {
-        self.key = Some(QueryKey::Range(range.into()));
-        self
+    pub fn with_key_range<K, R: Into<Range<K>>>(self, range: R) -> AsyncView<'a, Cn, V, K> {
+        AsyncView {
+            connection: self.connection,
+            key: Some(QueryKey::Range(range.into())),
+            access_policy: self.access_policy,
+            sort: self.sort,
+            limit: self.limit,
+            _view: PhantomData,
+        }
     }
 
     /// Filters for entries in the view with keys that begin with `prefix`.
@@ -1839,12 +1867,21 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn with_key_prefix(mut self, prefix: V::Key) -> Self
+    pub fn with_key_prefix<K: for<'k> KeyEncoding<'k, V::Key>>(
+        self,
+        prefix: K,
+    ) -> AsyncView<'a, Cn, V, K>
     where
-        V::Key: IntoPrefixRange,
+        K: IntoPrefixRange,
     {
-        self.key = Some(QueryKey::Range(prefix.into_prefix_range()));
-        self
+        AsyncView {
+            connection: self.connection,
+            key: Some(QueryKey::Range(prefix.into_prefix_range())),
+            access_policy: self.access_policy,
+            sort: self.sort,
+            limit: self.limit,
+            _view: PhantomData,
+        }
     }
 
     /// Sets the access policy for queries.
@@ -1959,7 +1996,7 @@ where
     /// ```
     pub async fn query(self) -> Result<Vec<Map<V::Key, V::Value>>, Error> {
         self.connection
-            .query::<V>(self.key, self.sort, self.limit, self.access_policy)
+            .query::<V, Key>(self.key, self.sort, self.limit, self.access_policy)
             .await
     }
 
@@ -1987,7 +2024,7 @@ where
     /// ```
     pub async fn query_with_docs(self) -> Result<MappedDocuments<OwnedDocument, V>, Error> {
         self.connection
-            .query_with_docs::<V>(self.key, self.sort, self.limit, self.access_policy)
+            .query_with_docs::<V, _>(self.key, self.sort, self.limit, self.access_policy)
             .await
     }
 
@@ -2021,7 +2058,7 @@ where
         <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
     {
         self.connection
-            .query_with_collection_docs::<V>(self.key, self.sort, self.limit, self.access_policy)
+            .query_with_collection_docs::<V, _>(self.key, self.sort, self.limit, self.access_policy)
             .await
     }
 
@@ -2041,7 +2078,7 @@ where
     /// ```
     pub async fn reduce(self) -> Result<V::Value, Error> {
         self.connection
-            .reduce::<V>(self.key, self.access_policy)
+            .reduce::<V, _>(self.key, self.access_policy)
             .await
     }
 
@@ -2065,7 +2102,7 @@ where
     /// ```
     pub async fn reduce_grouped(self) -> Result<Vec<MappedValue<V::Key, V::Value>>, Error> {
         self.connection
-            .reduce_grouped::<V>(self.key, self.access_policy)
+            .reduce_grouped::<V, _>(self.key, self.access_policy)
             .await
     }
 
@@ -2083,7 +2120,7 @@ where
     /// ```
     pub async fn delete_docs(self) -> Result<u64, Error> {
         self.connection
-            .delete_docs::<V>(self.key, self.access_policy)
+            .delete_docs::<V, _>(self.key, self.access_policy)
             .await
     }
 }

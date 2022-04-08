@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     connection::{AsyncLowLevelConnection, LowLevelConnection},
-    document::{CollectionHeader, DocumentId, Header},
-    schema::{CollectionName, SerializedCollection},
+    document::{CollectionHeader, DocumentId, HasHeader, Header, Revision},
+    schema::{Collection, CollectionName, SerializedCollection},
     Error,
 };
 
@@ -272,6 +272,54 @@ impl Operation {
             command: Command::Delete { header },
         }
     }
+
+    /// Check that the document `id` still exists in `collection`. If a document
+    /// with that id is not present, the transaction will not be applied and
+    /// [`Error::DocumentNotFound`] will be returned.
+    ///
+    /// Upon success, [`OperationResult::Success`] will be included in the
+    /// transaction's results.
+    pub const fn check_document_id_exists(collection: CollectionName, id: DocumentId) -> Self {
+        Self {
+            collection,
+            command: Command::Check { id, revision: None },
+        }
+    }
+
+    /// Check that the document `id` still exists in [`Collection`] `C`. If a
+    /// document with that id is not present, the transaction will not be
+    /// applied and [`Error::DocumentNotFound`] will be returned.
+    ///
+    /// Upon success, [`OperationResult::Success`] will be included in the
+    /// transaction's results.
+    pub fn check_document_exists<C: Collection>(id: C::PrimaryKey) -> Result<Self, Error> {
+        Ok(Self::check_document_id_exists(
+            C::collection_name(),
+            DocumentId::new(id)?,
+        ))
+    }
+
+    /// Check that the header of `doc_or_header` is the current revision of the
+    /// stored document in [`Collection`] `C`. If a document with the header's
+    /// id is not present, the transaction will not be applied and
+    /// [`Error::DocumentNotFound`] will be returned. If a document with the
+    /// header's id is present and the revision does not match, the transaction
+    /// will not be applied and [`Error::DocumentConflict`] will be returned.
+    ///
+    /// Upon success, [`OperationResult::Success`] will be included in the
+    /// transaction's results.
+    pub fn check_document_is_current<C: Collection, H: HasHeader>(
+        doc_or_header: &H,
+    ) -> Result<Self, Error> {
+        let header = doc_or_header.header()?;
+        Ok(Self {
+            collection: C::collection_name(),
+            command: Command::Check {
+                id: header.id,
+                revision: Some(header.revision),
+            },
+        })
+    }
 }
 
 /// A command to execute within a `Collection`.
@@ -316,6 +364,17 @@ pub enum Command {
     Delete {
         /// The current header of the `Document`.
         header: Header,
+    },
+
+    /// Checks whether a document exists, and optionally whether its revision is
+    /// still current. If the document is not found, a `DocumentNotFound` error
+    /// will be returned.  If the document revision is provided and does not
+    /// match, a `DocumentConflict` error will be returned.
+    Check {
+        /// The id of the document to check.
+        id: DocumentId,
+        /// The revision of the document to check.
+        revision: Option<Revision>,
     },
 }
 

@@ -137,7 +137,7 @@ pub struct ViewVersion {
 }
 
 impl ViewVersion {
-    const CURRENT_VERSION: u8 = 2;
+    const CURRENT_VERSION: u8 = 3;
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, crate::Error> {
         match pot::from_slice(bytes) {
             Ok(version) => Ok(version),

@@ -867,13 +867,16 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// the view using [`self.view::<View>().query()`](super::AsyncView::query)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
-    async fn query<V: schema::SerializedView>(
+    async fn query<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<ViewMappings<V>, Error> {
+    ) -> Result<ViewMappings<V>, Error>
+    where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
+    {
         let view = self.schematic().view::<V>()?;
         let mappings = self
             .query_by_name(
@@ -888,7 +891,7 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
             .into_iter()
             .map(|mapping| {
                 Ok(Map {
-                    key: <V::Key as Key>::from_ord_bytes(&mapping.key)
+                    key: <V::Key as key::Key>::from_ord_bytes(&mapping.key)
                         .map_err(view::Error::key_serialization)
                         .map_err(Error::from)?,
                     value: V::deserialize(&mapping.value)?,
@@ -905,15 +908,20 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// The parameters for the query can be customized on the builder returned
     /// from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
-    async fn query_with_docs<V: schema::SerializedView>(
+    async fn query_with_docs<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
-    ) -> Result<MappedDocuments<OwnedDocument, V>, Error> {
+    ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
+    where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
+    {
         // Query permission is checked by the query call
-        let results = self.query::<V>(key, order, limit, access_policy).await?;
+        let results = self
+            .query::<V, Key>(key, order, limit, access_policy)
+            .await?;
 
         // Verify that there is permission to fetch each document
         let mut ids = Vec::with_capacity(results.len());
@@ -941,20 +949,21 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
-    async fn query_with_collection_docs<V>(
+    async fn query_with_collection_docs<V, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
         V: schema::SerializedView,
         V::Collection: SerializedCollection,
         <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
     {
         let mapped_docs = self
-            .query_with_docs::<V>(key, order, limit, access_policy)
+            .query_with_docs::<V, Key>(key, order, limit, access_policy)
             .await?;
         let mut collection_docs = BTreeMap::new();
         for (id, doc) in mapped_docs.documents {
@@ -974,11 +983,14 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
-    async fn reduce<V: schema::SerializedView>(
+    async fn reduce<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<V::Value, Error> {
+    ) -> Result<V::Value, Error>
+    where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
+    {
         let view = self.schematic().view::<V>()?;
         self.reduce_by_name(
             &view.view_name(),
@@ -998,11 +1010,14 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
-    async fn reduce_grouped<V: schema::SerializedView>(
+    async fn reduce_grouped<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<GroupedReductions<V>, Error> {
+    ) -> Result<GroupedReductions<V>, Error>
+    where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
+    {
         let view = self.schematic().view::<V>()?;
         self.reduce_grouped_by_name(
             &view.view_name(),
@@ -1028,11 +1043,14 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
-    async fn delete_docs<V: schema::SerializedView>(
+    async fn delete_docs<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<V::Key>>,
+        key: Option<QueryKey<Key>>,
         access_policy: AccessPolicy,
-    ) -> Result<u64, Error> {
+    ) -> Result<u64, Error>
+    where
+        Key: for<'k> KeyEncoding<'k, V::Key>,
+    {
         let view = self.schematic().view::<V>()?;
         self.delete_docs_by_name(
             &view.view_name(),

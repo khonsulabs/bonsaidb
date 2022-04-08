@@ -878,7 +878,7 @@ impl<Response: Send + Sync, F: Future<Output = ()> + Send + Sync + 'static> ApiW
     for ApiFutureBoxer<Response, F>
 {
     fn invoke(&self, response: Response) -> BoxFuture<'static, ()> {
-        (&self.0)(response).boxed()
+        self.0(response).boxed()
     }
 }
 

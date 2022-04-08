@@ -34,6 +34,7 @@ use crate::{
         Collection, CollectionName, MappedValue, NamedCollection, Qualified, Schema, SchemaName,
         Schematic, SerializedCollection, View, ViewMapResult,
     },
+    transaction::{Operation, Transaction},
     Error,
 };
 
@@ -418,6 +419,7 @@ pub enum HarnessTest {
     GetMultiple,
     List,
     ListTransactions,
+    TransactionCheck,
     ViewQuery,
     UnassociatedCollection,
     Compact,
@@ -557,6 +559,16 @@ macro_rules! define_async_connection_test_suite {
                 let db = harness.connect().await?;
 
                 $crate::test_util::list_transactions_tests(&db).await?;
+                harness.shutdown().await
+            }
+
+            #[tokio::test]
+            async fn transaction_check() -> anyhow::Result<()> {
+                let harness =
+                    $harness::new($crate::test_util::HarnessTest::TransactionCheck).await?;
+                let db = harness.connect().await?;
+
+                $crate::test_util::transaction_check_tests(&db).await?;
                 harness.shutdown().await
             }
 
@@ -753,6 +765,15 @@ macro_rules! define_blocking_connection_test_suite {
                 let db = harness.connect()?;
 
                 $crate::test_util::blocking_list_transactions_tests(&db)?;
+                harness.shutdown()
+            }
+
+            #[test]
+            fn transaction_check() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::TransactionCheck)?;
+                let db = harness.connect()?;
+
+                $crate::test_util::blocking_transaction_check_tests(&db)?;
                 harness.shutdown()
             }
 
@@ -1069,17 +1090,13 @@ pub async fn conflict_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     // To generate a conflict, let's try to do the same update again by
     // reverting the header
     doc.header = Header::try_from(header).unwrap();
-    match db
+    let conflicting_header = db
         .update::<Basic, _>(&mut doc)
         .await
         .expect_err("conflict should have generated an error")
-    {
-        Error::DocumentConflict(collection, header) => {
-            assert_eq!(collection, Basic::collection_name());
-            assert_eq!(header.id, doc.header.id);
-        }
-        other => return Err(anyhow::Error::from(other)),
-    }
+        .conflicting_document::<Basic>()
+        .expect("conflict not detected");
+    assert_eq!(conflicting_header.id, doc.header.id);
 
     // Let's force an update through overwrite. After this succeeds, the header
     // is updated to the new revision.
@@ -1114,16 +1131,12 @@ pub fn blocking_conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     // To generate a conflict, let's try to do the same update again by
     // reverting the header
     doc.header = Header::try_from(header).unwrap();
-    match db
+    let conflicting_header = db
         .update::<Basic, _>(&mut doc)
         .expect_err("conflict should have generated an error")
-    {
-        Error::DocumentConflict(collection, header) => {
-            assert_eq!(collection, Basic::collection_name());
-            assert_eq!(header.id, doc.header.id);
-        }
-        other => return Err(anyhow::Error::from(other)),
-    }
+        .conflicting_document::<Basic>()
+        .expect("conflict not detected");
+    assert_eq!(conflicting_header.id, doc.header.id);
 
     // Let's force an update through overwrite. After this succeeds, the header
     // is updated to the new revision.
@@ -1448,6 +1461,78 @@ pub fn blocking_list_transactions_tests<C: Connection + Clone + 'static>(
     Ok(())
 }
 
+pub async fn transaction_check_tests<C: AsyncConnection + 'static>(db: &C) -> anyhow::Result<()> {
+    let mut doc = Basic::new("test").push_into_async(db).await?;
+    let initial_header = doc.header;
+    doc.contents.value = String::from("updated");
+    doc.update_async(db).await?;
+
+    // Positive flow, check id, as well as id + header.
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_exists::<Basic>(doc.header.id)?);
+    tx.push(Operation::check_document_is_current::<Basic, _>(&doc)?);
+    tx.push(Operation::insert_serialized::<Basic>(
+        None,
+        &Basic::new("new doc"),
+    )?);
+    tx.apply_async(db).await?;
+
+    // Error flows. Ensure the first violation is the error returned.
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_is_current::<Basic, _>(
+        &initial_header,
+    )?);
+    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    let result = tx.apply_async(db).await.unwrap_err();
+    assert!(matches!(result, Error::DocumentConflict(_, _)));
+
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    tx.push(Operation::check_document_is_current::<Basic, _>(
+        &initial_header,
+    )?);
+    let result = tx.apply_async(db).await.unwrap_err();
+    assert!(matches!(result, Error::DocumentNotFound(_, _)));
+
+    Ok(())
+}
+
+pub fn blocking_transaction_check_tests<C: Connection + 'static>(db: &C) -> anyhow::Result<()> {
+    let mut doc = Basic::new("test").push_into(db)?;
+    let initial_header = doc.header;
+    doc.contents.value = String::from("updated");
+    doc.update(db)?;
+
+    // Positive flow, check id, as well as id + header.
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_exists::<Basic>(doc.header.id)?);
+    tx.push(Operation::check_document_is_current::<Basic, _>(&doc)?);
+    tx.push(Operation::insert_serialized::<Basic>(
+        None,
+        &Basic::new("new doc"),
+    )?);
+    tx.apply(db)?;
+
+    // Error flows. Ensure the first violation is the error returned.
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_is_current::<Basic, _>(
+        &initial_header,
+    )?);
+    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    let result = tx.apply(db).unwrap_err();
+    assert!(matches!(result, Error::DocumentConflict(_, _)));
+
+    let mut tx = Transaction::new();
+    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    tx.push(Operation::check_document_is_current::<Basic, _>(
+        &initial_header,
+    )?);
+    let result = tx.apply(db).unwrap_err();
+    assert!(matches!(result, Error::DocumentNotFound(_, _)));
+
+    Ok(())
+}
+
 pub async fn view_query_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let a = collection.push(&Basic::new("A")).await?;
@@ -1748,6 +1833,15 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
         vec![MappedValue::new(None, 1,),]
     );
 
+    // Remove the final document, which has a parent id of None. We'll add a new
+    // document with None to verify that the mapper handles the edge case of a
+    // delete/insert in the same mapping operation.
+    db.view::<BasicByParentId>().delete_docs().await?;
+    collection.push(&Basic::new("B")).await?;
+
+    let all_entries = db.view::<BasicByParentId>().query().await?;
+    assert_eq!(all_entries.len(), 1);
+
     Ok(())
 }
 
@@ -1809,6 +1903,15 @@ pub fn blocking_view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         db.view::<BasicByParentId>().reduce_grouped()?,
         vec![MappedValue::new(None, 1,),]
     );
+
+    // Remove the final document, which has a parent id of None. We'll add a new
+    // document with None to verify that the mapper handles the edge case of a
+    // delete/insert in the same mapping operation.
+    db.view::<BasicByParentId>().delete_docs()?;
+    collection.push(&Basic::new("B"))?;
+
+    let all_entries = db.view::<BasicByParentId>().query()?;
+    assert_eq!(all_entries.len(), 1);
 
     Ok(())
 }

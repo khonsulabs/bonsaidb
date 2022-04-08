@@ -100,8 +100,7 @@ where
     T: Collection + 'static,
 {
     fn schema_name() -> SchemaName {
-        let CollectionName(qualified) = Self::collection_name();
-        SchemaName(qualified)
+        SchemaName::from(Self::collection_name())
     }
 
     fn define_collections(schema: &mut Schematic) -> Result<(), Error> {

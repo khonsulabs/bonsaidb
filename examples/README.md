@@ -31,6 +31,12 @@ Source code: [`basic-local/examples/view-examples.rs`](./basic-local/examples/vi
 cargo run --example view-examples
 ```
 
+Async version: [`basic-local/examples/view-examples-async.rs`](./basic-local/examples/view-examples-async.rs)
+
+```sh
+cargo run --example view-examples-async --features async
+```
+
 ## Using a View for Keyword Search
 
 Source code: [`basic-local/examples/keyword-search.rs`](./basic-local/examples/keyword-search.rs)
@@ -61,6 +67,36 @@ Source code: [`basic-local/examples/key-value-store.rs`](./basic-local/examples/
 
 ```sh
 cargo run --example key-value-store
+```
+
+Async version: [`basic-local/examples/key-value-store-async.rs`](./basic-local/examples/key-value-store-async.rs)
+
+```sh
+cargo run --example key-value-store-async --features async
+```
+
+## Storing Large Files
+
+### Basic file storage
+
+Source code: [`../crates/bonsaidb-files/examples/basic-files.rs`](../crates/bonsaidb-files/examples/basic-files.rs)
+
+```sh
+cargo run --example basic-files
+```
+
+Async version: [`../crates/bonsaidb-files/examples/basic-files-async.rs`](../crates/bonsaidb-files/examples/basic-files-async.rs)
+
+```sh
+cargo run --example basic-files-async --features async
+```
+
+### Storing multiple sets of files in one schema
+
+Source code: [`../crates/bonsaidb-files/examples/file-configs.rs`](../crates/bonsaidb-files/examples/file-configs.rs)
+
+```sh
+cargo run --example file-configs
 ```
 
 ## Basic BonsaiDb Server + Network Access
