@@ -43,7 +43,7 @@ where
         contents: &[u8],
         database: &Database,
     ) -> Result<CollectionDocument<Self>, Error> {
-        if name.contains('/') {
+        if name.contains('/') || name.is_empty() {
             return Err(Error::InvalidName);
         }
 
@@ -73,7 +73,7 @@ where
         contents: &[u8],
         database: &Database,
     ) -> Result<CollectionDocument<Self>, Error> {
-        if name.contains('/') {
+        if name.contains('/') || name.is_empty() {
             return Err(Error::InvalidName);
         }
 

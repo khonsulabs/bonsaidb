@@ -20,12 +20,11 @@
 //! ```rust
 #![doc = include_str!("../examples/basic-files.rs")]
 //! ```
-//!
+//! 
 //! # Async Support
 //!
 //! This crate adds implementations of `tokio::io::AsyncRead` and
 //! `tokio::io::AsyncWrite` when the `async` feature flag is enabled.
-//!
 //! ```rust
 #![doc = include_str!("../examples/basic-files-async.rs")]
 //! ```
@@ -84,9 +83,13 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
         Ok(())
     }
 
-    /// Builds a new file named `name`.
-    fn build<Name: Into<String>>(name: Name) -> direct::FileBuilder<'static, Self> {
-        direct::FileBuilder::named(name)
+    /// Builds a new file. If `name_or_path` starts with a `/`, the argument is
+    /// treated as a full path to the file being built. Otherwise, the argument
+    /// is treated as the file's name.
+    fn build<NameOrPath: AsRef<str>>(
+        name_or_path: NameOrPath,
+    ) -> direct::FileBuilder<'static, Self> {
+        direct::FileBuilder::new(name_or_path)
     }
 
     /// Returns the file with the unique `id` given, if found. This function

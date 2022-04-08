@@ -482,10 +482,25 @@ pub struct FileBuilder<'a, Config> {
 }
 
 impl<'a, Config: FileConfig> FileBuilder<'a, Config> {
-    pub(crate) fn named<Name: Into<String>>(name: Name) -> Self {
+    pub(crate) fn new<NameOrPath: AsRef<str>>(name_or_path: NameOrPath) -> Self {
+        let mut name_or_path = name_or_path.as_ref();
+        let (path, name) = if name_or_path.starts_with('/') {
+            // Trim the trailing / if there is one.
+            if name_or_path.ends_with('/') && name_or_path.len() > 1 {
+                name_or_path = &name_or_path[..name_or_path.len() - 1];
+            }
+            let (path, name) = name_or_path.rsplit_once('/').unwrap();
+            let path = match path {
+                "" | "/" => None,
+                other => Some(other.to_string()),
+            };
+            (path, name.to_string())
+        } else {
+            (None, name_or_path.to_string())
+        };
         Self {
-            path: None,
-            name: name.into(),
+            path,
+            name,
             contents: b"",
             _config: PhantomData,
         }
