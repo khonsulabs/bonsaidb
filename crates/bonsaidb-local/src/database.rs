@@ -60,6 +60,7 @@ use crate::{
     database::keyvalue::BackgroundWorkerProcessTarget,
     error::Error,
     open_trees::OpenTrees,
+    storage::StorageLock,
     views::{
         mapper, view_document_map_tree_name, view_entries_tree_name,
         view_invalidated_docs_tree_name, ViewEntry,
@@ -1478,7 +1479,11 @@ impl Borrow<Roots<AnyFile>> for Context {
 }
 
 impl Context {
-    pub(crate) fn new(roots: Roots<AnyFile>, key_value_persistence: KeyValuePersistence) -> Self {
+    pub(crate) fn new(
+        roots: Roots<AnyFile>,
+        key_value_persistence: KeyValuePersistence,
+        storage_lock: Option<StorageLock>,
+    ) -> Self {
         let background_worker_target = Watchable::new(BackgroundWorkerProcessTarget::Never);
         let mut background_worker_target_watcher = background_worker_target.watch();
         let key_value_state = Arc::new(Mutex::new(keyvalue::KeyValueState::new(
@@ -1499,6 +1504,7 @@ impl Context {
                 keyvalue::background_worker(
                     &background_worker_state,
                     &mut background_worker_target_watcher,
+                    storage_lock,
                 );
             })
             .unwrap();

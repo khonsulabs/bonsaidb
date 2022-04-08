@@ -36,6 +36,7 @@ use bonsaidb_core::{
 };
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::{connection::Authentication, permissions::bonsai::AuthenticationMethod};
+use fs2::FileExt;
 use itertools::Itertools;
 use nebari::{
     io::{
@@ -248,7 +249,7 @@ impl From<StorageInstance> for Storage {
 
 #[derive(Debug)]
 struct Data {
-    id: StorageId,
+    lock: StorageLock,
     path: PathBuf,
     parallelization: usize,
     threadpool: ThreadPool<AnyFile>,
@@ -296,7 +297,7 @@ impl Storage {
 
         fs::create_dir_all(&owned_path)?;
 
-        let id = Self::lookup_or_create_id(&configuration, &owned_path)?;
+        let storage_lock = Self::lookup_or_create_id(&configuration, &owned_path)?;
 
         #[cfg(feature = "encryption")]
         let vault = {
@@ -308,7 +309,11 @@ impl Storage {
                 ),
             };
 
-            Arc::new(Vault::initialize(id, &owned_path, vault_key_storage)?)
+            Arc::new(Vault::initialize(
+                storage_lock.id(),
+                &owned_path,
+                vault_key_storage,
+            )?)
         };
 
         let parallelization = configuration.workers.parallelization;
@@ -334,7 +339,7 @@ impl Storage {
         let storage = Self {
             instance: StorageInstance {
                 data: Arc::new(Data {
-                    id,
+                    lock: storage_lock,
                     tasks,
                     parallelization,
                     subscribers: Arc::default(),
@@ -382,49 +387,58 @@ impl Storage {
     fn lookup_or_create_id(
         configuration: &StorageConfiguration,
         path: &Path,
-    ) -> Result<StorageId, Error> {
-        Ok(StorageId(if let Some(id) = configuration.unique_id {
+    ) -> Result<StorageLock, Error> {
+        let id_path = {
+            let storage_id = path.join("storage-id");
+            if storage_id.exists() {
+                storage_id
+            } else {
+                path.join("server-id")
+            }
+        };
+
+        let (id, file) = if let Some(id) = configuration.unique_id {
             // The configuraiton id override is not persisted to disk. This is
             // mostly to prevent someone from accidentally adding this
             // configuration, realizing it breaks things, and then wanting to
             // revert. This makes reverting to the old value easier.
-            id
+            let file = if id_path.exists() {
+                File::open(id_path)?
+            } else {
+                let mut file = File::create(id_path)?;
+                let id = id.to_string();
+                file.write_all(id.as_bytes())?;
+                file
+            };
+            file.lock_exclusive()?;
+            (id, file)
         } else {
             // Load/Store a randomly generated id into a file. While the value
             // is numerical, the file contents are the ascii decimal, making it
             // easier for a human to view, and if needed, edit.
-            let id_path = path.join("server-id");
 
             if id_path.exists() {
                 // This value is important enought to not allow launching the
                 // server if the file can't be read or contains unexpected data.
-                let existing_id = String::from_utf8(
-                    File::open(id_path)
-                        .and_then(|mut f| {
-                            let mut bytes = Vec::new();
-                            f.read_to_end(&mut bytes).map(|_| bytes)
-                        })
-                        .expect("error reading server-id file"),
-                )
-                .expect("server-id contains invalid data");
+                let mut file = File::open(id_path)?;
+                file.lock_exclusive()?;
+                let mut bytes = Vec::new();
+                file.read_to_end(&mut bytes)?;
+                let existing_id =
+                    String::from_utf8(bytes).expect("server-id contains invalid data");
 
-                existing_id.parse().expect("server-id isn't numeric")
+                (existing_id.parse().expect("server-id isn't numeric"), file)
             } else {
                 let id = { thread_rng().gen::<u64>() };
-                File::create(id_path)
-                    .and_then(|mut file| {
-                        let id = id.to_string();
-                        file.write_all(id.as_bytes())
-                    })
-                    .map_err(|err| {
-                        Error::Core(bonsaidb_core::Error::Configuration(format!(
-                            "Error writing server-id file: {}",
-                            err
-                        )))
-                    })?;
-                id
+                let mut file = File::create(id_path)?;
+                file.lock_exclusive()?;
+
+                file.write_all(id.to_string().as_bytes())?;
+
+                (id, file)
             }
-        }))
+        };
+        Ok(StorageLock::new(StorageId(id), file))
     }
 
     fn cache_available_databases(&self) -> Result<(), Error> {
@@ -462,7 +476,7 @@ impl Storage {
     /// with the new server ID.
     #[must_use]
     pub fn unique_id(&self) -> StorageId {
-        self.instance.data.id
+        self.instance.data.lock.id()
     }
 
     #[must_use]
@@ -613,7 +627,11 @@ impl StorageInstance {
             }
 
             let roots = config.open().map_err(Error::from)?;
-            let context = Context::new(roots, self.data.key_value_persistence.clone());
+            let context = Context::new(
+                roots,
+                self.data.key_value_persistence.clone(),
+                Some(self.data.lock.clone()),
+            );
 
             open_roots.insert(name.to_owned(), context.clone());
 
@@ -1676,5 +1694,29 @@ impl nebari::Vault for TreeVault {
 
     fn decrypt(&self, payload: &[u8]) -> Result<Vec<u8>, Error> {
         self.vault.decrypt_payload(payload, None)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct StorageLock(StorageId, Arc<LockData>);
+
+impl StorageLock {
+    pub const fn id(&self) -> StorageId {
+        self.0
+    }
+}
+
+#[derive(Debug)]
+struct LockData(File);
+
+impl StorageLock {
+    fn new(id: StorageId, file: File) -> Self {
+        Self(id, Arc::new(LockData(file)))
+    }
+}
+
+impl Drop for LockData {
+    fn drop(&mut self) {
+        drop(self.0.unlock())
     }
 }

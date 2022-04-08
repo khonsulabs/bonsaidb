@@ -28,6 +28,7 @@ use watchable::{Watchable, Watcher};
 use crate::{
     config::KeyValuePersistence,
     database::compat,
+    storage::StorageLock,
     tasks::{Job, Keyed, Task},
     Database, DatabaseNonBlocking, Error,
 };
@@ -751,6 +752,7 @@ impl KeyValueState {
 pub fn background_worker(
     key_value_state: &Weak<Mutex<KeyValueState>>,
     timestamp_receiver: &mut Watcher<BackgroundWorkerProcessTarget>,
+    storage_lock: Option<StorageLock>,
 ) {
     loop {
         let mut perform_operations = false;
@@ -803,6 +805,12 @@ pub fn background_worker(
             state.update_background_worker_target();
         }
     }
+
+    // The key-value store's delayed persistence can cause the key-value storage
+    // to be written past when the last reference to the storage is still held.
+    // The storage lock being held ensures that another reader/writer doesn't
+    // begin accessing this same storage again.
+    drop(storage_lock);
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -875,7 +883,7 @@ mod tests {
             .file_manager(AnyFileManager::std())
             .open()?;
 
-        let context = Context::new(sled.clone(), persistence);
+        let context = Context::new(sled.clone(), persistence, None);
 
         test_contents(context, sled)?;
 
@@ -1166,6 +1174,7 @@ mod tests {
         let context = Context::new(
             sled,
             KeyValuePersistence::lazy([PersistenceThreshold::after_changes(2)]),
+            None,
         );
         context
             .perform_kv_operation(KeyOperation {

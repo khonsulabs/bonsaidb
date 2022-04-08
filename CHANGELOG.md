@@ -52,6 +52,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `Operation::check_document_id_exists(CollectionName,DocumentId)`
   - `Operation::check_document_exists<Collection>(Collection::PrimaryKey)`
   - `Operation::check_document_is_current(&impl HasHeader)`
+- `Storage` now acquires an exclusive lock to ensure multiple instances are not
+  able to be opened at the same time. This lock is held across all locations the
+  database is accessed, including background threads.
+- `bonsaidb-files` is a new crate that enables storing large files in BonsaiDb,
+  and includes abstractions for reading/writing files using common
+  traits:
+  
+  - `std::io::Read`
+  - `std::io::Seek`
+  - `std::io::Write`
+  - `tokio::io::AsyncRead`
+  - `tokio::io::AsyncSeek`
+  - `tokio::io::AsyncWrite`
 
 ## v0.4.1
 
