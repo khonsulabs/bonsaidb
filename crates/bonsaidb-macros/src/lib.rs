@@ -648,6 +648,72 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
+#[derive(Attribute)]
+#[attribute(ident = "api")]
+#[attribute(
+    invalid_field = r#"Only `name = "name"`, `authority = "authority"`, `response = ResponseType`, `response = ErrorType` and `core = bonsaidb::core` are supported attributes"#
+)]
+struct SchemaAttribute {
+    #[attribute(missing = r#"You need to specify the api name via `#[api(name = "name")]`"#)]
+    name: String,
+    authority: Option<String>,
+    #[attribute(
+        expected = r#"Specify the `response` like so: `response = ResponseType`"#
+    )]
+    collections: Option<Type>,
+    #[attribute(
+        expected = r#"Specify the `error` like so: `error = ErrorType`"#
+    )]
+    collections: Option<Type>,
+    #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
+    core: Option<Path>,
+}
+
+/// Derives the `bonsaidb::core::schema::Schema` trait.
+#[proc_macro_error]
+/// `#[schema(name = "Name", authority = "Authority", collections = [A, B, C]), core = bonsaidb::core]`
+/// `authority`, `collections` and `core` are optional
+#[proc_macro_derive(Schema, attributes(schema))]
+pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let DeriveInput {
+        attrs,
+        ident,
+        generics,
+        ..
+    } = parse_macro_input!(input as DeriveInput);
+
+    let SchemaAttribute {
+        name,
+        authority,
+        collections,
+        core,
+    } = SchemaAttribute::from_attributes(attrs).unwrap_or_abort();
+
+    let core = core.unwrap_or_else(core_path);
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    let name = authority.map_or_else(
+        || quote!(<#core::schema::SchemaName as #core::schema::Qualified>::private(#name)),
+        |authority| quote!(<#core::schema::SchemaName as #core::schema::Qualified>::new(#authority, #name)),
+    );
+
+    quote! {
+        impl #impl_generics #core::schema::Schema for #ident #ty_generics #where_clause {
+            fn schema_name() -> #core::schema::SchemaName {
+                #name
+            }
+
+            fn define_collections(
+                schema: &mut #core::schema::Schematic
+            ) -> Result<(), #core::Error> {
+                #( schema.define_collection::<#collections>()?; )*
+                Ok(())
+            }
+        }
+    }
+    .into()
+}
+
 #[test]
 fn ui() {
     use trybuild::TestCases;
