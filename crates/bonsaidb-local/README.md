@@ -16,8 +16,7 @@ feature is released.
 
 ## Feature Flags
 
-By default, the `full` feature is enabled. These features are prefixed by
-`local-` when being enabled from the omnibus `bonsaidb` crate.
+By default, the `full` feature is enabled.
 
 - `full`: Enables all the flags below
 - `async`: Enables async-compatible types

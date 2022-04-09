@@ -163,29 +163,29 @@ fn all_tests() -> &'static [TestSuite] {
             toolchain: "stable",
         },
         TestSuite {
-            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,websockets",
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,password-hashing,websockets",
             toolchain: "stable",
         },
         TestSuite {
-            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,server-acme",
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,password-hashing,acme",
             toolchain: "stable",
         },
         TestSuite {
-            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,server-compression",
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,password-hashing,compression",
             toolchain: "stable",
         },
         TestSuite {
-            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,server-password-hashing,client-password-hashing,server-encryption",
-            toolchain: "stable",
-        },
-        TestSuite {
-            cargo_args:
-                "--package bonsaidb --no-default-features --features server,client,test-util,server-acme,websockets",
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,password-hashing,encryption",
             toolchain: "stable",
         },
         TestSuite {
             cargo_args:
-                "--package bonsaidb --no-default-features --features server,client,test-util,server-acme,websockets,server-password-hashing,client-password-hashing",
+                "--package bonsaidb --no-default-features --features server,client,test-util,acme,websockets",
+            toolchain: "stable",
+        },
+        TestSuite {
+            cargo_args:
+                "--package bonsaidb --no-default-features --features server,client,test-util,acme,websockets,password-hashing",
             toolchain: "stable",
         },
         TestSuite {

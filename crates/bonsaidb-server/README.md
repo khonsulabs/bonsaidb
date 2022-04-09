@@ -27,8 +27,7 @@ feature is released.
 
 ## Feature Flags
 
-By default, the `full` feature is enabled. These features are prefixed by
-`server-` when being enabled from the omnibus `bonsaidb` crate.
+By default, the `full` feature is enabled.
 
 - `full`: Enables all the flags below,
 - `acme`: Enables automtic certificate acquisition through ACME/LetsEncrypt.

@@ -19,13 +19,7 @@ required-features = ["cli"]
 
 [[test]]
 name = "core-suite"
-required-features = [
-    "server",
-    "client",
-    "test-util",
-    "server-password-hashing",
-    "client-password-hashing",
-]
+required-features = ["server", "client", "test-util", "password-hashing"]
 
 [[test]]
 name = "simultaneous-connections"
@@ -38,75 +32,47 @@ required-features = ["server", "client"]
 [features]
 default = []
 full = ["local-full", "server-full", "client-full"]
-local-full = [
-    "local",
-    "local-cli",
-    "local-instrument",
-    "local-encryption",
-    "local-password-hashing",
-    "local-compression",
-    "local-async",
-]
-local = ["bonsaidb-local"]
-server-full = [
-    "server",
-    "server-websockets",
-    "server-encryption",
-    "server-cli",
-    "server-instrument",
-    "server-acme",
-    "server-hyper",
-    "server-pem",
-    "server-password-hashing",
-    "server-compression",
-]
-server = ["bonsaidb-server", "local"]
-client-full = [
-    "client",
-    "client-websockets",
-    "client-trusted-dns",
-    "client-password-hashing",
-]
-client = ["bonsaidb-client"]
-test-util = ["bonsaidb-client/test-util", "bonsaidb-server/test-util"]
+local-full = ["local", "bonsaidb-local?/full"]
+local = ["dep:bonsaidb-local"]
+server-full = ["server", "bonsaidb-server?/full"]
+server = ["dep:bonsaidb-server", "local"]
+client-full = ["client", "bonsaidb-client?/full"]
+client = ["dep:bonsaidb-client"]
+test-util = ["bonsaidb-client?/test-util", "bonsaidb-server?/test-util"]
 
 keystorage-s3 = ["bonsaidb-keystorage-s3"]
 
-cli = ["anyhow", "tokio", "clap", "url", "local-cli", "server-cli"]
-local-cli = ["bonsaidb-local/cli"]
-server-cli = ["bonsaidb-server/cli", "local-cli"]
-
-websockets = ["server-websockets", "client-websockets"]
-server-websockets = ["bonsaidb-server/websockets"]
-client-websockets = ["bonsaidb-client/websockets"]
-
-client-trusted-dns = ["bonsaidb-client/trusted-dns"]
-
-local-instrument = ["bonsaidb-local/instrument"]
-server-instrument = ["bonsaidb-server/instrument"]
-
-server-acme = ["bonsaidb-server/acme"]
-server-hyper = ["bonsaidb-server/hyper"]
-server-pem = ["bonsaidb-server/pem"]
-
-server-encryption = ["bonsaidb-server/encryption"]
-local-encryption = ["bonsaidb-local/encryption"]
-
-password-hashing = ["bonsaidb-core/password-hashing"]
-local-password-hashing = ["password-hashing", "bonsaidb-local/password-hashing"]
-server-password-hashing = [
-    "password-hashing",
-    "bonsaidb-server/password-hashing",
-]
-client-password-hashing = [
-    "password-hashing",
-    "bonsaidb-client/password-hashing",
+cli = [
+    "anyhow",
+    "tokio",
+    "clap",
+    "url",
+    "bonsaidb-local?/cli",
+    "bonsaidb-server?/cli",
 ]
 
-local-compression = ["bonsaidb-local/compression"]
-server-compression = ["bonsaidb-server/compression"]
+websockets = ["bonsaidb-server?/websockets", "bonsaidb-client?/websockets"]
 
-local-async = ["bonsaidb-local/async"]
+trusted-dns = ["bonsaidb-client?/trusted-dns"]
+
+instrument = ["bonsaidb-local?/instrument", "bonsaidb-server?/instrument"]
+
+acme = ["bonsaidb-server?/acme"]
+hyper = ["bonsaidb-server?/hyper"]
+pem = ["bonsaidb-server?/pem"]
+
+encryption = ["bonsaidb-server?/encryption", "bonsaidb-local?/encryption"]
+
+password-hashing = [
+    "bonsaidb-core/password-hashing",
+    "bonsaidb-local?/password-hashing",
+    "bonsaidb-server?/password-hashing",
+    "bonsaidb-client?/password-hashing",
+]
+
+compression = ["bonsaidb-local?/compression", "bonsaidb-server?/compression"]
+
+async = ["bonsaidb-local?/async"]
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "=0.4.0", default-features = false, features = [

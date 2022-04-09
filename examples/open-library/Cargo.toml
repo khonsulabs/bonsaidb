@@ -9,7 +9,7 @@ tokio = { version = "1.16.1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 bonsaidb = { path = "../../crates/bonsaidb", version = "0.4.0", features = [
     "local",
-    "local-compression",
+    "compression",
 ] }
 anyhow = "1.0.55"
 time = { version = "0.3.7", features = ["serde", "parsing"] }

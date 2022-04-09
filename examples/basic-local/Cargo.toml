@@ -17,7 +17,7 @@ name = "pubsub-async"
 required-features = ["async"]
 
 [features]
-async = ["tokio", "bonsaidb/local-async"]
+async = ["tokio", "bonsaidb/async"]
 
 [dependencies]
 tokio = { version = "1.16.1", features = ["full"], optional = true }

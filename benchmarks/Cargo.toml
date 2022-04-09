@@ -15,16 +15,15 @@ harness = false
 [features]
 sqlite = ["rusqlite", "sqlx", "sqlx/sqlite"]
 postgresql = ["sqlx", "sqlx/postgres"]
-compression = ["bonsaidb/server-compression", "bonsaidb/local-compression"]
+compression = ["bonsaidb/compression"]
 mongo = ["mongodb"]
 
 [dependencies]
 redis = { version = "0.21", optional = true, features = ["tokio-comp"] }
 bonsaidb = { path = "../crates/bonsaidb", version = "0.4.0", features = [
     "client",
-    "client-websockets",
     "server",
-    "server-websockets",
+    "websockets",
     "local",
     "test-util",
 ] }

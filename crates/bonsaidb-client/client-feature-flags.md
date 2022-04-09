@@ -1,7 +1,6 @@
 ## Feature Flags
 
-By default, the `full` feature is enabled. These features are prefixed by
-`client-` when being enabled from the omnibus `bonsaidb` crate.
+By default, the `full` feature is enabled.
 
 - `full`: Enables `trusted-dns` and `websockets`
 - `trusted-dns`: Enables using trust-dns for DNS resolution. If not

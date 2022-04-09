@@ -389,11 +389,11 @@ impl Storage {
         path: &Path,
     ) -> Result<StorageLock, Error> {
         let id_path = {
-            let storage_id = path.join("storage-id");
+            let storage_id = path.join("server-id");
             if storage_id.exists() {
                 storage_id
             } else {
-                path.join("server-id")
+                path.join("storage-id")
             }
         };
 
@@ -1717,6 +1717,6 @@ impl StorageLock {
 
 impl Drop for LockData {
     fn drop(&mut self) {
-        drop(self.0.unlock())
+        drop(self.0.unlock());
     }
 }

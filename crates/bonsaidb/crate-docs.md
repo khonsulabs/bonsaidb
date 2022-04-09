@@ -109,7 +109,7 @@ feature:
 
 ```toml
 [dependencies]
-bonsaidb = { version = "*", default-features = false, features = "full" }
+bonsaidb = { version = "*", features = "full" }
 ```
 
 - `full`: Enables `local-full`, `server-full`, and `client-full`.
@@ -117,60 +117,69 @@ bonsaidb = { version = "*", default-features = false, features = "full" }
 - `password-hashing`: Enables the ability to use password authentication using
   Argon2 via `AnyConnection`.
 
+All other feature flags, listed below, affect each crate individually, but can
+be safely combined.
+
 ### Local databases only
 
 ```toml
 [dependencies]
-bonsaidb = { version = "*", default-features = false, features = "local-full" }
+bonsaidb = { version = "*", features = "local-full" }
 ```
+
+All Cargo features that affect local databases:
 
 - `local-full`: Enables all the flags below
 - `local`: Enables the [`local`](https://dev.bonsaidb.io/main/docs/bonsaidb/local/) module, which re-exports the crate
   `bonsaidb-local`.
-- `local-async`: Enables async support with Tokio.
-- `local-cli`: Enables the `clap` structures for embedding database
+- `async`: Enables async support with Tokio.
+- `cli`: Enables the `clap` structures for embedding database
   management commands into your own command-line interface.
-- `local-compression`: Enables support for compressed storage using lz4.
-- `local-encryption`: Enables at-rest encryption.
-- `local-instrument`: Enables instrumenting with `tracing`.
-- `local-password-hashing`: Enables the ability to use password authentication
+- `compression`: Enables support for compressed storage using lz4.
+- `encryption`: Enables at-rest encryption.
+- `instrument`: Enables instrumenting with `tracing`.
+- `password-hashing`: Enables the ability to use password authentication
   using Argon2.
 
 ### BonsaiDb server
 
 ```toml
 [dependencies]
-bonsaidb = { version = "*", default-features = false, features = "server-full" }
+bonsaidb = { version = "*", features = "server-full" }
 ```
+
+All Cargo features that affect networked servers:
 
 - `server-full`: Enables all the flags below,
 - `server`: Enables the [`server`](https://dev.bonsaidb.io/main/docs/bonsaidb/server/) module, which re-exports the crate
   `bonsaidb-server`.
-- `server-acme`: Enables automtic certificate acquisition through ACME/LetsEncrypt.
-- `server-cli`: Enables the `cli` module.
-- `server-compression`: Enables support for compressed storage using lz4.
-- `server-encryption`: Enables at-rest encryption.
-- `server-hyper`: Enables convenience functions for upgrading websockets using `hyper`.
-- `server-instrument`: Enables instrumenting with `tracing`.
-- `server-pem`: Enables the ability to install a certificate using the PEM format.
-- `server-websockets`: Enables `WebSocket` support.
-- `server-password-hashing`: Enables the ability to use password authentication
+- `acme`: Enables automtic certificate acquisition through ACME/LetsEncrypt.
+- `cli`: Enables the `cli` module.
+- `compression`: Enables support for compressed storage using lz4.
+- `encryption`: Enables at-rest encryption.
+- `hyper`: Enables convenience functions for upgrading websockets using `hyper`.
+- `instrument`: Enables instrumenting with `tracing`.
+- `pem`: Enables the ability to install a certificate using the PEM format.
+- `websockets`: Enables `WebSocket` support.
+- `password-hashing`: Enables the ability to use password authentication
   using Argon2.
 
 ### Client for accessing a BonsaiDb server
 
 ```toml
 [dependencies]
-bonsaidb = { version = "*", default-features = false, features = "client-full" }
+bonsaidb = { version = "*", features = "client-full" }
 ```
 
-- `client-full`: Enables `client`, `client-trusted-dns`, `client-websockets`, and `client-password-hashing`.
+All Cargo features that affect networked clients:
+
+- `client-full`: Enables all flags below.
 - `client`: Enables the [`client`](https://dev.bonsaidb.io/main/docs/bonsaidb/client/) module, which re-exports the crate
   `bonsaidb-client`.
-- `client-trusted-dns`: Enables using trust-dns for DNS resolution. If not
+- `trusted-dns`: Enables using trust-dns for DNS resolution. If not
   enabled, all DNS resolution is done with the OS's default name resolver.
-- `client-websockets`: Enables `WebSocket` support for `bonsaidb-client`.
-- `client-password-hashing`: Enables the ability to use password authentication
+- `websockets`: Enables `WebSocket` support for `bonsaidb-client`.
+- `password-hashing`: Enables the ability to use password authentication
   using Argon2.
 
 ## Developing BonsaiDb

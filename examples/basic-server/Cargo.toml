@@ -5,17 +5,16 @@ edition = "2021"
 publish = false
 
 [features]
-websockets = ["bonsaidb/client-websockets", "bonsaidb/server-websockets"]
+websockets = ["bonsaidb/websockets"]
 
 [dependencies]
 tokio = { version = "1.16.1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 bonsaidb = { path = "../../crates/bonsaidb", version = "0.4.0", features = [
     "server",
-    "server-password-hashing",
+    "password-hashing",
     "cli",
     "client",
-    "client-password-hashing",
 ] }
 futures = "0.3"
 env_logger = "0.9"
