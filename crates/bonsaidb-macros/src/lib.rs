@@ -17,7 +17,7 @@ use proc_macro2::{Span, TokenStream};
 use proc_macro_crate::{crate_name, FoundCrate};
 use proc_macro_error::{abort, abort_call_site, proc_macro_error, ResultExt};
 use quote::ToTokens;
-use quote_use::quote_use as quote;
+use quote_use::{format_ident_namespaced as format_ident, quote_use as quote};
 use syn::{
     parse_macro_input, parse_quote, punctuated::Punctuated, token::Paren, DataEnum, DataStruct,
     DeriveInput, Expr, Field, Fields, FieldsNamed, FieldsUnnamed, Ident, Index, LitStr, Path,
@@ -374,6 +374,7 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 struct KeyAttribute {
     #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
     core: Option<Path>,
+    allow_null_bytes: bool,
 }
 
 /// Derives the `bonsaidb::core::key::Key` trait.
@@ -390,14 +391,23 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         ..
     } = parse_macro_input!(input as DeriveInput);
 
-    let KeyAttribute { core } = KeyAttribute::from_attributes(attrs).unwrap_or_abort();
+    let KeyAttribute {
+        core,
+        allow_null_bytes,
+    } = KeyAttribute::from_attributes(attrs).unwrap_or_abort();
+
+    let allow_null_bytes = if allow_null_bytes {
+        quote!($encoder.allow_null_bytes_in_variable_fields();)
+    } else {
+        quote!()
+    };
 
     let core = core.unwrap_or_else(core_path);
     let (_, ty_generics, _) = generics.split_for_impl();
     let mut generics = generics.clone();
     generics
         .params
-        .push(syn::GenericParam::Lifetime(parse_quote!('__key)));
+        .push(syn::GenericParam::Lifetime(parse_quote!('key)));
     let (impl_generics, _, where_clause) = generics.split_for_impl();
 
     let (encode_fields, decode_fields): (TokenStream, TokenStream) = match data {
@@ -410,8 +420,8 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 .map(|Field { ident, .. }| {
                     let ident = ident.expect("named fields have idents");
                     (
-                        quote!(#core::key::encode_composite_field(&self.#ident, &mut __bytes)?;),
-                        quote! {#ident: __decode_composite_field(&mut __bytes)?,},
+                        quote!($encoder.encode(&self.#ident)?;),
+                        quote!(#ident: $decoder.decode()?,),
                     )
                 })
                 .unzip();
@@ -428,8 +438,8 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 .map(|(idx, _)| {
                     let idx = Index::from(idx);
                     (
-                        quote!(#core::key::encode_composite_field(&self.#idx, &mut __bytes)?;),
-                        quote!(__decode_composite_field(&mut __bytes)?,),
+                        quote!($encoder.encode(&self.#idx)?;),
+                        quote!($decoder.decode()?,),
                     )
                 })
                 .unzip();
@@ -446,65 +456,71 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 .map(|(idx, Variant { fields, ident, .. })| {
                     let idx = idx as u64;
                     match fields {
-                    Fields::Named(FieldsNamed { named, .. }) => {
-                        let (idents, (encode_fields, decode_fields)): (Punctuated<_,Token![,]>, (TokenStream, TokenStream) ) = named
-                            .into_iter()
-                            .map(|Field { ident, .. }| {
-                                let ident = ident.expect("named fields have idents");
-                                (
-                                    ident.clone(),
+                        Fields::Named(FieldsNamed { named, .. }) => {
+                            let (idents, (encode_fields, decode_fields)): (
+                                Punctuated<_, Token![,]>,
+                                (TokenStream, TokenStream),
+                            ) = named
+                                .into_iter()
+                                .map(|Field { ident, .. }| {
+                                    let ident = ident.expect("named fields have idents");
                                     (
-                                        quote!(#core::key::encode_composite_field(#ident, &mut __bytes)?;),
-                                        quote! {#ident: __decode_composite_field(&mut __bytes)?,},
+                                        ident.clone(),
+                                        (
+                                            quote!($encoder.encode(#ident)?;),
+                                            quote!(#ident: $decoder.decode()?,),
+                                        ),
                                     )
-                                )
-                            })
-                        .unzip();
-                        (
-                            quote! {
-                                Self::#ident{#idents} => {
-                                    #core::key::encode_composite_field(&#idx, &mut __bytes)?;
-                                    #encode_fields
+                                })
+                                .unzip();
+                            (
+                                quote! {
+                                    Self::#ident{#idents} => {
+                                        $encoder.encode(&#idx)?;
+                                        #encode_fields
+                                    },
                                 },
-                            },
-                            quote! {
-                                #idx => Self::#ident{#decode_fields},
-                            },
-                        )
-                    }
-                    Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
-                        let (idents, (encode_fields, decode_fields) ): (Punctuated<_,Token![,]>, ( TokenStream, TokenStream ) ) = unnamed
-                            .into_iter().enumerate()
-                            .map(|(idx, _)| {
-                                let ident = Ident::new(&format!("__field_{idx}"),Span::call_site());
-                                (
-                                    ident.clone(),
+                                quote! {
+                                    #idx => Self::#ident{#decode_fields},
+                                },
+                            )
+                        }
+                        Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
+                            let (idents, (encode_fields, decode_fields)): (
+                                Punctuated<_, Token![,]>,
+                                (TokenStream, TokenStream),
+                            ) = unnamed
+                                .into_iter()
+                                .enumerate()
+                                .map(|(idx, _)| {
+                                    let ident = format_ident!("$field_{idx}");
                                     (
-                                        quote!(#core::key::encode_composite_field(#ident, &mut __bytes)?;),
-                                        quote!(__decode_composite_field(&mut __bytes)?,),
+                                        ident.clone(),
+                                        (
+                                            quote!($encoder.encode(#ident)?;),
+                                            quote!($decoder.decode()?,),
+                                        ),
                                     )
-                                )
-                            })
-                        .unzip();
-                        (
-                            quote! {
-                                Self::#ident(#idents) => {
-                                    #core::key::encode_composite_field(&#idx, &mut __bytes)?;
-                                    #encode_fields
+                                })
+                                .unzip();
+                            (
+                                quote! {
+                                    Self::#ident(#idents) => {
+                                        $encoder.encode(&#idx)?;
+                                        #encode_fields
+                                    },
                                 },
-                            },
-                            quote! {
-                                #idx => Self::#ident(#decode_fields),
-                            },
-                        )
+                                quote! {
+                                    #idx => Self::#ident(#decode_fields),
+                                },
+                            )
+                        }
+                        Fields::Unit => (
+                            quote!(Self::#ident => $encoder.encode(&#idx)?,),
+                            quote!(#idx => Self::#ident,),
+                        ),
                     }
-                    Fields::Unit => {
-                        (
-                            quote!(Self::#ident => #core::key::encode_composite_field(&#idx, &mut __bytes)?,),
-                            quote!(#idx => Self::#ident,)
-                        )
-                    }
-                } })
+                })
                 .unzip();
             (
                 quote! {
@@ -515,11 +531,11 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 quote! {
                     use std::io::{self, ErrorKind};
 
-                    match __decode_composite_field::<u64>(&mut __bytes)? {
+                    match $decoder.decode::<u64>()? {
                         #decode_variants
                         _ => return Err(#core::key::CompositeKeyError::from(io::Error::from(
                                 ErrorKind::InvalidData,
-                            )))
+                        )))
                     }
                 },
             )
@@ -527,45 +543,38 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         syn::Data::Union(_) => abort_call_site!("unions are not supported"),
     };
 
-    quote_use::quote_use! {
+    quote! {
         use std::borrow::Cow;
         use std::io::{self, ErrorKind};
 
-        impl #impl_generics #core::key::Key<'__key> for #ident #ty_generics #where_clause {
+        impl #impl_generics #core::key::Key<'key> for #ident #ty_generics #where_clause {
 
-            fn from_ord_bytes(mut __bytes: &'__key [u8]) -> Result<Self, Self::Error> {
-                fn __decode_composite_field<'__a, __T: #core::key::Key<'__a>>(
-                    __bytes: &mut &'__a [u8]
-                ) -> Result<__T, #core::key::CompositeKeyError> {
-                    let (__value, __ret_bytes) = #core::key::decode_composite_field(__bytes)?;
-                    *__bytes = __ret_bytes;
-                    Ok(__value)
-                }
+            fn from_ord_bytes(mut $bytes: &'key [u8]) -> Result<Self, Self::Error> {
 
-                let __self = #decode_fields;
+                let mut $decoder = #core::key::CompositeKeyDecoder::new($bytes);
 
-                if __bytes.is_empty() {
-                    Ok(__self)
-                } else {
-                    Err(#core::key::CompositeKeyError::from(io::Error::from(
-                        ErrorKind::InvalidData,
-                    )))
-                }
+                let $self_ = #decode_fields;
+
+                $decoder.finish()?;
+
+                Ok($self_)
             }
         }
 
-        impl #impl_generics #core::key::KeyEncoding<'__key, Self> for #ident #ty_generics #where_clause {
+        impl #impl_generics #core::key::KeyEncoding<'key, Self> for #ident #ty_generics #where_clause {
             type Error = #core::key::CompositeKeyError;
 
             // TODO fixed width if possible
             const LENGTH: Option<usize> = None;
 
-            fn as_ord_bytes(&'__key self) -> Result<Cow<'__key, [u8]>, Self::Error> {
-                let mut __bytes = Vec::new();
+            fn as_ord_bytes(&'key self) -> Result<Cow<'key, [u8]>, Self::Error> {
+                let mut $encoder = #core::key::CompositeKeyEncoder::default();
+
+                #allow_null_bytes
 
                 #encode_fields
 
-                Ok(Cow::Owned(__bytes))
+                Ok(Cow::Owned($encoder.finish()))
             }
         }
     }
