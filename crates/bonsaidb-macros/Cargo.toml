@@ -19,8 +19,9 @@ proc-macro = true
 attribute-derive = "0.2.2"
 proc-macro-crate = "1.1.0"
 proc-macro-error = "1"
-proc-macro2 = "1.0.36"
+proc-macro2 = { version = "1.0.37", features = ["nightly"] }
 quote = "1"
+quote-use = { version = "0.3.2", features = ["namespace_idents"] }
 syn = "1"
 trybuild = "1.0.54"
 
