@@ -103,13 +103,27 @@ async fn test() -> anyhow::Result<()> {
     // Execute a command locally (no server running).
     CliBackend.run_from(["executable", "add", "3"]).await?;
 
-    // Spawn the server so that we can communicate with it over the network
-    let server_task = tokio::task::spawn(async {
-        CliBackend
-            .run_from(["executable", "server", "serve", "--listen-on", "6004"])
-            .await
-            .unwrap();
+    // Spawn the server so that we can communicate with it over the network. We
+    // need to be able to shut this server down, but since we're launching it
+    // through a command-line interface, we have no way to call the shutdown()
+    // function. Instead, we'll spawn a thread to run its own runtime, which
+    // allows us to fully control the task cleanup as the runtime is cleaned up.
+    // This ensures all file locks are dropped.
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.spawn(async {
+            CliBackend
+                .run_from(["executable", "server", "serve", "--listen-on", "6004"])
+                .await
+                .unwrap();
+        });
+        rt.block_on(async {
+            drop(shutdown_receiver.await);
+        });
     });
+
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
 
     // Execute the same command as before, but this time use the network.
     CliBackend
@@ -122,7 +136,8 @@ async fn test() -> anyhow::Result<()> {
             "add",
             "3",
         ])
-        .await?;
+        .await
+        .unwrap();
 
     CliBackend
         .run_from([
@@ -133,11 +148,11 @@ async fn test() -> anyhow::Result<()> {
             "cli.bonsaidb/pinned-certificate.der",
             "count",
         ])
-        .await?;
+        .await
+        .unwrap();
 
     // Close the server
-    server_task.abort();
-    drop(server_task.await);
+    shutdown_sender.send(()).unwrap();
 
     // Back up the database
     CliBackend
