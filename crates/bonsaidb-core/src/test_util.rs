@@ -981,6 +981,7 @@ pub async fn store_retrieve_update_delete_tests<C: AsyncConnection>(db: &C) -> a
     Ok(())
 }
 
+#[allow(clippy::cognitive_complexity)] // TODO should be split into multiple tests
 pub fn blocking_store_retrieve_update_delete_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let original_value = Basic::new("initial_value");
     let collection = db.collection::<Basic>();

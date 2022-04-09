@@ -1,6 +1,6 @@
 use bonsaidb::{
     core::{
-        key::NextValueError,
+        key::{Key, NextValueError},
         schema::{Collection, Schema, SerializedCollection},
     },
     local::{
@@ -11,7 +11,7 @@ use bonsaidb::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Schema)]
-#[schema(name = "primary-keys", collections = [UserProfile, MultiKey])]
+#[schema(name = "primary-keys", collections = [UserProfile, AssociatedProfileData])]
 struct ExampleSchema;
 
 // ANCHOR: derive_with_natural_id
@@ -25,9 +25,15 @@ struct UserProfile {
 
 // ANCHOR: derive
 #[derive(Debug, Serialize, Deserialize, Collection, Eq, PartialEq)]
-#[collection(name = "multi-key", primary_key = (u32, u64))]
-struct MultiKey {
+#[collection(name = "multi-key", primary_key = AssociatedProfileKey)]
+struct AssociatedProfileData {
     value: String,
+}
+
+#[derive(Key, Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+struct AssociatedProfileKey {
+    pub user_id: u32,
+    pub data_id: u64,
 }
 // ANCHOR_END: derive
 
@@ -57,18 +63,22 @@ fn main() -> Result<(), bonsaidb::core::Error> {
     // It's possible to use any type that implements the Key trait as a primary
     // key, including tuples:
     // ANCHOR: query
-    let inserted = MultiKey {
+    let key = AssociatedProfileKey {
+        user_id: user.header.id,
+        data_id: 64,
+    };
+    let inserted = AssociatedProfileData {
         value: String::from("hello"),
     }
-    .insert_into((42, 64), &db)?;
-    let retrieved = MultiKey::get((42, 64), &db)?.expect("document not found");
+    .insert_into(key, &db)?;
+    let retrieved = AssociatedProfileData::get(&key, &db)?.expect("document not found");
     assert_eq!(inserted, retrieved);
     // ANCHOR_END: query
 
     // Not all primary key types support automatic key assignment -- the Key
     // trait implementation controls that behavior:
     assert!(matches!(
-        MultiKey {
+        AssociatedProfileData {
             value: String::from("error"),
         }
         .push_into(&db)

@@ -7,10 +7,7 @@ fn tuple_struct() {
 
     assert_eq!(
         &[0, 0, 0, 1, 0, 0, 0, 2, 116, 101, 115, 116, 0, 4],
-        Test(1, 2, "test".into())
-            .as_ord_bytes()
-            .unwrap()
-            .as_ref()
+        Test(1, 2, "test".into()).as_ord_bytes().unwrap().as_ref()
     )
 }
 
@@ -54,6 +51,12 @@ fn r#enum() {
 
     assert_eq!(
         &[0, 0, 0, 0, 0, 0, 0, 2, 98, 0, 0, 0, 0, 3, 1],
-        Test::C{a: "b".into(), b: 3}.as_ord_bytes().unwrap().as_ref()
+        Test::C {
+            a: "b".into(),
+            b: 3
+        }
+        .as_ord_bytes()
+        .unwrap()
+        .as_ref()
     )
 }

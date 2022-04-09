@@ -46,6 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- [#239][239] `Key` can now be derived on enums and structs, allowing an easier way
+  to use composite keys. The `primary-keys` example has been updated to use the
+  derive macro instead of a tuple for the composite key.
 - `Key` is now implemented for `Cow<'a, str>`.
 - `bonsaidb_core::Error::is_unique_key_error()` is a convenience function to
   quickly check if an error is a result of a unique key violation from a
@@ -79,6 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   iterator of document contents to push into the database using a single
   transaction. It returns the created collection documents if successful. If any
   errors occur, no documents will be inserted.
+
+- [239](https://github.com/khonsulabs/bonsaidb/pull/239)
 
 ## v0.4.1
 

@@ -379,9 +379,9 @@ struct KeyAttribute {
 
 /// Derives the `bonsaidb::core::key::Key` trait.
 ///
-/// `#[schema(core = bonsaidb::core]`, `core` is optional
+/// `#[key(core = bonsaidb::core]`, `core` is optional
 #[proc_macro_error]
-#[proc_macro_derive(Key, attributes(schema))]
+#[proc_macro_derive(Key, attributes(key))]
 pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let DeriveInput {
         attrs,

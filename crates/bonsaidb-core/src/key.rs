@@ -11,14 +11,13 @@ use arc_bytes::{
     serde::{Bytes, CowBytes},
     ArcBytes,
 };
+pub use bonsaidb_macros::Key;
 pub use deprecated::*;
 use num_traits::{FromPrimitive, ToPrimitive};
 use ordered_varint::{Signed, Unsigned, Variable};
 use serde::{Deserialize, Serialize};
 
 use crate::{connection::Range, AnyError};
-
-pub use bonsaidb_macros::Key;
 
 /// A trait that enables a type to convert itself into a `memcmp`-compatible
 /// sequence of bytes.
@@ -42,6 +41,63 @@ where
 
 /// A trait that enables a type to convert itself into a `memcmp`-compatible
 /// sequence of bytes.
+///
+/// # Deriving this trait
+///
+/// This trait can be derived on structs and enums whose members all implement
+/// `Key`. It is important to note that the order of individual fields and enum
+/// variants is important, so special care must be taken when updating enums and
+/// structs when trying to preserve backwards compatibility with existing data.
+///
+/// ```rust
+/// use bonsaidb_core::key::Key;
+///
+/// #[derive(Key, Clone, Debug)]
+/// # #[key(core = bonsaidb_core)]
+/// struct CompositeKey {
+///     user_id: u64,
+///     task_id: u32,
+/// }
+/// ```
+///
+/// Each field or enum variant is encoded and decoded in the order in which it
+/// appears in the source code. The implementation uses [`CompositeKeyEncoder`]
+/// and [`CompositeKeyDecoder`] to encode each field.
+///
+/// ## `allow_null_bytes`
+///
+/// The derive macro offers an argument `allow_null_bytes`, which defaults to
+/// false. Null bytes can cause problematic sort behavior when multiple
+/// variable-length encoded fields are encoded as a composite key. Consider this
+/// example:
+///
+/// ```rust
+/// use bonsaidb_core::key::Key;
+///
+/// #[derive(Key, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+/// #[key(allow_null_bytes = true)]
+/// # #[key(core = bonsaidb_core)]
+/// struct CompositeKey {
+///     a: String,
+///     b: String,
+/// }
+/// ```
+///
+/// With this structure, we can cause sorting misbehaviors using this data set:
+///
+/// | `a`      | `b`   | Encoded Bytes         |
+/// |----------|-------|-----------------------|
+/// | `"a"`    | `"c"` | `6100 6300 0101`      |
+/// | `"a\0b"` | `"a"` | `6100 6200 610003 01` |
+/// | `"b"`    | `"a"` | `6200 6100 0101`      |
+///
+/// In this table, `a` and `b` are ordered as `CompositeKey` would be ordered
+/// when compared using `Ord`. However, the order of the encoded bytes does not
+/// match. Without specifying `allow_null_bytes = true`, [`CompositeKeyEncoder`]
+/// will return an error when a null byte is encountered.
+///
+/// This null-byte edge case only applies to variable length [`Key`]s
+/// ([`KeyEncoding::LENGTH`] is `None`).
 pub trait Key<'k>: KeyEncoding<'k, Self> + Clone + std::fmt::Debug + Send + Sync {
     /// Deserialize a sequence of bytes previously encoded with
     /// [`KeyEncoding::as_ord_bytes`].
