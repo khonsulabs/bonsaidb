@@ -971,6 +971,13 @@ pub async fn store_retrieve_update_delete_tests<C: AsyncConnection>(db: &C) -> a
         .unwrap();
     assert!(overwritten.header.revision.id > doc.header.revision.id);
 
+    // Test bulk insert
+    let docs = Basic::push_all_async([Basic::new("44"), Basic::new("45")], db)
+        .await
+        .unwrap();
+    assert_eq!(docs[0].contents.value, "44");
+    assert_eq!(docs[1].contents.value, "45");
+
     Ok(())
 }
 
@@ -1053,6 +1060,11 @@ pub fn blocking_store_retrieve_update_delete_tests<C: Connection>(db: &C) -> any
     // Test that overwriting works
     let overwritten = Basic::new("43").overwrite_into(doc.header.id, db).unwrap();
     assert!(overwritten.header.revision.id > doc.header.revision.id);
+
+    // Test bulk insert
+    let docs = Basic::push_all([Basic::new("44"), Basic::new("45")], db).unwrap();
+    assert_eq!(docs[0].contents.value, "44");
+    assert_eq!(docs[1].contents.value, "45");
 
     Ok(())
 }

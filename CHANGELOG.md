@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- The Minimum Supported Rust Version (MSRV) has been changed to 1.60.
+- All features in the `bonsaidb` crate have been updated to support the new
+  features in Rust 1.60. Instead of needing separate flags for
+  `client-websockets` and `server-websockets`, a single feature flag
+  `websockets` is now able to work in conjunction with the `client`/`server`
+  features to ensure everything works correctly.
+
+  The net change is fewer feature flags. If you find that a feature flag is
+  missing on upgrade, try removing "local-", "client-", or "server-" from the
+  beginning of the feature and recompiling.
 - The `Key` implementation for `Option<T>` has changed. If you wish to preserve
   backwards compatibility, wrap the key type with `OptionKeyV1`.
 
@@ -65,6 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `tokio::io::AsyncRead`
   - `tokio::io::AsyncSeek`
   - `tokio::io::AsyncWrite`
+- `SerializedCollection::push_all[_async]()` is a new function that accepts an
+  iterator of document contents to push into the database using a single
+  transaction. It returns the created collection documents if successful. If any
+  errors occur, no documents will be inserted.
 
 ## v0.4.1
 

@@ -9,11 +9,12 @@ use transmog_pot::Pot;
 use crate::{
     connection::{self, AsyncConnection, Connection, Range},
     document::{
-        BorrowedDocument, CollectionDocument, Document, DocumentId, Header, KeyId, OwnedDocument,
-        OwnedDocuments,
+        BorrowedDocument, CollectionDocument, CollectionHeader, Document, DocumentId, Header,
+        KeyId, OwnedDocument, OwnedDocuments, Revision,
     },
     key::{IntoPrefixRange, Key, KeyEncoding},
     schema::{CollectionName, Schematic},
+    transaction::{Operation, OperationResult, Transaction},
     Error,
 };
 
@@ -695,6 +696,153 @@ pub trait SerializedCollection: Collection {
             Err(error) => return Err(InsertError { contents, error }),
         };
         Ok(CollectionDocument { header, contents })
+    }
+
+    /// Pushes all `contents` in a single transaction. If successful, all
+    /// collection documents will be returned. If an error occurs during this
+    /// operation, no documents will be pushed.
+    ///
+    /// ## Automatic ID Assignment
+    ///
+    /// This function calls [`Self::natural_id()`] to try to retrieve a primary
+    /// key value from each instance of `contents`. If an id is returned, the
+    /// item is inserted with that id. If an id is not returned, an id will be
+    /// automatically assigned, if possible, by the storage backend, which uses
+    /// the [`Key`] trait to assign ids.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::Connection;
+    /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
+    /// let documents = MyCollection::push_all(
+    ///     [
+    ///         MyCollection::default(),
+    ///         MyCollection::default(),
+    ///         MyCollection::default(),
+    ///     ],
+    ///     &db,
+    /// )?;
+    /// for document in documents {
+    ///     println!(
+    ///         "Inserted {:?} with id {} with revision {}",
+    ///         document.contents, document.header.id, document.header.revision
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    fn push_all<Contents: IntoIterator<Item = Self::Contents>, Cn: Connection>(
+        contents: Contents,
+        connection: &Cn,
+    ) -> Result<Vec<CollectionDocument<Self>>, Error>
+    where
+        Self: Sized + 'static,
+        Self::PrimaryKey: Default,
+    {
+        let mut tx = Transaction::new();
+        let contents = contents.into_iter();
+        let mut results = Vec::with_capacity(contents.size_hint().0);
+        for contents in contents {
+            tx.push(Operation::push_serialized::<Self>(&contents)?);
+            results.push(CollectionDocument {
+                header: CollectionHeader {
+                    id: <<Self as Collection>::PrimaryKey as Default>::default(),
+                    revision: Revision {
+                        id: 0,
+                        sha256: [0; 32],
+                    },
+                },
+                contents,
+            });
+        }
+        for (result, document) in tx.apply(connection)?.into_iter().zip(&mut results) {
+            match result {
+                OperationResult::DocumentUpdated { header, .. } => {
+                    document.header = CollectionHeader::try_from(header)?;
+                }
+                _ => unreachable!("invalid result from transaction"),
+            }
+        }
+        Ok(results)
+    }
+
+    /// Pushes all `contents` in a single transaction. If successful, all
+    /// collection documents will be returned. If an error occurs during this
+    /// operation, no documents will be pushed.
+    ///
+    /// ## Automatic ID Assignment
+    ///
+    /// This function calls [`Self::natural_id()`] to try to retrieve a primary
+    /// key value from each instance of `contents`. If an id is returned, the
+    /// item is inserted with that id. If an id is not returned, an id will be
+    /// automatically assigned, if possible, by the storage backend, which uses
+    /// the [`Key`] trait to assign ids.
+    ///
+    /// ```rust
+    /// # bonsaidb_core::__doctest_prelude!();
+    /// # use bonsaidb_core::connection::AsyncConnection;
+    /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
+    /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
+    /// let documents = MyCollection::push_all_async(
+    ///     [
+    ///         MyCollection::default(),
+    ///         MyCollection::default(),
+    ///         MyCollection::default(),
+    ///     ],
+    ///     &db,
+    /// )
+    /// .await?;
+    /// for document in documents {
+    ///     println!(
+    ///         "Inserted {:?} with id {} with revision {}",
+    ///         document.contents, document.header.id, document.header.revision
+    ///     );
+    /// }
+    /// # Ok(())
+    /// # })}
+    /// ```
+    async fn push_all_async<
+        Contents: IntoIterator<Item = Self::Contents> + Send,
+        Cn: AsyncConnection,
+    >(
+        contents: Contents,
+        connection: &Cn,
+    ) -> Result<Vec<CollectionDocument<Self>>, Error>
+    where
+        Self: Sized + 'static,
+        Self::PrimaryKey: Default,
+        Contents::IntoIter: Send,
+    {
+        let mut tx = Transaction::new();
+        let contents = contents.into_iter();
+        let mut results = Vec::with_capacity(contents.size_hint().0);
+        for contents in contents {
+            tx.push(Operation::push_serialized::<Self>(&contents)?);
+            results.push(CollectionDocument {
+                header: CollectionHeader {
+                    id: <<Self as Collection>::PrimaryKey as Default>::default(),
+                    revision: Revision {
+                        id: 0,
+                        sha256: [0; 32],
+                    },
+                },
+                contents,
+            });
+        }
+        for (result, document) in tx
+            .apply_async(connection)
+            .await?
+            .into_iter()
+            .zip(&mut results)
+        {
+            match result {
+                OperationResult::DocumentUpdated { header, .. } => {
+                    document.header = CollectionHeader::try_from(header)?;
+                }
+                _ => unreachable!("invalid result from transaction"),
+            }
+        }
+        Ok(results)
     }
 
     /// Pushes this value into the collection, returning the created document.
