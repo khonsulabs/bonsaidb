@@ -9,10 +9,7 @@ implementing the [`StorageConnection`](https://dev.bonsaidb.io/main/docs/bonsaid
 ## Minimum Supported Rust Version (MSRV)
 
 While this project is alpha, we are actively adopting the current version of
-Rust. The current minimum version is `1.58`, and we plan on updating the MSRV to
-implement [namespaced
-Features](https://github.com/khonsulabs/bonsaidb/issues/178) as soon as the
-feature is released.
+Rust. The current minimum version is `1.60`.
 
 ## Feature Flags
 

@@ -10,7 +10,7 @@ keywords = ["document-database", "database"]
 categories = ["database-implementations"]
 readme = "./README.md"
 homepage = "https://bonsaidb.io/"
-rust-version = "1.58"
+rust-version = "1.60"
 
 [features]
 default = ["full"]
