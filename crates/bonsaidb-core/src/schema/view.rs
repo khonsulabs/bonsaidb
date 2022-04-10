@@ -102,6 +102,13 @@ pub trait ViewSchema: Send + Sync + Debug + 'static {
         false
     }
 
+    /// Returns whether this view should be lazily updated. If true, views will
+    /// be updated only when accessed. If false, views will be updated during
+    /// the transaction that is updating the affected documents.
+    fn lazy(&self) -> bool {
+        true
+    }
+
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
     fn version(&self) -> u64 {
         0
@@ -192,6 +199,13 @@ where
         false
     }
 
+    /// Returns whether this view should be lazily updated. If true, views will
+    /// be updated only when accessed. If false, views will be updated during
+    /// the transaction that is updating the affected documents.
+    fn lazy(&self) -> bool {
+        true
+    }
+
     /// The version of the view. Changing this value will cause indexes to be rebuilt.
     fn version(&self) -> u64 {
         0
@@ -247,6 +261,10 @@ where
     fn unique(&self) -> bool {
         T::unique(self)
     }
+
+    fn lazy(&self) -> bool {
+        T::lazy(self)
+    }
 }
 
 /// Wraps a [`View`] with serialization to erase the associated types
@@ -255,6 +273,15 @@ pub trait Serialized: Send + Sync + Debug {
     fn collection(&self) -> CollectionName;
     /// Wraps [`ViewSchema::unique`]
     fn unique(&self) -> bool;
+    /// Wraps [`ViewSchema::lazy`]
+    fn lazy(&self) -> bool;
+
+    /// Returns true if this view should be eagerly updated during document
+    /// updates.
+    fn eager(&self) -> bool {
+        self.unique() || !self.lazy()
+    }
+
     /// Wraps [`ViewSchema::version`]
     fn version(&self) -> u64;
     /// Wraps [`View::view_name`]

@@ -41,7 +41,7 @@ use crate::{
 #[derive(Serialize, Deserialize, Debug, PartialEq, Default, Clone, Collection)]
 // This collection purposely uses names with characters that need
 // escaping, since it's used in backup/restore.
-#[collection(name = "_basic", authority = "khonsulabs_", views = [BasicCount, BasicByParentId, BasicByTag, BasicByCategory], core = crate)]
+#[collection(name = "_basic", authority = "khonsulabs_", views = [BasicCount, BasicByParentId, BasicByParentIdEager, BasicByTag, BasicByCategory], core = crate)]
 #[must_use]
 pub struct Basic {
     pub value: String,
@@ -105,6 +105,35 @@ impl ViewSchema for BasicByParentId {
 
     fn version(&self) -> u64 {
         1
+    }
+
+    fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
+        let contents = Basic::document_contents(document)?;
+        document.header.emit_key_and_value(contents.parent_id, 1)
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[ViewMappedValue<Self::View>],
+        _rereduce: bool,
+    ) -> ReduceResult<Self::View> {
+        Ok(mappings.iter().map(|map| map.value).sum())
+    }
+}
+
+#[derive(Debug, Clone, View)]
+#[view(collection = Basic, key = Option<u64>, value = usize, name = "by-parent-id-eager", core = crate)]
+pub struct BasicByParentIdEager;
+
+impl ViewSchema for BasicByParentIdEager {
+    type View = Self;
+
+    fn version(&self) -> u64 {
+        1
+    }
+
+    fn lazy(&self) -> bool {
+        false
     }
 
     fn map(&self, document: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
@@ -1783,6 +1812,23 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
         0
     );
 
+    // Verify the eager view is available without any updates
+    let a_children = db
+        .view::<BasicByParentId>()
+        .with_key(Some(a.id))
+        .with_access_policy(AccessPolicy::NoUpdate)
+        .query()
+        .await?;
+    assert_eq!(a_children.len(), 0);
+    assert_eq!(
+        db.view::<BasicByParentId>()
+            .with_key(Some(a.id))
+            .with_access_policy(AccessPolicy::NoUpdate)
+            .reduce()
+            .await?,
+        0
+    );
+
     // Test inserting a new record and the view being made available
     let a_child = collection
         .push(
@@ -1867,6 +1913,21 @@ pub fn blocking_view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     // The reduce function of `BasicByParentId` acts as a "count" of records.
     assert_eq!(
         db.view::<BasicByParentId>().with_key(Some(a.id)).reduce()?,
+        0
+    );
+
+    // Verify the eager view is available without any updates
+    let a_children = db
+        .view::<BasicByParentId>()
+        .with_key(Some(a.id))
+        .with_access_policy(AccessPolicy::NoUpdate)
+        .query()?;
+    assert_eq!(a_children.len(), 0);
+    assert_eq!(
+        db.view::<BasicByParentId>()
+            .with_key(Some(a.id))
+            .with_access_policy(AccessPolicy::NoUpdate)
+            .reduce()?,
         0
     );
 

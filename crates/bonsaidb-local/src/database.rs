@@ -382,7 +382,7 @@ impl Database {
         {
             if let Some(views) = self.data.schema.views_in_collection(collection) {
                 let changed_documents = changed_documents.collect::<Vec<_>>();
-                for view in views.into_iter().filter(|view| !view.unique()) {
+                for view in views.into_iter().filter(|view| !view.eager()) {
                     let view_name = view.view_name();
                     let tree_name = view_invalidated_docs_tree_name(&view_name);
                     for changed_document in &changed_documents {
@@ -617,15 +617,15 @@ impl Database {
         transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
     ) -> Result<(), Error> {
-        if let Some(unique_views) = self
+        if let Some(eager_views) = self
             .data
             .schema
-            .unique_views_in_collection(&operation.collection)
+            .eager_views_in_collection(&operation.collection)
         {
             let documents = transaction
                 .unlocked_tree(tree_index_map[&document_tree_name(&operation.collection)])
                 .unwrap();
-            for view in unique_views {
+            for view in eager_views {
                 let name = view.view_name();
                 let document_map = transaction
                     .unlocked_tree(tree_index_map[&view_document_map_tree_name(&name)])
@@ -972,7 +972,9 @@ impl Connection for Database {
             self.roots()
                 .transactions()
                 .scan(range, |entry| {
-                    entries.push(entry);
+                    if entry.data().is_some() {
+                        entries.push(entry);
+                    }
                     entries.len() < result_limit
                 })
                 .map_err(Error::from)?;
@@ -1068,7 +1070,7 @@ impl LowLevelConnection for Database {
             self.check_permission(&resource, &action)?;
         }
 
-        let mut unique_view_tasks = Vec::new();
+        let mut eager_view_tasks = Vec::new();
         for collection_name in transaction
             .operations
             .iter()
@@ -1077,28 +1079,28 @@ impl LowLevelConnection for Database {
         {
             if let Some(views) = self.data.schema.views_in_collection(collection_name) {
                 for view in views {
-                    if view.unique() {
+                    if view.eager() {
                         if let Some(task) = self
                             .storage
                             .instance
                             .tasks()
                             .spawn_integrity_check(view, self)
                         {
-                            unique_view_tasks.push(task);
+                            eager_view_tasks.push(task);
                         }
                     }
                 }
             }
         }
 
-        let mut unique_view_mapping_tasks = Vec::new();
-        for task in unique_view_tasks {
+        let mut eager_view_mapping_tasks = Vec::new();
+        for task in eager_view_tasks {
             if let Some(spawned_task) = task.receive().map_err(Error::from)?.map_err(Error::from)? {
-                unique_view_mapping_tasks.push(spawned_task);
+                eager_view_mapping_tasks.push(spawned_task);
             }
         }
 
-        for task in unique_view_mapping_tasks {
+        for task in eager_view_mapping_tasks {
             let mut task = task.lock();
             if let Some(task) = task.take() {
                 task.receive().map_err(Error::from)?.map_err(Error::from)?;

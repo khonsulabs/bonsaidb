@@ -34,7 +34,7 @@ pub struct Schematic {
     views: HashMap<TypeId, Box<dyn view::Serialized>>,
     views_by_name: HashMap<ViewName, TypeId>,
     views_by_collection: HashMap<CollectionName, Vec<TypeId>>,
-    unique_views_by_collection: HashMap<CollectionName, Vec<TypeId>>,
+    eager_views_by_collection: HashMap<CollectionName, Vec<TypeId>>,
 }
 
 impl Schematic {
@@ -49,7 +49,7 @@ impl Schematic {
             views: HashMap::new(),
             views_by_name: HashMap::new(),
             views_by_collection: HashMap::new(),
-            unique_views_by_collection: HashMap::new(),
+            eager_views_by_collection: HashMap::new(),
         };
         S::define_collections(&mut schematic)?;
         Ok(schematic)
@@ -92,18 +92,18 @@ impl Schematic {
     ) -> Result<(), Error> {
         let instance = ViewInstance { view, schema };
         let name = instance.view_name();
-        let collection = instance.collection();
-        let unique = instance.unique();
-        self.views.insert(TypeId::of::<V>(), Box::new(instance));
-
         if self.views_by_name.contains_key(&name) {
             return Err(Error::ViewAlreadyRegistered(name));
         }
+
+        let collection = instance.collection();
+        let eager = instance.eager();
+        self.views.insert(TypeId::of::<V>(), Box::new(instance));
         self.views_by_name.insert(name, TypeId::of::<V>());
 
-        if unique {
+        if eager {
             let unique_views = self
-                .unique_views_by_collection
+                .eager_views_by_collection
                 .entry(collection.clone())
                 .or_insert_with(Vec::new);
             unique_views.push(TypeId::of::<V>());
@@ -179,13 +179,14 @@ impl Schematic {
         })
     }
 
-    /// Iterates over all views that are unique that belong to `collection`.
+    /// Iterates over all views that are eagerly updated that belong to
+    /// `collection`.
     #[must_use]
-    pub fn unique_views_in_collection(
+    pub fn eager_views_in_collection(
         &self,
         collection: &CollectionName,
     ) -> Option<Vec<&'_ dyn view::Serialized>> {
-        self.unique_views_by_collection
+        self.eager_views_by_collection
             .get(collection)
             .map(|view_ids| {
                 view_ids
@@ -226,6 +227,10 @@ where
 
     fn unique(&self) -> bool {
         self.schema.unique()
+    }
+
+    fn lazy(&self) -> bool {
+        self.schema.lazy()
     }
 
     fn version(&self) -> u64 {

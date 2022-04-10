@@ -82,8 +82,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   iterator of document contents to push into the database using a single
   transaction. It returns the created collection documents if successful. If any
   errors occur, no documents will be inserted.
+- `ViewSchema::lazy()`/`CollectionViewSchema::lazy()` are provided functions
+  that return true by default. This preserves the existing behavior for
+  map/reduce views -- they are only updated when queried, and as dictated by the
+  `AccessPolicy`. By returning false, a view can become eagerly updated, which
+  means that the views are fully updated by the time each transaction completes.
 
-- [239](https://github.com/khonsulabs/bonsaidb/pull/239)
+  This was how unique views already functioned, but now users who have workflows
+  where an eagerly-updated view will be more efficient than a lazy view can
+  opt-in to this behavior.
+
+[239]: https://github.com/khonsulabs/bonsaidb/pull/239
 
 ## v0.4.1
 
