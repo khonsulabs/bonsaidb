@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to use composite keys. The `primary-keys` example has been updated to use the
   derive macro instead of a tuple for the composite key.
 - `Key` is now implemented for `Cow<'a, str>`.
+- `Key` is now implemented for `isize` and `usize`. This is implemented using
+  variable integer encoding, allowing for proper cross-architecture behavior.
+  When trying to decode a value that is too large for the given target
+  architecture, an error will be returned.
 - `bonsaidb_core::Error::is_unique_key_error()` is a convenience function to
   quickly check if an error is a result of a unique key violation from a
   specific view.

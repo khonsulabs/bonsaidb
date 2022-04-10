@@ -1007,6 +1007,54 @@ impl<'a> KeyEncoding<'a, Self> for Unsigned {
     }
 }
 
+impl<'a> Key<'a> for isize {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Self::decode_variable(bytes)
+    }
+
+    fn first_value() -> Result<Self, NextValueError> {
+        Ok(0)
+    }
+
+    fn next_value(&self) -> Result<Self, NextValueError> {
+        self.checked_add(1).ok_or(NextValueError::WouldWrap)
+    }
+}
+
+impl<'a> KeyEncoding<'a, Self> for isize {
+    type Error = std::io::Error;
+
+    const LENGTH: Option<usize> = None;
+
+    fn as_ord_bytes(&self) -> Result<Cow<'a, [u8]>, Self::Error> {
+        self.to_variable_vec().map(Cow::Owned)
+    }
+}
+
+impl<'a> Key<'a> for usize {
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        Self::decode_variable(bytes)
+    }
+
+    fn first_value() -> Result<Self, NextValueError> {
+        Ok(0)
+    }
+
+    fn next_value(&self) -> Result<Self, NextValueError> {
+        self.checked_add(1).ok_or(NextValueError::WouldWrap)
+    }
+}
+
+impl<'a> KeyEncoding<'a, Self> for usize {
+    type Error = std::io::Error;
+
+    const LENGTH: Option<Self> = None;
+
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+        self.to_variable_vec().map(Cow::Owned)
+    }
+}
+
 #[cfg(feature = "uuid")]
 impl<'k> Key<'k> for uuid::Uuid {
     fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
@@ -1188,6 +1236,23 @@ fn primitive_key_encoding_tests() -> anyhow::Result<()> {
     test_primitive_extremes!(u64);
     test_primitive_extremes!(i128);
     test_primitive_extremes!(u128);
+
+    assert_eq!(
+        usize::from_ord_bytes(&usize::MAX.as_ord_bytes().unwrap()).unwrap(),
+        usize::MAX
+    );
+    assert_eq!(
+        usize::from_ord_bytes(&usize::MIN.as_ord_bytes().unwrap()).unwrap(),
+        usize::MIN
+    );
+    assert_eq!(
+        isize::from_ord_bytes(&isize::MAX.as_ord_bytes().unwrap()).unwrap(),
+        isize::MAX
+    );
+    assert_eq!(
+        isize::from_ord_bytes(&isize::MIN.as_ord_bytes().unwrap()).unwrap(),
+        isize::MIN
+    );
 
     Ok(())
 }
