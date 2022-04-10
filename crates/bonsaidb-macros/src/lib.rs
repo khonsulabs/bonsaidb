@@ -19,9 +19,9 @@ use proc_macro_error::{abort, abort_call_site, proc_macro_error, ResultExt};
 use quote::ToTokens;
 use quote_use::{format_ident_namespaced as format_ident, quote_use as quote};
 use syn::{
-    parse_macro_input, parse_quote, punctuated::Punctuated, token::Paren, DataEnum, DataStruct,
-    DeriveInput, Expr, Field, Fields, FieldsNamed, FieldsUnnamed, Ident, Index, LitStr, Path,
-    Token, Type, TypePath, TypeTuple, Variant,
+    parse_macro_input, parse_quote, punctuated::Punctuated, token::Paren, Data, DataEnum,
+    DataStruct, DeriveInput, Expr, Field, Fields, FieldsNamed, FieldsUnnamed, Ident, Index, LitStr,
+    Path, Token, Type, TypePath, TypeTuple, Variant,
 };
 
 fn core_path() -> Path {
@@ -424,6 +424,10 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         allow_null_bytes,
         enum_repr,
     } = KeyAttribute::from_attributes(attrs).unwrap_or_abort();
+
+    if matches!(data, Data::Struct(_)) && enum_repr.is_some() {
+        abort!(enum_repr, "`enum_repr` is only usable with enums")
+    } 
 
     let repr: Type = enum_repr.unwrap_or_else(|| {
         Type::Path(TypePath {
