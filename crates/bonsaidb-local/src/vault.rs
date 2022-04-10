@@ -401,17 +401,17 @@ pub trait VaultKeyStorage: Send + Sync + Debug + 'static {
 }
 
 #[derive(Serialize, Deserialize)]
-struct EncryptionKey([u8; 32], #[serde(skip)] Option<region::LockGuard>);
+struct EncryptionKey(Box<[u8; 32]>, #[serde(skip)] Option<region::LockGuard>);
 
 impl EncryptionKey {
     pub fn new(secret: [u8; 32]) -> Self {
-        let mut new_key = Self(secret, None);
+        let mut new_key = Self(Box::new(secret), None);
         new_key.lock_memory();
         new_key
     }
 
     pub fn key(&self) -> &[u8] {
-        &self.0
+        &*self.0
     }
 
     pub fn lock_memory(&mut self) {
@@ -445,7 +445,7 @@ impl EncryptionKey {
         payload: &[u8],
         nonce: &[u8],
     ) -> VaultPayload<'static> {
-        let encrypted = XChaCha20Poly1305::new(GenericArray::from_slice(&self.0))
+        let encrypted = XChaCha20Poly1305::new(GenericArray::from_slice(self.key()))
             .encrypt(
                 GenericArray::from_slice(nonce),
                 Payload {
@@ -467,7 +467,7 @@ impl EncryptionKey {
         // This is a no-op, but it will cause a compiler error if we introduce additional encryption methods
         let encrypted = match payload.encryption {
             Encryption::XChaCha20Poly1305 => {
-                XChaCha20Poly1305::new(GenericArray::from_slice(&self.0)).decrypt(
+                XChaCha20Poly1305::new(GenericArray::from_slice(self.key())).decrypt(
                     GenericArray::from_slice(&payload.nonce),
                     Payload {
                         msg: &payload.payload,
