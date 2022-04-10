@@ -426,6 +426,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     } = KeyAttribute::from_attributes(attrs).unwrap_or_abort();
 
     if matches!(data, Data::Struct(_)) && enum_repr.is_some() {
+        // TODO better span when attribute-derive supports that
         abort!(enum_repr, "`enum_repr` is only usable with enums")
     } 
 
