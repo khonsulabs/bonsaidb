@@ -21,7 +21,7 @@ use quote_use::{format_ident_namespaced as format_ident, quote_use as quote};
 use syn::{
     parse_macro_input, parse_quote, punctuated::Punctuated, token::Paren, DataEnum, DataStruct,
     DeriveInput, Expr, Field, Fields, FieldsNamed, FieldsUnnamed, Ident, Index, LitStr, Path,
-    Token, Type, TypeTuple, Variant,
+    Token, Type, TypePath, TypeTuple, Variant,
 };
 
 fn core_path() -> Path {
@@ -370,16 +370,19 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 
 #[derive(Attribute)]
 #[attribute(ident = "key")]
-#[attribute(invalid_field = r#"Only `core = bonsaidb::core` is supported"#)]
+#[attribute(
+    invalid_field = r#"Only `allow_null_bytes`, `enum_repr = NumberType` and `core = bonsaidb::core` is supported"#
+)]
 struct KeyAttribute {
     #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
     core: Option<Path>,
     allow_null_bytes: bool,
+    enum_repr: Option<Type>,
 }
 
 /// Derives the `bonsaidb::core::key::Key` trait.
 ///
-/// `#[key(core = bonsaidb::core]`, `core` is optional
+/// `#[key(allow_null_bytes, enum_repr = u8, core = bonsaidb::core)]`, all parameters are optional
 #[proc_macro_error]
 #[proc_macro_derive(Key, attributes(key))]
 pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -391,10 +394,43 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         ..
     } = parse_macro_input!(input as DeriveInput);
 
+    // Only relevant if it is an enum, get's the representation to use for the variant key
+    let repr = attrs.iter().find_map(|attr| {
+        attr.path
+            .is_ident("repr")
+            .then(|| attr.parse_args::<Ident>().ok())
+            .flatten()
+            .and_then(|ident| {
+                matches!(
+                    ident.to_string().as_ref(),
+                    "u8" | "u16"
+                        | "u32"
+                        | "u64"
+                        | "u128"
+                        | "usize"
+                        | "i8"
+                        | "i16"
+                        | "i32"
+                        | "i64"
+                        | "i128"
+                        | "isize"
+                )
+                .then(|| ident)
+            })
+    });
+
     let KeyAttribute {
         core,
         allow_null_bytes,
+        enum_repr,
     } = KeyAttribute::from_attributes(attrs).unwrap_or_abort();
+
+    let repr: Type = enum_repr.unwrap_or_else(|| {
+        Type::Path(TypePath {
+            qself: None,
+            path: repr.unwrap_or_else(|| format_ident!("isize")).into(),
+        })
+    });
 
     let allow_null_bytes = if allow_null_bytes {
         quote!($encoder.allow_null_bytes_in_variable_fields();)
@@ -411,132 +447,158 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let (impl_generics, _, where_clause) = generics.split_for_impl();
 
     let (encode_fields, decode_fields): (TokenStream, TokenStream) = match data {
-        syn::Data::Struct(DataStruct {
-            fields: Fields::Named(FieldsNamed { named, .. }),
-            ..
-        }) => {
-            let (encode_fields, decode_fields): (TokenStream, TokenStream) = named
-                .into_iter()
-                .map(|Field { ident, .. }| {
-                    let ident = ident.expect("named fields have idents");
-                    (
-                        quote!($encoder.encode(&self.#ident)?;),
-                        quote!(#ident: $decoder.decode()?,),
-                    )
-                })
-                .unzip();
-            (encode_fields, quote!( Self { #decode_fields }))
+        syn::Data::Struct(DataStruct { fields, .. }) => {
+            let (encode_fields, decode_fields) = match fields {
+                Fields::Named(FieldsNamed { named, .. }) => {
+                    let (encode_fields, decode_fields): (TokenStream, TokenStream) = named
+                        .into_iter()
+                        .map(|Field { ident, .. }| {
+                            let ident = ident.expect("named fields have idents");
+                            (
+                                quote!($encoder.encode(&self.#ident)?;),
+                                quote!(#ident: $decoder.decode()?,),
+                            )
+                        })
+                        .unzip();
+                    (encode_fields, quote!( Self { #decode_fields }))
+                }
+                Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
+                    let (encode_fields, decode_fields): (TokenStream, TokenStream) = unnamed
+                        .into_iter()
+                        .enumerate()
+                        .map(|(idx, _)| {
+                            let idx = Index::from(idx);
+                            (
+                                quote!($encoder.encode(&self.#idx)?;),
+                                quote!($decoder.decode()?,),
+                            )
+                        })
+                        .unzip();
+                    (encode_fields, quote!(Self(#decode_fields)))
+                }
+                Fields::Unit => abort_call_site!("unit structs are not supported"),
+            };
+            (encode_fields, quote!(let $self_ = #decode_fields;))
         }
-
-        syn::Data::Struct(DataStruct {
-            fields: Fields::Unnamed(FieldsUnnamed { unnamed, .. }),
-            ..
-        }) => {
-            let (encode_fields, decode_fields): (TokenStream, TokenStream) = unnamed
-                .into_iter()
-                .enumerate()
-                .map(|(idx, _)| {
-                    let idx = Index::from(idx);
-                    (
-                        quote!($encoder.encode(&self.#idx)?;),
-                        quote!($decoder.decode()?,),
-                    )
-                })
-                .unzip();
-            (encode_fields, quote!(Self(#decode_fields)))
-        }
-        syn::Data::Struct(DataStruct {
-            fields: Fields::Unit,
-            ..
-        }) => abort_call_site!("unit structs are not supported"),
         syn::Data::Enum(DataEnum { variants, .. }) => {
-            let (encode_variants, decode_variants): (TokenStream, TokenStream) = variants
+            let mut prev_ident = None;
+            let (consts, (encode_variants, decode_variants)): (
+                TokenStream,
+                (TokenStream, TokenStream),
+            ) = variants
                 .into_iter()
                 .enumerate()
-                .map(|(idx, Variant { fields, ident, .. })| {
-                    let idx = idx as u64;
-                    match fields {
-                        Fields::Named(FieldsNamed { named, .. }) => {
-                            let (idents, (encode_fields, decode_fields)): (
-                                Punctuated<_, Token![,]>,
-                                (TokenStream, TokenStream),
-                            ) = named
-                                .into_iter()
-                                .map(|Field { ident, .. }| {
-                                    let ident = ident.expect("named fields have idents");
+                .map(
+                    |(
+                        idx,
+                        Variant {
+                            fields,
+                            ident,
+                            discriminant,
+                            ..
+                        },
+                    )| {
+                        let discriminant = discriminant.map_or_else(
+                            || {
+                                prev_ident
+                                    .as_ref()
+                                    .map_or_else(|| quote!(0), |ident| quote!(#ident + 1))
+                            },
+                            |(_, expr)| expr.to_token_stream(),
+                        );
+
+                        let const_ident = format_ident!("$discriminant{idx}");
+                        let const_ = quote!(const #const_ident: #repr = #discriminant;);
+
+                        let ret = (
+                            const_,
+                            match fields {
+                                Fields::Named(FieldsNamed { named, .. }) => {
+                                    let (idents, (encode_fields, decode_fields)): (
+                                        Punctuated<_, Token![,]>,
+                                        (TokenStream, TokenStream),
+                                    ) = named
+                                        .into_iter()
+                                        .map(|Field { ident, .. }| {
+                                            let ident = ident.expect("named fields have idents");
+                                            (
+                                                ident.clone(),
+                                                (
+                                                    quote!($encoder.encode(#ident)?;),
+                                                    quote!(#ident: $decoder.decode()?,),
+                                                ),
+                                            )
+                                        })
+                                        .unzip();
                                     (
-                                        ident.clone(),
-                                        (
-                                            quote!($encoder.encode(#ident)?;),
-                                            quote!(#ident: $decoder.decode()?,),
-                                        ),
+                                        quote! {
+                                            Self::#ident{#idents} => {
+                                                $encoder.encode(&#const_ident)?;
+                                                #encode_fields
+                                            },
+                                        },
+                                        quote! {
+                                            #const_ident => Self::#ident{#decode_fields},
+                                        },
                                     )
-                                })
-                                .unzip();
-                            (
-                                quote! {
-                                    Self::#ident{#idents} => {
-                                        $encoder.encode(&#idx)?;
-                                        #encode_fields
-                                    },
-                                },
-                                quote! {
-                                    #idx => Self::#ident{#decode_fields},
-                                },
-                            )
-                        }
-                        Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
-                            let (idents, (encode_fields, decode_fields)): (
-                                Punctuated<_, Token![,]>,
-                                (TokenStream, TokenStream),
-                            ) = unnamed
-                                .into_iter()
-                                .enumerate()
-                                .map(|(idx, _)| {
-                                    let ident = format_ident!("$field_{idx}");
+                                }
+                                Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => {
+                                    let (idents, (encode_fields, decode_fields)): (
+                                        Punctuated<_, Token![,]>,
+                                        (TokenStream, TokenStream),
+                                    ) = unnamed
+                                        .into_iter()
+                                        .enumerate()
+                                        .map(|(idx, _)| {
+                                            let ident = format_ident!("$field_{idx}");
+                                            (
+                                                ident.clone(),
+                                                (
+                                                    quote!($encoder.encode(#ident)?;),
+                                                    quote!($decoder.decode()?,),
+                                                ),
+                                            )
+                                        })
+                                        .unzip();
                                     (
-                                        ident.clone(),
-                                        (
-                                            quote!($encoder.encode(#ident)?;),
-                                            quote!($decoder.decode()?,),
-                                        ),
+                                        quote! {
+                                            Self::#ident(#idents) => {
+                                                $encoder.encode(&#const_ident)?;
+                                                #encode_fields
+                                            },
+                                        },
+                                        quote! {
+                                            #const_ident => Self::#ident(#decode_fields),
+                                        },
                                     )
-                                })
-                                .unzip();
-                            (
-                                quote! {
-                                    Self::#ident(#idents) => {
-                                        $encoder.encode(&#idx)?;
-                                        #encode_fields
-                                    },
-                                },
-                                quote! {
-                                    #idx => Self::#ident(#decode_fields),
-                                },
-                            )
-                        }
-                        Fields::Unit => (
-                            quote!(Self::#ident => $encoder.encode(&#idx)?,),
-                            quote!(#idx => Self::#ident,),
-                        ),
-                    }
-                })
+                                }
+                                Fields::Unit => (
+                                    quote!(Self::#ident => $encoder.encode(&#const_ident)?,),
+                                    quote!(#const_ident => Self::#ident,),
+                                ),
+                            },
+                        );
+                        prev_ident = Some(const_ident);
+                        ret
+                    },
+                )
                 .unzip();
             (
                 quote! {
+                    #consts
                     match self{
                         #encode_variants
                     }
                 },
                 quote! {
                     use std::io::{self, ErrorKind};
-
-                    match $decoder.decode::<u64>()? {
+                    #consts
+                    let $self_ = match $decoder.decode::<#repr>()? {
                         #decode_variants
                         _ => return Err(#core::key::CompositeKeyError::from(io::Error::from(
                                 ErrorKind::InvalidData,
                         )))
-                    }
+                    };
                 },
             )
         }
@@ -553,7 +615,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 let mut $decoder = #core::key::CompositeKeyDecoder::new($bytes);
 
-                let $self_ = #decode_fields;
+                #decode_fields
 
                 $decoder.finish()?;
 

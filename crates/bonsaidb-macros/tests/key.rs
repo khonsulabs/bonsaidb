@@ -39,18 +39,15 @@ fn r#enum() {
         C { a: String, b: i32 },
     }
 
-    assert_eq!(
-        &[0, 0, 0, 0, 0, 0, 0, 0],
-        Test::A.as_ord_bytes().unwrap().as_ref()
-    );
+    assert_eq!(&[128, 0, 1], Test::A.as_ord_bytes().unwrap().as_ref());
 
     assert_eq!(
-        &[0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 97, 0, 1],
+        &[129, 0, 0, 0, 0, 2, 97, 0, 1, 1],
         Test::B(2, "a".into()).as_ord_bytes().unwrap().as_ref()
     );
 
     assert_eq!(
-        &[0, 0, 0, 0, 0, 0, 0, 2, 98, 0, 0, 0, 0, 3, 1],
+        &[130, 0, 98, 0, 0, 0, 0, 3, 1, 1],
         Test::C {
             a: "b".into(),
             b: 3
@@ -59,4 +56,48 @@ fn r#enum() {
         .unwrap()
         .as_ref()
     )
+}
+
+#[test]
+fn enum_repr() {
+    #[repr(u8)]
+    #[derive(Clone, Debug, Key)]
+    enum Test1 {
+        A = 1,
+        B = 2,
+    }
+
+    #[derive(Clone, Debug, Key)]
+    #[key(enum_repr = u8)]
+    enum Test2 {
+        A = 2,
+        B = 1,
+    }
+
+    assert_eq!(
+        Test1::A.as_ord_bytes().unwrap(),
+        Test2::B.as_ord_bytes().unwrap()
+    );
+    assert_eq!(Test1::A.as_ord_bytes().unwrap().as_ref(), &[1]);
+
+    assert_eq!(
+        Test1::B.as_ord_bytes().unwrap(),
+        Test2::A.as_ord_bytes().unwrap()
+    );
+    assert_eq!(Test1::B.as_ord_bytes().unwrap().as_ref(), &[2]);
+}
+
+#[test]
+fn enum_u64() {
+    #[repr(u64)]
+    #[derive(Clone, Debug, Key)]
+    enum Test {
+        A = 0,
+        B = u64::MAX - 1,
+        C,
+    }
+    assert_eq!(
+        Test::C.as_ord_bytes().unwrap().as_ref(),
+        &[255, 255, 255, 255, 255, 255, 255, 255]
+    );
 }
