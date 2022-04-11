@@ -1,0 +1,5 @@
+error: `enum_repr` is only usable with enums
+ --> tests/ui/key/enum_repr_struct.rs:5:19
+  |
+5 | #[key(enum_repr = usize)]
+  |                   ^^^^^
