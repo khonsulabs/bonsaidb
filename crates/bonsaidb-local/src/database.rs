@@ -503,6 +503,7 @@ impl Database {
                                 collection: operation.collection.clone(),
                                 header: doc.header,
                             }));
+                            updated = true;
                             return nebari::tree::KeyOperation::Set(ArcBytes::from(serialized));
                         }
                         Err(err) => {
