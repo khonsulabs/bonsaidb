@@ -441,6 +441,7 @@ pub struct UnassociatedCollection;
 pub enum HarnessTest {
     ServerConnectionTests = 1,
     StoreRetrieveUpdate,
+    Overwrite,
     NotFound,
     Conflict,
     BadUpdate,
@@ -524,6 +525,14 @@ macro_rules! define_async_connection_test_suite {
                     $harness::new($crate::test_util::HarnessTest::StoreRetrieveUpdate).await?;
                 let db = harness.connect().await?;
                 $crate::test_util::store_retrieve_update_delete_tests(&db).await?;
+                harness.shutdown().await
+            }
+
+            #[tokio::test]
+            async fn overwrite() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::Overwrite).await?;
+                let db = harness.connect().await?;
+                $crate::test_util::overwrite_tests(&db).await?;
                 harness.shutdown().await
             }
 
@@ -731,6 +740,14 @@ macro_rules! define_blocking_connection_test_suite {
                 let harness = $harness::new($crate::test_util::HarnessTest::StoreRetrieveUpdate)?;
                 let db = harness.connect()?;
                 $crate::test_util::blocking_store_retrieve_update_delete_tests(&db)?;
+                harness.shutdown()
+            }
+
+            #[test]
+            fn overwrite() -> anyhow::Result<()> {
+                let harness = $harness::new($crate::test_util::HarnessTest::Overwrite)?;
+                let db = harness.connect()?;
+                $crate::test_util::blocking_overwrite_tests(&db)?;
                 harness.shutdown()
             }
 
@@ -988,17 +1005,11 @@ pub async fn store_retrieve_update_delete_tests<C: AsyncConnection>(db: &C) -> a
 
     // Test that inserting a document with the same ID results in a conflict:
     let conflict_err = Basic::new("43")
+        .with_parent_id(document_42.id)
         .insert_into_async(doc.header.id, db)
         .await
         .unwrap_err();
     assert!(matches!(conflict_err.error, Error::DocumentConflict(..)));
-
-    // Test that overwriting works
-    let overwritten = Basic::new("43")
-        .overwrite_into_async(doc.header.id, db)
-        .await
-        .unwrap();
-    assert!(overwritten.header.revision.id > doc.header.revision.id);
 
     // Test bulk insert
     let docs = Basic::push_all_async([Basic::new("44"), Basic::new("45")], db)
@@ -1087,14 +1098,94 @@ pub fn blocking_store_retrieve_update_delete_tests<C: Connection>(db: &C) -> any
     let conflict_err = Basic::new("43").insert_into(doc.header.id, db).unwrap_err();
     assert!(matches!(conflict_err.error, Error::DocumentConflict(..)));
 
-    // Test that overwriting works
-    let overwritten = Basic::new("43").overwrite_into(doc.header.id, db).unwrap();
-    assert!(overwritten.header.revision.id > doc.header.revision.id);
-
     // Test bulk insert
     let docs = Basic::push_all([Basic::new("44"), Basic::new("45")], db).unwrap();
     assert_eq!(docs[0].contents.value, "44");
     assert_eq!(docs[1].contents.value, "45");
+
+    Ok(())
+}
+
+pub async fn overwrite_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
+    // Test Connection::insert with a specified id
+    let doc = BorrowedDocument::with_contents::<Basic>(42, &Basic::new("42"))?;
+    let document_42 = db
+        .insert::<Basic, _, _>(Some(doc.header.id), doc.contents.into_vec())
+        .await?;
+    assert_eq!(document_42.id, 42);
+    let document_43 = Basic::new("43").insert_into_async(43, db).await?;
+    assert_eq!(document_43.header.id, 43);
+
+    // Test that overwriting works
+    let overwritten = Basic::new("43")
+        .with_parent_id(document_42.id)
+        .overwrite_into_async(doc.header.id, db)
+        .await
+        .unwrap();
+    assert!(overwritten.header.revision.id > doc.header.revision.id);
+    let children = db
+        .view::<BasicByParentIdEager>()
+        .with_access_policy(AccessPolicy::NoUpdate)
+        .with_key(Some(document_42.id))
+        .query()
+        .await?;
+    assert_eq!(children[0].source.revision, overwritten.header.revision);
+
+    // Verify that unique/eager views are updated when overwriting into a non-existant key
+    let insert_via_overwrite = Basic::new("1000")
+        .with_parent_id(document_43.header.id)
+        .overwrite_into_async(1_000, db)
+        .await
+        .unwrap();
+    let children = db
+        .view::<BasicByParentIdEager>()
+        .with_access_policy(AccessPolicy::NoUpdate)
+        .with_key(Some(document_43.header.id))
+        .query()
+        .await?;
+    assert_eq!(
+        children[0].source.revision,
+        insert_via_overwrite.header.revision
+    );
+
+    Ok(())
+}
+
+pub fn blocking_overwrite_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
+    // Test Connection::insert with a specified id
+    let doc = BorrowedDocument::with_contents::<Basic>(42, &Basic::new("42"))?;
+    let document_42 = db.insert::<Basic, _, _>(Some(doc.header.id), doc.contents.into_vec())?;
+    assert_eq!(document_42.id, 42);
+    let document_43 = Basic::new("43").insert_into(43, db)?;
+    assert_eq!(document_43.header.id, 43);
+
+    // Test that overwriting works
+    let overwritten = Basic::new("43")
+        .with_parent_id(document_42.id)
+        .overwrite_into(doc.header.id, db)
+        .unwrap();
+    assert!(overwritten.header.revision.id > doc.header.revision.id);
+    let children = db
+        .view::<BasicByParentIdEager>()
+        .with_access_policy(AccessPolicy::NoUpdate)
+        .with_key(Some(document_42.id))
+        .query()?;
+    assert_eq!(children[0].source.revision, overwritten.header.revision);
+
+    // Verify that unique/eager views are updated when overwriting into a non-existant key
+    let insert_via_overwrite = Basic::new("1000")
+        .with_parent_id(document_43.header.id)
+        .overwrite_into(1_000, db)
+        .unwrap();
+    let children = db
+        .view::<BasicByParentIdEager>()
+        .with_access_policy(AccessPolicy::NoUpdate)
+        .with_key(Some(document_43.header.id))
+        .query()?;
+    assert_eq!(
+        children[0].source.revision,
+        insert_via_overwrite.header.revision
+    );
 
     Ok(())
 }

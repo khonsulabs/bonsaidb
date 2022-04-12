@@ -98,6 +98,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [239]: https://github.com/khonsulabs/bonsaidb/pull/239
 
+### Fixed
+
+- Unique views/eager views now are properly updated when an overwrite operation
+  is performed that resulted in a new document being created.
+
 ## v0.4.1
 
 ### Fixed
