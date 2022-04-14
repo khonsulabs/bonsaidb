@@ -5,11 +5,12 @@ use bonsaidb_core::connection::AsyncConnection;
 use bonsaidb_core::{
     connection::Connection,
     document::{BorrowedDocument, Emit},
-    key::KeyEncoding,
+    key::{time::TimestampAsNanoseconds, KeyEncoding},
     schema::{Collection, CollectionName, View, ViewMapResult, ViewSchema},
     transaction::{Operation, Transaction},
 };
 use derive_where::derive_where;
+use serde::{Deserialize, Serialize};
 
 use crate::{direct::BlockInfo, schema::file::File, FileConfig};
 
@@ -29,6 +30,7 @@ where
     ) -> Result<(), bonsaidb_core::Error> {
         if !data.is_empty() {
             let mut tx = Transaction::new();
+            let now = TimestampAsNanoseconds::now();
             // Verify the file exists as part of appending. If the file was
             // deleted out from underneath the appender, this will ensure no
             // blocks are orphaned.
@@ -36,9 +38,11 @@ where
 
             let block_collection = Self::collection_name();
             for chunk in data.chunks(Config::BLOCK_SIZE) {
-                let mut block = Vec::with_capacity(chunk.len() + size_of::<u32>());
+                let mut block =
+                    Vec::with_capacity(chunk.len() + size_of::<u32>() + size_of::<i64>());
                 block.extend(chunk);
                 block.extend(file_id.to_be_bytes());
+                block.extend(now.representation().to_be_bytes());
                 tx.push(Operation::insert(block_collection.clone(), None, block));
             }
 
@@ -55,6 +59,7 @@ where
     ) -> Result<(), bonsaidb_core::Error> {
         if !data.is_empty() {
             let mut tx = Transaction::new();
+            let now = TimestampAsNanoseconds::now();
             // Verify the file exists as part of appending. If the file was
             // deleted out from underneath the appender, this will ensure no
             // blocks are orphaned.
@@ -62,9 +67,11 @@ where
 
             let block_collection = Self::collection_name();
             for chunk in data.chunks(Config::BLOCK_SIZE) {
-                let mut block = Vec::with_capacity(chunk.len() + size_of::<u32>());
+                let mut block =
+                    Vec::with_capacity(chunk.len() + size_of::<u32>() + size_of::<i64>());
                 block.extend(chunk);
                 block.extend(file_id.to_be_bytes());
+                block.extend(now.representation().to_be_bytes());
                 tx.push(Operation::insert(block_collection.clone(), None, block));
             }
 
@@ -88,7 +95,7 @@ where
             .into_iter()
             .map(|block| {
                 let mut contents = block.contents.into_vec();
-                contents.truncate(contents.len() - 4);
+                contents.truncate(contents.len() - size_of::<u32>() - size_of::<i64>());
                 block.header.id.deserialize().map(|id| (id, contents))
             })
             .collect()
@@ -111,7 +118,7 @@ where
             .into_iter()
             .map(|block| {
                 let mut contents = block.contents.into_vec();
-                contents.truncate(contents.len() - 4);
+                contents.truncate(contents.len() - size_of::<u32>() - size_of::<i64>());
                 block.header.id.deserialize().map(|id| (id, contents))
             })
             .collect()
@@ -128,7 +135,8 @@ where
             .into_iter()
             .map(|mapping| BlockInfo {
                 header: mapping.source,
-                length: usize::try_from(mapping.value).unwrap(),
+                length: usize::try_from(mapping.value.length).unwrap(),
+                timestamp: mapping.value.timestamp,
                 offset: 0,
             })
             .collect::<Vec<_>>();
@@ -154,7 +162,8 @@ where
             .into_iter()
             .map(|mapping| BlockInfo {
                 header: mapping.source,
-                length: usize::try_from(mapping.value).unwrap(),
+                length: usize::try_from(mapping.value.length).unwrap(),
+                timestamp: mapping.value.timestamp,
                 offset: 0,
             })
             .collect::<Vec<_>>();
@@ -213,7 +222,7 @@ where
 
 #[derive_where(Clone, Debug, Default)]
 #[derive(View)]
-#[view(name = "by-file", collection = Block<Config>, key = u32, value = u32)]
+#[view(name = "by-file", collection = Block<Config>, key = u32, value = BlockAppendInfo)]
 #[view(core = bonsaidb_core)]
 struct ByFile<Config>(PhantomData<Config>)
 where
@@ -226,12 +235,26 @@ where
     type View = Self;
 
     fn map(&self, doc: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
-        let mut file_id = [0; 4];
-        let file_id_offset = doc.contents.len() - 4;
-        file_id.copy_from_slice(&doc.contents[file_id_offset..]);
+        let timestamp_offset = doc.contents.len() - size_of::<i64>();
+        let file_id_offset = timestamp_offset - size_of::<u32>();
+
+        let mut file_id = [0; size_of::<u32>()];
+        file_id.copy_from_slice(&doc.contents[file_id_offset..timestamp_offset]);
         let file_id = u32::from_be_bytes(file_id);
+
+        let mut timestamp = [0; size_of::<i64>()];
+        timestamp.copy_from_slice(&doc.contents[timestamp_offset..]);
+        let timestamp = TimestampAsNanoseconds::from_representation(i64::from_be_bytes(timestamp));
+
         let length = u32::try_from(file_id_offset).unwrap();
 
-        doc.header.emit_key_and_value(file_id, length)
+        doc.header
+            .emit_key_and_value(file_id, BlockAppendInfo { length, timestamp })
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BlockAppendInfo {
+    length: u32,
+    timestamp: TimestampAsNanoseconds,
 }

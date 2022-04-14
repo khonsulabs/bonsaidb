@@ -3,7 +3,7 @@ use std::{
     mem::size_of,
 };
 
-use bonsaidb_core::test_util::TestDirectory;
+use bonsaidb_core::{key::time::TimestampAsNanoseconds, test_util::TestDirectory};
 #[cfg(feature = "async")]
 use bonsaidb_local::AsyncDatabase;
 use bonsaidb_local::{
@@ -253,12 +253,14 @@ fn blocked_file_test() {
     let database =
         Database::open::<FilesSchema<SmallBlocks>>(StorageConfiguration::new(&directory)).unwrap();
 
+    let test_start = TimestampAsNanoseconds::now();
     let mut file = SmallBlocks::build("hello.txt")
         .contents(&big_file)
         .create(database)
         .unwrap();
     let contents = file.contents().unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
+    assert!(contents.last_appended_at().unwrap() > test_start);
     let bytes = contents.into_vec().unwrap();
     assert_eq!(bytes, big_file);
 
@@ -282,6 +284,7 @@ fn blocked_file_test() {
 
     // Clear the file.
     file.truncate(0, Truncate::RemovingEnd).unwrap();
+    assert!(file.contents().unwrap().last_appended_at().is_none());
 
     let mut writer = file.append_buffered();
     let buffer_size = SmallBlocks::BLOCK_SIZE * 3 / 2;
@@ -313,6 +316,7 @@ async fn async_blocked_file_test() {
             .await
             .unwrap();
 
+    let test_start = TimestampAsNanoseconds::now();
     let mut file = SmallBlocks::build("hello.txt")
         .contents(&big_file)
         .create_async(database)
@@ -320,6 +324,8 @@ async fn async_blocked_file_test() {
         .unwrap();
     let contents = file.contents().await.unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
+    let initial_write_timestamp = contents.last_appended_at().unwrap();
+    assert!(initial_write_timestamp > test_start);
     let bytes = contents.into_vec().await.unwrap();
     assert_eq!(bytes, big_file);
     // Truncate the beginning of the file
@@ -346,6 +352,7 @@ async fn async_blocked_file_test() {
 
     // Clear the file.
     file.truncate(0, Truncate::RemovingEnd).await.unwrap();
+    assert!(file.contents().await.unwrap().last_appended_at().is_none());
 
     let mut writer = file.append_buffered();
     let buffer_size = SmallBlocks::BLOCK_SIZE * 3 / 2;
@@ -360,6 +367,7 @@ async fn async_blocked_file_test() {
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
 
     let contents = file.contents().await.unwrap();
+    assert!(contents.last_appended_at().unwrap() > initial_write_timestamp);
     assert_eq!(contents.to_vec().await.unwrap(), data_written);
 }
 

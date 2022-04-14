@@ -684,6 +684,13 @@ impl<'a, Database: Clone, Config: FileConfig> Contents<'a, Database, Config> {
         self.blocks.is_empty() || (self.blocks.len() == 1 && self.blocks[0].length == 0)
     }
 
+    /// Returns the timestamp that the last data was written to the file.
+    /// Returns None if the file is empty.
+    #[must_use]
+    pub fn last_appended_at(&self) -> Option<TimestampAsNanoseconds> {
+        self.blocks.last().map(|b| b.timestamp)
+    }
+
     fn non_blocking_read<F: FnMut(&[u8]) -> usize>(
         &mut self,
         mut read_callback: F,
@@ -927,6 +934,7 @@ impl<
 pub(crate) struct BlockInfo {
     pub offset: u64,
     pub length: usize,
+    pub timestamp: TimestampAsNanoseconds,
     pub header: Header,
 }
 
