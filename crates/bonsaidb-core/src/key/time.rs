@@ -149,7 +149,7 @@ pub mod limited {
     /// Other resolutions can be used by implementing [`TimeResolution`].
     #[derive_where(Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
     pub struct LimitedResolutionDuration<Resolution: TimeResolution> {
-        step: Resolution::Representation,
+        representation: Resolution::Representation,
         _resolution: PhantomData<Resolution>,
     }
 
@@ -194,25 +194,30 @@ pub mod limited {
     where
         Resolution: TimeResolution,
     {
-        /// Returns a new instance with the `step` provided, which conceptually
-        /// is a unit of `Resolution`.
-        pub fn new(step: Resolution::Representation) -> Self {
+        /// Returns a new instance with the `representation` provided, which
+        /// conceptually is a unit of `Resolution`.
+        pub fn new(representation: Resolution::Representation) -> Self {
             Self {
-                step,
+                representation,
                 _resolution: PhantomData,
             }
+        }
+
+        /// Returns the internal representation of this duration.
+        pub fn representation(&self) -> Resolution::Representation {
+            self.representation
         }
     }
 
     impl<Resolution: TimeResolution> Debug for LimitedResolutionDuration<Resolution> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "{:?}{}", self.step, Resolution::FORMAT_SUFFIX)
+            write!(f, "{:?}{}", self.representation, Resolution::FORMAT_SUFFIX)
         }
     }
 
     impl<Resolution: TimeResolution> Display for LimitedResolutionDuration<Resolution> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "{}{}", self.step, Resolution::FORMAT_SUFFIX)
+            write!(f, "{}{}", self.representation, Resolution::FORMAT_SUFFIX)
         }
     }
 
@@ -221,11 +226,11 @@ pub mod limited {
         Resolution: TimeResolution,
     {
         fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-            let step = <Resolution::Representation as Variable>::decode_variable(bytes)
+            let representation = <Resolution::Representation as Variable>::decode_variable(bytes)
                 .map_err(|_| TimeError::InvalidValue)?;
 
             Ok(Self {
-                step,
+                representation,
                 _resolution: PhantomData,
             })
         }
@@ -240,7 +245,7 @@ pub mod limited {
         const LENGTH: Option<usize> = None;
 
         fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
-            self.step
+            self.representation
                 .to_variable_vec()
                 .map(Cow::Owned)
                 .map_err(|_| TimeError::InvalidValue)
@@ -253,7 +258,7 @@ pub mod limited {
     {
         fn default() -> Self {
             Self {
-                step: <Resolution::Representation as Default>::default(),
+                representation: <Resolution::Representation as Default>::default(),
                 _resolution: PhantomData,
             }
         }
@@ -267,7 +272,7 @@ pub mod limited {
         where
             S: serde::Serializer,
         {
-            self.step.serialize(serializer)
+            self.representation.serialize(serializer)
         }
     }
 
@@ -291,8 +296,8 @@ pub mod limited {
         type Error = TimeError;
 
         fn try_from(duration: SignedDuration) -> Result<Self, Self::Error> {
-            Resolution::duration_to_repr(duration).map(|step| Self {
-                step,
+            Resolution::duration_to_repr(duration).map(|representation| Self {
+                representation,
                 _resolution: PhantomData,
             })
         }
@@ -305,7 +310,7 @@ pub mod limited {
         type Error = TimeError;
 
         fn try_from(value: LimitedResolutionDuration<Resolution>) -> Result<Self, Self::Error> {
-            Resolution::repr_to_duration(value.step)
+            Resolution::repr_to_duration(value.representation)
         }
     }
 
@@ -642,7 +647,7 @@ pub mod limited {
             expected_step: Resolution::Representation,
         ) {
             let limited = LimitedResolutionDuration::<Resolution>::try_from(duration).unwrap();
-            assert_eq!(limited.step, expected_step);
+            assert_eq!(limited.representation, expected_step);
             let encoded = limited.as_ord_bytes().unwrap();
             println!("Encoded {:?} to {} bytes", limited, encoded.len());
             let decoded = LimitedResolutionDuration::from_ord_bytes(&encoded).unwrap();
@@ -767,7 +772,7 @@ pub mod limited {
         /// Returns the [`Duration`] since January 1, 1970 00:00:00 UTC for this
         /// timestamp.
         pub fn duration_since_unix_epoch(&self) -> Result<Duration, TimeError> {
-            let relative_offset = Resolution::repr_to_duration(self.0.step)?;
+            let relative_offset = Resolution::repr_to_duration(self.0.representation)?;
             match relative_offset {
                 SignedDuration::Positive(offset) => Epoch::epoch_offset()
                     .checked_add(offset)
@@ -776,6 +781,17 @@ pub mod limited {
                     .checked_sub(offset)
                     .ok_or(TimeError::DeltaNotRepresentable),
             }
+        }
+
+        /// Returns the internal representation of this timestamp, which is a
+        /// unit of `Resolution`.
+        pub fn representation(&self) -> Resolution::Representation {
+            self.0.representation()
+        }
+
+        /// Returns a new timestamp using the `representation` provided.
+        pub fn from_representation(representation: Resolution::Representation) -> Self {
+            Self::from(LimitedResolutionDuration::new(representation))
         }
 
         /// Converts this value to a a decimal string containing the number of
