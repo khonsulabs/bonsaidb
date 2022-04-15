@@ -308,7 +308,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 #[derive(Attribute)]
 #[attribute(ident = "schema")]
 #[attribute(
-    invalid_field = r#"Only `name = "name"`, `authority = "authority"`, `collections = [SomeCollection, AnotherCollection]` and `core = bonsaidb::core` are supported attributes"#
+    invalid_field = r#"Only `name = "name"`, `authority = "authority"`, `collections = [SomeCollection, AnotherCollection]`, `include = [OtherSchema]`, and `core = bonsaidb::core` are supported attributes"#
 )]
 struct SchemaAttribute {
     #[attribute(missing = r#"You need to specify the schema name via `#[schema(name = "name")]`"#)]
@@ -319,6 +319,11 @@ struct SchemaAttribute {
         expected = r#"Specify the `collections` like so: `collections = [SomeCollection, AnotherCollection]`"#
     )]
     collections: Vec<Type>,
+    #[attribute(default)]
+    #[attribute(
+        expected = r#"Specify other Schemas as plugins like so: `include = [SomeSchema, AnotherSchema]`"#
+    )]
+    include: Vec<Type>,
     #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
     core: Option<Path>,
 }
@@ -340,6 +345,7 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         name,
         authority,
         collections,
+        include,
         core,
     } = SchemaAttribute::from_attributes(attrs).unwrap_or_abort();
 
@@ -351,6 +357,8 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         |authority| quote!(<#core::schema::SchemaName as #core::schema::Qualified>::new(#authority, #name)),
     );
 
+    // For some reason, quote! does not like #include.
+    let plugins = include;
     quote! {
         impl #impl_generics #core::schema::Schema for #ident #ty_generics #where_clause {
             fn schema_name() -> #core::schema::SchemaName {
@@ -361,6 +369,9 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
                 schema: &mut #core::schema::Schematic
             ) -> Result<(), #core::Error> {
                 #( schema.define_collection::<#collections>()?; )*
+
+                #( <#plugins as #core::schema::Schema>::define_collections(schema)?; )*
+
                 Ok(())
             }
         }

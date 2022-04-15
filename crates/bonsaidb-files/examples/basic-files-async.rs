@@ -13,9 +13,11 @@ async fn main() -> anyhow::Result<()> {
     // Create a database for our files. If you would like to use these
     // collections in an existing datasbase/schema, `BonsaiFiles` exposes a
     // function `define_collections()` which can be called from your
-    // `Schema::define_collections()` implementation. The Schema derive macro
-    // does not yet have a way to allow an external register function to be
-    // used.
+    // `Schema::define_collections()` implementation.
+    //
+    // Or, if you're using the Schema derive macro, you can add a parameter
+    // `include = [FilesSchema<BonsaiFiles>]` to use BonsaiFiles within your
+    // existing schema.
     let database = AsyncDatabase::open::<FilesSchema<BonsaiFiles>>(StorageConfiguration::new(
         "basic-files.bonsaidb",
     ))

@@ -51,3 +51,22 @@ fn collections() {
     #[collection(name = "name")]
     struct TestCollection;
 }
+#[test]
+fn plugins() {
+    #[derive(Schema, Debug)]
+    #[schema(name = "name", authority = "authority", include = [OtherSchema])]
+    struct TestSchema;
+
+    #[derive(Schema, Debug)]
+    #[schema(name = "other", authority = "authority", collections = [TestCollection])]
+    struct OtherSchema;
+
+    let schematic = Schematic::from_schema::<TestSchema>().unwrap();
+    assert!(schematic
+        .collections()
+        .contains(&CollectionName::private("name")));
+
+    #[derive(Collection, Debug)]
+    #[collection(name = "name")]
+    struct TestCollection;
+}

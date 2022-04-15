@@ -4,7 +4,7 @@ error: expected identifier
 5 | #[schema(name = "name", "hi")]
   |                         ^^^^
 
-error: Only `name = \"name\"`, `authority = \"authority\"`, `collections = [SomeCollection, AnotherCollection]` and `core = bonsaidb::core` are supported attributes
+error: Only `name = \"name\"`, `authority = \"authority\"`, `collections = [SomeCollection, AnotherCollection]`, `include = [OtherSchema]`, and `core = bonsaidb::core` are supported attributes
  --> tests/ui/schema/invalid_attribute.rs:9:25
   |
 9 | #[schema(name = "name", test = "hi")]
