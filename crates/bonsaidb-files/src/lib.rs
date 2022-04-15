@@ -44,7 +44,7 @@
     clippy::module_name_repetitions,
 )]
 
-use std::marker::PhantomData;
+use std::{fmt::Debug, marker::PhantomData};
 
 #[cfg(feature = "async")]
 use bonsaidb_core::async_trait::async_trait;
@@ -55,6 +55,7 @@ use bonsaidb_core::{
     schema::{CollectionName, InsertError, Qualified, Schema, SchemaName, Schematic},
 };
 use derive_where::derive_where;
+use serde::{de::DeserializeOwned, Serialize};
 
 mod schema;
 
@@ -66,6 +67,10 @@ pub mod direct;
 /// A configuration for a set of [stored files](direct::File).
 #[cfg_attr(feature = "async", async_trait)]
 pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
+    /// The type of the `metadata` stored in [`File`](direct::File). If you do
+    /// not need to store metadata, you can set this type to `()`.
+    type Metadata: Serialize + DeserializeOwned + Send + Sync + Debug + Clone;
+
     /// The maximum size for each write to an underlying file. The file will be
     /// stored by breaking the data written into chunks no larger than
     /// `BLOCK_SIZE`.
@@ -190,6 +195,7 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
 pub struct BonsaiFiles;
 
 impl FileConfig for BonsaiFiles {
+    type Metadata = ();
     const BLOCK_SIZE: usize = 65_536;
 
     fn files_name() -> CollectionName {

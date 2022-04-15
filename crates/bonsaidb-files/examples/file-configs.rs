@@ -30,6 +30,7 @@ impl Schema for MultipleConfigs {
 enum ProcessedFiles {}
 
 impl FileConfig for ProcessedFiles {
+    type Metadata = ();
     const BLOCK_SIZE: usize = 16_384;
 
     fn files_name() -> CollectionName {

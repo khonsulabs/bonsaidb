@@ -228,6 +228,7 @@ async fn async_simple_path_test() {
 
 enum SmallBlocks {}
 impl FileConfig for SmallBlocks {
+    type Metadata = usize;
     const BLOCK_SIZE: usize = 8;
 
     fn files_name() -> bonsaidb_core::schema::CollectionName {
@@ -484,4 +485,56 @@ async fn async_seek_read_test() {
     );
     // Verify read returns 0 bytes.
     assert_eq!(contents.read(&mut buffer).await.unwrap(), 0);
+}
+
+#[test]
+fn simple_metadata_test() {
+    let directory = TestDirectory::new("simple-metadata");
+    let database =
+        Database::open::<FilesSchema<SmallBlocks>>(StorageConfiguration::new(&directory)).unwrap();
+
+    let file = SmallBlocks::build("/hello/world.txt")
+        .contents(b"hello, world!")
+        .metadata(42)
+        .create(database.clone())
+        .unwrap();
+    assert_eq!(file.metadata(), Some(&42));
+    let mut file = SmallBlocks::get(file.id(), database.clone())
+        .unwrap()
+        .unwrap();
+    assert_eq!(file.metadata(), Some(&42));
+    file.update_metadata(52).unwrap();
+
+    let file = SmallBlocks::get(file.id(), database).unwrap().unwrap();
+    assert_eq!(file.metadata(), Some(&52));
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_metadata_test() {
+    let directory = TestDirectory::new("simple-metadata-async");
+    let database =
+        AsyncDatabase::open::<FilesSchema<SmallBlocks>>(StorageConfiguration::new(&directory))
+            .await
+            .unwrap();
+
+    let file = SmallBlocks::build("/hello/world.txt")
+        .contents(b"hello, world!")
+        .metadata(42)
+        .create_async(database.clone())
+        .await
+        .unwrap();
+    assert_eq!(file.metadata(), Some(&42));
+    let mut file = SmallBlocks::get_async(file.id(), database.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(file.metadata(), Some(&42));
+    file.update_metadata(52).await.unwrap();
+
+    let file = SmallBlocks::get_async(file.id(), database)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(file.metadata(), Some(&52));
 }

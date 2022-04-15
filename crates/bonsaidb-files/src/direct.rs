@@ -50,10 +50,11 @@ where
         path: Option<String>,
         name: String,
         contents: &[u8],
+        metadata: Option<Config::Metadata>,
         database: Database,
     ) -> Result<Self, Error> {
         Ok(Self {
-            doc: schema::file::File::create_file(path, name, contents, &database)?,
+            doc: schema::file::File::create_file(path, name, contents, metadata, &database)?,
             database: Blocking(database),
         })
     }
@@ -206,6 +207,18 @@ where
             _config: PhantomData,
         }
     }
+
+    /// Updates the metadata for this file.
+    pub fn update_metadata(
+        &mut self,
+        metadata: impl Into<Option<Config::Metadata>>,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let mut doc = self.doc.clone();
+        doc.contents.metadata = metadata.into();
+        doc.update(&self.database.0)?;
+        self.doc = doc;
+        Ok(())
+    }
 }
 
 #[cfg(feature = "async")]
@@ -218,10 +231,12 @@ where
         path: Option<String>,
         name: String,
         contents: &[u8],
+        metadata: Option<Config::Metadata>,
         database: Database,
     ) -> Result<Self, Error> {
         Ok(Self {
-            doc: schema::file::File::create_file_async(path, name, contents, &database).await?,
+            doc: schema::file::File::create_file_async(path, name, contents, metadata, &database)
+                .await?,
             database: Async(database),
         })
     }
@@ -397,6 +412,18 @@ where
             _config: PhantomData,
         }
     }
+
+    /// Updates the metadata for this file.
+    pub async fn update_metadata(
+        &mut self,
+        metadata: impl Into<Option<Config::Metadata>>,
+    ) -> Result<(), bonsaidb_core::Error> {
+        let mut doc = self.doc.clone();
+        doc.contents.metadata = metadata.into();
+        doc.update_async(&self.database.0).await?;
+        self.doc = doc;
+        Ok(())
+    }
 }
 
 impl<Database, Config> File<Database, Config>
@@ -443,6 +470,11 @@ where
         self.doc.contents.created_at
     }
 
+    /// Returns the metadata for this file, if any was set.
+    pub fn metadata(&self) -> Option<&Config::Metadata> {
+        self.doc.contents.metadata.as_ref()
+    }
+
     fn update_document_for_move(
         &self,
         new_path: &str,
@@ -474,10 +506,14 @@ where
 /// A builder to create a [`File`].
 #[derive(Debug, Clone)]
 #[must_use]
-pub struct FileBuilder<'a, Config> {
+pub struct FileBuilder<'a, Config>
+where
+    Config: FileConfig,
+{
     path: Option<String>,
     name: String,
     contents: &'a [u8],
+    metadata: Option<Config::Metadata>,
     _config: PhantomData<Config>,
 }
 
@@ -502,6 +538,7 @@ impl<'a, Config: FileConfig> FileBuilder<'a, Config> {
             path,
             name,
             contents: b"",
+            metadata: None,
             _config: PhantomData,
         }
     }
@@ -519,12 +556,18 @@ impl<'a, Config: FileConfig> FileBuilder<'a, Config> {
         self
     }
 
+    /// Sets the file's initial metadata.
+    pub fn metadata(mut self, metadata: Config::Metadata) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
     /// Creates the file and returns a handle to the created file.
     pub fn create<Database: Connection + Clone>(
         self,
         database: Database,
     ) -> Result<File<Blocking<Database>, Config>, Error> {
-        File::new_file(self.path, self.name, self.contents, database)
+        File::new_file(self.path, self.name, self.contents, self.metadata, database)
     }
 
     /// Creates the file and returns a handle to the created file.
@@ -533,7 +576,7 @@ impl<'a, Config: FileConfig> FileBuilder<'a, Config> {
         self,
         database: Database,
     ) -> Result<File<Async<Database>, Config>, Error> {
-        File::new_file_async(self.path, self.name, self.contents, database).await
+        File::new_file_async(self.path, self.name, self.contents, self.metadata, database).await
     }
 }
 

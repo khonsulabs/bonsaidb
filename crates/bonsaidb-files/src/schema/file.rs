@@ -23,10 +23,16 @@ use crate::{direct::BlockInfo, schema::block::Block, BonsaiFiles, Error, FileCon
 
 #[derive_where(Debug, Clone)]
 #[derive(Serialize, Deserialize)]
-pub struct File<Config = BonsaiFiles> {
+pub struct File<Config = BonsaiFiles>
+where
+    Config: FileConfig,
+{
     pub path: Option<String>,
     pub name: String,
     pub created_at: TimestampAsNanoseconds,
+
+    #[serde(default)]
+    pub metadata: Option<Config::Metadata>,
 
     #[serde(skip)]
     #[derive_where(skip)]
@@ -41,6 +47,7 @@ where
         mut path: Option<String>,
         name: String,
         contents: &[u8],
+        metadata: Option<Config::Metadata>,
         database: &Database,
     ) -> Result<CollectionDocument<Self>, Error> {
         if name.contains('/') || name.is_empty() {
@@ -59,6 +66,7 @@ where
             path,
             name,
             created_at: now,
+            metadata,
             _name: PhantomData,
         }
         .push_into(database)?;
@@ -71,6 +79,7 @@ where
         mut path: Option<String>,
         name: String,
         contents: &[u8],
+        metadata: Option<Config::Metadata>,
         database: &Database,
     ) -> Result<CollectionDocument<Self>, Error> {
         if name.contains('/') || name.is_empty() {
@@ -89,6 +98,7 @@ where
             path,
             name,
             created_at: now,
+            metadata,
             _name: PhantomData,
         }
         .push_into_async(database)
