@@ -17,7 +17,7 @@ use derive_where::derive_where;
 use crate::{Backend, CustomServer, NoBackend};
 
 /// A database belonging to a [`CustomServer`].
-#[derive_where(Debug)]
+#[derive_where(Debug, Clone)]
 pub struct ServerDatabase<B: Backend = NoBackend> {
     pub(crate) server: CustomServer<B>,
     pub(crate) db: AsyncDatabase,

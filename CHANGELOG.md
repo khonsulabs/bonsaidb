@@ -95,6 +95,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This was how unique views already functioned, but now users who have workflows
   where an eagerly-updated view will be more efficient than a lazy view can
   opt-in to this behavior.
+- `ServerDatabase`, `AnyDatabase`, and `AnyConnection` now all implement `Clone`
+  and `Debug`.
 
 [239]: https://github.com/khonsulabs/bonsaidb/pull/239
 

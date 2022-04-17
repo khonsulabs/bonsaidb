@@ -16,8 +16,10 @@ use bonsaidb_core::{
     transaction::{Executed, OperationResult, Transaction},
 };
 use bonsaidb_server::{Backend, CustomServer, NoBackend, ServerDatabase};
+use derive_where::derive_where;
 
 /// A local server or a server over a network connection.
+#[derive_where(Clone, Debug)]
 pub enum AnyServerConnection<B: Backend> {
     /// A local server.
     Local(CustomServer<B>),
@@ -240,6 +242,7 @@ impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
 
 /// A database connection that can be either from a local server or a server
 /// over a network connection.
+#[derive_where(Clone, Debug)]
 pub enum AnyDatabase<B: Backend = NoBackend> {
     /// A local database.
     Local(ServerDatabase<B>),
