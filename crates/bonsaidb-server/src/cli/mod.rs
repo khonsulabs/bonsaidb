@@ -30,6 +30,11 @@ impl<B: Backend> Command<B> {
         configuration: ServerConfiguration<B>,
     ) -> Result<(), BackendError<B::Error>> {
         let server = CustomServer::<B>::open(configuration).await?;
+        self.execute_on(server).await
+    }
+
+    /// Executes the command on `server`.
+    pub async fn execute_on(&self, server: CustomServer<B>) -> Result<(), BackendError<B::Error>> {
         match self {
             Self::Certificate(command) => command.execute(&server).await,
             Self::Serve(command) => command.execute(&server).await,

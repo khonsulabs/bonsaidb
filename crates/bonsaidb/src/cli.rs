@@ -44,7 +44,7 @@ where
                     anyhow::bail!("server url provided for local-only command.")
                 }
 
-                server.execute(cli.configuration().await?).await?;
+                server.execute_on(cli.open_server().await?).await?;
             }
             other => {
                 let connection = if let Some(server_url) = server_url {

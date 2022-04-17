@@ -95,8 +95,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This was how unique views already functioned, but now users who have workflows
   where an eagerly-updated view will be more efficient than a lazy view can
   opt-in to this behavior.
+- `bonsaidb::server::cli::Command` has a new function, `execute_on` which
+  accepts an already constructed server instance.
 - `ServerDatabase`, `AnyDatabase`, and `AnyConnection` now all implement `Clone`
   and `Debug`.
+
+### Changed
+
+- `bonsaidb::cli::Command::Server` now calls `CommandLine::open_server()` rather
+  than constructing the server directly. This allows CommandLine implementors to
+  use `open_server` as a location to launch extra services upon server startup.
 
 [239]: https://github.com/khonsulabs/bonsaidb/pull/239
 
