@@ -99,6 +99,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accepts an already constructed server instance.
 - `ServerDatabase`, `AnyDatabase`, and `AnyConnection` now all implement `Clone`
   and `Debug`.
+- `DefaultPermissions` now implements `From<Vec<Statement>>` and
+  `From<Statement>`, enabling simpler usage when using `default_permissions()`
+  and `authenticated_permissions()`.
 
 ### Changed
 

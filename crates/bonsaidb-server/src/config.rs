@@ -4,7 +4,7 @@ use std::{collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
     api,
-    permissions::Permissions,
+    permissions::{Permissions, Statement},
     schema::{ApiName, Schema},
 };
 #[cfg(feature = "compression")]
@@ -172,6 +172,18 @@ impl From<DefaultPermissions> for Permissions {
 impl From<Permissions> for DefaultPermissions {
     fn from(permissions: Permissions) -> Self {
         Self::Permissions(permissions)
+    }
+}
+
+impl From<Vec<Statement>> for DefaultPermissions {
+    fn from(permissions: Vec<Statement>) -> Self {
+        Self::from(Permissions::from(permissions))
+    }
+}
+
+impl From<Statement> for DefaultPermissions {
+    fn from(permissions: Statement) -> Self {
+        Self::from(Permissions::from(permissions))
     }
 }
 
