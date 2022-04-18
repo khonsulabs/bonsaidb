@@ -1208,7 +1208,10 @@ where
 {
     type Error = T::Error;
 
-    const LENGTH: Option<usize> = None;
+    const LENGTH: Option<usize> = match T::LENGTH {
+        Some(length) => Some(1 + length),
+        None => None,
+    };
 
     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         if let Some(contents) = self {
@@ -1219,6 +1222,82 @@ where
             Ok(Cow::Borrowed(b"\0"))
         }
     }
+}
+
+const RESULT_OK: u8 = 0;
+const RESULT_ERR: u8 = 1;
+
+impl<'a, T, E> Key<'a> for Result<T, E>
+where
+    T: Key<'a>,
+    E: Key<'a, Error = <T as KeyEncoding<'a, T>>::Error>,
+    Self: KeyEncoding<'a, Self, Error = <T as KeyEncoding<'a, T>>::Error>,
+{
+    fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
+        match bytes.get(0) {
+            Some(&RESULT_OK) => T::from_ord_bytes(&bytes[1..]).map(Ok),
+            Some(_) => E::from_ord_bytes(&bytes[1..]).map(Err),
+            None => {
+                // Empty buffer, but we don't have an error type.
+                E::from_ord_bytes(bytes).map(Err)
+            }
+        }
+    }
+
+    fn first_value() -> Result<Self, NextValueError> {
+        Ok(Ok(T::first_value()?))
+    }
+
+    fn next_value(&self) -> Result<Self, NextValueError> {
+        match self {
+            Ok(value) => value.next_value().map(Ok),
+            Err(err) => err.next_value().map(Err),
+        }
+    }
+}
+
+impl<'a, T, E, TBorrowed, EBorrowed> KeyEncoding<'a, Result<T, E>> for Result<TBorrowed, EBorrowed>
+where
+    TBorrowed: KeyEncoding<'a, T>,
+    T: Key<'a, Error = TBorrowed::Error>,
+    EBorrowed: KeyEncoding<'a, E, Error = TBorrowed::Error>,
+    E: Key<'a, Error = TBorrowed::Error>,
+{
+    type Error = <TBorrowed as KeyEncoding<'a, T>>::Error;
+
+    const LENGTH: Option<usize> = None;
+
+    fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
+        let (header, contents) = match self {
+            Ok(value) => (RESULT_OK, value.as_ord_bytes()?),
+            Err(value) => (RESULT_ERR, value.as_ord_bytes()?),
+        };
+        let mut contents = contents.to_vec();
+        contents.insert(0, header);
+        Ok(Cow::Owned(contents))
+    }
+}
+
+#[test]
+fn result_key_tests() {
+    let ok_0 = Result::<u8, u16>::first_value().unwrap();
+    let ok_1 = ok_0.next_value().unwrap();
+    assert_eq!(ok_1, Ok(1));
+    let ok_2 = Result::<u8, u16>::Ok(2_u8);
+    let err_1 = Result::<u8, u16>::Err(1_u16);
+    let err_2 = err_1.next_value().unwrap();
+    assert_eq!(err_2, Err(2));
+    let ok_1_encoded = ok_1.as_ord_bytes().unwrap();
+    let ok_2_encoded = ok_2.as_ord_bytes().unwrap();
+    let err_1_encoded = err_1.as_ord_bytes().unwrap();
+    let err_2_encoded = err_2.as_ord_bytes().unwrap();
+    assert!(ok_1_encoded < ok_2_encoded);
+    assert!(ok_2_encoded < err_1_encoded);
+    assert!(err_1_encoded < err_2_encoded);
+    assert_eq!(Result::from_ord_bytes(&ok_1_encoded).unwrap(), ok_1);
+    assert_eq!(Result::from_ord_bytes(&ok_2_encoded).unwrap(), ok_2);
+    assert_eq!(Result::from_ord_bytes(&err_1_encoded).unwrap(), err_1);
+    assert_eq!(Result::from_ord_bytes(&err_2_encoded).unwrap(), err_2);
 }
 
 /// Adds `Key` support to an enum. Requires implementing

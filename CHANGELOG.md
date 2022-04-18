@@ -56,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#239][239] `Key` can now be derived on enums and structs, allowing an easier way
   to use composite keys. The `primary-keys` example has been updated to use the
   derive macro instead of a tuple for the composite key.
+- `Key` is now implemented for `Result<T,E>`, where T and E both implement `Key`
+  and `KeyEncoding` using the same error type.
 - `Key` is now implemented for `Cow<'a, str>`.
 - `Key` is now implemented for `isize` and `usize`. This is implemented using
   variable integer encoding, allowing for proper cross-architecture behavior.
