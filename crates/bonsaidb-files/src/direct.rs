@@ -699,7 +699,7 @@ impl<'a, Database: Clone, Config: FileConfig> Contents<'a, Database, Config> {
 
         self.blocks[self.current_block..=last_block]
             .iter()
-            .map(|info| info.header.id)
+            .map(|info| info.header.id.clone())
             .collect()
     }
 

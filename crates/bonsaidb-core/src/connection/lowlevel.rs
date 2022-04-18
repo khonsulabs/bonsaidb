@@ -327,7 +327,7 @@ pub trait LowLevelConnection: HasSession {
         let documents = self
             .get_multiple::<V::Collection, _, _, _>(results.iter().map(|m| &m.source.id))?
             .into_iter()
-            .map(|doc| (doc.header.id, doc))
+            .map(|doc| (doc.header.id.clone(), doc))
             .collect::<BTreeMap<_, _>>();
 
         Ok(MappedDocuments {
@@ -941,7 +941,7 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
             .get_multiple::<V::Collection, _, _, _>(results.iter().map(|m| &m.source.id))
             .await?
             .into_iter()
-            .map(|doc| (doc.header.id, doc))
+            .map(|doc| (doc.header.id.clone(), doc))
             .collect::<BTreeMap<_, _>>();
 
         Ok(MappedDocuments {

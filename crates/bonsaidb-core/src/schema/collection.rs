@@ -212,7 +212,7 @@ pub trait Collection: Debug + Send + Sync {
     /// ## Primary Key Limits
     ///
     /// The result of [`KeyEncoding::as_ord_bytes()`] must be less than or equal
-    /// to [`DocumentId::MAX_LENGTH`]. This is currently 63 bytes.
+    /// to [`DocumentId::MAX_LENGTH`].
     type PrimaryKey: for<'k> Key<'k> + Eq + Ord;
 
     /// The unique name of this collection. Each collection must be uniquely
@@ -1477,7 +1477,7 @@ impl<'a, Id> Nameable<'a, Id> for &'a String {
 
 impl<'a, 'b, 'c, Id> From<&'b BorrowedDocument<'b>> for NamedReference<'a, Id> {
     fn from(doc: &'b BorrowedDocument<'b>) -> Self {
-        Self::Id(doc.header.id)
+        Self::Id(doc.header.id.clone())
     }
 }
 

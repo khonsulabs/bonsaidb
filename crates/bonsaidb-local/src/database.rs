@@ -316,10 +316,10 @@ impl Database {
 
             if let Some((collection, id, deleted)) = match &result {
                 OperationResult::DocumentUpdated { header, collection } => {
-                    Some((collection, header.id, false))
+                    Some((collection, header.id.clone(), false))
                 }
                 OperationResult::DocumentDeleted { id, collection } => {
-                    Some((collection, *id, true))
+                    Some((collection, id.clone(), true))
                 }
                 OperationResult::Success => None,
             } {
@@ -401,25 +401,29 @@ impl Database {
     ) -> Result<OperationResult, Error> {
         match &operation.command {
             Command::Insert { id, contents } => {
-                self.execute_insert(operation, transaction, tree_index_map, *id, contents)
+                self.execute_insert(operation, transaction, tree_index_map, id.clone(), contents)
             }
             Command::Update { header, contents } => self.execute_update(
                 operation,
                 transaction,
                 tree_index_map,
-                header.id,
+                &header.id,
                 Some(&header.revision),
                 contents,
             ),
             Command::Overwrite { id, contents } => {
-                self.execute_update(operation, transaction, tree_index_map, *id, None, contents)
+                self.execute_update(operation, transaction, tree_index_map, id, None, contents)
             }
             Command::Delete { header } => {
                 self.execute_delete(operation, transaction, tree_index_map, header)
             }
-            Command::Check { id, revision } => {
-                Self::execute_check(operation, transaction, tree_index_map, *id, *revision)
-            }
+            Command::Check { id, revision } => Self::execute_check(
+                operation,
+                transaction,
+                tree_index_map,
+                id.clone(),
+                *revision,
+            ),
         }
     }
 
@@ -428,7 +432,7 @@ impl Database {
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
         tree_index_map: &HashMap<String, usize>,
-        id: DocumentId,
+        id: &DocumentId,
         check_revision: Option<&Revision>,
         contents: &[u8],
     ) -> Result<OperationResult, crate::Error> {
@@ -456,7 +460,7 @@ impl Database {
                         if let Some(updated_revision) = doc.header.revision.next_revision(contents)
                         {
                             let updated_header = Header {
-                                id,
+                                id: id.clone(),
                                 revision: updated_revision,
                             };
                             let serialized_doc = match serialize_document(&BorrowedDocument {
@@ -492,7 +496,7 @@ impl Database {
                         ))));
                     }
                 } else if check_revision.is_none() {
-                    let doc = BorrowedDocument::new(id, contents);
+                    let doc = BorrowedDocument::new(id.clone(), contents);
                     match serialize_document(&doc).map(|bytes| (doc, bytes)) {
                         Ok((doc, serialized)) => {
                             result = Some(Ok(OperationResult::DocumentUpdated {
@@ -509,7 +513,7 @@ impl Database {
                 } else {
                     result = Some(Err(Error::Core(bonsaidb_core::Error::DocumentNotFound(
                         operation.collection.clone(),
-                        Box::new(id),
+                        Box::new(id.clone()),
                     ))));
                 }
                 nebari::tree::KeyOperation::Skip
@@ -591,7 +595,7 @@ impl Database {
 
                 Ok(OperationResult::DocumentDeleted {
                     collection: operation.collection.clone(),
-                    id: header.id,
+                    id: header.id.clone(),
                 })
             } else {
                 Err(Error::Core(bonsaidb_core::Error::DocumentConflict(
@@ -602,7 +606,7 @@ impl Database {
         } else {
             Err(Error::Core(bonsaidb_core::Error::DocumentNotFound(
                 operation.collection.clone(),
-                Box::new(header.id),
+                Box::new(header.id.clone()),
             )))
         }
     }
@@ -1331,11 +1335,14 @@ impl LowLevelConnection for Database {
 
         let documents = self
             .get_multiple_from_collection(
-                &results.iter().map(|m| m.source.id).collect::<Vec<_>>(),
+                &results
+                    .iter()
+                    .map(|m| m.source.id.clone())
+                    .collect::<Vec<_>>(),
                 &view.collection(),
             )?
             .into_iter()
-            .map(|doc| (doc.header.id, doc))
+            .map(|doc| (doc.header.id.clone(), doc))
             .collect::<BTreeMap<_, _>>();
 
         Ok(

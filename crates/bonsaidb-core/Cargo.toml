@@ -47,6 +47,7 @@ transmog-pot = "0.1.0"
 arc-bytes = { version = "0.3.3", features = ["serde"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 num_cpus = { version = "1.13.1", optional = true }
+tinyvec = { version = "1.5.1", features = ["alloc"] }
 
 [dev-dependencies]
 hex-literal = "0.3"

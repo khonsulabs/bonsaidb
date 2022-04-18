@@ -579,7 +579,7 @@ fn document_changes_iter() {
     let mut ids = Vec::new();
     for (collection, document) in changes.iter() {
         assert!(!ids.contains(&document.id));
-        ids.push(document.id);
+        ids.push(document.id.clone());
         match collection.name.as_ref() {
             "a" => a_changes += 1,
             "b" => b_changes += 1,
@@ -594,7 +594,7 @@ fn document_changes_iter() {
     let mut ids = Vec::new();
     for (collection, document) in changes {
         assert!(!ids.contains(&document.id));
-        ids.push(document.id);
+        ids.push(document.id.clone());
         match collection.name.as_ref() {
             "a" => a_changes += 1,
             "b" => b_changes += 1,

@@ -1,48 +1,26 @@
 use std::{
     borrow::Cow,
-    cmp::Ordering,
     fmt::{Display, Write},
     hash::Hash,
+    mem::size_of,
     ops::Deref,
     str::FromStr,
 };
 
 use actionable::Identifier;
 use serde::{de::Visitor, Deserialize, Serialize};
+use tinyvec::{Array, TinyVec};
 
 use crate::key::{Key, KeyEncoding};
 
 /// The serialized representation of a document's unique ID.
-#[derive(Clone, Copy)]
-pub struct DocumentId {
-    length: u8,
-    bytes: [u8; Self::MAX_LENGTH],
-}
+#[derive(Default, Ord, Hash, Eq, PartialEq, PartialOrd, Clone)]
+pub struct DocumentId(TinyVec<[u8; Self::INLINE_SIZE]>);
 
 impl Deref for DocumentId {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
-        &self.bytes[..usize::from(self.length)]
-    }
-}
-
-impl Ord for DocumentId {
-    fn cmp(&self, other: &Self) -> Ordering {
-        (**self).cmp(&**other)
-    }
-}
-
-impl PartialOrd for DocumentId {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Eq for DocumentId {}
-
-impl PartialEq for DocumentId {
-    fn eq(&self, other: &Self) -> bool {
-        **self == **other
+        &self.0
     }
 }
 
@@ -87,12 +65,6 @@ impl Display for DocumentId {
             // All zeroes
             write!(f, "{:x}$", self.len())
         }
-    }
-}
-
-impl Hash for DocumentId {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        (**self).hash(state);
     }
 }
 
@@ -141,71 +113,64 @@ impl FromStr for DocumentId {
         if s.is_empty() {
             return Ok(Self::default());
         }
-        let mut id = Self::default();
-        let bytes = s.as_bytes();
 
+        let bytes = s.as_bytes();
         if let Some((pound_offset, _)) = s.bytes().enumerate().find(|(_index, b)| *b == b'$') {
-            if pound_offset > 2 {
+            if pound_offset > 5 {
                 return Err(crate::Error::DocumentIdTooLong);
             }
 
             let preceding_zeroes = if pound_offset > 0 {
-                let mut length = [0_u8];
+                let mut length = TinyVec::<[u8; 1]>::new();
                 decode_big_endian_hex(&bytes[0..pound_offset], &mut length)?;
-                usize::from(length[0])
+                let mut zeroes = [0_u8; size_of::<usize>()];
+                let offset = zeroes.len() - length.len();
+                zeroes[offset..].copy_from_slice(&length);
+                usize::from_be_bytes(zeroes)
             } else {
                 0
             };
 
-            let decoded_length = decode_big_endian_hex(&bytes[pound_offset + 1..], &mut id.bytes)?;
+            let mut id = TinyVec::new();
+            decode_big_endian_hex(&bytes[pound_offset + 1..], &mut id)?;
             if preceding_zeroes > 0 {
-                let total_length = preceding_zeroes + usize::from(decoded_length);
+                let total_length = preceding_zeroes + id.len();
                 if total_length > Self::MAX_LENGTH {
                     return Err(crate::Error::DocumentIdTooLong);
                 }
                 // The full length indicated a longer ID, so we need to prefix some null bytes.
-                id.bytes
-                    .copy_within(0..usize::from(decoded_length), preceding_zeroes);
-                id.bytes[0..preceding_zeroes].fill(0);
-                id.length = u8::try_from(total_length).unwrap();
-            } else {
-                id.length = decoded_length;
+                id.splice(0..0, std::iter::repeat(0).take(preceding_zeroes));
             }
+            Ok(Self(id))
         } else if bytes.len() > Self::MAX_LENGTH {
-            return Err(crate::Error::DocumentIdTooLong);
+            Err(crate::Error::DocumentIdTooLong)
         } else {
             // UTF-8 representable
-            id.length = u8::try_from(bytes.len()).unwrap();
-            id.bytes[0..bytes.len()].copy_from_slice(bytes);
+            Self::try_from(bytes)
         }
-        Ok(id)
     }
 }
 
-fn decode_big_endian_hex(bytes: &[u8], output: &mut [u8]) -> Result<u8, crate::Error> {
-    let mut length = 0;
+fn decode_big_endian_hex<A: Array<Item = u8>>(
+    bytes: &[u8],
+    output: &mut TinyVec<A>,
+) -> Result<(), crate::Error> {
     let mut chunks = if bytes.len() & 1 == 0 {
         bytes.chunks_exact(2)
     } else {
         // Odd amount of bytes, special case the first char
-        output[0] = decode_hex_nibble(bytes[0])?;
-        length = 1;
+        output.push(decode_hex_nibble(bytes[0])?);
         bytes[1..].chunks_exact(2)
     };
     for chunk in &mut chunks {
-        let write_at = length;
-        length += 1;
-        if length > output.len() {
-            return Err(crate::Error::DocumentIdTooLong);
-        }
         let upper = decode_hex_nibble(chunk[0])?;
         let lower = decode_hex_nibble(chunk[1])?;
-        output[write_at] = upper << 4 | lower;
+        output.push(upper << 4 | lower);
     }
     if !chunks.remainder().is_empty() {
         return Err(crate::Error::from(InvalidHexadecimal));
     }
-    Ok(u8::try_from(length).unwrap())
+    Ok(())
 }
 
 #[test]
@@ -227,18 +192,9 @@ fn document_id_parsing() {
     // case we update MAX_LENGTH in the future, this extra test will ensure the
     // max-length formatting is always tested.
     test_id(
-        &[0_u8; DocumentId::MAX_LENGTH],
+        &vec![0_u8; DocumentId::MAX_LENGTH],
         &format!("{:x}$", DocumentId::MAX_LENGTH),
     );
-}
-
-impl Default for DocumentId {
-    fn default() -> Self {
-        Self {
-            length: 0,
-            bytes: [0; Self::MAX_LENGTH],
-        }
-    }
 }
 
 impl<'a> TryFrom<&'a [u8]> for DocumentId {
@@ -246,12 +202,7 @@ impl<'a> TryFrom<&'a [u8]> for DocumentId {
 
     fn try_from(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         if bytes.len() <= Self::MAX_LENGTH {
-            let mut new_id = Self {
-                length: u8::try_from(bytes.len()).unwrap(),
-                ..Self::default()
-            };
-            new_id.bytes[..bytes.len()].copy_from_slice(bytes);
-            Ok(new_id)
+            Ok(Self(TinyVec::from(bytes)))
         } else {
             Err(crate::Error::DocumentIdTooLong)
         }
@@ -267,8 +218,9 @@ impl<const N: usize> TryFrom<[u8; N]> for DocumentId {
 }
 
 impl DocumentId {
-    /// The maximum length, in bytes, that an id can contain.
-    pub const MAX_LENGTH: usize = 63;
+    const INLINE_SIZE: usize = 16;
+    /// The maximum size able to be stored in a document's unique id.
+    pub const MAX_LENGTH: usize = 65_535;
 
     /// Returns a new instance with `value` as the identifier..
     pub fn new<
@@ -339,16 +291,7 @@ impl<'de> Visitor<'de> for DocumentIdVisitor {
     where
         E: serde::de::Error,
     {
-        if v.len() <= DocumentId::MAX_LENGTH {
-            let mut document_id = DocumentId {
-                length: u8::try_from(v.len()).unwrap(),
-                ..DocumentId::default()
-            };
-            document_id.bytes[..v.len()].copy_from_slice(v);
-            Ok(document_id)
-        } else {
-            Err(E::invalid_length(v.len(), &"< 64 bytes"))
-        }
+        Ok(DocumentId(TinyVec::from(v)))
     }
 }
 

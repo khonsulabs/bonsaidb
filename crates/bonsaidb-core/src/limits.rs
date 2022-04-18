@@ -19,7 +19,7 @@
 //!
 //! [`DocumentId::MAX_LENGTH`](crate::document::DocumentId::MAX_LENGTH) is the
 //! maximum number of bytes a document ID can contain when in its serialized
-//! form. This is currently 63 bytes but may change in the future.
+//! form. This is currently 64 kilobytes of data.
 //!
 //! ## Size Limits
 //!
