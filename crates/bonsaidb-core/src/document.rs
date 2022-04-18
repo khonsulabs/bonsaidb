@@ -28,7 +28,10 @@ use std::borrow::Cow;
 use arc_bytes::serde::{Bytes, CowBytes};
 use serde::{Deserialize, Serialize};
 
-use crate::schema::{Collection, SerializedCollection};
+use crate::{
+    key::KeyEncoding,
+    schema::{Collection, SerializedCollection},
+};
 
 mod collection;
 mod header;
@@ -70,7 +73,7 @@ where
     type Bytes;
 
     /// Returns the unique key for this document.
-    fn id(&self) -> DocumentId;
+    fn id(&self) -> &DocumentId;
     /// Returns the header of this document.
     fn header(&self) -> AnyHeader<C::PrimaryKey>;
     /// Sets the header to the new header.
@@ -134,8 +137,8 @@ where
         Ok(self.contents.to_vec())
     }
 
-    fn id(&self) -> DocumentId {
-        self.header.id
+    fn id(&self) -> &DocumentId {
+        &self.header.id
     }
 }
 
@@ -160,8 +163,8 @@ where
         Ok(())
     }
 
-    fn id(&self) -> DocumentId {
-        self.header.id
+    fn id(&self) -> &DocumentId {
+        &self.header.id
     }
 
     fn header(&self) -> AnyHeader<C::PrimaryKey> {
@@ -208,9 +211,13 @@ impl<'a> BorrowedDocument<'a> {
     }
 
     /// Returns a new instance with `contents`, after serializing.
-    pub fn with_contents<C>(id: C::PrimaryKey, contents: &C::Contents) -> Result<Self, crate::Error>
+    pub fn with_contents<C, PrimaryKey>(
+        id: &PrimaryKey,
+        contents: &C::Contents,
+    ) -> Result<Self, crate::Error>
     where
         C: SerializedCollection,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
     {
         let contents = <C as SerializedCollection>::serialize(contents)?;
         Ok(Self::new(DocumentId::new(id)?, contents))

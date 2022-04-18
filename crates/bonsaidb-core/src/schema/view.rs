@@ -68,7 +68,7 @@ pub trait View: Send + Sync + Debug + 'static {
     /// The collection this view belongs to
     type Collection: Collection;
     /// The key for this view.
-    type Key: for<'a> Key<'a> + 'static;
+    type Key: for<'a> Key<'a> + PartialEq + 'static;
     /// An associated type that can be stored with each entry in the view.
     type Value: Send + Sync;
 

@@ -190,7 +190,7 @@ fn test_basic(db: &Database) {
 
     let a_scores = db
         .view::<Scores>()
-        .with_key(String::from("a"))
+        .with_key("a")
         .query_with_collection_docs()
         .unwrap();
     assert_eq!(a_scores.mappings.len(), 2);
@@ -245,7 +245,7 @@ fn test_unique(db: &Database) {
     .unwrap_err();
     let mappings = db
         .view::<UniqueView>()
-        .with_key(String::from("jane"))
+        .with_key("jane")
         .query_with_collection_docs()
         .unwrap();
     assert_eq!(mappings.len(), 1);

@@ -290,7 +290,7 @@ where
         let next_value = key
             .next_value()
             .map_err(|err| Error::DocumentPush(C::collection_name(), err))?;
-        DocumentId::new(next_value)
+        DocumentId::new(&next_value)
     }
 }
 

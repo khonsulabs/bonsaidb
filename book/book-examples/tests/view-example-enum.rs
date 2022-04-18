@@ -2,7 +2,7 @@ use bonsaidb::{
     core::{
         connection::Connection,
         document::{BorrowedDocument, Emit},
-        key::EnumKey,
+        key::Key,
         schema::{
             view::map::ViewMappedValue, Collection, ReduceResult, SerializedCollection, View,
             ViewMapResult, ViewSchema,
@@ -17,15 +17,11 @@ use bonsaidb::{
 use serde::{Deserialize, Serialize};
 
 // ANCHOR: enum
-#[derive(
-    Serialize, Deserialize, Debug, num_derive::FromPrimitive, num_derive::ToPrimitive, Clone,
-)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Key, Clone)]
 pub enum Category {
     Rust,
     Cooking,
 }
-
-impl EnumKey for Category {}
 // ANCHOR_END: enum
 
 // ANCHOR: struct
@@ -70,13 +66,13 @@ fn example() -> Result<(), Error> {
     // ANCHOR: query_with_docs
     let rust_posts = db
         .view::<BlogPostsByCategory>()
-        .with_key(Some(Category::Rust))
+        .with_key(&Some(Category::Rust))
         .query_with_docs()?;
     // ANCHOR_END: query_with_docs
     // ANCHOR: reduce_one_key
     let rust_post_count = db
         .view::<BlogPostsByCategory>()
-        .with_key(Some(Category::Rust))
+        .with_key(&Some(Category::Rust))
         .reduce()?;
     // ANCHOR_END: reduce_one_key
     // ANCHOR: reduce_multiple_keys

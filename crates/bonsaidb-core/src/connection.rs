@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, ops::Deref, sync::Arc};
+use std::{borrow::Borrow, marker::PhantomData, ops::Deref, sync::Arc};
 
 use actionable::{Action, Identifier};
 use arc_bytes::serde::Bytes;
@@ -45,7 +45,7 @@ pub trait Connection: LowLevelConnection + Sized + Send + Sync {
     }
 
     /// Accesses a [`schema::View`] from this connection.
-    fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V, V::Key> {
+    fn view<V: schema::SerializedView>(&'_ self) -> View<'_, 'static, Self, V, V::Key> {
         View::new(self)
     }
 
@@ -180,7 +180,7 @@ where
     {
         let contents = Cl::serialize(item)?;
         if let Some(natural_id) = Cl::natural_id(item) {
-            self.insert_bytes(natural_id, contents)
+            self.insert_bytes(&natural_id, contents)
         } else {
             self.push_bytes(contents)
         }
@@ -210,7 +210,7 @@ where
         contents: B,
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error> {
         self.connection
-            .insert::<Cl, _, B>(Option::<Cl::PrimaryKey>::None, contents)
+            .insert::<Cl, _, B>(Option::<&Cl::PrimaryKey>::None, contents)
     }
 
     /// Adds a new `Document<Cl>` with the given `id` and contents `item`.
@@ -221,7 +221,7 @@ where
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
     /// let inserted_header = db
     ///     .collection::<MyCollection>()
-    ///     .insert(42, &MyCollection::default())?;
+    ///     .insert(&42, &MyCollection::default())?;
     /// println!(
     ///     "Inserted id {} with revision {}",
     ///     inserted_header.id, inserted_header.revision
@@ -231,12 +231,12 @@ where
     /// ```
     pub fn insert<PrimaryKey>(
         &self,
-        id: PrimaryKey,
+        id: &PrimaryKey,
         item: &<Cl as SerializedCollection>::Contents,
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
     {
         let contents = Cl::serialize(item)?;
         self.connection.insert::<Cl, _, _>(Some(id), contents)
@@ -248,7 +248,7 @@ where
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// let inserted_header = db.collection::<MyCollection>().insert_bytes(42, vec![])?;
+    /// let inserted_header = db.collection::<MyCollection>().insert_bytes(&42, vec![])?;
     /// println!(
     ///     "Inserted id {} with revision {}",
     ///     inserted_header.id, inserted_header.revision
@@ -256,11 +256,14 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn insert_bytes<B: Into<Bytes> + Send>(
+    pub fn insert_bytes<PrimaryKey, B: Into<Bytes> + Send>(
         &self,
-        id: Cl::PrimaryKey,
+        id: &PrimaryKey,
         contents: B,
-    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error> {
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
+    where
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
+    {
         self.connection.insert::<Cl, _, B>(Some(id), contents)
     }
 
@@ -271,7 +274,7 @@ where
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// if let Some(mut document) = db.collection::<MyCollection>().get(42)? {
+    /// if let Some(mut document) = db.collection::<MyCollection>().get(&42)? {
     ///     // modify the document
     ///     db.collection::<MyCollection>().update(&mut document);
     ///     println!("Updated revision: {:?}", document.header.revision);
@@ -290,7 +293,7 @@ where
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// if let Some(mut document) = db.collection::<MyCollection>().get(42)? {
+    /// if let Some(mut document) = db.collection::<MyCollection>().get(&42)? {
     ///     // modify the document
     ///     db.collection::<MyCollection>().overwrite(&mut document);
     ///     println!("Updated revision: {:?}", document.header.revision);
@@ -309,7 +312,7 @@ where
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// if let Some(doc) = db.collection::<MyCollection>().get(42)? {
+    /// if let Some(doc) = db.collection::<MyCollection>().get(&42)? {
     ///     println!(
     ///         "Retrieved bytes {:?} with revision {}",
     ///         doc.contents, doc.header.revision
@@ -320,9 +323,9 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn get<PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
+    pub fn get<PrimaryKey>(&self, id: &PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
     {
         self.connection.get::<Cl, _>(id)
     }
@@ -334,7 +337,7 @@ where
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// for doc in db.collection::<MyCollection>().get_multiple([42, 43])? {
+    /// for doc in db.collection::<MyCollection>().get_multiple(&[42, 43])? {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
     ///     let deserialized = MyCollection::document_contents(&doc)?;
     ///     println!("Deserialized contents: {:?}", deserialized);
@@ -342,14 +345,14 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn get_multiple<DocumentIds, PrimaryKey, I>(
+    pub fn get_multiple<'id, DocumentIds, PrimaryKey, I>(
         &self,
         ids: DocumentIds,
     ) -> Result<Vec<OwnedDocument>, Error>
     where
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+        DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + 'id + ?Sized,
     {
         self.connection.get_multiple::<Cl, _, _, _>(ids)
     }
@@ -362,7 +365,7 @@ where
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
     /// for doc in db
     ///     .collection::<MyCollection>()
-    ///     .list(42..)
+    ///     .list(&42..)
     ///     .descending()
     ///     .limit(20)
     ///     .query()?
@@ -376,10 +379,11 @@ where
     /// ```
     pub fn list<PrimaryKey, R>(&'a self, ids: R) -> List<'a, Cn, Cl, PrimaryKey>
     where
-        R: Into<Range<PrimaryKey>>,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+        R: Into<Range<&'a PrimaryKey>>,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + 'a + ?Sized,
+        Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
-        List::new(PossiblyOwned::Borrowed(self), ids.into())
+        List::new(MaybeOwned::Borrowed(self), RangeRef::borrowed(ids.into()))
     }
 
     /// Retrieves all documents with ids that start with `prefix`.
@@ -400,15 +404,22 @@ where
     ///
     /// fn starts_with_a<C: Connection>(db: &C) -> Result<Vec<OwnedDocument>, Error> {
     ///     db.collection::<MyCollection>()
-    ///         .list_with_prefix(String::from("a"))
+    ///         .list_with_prefix("a")
     ///         .query()
     /// }
     /// ```
-    pub fn list_with_prefix(&'a self, prefix: Cl::PrimaryKey) -> List<'a, Cn, Cl, Cl::PrimaryKey>
+    pub fn list_with_prefix<PrimaryKey>(
+        &'a self,
+        prefix: &'a PrimaryKey,
+    ) -> List<'a, Cn, Cl, PrimaryKey>
     where
-        Cl::PrimaryKey: IntoPrefixRange,
+        PrimaryKey: IntoPrefixRange<'a, Cl::PrimaryKey>
+            + for<'k> KeyEncoding<'k, Cl::PrimaryKey>
+            + PartialEq
+            + ?Sized,
+        Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
-        List::new(PossiblyOwned::Borrowed(self), prefix.into_prefix_range())
+        List::new(MaybeOwned::Borrowed(self), prefix.to_prefix_range())
     }
 
     /// Retrieves all documents.
@@ -426,7 +437,10 @@ where
     /// # }
     /// ```
     pub fn all(&'a self) -> List<'a, Cn, Cl, Cl::PrimaryKey> {
-        List::new(PossiblyOwned::Borrowed(self), Range::from(..))
+        List::new(
+            MaybeOwned::Borrowed(self),
+            RangeRef::borrowed(Range::from(..)),
+        )
     }
 
     /// Removes a `Document` from the database.
@@ -435,7 +449,7 @@ where
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
-    /// if let Some(doc) = db.collection::<MyCollection>().get(42)? {
+    /// if let Some(doc) = db.collection::<MyCollection>().get(&42)? {
     ///     db.collection::<MyCollection>().delete(&doc)?;
     /// }
     /// # Ok(())
@@ -452,9 +466,11 @@ where
 pub struct List<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
+    PrimaryKey: PartialEq + ?Sized,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
-    collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-    range: Range<PrimaryKey>,
+    collection: MaybeOwned<'a, Collection<'a, Cn, Cl>>,
+    range: RangeRef<'a, Cl::PrimaryKey, PrimaryKey>,
     sort: Sort,
     limit: Option<u32>,
 }
@@ -463,11 +479,12 @@ impl<'a, Cn, Cl, PrimaryKey> List<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
     Cn: Connection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + 'a + ?Sized,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     pub(crate) fn new(
-        collection: PossiblyOwned<'a, Collection<'a, Cn, Cl>>,
-        range: Range<PrimaryKey>,
+        collection: MaybeOwned<'a, Collection<'a, Cn, Cl>>,
+        range: RangeRef<'a, Cl::PrimaryKey, PrimaryKey>,
     ) -> Self {
         Self {
             collection,
@@ -505,7 +522,7 @@ where
     /// # fn test_fn<C: Connection>(db: &C) -> Result<(), Error> {
     /// println!(
     ///     "Number of documents with id 42 or larger: {}",
-    ///     db.collection::<MyCollection>().list(42..).count()?
+    ///     db.collection::<MyCollection>().list(&42..).count()?
     /// );
     /// println!(
     ///     "Number of documents in MyCollection: {}",
@@ -530,7 +547,7 @@ where
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// println!(
     ///     "Headers with id 42 or larger: {:?}",
-    ///     db.collection::<MyCollection>().list(42..).headers()?
+    ///     db.collection::<MyCollection>().list(&42..).headers()?
     /// );
     /// println!(
     ///     "Headers in MyCollection: {:?}",
@@ -550,7 +567,7 @@ where
         } = self;
         collection
             .connection
-            .list_headers::<Cl, _, _>(range, sort, limit)
+            .list_headers::<Cl, _, PrimaryKey>(range, sort, limit)
     }
 
     /// Retrieves the matching documents.
@@ -626,11 +643,15 @@ where
 /// }
 /// ```
 #[must_use]
-pub struct View<'a, Cn, V: schema::SerializedView, Key> {
+pub struct View<'a, 'k, Cn, V: schema::SerializedView, Key>
+where
+    V::Key: Borrow<Key> + PartialEq<Key>,
+    Key: PartialEq + ?Sized,
+{
     connection: &'a Cn,
 
     /// Key filtering criteria.
-    pub key: Option<QueryKey<Key>>,
+    pub key: Option<QueryKey<'k, V::Key, Key>>,
 
     /// The view's data access policy. The default value is [`AccessPolicy::UpdateBefore`].
     pub access_policy: AccessPolicy,
@@ -644,11 +665,12 @@ pub struct View<'a, Cn, V: schema::SerializedView, Key> {
     _view: PhantomData<V>,
 }
 
-impl<'a, Cn, V, Key> View<'a, Cn, V, Key>
+impl<'a, 'key, Cn, V, Key> View<'a, 'key, Cn, V, Key>
 where
+    V::Key: Borrow<Key> + PartialEq<Key>,
     V: schema::SerializedView,
     Cn: Connection,
-    Key: for<'k> KeyEncoding<'k, V::Key>,
+    Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
 {
     fn new(connection: &'a Cn) -> Self {
         Self {
@@ -668,17 +690,24 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().with_key(42).query()? {
+    /// for mapping in db.view::<ScoresByRank>().with_key(&42).query()? {
     ///     assert_eq!(mapping.key, 42);
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key<K: for<'k> KeyEncoding<'k, V::Key>>(self, key: K) -> View<'a, Cn, V, K> {
+    pub fn with_key<'newkey, K: for<'k> KeyEncoding<'k, V::Key>>(
+        self,
+        key: &'newkey K,
+    ) -> View<'a, 'newkey, Cn, V, K>
+    where
+        K: PartialEq + ?Sized,
+        V::Key: Borrow<K> + PartialEq<K>,
+    {
         View {
             connection: self.connection,
-            key: Some(QueryKey::Matches(key)),
+            key: Some(QueryKey::Matches(MaybeOwned::Borrowed(key))),
             access_policy: self.access_policy,
             sort: self.sort,
             limit: self.limit,
@@ -693,19 +722,25 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().with_keys([42, 43]).query()? {
+    /// for mapping in db.view::<ScoresByRank>().with_keys(&[42, 43]).query()? {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_keys<K, IntoIter: IntoIterator<Item = K>>(
+    pub fn with_keys<'newkey, K, IntoIter: IntoIterator<Item = &'newkey K>>(
         self,
         keys: IntoIter,
-    ) -> View<'a, Cn, V, K> {
+    ) -> View<'a, 'newkey, Cn, V, K>
+    where
+        V::Key: Borrow<K> + PartialEq<K>,
+        K: PartialEq,
+    {
         View {
             connection: self.connection,
-            key: Some(QueryKey::Multiple(keys.into_iter().collect())),
+            key: Some(QueryKey::Multiple(
+                keys.into_iter().map(MaybeOwned::Borrowed).collect(),
+            )),
             access_policy: self.access_policy,
             sort: self.sort,
             limit: self.limit,
@@ -727,7 +762,12 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key_range<K, R: Into<Range<K>>>(self, range: R) -> View<'a, Cn, V, K> {
+    pub fn with_key_range<'newkey, K, R>(self, range: R) -> View<'a, 'newkey, Cn, V, K>
+    where
+        R: Into<RangeRef<'newkey, V::Key, K>>,
+        K: PartialEq,
+        V::Key: Borrow<K> + PartialEq<K>,
+    {
         View {
             connection: self.connection,
             key: Some(QueryKey::Range(range.into())),
@@ -750,27 +790,24 @@ where
     /// struct ByName;
     ///
     /// // score is an f32 in this example
-    /// for mapping in db
-    ///     .view::<ByName>()
-    ///     .with_key_prefix(String::from("a"))
-    ///     .query()?
-    /// {
+    /// for mapping in db.view::<ByName>().with_key_prefix("a").query()? {
     ///     assert!(mapping.key.starts_with("a"));
     ///     println!("{} in document {:?}", mapping.key, mapping.source);
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key_prefix<K: for<'k> KeyEncoding<'k, V::Key>>(
+    pub fn with_key_prefix<'newkey, K: for<'k> KeyEncoding<'k, V::Key> + ?Sized>(
         self,
-        prefix: K,
-    ) -> View<'a, Cn, V, K>
+        prefix: &'newkey K,
+    ) -> View<'a, 'newkey, Cn, V, K>
     where
-        K: IntoPrefixRange,
+        K: IntoPrefixRange<'newkey, V::Key> + PartialEq,
+        V::Key: Borrow<K> + PartialEq<K>,
     {
         View {
             connection: self.connection,
-            key: Some(QueryKey::Range(prefix.into_prefix_range())),
+            key: Some(QueryKey::Range(prefix.to_prefix_range())),
             access_policy: self.access_policy,
             sort: self.sort,
             limit: self.limit,
@@ -1166,7 +1203,7 @@ where
     {
         let contents = Cl::serialize(item)?;
         if let Some(natural_id) = Cl::natural_id(item) {
-            self.insert_bytes(natural_id, contents).await
+            self.insert_bytes(&natural_id, contents).await
         } else {
             self.push_bytes(contents).await
         }
@@ -1198,7 +1235,7 @@ where
         contents: B,
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error> {
         self.connection
-            .insert::<Cl, _, B>(Option::<Cl::PrimaryKey>::None, contents)
+            .insert::<Cl, _, B>(Option::<&Cl::PrimaryKey>::None, contents)
             .await
     }
 
@@ -1211,7 +1248,7 @@ where
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// let inserted_header = db
     ///     .collection::<MyCollection>()
-    ///     .insert(42, &MyCollection::default())
+    ///     .insert(&42, &MyCollection::default())
     ///     .await?;
     /// println!(
     ///     "Inserted id {} with revision {}",
@@ -1223,12 +1260,12 @@ where
     /// ```
     pub async fn insert<PrimaryKey>(
         &self,
-        id: PrimaryKey,
+        id: &PrimaryKey,
         item: &<Cl as SerializedCollection>::Contents,
     ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
     where
         Cl: schema::SerializedCollection,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
     {
         let contents = Cl::serialize(item)?;
         self.connection.insert::<Cl, _, _>(Some(id), contents).await
@@ -1243,7 +1280,7 @@ where
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// let inserted_header = db
     ///     .collection::<MyCollection>()
-    ///     .insert_bytes(42, vec![])
+    ///     .insert_bytes(&42, vec![])
     ///     .await?;
     /// println!(
     ///     "Inserted id {} with revision {}",
@@ -1253,11 +1290,14 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn insert_bytes<B: Into<Bytes> + Send>(
+    pub async fn insert_bytes<PrimaryKey, B: Into<Bytes> + Send>(
         &self,
-        id: Cl::PrimaryKey,
+        id: &PrimaryKey,
         contents: B,
-    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error> {
+    ) -> Result<CollectionHeader<Cl::PrimaryKey>, crate::Error>
+    where
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
+    {
         self.connection.insert::<Cl, _, B>(Some(id), contents).await
     }
 
@@ -1269,7 +1309,7 @@ where
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(mut document) = db.collection::<MyCollection>().get(42).await? {
+    /// if let Some(mut document) = db.collection::<MyCollection>().get(&42).await? {
     ///     // modify the document
     ///     db.collection::<MyCollection>().update(&mut document);
     ///     println!("Updated revision: {:?}", document.header.revision);
@@ -1290,7 +1330,7 @@ where
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(mut document) = db.collection::<MyCollection>().get(42).await? {
+    /// if let Some(mut document) = db.collection::<MyCollection>().get(&42).await? {
     ///     // modify the document
     ///     db.collection::<MyCollection>().overwrite(&mut document);
     ///     println!("Updated revision: {:?}", document.header.revision);
@@ -1315,7 +1355,7 @@ where
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(doc) = db.collection::<MyCollection>().get(42).await? {
+    /// if let Some(doc) = db.collection::<MyCollection>().get(&42).await? {
     ///     println!(
     ///         "Retrieved bytes {:?} with revision {}",
     ///         doc.contents, doc.header.revision
@@ -1327,9 +1367,9 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn get<PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
+    pub async fn get<PrimaryKey>(&self, id: &PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + ?Sized,
     {
         self.connection.get::<Cl, _>(id).await
     }
@@ -1344,7 +1384,7 @@ where
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// for doc in db
     ///     .collection::<MyCollection>()
-    ///     .get_multiple([42, 43])
+    ///     .get_multiple(&[42, 43])
     ///     .await?
     /// {
     ///     println!("Retrieved #{} with bytes {:?}", doc.header.id, doc.contents);
@@ -1355,14 +1395,14 @@ where
     /// # })
     /// # }
     /// ```
-    pub async fn get_multiple<DocumentIds, PrimaryKey, I>(
+    pub async fn get_multiple<'id, DocumentIds, PrimaryKey, I>(
         &self,
         ids: DocumentIds,
     ) -> Result<Vec<OwnedDocument>, Error>
     where
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+        DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + 'id + ?Sized,
     {
         self.connection.get_multiple::<Cl, _, _, _>(ids).await
     }
@@ -1391,10 +1431,11 @@ where
     /// ```
     pub fn list<PrimaryKey, R>(&'a self, ids: R) -> AsyncList<'a, Cn, Cl, PrimaryKey>
     where
-        R: Into<Range<PrimaryKey>>,
-        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+        R: Into<RangeRef<'a, Cl::PrimaryKey, PrimaryKey>>,
+        PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+        Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
-        AsyncList::new(PossiblyOwned::Borrowed(self), ids.into())
+        AsyncList::new(MaybeOwned::Borrowed(self), ids.into())
     }
 
     /// Retrieves all documents with ids that start with `prefix`.
@@ -1414,19 +1455,21 @@ where
     /// pub struct MyCollection;
     ///
     /// async fn starts_with_a<C: AsyncConnection>(db: &C) -> Result<Vec<OwnedDocument>, Error> {
-    ///     db.collection::<MyCollection>()
-    ///         .list_with_prefix(String::from("a"))
-    ///         .await
+    ///     db.collection::<MyCollection>().list_with_prefix("a").await
     /// }
     /// ```
-    pub fn list_with_prefix(
+    pub fn list_with_prefix<PrimaryKey>(
         &'a self,
-        prefix: Cl::PrimaryKey,
-    ) -> AsyncList<'a, Cn, Cl, Cl::PrimaryKey>
+        prefix: &'a PrimaryKey,
+    ) -> AsyncList<'a, Cn, Cl, PrimaryKey>
     where
-        Cl::PrimaryKey: IntoPrefixRange,
+        PrimaryKey: IntoPrefixRange<'a, Cl::PrimaryKey>
+            + for<'k> KeyEncoding<'k, Cl::PrimaryKey>
+            + PartialEq
+            + ?Sized,
+        Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
-        AsyncList::new(PossiblyOwned::Borrowed(self), prefix.into_prefix_range())
+        AsyncList::new(MaybeOwned::Borrowed(self), prefix.to_prefix_range())
     }
 
     /// Retrieves all documents.
@@ -1446,7 +1489,7 @@ where
     /// # }
     /// ```
     pub fn all(&'a self) -> AsyncList<'a, Cn, Cl, Cl::PrimaryKey> {
-        AsyncList::new(PossiblyOwned::Borrowed(self), Range::from(..))
+        AsyncList::new(MaybeOwned::Borrowed(self), RangeRef::from(..))
     }
 
     /// Removes a `Document` from the database.
@@ -1456,7 +1499,7 @@ where
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: &C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(doc) = db.collection::<MyCollection>().get(42).await? {
+    /// if let Some(doc) = db.collection::<MyCollection>().get(&42).await? {
     ///     db.collection::<MyCollection>().delete(&doc).await?;
     /// }
     /// # Ok(())
@@ -1471,32 +1514,108 @@ where
 pub(crate) struct AsyncListBuilder<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
-    collection: PossiblyOwned<'a, AsyncCollection<'a, Cn, Cl>>,
-    range: Range<PrimaryKey>,
+    collection: MaybeOwned<'a, AsyncCollection<'a, Cn, Cl>>,
+    range: RangeRef<'a, Cl::PrimaryKey, PrimaryKey>,
     sort: Sort,
     limit: Option<u32>,
 }
 
-pub(crate) enum PossiblyOwned<'a, Cl> {
-    Owned(Cl),
-    Borrowed(&'a Cl),
+/// A value that may be owned or not. Similar to [`std::borrow::Cow`] but does
+/// not require `Clone`.
+#[derive(Debug)]
+pub enum MaybeOwned<'a, TOwned, TBorrowed: ?Sized = TOwned> {
+    /// An owned value.
+    Owned(TOwned),
+    /// A borrowed value.
+    Borrowed(&'a TBorrowed),
 }
 
-impl<'a, Cl> Deref for PossiblyOwned<'a, Cl> {
-    type Target = Cl;
-
-    fn deref(&self) -> &Self::Target {
+impl<'a, TOwned, TBorrowed> Clone for MaybeOwned<'a, TOwned, TBorrowed>
+where
+    TOwned: Clone,
+    TBorrowed: ?Sized,
+{
+    fn clone(&self) -> Self {
         match self {
-            PossiblyOwned::Owned(value) => value,
-            PossiblyOwned::Borrowed(value) => value,
+            Self::Owned(value) => Self::Owned(value.clone()),
+            Self::Borrowed(value) => Self::Borrowed(value),
         }
+    }
+}
+
+impl<'a, TOwned, TBorrowed> Deref for MaybeOwned<'a, TOwned, TBorrowed>
+where
+    TOwned: Borrow<TBorrowed>,
+    TBorrowed: ?Sized,
+{
+    type Target = TBorrowed;
+
+    fn deref(&self) -> &TBorrowed {
+        self.borrow()
+    }
+}
+
+impl<'a, TOwned, TBorrowed> Borrow<TBorrowed> for MaybeOwned<'a, TOwned, TBorrowed>
+where
+    TOwned: Borrow<TBorrowed>,
+    TBorrowed: ?Sized,
+{
+    fn borrow(&self) -> &TBorrowed {
+        match self {
+            MaybeOwned::Owned(value) => value.borrow(),
+            MaybeOwned::Borrowed(value) => value,
+        }
+    }
+}
+
+impl<'a, TOwned, TBorrowed> PartialEq for MaybeOwned<'a, TOwned, TBorrowed>
+where
+    TOwned: Borrow<TBorrowed>,
+    TBorrowed: PartialEq + ?Sized,
+{
+    fn eq(&self, other: &Self) -> bool {
+        <Self as Borrow<TBorrowed>>::borrow(self).eq(other.borrow())
+    }
+}
+
+impl<'a, TOwned, TBorrowed> PartialOrd for MaybeOwned<'a, TOwned, TBorrowed>
+where
+    TOwned: Borrow<TBorrowed>,
+    TBorrowed: PartialOrd + ?Sized,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        <Self as Borrow<TBorrowed>>::borrow(self).partial_cmp(other.borrow())
+    }
+}
+
+impl<'a, TOwned, TBorrowed> PartialEq<TBorrowed> for MaybeOwned<'a, TOwned, TBorrowed>
+where
+    TOwned: Borrow<TBorrowed>,
+    TBorrowed: PartialEq + ?Sized,
+{
+    fn eq(&self, other: &TBorrowed) -> bool {
+        <Self as Borrow<TBorrowed>>::borrow(self).eq(other)
+    }
+}
+
+impl<'a, TOwned, TBorrowed> PartialOrd<TBorrowed> for MaybeOwned<'a, TOwned, TBorrowed>
+where
+    TOwned: Borrow<TBorrowed>,
+    TBorrowed: PartialOrd + ?Sized,
+{
+    fn partial_cmp(&self, other: &TBorrowed) -> Option<std::cmp::Ordering> {
+        <Self as Borrow<TBorrowed>>::borrow(self).partial_cmp(other)
     }
 }
 
 pub(crate) enum ListState<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     Pending(Option<AsyncListBuilder<'a, Cn, Cl, PrimaryKey>>),
     Executing(BoxFuture<'a, Result<Vec<OwnedDocument>, Error>>),
@@ -1508,6 +1627,8 @@ where
 pub struct AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     state: ListState<'a, Cn, Cl, PrimaryKey>,
 }
@@ -1516,11 +1637,12 @@ impl<'a, Cn, Cl, PrimaryKey> AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: schema::Collection,
     Cn: AsyncConnection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     pub(crate) fn new(
-        collection: PossiblyOwned<'a, AsyncCollection<'a, Cn, Cl>>,
-        range: Range<PrimaryKey>,
+        collection: MaybeOwned<'a, AsyncCollection<'a, Cn, Cl>>,
+        range: RangeRef<'a, Cl::PrimaryKey, PrimaryKey>,
     ) -> Self {
         Self {
             state: ListState::Pending(Some(AsyncListBuilder {
@@ -1631,8 +1753,8 @@ impl<'a, Cn, Cl, PrimaryKey> Future for AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cn: AsyncConnection,
     Cl: schema::Collection + Unpin,
-    Cl::PrimaryKey: Unpin,
-    PrimaryKey: Unpin + for<'k> KeyEncoding<'k, Cl::PrimaryKey> + 'a,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized + Unpin,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey> + Unpin,
 {
     type Output = Result<Vec<OwnedDocument>, Error>;
 
@@ -1713,11 +1835,15 @@ where
 /// }
 /// ```
 #[must_use]
-pub struct AsyncView<'a, Cn, V: schema::SerializedView, Key> {
+pub struct AsyncView<'a, Cn, V: schema::SerializedView, Key>
+where
+    V::Key: Borrow<Key> + PartialEq<Key>,
+    Key: PartialEq + ?Sized,
+{
     connection: &'a Cn,
 
     /// Key filtering criteria.
-    pub key: Option<QueryKey<Key>>,
+    pub key: Option<QueryKey<'a, V::Key, Key>>,
 
     /// The view's data access policy. The default value is [`AccessPolicy::UpdateBefore`].
     pub access_policy: AccessPolicy,
@@ -1735,7 +1861,8 @@ impl<'a, Cn, V, Key> AsyncView<'a, Cn, V, Key>
 where
     V: schema::SerializedView,
     Cn: AsyncConnection,
-    Key: for<'k> KeyEncoding<'k, V::Key>,
+    Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+    V::Key: Borrow<Key> + PartialEq<Key>,
 {
     fn new(connection: &'a Cn) -> Self {
         Self {
@@ -1756,7 +1883,7 @@ where
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().with_key(42).query().await? {
+    /// for mapping in db.view::<ScoresByRank>().with_key(&42).query().await? {
     ///     assert_eq!(mapping.key, 42);
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
@@ -1764,10 +1891,14 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn with_key<K: for<'k> KeyEncoding<'k, V::Key>>(self, key: K) -> AsyncView<'a, Cn, V, K> {
+    pub fn with_key<K>(self, key: &'a K) -> AsyncView<'a, Cn, V, K>
+    where
+        K: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<K> + PartialEq<K>,
+    {
         AsyncView {
             connection: self.connection,
-            key: Some(QueryKey::Matches(key)),
+            key: Some(QueryKey::Matches(MaybeOwned::Borrowed(key))),
             access_policy: self.access_policy,
             sort: self.sort,
             limit: self.limit,
@@ -1785,7 +1916,7 @@ where
     /// // score is an f32 in this example
     /// for mapping in db
     ///     .view::<ScoresByRank>()
-    ///     .with_keys([42, 43])
+    ///     .with_keys(&[42, 43])
     ///     .query()
     ///     .await?
     /// {
@@ -1795,13 +1926,19 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn with_keys<K, IntoIter: IntoIterator<Item = K>>(
+    pub fn with_keys<K, IntoIter: IntoIterator<Item = &'a K>>(
         self,
         keys: IntoIter,
-    ) -> AsyncView<'a, Cn, V, K> {
+    ) -> AsyncView<'a, Cn, V, K>
+    where
+        K: PartialEq,
+        V::Key: Borrow<K> + PartialEq<K>,
+    {
         AsyncView {
             connection: self.connection,
-            key: Some(QueryKey::Multiple(keys.into_iter().collect())),
+            key: Some(QueryKey::Multiple(
+                keys.into_iter().map(MaybeOwned::Borrowed).collect(),
+            )),
             access_policy: self.access_policy,
             sort: self.sort,
             limit: self.limit,
@@ -1830,7 +1967,14 @@ where
     /// # })
     /// # }
     /// ```
-    pub fn with_key_range<K, R: Into<Range<K>>>(self, range: R) -> AsyncView<'a, Cn, V, K> {
+    pub fn with_key_range<K, R: Into<RangeRef<'a, V::Key, K>>>(
+        self,
+        range: R,
+    ) -> AsyncView<'a, Cn, V, K>
+    where
+        K: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<K> + PartialEq<K>,
+    {
         AsyncView {
             connection: self.connection,
             key: Some(QueryKey::Range(range.into())),
@@ -1854,12 +1998,7 @@ where
     /// struct ByName;
     ///
     /// // score is an f32 in this example
-    /// for mapping in db
-    ///     .view::<ByName>()
-    ///     .with_key_prefix(String::from("a"))
-    ///     .query()
-    ///     .await?
-    /// {
+    /// for mapping in db.view::<ByName>().with_key_prefix("a").query().await? {
     ///     assert!(mapping.key.starts_with("a"));
     ///     println!("{} in document {:?}", mapping.key, mapping.source);
     /// }
@@ -1869,14 +2008,15 @@ where
     /// ```
     pub fn with_key_prefix<K: for<'k> KeyEncoding<'k, V::Key>>(
         self,
-        prefix: K,
+        prefix: &'a K,
     ) -> AsyncView<'a, Cn, V, K>
     where
-        K: IntoPrefixRange,
+        K: IntoPrefixRange<'a, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<K> + PartialEq<K>,
     {
         AsyncView {
             connection: self.connection,
-            key: Some(QueryKey::Range(prefix.into_prefix_range())),
+            key: Some(QueryKey::Range(prefix.to_prefix_range())),
             access_policy: self.access_policy,
             sort: self.sort,
             limit: self.limit,
@@ -2135,34 +2275,38 @@ pub enum Sort {
 }
 
 /// Filters a [`View`] by key.
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub enum QueryKey<K> {
+#[derive(Clone, Debug)]
+pub enum QueryKey<'k, KOwned, KBorrowed = KOwned>
+where
+    KBorrowed: PartialEq + ?Sized,
+    KOwned: Borrow<KBorrowed> + PartialEq<KBorrowed>,
+{
     /// Matches all entries with the key provided.
-    Matches(K),
+    Matches(MaybeOwned<'k, KOwned, KBorrowed>),
 
     /// Matches all entires with keys in the range provided.
-    Range(Range<K>),
+    Range(RangeRef<'k, KOwned, KBorrowed>),
 
     /// Matches all entries that have keys that are included in the set provided.
-    Multiple(Vec<K>),
+    Multiple(Vec<MaybeOwned<'k, KOwned, KBorrowed>>),
 }
 
 #[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
-impl<K> QueryKey<K> {
+impl<'a, KOwned, KBorrowed> QueryKey<'a, KOwned, KBorrowed>
+where
+    KBorrowed: for<'k> KeyEncoding<'k, KOwned> + PartialEq + ?Sized,
+    KOwned: for<'k> Key<'k> + Borrow<KBorrowed> + PartialEq<KBorrowed>,
+{
     /// Converts this key to a serialized format using the [`Key`] trait.
-    pub fn serialized<ViewKey>(&self) -> Result<QueryKey<Bytes>, Error>
-    where
-        K: for<'k> KeyEncoding<'k, ViewKey>,
-        ViewKey: for<'k> Key<'k>,
-    {
+    pub fn serialized(&self) -> Result<SerializedQueryKey, Error> {
         match self {
             Self::Matches(key) => key
                 .as_ord_bytes()
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
-                .map(|v| QueryKey::Matches(Bytes::from(v.to_vec()))),
-            Self::Range(range) => Ok(QueryKey::Range(range.as_ord_bytes().map_err(|err| {
-                Error::Database(view::Error::key_serialization(err).to_string())
-            })?)),
+                .map(|v| SerializedQueryKey::Matches(Bytes::from(v.to_vec()))),
+            Self::Range(range) => Ok(SerializedQueryKey::Range(range.as_ord_bytes().map_err(
+                |err| Error::Database(view::Error::key_serialization(err).to_string()),
+            )?)),
             Self::Multiple(keys) => {
                 let keys = keys
                     .iter()
@@ -2175,33 +2319,49 @@ impl<K> QueryKey<K> {
                     })
                     .collect::<Result<Vec<_>, Error>>()?;
 
-                Ok(QueryKey::Multiple(keys))
+                Ok(SerializedQueryKey::Multiple(keys))
             }
         }
     }
 }
 
+/// A [`QueryKey`] that has had its keys serialized.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum SerializedQueryKey {
+    /// Matches all entries with the key provided.
+    Matches(Bytes),
+
+    /// Matches all entires with keys in the range provided.
+    Range(Range<Bytes>),
+
+    /// Matches all entries that have keys that are included in the set provided.
+    Multiple(Vec<Bytes>),
+}
+
 #[allow(clippy::use_self)] // clippy is wrong, Self is different because of generic parameters
-impl<'a, T> QueryKey<T>
-where
-    T: AsRef<[u8]>,
-{
+impl SerializedQueryKey {
     /// Deserializes the bytes into `K` via the [`Key`] trait.
-    pub fn deserialized<K: for<'k> Key<'k>>(&self) -> Result<QueryKey<K>, Error> {
+    pub fn deserialized<K: for<'k> Key<'k> + PartialEq>(
+        &self,
+    ) -> Result<QueryKey<'static, K>, Error> {
         match self {
             Self::Matches(key) => K::from_ord_bytes(key.as_ref())
                 .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
-                .map(QueryKey::Matches),
-            Self::Range(range) => Ok(QueryKey::Range(range.deserialize().map_err(|err| {
-                Error::Database(view::Error::key_serialization(err).to_string())
-            })?)),
+                .map(|key| QueryKey::Matches(MaybeOwned::Owned(key))),
+            Self::Range(range) => Ok(QueryKey::Range(RangeRef::owned(
+                range.deserialize().map_err(|err| {
+                    Error::Database(view::Error::key_serialization(err).to_string())
+                })?,
+            ))),
             Self::Multiple(keys) => {
                 let keys = keys
                     .iter()
                     .map(|key| {
-                        K::from_ord_bytes(key.as_ref()).map_err(|err| {
-                            Error::Database(view::Error::key_serialization(err).to_string())
-                        })
+                        K::from_ord_bytes(key.as_ref())
+                            .map(MaybeOwned::Owned)
+                            .map_err(|err| {
+                                Error::Database(view::Error::key_serialization(err).to_string())
+                            })
                     })
                     .collect::<Result<Vec<_>, Error>>()?;
 
@@ -2340,12 +2500,16 @@ fn range_constructors() {
     );
 }
 
-impl<'a, T> Range<T> {
+impl<'a, TOwned, TBorrowed> RangeRef<'a, TOwned, TBorrowed>
+where
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+    TBorrowed: PartialEq + ?Sized,
+{
     /// Serializes the range's contained values to big-endian bytes.
-    pub fn as_ord_bytes<K>(&'a self) -> Result<Range<Bytes>, T::Error>
+    pub fn as_ord_bytes(&'a self) -> Result<Range<Bytes>, TBorrowed::Error>
     where
-        T: KeyEncoding<'a, K>,
-        K: for<'k> Key<'k>,
+        TBorrowed: KeyEncoding<'a, TOwned>,
+        TOwned: for<'k> Key<'k> + Borrow<TBorrowed>,
     {
         Ok(Range {
             start: self.start.as_ord_bytes()?,
@@ -2354,13 +2518,10 @@ impl<'a, T> Range<T> {
     }
 }
 
-impl<'a, B> Range<B>
-where
-    B: AsRef<[u8]>,
-{
+impl Range<Bytes> {
     /// Deserializes the range's contained values from big-endian bytes.
     pub fn deserialize<T: for<'k> Key<'k>>(
-        &'a self,
+        &self,
     ) -> Result<Range<T>, <T as KeyEncoding<'_, T>>::Error> {
         Ok(Range {
             start: self.start.deserialize()?,
@@ -2399,32 +2560,33 @@ impl<T> Bound<T> {
     }
 }
 
-impl<'a, T> Bound<T> {
+impl<'a, TOwned, TBorrowed> BoundRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq + ?Sized,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
     /// Serializes the contained value to big-endian bytes.
-    pub fn as_ord_bytes<K>(&'a self) -> Result<Bound<Bytes>, T::Error>
+    pub fn as_ord_bytes(&'a self) -> Result<Bound<Bytes>, TBorrowed::Error>
     where
-        T: KeyEncoding<'a, K>,
-        K: for<'k> Key<'k>,
+        TBorrowed: KeyEncoding<'a, TOwned>,
+        TOwned: for<'k> Key<'k> + Borrow<TBorrowed>,
     {
         match self {
-            Bound::Unbounded => Ok(Bound::Unbounded),
-            Bound::Included(value) => {
+            Self::Unbounded => Ok(Bound::Unbounded),
+            Self::Included(value) => {
                 Ok(Bound::Included(Bytes::from(value.as_ord_bytes()?.to_vec())))
             }
-            Bound::Excluded(value) => {
+            Self::Excluded(value) => {
                 Ok(Bound::Excluded(Bytes::from(value.as_ord_bytes()?.to_vec())))
             }
         }
     }
 }
 
-impl<'a, B> Bound<B>
-where
-    B: AsRef<[u8]>,
-{
+impl Bound<Bytes> {
     /// Deserializes the bound's contained value from big-endian bytes.
     pub fn deserialize<T: for<'k> Key<'k>>(
-        &'a self,
+        &self,
     ) -> Result<Bound<T>, <T as KeyEncoding<'_, T>>::Error> {
         match self {
             Bound::Unbounded => Ok(Bound::Unbounded),
@@ -2446,6 +2608,16 @@ impl<T> std::ops::RangeBounds<T> for Range<T> {
 
 impl<'a, T> From<&'a Bound<T>> for std::ops::Bound<&'a T> {
     fn from(bound: &'a Bound<T>) -> Self {
+        match bound {
+            Bound::Unbounded => std::ops::Bound::Unbounded,
+            Bound::Included(value) => std::ops::Bound::Included(value),
+            Bound::Excluded(value) => std::ops::Bound::Excluded(value),
+        }
+    }
+}
+
+impl<'a, T> From<Bound<&'a T>> for std::ops::Bound<&'a T> {
+    fn from(bound: Bound<&'a T>) -> Self {
         match bound {
             Bound::Unbounded => std::ops::Bound::Unbounded,
             Bound::Included(value) => std::ops::Bound::Included(value),
@@ -2505,6 +2677,273 @@ impl<T> From<std::ops::RangeFull> for Range<T> {
             start: Bound::Unbounded,
             end: Bound::Unbounded,
         }
+    }
+}
+
+/// A range reference type that can be serialized.
+#[derive(Debug, Clone, PartialEq)]
+#[must_use]
+pub struct RangeRef<'a, TOwned, TBorrowed: ?Sized = TOwned>
+where
+    TBorrowed: PartialEq,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    /// The start of the range.
+    pub start: BoundRef<'a, TOwned, TBorrowed>,
+    /// The end of the range.
+    pub end: BoundRef<'a, TOwned, TBorrowed>,
+}
+
+impl<'a, TOwned, TBorrowed> From<std::ops::Range<TOwned>> for RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    fn from(range: std::ops::Range<TOwned>) -> Self {
+        Self {
+            start: BoundRef::Included(MaybeOwned::Owned(range.start)),
+            end: BoundRef::Excluded(MaybeOwned::Owned(range.end)),
+        }
+    }
+}
+
+impl<'a, 'b, TOwned, TBorrowed> From<&'b std::ops::Range<&'a TBorrowed>>
+    for RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    fn from(range: &'b std::ops::Range<&'a TBorrowed>) -> Self {
+        Self {
+            start: BoundRef::Included(MaybeOwned::Borrowed(range.start)),
+            end: BoundRef::Excluded(MaybeOwned::Borrowed(range.end)),
+        }
+    }
+}
+
+impl<'a, TOwned, TBorrowed> From<std::ops::RangeFrom<TOwned>> for RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    fn from(range: std::ops::RangeFrom<TOwned>) -> Self {
+        Self {
+            start: BoundRef::Included(MaybeOwned::Owned(range.start)),
+            end: BoundRef::Unbounded,
+        }
+    }
+}
+
+impl<'a, 'b, TOwned, TBorrowed> From<&'b std::ops::RangeFrom<&'a TBorrowed>>
+    for RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    fn from(range: &'b std::ops::RangeFrom<&'a TBorrowed>) -> Self {
+        Self {
+            start: BoundRef::Included(MaybeOwned::Borrowed(range.start)),
+            end: BoundRef::Unbounded,
+        }
+    }
+}
+
+impl<'a, TOwned, TBorrowed> From<std::ops::RangeTo<TOwned>> for RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    fn from(range: std::ops::RangeTo<TOwned>) -> Self {
+        Self {
+            start: BoundRef::Unbounded,
+            end: BoundRef::Excluded(MaybeOwned::Owned(range.end)),
+        }
+    }
+}
+
+impl<'a, 'b, TOwned, TBorrowed> From<&'b std::ops::RangeTo<&'a TBorrowed>>
+    for RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    fn from(range: &'b std::ops::RangeTo<&'a TBorrowed>) -> Self {
+        Self {
+            start: BoundRef::Unbounded,
+            end: BoundRef::Excluded(MaybeOwned::Borrowed(range.end)),
+        }
+    }
+}
+
+impl<'a, TOwned, TBorrowed> From<std::ops::RangeInclusive<TOwned>>
+    for RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed> + Clone,
+{
+    fn from(range: std::ops::RangeInclusive<TOwned>) -> Self {
+        Self {
+            start: BoundRef::Included(MaybeOwned::Owned(range.start().clone())),
+            end: BoundRef::Included(MaybeOwned::Owned(range.end().clone())),
+        }
+    }
+}
+
+impl<'a, 'b, TOwned, TBorrowed> From<&'b std::ops::RangeInclusive<&'a TBorrowed>>
+    for RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    fn from(range: &'b std::ops::RangeInclusive<&'a TBorrowed>) -> Self {
+        Self {
+            start: BoundRef::Included(MaybeOwned::Borrowed(range.start())),
+            end: BoundRef::Included(MaybeOwned::Borrowed(range.end())),
+        }
+    }
+}
+
+impl<'a, TOwned, TBorrowed> From<std::ops::RangeToInclusive<&'a TBorrowed>>
+    for RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    fn from(range: std::ops::RangeToInclusive<&'a TBorrowed>) -> Self {
+        Self {
+            start: BoundRef::Unbounded,
+            end: BoundRef::Included(MaybeOwned::Borrowed(range.end)),
+        }
+    }
+}
+
+impl<'a, TOwned, TBorrowed> From<std::ops::RangeFull> for RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    fn from(_: std::ops::RangeFull) -> Self {
+        Self {
+            start: BoundRef::Unbounded,
+            end: BoundRef::Unbounded,
+        }
+    }
+}
+
+impl<'a, TOwned, TBorrowed> RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq + ?Sized,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    /// Returns a borrowed range ref using the bounds in the range provided.
+    pub fn borrowed(range: Range<&'a TBorrowed>) -> Self {
+        Self {
+            start: BoundRef::borrowed(range.start),
+            end: BoundRef::borrowed(range.end),
+        }
+    }
+
+    /// Returns an owned range ref using the bounds in the range provided.
+    pub fn owned(range: Range<TOwned>) -> Self {
+        Self {
+            start: BoundRef::owned(range.start),
+            end: BoundRef::owned(range.end),
+        }
+    }
+
+    /// Maps each contained value with the function provided. The callback's
+    /// return type is a Result, unlike with `map`.
+    pub fn map_result<U, E, F: Fn(&TBorrowed) -> Result<U, E>>(
+        self,
+        map: F,
+    ) -> Result<Range<U>, E> {
+        Ok(Range {
+            start: self.start.map_result(&map)?,
+            end: self.end.map_result(&map)?,
+        })
+    }
+}
+
+impl<'a, TOwned, TBorrowed> std::ops::RangeBounds<TBorrowed> for RangeRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq + ?Sized,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    fn start_bound(&self) -> std::ops::Bound<&TBorrowed> {
+        std::ops::Bound::from(&self.start)
+    }
+
+    fn end_bound(&self) -> std::ops::Bound<&TBorrowed> {
+        std::ops::Bound::from(&self.end)
+    }
+}
+
+impl<'a, TOwned, TBorrowed> From<&'a BoundRef<'a, TOwned, TBorrowed>>
+    for std::ops::Bound<&'a TBorrowed>
+where
+    TBorrowed: PartialEq + ?Sized,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    fn from(bound: &'a BoundRef<'a, TOwned, TBorrowed>) -> Self {
+        match bound {
+            BoundRef::Unbounded => std::ops::Bound::Unbounded,
+            BoundRef::Included(value) => std::ops::Bound::Included(&*value),
+            BoundRef::Excluded(value) => std::ops::Bound::Excluded(&*value),
+        }
+    }
+}
+
+/// A range bound reference.
+#[derive(Debug, Clone, PartialEq)]
+#[must_use]
+pub enum BoundRef<'a, TOwned, TBorrowed = TOwned>
+where
+    TBorrowed: PartialEq + ?Sized,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+    MaybeOwned<'a, TOwned, TBorrowed>: PartialEq,
+{
+    /// No bound.
+    Unbounded,
+    /// Bounded by the contained value (inclusive).
+    Included(MaybeOwned<'a, TOwned, TBorrowed>),
+    /// Bounded by the contained value (exclusive).
+    Excluded(MaybeOwned<'a, TOwned, TBorrowed>),
+}
+
+impl<'a, TOwned, TBorrowed> BoundRef<'a, TOwned, TBorrowed>
+where
+    TBorrowed: PartialEq + ?Sized,
+    TOwned: Borrow<TBorrowed> + PartialEq<TBorrowed>,
+{
+    /// Returns a borrowed bound from the bound provided.
+    pub fn borrowed(range: Bound<&'a TBorrowed>) -> Self {
+        match range {
+            Bound::Unbounded => Self::Unbounded,
+            Bound::Included(value) => Self::Included(MaybeOwned::Borrowed(value)),
+            Bound::Excluded(value) => Self::Excluded(MaybeOwned::Borrowed(value)),
+        }
+    }
+
+    /// Returns an owned bound ref from the bound provided.
+    pub fn owned(range: Bound<TOwned>) -> Self {
+        match range {
+            Bound::Unbounded => Self::Unbounded,
+            Bound::Included(value) => Self::Included(MaybeOwned::Owned(value)),
+            Bound::Excluded(value) => Self::Excluded(MaybeOwned::Owned(value)),
+        }
+    }
+
+    /// Maps each contained value with the function provided. The callback's
+    /// return type is a Result, unlike with `map`.
+    pub fn map_result<U, E, F: Fn(&TBorrowed) -> Result<U, E>>(
+        self,
+        map: F,
+    ) -> Result<Bound<U>, E> {
+        Ok(match self {
+            BoundRef::Unbounded => Bound::Unbounded,
+            BoundRef::Included(value) => Bound::Included(map(&*value)?),
+            BoundRef::Excluded(value) => Bound::Excluded(map(&*value)?),
+        })
     }
 }
 

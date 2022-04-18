@@ -73,7 +73,7 @@ impl LibraryEntity for Author {
         }
         let works = database
             .view::<WorksByAuthor>()
-            .with_key(self.key.clone())
+            .with_key(&self.key)
             .query_with_collection_docs()
             .await?;
         if !works.is_empty() {
@@ -198,9 +198,11 @@ impl LibraryEntity for Edition {
             println!("Subtitle: {}", subtitle);
         }
         let works = Work::get_multiple_async(
-            self.works
+            &self
+                .works
                 .iter()
-                .map(|w| w.to_key().replace("/b/", "/books/")),
+                .map(|w| w.to_key().replace("/b/", "/books/"))
+                .collect::<Vec<_>>(),
             database,
         )
         .await?;
@@ -291,7 +293,7 @@ impl LibraryEntity for Work {
         }
         let editions = database
             .view::<EditionsByWork>()
-            .with_key(self.key.clone())
+            .with_key(&self.key)
             .query_with_collection_docs()
             .await?;
         if !editions.is_empty() {
@@ -508,8 +510,8 @@ where
 {
     match serde_json::from_str::<C::Contents>(json) {
         Ok(contents) => {
-            tx.push(Operation::overwrite_serialized::<C>(
-                C::natural_id(&contents).unwrap(),
+            tx.push(Operation::overwrite_serialized::<C, C::PrimaryKey>(
+                &C::natural_id(&contents).unwrap(),
                 &contents,
             )?);
             Ok(())
@@ -586,7 +588,7 @@ async fn get_entity<S>(id: &str, database: &AsyncDatabase) -> anyhow::Result<()>
 where
     S: LibraryEntity<Contents = S> + Debug,
 {
-    match S::get_async(S::full_id(id), database).await? {
+    match S::get_async(&S::full_id(id), database).await? {
         Some(doc) => doc.contents.summarize(database).await,
         None => {
             anyhow::bail!("not found");

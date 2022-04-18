@@ -932,7 +932,7 @@ pub async fn store_retrieve_update_delete_tests<C: AsyncConnection>(db: &C) -> a
     let header = collection.push(&original_value).await?;
 
     let mut doc = collection
-        .get(header.id)
+        .get(&header.id)
         .await?
         .expect("couldn't retrieve stored item");
     let mut value = Basic::document_contents(&doc)?;
@@ -949,7 +949,7 @@ pub async fn store_retrieve_update_delete_tests<C: AsyncConnection>(db: &C) -> a
 
     // Check the value in the database to ensure it has the new document
     let doc = collection
-        .get(header.id)
+        .get(&header.id)
         .await?
         .expect("couldn't retrieve stored item");
     assert_eq!(Basic::document_contents(&doc)?, value);
@@ -972,7 +972,7 @@ pub async fn store_retrieve_update_delete_tests<C: AsyncConnection>(db: &C) -> a
     }
 
     db.collection::<Basic>().delete(&doc).await?;
-    assert!(collection.get(header.id).await?.is_none());
+    assert!(collection.get(&header.id).await?.is_none());
     let transactions = db
         .list_executed_transactions(Some(transactions.last().as_ref().unwrap().id + 1), None)
         .await?;
@@ -991,22 +991,22 @@ pub async fn store_retrieve_update_delete_tests<C: AsyncConnection>(db: &C) -> a
     let mut doc = original_value.clone().push_into_async(db).await?;
     doc.contents.category = Some(String::from("updated"));
     doc.update_async(db).await?;
-    let reloaded = Basic::get_async(doc.header.id, db).await?.unwrap();
+    let reloaded = Basic::get_async(&doc.header.id, db).await?.unwrap();
     assert_eq!(doc.contents, reloaded.contents);
 
     // Test Connection::insert with a specified id
-    let doc = BorrowedDocument::with_contents::<Basic>(42, &Basic::new("42"))?;
+    let doc = BorrowedDocument::with_contents::<Basic, _>(&42, &Basic::new("42"))?;
     let document_42 = db
-        .insert::<Basic, _, _>(Some(doc.header.id), doc.contents.into_vec())
+        .insert::<Basic, _, _>(Some(&doc.header.id), doc.contents.into_vec())
         .await?;
     assert_eq!(document_42.id, 42);
-    let document_43 = Basic::new("43").insert_into_async(43, db).await?;
+    let document_43 = Basic::new("43").insert_into_async(&43, db).await?;
     assert_eq!(document_43.header.id, 43);
 
     // Test that inserting a document with the same ID results in a conflict:
     let conflict_err = Basic::new("43")
         .with_parent_id(document_42.id)
-        .insert_into_async(doc.header.id, db)
+        .insert_into_async(&doc.header.id, db)
         .await
         .unwrap_err();
     assert!(matches!(conflict_err.error, Error::DocumentConflict(..)));
@@ -1028,7 +1028,7 @@ pub fn blocking_store_retrieve_update_delete_tests<C: Connection>(db: &C) -> any
     let header = collection.push(&original_value)?;
 
     let mut doc = collection
-        .get(header.id)?
+        .get(&header.id)?
         .expect("couldn't retrieve stored item");
     let mut value = Basic::document_contents(&doc)?;
     assert_eq!(original_value, value);
@@ -1044,7 +1044,7 @@ pub fn blocking_store_retrieve_update_delete_tests<C: Connection>(db: &C) -> any
 
     // Check the value in the database to ensure it has the new document
     let doc = collection
-        .get(header.id)?
+        .get(&header.id)?
         .expect("couldn't retrieve stored item");
     assert_eq!(Basic::document_contents(&doc)?, value);
 
@@ -1066,7 +1066,7 @@ pub fn blocking_store_retrieve_update_delete_tests<C: Connection>(db: &C) -> any
     }
 
     db.collection::<Basic>().delete(&doc)?;
-    assert!(collection.get(header.id)?.is_none());
+    assert!(collection.get(&header.id)?.is_none());
     let transactions =
         db.list_executed_transactions(Some(transactions.last().as_ref().unwrap().id + 1), None)?;
     assert_eq!(transactions.len(), 1);
@@ -1084,18 +1084,20 @@ pub fn blocking_store_retrieve_update_delete_tests<C: Connection>(db: &C) -> any
     let mut doc = original_value.push_into(db)?;
     doc.contents.category = Some(String::from("updated"));
     doc.update(db)?;
-    let reloaded = Basic::get(doc.header.id, db)?.unwrap();
+    let reloaded = Basic::get(&doc.header.id, db)?.unwrap();
     assert_eq!(doc.contents, reloaded.contents);
 
     // Test Connection::insert with a specified id
-    let doc = BorrowedDocument::with_contents::<Basic>(42, &Basic::new("42"))?;
-    let document_42 = db.insert::<Basic, _, _>(Some(doc.header.id), doc.contents.into_vec())?;
+    let doc = BorrowedDocument::with_contents::<Basic, _>(&42, &Basic::new("42"))?;
+    let document_42 = db.insert::<Basic, _, _>(Some(&doc.header.id), doc.contents.into_vec())?;
     assert_eq!(document_42.id, 42);
-    let document_43 = Basic::new("43").insert_into(43, db)?;
+    let document_43 = Basic::new("43").insert_into(&43, db)?;
     assert_eq!(document_43.header.id, 43);
 
     // Test that inserting a document with the same ID results in a conflict:
-    let conflict_err = Basic::new("43").insert_into(doc.header.id, db).unwrap_err();
+    let conflict_err = Basic::new("43")
+        .insert_into(&doc.header.id, db)
+        .unwrap_err();
     assert!(matches!(conflict_err.error, Error::DocumentConflict(..)));
 
     // Test bulk insert
@@ -1108,25 +1110,25 @@ pub fn blocking_store_retrieve_update_delete_tests<C: Connection>(db: &C) -> any
 
 pub async fn overwrite_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     // Test Connection::insert with a specified id
-    let doc = BorrowedDocument::with_contents::<Basic>(42, &Basic::new("42"))?;
+    let doc = BorrowedDocument::with_contents::<Basic, _>(&42, &Basic::new("42"))?;
     let document_42 = db
-        .insert::<Basic, _, _>(Some(doc.header.id), doc.contents.into_vec())
+        .insert::<Basic, _, _>(Some(&doc.header.id), doc.contents.into_vec())
         .await?;
     assert_eq!(document_42.id, 42);
-    let document_43 = Basic::new("43").insert_into_async(43, db).await?;
+    let document_43 = Basic::new("43").insert_into_async(&43, db).await?;
     assert_eq!(document_43.header.id, 43);
 
     // Test that overwriting works
     let overwritten = Basic::new("43")
         .with_parent_id(document_42.id)
-        .overwrite_into_async(doc.header.id, db)
+        .overwrite_into_async(&doc.header.id, db)
         .await
         .unwrap();
     assert!(overwritten.header.revision.id > doc.header.revision.id);
     let children = db
         .view::<BasicByParentIdEager>()
         .with_access_policy(AccessPolicy::NoUpdate)
-        .with_key(Some(document_42.id))
+        .with_key(&Some(document_42.id))
         .query()
         .await?;
     assert_eq!(children[0].source.revision, overwritten.header.revision);
@@ -1134,13 +1136,13 @@ pub async fn overwrite_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     // Verify that unique/eager views are updated when overwriting into a non-existant key
     let insert_via_overwrite = Basic::new("1000")
         .with_parent_id(document_43.header.id)
-        .overwrite_into_async(1_000, db)
+        .overwrite_into_async(&1_000, db)
         .await
         .unwrap();
     let children = db
         .view::<BasicByParentIdEager>()
         .with_access_policy(AccessPolicy::NoUpdate)
-        .with_key(Some(document_43.header.id))
+        .with_key(&Some(document_43.header.id))
         .query()
         .await?;
     assert_eq!(
@@ -1153,34 +1155,34 @@ pub async fn overwrite_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
 
 pub fn blocking_overwrite_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     // Test Connection::insert with a specified id
-    let doc = BorrowedDocument::with_contents::<Basic>(42, &Basic::new("42"))?;
-    let document_42 = db.insert::<Basic, _, _>(Some(doc.header.id), doc.contents.into_vec())?;
+    let doc = BorrowedDocument::with_contents::<Basic, _>(&42, &Basic::new("42"))?;
+    let document_42 = db.insert::<Basic, _, _>(Some(&doc.header.id), doc.contents.into_vec())?;
     assert_eq!(document_42.id, 42);
-    let document_43 = Basic::new("43").insert_into(43, db)?;
+    let document_43 = Basic::new("43").insert_into(&43, db)?;
     assert_eq!(document_43.header.id, 43);
 
     // Test that overwriting works
     let overwritten = Basic::new("43")
         .with_parent_id(document_42.id)
-        .overwrite_into(doc.header.id, db)
+        .overwrite_into(&doc.header.id, db)
         .unwrap();
     assert!(overwritten.header.revision.id > doc.header.revision.id);
     let children = db
         .view::<BasicByParentIdEager>()
         .with_access_policy(AccessPolicy::NoUpdate)
-        .with_key(Some(document_42.id))
+        .with_key(&Some(document_42.id))
         .query()?;
     assert_eq!(children[0].source.revision, overwritten.header.revision);
 
     // Verify that unique/eager views are updated when overwriting into a non-existant key
     let insert_via_overwrite = Basic::new("1000")
         .with_parent_id(document_43.header.id)
-        .overwrite_into(1_000, db)
+        .overwrite_into(&1_000, db)
         .unwrap();
     let children = db
         .view::<BasicByParentIdEager>()
         .with_access_policy(AccessPolicy::NoUpdate)
-        .with_key(Some(document_43.header.id))
+        .with_key(&Some(document_43.header.id))
         .query()?;
     assert_eq!(
         children[0].source.revision,
@@ -1191,7 +1193,7 @@ pub fn blocking_overwrite_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
 }
 
 pub async fn not_found_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
-    assert!(db.collection::<Basic>().get(1).await?.is_none());
+    assert!(db.collection::<Basic>().get(&1).await?.is_none());
 
     assert!(db.last_transaction_id().await?.is_none());
 
@@ -1199,7 +1201,7 @@ pub async fn not_found_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
 }
 
 pub fn blocking_not_found_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    assert!(db.collection::<Basic>().get(1)?.is_none());
+    assert!(db.collection::<Basic>().get(&1)?.is_none());
 
     assert!(db.last_transaction_id()?.is_none());
 
@@ -1212,7 +1214,7 @@ pub async fn conflict_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let header = collection.push(&original_value).await?;
 
     let mut doc = collection
-        .get(header.id)
+        .get(&header.id)
         .await?
         .expect("couldn't retrieve stored item");
     let mut value = Basic::document_contents(&doc)?;
@@ -1242,7 +1244,7 @@ pub async fn conflict_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     })
     .await?;
     assert_eq!(doc.contents.value, "modify worked");
-    let doc = Basic::get_async(doc.header.id, db).await?.unwrap();
+    let doc = Basic::get_async(&doc.header.id, db).await?.unwrap();
     assert_eq!(doc.contents.value, "modify worked");
 
     Ok(())
@@ -1254,7 +1256,7 @@ pub fn blocking_conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let header = collection.push(&original_value)?;
 
     let mut doc = collection
-        .get(header.id)?
+        .get(&header.id)?
         .expect("couldn't retrieve stored item");
     let mut value = Basic::document_contents(&doc)?;
     value.value = String::from("updated_value");
@@ -1281,14 +1283,14 @@ pub fn blocking_conflict_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
         doc.contents.value = String::from("modify worked");
     })?;
     assert_eq!(doc.contents.value, "modify worked");
-    let doc = Basic::get(doc.header.id, db)?.unwrap();
+    let doc = Basic::get(&doc.header.id, db)?.unwrap();
     assert_eq!(doc.contents.value, "modify worked");
 
     Ok(())
 }
 
 pub async fn bad_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
-    let mut doc = BorrowedDocument::with_contents::<Basic>(1, &Basic::default())?;
+    let mut doc = BorrowedDocument::with_contents::<Basic, _>(&1, &Basic::default())?;
     match db.update::<Basic, _>(&mut doc).await {
         Err(Error::DocumentNotFound(collection, id)) => {
             assert_eq!(collection, Basic::collection_name());
@@ -1300,7 +1302,7 @@ pub async fn bad_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> 
 }
 
 pub fn blocking_bad_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
-    let mut doc = BorrowedDocument::with_contents::<Basic>(1, &Basic::default())?;
+    let mut doc = BorrowedDocument::with_contents::<Basic, _>(&1, &Basic::default())?;
     match db.update::<Basic, _>(&mut doc) {
         Err(Error::DocumentNotFound(collection, id)) => {
             assert_eq!(collection, Basic::collection_name());
@@ -1317,7 +1319,7 @@ pub async fn no_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> {
     let header = collection.push(&original_value).await?;
 
     let mut doc = collection
-        .get(header.id)
+        .get(&header.id)
         .await?
         .expect("couldn't retrieve stored item");
     db.update::<Basic, _>(&mut doc).await?;
@@ -1333,7 +1335,7 @@ pub fn blocking_no_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let header = collection.push(&original_value)?;
 
     let mut doc = collection
-        .get(header.id)?
+        .get(&header.id)?
         .expect("couldn't retrieve stored item");
     db.update::<Basic, _>(&mut doc)?;
 
@@ -1350,10 +1352,10 @@ pub async fn get_multiple_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()
     let doc2_value = Basic::new("second_value");
     let doc2 = collection.push(&doc2_value).await?;
 
-    let both_docs = Basic::get_multiple_async([doc1.id, doc2.id], db).await?;
+    let both_docs = Basic::get_multiple_async([&doc1.id, &doc2.id], db).await?;
     assert_eq!(both_docs.len(), 2);
 
-    let out_of_order = Basic::get_multiple_async([doc2.id, doc1.id], db).await?;
+    let out_of_order = Basic::get_multiple_async([&doc2.id, &doc1.id], db).await?;
     assert_eq!(out_of_order.len(), 2);
 
     // The order of get_multiple isn't guaranteed, so these two checks are done
@@ -1380,10 +1382,10 @@ pub fn blocking_get_multiple_tests<C: Connection>(db: &C) -> anyhow::Result<()> 
     let doc2_value = Basic::new("second_value");
     let doc2 = collection.push(&doc2_value)?;
 
-    let both_docs = Basic::get_multiple([doc1.id, doc2.id], db)?;
+    let both_docs = Basic::get_multiple([&doc1.id, &doc2.id], db)?;
     assert_eq!(both_docs.len(), 2);
 
-    let out_of_order = Basic::get_multiple([doc2.id, doc1.id], db)?;
+    let out_of_order = Basic::get_multiple([&doc2.id, &doc1.id], db)?;
     assert_eq!(out_of_order.len(), 2);
 
     // The order of get_multiple isn't guaranteed, so these two checks are done
@@ -1602,7 +1604,7 @@ pub async fn transaction_check_tests<C: AsyncConnection + 'static>(db: &C) -> an
 
     // Positive flow, check id, as well as id + header.
     let mut tx = Transaction::new();
-    tx.push(Operation::check_document_exists::<Basic>(doc.header.id)?);
+    tx.push(Operation::check_document_exists::<Basic>(&doc.header.id)?);
     tx.push(Operation::check_document_is_current::<Basic, _>(&doc)?);
     tx.push(Operation::insert_serialized::<Basic>(
         None,
@@ -1615,12 +1617,12 @@ pub async fn transaction_check_tests<C: AsyncConnection + 'static>(db: &C) -> an
     tx.push(Operation::check_document_is_current::<Basic, _>(
         &initial_header,
     )?);
-    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    tx.push(Operation::check_document_exists::<Basic>(&42)?);
     let result = tx.apply_async(db).await.unwrap_err();
     assert!(matches!(result, Error::DocumentConflict(_, _)));
 
     let mut tx = Transaction::new();
-    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    tx.push(Operation::check_document_exists::<Basic>(&42)?);
     tx.push(Operation::check_document_is_current::<Basic, _>(
         &initial_header,
     )?);
@@ -1638,7 +1640,7 @@ pub fn blocking_transaction_check_tests<C: Connection + 'static>(db: &C) -> anyh
 
     // Positive flow, check id, as well as id + header.
     let mut tx = Transaction::new();
-    tx.push(Operation::check_document_exists::<Basic>(doc.header.id)?);
+    tx.push(Operation::check_document_exists::<Basic>(&doc.header.id)?);
     tx.push(Operation::check_document_is_current::<Basic, _>(&doc)?);
     tx.push(Operation::insert_serialized::<Basic>(
         None,
@@ -1651,12 +1653,12 @@ pub fn blocking_transaction_check_tests<C: Connection + 'static>(db: &C) -> anyh
     tx.push(Operation::check_document_is_current::<Basic, _>(
         &initial_header,
     )?);
-    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    tx.push(Operation::check_document_exists::<Basic>(&42)?);
     let result = tx.apply(db).unwrap_err();
     assert!(matches!(result, Error::DocumentConflict(_, _)));
 
     let mut tx = Transaction::new();
-    tx.push(Operation::check_document_exists::<Basic>(42)?);
+    tx.push(Operation::check_document_exists::<Basic>(&42)?);
     tx.push(Operation::check_document_is_current::<Basic, _>(
         &initial_header,
     )?);
@@ -1686,14 +1688,14 @@ pub async fn view_query_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> 
 
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .query()
         .await?;
     assert_eq!(a_children.len(), 1);
 
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .query_with_collection_docs()
         .await?;
     assert_eq!(a_children.len(), 1);
@@ -1701,14 +1703,14 @@ pub async fn view_query_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> 
 
     let b_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(b.id))
+        .with_key(&Some(b.id))
         .query()
         .await?;
     assert_eq!(b_children.len(), 2);
 
     let a_and_b_children = db
         .view::<BasicByParentId>()
-        .with_keys([Some(a.id), Some(b.id)])
+        .with_keys([&Some(a.id), &Some(b.id)])
         .query()
         .await?;
     assert_eq!(a_and_b_children.len(), 3);
@@ -1716,7 +1718,7 @@ pub async fn view_query_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> 
     // Test out of order keys
     let a_and_b_children = db
         .view::<BasicByParentId>()
-        .with_keys([Some(b.id), Some(a.id)])
+        .with_keys([&Some(b.id), &Some(a.id)])
         .query()
         .await?;
     assert_eq!(a_and_b_children.len(), 3);
@@ -1749,13 +1751,13 @@ pub async fn view_query_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()> 
     // Test deleting
     let deleted_count = db
         .view::<BasicByParentId>()
-        .with_key(Some(b.id))
+        .with_key(&Some(b.id))
         .delete_docs()
         .await?;
     assert_eq!(b_children.len() as u64, deleted_count);
     assert_eq!(
         db.view::<BasicByParentId>()
-            .with_key(Some(b.id))
+            .with_key(&Some(b.id))
             .query()
             .await?
             .len(),
@@ -1777,29 +1779,29 @@ pub fn blocking_view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     collection.push(&Basic::new("B.1").with_parent_id(b.id).with_category("Beta"))?;
     collection.push(&Basic::new("B.2").with_parent_id(b.id).with_category("beta"))?;
 
-    let a_children = db.view::<BasicByParentId>().with_key(Some(a.id)).query()?;
+    let a_children = db.view::<BasicByParentId>().with_key(&Some(a.id)).query()?;
     assert_eq!(a_children.len(), 1);
 
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .query_with_collection_docs()?;
     assert_eq!(a_children.len(), 1);
     assert_eq!(a_children.get(0).unwrap().document.header, a_child);
 
-    let b_children = db.view::<BasicByParentId>().with_key(Some(b.id)).query()?;
+    let b_children = db.view::<BasicByParentId>().with_key(&Some(b.id)).query()?;
     assert_eq!(b_children.len(), 2);
 
     let a_and_b_children = db
         .view::<BasicByParentId>()
-        .with_keys([Some(a.id), Some(b.id)])
+        .with_keys(&[Some(a.id), Some(b.id)])
         .query()?;
     assert_eq!(a_and_b_children.len(), 3);
 
     // Test out of order keys
     let a_and_b_children = db
         .view::<BasicByParentId>()
-        .with_keys([Some(b.id), Some(a.id)])
+        .with_keys(&[Some(b.id), Some(a.id)])
         .query()?;
     assert_eq!(a_and_b_children.len(), 3);
 
@@ -1829,12 +1831,12 @@ pub fn blocking_view_query_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     // Test deleting
     let deleted_count = db
         .view::<BasicByParentId>()
-        .with_key(Some(b.id))
+        .with_key(&Some(b.id))
         .delete_docs()?;
     assert_eq!(b_children.len() as u64, deleted_count);
     assert_eq!(
         db.view::<BasicByParentId>()
-            .with_key(Some(b.id))
+            .with_key(&Some(b.id))
             .query()?
             .len(),
         0
@@ -1890,14 +1892,14 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
 
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .query()
         .await?;
     assert_eq!(a_children.len(), 0);
     // The reduce function of `BasicByParentId` acts as a "count" of records.
     assert_eq!(
         db.view::<BasicByParentId>()
-            .with_key(Some(a.id))
+            .with_key(&Some(a.id))
             .reduce()
             .await?,
         0
@@ -1906,14 +1908,14 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
     // Verify the eager view is available without any updates
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .with_access_policy(AccessPolicy::NoUpdate)
         .query()
         .await?;
     assert_eq!(a_children.len(), 0);
     assert_eq!(
         db.view::<BasicByParentId>()
-            .with_key(Some(a.id))
+            .with_key(&Some(a.id))
             .with_access_policy(AccessPolicy::NoUpdate)
             .reduce()
             .await?,
@@ -1931,13 +1933,13 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
 
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .query()
         .await?;
     assert_eq!(a_children.len(), 1);
     assert_eq!(
         db.view::<BasicByParentId>()
-            .with_key(Some(a.id))
+            .with_key(&Some(a.id))
             .reduce()
             .await?,
         1
@@ -1950,7 +1952,7 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
     );
 
     // Test updating the record and the view being updated appropriately
-    let mut doc = db.collection::<Basic>().get(a_child.id).await?.unwrap();
+    let mut doc = db.collection::<Basic>().get(&a_child.id).await?.unwrap();
     let mut basic = Basic::document_contents(&doc)?;
     basic.parent_id = None;
     Basic::set_document_contents(&mut doc, basic)?;
@@ -1958,13 +1960,13 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
 
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .query()
         .await?;
     assert_eq!(a_children.len(), 0);
     assert_eq!(
         db.view::<BasicByParentId>()
-            .with_key(Some(a.id))
+            .with_key(&Some(a.id))
             .reduce()
             .await?,
         0
@@ -1999,24 +2001,26 @@ pub fn blocking_view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     let collection = db.collection::<Basic>();
     let a = collection.push(&Basic::new("A"))?;
 
-    let a_children = db.view::<BasicByParentId>().with_key(Some(a.id)).query()?;
+    let a_children = db.view::<BasicByParentId>().with_key(&Some(a.id)).query()?;
     assert_eq!(a_children.len(), 0);
     // The reduce function of `BasicByParentId` acts as a "count" of records.
     assert_eq!(
-        db.view::<BasicByParentId>().with_key(Some(a.id)).reduce()?,
+        db.view::<BasicByParentId>()
+            .with_key(&Some(a.id))
+            .reduce()?,
         0
     );
 
     // Verify the eager view is available without any updates
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .with_access_policy(AccessPolicy::NoUpdate)
         .query()?;
     assert_eq!(a_children.len(), 0);
     assert_eq!(
         db.view::<BasicByParentId>()
-            .with_key(Some(a.id))
+            .with_key(&Some(a.id))
             .with_access_policy(AccessPolicy::NoUpdate)
             .reduce()?,
         0
@@ -2029,10 +2033,12 @@ pub fn blocking_view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
             .with_category("Alpha"),
     )?;
 
-    let a_children = db.view::<BasicByParentId>().with_key(Some(a.id)).query()?;
+    let a_children = db.view::<BasicByParentId>().with_key(&Some(a.id)).query()?;
     assert_eq!(a_children.len(), 1);
     assert_eq!(
-        db.view::<BasicByParentId>().with_key(Some(a.id)).reduce()?,
+        db.view::<BasicByParentId>()
+            .with_key(&Some(a.id))
+            .reduce()?,
         1
     );
 
@@ -2043,16 +2049,18 @@ pub fn blocking_view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     );
 
     // Test updating the record and the view being updated appropriately
-    let mut doc = db.collection::<Basic>().get(a_child.id)?.unwrap();
+    let mut doc = db.collection::<Basic>().get(&a_child.id)?.unwrap();
     let mut basic = Basic::document_contents(&doc)?;
     basic.parent_id = None;
     Basic::set_document_contents(&mut doc, basic)?;
     db.update::<Basic, _>(&mut doc)?;
 
-    let a_children = db.view::<BasicByParentId>().with_key(Some(a.id)).query()?;
+    let a_children = db.view::<BasicByParentId>().with_key(&Some(a.id)).query()?;
     assert_eq!(a_children.len(), 0);
     assert_eq!(
-        db.view::<BasicByParentId>().with_key(Some(a.id)).reduce()?,
+        db.view::<BasicByParentId>()
+            .with_key(&Some(a.id))
+            .reduce()?,
         0
     );
     assert_eq!(db.view::<BasicByParentId>().reduce()?, 2);
@@ -2097,7 +2105,7 @@ pub async fn view_multi_emit_tests<C: AsyncConnection>(db: &C) -> anyhow::Result
 
     assert_eq!(
         db.view::<BasicByTag>()
-            .with_key(String::from("green"))
+            .with_key("green")
             .query()
             .await?
             .len(),
@@ -2105,17 +2113,13 @@ pub async fn view_multi_emit_tests<C: AsyncConnection>(db: &C) -> anyhow::Result
     );
 
     assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("red"))
-            .query()
-            .await?
-            .len(),
+        db.view::<BasicByTag>().with_key("red").query().await?.len(),
         1
     );
 
     assert_eq!(
         db.view::<BasicByTag>()
-            .with_key(String::from("blue"))
+            .with_key("blue")
             .query()
             .await?
             .len(),
@@ -2128,7 +2132,7 @@ pub async fn view_multi_emit_tests<C: AsyncConnection>(db: &C) -> anyhow::Result
 
     assert_eq!(
         db.view::<BasicByTag>()
-            .with_key(String::from("green"))
+            .with_key("green")
             .query()
             .await?
             .len(),
@@ -2136,17 +2140,13 @@ pub async fn view_multi_emit_tests<C: AsyncConnection>(db: &C) -> anyhow::Result
     );
 
     assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("red"))
-            .query()
-            .await?
-            .len(),
+        db.view::<BasicByTag>().with_key("red").query().await?.len(),
         1
     );
 
     assert_eq!(
         db.view::<BasicByTag>()
-            .with_key(String::from("blue"))
+            .with_key("blue")
             .query()
             .await?
             .len(),
@@ -2157,7 +2157,7 @@ pub async fn view_multi_emit_tests<C: AsyncConnection>(db: &C) -> anyhow::Result
 
     assert_eq!(
         db.view::<BasicByTag>()
-            .with_key(String::from("green"))
+            .with_key("green")
             .query()
             .await?
             .len(),
@@ -2165,17 +2165,13 @@ pub async fn view_multi_emit_tests<C: AsyncConnection>(db: &C) -> anyhow::Result
     );
 
     assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("red"))
-            .query()
-            .await?
-            .len(),
+        db.view::<BasicByTag>().with_key("red").query().await?.len(),
         1
     );
 
     assert_eq!(
         db.view::<BasicByTag>()
-            .with_key(String::from("blue"))
+            .with_key("blue")
             .query()
             .await?
             .len(),
@@ -2197,83 +2193,29 @@ pub fn blocking_view_multi_emit_tests<C: Connection>(db: &C) -> anyhow::Result<(
 
     assert_eq!(db.view::<BasicByTag>().query()?.len(), 4);
 
-    assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("green"))
-            .query()?
-            .len(),
-        2
-    );
+    assert_eq!(db.view::<BasicByTag>().with_key("green").query()?.len(), 2);
 
-    assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("red"))
-            .query()?
-            .len(),
-        1
-    );
+    assert_eq!(db.view::<BasicByTag>().with_key("red").query()?.len(), 1);
 
-    assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("blue"))
-            .query()?
-            .len(),
-        1
-    );
+    assert_eq!(db.view::<BasicByTag>().with_key("blue").query()?.len(), 1);
 
     // Change tags
     a.contents.tags = vec![String::from("red"), String::from("blue")];
     a.update(db)?;
 
-    assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("green"))
-            .query()?
-            .len(),
-        1
-    );
+    assert_eq!(db.view::<BasicByTag>().with_key("green").query()?.len(), 1);
 
-    assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("red"))
-            .query()?
-            .len(),
-        1
-    );
+    assert_eq!(db.view::<BasicByTag>().with_key("red").query()?.len(), 1);
 
-    assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("blue"))
-            .query()?
-            .len(),
-        2
-    );
+    assert_eq!(db.view::<BasicByTag>().with_key("blue").query()?.len(), 2);
     b.contents.tags.clear();
     b.update(db)?;
 
-    assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("green"))
-            .query()?
-            .len(),
-        0
-    );
+    assert_eq!(db.view::<BasicByTag>().with_key("green").query()?.len(), 0);
 
-    assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("red"))
-            .query()?
-            .len(),
-        1
-    );
+    assert_eq!(db.view::<BasicByTag>().with_key("red").query()?.len(), 1);
 
-    assert_eq!(
-        db.view::<BasicByTag>()
-            .with_key(String::from("blue"))
-            .query()?
-            .len(),
-        1
-    );
+    assert_eq!(db.view::<BasicByTag>().with_key("blue").query()?.len(), 1);
 
     Ok(())
 }
@@ -2294,7 +2236,7 @@ pub async fn view_access_policy_tests<C: AsyncConnection>(db: &C) -> anyhow::Res
 
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .with_access_policy(AccessPolicy::NoUpdate)
         .query()
         .await?;
@@ -2306,7 +2248,7 @@ pub async fn view_access_policy_tests<C: AsyncConnection>(db: &C) -> anyhow::Res
     // updated after returning
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .with_access_policy(AccessPolicy::UpdateAfter)
         .query()
         .await?;
@@ -2319,7 +2261,7 @@ pub async fn view_access_policy_tests<C: AsyncConnection>(db: &C) -> anyhow::Res
         // Now, the view should contain the entry.
         let a_children = db
             .view::<BasicByParentId>()
-            .with_key(Some(a.id))
+            .with_key(&Some(a.id))
             .with_access_policy(AccessPolicy::NoUpdate)
             .query()
             .await?;
@@ -2344,7 +2286,7 @@ pub fn blocking_view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Resul
 
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .with_access_policy(AccessPolicy::NoUpdate)
         .query()?;
     assert_eq!(a_children.len(), 0);
@@ -2355,7 +2297,7 @@ pub fn blocking_view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Resul
     // updated after returning
     let a_children = db
         .view::<BasicByParentId>()
-        .with_key(Some(a.id))
+        .with_key(&Some(a.id))
         .with_access_policy(AccessPolicy::UpdateAfter)
         .query()?;
     assert_eq!(a_children.len(), 0);
@@ -2367,7 +2309,7 @@ pub fn blocking_view_access_policy_tests<C: Connection>(db: &C) -> anyhow::Resul
         // Now, the view should contain the entry.
         let a_children = db
             .view::<BasicByParentId>()
-            .with_key(Some(a.id))
+            .with_key(&Some(a.id))
             .with_access_policy(AccessPolicy::NoUpdate)
             .query()?;
         if a_children.len() == 1 {
@@ -2397,7 +2339,11 @@ pub async fn unique_view_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
     }
 
     let second_doc = db.collection::<Unique>().push(&Unique::new("2")).await?;
-    let mut second_doc = db.collection::<Unique>().get(second_doc.id).await?.unwrap();
+    let mut second_doc = db
+        .collection::<Unique>()
+        .get(&second_doc.id)
+        .await?
+        .unwrap();
     let mut contents = Unique::document_contents(&second_doc)?;
     contents.value = String::from("1");
     Unique::set_document_contents(&mut second_doc, contents)?;
@@ -2437,7 +2383,7 @@ pub fn blocking_unique_view_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     }
 
     let second_doc = db.collection::<Unique>().push(&Unique::new("2"))?;
-    let mut second_doc = db.collection::<Unique>().get(second_doc.id)?.unwrap();
+    let mut second_doc = db.collection::<Unique>().get(&second_doc.id)?.unwrap();
     let mut contents = Unique::document_contents(&second_doc)?;
     contents.value = String::from("1");
     Unique::set_document_contents(&mut second_doc, contents)?;
@@ -2564,7 +2510,7 @@ pub async fn user_management_tests<C: AsyncConnection, S: AsyncStorageConnection
     let user_id = server.create_user(&username).await?;
     // Test the default created user state.
     {
-        let user = User::get_async(user_id, admin)
+        let user = User::get_async(&user_id, admin)
             .await
             .unwrap()
             .expect("user not found");
@@ -2591,7 +2537,7 @@ pub async fn user_management_tests<C: AsyncConnection, S: AsyncStorageConnection
 
     // Test the results
     {
-        let user = User::get_async(user_id, admin)
+        let user = User::get_async(&user_id, admin)
             .await
             .unwrap()
             .expect("user not found");
@@ -2621,7 +2567,7 @@ pub async fn user_management_tests<C: AsyncConnection, S: AsyncStorageConnection
         .unwrap();
     server.remove_role_from_user(user_id, &role).await.unwrap();
     {
-        let user = User::get_async(user_id, admin)
+        let user = User::get_async(&user_id, admin)
             .await
             .unwrap()
             .expect("user not found");
@@ -2639,7 +2585,7 @@ pub async fn user_management_tests<C: AsyncConnection, S: AsyncStorageConnection
     server.delete_user(user_id).await?;
     // Test if user is removed.
 
-    assert!(User::get_async(user_id, admin).await.unwrap().is_none());
+    assert!(User::get_async(&user_id, admin).await.unwrap().is_none());
 
     Ok(())
 }
@@ -2653,7 +2599,7 @@ pub fn blocking_user_management_tests<C: Connection, S: StorageConnection>(
     let user_id = server.create_user(&username)?;
     // Test the default created user state.
     {
-        let user = User::get(user_id, admin).unwrap().expect("user not found");
+        let user = User::get(&user_id, admin).unwrap().expect("user not found");
         assert_eq!(user.contents.username, username);
         assert!(user.contents.groups.is_empty());
         assert!(user.contents.roles.is_empty());
@@ -2674,7 +2620,7 @@ pub fn blocking_user_management_tests<C: Connection, S: StorageConnection>(
 
     // Test the results
     {
-        let user = User::get(user_id, admin).unwrap().expect("user not found");
+        let user = User::get(&user_id, admin).unwrap().expect("user not found");
         assert_eq!(user.contents.groups, vec![group.header.id]);
         assert_eq!(user.contents.roles, vec![role.header.id]);
     }
@@ -2698,7 +2644,7 @@ pub fn blocking_user_management_tests<C: Connection, S: StorageConnection>(
         .unwrap();
     server.remove_role_from_user(user_id, &role).unwrap();
     {
-        let user = User::get(user_id, admin).unwrap().expect("user not found");
+        let user = User::get(&user_id, admin).unwrap().expect("user not found");
         assert!(user.contents.groups.is_empty());
         assert!(user.contents.roles.is_empty());
     }
@@ -2711,7 +2657,7 @@ pub fn blocking_user_management_tests<C: Connection, S: StorageConnection>(
     server.delete_user(user_id)?;
     // Test if user is removed.
 
-    assert!(User::get(user_id, admin).unwrap().is_none());
+    assert!(User::get(&user_id, admin).unwrap().is_none());
 
     Ok(())
 }

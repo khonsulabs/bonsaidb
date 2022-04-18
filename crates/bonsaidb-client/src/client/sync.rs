@@ -4,7 +4,8 @@ use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
     arc_bytes::serde::Bytes,
     connection::{
-        Connection, Database, IdentityReference, LowLevelConnection, Range, Sort, StorageConnection,
+        AccessPolicy, Connection, Database, IdentityReference, LowLevelConnection, Range,
+        SerializedQueryKey, Sort, StorageConnection,
     },
     document::{DocumentId, Header, OwnedDocument},
     keyvalue::KeyValue,
@@ -17,7 +18,7 @@ use bonsaidb_core::{
         ReduceGrouped, SubscribeTo, UnsubscribeFrom,
     },
     pubsub::{AsyncSubscriber, PubSub, Receiver, Subscriber},
-    schema::{CollectionName, Schematic},
+    schema::{view::map, CollectionName, Schematic, ViewName},
 };
 use futures::Future;
 use tokio::{
@@ -343,12 +344,12 @@ impl LowLevelConnection for RemoteDatabase {
 
     fn query_by_name(
         &self,
-        view: &bonsaidb_core::schema::ViewName,
-        key: Option<bonsaidb_core::connection::QueryKey<bonsaidb_core::arc_bytes::serde::Bytes>>,
+        view: &ViewName,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
-        access_policy: bonsaidb_core::connection::AccessPolicy,
-    ) -> Result<Vec<bonsaidb_core::schema::view::map::Serialized>, bonsaidb_core::Error> {
+        access_policy: AccessPolicy,
+    ) -> Result<Vec<map::Serialized>, bonsaidb_core::Error> {
         Ok(self.client.send_api_request(&Query {
             database: self.name.to_string(),
             view: view.clone(),
@@ -362,10 +363,10 @@ impl LowLevelConnection for RemoteDatabase {
     fn query_by_name_with_docs(
         &self,
         view: &bonsaidb_core::schema::ViewName,
-        key: Option<bonsaidb_core::connection::QueryKey<bonsaidb_core::arc_bytes::serde::Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
-        access_policy: bonsaidb_core::connection::AccessPolicy,
+        access_policy: AccessPolicy,
     ) -> Result<bonsaidb_core::schema::view::map::MappedSerializedDocuments, bonsaidb_core::Error>
     {
         Ok(self.client.send_api_request(&QueryWithDocs(Query {
@@ -381,8 +382,8 @@ impl LowLevelConnection for RemoteDatabase {
     fn reduce_by_name(
         &self,
         view: &bonsaidb_core::schema::ViewName,
-        key: Option<bonsaidb_core::connection::QueryKey<bonsaidb_core::arc_bytes::serde::Bytes>>,
-        access_policy: bonsaidb_core::connection::AccessPolicy,
+        key: Option<SerializedQueryKey>,
+        access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         Ok(self
             .client
@@ -398,8 +399,8 @@ impl LowLevelConnection for RemoteDatabase {
     fn reduce_grouped_by_name(
         &self,
         view: &bonsaidb_core::schema::ViewName,
-        key: Option<bonsaidb_core::connection::QueryKey<bonsaidb_core::arc_bytes::serde::Bytes>>,
-        access_policy: bonsaidb_core::connection::AccessPolicy,
+        key: Option<SerializedQueryKey>,
+        access_policy: AccessPolicy,
     ) -> Result<Vec<bonsaidb_core::schema::view::map::MappedSerializedValue>, bonsaidb_core::Error>
     {
         Ok(self.client.send_api_request(&ReduceGrouped(Reduce {
@@ -413,8 +414,8 @@ impl LowLevelConnection for RemoteDatabase {
     fn delete_docs_by_name(
         &self,
         view: &bonsaidb_core::schema::ViewName,
-        key: Option<bonsaidb_core::connection::QueryKey<bonsaidb_core::arc_bytes::serde::Bytes>>,
-        access_policy: bonsaidb_core::connection::AccessPolicy,
+        key: Option<SerializedQueryKey>,
+        access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
         Ok(self.client.send_api_request(&DeleteDocs {
             database: self.name.to_string(),

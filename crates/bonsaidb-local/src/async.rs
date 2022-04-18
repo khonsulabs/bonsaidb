@@ -4,11 +4,10 @@ use async_trait::async_trait;
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
-    arc_bytes::serde::Bytes,
     connection::{
         self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
-        Connection, HasSession, IdentityReference, LowLevelConnection, QueryKey, Range, Session,
-        Sort, StorageConnection,
+        Connection, HasSession, IdentityReference, LowLevelConnection, Range, SerializedQueryKey,
+        Session, Sort, StorageConnection,
     },
     document::{DocumentId, Header, OwnedDocument},
     keyvalue::{AsyncKeyValue, KeyOperation, KeyValue, Output},
@@ -829,7 +828,7 @@ impl AsyncLowLevelConnection for AsyncDatabase {
     async fn query_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -849,7 +848,7 @@ impl AsyncLowLevelConnection for AsyncDatabase {
     async fn query_by_name_with_docs(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -869,7 +868,7 @@ impl AsyncLowLevelConnection for AsyncDatabase {
     async fn reduce_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         let task_self = self.clone();
@@ -883,7 +882,7 @@ impl AsyncLowLevelConnection for AsyncDatabase {
     async fn reduce_grouped_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         let task_self = self.clone();
@@ -901,7 +900,7 @@ impl AsyncLowLevelConnection for AsyncDatabase {
     async fn delete_docs_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
         let task_self = self.clone();

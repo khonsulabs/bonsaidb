@@ -2,8 +2,9 @@ use std::ops::Deref;
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    arc_bytes::serde::Bytes,
-    connection::{AccessPolicy, AsyncLowLevelConnection, HasSession, QueryKey, Range, Sort},
+    connection::{
+        AccessPolicy, AsyncLowLevelConnection, HasSession, Range, SerializedQueryKey, Sort,
+    },
     document::{DocumentId, Header, OwnedDocument},
     keyvalue::AsyncKeyValue,
     permissions::Permissions,
@@ -201,7 +202,7 @@ impl<B: Backend> AsyncLowLevelConnection for ServerDatabase<B> {
     async fn query_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -214,7 +215,7 @@ impl<B: Backend> AsyncLowLevelConnection for ServerDatabase<B> {
     async fn query_by_name_with_docs(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -227,7 +228,7 @@ impl<B: Backend> AsyncLowLevelConnection for ServerDatabase<B> {
     async fn reduce_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         self.db.reduce_by_name(view, key, access_policy).await
@@ -236,7 +237,7 @@ impl<B: Backend> AsyncLowLevelConnection for ServerDatabase<B> {
     async fn reduce_grouped_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         self.db
@@ -247,7 +248,7 @@ impl<B: Backend> AsyncLowLevelConnection for ServerDatabase<B> {
     async fn delete_docs_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
         self.db.delete_docs_by_name(view, key, access_policy).await

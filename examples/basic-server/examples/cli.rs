@@ -73,7 +73,7 @@ impl CommandLine for CliBackend {
                 if let Some(sides) = sides {
                     let count = database
                         .view::<ShapesByNumberOfSides>()
-                        .with_key(sides)
+                        .with_key(&sides)
                         .reduce()
                         .await?;
                     println!("Found {} shapes with {} sides", count, sides);

@@ -42,7 +42,7 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
         let db = self.hosted().await;
         let contact = db
             .view::<AcmeAccountByContacts>()
-            .with_key(contacts.join(";"))
+            .with_key(&contacts.join(";"))
             .query_with_collection_docs()
             .await?
             .documents
@@ -60,7 +60,7 @@ impl<B: Backend> AcmeCache for CustomServer<B> {
         let db = self.hosted().await;
         let mapped_account = db
             .view::<AcmeAccountByContacts>()
-            .with_key(contacts.join(";"))
+            .with_key(&contacts.join(";"))
             .query_with_collection_docs()
             .await?
             .documents

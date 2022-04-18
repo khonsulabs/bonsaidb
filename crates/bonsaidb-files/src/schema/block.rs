@@ -34,7 +34,7 @@ where
             // Verify the file exists as part of appending. If the file was
             // deleted out from underneath the appender, this will ensure no
             // blocks are orphaned.
-            tx.push(Operation::check_document_exists::<File<Config>>(file_id)?);
+            tx.push(Operation::check_document_exists::<File<Config>>(&file_id)?);
 
             let block_collection = Self::collection_name();
             for chunk in data.chunks(Config::BLOCK_SIZE) {
@@ -63,7 +63,7 @@ where
             // Verify the file exists as part of appending. If the file was
             // deleted out from underneath the appender, this will ensure no
             // blocks are orphaned.
-            tx.push(Operation::check_document_exists::<File<Config>>(file_id)?);
+            tx.push(Operation::check_document_exists::<File<Config>>(&file_id)?);
 
             let block_collection = Self::collection_name();
             for chunk in data.chunks(Config::BLOCK_SIZE) {
@@ -81,9 +81,10 @@ where
     }
 
     pub fn load<
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, u64>,
+        'a,
+        DocumentIds: IntoIterator<Item = &'a PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = &'a PrimaryKey> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, u64> + 'a,
         Database: Connection,
     >(
         block_ids: DocumentIds,
@@ -103,9 +104,10 @@ where
 
     #[cfg(feature = "async")]
     pub async fn load_async<
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, u64>,
+        'a,
+        DocumentIds: IntoIterator<Item = &'a PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = &'a PrimaryKey> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, u64> + 'a,
         Database: AsyncConnection,
     >(
         block_ids: DocumentIds,
@@ -130,7 +132,7 @@ where
     ) -> Result<Vec<BlockInfo>, bonsaidb_core::Error> {
         let mut blocks = database
             .view::<ByFile<Config>>()
-            .with_key(file_id)
+            .with_key(&file_id)
             .query()?
             .into_iter()
             .map(|mapping| BlockInfo {
@@ -156,7 +158,7 @@ where
     ) -> Result<Vec<BlockInfo>, bonsaidb_core::Error> {
         let mut blocks = database
             .view::<ByFile<Config>>()
-            .with_key(file_id)
+            .with_key(&file_id)
             .query()
             .await?
             .into_iter()
@@ -182,7 +184,7 @@ where
     ) -> Result<(), bonsaidb_core::Error> {
         database
             .view::<ByFile<Config>>()
-            .with_key(file_id)
+            .with_key(&file_id)
             .delete_docs()?;
         Ok(())
     }
@@ -194,7 +196,7 @@ where
     ) -> Result<(), bonsaidb_core::Error> {
         database
             .view::<ByFile<Config>>()
-            .with_key(file_id)
+            .with_key(&file_id)
             .delete_docs()
             .await?;
         Ok(())

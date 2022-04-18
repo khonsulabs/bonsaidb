@@ -111,7 +111,7 @@ impl<'a> From<&'a DocumentId> for Identifier<'a> {
 #[test]
 fn document_id_identifier_tests() {
     assert_eq!(
-        Identifier::from(DocumentId::new(String::from("hello")).unwrap()),
+        Identifier::from(DocumentId::new("hello").unwrap()),
         Identifier::from("hello")
     );
     assert_eq!(
@@ -271,8 +271,11 @@ impl DocumentId {
     pub const MAX_LENGTH: usize = 63;
 
     /// Returns a new instance with `value` as the identifier..
-    pub fn new<PrimaryKey: for<'k> Key<'k>, PrimaryKeyRef: for<'k> KeyEncoding<'k, PrimaryKey>>(
-        value: PrimaryKeyRef,
+    pub fn new<
+        PrimaryKey: for<'k> Key<'k>,
+        PrimaryKeyRef: for<'k> KeyEncoding<'k, PrimaryKey> + ?Sized,
+    >(
+        value: &PrimaryKeyRef,
     ) -> Result<Self, crate::Error> {
         let bytes = value
             .as_ord_bytes()

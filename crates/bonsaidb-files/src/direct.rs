@@ -60,7 +60,7 @@ where
     }
 
     pub(crate) fn get(id: u32, database: Database) -> Result<Option<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::get(id, &database).map(|doc| {
+        schema::file::File::<Config>::get(&id, &database).map(|doc| {
             doc.map(|doc| Self {
                 doc,
                 database: Blocking(database),
@@ -245,7 +245,7 @@ where
         id: u32,
         database: Database,
     ) -> Result<Option<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::get_async(id, &database)
+        schema::file::File::<Config>::get_async(&id, &database)
             .await
             .map(|doc| {
                 doc.map(|doc| Self {
@@ -645,7 +645,7 @@ impl<'a, Database: Connection + Clone, Config: FileConfig>
     fn load_blocks(&mut self) -> std::io::Result<()> {
         self.loaded.clear();
         for (index, (_, contents)) in
-            schema::block::Block::<Config>::load(self.next_blocks(), &self.file.database.0)
+            schema::block::Block::<Config>::load(&self.next_blocks(), &self.file.database.0)
                 .map_err(|err| std::io::Error::new(ErrorKind::Other, err))?
                 .into_iter()
                 .enumerate()
@@ -887,7 +887,7 @@ impl<
             tokio::task::spawn(async move {
                 while let Ok(doc_ids) = request_receiver.recv_async().await {
                     let blocks =
-                        schema::block::Block::<Config>::load_async(doc_ids, &task_database)
+                        schema::block::Block::<Config>::load_async(&doc_ids, &task_database)
                             .await
                             .map_err(|err| std::io::Error::new(ErrorKind::Other, err));
                     if block_sender.send(blocks).is_err() {

@@ -216,7 +216,7 @@ fn integrity_checks() -> anyhow::Result<()> {
         if db
             .view::<BasicByParentId>()
             .with_access_policy(AccessPolicy::NoUpdate)
-            .with_key(Some(1))
+            .with_key(&Some(1))
             .query()?
             .len()
             == 1
@@ -243,7 +243,7 @@ fn encryption() -> anyhow::Result<()> {
         // Retrieve the document, showing that it was stored successfully.
         let doc = db
             .collection::<EncryptedBasic>()
-            .get(document_header.id)?
+            .get(&document_header.id)?
             .expect("doc not found");
         assert_eq!(&EncryptedBasic::document_contents(&doc)?.value, "hello");
 
@@ -260,7 +260,7 @@ fn encryption() -> anyhow::Result<()> {
 
     // Try retrieving the document, but expect an error decrypting.
     if let Err(bonsaidb_core::Error::Database(err)) =
-        db.collection::<EncryptedBasic>().get(document_header.id)
+        db.collection::<EncryptedBasic>().get(&document_header.id)
     {
         assert!(err.contains("vault"));
     } else {

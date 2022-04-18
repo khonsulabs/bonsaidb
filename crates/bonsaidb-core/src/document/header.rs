@@ -150,7 +150,7 @@ where
 
     fn try_from(value: CollectionHeader<PrimaryKey>) -> Result<Self, Self::Error> {
         Ok(Self {
-            id: DocumentId::new(value.id)?,
+            id: DocumentId::new(&value.id)?,
             revision: value.revision,
         })
     }
@@ -182,7 +182,7 @@ where
 fn emissions_tests() -> Result<(), crate::Error> {
     use crate::{schema::Map, test_util::Basic};
 
-    let doc = BorrowedDocument::with_contents::<Basic>(1, &Basic::default())?;
+    let doc = BorrowedDocument::with_contents::<Basic, _>(&1, &Basic::default())?;
 
     assert_eq!(
         doc.header.emit()?,
@@ -211,7 +211,7 @@ fn emissions_tests() -> Result<(), crate::Error> {
 fn chained_mappings_test() -> Result<(), crate::Error> {
     use crate::{schema::Map, test_util::Basic};
 
-    let doc = BorrowedDocument::with_contents::<Basic>(1, &Basic::default())?;
+    let doc = BorrowedDocument::with_contents::<Basic, _>(&1, &Basic::default())?;
 
     assert_eq!(
         doc.header.emit()?.and(doc.header.emit()?),
@@ -229,7 +229,7 @@ fn header_display_test() {
     let original_contents = b"one";
     let revision = Revision::new(original_contents);
     let header = Header {
-        id: DocumentId::new(42_u64).unwrap(),
+        id: DocumentId::new(&42_u64).unwrap(),
         revision,
     };
     assert_eq!(

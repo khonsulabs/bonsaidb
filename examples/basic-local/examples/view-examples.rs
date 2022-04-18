@@ -67,7 +67,7 @@ fn main() -> Result<(), bonsaidb::core::Error> {
 
     // At this point, our database should have 3 triangles:
     // begin rustme snippet: snippet-c
-    let triangles = db.view::<ShapesByNumberOfSides>().with_key(3).query()?;
+    let triangles = db.view::<ShapesByNumberOfSides>().with_key(&3).query()?;
     println!("Number of triangles: {}", triangles.len());
     // end rustme snippet
 
@@ -78,7 +78,7 @@ fn main() -> Result<(), bonsaidb::core::Error> {
     // If you want the associated documents, use query_with_collection_docs:
     for entry in &db
         .view::<ShapesByNumberOfSides>()
-        .with_key(3)
+        .with_key(&3)
         .query_with_collection_docs()?
     {
         println!(
@@ -96,14 +96,14 @@ fn main() -> Result<(), bonsaidb::core::Error> {
     // So, here we're using reduce() to count the number of shapes with 4 sides.
     println!(
         "Number of quads: {} (expected 2)",
-        db.view::<ShapesByNumberOfSides>().with_key(4).reduce()?
+        db.view::<ShapesByNumberOfSides>().with_key(&4).reduce()?
     );
 
     // Or, 5 shapes that are triangles or quads
     println!(
         "Number of quads and triangles: {} (expected 5)",
         db.view::<ShapesByNumberOfSides>()
-            .with_keys([3, 4])
+            .with_keys(&[3, 4])
             .reduce()?
     );
 

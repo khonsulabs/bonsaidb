@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     api::Api,
     connection::{
-        AccessPolicy, Database, IdentityReference, QueryKey, Range, Session, SessionId, Sort,
+        AccessPolicy, Database, IdentityReference, Range, SerializedQueryKey, Session, SessionId,
+        Sort,
     },
     document::{DocumentId, Header, OwnedDocument},
     keyvalue::{KeyOperation, Output},
@@ -340,7 +341,7 @@ pub struct Query {
     /// The name of the view.
     pub view: ViewName,
     /// The filter for the view.
-    pub key: Option<QueryKey<Bytes>>,
+    pub key: Option<SerializedQueryKey>,
     /// The order for the query into the view.
     pub order: Sort,
     /// The maximum number of results to return.
@@ -379,7 +380,7 @@ pub struct Reduce {
     /// The name of the view.
     pub view: ViewName,
     /// The filter for the view.
-    pub key: Option<QueryKey<Bytes>>,
+    pub key: Option<SerializedQueryKey>,
     /// The access policy for the query.
     pub access_policy: AccessPolicy,
 }
@@ -414,7 +415,7 @@ pub struct DeleteDocs {
     /// The name of the view.
     pub view: ViewName,
     /// The filter for the view.
-    pub key: Option<QueryKey<Bytes>>,
+    pub key: Option<SerializedQueryKey>,
     /// The access policy for the query.
     pub access_policy: AccessPolicy,
 }

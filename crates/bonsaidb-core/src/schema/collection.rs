@@ -1,4 +1,9 @@
-use std::{borrow::Cow, fmt::Debug, marker::PhantomData, task::Poll};
+use std::{
+    borrow::{Borrow, Cow},
+    fmt::Debug,
+    marker::PhantomData,
+    task::Poll,
+};
 
 use async_trait::async_trait;
 use futures::{future::BoxFuture, ready, Future, FutureExt};
@@ -7,7 +12,7 @@ use transmog::{Format, OwnedDeserializer};
 use transmog_pot::Pot;
 
 use crate::{
-    connection::{self, AsyncConnection, Connection, Range},
+    connection::{self, AsyncConnection, Connection, RangeRef},
     document::{
         BorrowedDocument, CollectionDocument, CollectionHeader, Document, DocumentId, Header,
         KeyId, OwnedDocument, OwnedDocuments, Revision,
@@ -208,7 +213,7 @@ pub trait Collection: Debug + Send + Sync {
     ///
     /// The result of [`KeyEncoding::as_ord_bytes()`] must be less than or equal
     /// to [`DocumentId::MAX_LENGTH`]. This is currently 63 bytes.
-    type PrimaryKey: for<'k> Key<'k>;
+    type PrimaryKey: for<'k> Key<'k> + Eq + Ord;
 
     /// The unique name of this collection. Each collection must be uniquely
     /// named within the [`Schema`](crate::schema::Schema) it is registered
@@ -306,7 +311,7 @@ pub trait SerializedCollection: Collection {
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// if let Some(doc) = MyCollection::get(42, &db)? {
+    /// if let Some(doc) = MyCollection::get(&42, &db)? {
     ///     println!(
     ///         "Retrieved revision {} with deserialized contents: {:?}",
     ///         doc.header.revision, doc.contents
@@ -316,7 +321,7 @@ pub trait SerializedCollection: Collection {
     /// # }
     /// ```
     fn get<C, PrimaryKey>(
-        id: PrimaryKey,
+        id: &PrimaryKey,
         connection: &C,
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
@@ -335,7 +340,7 @@ pub trait SerializedCollection: Collection {
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(doc) = MyCollection::get_async(42, &db).await? {
+    /// if let Some(doc) = MyCollection::get_async(&42, &db).await? {
     ///     println!(
     ///         "Retrieved revision {} with deserialized contents: {:?}",
     ///         doc.header.revision, doc.contents
@@ -346,7 +351,7 @@ pub trait SerializedCollection: Collection {
     /// # }
     /// ```
     async fn get_async<C, PrimaryKey>(
-        id: PrimaryKey,
+        id: &PrimaryKey,
         connection: &C,
     ) -> Result<Option<CollectionDocument<Self>>, Error>
     where
@@ -365,7 +370,7 @@ pub trait SerializedCollection: Collection {
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// for doc in MyCollection::get_multiple([42, 43], &db)? {
+    /// for doc in MyCollection::get_multiple(&[42, 43], &db)? {
     ///     println!(
     ///         "Retrieved #{} with deserialized contents: {:?}",
     ///         doc.header.id, doc.contents
@@ -374,15 +379,15 @@ pub trait SerializedCollection: Collection {
     /// # Ok(())
     /// # }
     /// ```
-    fn get_multiple<C, DocumentIds, PrimaryKey, I>(
+    fn get_multiple<'id, C, DocumentIds, PrimaryKey, I>(
         ids: DocumentIds,
         connection: &C,
     ) -> Result<Vec<CollectionDocument<Self>>, Error>
     where
         C: Connection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey> + 'id,
         Self: Sized,
     {
         connection
@@ -399,7 +404,7 @@ pub trait SerializedCollection: Collection {
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for doc in MyCollection::get_multiple_async([42, 43], &db).await? {
+    /// for doc in MyCollection::get_multiple_async(&[42, 43], &db).await? {
     ///     println!(
     ///         "Retrieved #{} with deserialized contents: {:?}",
     ///         doc.header.id, doc.contents
@@ -409,15 +414,15 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    async fn get_multiple_async<C, DocumentIds, PrimaryKey, I>(
+    async fn get_multiple_async<'id, C, DocumentIds, PrimaryKey, I>(
         ids: DocumentIds,
         connection: &C,
     ) -> Result<Vec<CollectionDocument<Self>>, Error>
     where
         C: AsyncConnection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey> + 'id,
         Self: Sized,
     {
         connection
@@ -446,16 +451,17 @@ pub trait SerializedCollection: Collection {
     /// # Ok(())
     /// # }
     /// ```
-    fn list<R, PrimaryKey, C>(ids: R, connection: &'_ C) -> List<'_, C, Self, PrimaryKey>
+    fn list<'id, R, PrimaryKey, C>(ids: R, connection: &'id C) -> List<'id, C, Self, PrimaryKey>
     where
-        R: Into<Range<PrimaryKey>>,
+        R: Into<RangeRef<'id, Self::PrimaryKey, PrimaryKey>>,
         C: Connection,
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey> + PartialEq + 'id,
+        Self::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
         Self: Sized,
     {
         List(connection::List::new(
-            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
-            ids.into().map(PrimaryKey::into),
+            connection::MaybeOwned::Owned(connection.collection::<Self>()),
+            ids.into(),
         ))
     }
 
@@ -480,16 +486,20 @@ pub trait SerializedCollection: Collection {
     /// # })
     /// # }
     /// ```
-    fn list_async<R, PrimaryKey, C>(ids: R, connection: &'_ C) -> AsyncList<'_, C, Self, PrimaryKey>
+    fn list_async<'id, R, PrimaryKey, C>(
+        ids: R,
+        connection: &'id C,
+    ) -> AsyncList<'id, C, Self, PrimaryKey>
     where
-        R: Into<Range<PrimaryKey>>,
+        R: Into<RangeRef<'id, Self::PrimaryKey, PrimaryKey>>,
         C: AsyncConnection,
-        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey>,
+        PrimaryKey: for<'k> KeyEncoding<'k, Self::PrimaryKey> + PartialEq + 'id + ?Sized,
+        Self::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
         Self: Sized,
     {
         AsyncList(connection::AsyncList::new(
-            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
-            ids.into().map(PrimaryKey::into),
+            connection::MaybeOwned::Owned(connection.collection::<Self>()),
+            ids.into(),
         ))
     }
 
@@ -512,21 +522,25 @@ pub trait SerializedCollection: Collection {
     /// async fn starts_with_a<C: Connection>(
     ///     db: &C,
     /// ) -> Result<Vec<CollectionDocument<MyCollection>>, Error> {
-    ///     MyCollection::list_with_prefix(String::from("a"), db).query()
+    ///     MyCollection::list_with_prefix("a", db).query()
     /// }
     /// ```
-    fn list_with_prefix<C>(
-        prefix: Self::PrimaryKey,
-        connection: &'_ C,
-    ) -> List<'_, C, Self, Self::PrimaryKey>
+    fn list_with_prefix<'a, PrimaryKey, C>(
+        prefix: &'a PrimaryKey,
+        connection: &'a C,
+    ) -> List<'a, C, Self, PrimaryKey>
     where
         C: Connection,
         Self: Sized,
-        Self::PrimaryKey: IntoPrefixRange,
+        PrimaryKey: IntoPrefixRange<'a, Self::PrimaryKey>
+            + for<'k> KeyEncoding<'k, Self::PrimaryKey>
+            + PartialEq
+            + ?Sized,
+        Self::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         List(connection::List::new(
-            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
-            prefix.into_prefix_range(),
+            connection::MaybeOwned::Owned(connection.collection::<Self>()),
+            prefix.to_prefix_range(),
         ))
     }
 
@@ -549,21 +563,25 @@ pub trait SerializedCollection: Collection {
     /// async fn starts_with_a<C: AsyncConnection>(
     ///     db: &C,
     /// ) -> Result<Vec<CollectionDocument<MyCollection>>, Error> {
-    ///     MyCollection::list_with_prefix_async(String::from("a"), db).await
+    ///     MyCollection::list_with_prefix_async("a", db).await
     /// }
     /// ```
-    fn list_with_prefix_async<C>(
-        prefix: Self::PrimaryKey,
-        connection: &'_ C,
-    ) -> AsyncList<'_, C, Self, Self::PrimaryKey>
+    fn list_with_prefix_async<'a, PrimaryKey, C>(
+        prefix: &'a PrimaryKey,
+        connection: &'a C,
+    ) -> AsyncList<'a, C, Self, PrimaryKey>
     where
         C: AsyncConnection,
         Self: Sized,
-        Self::PrimaryKey: IntoPrefixRange,
+        PrimaryKey: IntoPrefixRange<'a, Self::PrimaryKey>
+            + for<'k> KeyEncoding<'k, Self::PrimaryKey>
+            + PartialEq
+            + ?Sized,
+        Self::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         AsyncList(connection::AsyncList::new(
-            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
-            prefix.into_prefix_range(),
+            connection::MaybeOwned::Owned(connection.collection::<Self>()),
+            prefix.to_prefix_range(),
         ))
     }
 
@@ -589,8 +607,8 @@ pub trait SerializedCollection: Collection {
         Self: Sized,
     {
         List(connection::List::new(
-            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
-            Range::from(..),
+            connection::MaybeOwned::Owned(connection.collection::<Self>()),
+            RangeRef::from(..),
         ))
     }
 
@@ -616,8 +634,8 @@ pub trait SerializedCollection: Collection {
         Self: Sized,
     {
         AsyncList(connection::AsyncList::new(
-            connection::PossiblyOwned::Owned(connection.collection::<Self>()),
-            Range::from(..),
+            connection::MaybeOwned::Owned(connection.collection::<Self>()),
+            RangeRef::from(..),
         ))
     }
 
@@ -918,7 +936,7 @@ pub trait SerializedCollection: Collection {
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// let document = MyCollection::insert(42, MyCollection::default(), &db)?;
+    /// let document = MyCollection::insert(&42, MyCollection::default(), &db)?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Inserted {:?} with revision {}",
@@ -928,7 +946,7 @@ pub trait SerializedCollection: Collection {
     /// # }
     /// ```
     fn insert<PrimaryKey, Cn>(
-        id: PrimaryKey,
+        id: &PrimaryKey,
         contents: Self::Contents,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
@@ -952,7 +970,7 @@ pub trait SerializedCollection: Collection {
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::insert_async(42, MyCollection::default(), &db).await?;
+    /// let document = MyCollection::insert_async(&42, MyCollection::default(), &db).await?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Inserted {:?} with revision {}",
@@ -963,7 +981,7 @@ pub trait SerializedCollection: Collection {
     /// # }
     /// ```
     async fn insert_async<PrimaryKey, Cn>(
-        id: PrimaryKey,
+        id: &PrimaryKey,
         contents: Self::Contents,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
@@ -987,7 +1005,7 @@ pub trait SerializedCollection: Collection {
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// let document = MyCollection::default().insert_into(42, &db)?;
+    /// let document = MyCollection::default().insert_into(&42, &db)?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Inserted {:?} with revision {}",
@@ -998,7 +1016,7 @@ pub trait SerializedCollection: Collection {
     /// ```
     fn insert_into<PrimaryKey, Cn>(
         self,
-        id: PrimaryKey,
+        id: &PrimaryKey,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
@@ -1017,7 +1035,7 @@ pub trait SerializedCollection: Collection {
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::default().insert_into_async(42, &db).await?;
+    /// let document = MyCollection::default().insert_into_async(&42, &db).await?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Inserted {:?} with revision {}",
@@ -1029,7 +1047,7 @@ pub trait SerializedCollection: Collection {
     /// ```
     async fn insert_into_async<PrimaryKey, Cn>(
         self,
-        id: PrimaryKey,
+        id: &PrimaryKey,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
@@ -1047,7 +1065,7 @@ pub trait SerializedCollection: Collection {
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// let document = MyCollection::overwrite(42, MyCollection::default(), &db)?;
+    /// let document = MyCollection::overwrite(&42, MyCollection::default(), &db)?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Overwrote {:?} with revision {}",
@@ -1057,7 +1075,7 @@ pub trait SerializedCollection: Collection {
     /// # }
     /// ```
     fn overwrite<PrimaryKey, Cn>(
-        id: PrimaryKey,
+        id: &PrimaryKey,
         contents: Self::Contents,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
@@ -1084,7 +1102,7 @@ pub trait SerializedCollection: Collection {
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// let document = MyCollection::overwrite_async(42, MyCollection::default(), &db).await?;
+    /// let document = MyCollection::overwrite_async(&42, MyCollection::default(), &db).await?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Overwrote {:?} with revision {}",
@@ -1095,7 +1113,7 @@ pub trait SerializedCollection: Collection {
     /// # }
     /// ```
     async fn overwrite_async<PrimaryKey, Cn>(
-        id: PrimaryKey,
+        id: &PrimaryKey,
         contents: Self::Contents,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self::Contents>>
@@ -1122,7 +1140,7 @@ pub trait SerializedCollection: Collection {
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// let document = MyCollection::default().overwrite_into(42, &db)?;
+    /// let document = MyCollection::default().overwrite_into(&42, &db)?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
     ///     "Overwrote {:?} with revision {}",
@@ -1133,7 +1151,7 @@ pub trait SerializedCollection: Collection {
     /// ```
     fn overwrite_into<Cn: Connection, PrimaryKey>(
         self,
-        id: PrimaryKey,
+        id: &PrimaryKey,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
@@ -1152,7 +1170,7 @@ pub trait SerializedCollection: Collection {
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// let document = MyCollection::default()
-    ///     .overwrite_into_async(42, &db)
+    ///     .overwrite_into_async(&42, &db)
     ///     .await?;
     /// assert_eq!(document.header.id, 42);
     /// println!(
@@ -1165,7 +1183,7 @@ pub trait SerializedCollection: Collection {
     /// ```
     async fn overwrite_into_async<Cn: AsyncConnection, PrimaryKey>(
         self,
-        id: PrimaryKey,
+        id: &PrimaryKey,
         connection: &Cn,
     ) -> Result<CollectionDocument<Self>, InsertError<Self>>
     where
@@ -1365,11 +1383,11 @@ pub trait NamedCollection: Collection + Unpin {
         Self: SerializedCollection + Sized,
     {
         match name.name()? {
-            NamedReference::Id(id) => connection.collection::<Self>().get(id),
-            NamedReference::Key(id) => connection.collection::<Self>().get(id),
+            NamedReference::Id(id) => connection.collection::<Self>().get(&id),
+            NamedReference::Key(id) => connection.collection::<Self>().get(&id),
             NamedReference::Name(name) => Ok(connection
                 .view::<Self::ByNameView>()
-                .with_key(name.as_ref().to_owned())
+                .with_key(name.as_ref())
                 .query_with_docs()?
                 .documents
                 .into_iter()
@@ -1393,11 +1411,11 @@ pub trait NamedCollection: Collection + Unpin {
         Self: SerializedCollection + Sized,
     {
         match name.name()? {
-            NamedReference::Id(id) => connection.collection::<Self>().get(id).await,
-            NamedReference::Key(id) => connection.collection::<Self>().get(id).await,
+            NamedReference::Id(id) => connection.collection::<Self>().get(&id).await,
+            NamedReference::Key(id) => connection.collection::<Self>().get(&id).await,
             NamedReference::Name(name) => Ok(connection
                 .view::<Self::ByNameView>()
-                .with_key(name.as_ref().to_owned())
+                .with_key(name.as_ref())
                 .query_with_docs()
                 .await?
                 .documents
@@ -1476,7 +1494,7 @@ where
     type Error = crate::Error;
 
     fn try_from(doc: &'c CollectionDocument<C>) -> Result<Self, crate::Error> {
-        DocumentId::new(doc.header.id.clone()).map(Self::Id)
+        DocumentId::new(&doc.header.id).map(Self::Id)
     }
 }
 
@@ -1544,7 +1562,7 @@ where
         match self {
             Self::Name(name) => connection
                 .view::<Col::ByNameView>()
-                .with_key(name.as_ref().to_owned())
+                .with_key(name.as_ref())
                 .query()?
                 .into_iter()
                 .next()
@@ -1564,7 +1582,7 @@ where
         match self {
             Self::Name(name) => connection
                 .view::<Col::ByNameView>()
-                .with_key(name.as_ref().to_owned())
+                .with_key(name.as_ref())
                 .query()
                 .await?
                 .into_iter()
@@ -1940,13 +1958,16 @@ where
 #[must_use]
 pub struct List<'a, Cn, Cl, PrimaryKey>(connection::List<'a, Cn, Cl, PrimaryKey>)
 where
-    Cl: Collection;
+    Cl: Collection,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>;
 
 impl<'a, Cn, Cl, PrimaryKey> List<'a, Cn, Cl, PrimaryKey>
 where
     Cl: SerializedCollection,
     Cn: Connection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized + 'a,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     /// Lists documents by id in ascending order.
     pub fn ascending(mut self) -> Self {
@@ -2023,13 +2044,16 @@ where
 #[must_use]
 pub struct AsyncList<'a, Cn, Cl, PrimaryKey>(connection::AsyncList<'a, Cn, Cl, PrimaryKey>)
 where
-    Cl: Collection;
+    Cl: Collection,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>;
 
 impl<'a, Cn, Cl, PrimaryKey> AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: Collection,
     Cn: AsyncConnection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey>,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + ?Sized,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
 {
     /// Lists documents by id in ascending order.
     pub fn ascending(mut self) -> Self {
@@ -2102,9 +2126,9 @@ where
 impl<'a, Cn, Cl, PrimaryKey> Future for AsyncList<'a, Cn, Cl, PrimaryKey>
 where
     Cl: SerializedCollection + Unpin,
-    Cl::PrimaryKey: Unpin,
     Cn: AsyncConnection,
-    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + Unpin + 'a,
+    PrimaryKey: for<'k> KeyEncoding<'k, Cl::PrimaryKey> + PartialEq + Unpin + ?Sized + 'a,
+    Cl::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey> + Unpin,
 {
     type Output = Result<Vec<CollectionDocument<Cl>>, Error>;
 

@@ -2,11 +2,10 @@ use bonsaidb_client::{Client, RemoteDatabase};
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
-    arc_bytes::serde::Bytes,
     async_trait::async_trait,
     connection::{
         self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
-        HasSession, IdentityReference, QueryKey, Range, Session, Sort,
+        HasSession, IdentityReference, Range, SerializedQueryKey, Session, Sort,
     },
     document::{DocumentId, Header, OwnedDocument},
     schema::{
@@ -425,7 +424,7 @@ impl<B: Backend> AsyncLowLevelConnection for AnyDatabase<B> {
     async fn query_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -447,7 +446,7 @@ impl<B: Backend> AsyncLowLevelConnection for AnyDatabase<B> {
     async fn query_by_name_with_docs(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -469,7 +468,7 @@ impl<B: Backend> AsyncLowLevelConnection for AnyDatabase<B> {
     async fn reduce_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         match self {
@@ -481,7 +480,7 @@ impl<B: Backend> AsyncLowLevelConnection for AnyDatabase<B> {
     async fn reduce_grouped_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         match self {
@@ -501,7 +500,7 @@ impl<B: Backend> AsyncLowLevelConnection for AnyDatabase<B> {
     async fn delete_docs_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
         match self {

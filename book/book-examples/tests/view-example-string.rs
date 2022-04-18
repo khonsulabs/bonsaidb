@@ -78,7 +78,7 @@ fn example() -> Result<(), Error> {
     // ANCHOR: query_with_docs
     let rust_posts = db
         .view::<BlogPostsByCategory>()
-        .with_key(Some("Rust"))
+        .with_key(&Some(String::from("Rust")))
         .query_with_docs()?;
     for mapping in &rust_posts {
         let post = BlogPost::document_contents(mapping.document)?;
@@ -92,7 +92,7 @@ fn example() -> Result<(), Error> {
     // ANCHOR: query_with_collection_docs
     let rust_posts = db
         .view::<BlogPostsByCategory>()
-        .with_key(Some("Rust"))
+        .with_key(&Some(String::from("Rust")))
         .query_with_collection_docs()?;
     for mapping in &rust_posts {
         println!(
@@ -105,7 +105,7 @@ fn example() -> Result<(), Error> {
     // ANCHOR: reduce_one_key
     let rust_post_count = db
         .view::<BlogPostsByCategory>()
-        .with_key(Some("Rust"))
+        .with_key(&Some(String::from("Rust")))
         .reduce()?;
     assert_eq!(rust_post_count, 2);
     // ANCHOR_END: reduce_one_key

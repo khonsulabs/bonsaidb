@@ -2,10 +2,9 @@ use std::{ops::Deref, sync::Arc};
 
 use async_trait::async_trait;
 use bonsaidb_core::{
-    arc_bytes::serde::Bytes,
     connection::{
-        AccessPolicy, AsyncConnection, AsyncLowLevelConnection, HasSession, QueryKey, Range,
-        Session, Sort,
+        AccessPolicy, AsyncConnection, AsyncLowLevelConnection, HasSession, Range,
+        SerializedQueryKey, Session, Sort,
     },
     document::{DocumentId, Header, OwnedDocument},
     networking::{
@@ -229,7 +228,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     async fn query_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -250,7 +249,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     async fn query_by_name_with_docs(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -271,7 +270,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     async fn reduce_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         Ok(self
@@ -289,7 +288,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     async fn reduce_grouped_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         Ok(self
@@ -306,7 +305,7 @@ impl AsyncLowLevelConnection for RemoteDatabase {
     async fn delete_docs_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
         Ok(self

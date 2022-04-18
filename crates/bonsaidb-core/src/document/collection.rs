@@ -74,7 +74,7 @@ where
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// if let Some(mut document) = MyCollection::get(42, &db)? {
+    /// if let Some(mut document) = MyCollection::get(&42, &db)? {
     ///     // modify the document
     ///     document.update(&db)?;
     ///     println!("Updated revision: {:?}", document.header.revision);
@@ -99,7 +99,7 @@ where
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(mut document) = MyCollection::get_async(42, &db).await? {
+    /// if let Some(mut document) = MyCollection::get_async(&42, &db).await? {
     ///     // modify the document
     ///     document.update_async(&db).await?;
     ///     println!("Updated revision: {:?}", document.header.revision);
@@ -149,12 +149,12 @@ where
                 is_first_loop = false;
             } else {
                 *self =
-                    C::get(self.header.id.clone(), connection)?.ok_or_else(
-                        || match DocumentId::new(self.header.id.clone()) {
+                    C::get(&self.header.id, connection)?.ok_or_else(|| {
+                        match DocumentId::new(&self.header.id) {
                             Ok(id) => Error::DocumentNotFound(C::collection_name(), Box::new(id)),
                             Err(err) => err,
-                        },
-                    )?;
+                        }
+                    })?;
             }
             modifier(&mut *self);
             match self.update(connection) {
@@ -191,9 +191,9 @@ where
             if is_first_loop {
                 is_first_loop = false;
             } else {
-                *self = C::get_async(self.header.id.clone(), connection)
+                *self = C::get_async(&self.header.id, connection)
                     .await?
-                    .ok_or_else(|| match DocumentId::new(self.header.id.clone()) {
+                    .ok_or_else(|| match DocumentId::new(&self.header.id) {
                         Ok(id) => Error::DocumentNotFound(C::collection_name(), Box::new(id)),
                         Err(err) => err,
                     })?;
@@ -213,7 +213,7 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(document) = MyCollection::get(42, &db)? {
+    /// if let Some(document) = MyCollection::get(&42, &db)? {
     ///     document.delete(&db)?;
     /// }
     /// # Ok(())
@@ -233,7 +233,7 @@ where
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// if let Some(document) = MyCollection::get_async(42, &db).await? {
+    /// if let Some(document) = MyCollection::get_async(&42, &db).await? {
     ///     document.delete_async(&db).await?;
     /// }
     /// # Ok(())

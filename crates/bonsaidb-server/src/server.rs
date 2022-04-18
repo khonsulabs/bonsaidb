@@ -335,7 +335,7 @@ impl<B: Backend> CustomServer<B> {
         let db = self.hosted().await;
         let (_, certificate) = db
             .view::<TlsCertificatesByDomain>()
-            .with_key(self.data.primary_domain.clone())
+            .with_key(&self.data.primary_domain)
             .query_with_collection_docs()
             .await?
             .documents
@@ -355,7 +355,7 @@ impl<B: Backend> CustomServer<B> {
         let db = self.hosted().await;
         if let Some(mapping) = db
             .view::<TlsCertificatesByDomain>()
-            .with_key(self.data.primary_domain.clone())
+            .with_key(&self.data.primary_domain)
             .query()
             .await?
             .into_iter()

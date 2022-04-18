@@ -1,11 +1,13 @@
-use std::collections::BTreeMap;
+use std::{borrow::Borrow, collections::BTreeMap};
 
 use arc_bytes::serde::Bytes;
 use async_trait::async_trait;
 
 use super::GroupedReductions;
 use crate::{
-    connection::{AccessPolicy, HasSession, QueryKey, Range, Sort, ViewMappings},
+    connection::{
+        AccessPolicy, HasSession, QueryKey, Range, RangeRef, SerializedQueryKey, Sort, ViewMappings,
+    },
     document::{
         CollectionDocument, CollectionHeader, Document, DocumentId, HasHeader, Header,
         OwnedDocument,
@@ -49,11 +51,11 @@ pub trait LowLevelConnection: HasSession {
     /// - [`self.collection::<Collection>().push()`](super::Collection::push)
     fn insert<C: schema::Collection, PrimaryKey: Send, B: Into<Bytes> + Send>(
         &self,
-        id: Option<PrimaryKey>,
+        id: Option<&PrimaryKey>,
         contents: B,
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
     {
         let contents = contents.into();
         let results = self.apply_transaction(Transaction::insert(
@@ -109,7 +111,7 @@ pub trait LowLevelConnection: HasSession {
     /// - [`self.collection::<Collection>().overwrite()`](super::Collection::overwrite)
     fn overwrite<C, PrimaryKey>(
         &self,
-        id: PrimaryKey,
+        id: &PrimaryKey,
         contents: Vec<u8>,
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
     where
@@ -136,10 +138,10 @@ pub trait LowLevelConnection: HasSession {
     ///
     /// - [`SerializedCollection::get()`]
     /// - [`self.collection::<Collection>().get()`](super::Collection::get)
-    fn get<C, PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
+    fn get<C, PrimaryKey>(&self, id: &PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
     {
         self.get_from_collection(DocumentId::new(id)?, &C::collection_name())
     }
@@ -151,15 +153,15 @@ pub trait LowLevelConnection: HasSession {
     ///
     /// - [`SerializedCollection::get_multiple()`]
     /// - [`self.collection::<Collection>().get_multiple()`](super::Collection::get_multiple)
-    fn get_multiple<C, PrimaryKey, DocumentIds, I>(
+    fn get_multiple<'id, C, PrimaryKey, DocumentIds, I>(
         &self,
         ids: DocumentIds,
     ) -> Result<Vec<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + 'id + ?Sized,
     {
         let ids = ids
             .into_iter()
@@ -177,7 +179,7 @@ pub trait LowLevelConnection: HasSession {
     /// - [`self.collection::<Collection>().all()`](super::Collection::all)
     /// - [`SerializedCollection::list()`]
     /// - [`self.collection::<Collection>().list()`](super::Collection::list)
-    fn list<C, R, PrimaryKey>(
+    fn list<'id, C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
@@ -185,8 +187,9 @@ pub trait LowLevelConnection: HasSession {
     ) -> Result<Vec<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         let ids = ids.into().map_result(|id| DocumentId::new(id))?;
         self.list_from_collection(ids, order, limit, &C::collection_name())
@@ -202,7 +205,7 @@ pub trait LowLevelConnection: HasSession {
     /// - [`self.collection::<Collection>().all().headers()`](super::List::headers)
     /// - [`SerializedCollection::list_async().headers()`](schema::List::headers)
     /// - [`self.collection::<Collection>().list().headers()`](super::List::headers)
-    fn list_headers<C, R, PrimaryKey>(
+    fn list_headers<'id, C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
@@ -210,8 +213,9 @@ pub trait LowLevelConnection: HasSession {
     ) -> Result<Vec<Header>, Error>
     where
         C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         let ids = ids.into().map_result(|id| DocumentId::new(id))?;
         self.list_headers_from_collection(ids, order, limit, &C::collection_name())
@@ -225,14 +229,15 @@ pub trait LowLevelConnection: HasSession {
     /// - [`self.collection::<Collection>().all().count()`](super::List::count)
     /// - [`SerializedCollection::list().count()`](schema::List::count)
     /// - [`self.collection::<Collection>().list().count()`](super::List::count)
-    fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, Error>
+    fn count<'id, C, R, PrimaryKey>(&self, ids: R) -> Result<u64, Error>
     where
         C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         self.count_from_collection(
-            ids.into().map_result(DocumentId::new)?,
+            ids.into().map_result(|id| DocumentId::new(&*id))?,
             &C::collection_name(),
         )
     }
@@ -267,13 +272,14 @@ pub trait LowLevelConnection: HasSession {
     /// [`Connection::view()`](super::Connection::view).
     fn query<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<ViewMappings<V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         let mappings = self.query_by_name(
@@ -305,23 +311,21 @@ pub trait LowLevelConnection: HasSession {
     /// from [`Connection::view()`](super::Connection::view).
     fn query_with_docs<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
     {
         // Query permission is checked by the query call
         let results = self.query::<V, Key>(key, order, limit, access_policy)?;
 
         // Verify that there is permission to fetch each document
-        let mut ids = Vec::with_capacity(results.len());
-        ids.extend(results.iter().map(|m| m.source.id));
-
         let documents = self
-            .get_multiple::<V::Collection, _, _, _>(ids)?
+            .get_multiple::<V::Collection, _, _, _>(results.iter().map(|m| &m.source.id))?
             .into_iter()
             .map(|doc| (doc.header.id, doc))
             .collect::<BTreeMap<_, _>>();
@@ -340,13 +344,14 @@ pub trait LowLevelConnection: HasSession {
     /// from [`Connection::view()`](super::Connection::view).
     fn query_with_collection_docs<V, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
         V: schema::SerializedView,
         V::Collection: SerializedCollection,
         <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
@@ -370,11 +375,12 @@ pub trait LowLevelConnection: HasSession {
     /// from [`Connection::view()`](super::Connection::view).
     fn reduce<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         access_policy: AccessPolicy,
     ) -> Result<V::Value, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.reduce_by_name(
@@ -395,11 +401,12 @@ pub trait LowLevelConnection: HasSession {
     /// from [`Connection::view()`](super::Connection::view).
     fn reduce_grouped<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         access_policy: AccessPolicy,
     ) -> Result<GroupedReductions<V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.reduce_grouped_by_name(
@@ -426,11 +433,12 @@ pub trait LowLevelConnection: HasSession {
     /// returned from [`Connection::view()`](super::Connection::view).
     fn delete_docs<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         access_policy: AccessPolicy,
     ) -> Result<u64, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.delete_docs_by_name(
@@ -543,7 +551,7 @@ pub trait LowLevelConnection: HasSession {
     fn query_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -560,7 +568,7 @@ pub trait LowLevelConnection: HasSession {
     fn query_by_name_with_docs(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -575,7 +583,7 @@ pub trait LowLevelConnection: HasSession {
     fn reduce_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, Error>;
 
@@ -590,7 +598,7 @@ pub trait LowLevelConnection: HasSession {
     fn reduce_grouped_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, Error>;
 
@@ -605,7 +613,7 @@ pub trait LowLevelConnection: HasSession {
     fn delete_docs_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<u64, Error>;
 }
@@ -636,11 +644,11 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// - [`self.collection::<Collection>().push()`](super::AsyncCollection::push)
     async fn insert<C: schema::Collection, PrimaryKey: Send, B: Into<Bytes> + Send>(
         &self,
-        id: Option<PrimaryKey>,
+        id: Option<&PrimaryKey>,
         contents: B,
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
     where
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
     {
         let contents = contents.into();
         let results = self
@@ -700,7 +708,7 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// - [`self.collection::<Collection>().overwrite()`](super::AsyncCollection::overwrite)
     async fn overwrite<'a, C, PrimaryKey>(
         &self,
-        id: PrimaryKey,
+        id: &PrimaryKey,
         contents: Vec<u8>,
     ) -> Result<CollectionHeader<C::PrimaryKey>, Error>
     where
@@ -730,10 +738,10 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     ///
     /// - [`SerializedCollection::get_async()`]
     /// - [`self.collection::<Collection>().get()`](super::AsyncCollection::get)
-    async fn get<C, PrimaryKey>(&self, id: PrimaryKey) -> Result<Option<OwnedDocument>, Error>
+    async fn get<C, PrimaryKey>(&self, id: &PrimaryKey) -> Result<Option<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + ?Sized,
     {
         self.get_from_collection(DocumentId::new(id)?, &C::collection_name())
             .await
@@ -747,15 +755,15 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     ///
     /// - [`SerializedCollection::get_multiple_async()`]
     /// - [`self.collection::<Collection>().get_multiple()`](super::AsyncCollection::get_multiple)
-    async fn get_multiple<C, PrimaryKey, DocumentIds, I>(
+    async fn get_multiple<'id, C, PrimaryKey, DocumentIds, I>(
         &self,
         ids: DocumentIds,
     ) -> Result<Vec<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        DocumentIds: IntoIterator<Item = PrimaryKey, IntoIter = I> + Send + Sync,
-        I: Iterator<Item = PrimaryKey> + Send + Sync,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        DocumentIds: IntoIterator<Item = &'id PrimaryKey, IntoIter = I> + Send + Sync,
+        I: Iterator<Item = &'id PrimaryKey> + Send + Sync,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + 'id + ?Sized,
     {
         let ids = ids
             .into_iter()
@@ -775,7 +783,7 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// - [`self.collection::<Collection>().all()`](super::AsyncCollection::all)
     /// - [`SerializedCollection::list_async()`]
     /// - [`self.collection::<Collection>().list()`](super::AsyncCollection::list)
-    async fn list<C, R, PrimaryKey>(
+    async fn list<'id, C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
@@ -783,10 +791,11 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     ) -> Result<Vec<OwnedDocument>, Error>
     where
         C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
-        let ids = ids.into().map_result(DocumentId::new)?;
+        let ids = ids.into().map_result(|id| DocumentId::new(&*id))?;
         self.list_from_collection(ids, order, limit, &C::collection_name())
             .await
     }
@@ -801,7 +810,7 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// - [`self.collection::<Collection>().all()`](super::AsyncList::headers)
     /// - [`SerializedCollection::list_async().headers()`](schema::AsyncList::headers)
     /// - [`self.collection::<Collection>().list().headers()`](super::AsyncList::headers)
-    async fn list_headers<C, R, PrimaryKey>(
+    async fn list_headers<'id, C, R, PrimaryKey>(
         &self,
         ids: R,
         order: Sort,
@@ -809,10 +818,11 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     ) -> Result<Vec<Header>, Error>
     where
         C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
-        let ids = ids.into().map_result(DocumentId::new)?;
+        let ids = ids.into().map_result(|id| DocumentId::new(&*id))?;
         self.list_headers_from_collection(ids, order, limit, &C::collection_name())
             .await
     }
@@ -826,14 +836,15 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// - [`self.collection::<Collection>().all().count()`](super::AsyncList::count)
     /// - [`SerializedCollection::list_async().count()`](schema::AsyncList::count)
     /// - [`self.collection::<Collection>().list().count()`](super::AsyncList::count)
-    async fn count<C, R, PrimaryKey>(&self, ids: R) -> Result<u64, Error>
+    async fn count<'id, C, R, PrimaryKey>(&self, ids: R) -> Result<u64, Error>
     where
         C: schema::Collection,
-        R: Into<Range<PrimaryKey>> + Send,
-        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey>,
+        R: Into<RangeRef<'id, C::PrimaryKey, PrimaryKey>> + Send,
+        PrimaryKey: for<'k> KeyEncoding<'k, C::PrimaryKey> + PartialEq + 'id + ?Sized,
+        C::PrimaryKey: Borrow<PrimaryKey> + PartialEq<PrimaryKey>,
     {
         self.count_from_collection(
-            ids.into().map_result(DocumentId::new)?,
+            ids.into().map_result(|id| DocumentId::new(&*id))?,
             &C::collection_name(),
         )
         .await
@@ -869,13 +880,14 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn query<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<ViewMappings<V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         let mappings = self
@@ -910,13 +922,14 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     #[must_use]
     async fn query_with_docs<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<OwnedDocument, V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
     {
         // Query permission is checked by the query call
         let results = self
@@ -924,11 +937,8 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
             .await?;
 
         // Verify that there is permission to fetch each document
-        let mut ids = Vec::with_capacity(results.len());
-        ids.extend(results.iter().map(|m| m.source.id));
-
         let documents = self
-            .get_multiple::<V::Collection, _, _, _>(ids)
+            .get_multiple::<V::Collection, _, _, _>(results.iter().map(|m| &m.source.id))
             .await?
             .into_iter()
             .map(|doc| (doc.header.id, doc))
@@ -951,13 +961,14 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     #[must_use]
     async fn query_with_collection_docs<V, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
     ) -> Result<MappedDocuments<CollectionDocument<V::Collection>, V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
         V: schema::SerializedView,
         V::Collection: SerializedCollection,
         <V::Collection as SerializedCollection>::Contents: std::fmt::Debug,
@@ -985,11 +996,12 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     #[must_use]
     async fn reduce<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         access_policy: AccessPolicy,
     ) -> Result<V::Value, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.reduce_by_name(
@@ -1012,11 +1024,12 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     #[must_use]
     async fn reduce_grouped<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         access_policy: AccessPolicy,
     ) -> Result<GroupedReductions<V>, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.reduce_grouped_by_name(
@@ -1045,11 +1058,12 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     #[must_use]
     async fn delete_docs<V: schema::SerializedView, Key>(
         &self,
-        key: Option<QueryKey<Key>>,
+        key: Option<QueryKey<'_, V::Key, Key>>,
         access_policy: AccessPolicy,
     ) -> Result<u64, Error>
     where
-        Key: for<'k> KeyEncoding<'k, V::Key>,
+        Key: for<'k> KeyEncoding<'k, V::Key> + PartialEq + ?Sized,
+        V::Key: Borrow<Key> + PartialEq<Key>,
     {
         let view = self.schematic().view::<V>()?;
         self.delete_docs_by_name(
@@ -1165,7 +1179,7 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     async fn query_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -1181,7 +1195,7 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     async fn query_by_name_with_docs(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -1197,7 +1211,7 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     async fn reduce_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, Error>;
 
@@ -1212,7 +1226,7 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     async fn reduce_grouped_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, Error>;
 
@@ -1227,7 +1241,7 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
     async fn delete_docs_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<u64, Error>;
 }

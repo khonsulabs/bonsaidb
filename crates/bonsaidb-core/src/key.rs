@@ -4,7 +4,11 @@ pub mod time;
 mod deprecated;
 
 use std::{
-    borrow::Cow, convert::Infallible, io::ErrorKind, num::TryFromIntError, string::FromUtf8Error,
+    borrow::{Borrow, Cow},
+    convert::Infallible,
+    io::ErrorKind,
+    num::TryFromIntError,
+    string::FromUtf8Error,
 };
 
 use arc_bytes::{
@@ -17,11 +21,14 @@ use num_traits::{FromPrimitive, ToPrimitive};
 use ordered_varint::{Signed, Unsigned, Variable};
 use serde::{Deserialize, Serialize};
 
-use crate::{connection::Range, AnyError};
+use crate::{
+    connection::{Bound, BoundRef, MaybeOwned, RangeRef},
+    AnyError,
+};
 
 /// A trait that enables a type to convert itself into a `memcmp`-compatible
 /// sequence of bytes.
-pub trait KeyEncoding<'k, K>: std::fmt::Debug + Send + Sync
+pub trait KeyEncoding<'k, K>: Send + Sync
 where
     K: Key<'k>,
 {
@@ -98,7 +105,7 @@ where
 ///
 /// This null-byte edge case only applies to variable length [`Key`]s
 /// ([`KeyEncoding::LENGTH`] is `None`).
-pub trait Key<'k>: KeyEncoding<'k, Self> + Clone + std::fmt::Debug + Send + Sync {
+pub trait Key<'k>: KeyEncoding<'k, Self> + Clone + Send + Sync {
     /// Deserialize a sequence of bytes previously encoded with
     /// [`KeyEncoding::as_ord_bytes`].
     fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error>;
@@ -116,11 +123,12 @@ pub trait Key<'k>: KeyEncoding<'k, Self> + Clone + std::fmt::Debug + Send + Sync
     }
 }
 
-impl<'a, 'k, K> KeyEncoding<'k, K> for &'a K
+impl<'a, 'k, K, KE> KeyEncoding<'k, K> for &'a KE
 where
-    K: Key<'k>,
+    KE: KeyEncoding<'k, K> + ?Sized + PartialEq,
+    K: Key<'k> + PartialEq<KE>,
 {
-    type Error = K::Error;
+    type Error = KE::Error;
 
     const LENGTH: Option<usize> = K::LENGTH;
 
@@ -141,10 +149,13 @@ pub enum NextValueError {
 }
 
 /// A type that can be used as a prefix range in range-based queries.
-pub trait IntoPrefixRange: Sized {
+pub trait IntoPrefixRange<'a, TOwned>: PartialEq
+where
+    TOwned: Borrow<Self> + PartialEq<Self>,
+{
     /// Returns the value as a prefix-range, which will match all values that
     /// start with `self`.
-    fn into_prefix_range(self) -> Range<Self>;
+    fn to_prefix_range(&'a self) -> RangeRef<'a, TOwned, Self>;
 }
 
 fn next_byte_sequence(start: &[u8]) -> Option<Vec<u8>> {
@@ -193,12 +204,45 @@ macro_rules! impl_u8_slice_key_encoding {
 
 impl_u8_slice_key_encoding!(Cow<'k, [u8]>);
 
-impl<'k> IntoPrefixRange for Cow<'k, [u8]> {
-    fn into_prefix_range(self) -> Range<Self> {
-        if let Some(next) = next_byte_sequence(&self) {
-            Range::from(self..Cow::Owned(next))
+impl<'a, 'k> IntoPrefixRange<'a, Self> for Cow<'k, [u8]> {
+    fn to_prefix_range(&'a self) -> RangeRef<'a, Self> {
+        if let Some(next) = next_byte_sequence(self) {
+            RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::owned(Bound::Excluded(Cow::Owned(next))),
+            }
         } else {
-            Range::from(self..)
+            RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::Unbounded,
+            }
+        }
+    }
+}
+
+impl<'a, 'k, TOwned, TBorrowed> Key<'k> for MaybeOwned<'a, TOwned, TBorrowed>
+where
+    TBorrowed: KeyEncoding<'k, TOwned, Error = TOwned::Error> + PartialEq + ?Sized,
+    TOwned: Key<'k> + PartialEq<TBorrowed>,
+{
+    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+        TOwned::from_ord_bytes(bytes).map(Self::Owned)
+    }
+}
+
+impl<'a, 'k, TOwned, TBorrowed> KeyEncoding<'k, Self> for MaybeOwned<'a, TOwned, TBorrowed>
+where
+    TBorrowed: KeyEncoding<'k, TOwned, Error = TOwned::Error> + PartialEq + ?Sized,
+    TOwned: Key<'k> + PartialEq<TBorrowed>,
+{
+    type Error = TOwned::Error;
+
+    const LENGTH: Option<usize> = TBorrowed::LENGTH;
+
+    fn as_ord_bytes(&'k self) -> Result<Cow<'k, [u8]>, Self::Error> {
+        match self {
+            MaybeOwned::Owned(value) => value.as_ord_bytes(),
+            MaybeOwned::Borrowed(value) => value.as_ord_bytes(),
         }
     }
 }
@@ -207,17 +251,17 @@ impl<'k> IntoPrefixRange for Cow<'k, [u8]> {
 fn cow_prefix_range_tests() {
     use std::ops::RangeBounds;
     assert!(Cow::<'_, [u8]>::Borrowed(b"a")
-        .into_prefix_range()
-        .contains(&Cow::Borrowed(b"aa")));
+        .to_prefix_range()
+        .contains(&Cow::Borrowed(&b"aa"[..])));
     assert!(!Cow::<'_, [u8]>::Borrowed(b"a")
-        .into_prefix_range()
-        .contains(&Cow::Borrowed(b"b")));
+        .to_prefix_range()
+        .contains(&Cow::Borrowed(&b"b"[..])));
     assert!(Cow::<'_, [u8]>::Borrowed(b"\xff")
-        .into_prefix_range()
-        .contains(&Cow::Borrowed(b"\xff\xff")));
+        .to_prefix_range()
+        .contains(&Cow::Borrowed(&b"\xff\xff"[..])));
     assert!(!Cow::<'_, [u8]>::Borrowed(b"\xff")
-        .into_prefix_range()
-        .contains(&Cow::Borrowed(b"\xfe")));
+        .to_prefix_range()
+        .contains(&Cow::Borrowed(&b"\xfe"[..])));
 }
 
 impl<'a> Key<'a> for Vec<u8> {
@@ -238,12 +282,18 @@ impl<'a> KeyEncoding<'a, Self> for Vec<u8> {
 
 impl_u8_slice_key_encoding!(Vec<u8>);
 
-impl<'k> IntoPrefixRange for Vec<u8> {
-    fn into_prefix_range(self) -> Range<Self> {
-        if let Some(next) = next_byte_sequence(&self) {
-            Range::from(self..next)
+impl<'a, 'k> IntoPrefixRange<'a, Self> for Vec<u8> {
+    fn to_prefix_range(&'a self) -> RangeRef<'a, Self> {
+        if let Some(next) = next_byte_sequence(self) {
+            RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::owned(Bound::Excluded(next)),
+            }
         } else {
-            Range::from(self..)
+            RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::Unbounded,
+            }
         }
     }
 }
@@ -273,15 +323,15 @@ impl<'a, const N: usize> KeyEncoding<'a, Self> for [u8; N] {
 #[test]
 fn vec_prefix_range_tests() {
     use std::ops::RangeBounds;
-    assert!(b"a".to_vec().into_prefix_range().contains(&b"aa".to_vec()));
-    assert!(!b"a".to_vec().into_prefix_range().contains(&b"b".to_vec()));
+    assert!(b"a".to_vec().to_prefix_range().contains(&b"aa".to_vec()));
+    assert!(!b"a".to_vec().to_prefix_range().contains(&b"b".to_vec()));
     assert!(b"\xff"
         .to_vec()
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&b"\xff\xff".to_vec()));
     assert!(!b"\xff"
         .to_vec()
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&b"\xfe".to_vec()));
 }
 
@@ -303,12 +353,18 @@ impl<'a> KeyEncoding<'a, Self> for ArcBytes<'a> {
 
 impl_u8_slice_key_encoding!(ArcBytes<'k>);
 
-impl<'k> IntoPrefixRange for ArcBytes<'k> {
-    fn into_prefix_range(self) -> Range<Self> {
-        if let Some(next) = next_byte_sequence(&self) {
-            Range::from(self..Self::owned(next))
+impl<'a, 'k> IntoPrefixRange<'a, Self> for ArcBytes<'k> {
+    fn to_prefix_range(&'a self) -> RangeRef<'a, Self> {
+        if let Some(next) = next_byte_sequence(self) {
+            RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::owned(Bound::Excluded(Self::owned(next))),
+            }
         } else {
-            Range::from(self..)
+            RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::Unbounded,
+            }
         }
     }
 }
@@ -317,16 +373,16 @@ impl<'k> IntoPrefixRange for ArcBytes<'k> {
 fn arcbytes_prefix_range_tests() {
     use std::ops::RangeBounds;
     assert!(ArcBytes::from(b"a")
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&ArcBytes::from(b"aa")));
     assert!(!ArcBytes::from(b"a")
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&ArcBytes::from(b"b")));
     assert!(ArcBytes::from(b"\xff")
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&ArcBytes::from(b"\xff\xff")));
     assert!(!ArcBytes::from(b"\xff")
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&ArcBytes::from(b"\xfe")));
 }
 
@@ -348,12 +404,18 @@ impl<'a> KeyEncoding<'a, Self> for CowBytes<'a> {
 
 impl_u8_slice_key_encoding!(CowBytes<'k>);
 
-impl<'k> IntoPrefixRange for CowBytes<'k> {
-    fn into_prefix_range(self) -> Range<Self> {
-        if let Some(next) = next_byte_sequence(&self) {
-            Range::from(self..Self::from(next))
+impl<'a, 'k> IntoPrefixRange<'a, Self> for CowBytes<'k> {
+    fn to_prefix_range(&'a self) -> RangeRef<'_, Self> {
+        if let Some(next) = next_byte_sequence(self) {
+            RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::owned(Bound::Excluded(Self::from(next))),
+            }
         } else {
-            Range::from(self..)
+            RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::Unbounded,
+            }
         }
     }
 }
@@ -362,16 +424,16 @@ impl<'k> IntoPrefixRange for CowBytes<'k> {
 fn cowbytes_prefix_range_tests() {
     use std::ops::RangeBounds;
     assert!(CowBytes::from(&b"a"[..])
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&CowBytes::from(&b"aa"[..])));
     assert!(!CowBytes::from(&b"a"[..])
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&CowBytes::from(&b"b"[..])));
     assert!(CowBytes::from(&b"\xff"[..])
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&CowBytes::from(&b"\xff\xff"[..])));
     assert!(!CowBytes::from(&b"\xff"[..])
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&CowBytes::from(&b"\xfe"[..])));
 }
 
@@ -393,12 +455,18 @@ impl<'a> KeyEncoding<'a, Self> for Bytes {
 
 impl_u8_slice_key_encoding!(Bytes);
 
-impl IntoPrefixRange for Bytes {
-    fn into_prefix_range(self) -> Range<Self> {
-        if let Some(next) = next_byte_sequence(&self) {
-            Range::from(self..Self::from(next))
+impl<'a> IntoPrefixRange<'a, Self> for Bytes {
+    fn to_prefix_range(&'a self) -> RangeRef<'a, Self> {
+        if let Some(next) = next_byte_sequence(self) {
+            RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::owned(Bound::Excluded(Self::from(next))),
+            }
         } else {
-            Range::from(self..)
+            RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::Unbounded,
+            }
         }
     }
 }
@@ -407,16 +475,16 @@ impl IntoPrefixRange for Bytes {
 fn bytes_prefix_range_tests() {
     use std::ops::RangeBounds;
     assert!(Bytes::from(b"a".to_vec())
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&Bytes::from(b"aa".to_vec())));
     assert!(!Bytes::from(b"a".to_vec())
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&Bytes::from(b"b".to_vec())));
     assert!(Bytes::from(b"\xff".to_vec())
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&Bytes::from(b"\xff\xff".to_vec())));
     assert!(!Bytes::from(b"\xff".to_vec())
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&Bytes::from(b"\xfe".to_vec())));
 }
 
@@ -436,7 +504,7 @@ impl<'a> KeyEncoding<'a, Self> for String {
     }
 }
 
-impl<'a, 'k> KeyEncoding<'k, String> for &'a str {
+impl<'a, 'k> KeyEncoding<'k, String> for str {
     type Error = FromUtf8Error;
 
     const LENGTH: Option<usize> = None;
@@ -446,8 +514,8 @@ impl<'a, 'k> KeyEncoding<'k, String> for &'a str {
     }
 }
 
-impl IntoPrefixRange for String {
-    fn into_prefix_range(self) -> Range<Self> {
+impl<'a> IntoPrefixRange<'a, Self> for String {
+    fn to_prefix_range(&'a self) -> RangeRef<'a, Self> {
         let mut bytes = self.as_bytes().to_vec();
         for (index, char) in self.char_indices().rev() {
             let mut next_char = u32::from(char) + 1;
@@ -465,10 +533,48 @@ impl IntoPrefixRange for String {
                     .encode_utf8(&mut char_bytes)
                     .bytes(),
             );
-            return Range::from(self..Self::from_utf8(bytes).unwrap());
+            return RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::owned(Bound::Excluded(Self::from_utf8(bytes).unwrap())),
+            };
         }
 
-        Range::from(self..)
+        RangeRef {
+            start: BoundRef::borrowed(Bound::Included(self)),
+            end: BoundRef::Unbounded,
+        }
+    }
+}
+
+impl<'a> IntoPrefixRange<'a, String> for str {
+    fn to_prefix_range(&'a self) -> RangeRef<'a, String, Self> {
+        let mut bytes = self.as_bytes().to_vec();
+        for (index, char) in self.char_indices().rev() {
+            let mut next_char = u32::from(char) + 1;
+            if next_char == 0xd800 {
+                next_char = 0xE000;
+            } else if next_char > u32::from(char::MAX) {
+                continue;
+            }
+
+            let mut char_bytes = [0; 6];
+            bytes.splice(
+                index..,
+                char::try_from(next_char)
+                    .unwrap()
+                    .encode_utf8(&mut char_bytes)
+                    .bytes(),
+            );
+            return RangeRef {
+                start: BoundRef::borrowed(Bound::Included(self)),
+                end: BoundRef::owned(Bound::Excluded(String::from_utf8(bytes).unwrap())),
+            };
+        }
+
+        RangeRef {
+            start: BoundRef::borrowed(Bound::Included(self)),
+            end: BoundRef::Unbounded,
+        }
     }
 }
 
@@ -492,22 +598,22 @@ impl<'k> KeyEncoding<'k, Self> for Cow<'k, str> {
 fn string_prefix_range_tests() {
     use std::ops::RangeBounds;
     assert!(String::from("a")
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&String::from("aa")));
     assert!(!String::from("a")
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&String::from("b")));
     assert!(String::from("\u{d799}")
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&String::from("\u{d799}a")));
     assert!(!String::from("\u{d799}")
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&String::from("\u{e000}")));
     assert!(String::from("\u{10ffff}")
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&String::from("\u{10ffff}a")));
     assert!(!String::from("\u{10ffff}")
-        .into_prefix_range()
+        .to_prefix_range()
         .contains(&String::from("\u{10fffe}")));
 }
 
@@ -666,7 +772,7 @@ impl CompositeKeyEncoder {
     /// assert_eq!(decoded_u32, value2);
     /// decoder.finish().expect("trailing bytes");
     /// ```
-    pub fn encode<'a, K: Key<'a>, T: KeyEncoding<'a, K>>(
+    pub fn encode<'a, K: Key<'a>, T: KeyEncoding<'a, K> + ?Sized>(
         &mut self,
         value: &'a T,
     ) -> Result<(), CompositeKeyError> {
@@ -1095,7 +1201,7 @@ where
     }
 }
 
-impl<'a, K, T> KeyEncoding<'a, Option<K>> for Option<T>
+impl<'a, T, K> KeyEncoding<'a, Option<K>> for Option<T>
 where
     T: KeyEncoding<'a, K>,
     K: Key<'a>,
@@ -1122,7 +1228,10 @@ where
 /// Take care when using enums as keys: if the order changes or if the meaning
 /// of existing numerical values changes, make sure to update any related views'
 /// version number to ensure the values are re-evaluated.
-pub trait EnumKey: ToPrimitive + FromPrimitive + Clone + std::fmt::Debug + Send + Sync {}
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+pub struct EnumKey<T>(pub T)
+where
+    T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync;
 
 /// An error that indicates an unexpected number of bytes were present.
 #[derive(thiserror::Error, Debug)]
@@ -1141,26 +1250,28 @@ impl From<std::array::TryFromSliceError> for IncorrectByteLength {
 }
 
 // ANCHOR: impl_key_for_enumkey
-impl<'a, T> Key<'a> for T
+impl<'a, T> Key<'a> for EnumKey<T>
 where
-    T: EnumKey,
+    T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync,
 {
     fn from_ord_bytes(bytes: &'a [u8]) -> Result<Self, Self::Error> {
         let primitive = u64::decode_variable(bytes)?;
-        Self::from_u64(primitive)
+        T::from_u64(primitive)
+            .map(Self)
             .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, UnknownEnumVariant))
     }
 }
 
-impl<'a, T> KeyEncoding<'a, Self> for T
+impl<'a, T> KeyEncoding<'a, Self> for EnumKey<T>
 where
-    T: EnumKey,
+    T: ToPrimitive + FromPrimitive + Clone + Eq + Ord + std::fmt::Debug + Send + Sync,
 {
     type Error = std::io::Error;
     const LENGTH: Option<usize> = None;
 
     fn as_ord_bytes(&'a self) -> Result<Cow<'a, [u8]>, Self::Error> {
         let integer = self
+            .0
             .to_u64()
             .map(Unsigned::from)
             .ok_or_else(|| std::io::Error::new(ErrorKind::InvalidData, IncorrectByteLength))?;
@@ -1259,8 +1370,8 @@ fn primitive_key_encoding_tests() -> anyhow::Result<()> {
 
 #[test]
 fn optional_key_encoding_tests() -> anyhow::Result<()> {
-    let some_string = Some("hello").as_ord_bytes()?;
-    let empty_string = Some("").as_ord_bytes()?;
+    let some_string = (&Some("hello")).as_ord_bytes()?;
+    let empty_string = (&Some("")).as_ord_bytes()?;
     let none_string = Option::<String>::None.as_ord_bytes()?;
     assert_eq!(
         Option::<String>::from_ord_bytes(&some_string)
@@ -1281,7 +1392,7 @@ fn optional_key_encoding_tests() -> anyhow::Result<()> {
 
     #[allow(deprecated)]
     {
-        let some_string = OptionKeyV1(Some("hello")).as_ord_bytes()?;
+        let some_string = OptionKeyV1(Some("hello")).as_ord_bytes()?.to_vec();
         let none_string = OptionKeyV1::<String>(None).as_ord_bytes()?;
         assert_eq!(
             OptionKeyV1::<String>::from_ord_bytes(&some_string)
@@ -1332,21 +1443,28 @@ fn vec_key_encoding_tests() -> anyhow::Result<()> {
 #[test]
 #[allow(clippy::use_self)] // Weird interaction with num_derive
 fn enum_derive_tests() -> anyhow::Result<()> {
-    #[derive(Debug, Clone, num_derive::ToPrimitive, num_derive::FromPrimitive)]
+    #[derive(
+        Debug,
+        Clone,
+        num_derive::ToPrimitive,
+        num_derive::FromPrimitive,
+        Ord,
+        PartialOrd,
+        Eq,
+        PartialEq,
+    )]
     enum SomeEnum {
         One = 1,
         NineNineNine = 999,
     }
 
-    impl EnumKey for SomeEnum {}
+    let encoded = EnumKey(SomeEnum::One).as_ord_bytes()?;
+    let value = EnumKey::<SomeEnum>::from_ord_bytes(&encoded)?;
+    assert!(matches!(value.0, SomeEnum::One));
 
-    let encoded = SomeEnum::One.as_ord_bytes()?;
-    let value = SomeEnum::from_ord_bytes(&encoded)?;
-    assert!(matches!(value, SomeEnum::One));
-
-    let encoded = SomeEnum::NineNineNine.as_ord_bytes()?;
-    let value = SomeEnum::from_ord_bytes(&encoded)?;
-    assert!(matches!(value, SomeEnum::NineNineNine));
+    let encoded = EnumKey(SomeEnum::NineNineNine).as_ord_bytes()?;
+    let value = EnumKey::<SomeEnum>::from_ord_bytes(&encoded)?;
+    assert!(matches!(value.0, SomeEnum::NineNineNine));
 
     Ok(())
 }

@@ -86,7 +86,7 @@ fn main() -> Result<(), bonsaidb::core::Error> {
 
     for message in db
         .view::<MessagesByWords>()
-        .with_key_prefix(String::from("doz"))
+        .with_key_prefix("doz")
         .query_with_collection_docs()?
         .documents
     {

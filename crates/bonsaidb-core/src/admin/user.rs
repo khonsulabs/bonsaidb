@@ -83,7 +83,7 @@ impl User {
             let mut all_groups = role_groups;
             all_groups.extend(self.groups.iter().copied());
             all_groups.dedup();
-            group::PermissionGroup::get_multiple(all_groups, admin)?
+            group::PermissionGroup::get_multiple(&all_groups, admin)?
         };
 
         // Combine the permissions from all the groups into one.

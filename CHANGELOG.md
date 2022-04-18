@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   This change also deprecates `encode_composite_key()`/`decode_composite_key()`
   in favor of two new types: `CompositeKeyEncoder` and `CompositeKeyDecoder`.
+- Collection's get/list/list_with_prefix/insert/overwrite and View's
+  with_key_range/with_key_prefix have all been updated to accept borrowed
+  representations of keys. For example, when a Collection's `PrimaryKey` is
+  `String`, `&str` can now be supplied to these functions.
+
+  For most users, adding `&` in front of the argument will generally fix the
+  compiler error upon upgrade.
 
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 

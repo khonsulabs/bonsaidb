@@ -498,7 +498,7 @@ mod tests {
         restored_storage.restore(&backup_destination.0).unwrap();
 
         let db = restored_storage.database::<Basic>("basic")?;
-        let doc = Basic::get(test_doc.id, &db)?.expect("Backed up document.not found");
+        let doc = Basic::get(&test_doc.id, &db)?.expect("Backed up document.not found");
         assert_eq!(doc.contents.value, "somevalue");
         assert_eq!(db.get_key("key1").into_u64()?, Some(1));
         assert_eq!(db.get_key("key2").into_u64()?, Some(2));

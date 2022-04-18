@@ -183,7 +183,7 @@ impl Operation {
     /// an id is provided and a document already exists with that id, a conflict
     /// error will be returned.
     pub fn insert_serialized<C: SerializedCollection>(
-        id: Option<C::PrimaryKey>,
+        id: Option<&C::PrimaryKey>,
         contents: &C::Contents,
     ) -> Result<Self, Error> {
         let id = id.map(DocumentId::new).transpose()?;
@@ -203,7 +203,7 @@ impl Operation {
     /// the [`Key`](crate::key::Key) trait to assign ids.
     pub fn push_serialized<C: SerializedCollection>(contents: &C::Contents) -> Result<Self, Error> {
         let id = C::natural_id(contents);
-        let id = id.map(DocumentId::new).transpose()?;
+        let id = id.as_ref().map(DocumentId::new).transpose()?;
         let contents = C::serialize(contents)?;
         Ok(Self::insert(C::collection_name(), id, contents))
     }
@@ -253,8 +253,8 @@ impl Operation {
     /// Overwrites a document with the serialized representation of `contents`
     /// in `collection`. If a document with `id` exists, it will be overwritten.
     /// If a document with `id` doesn't exist, it will be created.
-    pub fn overwrite_serialized<C: SerializedCollection>(
-        id: C::PrimaryKey,
+    pub fn overwrite_serialized<C: SerializedCollection, Key>(
+        id: &C::PrimaryKey,
         contents: &C::Contents,
     ) -> Result<Self, Error> {
         let contents = C::serialize(contents)?;
@@ -292,7 +292,7 @@ impl Operation {
     ///
     /// Upon success, [`OperationResult::Success`] will be included in the
     /// transaction's results.
-    pub fn check_document_exists<C: Collection>(id: C::PrimaryKey) -> Result<Self, Error> {
+    pub fn check_document_exists<C: Collection>(id: &C::PrimaryKey) -> Result<Self, Error> {
         Ok(Self::check_document_id_exists(
             C::collection_name(),
             DocumentId::new(id)?,

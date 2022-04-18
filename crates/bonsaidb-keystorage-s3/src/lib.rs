@@ -284,7 +284,7 @@ async fn basic_test() {
         let bonsai = AsyncStorage::open(configuration(None)).await.unwrap();
 
         let db = bonsai.database::<BasicSchema>("test").await.unwrap();
-        let retrieved = Basic::get_async(document.header.id, &db)
+        let retrieved = Basic::get_async(&document.header.id, &db)
             .await
             .unwrap()
             .expect("document not found");
@@ -348,7 +348,7 @@ fn blocking_test() {
         let bonsai = Storage::open(configuration(None)).unwrap();
 
         let db = bonsai.database::<BasicSchema>("test").unwrap();
-        let retrieved = Basic::get(document.header.id, &db)
+        let retrieved = Basic::get(&document.header.id, &db)
             .unwrap()
             .expect("document not found");
         assert_eq!(document, retrieved);

@@ -1,9 +1,12 @@
-use std::{borrow::Cow, marker::PhantomData};
+use std::{
+    borrow::{Borrow, Cow},
+    marker::PhantomData,
+};
 
 #[cfg(feature = "async")]
 use bonsaidb_core::connection::AsyncConnection;
 use bonsaidb_core::{
-    connection::{Connection, Range},
+    connection::{Bound, BoundRef, Connection, RangeRef},
     document::{CollectionDocument, Emit},
     key::{
         time::TimestampAsNanoseconds, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError,
@@ -123,19 +126,19 @@ where
 
         let key = if let Some(separator_index) = path.rfind('/') {
             let (path, name) = path.split_at(separator_index + 1);
-            FileKey {
+            FileKey::Full {
                 path: Cow::Borrowed(if path.is_empty() { "/" } else { path }),
                 name: Cow::Borrowed(name),
             }
         } else {
-            FileKey {
+            FileKey::Full {
                 path: Cow::Borrowed("/"),
                 name: Cow::Borrowed(path),
             }
         };
         Ok(database
             .view::<ByPath<Config>>()
-            .with_key(key)
+            .with_key(&key)
             .query_with_collection_docs()?
             .documents
             .into_iter()
@@ -160,19 +163,19 @@ where
 
         let key = if let Some(separator_index) = path.rfind('/') {
             let (path, name) = path.split_at(separator_index + 1);
-            FileKey {
+            FileKey::Full {
                 path: Cow::Borrowed(if path.is_empty() { "/" } else { path }),
                 name: Cow::Borrowed(name),
             }
         } else {
-            FileKey {
+            FileKey::Full {
                 path: Cow::Borrowed("/"),
                 name: Cow::Borrowed(path),
             }
         };
         Ok(database
             .view::<ByPath<Config>>()
-            .with_key(key)
+            .with_key(&key)
             .query_with_collection_docs()
             .await?
             .documents
@@ -187,7 +190,10 @@ where
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
         Ok(database
             .view::<ByPath<Config>>()
-            .with_key_prefix(ExactPathKey { path, start: true })
+            .with_key_prefix(&FileKey::ExactPath {
+                start: Box::new(FileKey::ExactPathPart { path, start: true }),
+                end: Box::new(FileKey::ExactPathPart { path, start: false }),
+            })
             .query_with_collection_docs()?
             .documents
             .into_iter()
@@ -202,7 +208,10 @@ where
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
         Ok(database
             .view::<ByPath<Config>>()
-            .with_key_prefix(ExactPathKey { path, start: true })
+            .with_key_prefix(&FileKey::ExactPath {
+                start: Box::new(FileKey::ExactPathPart { path, start: true }),
+                end: Box::new(FileKey::ExactPathPart { path, start: false }),
+            })
             .query_with_collection_docs()
             .await?
             .documents
@@ -217,7 +226,10 @@ where
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
         Ok(database
             .view::<ByPath<Config>>()
-            .with_key_prefix(RecursivePathKey { path, start: true })
+            .with_key_prefix(&FileKey::RecursivePath {
+                start: Box::new(FileKey::RecursivePathPart { path, start: true }),
+                end: Box::new(FileKey::RecursivePathPart { path, start: false }),
+            })
             .query_with_collection_docs()?
             .documents
             .into_iter()
@@ -232,7 +244,10 @@ where
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
         Ok(database
             .view::<ByPath<Config>>()
-            .with_key_prefix(RecursivePathKey { path, start: true })
+            .with_key_prefix(&FileKey::RecursivePath {
+                start: Box::new(FileKey::RecursivePathPart { path, start: true }),
+                end: Box::new(FileKey::RecursivePathPart { path, start: false }),
+            })
             .query_with_collection_docs()
             .await?
             .documents
@@ -351,108 +366,79 @@ where
 
     fn map(&self, doc: CollectionDocument<File<Config>>) -> ViewMapResult<Self::View> {
         doc.header.emit_key_and_value(
-            OwnedFileKey {
-                path: doc.contents.path.unwrap_or_else(|| String::from("/")),
-                name: doc.contents.name,
-            },
+            OwnedFileKey(FileKey::Full {
+                path: Cow::Owned(doc.contents.path.unwrap_or_else(|| String::from("/"))),
+                name: Cow::Owned(doc.contents.name),
+            }),
             doc.contents.created_at,
         )
     }
 }
 
-#[derive(Debug, Clone)]
-struct ExactPathKey<'a> {
-    path: &'a str,
-    start: bool,
+impl<'a> PartialEq<FileKey<'a>> for OwnedFileKey {
+    fn eq(&self, other: &FileKey<'a>) -> bool {
+        self.0.eq(other)
+    }
 }
 
-impl<'k, 'pk> KeyEncoding<'k, OwnedFileKey> for ExactPathKey<'pk> {
-    type Error = CompositeKeyError;
-
-    const LENGTH: Option<usize> = None;
-
-    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
-        let mut bytes = Vec::new();
-        // The path needs to end with a /. Rather than force an allocation to
-        // append it to a string before calling encode_composite_key, we're
-        // manually encoding the key taking this adjustment into account.
-
-        bytes.extend(self.path.bytes());
-
-        if !self.path.as_bytes().ends_with(b"/") {
-            bytes.push(b'/');
+impl<'a> IntoPrefixRange<'a, OwnedFileKey> for FileKey<'a> {
+    fn to_prefix_range(&'a self) -> RangeRef<'a, OwnedFileKey, Self> {
+        match self {
+            FileKey::ExactPath { start, end } | FileKey::RecursivePath { start, end } => RangeRef {
+                start: BoundRef::borrowed(Bound::Included(start)),
+                end: BoundRef::borrowed(Bound::Excluded(end)),
+            },
+            FileKey::Full { .. }
+            | FileKey::ExactPathPart { .. }
+            | FileKey::RecursivePathPart { .. } => {
+                unreachable!()
+            }
         }
-        // Variable encoding adds a null byte at the end of the string, we can
-        // use this padding byte to create our exclusive range
-        if self.start {
-            bytes.push(0);
-        } else {
-            bytes.push(1);
-        }
-        Ok(Cow::Owned(bytes))
     }
 }
 
-impl<'k> IntoPrefixRange for ExactPathKey<'k> {
-    fn into_prefix_range(mut self) -> Range<Self> {
-        self.start = true;
-        let end = Self {
-            path: self.path,
-            start: false,
-        };
-        Range::from(self..end)
+#[derive(Debug, Clone, PartialEq)]
+struct OwnedFileKey(FileKey<'static>);
+
+impl<'a> Borrow<FileKey<'a>> for OwnedFileKey {
+    fn borrow(&self) -> &FileKey<'a> {
+        &self.0
     }
 }
 
-#[derive(Debug, Clone)]
-struct RecursivePathKey<'a> {
-    path: &'a str,
-    start: bool,
-}
-
-impl<'k, 'pk> KeyEncoding<'k, OwnedFileKey> for RecursivePathKey<'pk> {
-    type Error = CompositeKeyError;
-
-    const LENGTH: Option<usize> = None;
-
-    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
-        let mut encoder = CompositeKeyEncoder::default();
-        if self.start {
-            encoder.encode(&self.path)?;
-        } else {
-            let next = next_string_sequence(self.path);
-            encoder.encode(&next)?;
-        }
-
-        Ok(Cow::Owned(encoder.finish()))
-    }
-}
-
-impl<'k> IntoPrefixRange for RecursivePathKey<'k> {
-    fn into_prefix_range(mut self) -> Range<Self> {
-        self.start = true;
-        let end = Self {
-            path: self.path,
-            start: false,
-        };
-        Range::from(self..end)
-    }
-}
-
-#[derive(Debug, Clone)]
-struct OwnedFileKey {
-    path: String,
-    name: String,
+#[derive(Debug, Clone, PartialEq)]
+enum FileKey<'a> {
+    Full {
+        path: Cow<'a, str>,
+        name: Cow<'a, str>,
+    },
+    ExactPath {
+        start: Box<FileKey<'a>>,
+        end: Box<FileKey<'a>>,
+    },
+    ExactPathPart {
+        path: &'a str,
+        start: bool,
+    },
+    RecursivePath {
+        start: Box<FileKey<'a>>,
+        end: Box<FileKey<'a>>,
+    },
+    RecursivePathPart {
+        path: &'a str,
+        start: bool,
+    },
 }
 
 impl<'k> Key<'k> for OwnedFileKey {
     fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
         let mut decoder = CompositeKeyDecoder::new(bytes);
 
-        let path = decoder.decode()?;
-        let name = decoder.decode()?;
+        let path = Cow::Owned(decoder.decode::<String>()?);
+        let name = Cow::Owned(decoder.decode::<String>()?);
         decoder.finish()?;
-        Ok(Self { path, name })
+
+        Ok(Self(FileKey::Full { path, name }))
     }
 }
 
@@ -462,17 +448,8 @@ impl<'k> KeyEncoding<'k, Self> for OwnedFileKey {
     const LENGTH: Option<usize> = None;
 
     fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
-        let mut encoder = CompositeKeyEncoder::default();
-        encoder.encode(&self.path)?;
-        encoder.encode(&self.name)?;
-        Ok(Cow::Owned(encoder.finish()))
+        self.0.as_ord_bytes()
     }
-}
-
-#[derive(Debug, Clone)]
-struct FileKey<'a> {
-    path: Cow<'a, str>,
-    name: Cow<'a, str>,
 }
 
 impl<'k, 'fk> KeyEncoding<'k, OwnedFileKey> for FileKey<'fk> {
@@ -481,9 +458,44 @@ impl<'k, 'fk> KeyEncoding<'k, OwnedFileKey> for FileKey<'fk> {
     const LENGTH: Option<usize> = None;
 
     fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
-        let mut encoder = CompositeKeyEncoder::default();
-        encoder.encode(&self.path)?;
-        encoder.encode(&self.name)?;
-        Ok(Cow::Owned(encoder.finish()))
+        match self {
+            FileKey::Full { path, name } => {
+                let mut encoder = CompositeKeyEncoder::default();
+                encoder.encode(&path)?;
+                encoder.encode(&name)?;
+                Ok(Cow::Owned(encoder.finish()))
+            }
+            FileKey::ExactPathPart { path, start } => {
+                let mut bytes = Vec::new();
+                // The path needs to end with a /. Rather than force an allocation to
+                // append it to a string before calling encode_composite_key, we're
+                // manually encoding the key taking this adjustment into account.
+
+                bytes.extend(path.bytes());
+
+                if !path.as_bytes().ends_with(b"/") {
+                    bytes.push(b'/');
+                }
+                // Variable encoding adds a null byte at the end of the string, we can
+                // use this padding byte to create our exclusive range
+                if *start {
+                    bytes.push(0);
+                } else {
+                    bytes.push(1);
+                }
+                Ok(Cow::Owned(bytes))
+            }
+            FileKey::RecursivePathPart { path, start } => {
+                let mut encoder = CompositeKeyEncoder::default();
+                if *start {
+                    encoder.encode(path)?;
+                } else {
+                    let next = next_string_sequence(path);
+                    encoder.encode(&next)?;
+                }
+                Ok(Cow::Owned(encoder.finish()))
+            }
+            FileKey::ExactPath { .. } | FileKey::RecursivePath { .. } => unreachable!(),
+        }
     }
 }

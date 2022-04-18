@@ -56,7 +56,7 @@ fn main() -> Result<(), bonsaidb::core::Error> {
         name: String::from("ecton"),
     }
     .push_into(&db)?;
-    let retrieved_from_database = UserProfile::get(42, &db)?.expect("document not found");
+    let retrieved_from_database = UserProfile::get(&42, &db)?.expect("document not found");
     assert_eq!(user, retrieved_from_database);
     // ANCHOR_END: natural_id_query
 
@@ -70,7 +70,7 @@ fn main() -> Result<(), bonsaidb::core::Error> {
     let inserted = AssociatedProfileData {
         value: String::from("hello"),
     }
-    .insert_into(key, &db)?;
+    .insert_into(&key, &db)?;
     let retrieved = AssociatedProfileData::get(&key, &db)?.expect("document not found");
     assert_eq!(inserted, retrieved);
     // ANCHOR_END: query

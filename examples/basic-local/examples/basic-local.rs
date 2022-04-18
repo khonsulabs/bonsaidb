@@ -35,7 +35,7 @@ fn main() -> Result<(), bonsaidb::core::Error> {
     // Retrieve the message using the id returned from the previous call. both
     // `document` and `message_doc` should be identical.
     let message_doc =
-        Message::get(document.header.id, &db)?.expect("couldn't retrieve stored item");
+        Message::get(&document.header.id, &db)?.expect("couldn't retrieve stored item");
 
     println!(
         "Inserted message '{:?}' with id {}",

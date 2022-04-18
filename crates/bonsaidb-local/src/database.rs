@@ -10,16 +10,12 @@ use std::{
 #[cfg(any(feature = "encryption", feature = "compression"))]
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
-    arc_bytes::{
-        serde::{Bytes, CowBytes},
-        ArcBytes,
-    },
+    arc_bytes::{serde::CowBytes, ArcBytes},
     connection::{
-        self, AccessPolicy, Connection, HasSession, LowLevelConnection, QueryKey, Range, Session,
-        Sort, StorageConnection,
+        self, AccessPolicy, Connection, HasSession, LowLevelConnection, Range, SerializedQueryKey,
+        Session, Sort, StorageConnection,
     },
     document::{BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
-    key::Key,
     keyvalue::{KeyOperation, Output, Timestamp},
     limits::{LIST_TRANSACTIONS_DEFAULT_RESULT_COUNT, LIST_TRANSACTIONS_MAX_RESULTS},
     permissions::{
@@ -213,7 +209,7 @@ impl Database {
     fn for_each_in_view<F: FnMut(ViewEntry) -> Result<(), bonsaidb_core::Error> + Send + Sync>(
         &self,
         view: &dyn view::Serialized,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -686,9 +682,9 @@ impl Database {
         }
     }
 
-    fn create_view_iterator<'a, K: for<'k> Key<'k> + 'a>(
-        view_entries: &'a Tree<Unversioned, AnyFile>,
-        key: Option<QueryKey<K>>,
+    fn create_view_iterator(
+        view_entries: &Tree<Unversioned, AnyFile>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
     ) -> Result<Vec<ViewEntry>, Error> {
@@ -700,10 +696,7 @@ impl Database {
         let mut values_read = 0;
         if let Some(key) = key {
             match key {
-                QueryKey::Range(range) => {
-                    let range = range
-                        .as_ord_bytes()
-                        .map_err(view::Error::key_serialization)?;
+                SerializedQueryKey::Range(range) => {
                     view_entries.scan::<Infallible, _, _, _, _>(
                         &range.map_ref(|bytes| &bytes[..]),
                         forwards,
@@ -723,29 +716,15 @@ impl Database {
                         },
                     )?;
                 }
-                QueryKey::Matches(key) => {
-                    let key = key
-                        .as_ord_bytes()
-                        .map_err(view::Error::key_serialization)?
-                        .to_vec();
-
+                SerializedQueryKey::Matches(key) => {
                     values.extend(view_entries.get(&key)?);
                 }
-                QueryKey::Multiple(list) => {
-                    let mut list = list
-                        .into_iter()
-                        .map(|key| {
-                            key.as_ord_bytes()
-                                .map(|bytes| bytes.to_vec())
-                                .map_err(view::Error::key_serialization)
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-
+                SerializedQueryKey::Multiple(mut list) => {
                     list.sort();
 
                     values.extend(
                         view_entries
-                            .get_multiple(list.iter().map(Vec::as_slice))?
+                            .get_multiple(list.iter().map(|bytes| bytes.as_slice()))?
                             .into_iter()
                             .map(|(_, value)| value),
                     );
@@ -1314,7 +1293,7 @@ impl LowLevelConnection for Database {
     fn query_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -1342,7 +1321,7 @@ impl LowLevelConnection for Database {
     fn query_by_name_with_docs(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         order: Sort,
         limit: Option<u32>,
         access_policy: AccessPolicy,
@@ -1370,7 +1349,7 @@ impl LowLevelConnection for Database {
     fn reduce_by_name(
         &self,
         view_name: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<u8>, bonsaidb_core::Error> {
         let mut mappings = self.reduce_grouped_by_name(view_name, key, access_policy)?;
@@ -1395,7 +1374,7 @@ impl LowLevelConnection for Database {
     fn reduce_grouped_by_name(
         &self,
         view_name: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<Vec<MappedSerializedValue>, bonsaidb_core::Error> {
         let view = self.data.schema.view_by_name(view_name)?;
@@ -1418,7 +1397,7 @@ impl LowLevelConnection for Database {
     fn delete_docs_by_name(
         &self,
         view: &ViewName,
-        key: Option<QueryKey<Bytes>>,
+        key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<u64, bonsaidb_core::Error> {
         let view = self.data.schema.view_by_name(view)?;

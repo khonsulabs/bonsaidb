@@ -176,21 +176,21 @@ impl Operator<Load, u32> for BonsaiOperator {
         let mut tx = Transaction::default();
         for (id, category) in &operation.initial_data.categories {
             tx.push(
-                transaction::Operation::insert_serialized::<Category>(Some(*id), category).unwrap(),
+                transaction::Operation::insert_serialized::<Category>(Some(id), category).unwrap(),
             );
         }
         for (id, product) in &operation.initial_data.products {
             tx.push(
-                transaction::Operation::insert_serialized::<Product>(Some(*id), product).unwrap(),
+                transaction::Operation::insert_serialized::<Product>(Some(id), product).unwrap(),
             );
         }
         for (id, customer) in &operation.initial_data.customers {
             tx.push(
-                transaction::Operation::insert_serialized::<Customer>(Some(*id), customer).unwrap(),
+                transaction::Operation::insert_serialized::<Customer>(Some(id), customer).unwrap(),
             );
         }
         for (id, order) in &operation.initial_data.orders {
-            tx.push(transaction::Operation::insert_serialized::<Order>(Some(*id), order).unwrap());
+            tx.push(transaction::Operation::insert_serialized::<Order>(Some(id), order).unwrap());
         }
         for review in &operation.initial_data.reviews {
             tx.push(
@@ -219,7 +219,7 @@ impl Operator<FindProduct, u32> for BonsaiOperator {
         let rating = self
             .database
             .view::<ProductReviewsByProduct>()
-            .with_key(doc.header.id)
+            .with_key(&doc.header.id)
             .with_access_policy(AccessPolicy::NoUpdate)
             .reduce()
             .await
@@ -242,14 +242,14 @@ impl Operator<LookupProduct, u32> for BonsaiOperator {
         measurements: &Measurements,
     ) -> OperationResult<u32> {
         let measurement = measurements.begin(self.label, Metric::LookupProduct);
-        let doc = Product::get_async(operation.id, &self.database)
+        let doc = Product::get_async(&operation.id, &self.database)
             .await
             .unwrap()
             .unwrap();
         let rating = self
             .database
             .view::<ProductReviewsByProduct>()
-            .with_key(doc.header.id)
+            .with_key(&doc.header.id)
             .with_access_policy(AccessPolicy::NoUpdate)
             .reduce()
             .await
@@ -299,7 +299,7 @@ impl Operator<AddProductToCart, u32> for BonsaiOperator {
         };
 
         let measurement = measurements.begin(self.label, Metric::AddProductToCart);
-        let mut cart = Cart::get_async(cart, &self.database)
+        let mut cart = Cart::get_async(&cart, &self.database)
             .await
             .unwrap()
             .unwrap();
@@ -325,7 +325,7 @@ impl Operator<Checkout, u32> for BonsaiOperator {
         };
 
         let measurement = measurements.begin(self.label, Metric::Checkout);
-        let cart = Cart::get_async(cart, &self.database)
+        let cart = Cart::get_async(&cart, &self.database)
             .await
             .unwrap()
             .unwrap();
@@ -389,7 +389,7 @@ impl Operator<ReviewProduct, u32> for BonsaiOperator {
         // Force the view to update.
         self.database
             .view::<ProductReviewsByProduct>()
-            .with_key(0)
+            .with_key(&0)
             .reduce()
             .await
             .unwrap();
