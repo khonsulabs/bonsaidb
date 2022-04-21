@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 
 use crate::schema::ApiName;
+pub use bonsaidb_macros::Api;
 
 /// An API request type.
 pub trait Api: Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug + 'static {
