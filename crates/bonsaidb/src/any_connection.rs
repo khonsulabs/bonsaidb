@@ -5,7 +5,7 @@ use bonsaidb_core::{
     async_trait::async_trait,
     connection::{
         self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
-        HasSession, IdentityReference, Range, SerializedQueryKey, Session, Sort,
+        HasSchema, HasSession, IdentityReference, Range, SerializedQueryKey, Session, Sort,
     },
     document::{DocumentId, Header, OwnedDocument},
     schema::{
@@ -130,19 +130,14 @@ impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
         }
     }
 
-    #[cfg(feature = "password-hashing")]
-    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
+    async fn authenticate(
         &self,
-        user: U,
         authentication: Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         match self {
-            Self::Local(server) => server
-                .authenticate(user, authentication)
-                .await
-                .map(Self::Local),
+            Self::Local(server) => server.authenticate(authentication).await.map(Self::Local),
             Self::Networked(client) => client
-                .authenticate(user, authentication)
+                .authenticate(authentication)
                 .await
                 .map(Self::Networked),
         }
@@ -319,13 +314,6 @@ impl<B: Backend> AsyncConnection for AnyDatabase<B> {
 
 #[async_trait]
 impl<B: Backend> AsyncLowLevelConnection for AnyDatabase<B> {
-    fn schematic(&self) -> &Schematic {
-        match self {
-            Self::Local(server) => server.schematic(),
-            Self::Networked(client) => client.schematic(),
-        }
-    }
-
     async fn apply_transaction(
         &self,
         transaction: Transaction,
@@ -506,6 +494,15 @@ impl<B: Backend> AsyncLowLevelConnection for AnyDatabase<B> {
         match self {
             Self::Local(server) => server.delete_docs_by_name(view, key, access_policy).await,
             Self::Networked(client) => client.delete_docs_by_name(view, key, access_policy).await,
+        }
+    }
+}
+
+impl<B: Backend> HasSchema for AnyDatabase<B> {
+    fn schematic(&self) -> &Schematic {
+        match self {
+            Self::Local(server) => server.schematic(),
+            Self::Networked(client) => client.schematic(),
         }
     }
 }

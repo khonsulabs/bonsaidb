@@ -1457,6 +1457,19 @@ impl<'a, Id> Nameable<'a, Id> for NamedReference<'a, Id> {
     }
 }
 
+impl<'a, Id> Nameable<'a, Id> for &'a NamedReference<'a, Id>
+where
+    Id: Clone,
+{
+    fn name(self) -> Result<NamedReference<'a, Id>, crate::Error> {
+        Ok(match self {
+            NamedReference::Name(name) => NamedReference::Name(name.clone()),
+            NamedReference::Id(id) => NamedReference::Id(id.clone()),
+            NamedReference::Key(key) => NamedReference::Key(key.clone()),
+        })
+    }
+}
+
 impl<'a, Id> Nameable<'a, Id> for &'a str {
     fn name(self) -> Result<NamedReference<'a, Id>, crate::Error> {
         Ok(NamedReference::from(self))

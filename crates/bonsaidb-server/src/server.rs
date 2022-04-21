@@ -875,13 +875,11 @@ impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
         self.storage.set_user_password(user, password).await
     }
 
-    #[cfg(feature = "password-hashing")]
-    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
+    async fn authenticate(
         &self,
-        user: U,
         authentication: Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
-        let storage = self.storage.authenticate(user, authentication).await?;
+        let storage = self.storage.authenticate(authentication).await?;
         Ok(Self {
             data: self.data.clone(),
             storage,

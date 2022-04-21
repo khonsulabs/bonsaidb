@@ -235,10 +235,10 @@ async fn invoke_apis(client: Client, client_name: &str) -> Result<(), bonsaidb::
 
     // Now, let's authenticate and try calling the APIs that previously were denied permissions
     let authenticated_client = client
-        .authenticate(
+        .authenticate(Authentication::password(
             "test-user",
-            Authentication::Password(SensitiveString(String::from("hunter2"))),
-        )
+            SensitiveString(String::from("hunter2")),
+        )?)
         .await
         .unwrap();
     assert!(matches!(

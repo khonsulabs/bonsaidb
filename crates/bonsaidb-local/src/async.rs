@@ -6,8 +6,8 @@ use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     connection::{
         self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
-        Connection, HasSession, IdentityReference, LowLevelConnection, Range, SerializedQueryKey,
-        Session, Sort, StorageConnection,
+        Connection, HasSchema, HasSession, IdentityReference, LowLevelConnection, Range,
+        SerializedQueryKey, Session, Sort, StorageConnection,
     },
     document::{DocumentId, Header, OwnedDocument},
     keyvalue::{AsyncKeyValue, KeyOperation, KeyValue, Output},
@@ -468,19 +468,16 @@ impl AsyncStorageConnection for AsyncStorage {
             .map_err(Error::from)?
     }
 
-    #[cfg(feature = "password-hashing")]
-    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
+    async fn authenticate(
         &self,
-        user: U,
         authentication: Authentication,
     ) -> Result<Self, bonsaidb_core::Error> {
         let task_self = self.clone();
-        let user = user.name()?.into_owned();
         self.runtime
             .spawn_blocking(move || {
                 task_self
                     .storage
-                    .authenticate(user, authentication)
+                    .authenticate(authentication)
                     .map(Storage::into_async)
             })
             .await
@@ -713,12 +710,14 @@ impl AsyncSubscriber for Subscriber {
     }
 }
 
-#[async_trait]
-impl AsyncLowLevelConnection for AsyncDatabase {
+impl HasSchema for AsyncDatabase {
     fn schematic(&self) -> &Schematic {
         self.database.schematic()
     }
+}
 
+#[async_trait]
+impl AsyncLowLevelConnection for AsyncDatabase {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(transaction)))]
     async fn apply_transaction(
         &self,

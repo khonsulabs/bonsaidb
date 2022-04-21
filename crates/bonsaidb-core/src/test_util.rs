@@ -17,9 +17,10 @@ use serde::{Deserialize, Serialize};
 use transmog_pot::Pot;
 
 use crate::{
-    admin::{PermissionGroup, Role, User},
+    admin::{AuthenticationToken, PermissionGroup, Role, User},
     connection::{
-        AccessPolicy, AsyncConnection, AsyncStorageConnection, Connection, StorageConnection,
+        AccessPolicy, AsyncConnection, AsyncStorageConnection, Connection, HasSession, Identity,
+        IdentityReference, Session, StorageConnection,
     },
     document::{
         BorrowedDocument, CollectionDocument, CollectionHeader, DocumentId, Emit, Header, KeyId,
@@ -462,6 +463,7 @@ pub enum HarnessTest {
     NamedCollection,
     PubSubSimple,
     UserManagement,
+    TokenAuthentication,
     PubSubMultipleSubscribers,
     PubSubDropAndSend,
     PubSubUnsubscribe,
@@ -706,6 +708,26 @@ macro_rules! define_async_connection_test_suite {
             }
 
             #[tokio::test]
+            async fn token_authentication() -> anyhow::Result<()> {
+                use $crate::connection::AsyncStorageConnection;
+                let harness =
+                    $harness::new($crate::test_util::HarnessTest::TokenAuthentication).await?;
+                let _db = harness.connect().await?;
+                let server = harness.server();
+                let admin = server
+                    .database::<$crate::admin::Admin>($crate::admin::ADMIN_DATABASE_NAME)
+                    .await?;
+
+                $crate::test_util::token_authentication_tests(
+                    &admin,
+                    server,
+                    $harness::server_name(),
+                )
+                .await?;
+                harness.shutdown().await
+            }
+
+            #[tokio::test]
             async fn compaction() -> anyhow::Result<()> {
                 let harness = $harness::new($crate::test_util::HarnessTest::Compact).await?;
                 let db = harness.connect().await?;
@@ -907,6 +929,23 @@ macro_rules! define_blocking_connection_test_suite {
                     server.database::<$crate::admin::Admin>($crate::admin::ADMIN_DATABASE_NAME)?;
 
                 $crate::test_util::blocking_user_management_tests(
+                    &admin,
+                    server,
+                    $harness::server_name(),
+                )?;
+                harness.shutdown()
+            }
+
+            #[test]
+            fn token_authentication() -> anyhow::Result<()> {
+                use $crate::connection::StorageConnection;
+                let harness = $harness::new($crate::test_util::HarnessTest::TokenAuthentication)?;
+                let _db = harness.connect()?;
+                let server = harness.server();
+                let admin =
+                    server.database::<$crate::admin::Admin>($crate::admin::ADMIN_DATABASE_NAME)?;
+
+                $crate::test_util::blocking_token_authentication_tests(
                     &admin,
                     server,
                     $harness::server_name(),
@@ -2658,6 +2697,73 @@ pub fn blocking_user_management_tests<C: Connection, S: StorageConnection>(
     // Test if user is removed.
 
     assert!(User::get(&user_id, admin).unwrap().is_none());
+
+    Ok(())
+}
+
+pub async fn token_authentication_tests<C: AsyncConnection, S: AsyncStorageConnection>(
+    admin: &C,
+    server: &S,
+    server_name: &str,
+) -> anyhow::Result<()> {
+    let username = format!("token-authentication-tests-{}", server_name);
+    let user_id = server.create_user(&username).await?;
+    let user_token =
+        AuthenticationToken::create_async(IdentityReference::user(&username)?, admin).await?;
+
+    let as_user = server
+        .authenticate_with_token(user_token.header.id, &user_token.contents.token)
+        .await?;
+    let identity = as_user.session().and_then(Session::identity);
+    if let Some(Identity::User { id, .. }) = identity {
+        assert_eq!(*id, user_id);
+    }
+
+    let role = Role::named(format!("token-role-{}", server_name))
+        .push_into_async(admin)
+        .await
+        .unwrap();
+    let role_token =
+        AuthenticationToken::create_async(IdentityReference::role(role.header.id)?, admin).await?;
+
+    let as_role = server
+        .authenticate_with_token(role_token.header.id, &role_token.contents.token)
+        .await?;
+    let identity = as_role.session().and_then(Session::identity);
+    if let Some(Identity::Role { id, .. }) = identity {
+        assert_eq!(*id, role.header.id);
+    }
+
+    Ok(())
+}
+
+pub fn blocking_token_authentication_tests<C: Connection, S: StorageConnection>(
+    admin: &C,
+    server: &S,
+    server_name: &str,
+) -> anyhow::Result<()> {
+    let username = format!("blocking-token-authentication-tests-{}", server_name);
+    let user_id = server.create_user(&username)?;
+    let user_token = AuthenticationToken::create(&IdentityReference::user(&username)?, admin)?;
+
+    let as_user =
+        server.authenticate_with_token(user_token.header.id, &user_token.contents.token)?;
+    let identity = as_user.session().and_then(Session::identity);
+    if let Some(Identity::User { id, .. }) = identity {
+        assert_eq!(*id, user_id);
+    }
+
+    let role = Role::named(format!("token-role-{}", server_name))
+        .push_into(admin)
+        .unwrap();
+    let role_token = AuthenticationToken::create(&IdentityReference::role(role.header.id)?, admin)?;
+
+    let as_role =
+        server.authenticate_with_token(role_token.header.id, &role_token.contents.token)?;
+    let identity = as_role.session().and_then(Session::identity);
+    if let Some(Identity::Role { id, .. }) = identity {
+        assert_eq!(*id, role.header.id);
+    }
 
     Ok(())
 }

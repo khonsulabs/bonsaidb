@@ -693,17 +693,12 @@ impl AsyncStorageConnection for Client {
             .await?)
     }
 
-    #[cfg(feature = "password-hashing")]
-    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
+    async fn authenticate(
         &self,
-        user: U,
         authentication: Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let session = self
-            .send_api_request_async(&bonsaidb_core::networking::Authenticate {
-                user: user.name()?.into_owned(),
-                authentication,
-            })
+            .send_api_request_async(&bonsaidb_core::networking::Authenticate { authentication })
             .await?;
         Ok(Self {
             data: self.data.clone(),

@@ -146,12 +146,10 @@ impl Api for SetUserPassword {
     }
 }
 
-/// Authenticate as a user.
+/// Authenticate the current connection.
 #[cfg(feature = "password-hashing")]
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Authenticate {
-    /// The username or id of the user.
-    pub user: NamedReference<'static, u64>,
     /// The method of authentication.
     pub authentication: crate::connection::Authentication,
 }

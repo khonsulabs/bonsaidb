@@ -5,6 +5,7 @@ use std::{
 };
 
 use ordered_varint::Variable;
+use serde::{Deserialize, Serialize};
 
 use crate::key::{
     time::limited::{BonsaiEpoch, UnixEpoch},
@@ -89,7 +90,7 @@ fn system_time_tests() {
 pub struct DeltaNotRepresentable;
 
 /// Errors that can arise from parsing times serialized with [`Key`].
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone, Serialize, Deserialize)]
 pub enum TimeError {
     /// An error that indicates that the stored timestamp is unable to be converted
     /// to the destination type without losing data.
@@ -117,6 +118,7 @@ pub mod limited {
     use std::{
         borrow::Cow,
         fmt::{self, Debug, Display, Write},
+        hash::Hash,
         marker::PhantomData,
         str::FromStr,
         time::{Duration, SystemTime, UNIX_EPOCH},
@@ -147,7 +149,7 @@ pub mod limited {
     /// - [`Nanoseconds`]
     ///
     /// Other resolutions can be used by implementing [`TimeResolution`].
-    #[derive_where(Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+    #[derive_where(Hash, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
     pub struct LimitedResolutionDuration<Resolution: TimeResolution> {
         representation: Resolution::Representation,
         _resolution: PhantomData<Resolution>,
@@ -160,6 +162,7 @@ pub mod limited {
             + Serialize
             + for<'de> Deserialize<'de>
             + Display
+            + Hash
             + Eq
             + PartialEq
             + Ord
@@ -708,7 +711,7 @@ pub mod limited {
     ///
     /// - [`UnixEpoch`]
     /// - [`BonsaiEpoch`]
-    #[derive_where(Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
+    #[derive_where(Hash, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
     pub struct LimitedResolutionTimestamp<Resolution: TimeResolution, Epoch: TimeEpoch>(
         LimitedResolutionDuration<Resolution>,
         PhantomData<Epoch>,
@@ -769,17 +772,25 @@ pub mod limited {
             Self::try_from(SystemTime::now()).expect("now should always be representable")
         }
 
-        /// Returns the [`Duration`] since January 1, 1970 00:00:00 UTC for this
-        /// timestamp.
-        pub fn duration_since_unix_epoch(&self) -> Result<Duration, TimeError> {
-            let relative_offset = Resolution::repr_to_duration(self.0.representation)?;
-            match relative_offset {
-                SignedDuration::Positive(offset) => Epoch::epoch_offset()
-                    .checked_add(offset)
-                    .ok_or(TimeError::DeltaNotRepresentable),
-                SignedDuration::Negative(offset) => Epoch::epoch_offset()
-                    .checked_sub(offset)
-                    .ok_or(TimeError::DeltaNotRepresentable),
+        /// Returns the duration since another timestamp. This returns None if
+        /// `other` is before `self`,
+        pub fn duration_since(
+            &self,
+            other: &impl AnyTimestamp,
+        ) -> Result<Option<Duration>, TimeError> {
+            let self_delta = self.duration_since_unix_epoch()?;
+            let other_delta = other.duration_since_unix_epoch()?;
+            Ok(self_delta.checked_sub(other_delta))
+        }
+
+        /// Returns the absolute duration between `self` and `other`.
+        pub fn duration_between(&self, other: &impl AnyTimestamp) -> Result<Duration, TimeError> {
+            let self_delta = self.duration_since_unix_epoch()?;
+            let other_delta = other.duration_since_unix_epoch()?;
+            if self_delta < other_delta {
+                Ok(other_delta - self_delta)
+            } else {
+                Ok(self_delta - other_delta)
             }
         }
 
@@ -837,6 +848,37 @@ pub mod limited {
             } else {
                 // No subsecond
                 Ok(())
+            }
+        }
+    }
+
+    /// A timestamp that can report it sduration since the Unix Epoch.
+    pub trait AnyTimestamp {
+        /// Returns the [`Duration`] since January 1, 1970 00:00:00 UTC for this
+        /// timestamp.
+        fn duration_since_unix_epoch(&self) -> Result<Duration, TimeError>;
+    }
+
+    impl AnyTimestamp for SystemTime {
+        fn duration_since_unix_epoch(&self) -> Result<Duration, TimeError> {
+            Ok(self.duration_since(UNIX_EPOCH).unwrap())
+        }
+    }
+
+    impl<Resolution, Epoch> AnyTimestamp for LimitedResolutionTimestamp<Resolution, Epoch>
+    where
+        Resolution: TimeResolution,
+        Epoch: TimeEpoch,
+    {
+        fn duration_since_unix_epoch(&self) -> Result<Duration, TimeError> {
+            let relative_offset = Resolution::repr_to_duration(self.0.representation)?;
+            match relative_offset {
+                SignedDuration::Positive(offset) => Epoch::epoch_offset()
+                    .checked_add(offset)
+                    .ok_or(TimeError::DeltaNotRepresentable),
+                SignedDuration::Negative(offset) => Epoch::epoch_offset()
+                    .checked_sub(offset)
+                    .ok_or(TimeError::DeltaNotRepresentable),
             }
         }
     }

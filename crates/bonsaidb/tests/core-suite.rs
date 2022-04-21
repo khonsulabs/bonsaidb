@@ -371,7 +371,7 @@ async fn assume_permissions(
     };
 
     connection
-        .authenticate(&username, Authentication::Password(password))
+        .authenticate(Authentication::password(username, password)?)
         .await
         .unwrap();
 
@@ -421,10 +421,10 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
     }
 
     let authenticated_client = client
-        .authenticate(
+        .authenticate(Authentication::password(
             "ecton",
-            Authentication::Password(SensitiveString(String::from("hunter2"))),
-        )
+            SensitiveString(String::from("hunter2")),
+        )?)
         .await
         .unwrap();
     authenticated_client

@@ -12,8 +12,8 @@ use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
     arc_bytes::{serde::CowBytes, ArcBytes},
     connection::{
-        self, AccessPolicy, Connection, HasSession, LowLevelConnection, Range, SerializedQueryKey,
-        Session, Sort, StorageConnection,
+        self, AccessPolicy, Connection, HasSchema, HasSession, LowLevelConnection, Range,
+        SerializedQueryKey, Session, Sort, StorageConnection,
     },
     document::{BorrowedDocument, DocumentId, Header, OwnedDocument, Revision},
     keyvalue::{KeyOperation, Output, Timestamp},
@@ -522,7 +522,7 @@ impl Database {
         drop(documents);
 
         if updated {
-            self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
+            self.update_eager_views(&document_id, operation, transaction, tree_index_map)?;
         }
 
         result.expect("nebari should invoke the callback even when the key isn't found")
@@ -563,7 +563,7 @@ impl Database {
             )))
         } else {
             drop(documents);
-            self.update_unique_views(&document_id, operation, transaction, tree_index_map)?;
+            self.update_eager_views(&document_id, operation, transaction, tree_index_map)?;
 
             Ok(OperationResult::DocumentUpdated {
                 collection: operation.collection.clone(),
@@ -586,7 +586,7 @@ impl Database {
             drop(documents);
             let doc = deserialize_document(&vec)?;
             if &doc.header == header {
-                self.update_unique_views(
+                self.update_eager_views(
                     &ArcBytes::from(doc.header.id.to_vec()),
                     operation,
                     transaction,
@@ -611,7 +611,7 @@ impl Database {
         }
     }
 
-    fn update_unique_views(
+    fn update_eager_views(
         &self,
         document_id: &ArcBytes<'static>,
         operation: &Operation,
@@ -1020,10 +1020,6 @@ impl Connection for Database {
 }
 
 impl LowLevelConnection for Database {
-    fn schematic(&self) -> &Schematic {
-        &self.data.schema
-    }
-
     fn apply_transaction(
         &self,
         transaction: Transaction,
@@ -1421,6 +1417,12 @@ impl LowLevelConnection for Database {
         let results = LowLevelConnection::apply_transaction(self, transaction)?;
 
         Ok(results.len() as u64)
+    }
+}
+
+impl HasSchema for Database {
+    fn schematic(&self) -> &Schematic {
+        &self.data.schema
     }
 }
 

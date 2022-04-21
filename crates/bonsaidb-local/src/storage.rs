@@ -17,22 +17,23 @@ use bonsaidb_core::{
         self,
         database::{self, ByName, Database as DatabaseRecord},
         user::User,
-        Admin, PermissionGroup, Role, ADMIN_DATABASE_NAME,
+        Admin, AuthenticationToken, PermissionGroup, Role, ADMIN_DATABASE_NAME,
     },
     circulate,
     connection::{
         self, Connection, HasSession, Identity, IdentityReference, LowLevelConnection, Session,
-        SessionId, StorageConnection,
+        SessionAuthentication, SessionId, StorageConnection, TokenChallengeAlgorithm,
     },
     document::CollectionDocument,
+    key::time::TimestampAsNanoseconds,
     permissions::{
         bonsai::{
-            bonsaidb_resource_name, database_resource_name, role_resource_name, user_resource_name,
-            BonsaiAction, ServerAction,
+            authentication_token_resource_name, bonsaidb_resource_name, database_resource_name,
+            role_resource_name, user_resource_name, BonsaiAction, ServerAction,
         },
         Permissions,
     },
-    schema::{Nameable, NamedCollection, Schema, SchemaName, Schematic},
+    schema::{Nameable, NamedCollection, Schema, SchemaName, Schematic, SerializedCollection},
 };
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::{connection::Authentication, permissions::bonsai::AuthenticationMethod};
@@ -169,11 +170,11 @@ pub struct Storage {
     effective_session: Option<Arc<Session>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AuthenticatedSession {
     // TODO: client_data,
     storage: Weak<Data>,
-    pub session: Session,
+    pub session: Mutex<Session>,
 }
 
 #[derive(Debug, Default)]
@@ -205,7 +206,8 @@ pub struct SessionSubscriber {
 
 impl Drop for AuthenticatedSession {
     fn drop(&mut self) {
-        if let Some(id) = self.session.id.take() {
+        let mut session = self.session.lock();
+        if let Some(id) = session.id.take() {
             if let Some(storage) = self.storage.upgrade() {
                 // Deregister the session id once dropped.
                 let mut sessions = storage.sessions.write();
@@ -553,7 +555,7 @@ impl Storage {
                 authentication: self.authentication.clone(),
                 effective_session: Some(Arc::new(Session {
                     id: None,
-                    identity: None,
+                    authentication: SessionAuthentication::None,
                     permissions: effective_permissions,
                 })),
             })
@@ -723,15 +725,33 @@ impl StorageInstance {
         }
     }
 
-    #[cfg(feature = "password-hashing")]
     fn authenticate_inner(
         &self,
-        user: CollectionDocument<User>,
         authentication: Authentication,
+        loaded_user: Option<CollectionDocument<User>>,
+        current_session_id: Option<SessionId>,
         admin: &Database,
     ) -> Result<Storage, bonsaidb_core::Error> {
         match authentication {
-            Authentication::Password(password) => {
+            Authentication::Token {
+                id,
+                now,
+                now_hash,
+                algorithm,
+            } => self.begin_token_authentication(id, now, &now_hash, algorithm, admin),
+            Authentication::TokenChallengeResponse(hash) => {
+                let session_id =
+                    current_session_id.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+                self.finish_token_authentication(session_id, &hash, admin)
+            }
+            #[cfg(feature = "password-hashing")]
+            Authentication::Password { user, password } => {
+                let user = match loaded_user {
+                    Some(user) => user,
+                    None => {
+                        User::load(user, admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?
+                    }
+                };
                 let saved_hash = user
                     .contents
                     .argon_hash
@@ -742,6 +762,108 @@ impl StorageInstance {
                     .argon
                     .verify(user.header.id, password, saved_hash)?;
                 self.assume_user(user, admin)
+            }
+        }
+    }
+
+    fn begin_token_authentication(
+        &self,
+        id: u64,
+        request_time: TimestampAsNanoseconds,
+        request_time_check: &[u8],
+        algorithm: TokenChallengeAlgorithm,
+        admin: &Database,
+    ) -> Result<Storage, bonsaidb_core::Error> {
+        // TODO alow configuration of timestamp sensitivity. 5 minutes chosen based on Kerberos and
+        if request_time
+            .duration_between(&TimestampAsNanoseconds::now())?
+            .as_secs()
+            > 300
+        {
+            return Err(bonsaidb_core::Error::InvalidCredentials); // TODO better error
+        }
+        let token = AuthenticationToken::get(&id, admin)?
+            .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+        AuthenticationToken::check_request_time(
+            request_time,
+            request_time_check,
+            algorithm,
+            &token.contents.token,
+        )?;
+
+        // Token authentication creates a temporary session for the token
+        // challenge. The process of finishing token authentication will remove
+        // the session.
+        let mut sessions = self.data.sessions.write();
+        sessions.last_session_id += 1;
+        let session_id = SessionId(sessions.last_session_id);
+        let nonce = thread_rng().gen::<[u8; 32]>();
+        let session = Session {
+            id: Some(session_id),
+            authentication: SessionAuthentication::TokenChallenge {
+                id,
+                algorithm: TokenChallengeAlgorithm::Blake3,
+                nonce,
+                server_timestamp: TimestampAsNanoseconds::now(),
+            },
+            permissions: Permissions::default(), /* This session will have no permissions until it finishes token authentication */
+        };
+        let authentication = Arc::new(AuthenticatedSession {
+            storage: Arc::downgrade(&self.data),
+            session: Mutex::new(session.clone()),
+        });
+        sessions.sessions.insert(session_id, authentication.clone());
+
+        Ok(Storage {
+            instance: self.clone(),
+            authentication: Some(authentication),
+            effective_session: Some(Arc::new(session)),
+        })
+    }
+
+    fn finish_token_authentication(
+        &self,
+        session_id: SessionId,
+        hash: &[u8],
+        admin: &Database,
+    ) -> Result<Storage, bonsaidb_core::Error> {
+        // Remove the temporary session so that it can't be used multiple times.
+        let session = {
+            let mut sessions = self.data.sessions.write();
+            sessions
+                .sessions
+                .remove(&session_id)
+                .ok_or(bonsaidb_core::Error::InvalidCredentials)?
+        };
+        let session = session.session.lock();
+        match &session.authentication {
+            SessionAuthentication::TokenChallenge {
+                id,
+                algorithm,
+                nonce,
+                server_timestamp,
+            } => {
+                let token = AuthenticationToken::get(id, admin)?
+                    .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+                token
+                    .contents
+                    .validate_challenge(*algorithm, *server_timestamp, nonce, hash)?;
+                match token.contents.identity {
+                    connection::IdentityId::User(id) => {
+                        let user = User::get(&id, admin)?
+                            .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+                        self.assume_user(user, admin)
+                    }
+                    connection::IdentityId::Role(id) => {
+                        let role = Role::get(&id, admin)?
+                            .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+                        self.assume_role(role, admin)
+                    }
+                    _ => Err(bonsaidb_core::Error::InvalidCredentials),
+                }
+            }
+            SessionAuthentication::None | SessionAuthentication::Identity(_) => {
+                Err(bonsaidb_core::Error::InvalidCredentials)
             }
         }
     }
@@ -761,7 +883,7 @@ impl StorageInstance {
         let session_id = SessionId(sessions.last_session_id);
         let session = Session {
             id: Some(session_id),
-            identity: Some(Arc::new(Identity::User {
+            authentication: SessionAuthentication::Identity(Arc::new(Identity::User {
                 id: user.header.id,
                 username: user.contents.username,
             })),
@@ -769,7 +891,7 @@ impl StorageInstance {
         };
         let authentication = Arc::new(AuthenticatedSession {
             storage: Arc::downgrade(&self.data),
-            session: session.clone(),
+            session: Mutex::new(session.clone()),
         });
         sessions.sessions.insert(session_id, authentication.clone());
 
@@ -795,7 +917,7 @@ impl StorageInstance {
         let session_id = SessionId(sessions.last_session_id);
         let session = Session {
             id: Some(session_id),
-            identity: Some(Arc::new(Identity::Role {
+            authentication: SessionAuthentication::Identity(Arc::new(Identity::Role {
                 id: role.header.id,
                 name: role.contents.name,
             })),
@@ -803,7 +925,7 @@ impl StorageInstance {
         };
         let authentication = Arc::new(AuthenticatedSession {
             storage: Arc::downgrade(&self.data),
-            session: session.clone(),
+            session: Mutex::new(session.clone()),
         });
         sessions.sessions.insert(session_id, authentication.clone());
 
@@ -1035,16 +1157,13 @@ impl StorageConnection for StorageInstance {
         user.update(&admin)
     }
 
-    #[cfg(feature = "password-hashing")]
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
-    fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    fn authenticate(
         &self,
-        user: U,
         authentication: Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let admin = self.admin();
-        let user = User::load(user, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
-        self.authenticate_inner(user, authentication, &admin)
+        self.authenticate_inner(authentication, None, None, &admin)
             .map(Storage::from)
     }
 
@@ -1255,28 +1374,39 @@ impl StorageConnection for Storage {
         self.instance.set_user_password(user, password)
     }
 
-    #[cfg(feature = "password-hashing")]
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
-    fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
-        &self,
-        user: U,
-        authentication: Authentication,
-    ) -> Result<Self, bonsaidb_core::Error> {
+    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    fn authenticate(&self, authentication: Authentication) -> Result<Self, bonsaidb_core::Error> {
         let admin = self.admin();
-        let user = User::load(user, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
+        let mut loaded_user = None;
         match &authentication {
-            Authentication::Password(_) => {
+            Authentication::Token { id, .. } => {
+                self.check_permission(
+                    authentication_token_resource_name(*id),
+                    &BonsaiAction::Server(ServerAction::Authenticate(AuthenticationMethod::Token)),
+                )?;
+            }
+            #[cfg(feature = "password-hashing")]
+            Authentication::Password { user, .. } => {
+                let user =
+                    User::load(user, &admin)?.ok_or(bonsaidb_core::Error::InvalidCredentials)?;
                 self.check_permission(
                     user_resource_name(user.header.id),
                     &BonsaiAction::Server(ServerAction::Authenticate(
                         AuthenticationMethod::PasswordHash,
                     )),
                 )?;
+                loaded_user = Some(user);
             }
+            Authentication::TokenChallengeResponse(_) => {}
         }
-        // TODO merge session permissions
-        self.instance
-            .authenticate_inner(user, authentication, &admin)
+        self.instance.authenticate_inner(
+            authentication,
+            loaded_user,
+            self.authentication
+                .as_ref()
+                .and_then(|auth| auth.session.lock().id),
+            &admin,
+        )
     }
 
     fn assume_identity(
@@ -1588,11 +1718,12 @@ impl StorageNonBlocking for Storage {
             .get(&session_id)
             .ok_or(bonsaidb_core::Error::InvalidCredentials)?;
 
+        let authentication_session = authentication.session.lock();
         let effective_permissions =
-            Permissions::merged([&session.permissions, &authentication.session.permissions]);
+            Permissions::merged([&session.permissions, &authentication_session.permissions]);
         let effective_session = Session {
-            id: authentication.session.id,
-            identity: authentication.session.identity.clone(),
+            id: authentication_session.id,
+            authentication: authentication_session.authentication.clone(),
             permissions: effective_permissions,
         };
 
