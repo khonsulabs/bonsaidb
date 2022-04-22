@@ -108,7 +108,7 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
         encryption_key,
         encryption_required,
         encryption_optional,
-    } = CollectionAttribute::from_attributes(attrs).unwrap_or_abort();
+    } = CollectionAttribute::from_attributes(&attrs).unwrap_or_abort();
 
     if encryption_required && encryption_key.is_none() {
         abort_call_site!("If `collection(encryption_required)` is set you need to provide an encryption key via `collection(encryption_key = EncryptionKey)`")
@@ -169,8 +169,8 @@ pub fn collection_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStr
     };
 
     let name = authority.map_or_else(
-        || quote!(<#core::schema::CollectionName as #core::schema::Qualified>::private(#name)),
-        |authority| quote!(<#core::schema::CollectionName as #core::schema::Qualified>::new(#authority, #name)),
+        || quote!(#core::schema::Qualified::private(#name)),
+        |authority| quote!(#core::schema::Qualified::new(#authority, #name)),
     );
 
     let encryption = encryption_key.map(|encryption_key| {
@@ -257,7 +257,7 @@ pub fn view_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         value,
         core,
         serialization,
-    } = ViewAttribute::from_attributes(attrs).unwrap_or_abort();
+    } = ViewAttribute::from_attributes(&attrs).unwrap_or_abort();
 
     let core = core.unwrap_or_else(core_path);
 
@@ -347,14 +347,14 @@ pub fn schema_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
         collections,
         include,
         core,
-    } = SchemaAttribute::from_attributes(attrs).unwrap_or_abort();
+    } = SchemaAttribute::from_attributes(&attrs).unwrap_or_abort();
 
     let core = core.unwrap_or_else(core_path);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     let name = authority.map_or_else(
-        || quote!(<#core::schema::SchemaName as #core::schema::Qualified>::private(#name)),
-        |authority| quote!(<#core::schema::SchemaName as #core::schema::Qualified>::new(#authority, #name)),
+        || quote!(#core::schema::Qualified::private(#name)),
+        |authority| quote!(#core::schema::Qualified::new(#authority, #name)),
     );
 
     // For some reason, quote! does not like #include.
@@ -434,7 +434,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         core,
         allow_null_bytes,
         enum_repr,
-    } = KeyAttribute::from_attributes(attrs).unwrap_or_abort();
+    } = KeyAttribute::from_attributes(&attrs).unwrap_or_abort();
 
     if matches!(data, Data::Struct(_)) && enum_repr.is_some() {
         // TODO better span when attribute-derive supports that
@@ -463,7 +463,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let (impl_generics, _, where_clause) = generics.split_for_impl();
 
     let (encode_fields, decode_fields): (TokenStream, TokenStream) = match data {
-        syn::Data::Struct(DataStruct { fields, .. }) => {
+        Data::Struct(DataStruct { fields, .. }) => {
             let (encode_fields, decode_fields) = match fields {
                 Fields::Named(FieldsNamed { named, .. }) => {
                     let (encode_fields, decode_fields): (TokenStream, TokenStream) = named
@@ -496,7 +496,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             };
             (encode_fields, quote!(let $self_ = #decode_fields;))
         }
-        syn::Data::Enum(DataEnum { variants, .. }) => {
+        Data::Enum(DataEnum { variants, .. }) => {
             let mut prev_ident = None;
             let (consts, (encode_variants, decode_variants)): (
                 TokenStream,
@@ -607,7 +607,7 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     }
                 },
                 quote! {
-                    use std::io::{self, ErrorKind};
+                    # use std::io::{self, ErrorKind};
                     #consts
                     let $self_ = match $decoder.decode::<#repr>()? {
                         #decode_variants
@@ -618,18 +618,18 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 },
             )
         }
-        syn::Data::Union(_) => abort_call_site!("unions are not supported"),
+        Data::Union(_) => abort_call_site!("unions are not supported"),
     };
 
     quote! {
-        use std::borrow::Cow;
-        use std::io::{self, ErrorKind};
+        # use std::{borrow::Cow, io::{self, ErrorKind}};
+        # use #core::key::{CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError, Key, KeyEncoding};
 
-        impl #impl_generics #core::key::Key<'key> for #ident #ty_generics #where_clause {
+        impl #impl_generics Key<'key> for #ident #ty_generics #where_clause {
 
             fn from_ord_bytes(mut $bytes: &'key [u8]) -> Result<Self, Self::Error> {
 
-                let mut $decoder = #core::key::CompositeKeyDecoder::new($bytes);
+                let mut $decoder = CompositeKeyDecoder::new($bytes);
 
                 #decode_fields
 
@@ -639,20 +639,84 @@ pub fn key_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         }
 
-        impl #impl_generics #core::key::KeyEncoding<'key, Self> for #ident #ty_generics #where_clause {
-            type Error = #core::key::CompositeKeyError;
+        impl #impl_generics KeyEncoding<'key, Self> for #ident #ty_generics #where_clause {
+            type Error = CompositeKeyError;
 
             // TODO fixed width if possible
             const LENGTH: Option<usize> = None;
 
             fn as_ord_bytes(&'key self) -> Result<Cow<'key, [u8]>, Self::Error> {
-                let mut $encoder = #core::key::CompositeKeyEncoder::default();
+                let mut $encoder = CompositeKeyEncoder::default();
 
                 #allow_null_bytes
 
                 #encode_fields
 
                 Ok(Cow::Owned($encoder.finish()))
+            }
+        }
+    }
+    .into()
+}
+
+#[derive(Attribute)]
+#[attribute(ident = "api")]
+#[attribute(
+    invalid_field = r#"Only `name = "name"`, `authority = "authority"`, `response = ResponseType`, `response = ErrorType` and `core = bonsaidb::core` are supported attributes"#
+)]
+struct ApiAttribute {
+    #[attribute(missing = r#"You need to specify the api name via `#[api(name = "name")]`"#)]
+    name: String,
+    authority: Option<String>,
+    #[attribute(expected = r#"Specify the response type like so: `response = ResponseType`"#)]
+    response: Option<Type>,
+    #[attribute(expected = r#"Specify the error type like so: `error = ErrorType`"#)]
+    error: Option<Type>,
+    #[attribute(expected = r#"Specify the the path to `core` like so: `core = bosaidb::core`"#)]
+    core: Option<Path>,
+}
+
+/// Derives the `bonsaidb::core::api::Api` trait.
+#[proc_macro_error]
+/// `#[api(name = "Name", authority = "Authority", response = ResponseType, error = ErrorType, core = bonsaidb::core]`
+/// `authority`, `response`, `error` and `core` are optional
+#[proc_macro_derive(Api, attributes(api))]
+pub fn api_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let DeriveInput {
+        attrs,
+        ident,
+        generics,
+        ..
+    } = parse_macro_input!(input as DeriveInput);
+
+    let ApiAttribute {
+        name,
+        authority,
+        response,
+        error,
+        core,
+    } = ApiAttribute::from_attributes(&attrs).unwrap_or_abort();
+
+    let core = core.unwrap_or_else(core_path);
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    let name = authority.map_or_else(
+        || quote!(#core::schema::Qualified::private(#name)),
+        |authority| quote!(#core::schema::Qualified::new(#authority, #name)),
+    );
+
+    let response = response.unwrap_or_else(|| parse_quote!(()));
+    let error = error.unwrap_or_else(|| parse_quote!(#core::api::Infallible));
+
+    quote! {
+        # use #core::{api::Api, schema::ApiName};
+
+        impl #impl_generics Api for #ident #ty_generics #where_clause {
+            type Response = #response;
+            type Error = #error;
+
+            fn name() -> ApiName {
+                #name
             }
         }
     }
