@@ -33,10 +33,7 @@ use crate::{
 ///
 /// This trait's methods are not designed for ergonomics. See
 /// [`Connection`](super::Connection) for a higher-level interface.
-pub trait LowLevelConnection: HasSession {
-    /// Returns the schema for the database.
-    fn schematic(&self) -> &Schematic;
-
+pub trait LowLevelConnection: HasSchema + HasSession {
     /// Inserts a newly created document into the connected [`schema::Schema`]
     /// for the [`Collection`](schema::Collection) `C`. If `id` is `None` a unique id will be
     /// generated. If an id is provided and a document already exists with that
@@ -626,10 +623,7 @@ pub trait LowLevelConnection: HasSession {
 /// This trait's methods are not designed for ergonomics. See
 /// [`AsyncConnection`](super::AsyncConnection) for a higher-level interface.
 #[async_trait]
-pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
-    /// Returns the schema for the database.
-    fn schematic(&self) -> &Schematic;
-
+pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// Inserts a newly created document into the connected [`schema::Schema`]
     /// for the [`Collection`](schema::Collection) `C`. If `id` is `None` a unique id will be
     /// generated. If an id is provided and a document already exists with that
@@ -1244,4 +1238,10 @@ pub trait AsyncLowLevelConnection: HasSession + Send + Sync {
         key: Option<SerializedQueryKey>,
         access_policy: AccessPolicy,
     ) -> Result<u64, Error>;
+}
+
+/// Access to a connection's schema.
+pub trait HasSchema {
+    /// Returns the schema for the database.
+    fn schematic(&self) -> &Schematic;
 }

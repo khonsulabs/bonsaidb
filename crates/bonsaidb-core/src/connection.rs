@@ -1,4 +1,7 @@
-use std::{borrow::Borrow, marker::PhantomData, ops::Deref, sync::Arc};
+use std::{
+    borrow::Borrow, convert::Infallible, marker::PhantomData, ops::Deref, string::FromUtf8Error,
+    sync::Arc,
+};
 
 use actionable::{Action, Identifier};
 use arc_bytes::serde::Bytes;
@@ -8,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use crate::{
+    admin::{Role, User},
     document::{CollectionDocument, CollectionHeader, Document, HasHeader, Header, OwnedDocument},
     key::{IntoPrefixRange, Key, KeyEncoding},
     permissions::Permissions,
@@ -24,7 +28,7 @@ mod lowlevel;
 
 pub use self::{
     has_session::HasSession,
-    lowlevel::{AsyncLowLevelConnection, LowLevelConnection},
+    lowlevel::{AsyncLowLevelConnection, HasSchema, LowLevelConnection},
 };
 
 /// A connection to a database's [`Schema`](schema::Schema), giving access to
@@ -3049,21 +3053,67 @@ pub trait StorageConnection: HasSession + Sized + Send + Sync {
         password: SensitiveString,
     ) -> Result<(), crate::Error>;
 
-    /// Authenticates as a user with a authentication method.
-    #[cfg(feature = "password-hashing")]
-    fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
+    /// Authenticates using the active session, returning a connection with a
+    /// new session upon success. The existing connection will remain usable
+    /// with the existing authentication, if any.
+    #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
+    fn authenticate(
         &self,
-        user: U,
         authentication: Authentication,
     ) -> Result<Self::Authenticated, crate::Error>;
 
     /// Assumes the `identity`. If successful, the returned instance will have
-    /// the merged permissions of the current authentication session and the
-    /// permissions from `identity`.
+    ///  the permissions from `identity`.
     fn assume_identity(
         &self,
         identity: IdentityReference<'_>,
     ) -> Result<Self::Authenticated, crate::Error>;
+
+    /// Authenticates using an
+    /// [`AuthenticationToken`](crate::admin::AuthenticationToken). If
+    ///  successful, the returned instance will have the permissions from
+    ///  `identity`.
+    #[cfg(feature = "token-authentication")]
+    fn authenticate_with_token(
+        &self,
+        id: u64,
+        token: &SensitiveBytes,
+    ) -> Result<<Self::Authenticated as StorageConnection>::Authenticated, crate::Error> {
+        let challenge_session = self.authenticate(Authentication::token(id, token)?)?;
+        match challenge_session
+            .session()
+            .map(|session| &session.authentication)
+        {
+            Some(SessionAuthentication::TokenChallenge {
+                algorithm: TokenChallengeAlgorithm::Blake3,
+                nonce,
+                server_timestamp,
+                ..
+            }) => {
+                let response = crate::admin::AuthenticationToken::compute_challenge_response_blake3(
+                    token,
+                    nonce,
+                    *server_timestamp,
+                );
+                challenge_session.authenticate(Authentication::TokenChallengeResponse(Bytes::from(
+                    response.as_bytes().to_vec(),
+                )))
+            }
+            _ => Err(crate::Error::InvalidCredentials),
+        }
+    }
+
+    /// Authenticates a [`User`](crate::admin::User) using a password. If
+    ///  successful, the returned instance will have the permissions from
+    ///  `identity`.
+    #[cfg(feature = "password-hashing")]
+    fn authenticate_with_password<'name, User: Nameable<'name, u64>>(
+        &self,
+        user: User,
+        password: SensitiveString,
+    ) -> Result<Self::Authenticated, crate::Error> {
+        self.authenticate(Authentication::password(user, password)?)
+    }
 
     /// Adds a user to a permission group.
     fn add_permission_group_to_user<
@@ -3195,13 +3245,64 @@ pub trait AsyncStorageConnection: HasSession + Sized + Send + Sync {
         password: SensitiveString,
     ) -> Result<(), crate::Error>;
 
-    /// Authenticates as a user with a authentication method.
-    #[cfg(feature = "password-hashing")]
-    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
+    /// Authenticates using an
+    /// [`AuthenticationToken`](crate::admin::AuthenticationToken). If
+    ///  successful, the returned instance will have the permissions from
+    ///  `identity`.
+    #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
+    async fn authenticate(
         &self,
-        user: U,
         authentication: Authentication,
     ) -> Result<Self::Authenticated, crate::Error>;
+
+    /// Authenticates using an
+    /// [`AuthenticationToken`](crate::admin::AuthenticationToken). If
+    ///  successful, the returned instance will have the permissions from
+    ///  `identity`.
+    #[cfg(feature = "token-authentication")]
+    async fn authenticate_with_token(
+        &self,
+        id: u64,
+        token: &SensitiveBytes,
+    ) -> Result<<Self::Authenticated as AsyncStorageConnection>::Authenticated, crate::Error> {
+        let challenge_session = self.authenticate(Authentication::token(id, token)?).await?;
+        match challenge_session
+            .session()
+            .map(|session| &session.authentication)
+        {
+            Some(SessionAuthentication::TokenChallenge {
+                algorithm: TokenChallengeAlgorithm::Blake3,
+                nonce,
+                server_timestamp,
+                ..
+            }) => {
+                let response = crate::admin::AuthenticationToken::compute_challenge_response_blake3(
+                    token,
+                    nonce,
+                    *server_timestamp,
+                );
+                challenge_session
+                    .authenticate(Authentication::TokenChallengeResponse(Bytes::from(
+                        response.as_bytes().to_vec(),
+                    )))
+                    .await
+            }
+            _ => Err(crate::Error::InvalidCredentials),
+        }
+    }
+
+    /// Authenticates a [`User`](crate::admin::User) using a password. If
+    ///  successful, the returned instance will have the permissions from
+    ///  `identity`.
+    #[cfg(feature = "password-hashing")]
+    async fn authenticate_with_password<'name, User: Nameable<'name, u64> + Send>(
+        &self,
+        user: User,
+        password: SensitiveString,
+    ) -> Result<Self::Authenticated, crate::Error> {
+        self.authenticate(Authentication::password(user, password)?)
+            .await
+    }
 
     /// Assumes the `identity`. If successful, the returned instance will have
     /// the merged permissions of the current authentication session and the
@@ -3269,9 +3370,9 @@ pub struct Database {
     pub schema: SchemaName,
 }
 
-/// A plain-text password. This struct automatically overwrites the password
-/// with zeroes when dropped.
-#[derive(Clone, Serialize, Deserialize, Zeroize)]
+/// A string containing sensitive (private) data. This struct automatically
+/// overwrites its contents with zeroes when dropped.
+#[derive(Clone, Serialize, Deserialize, Zeroize, Eq, PartialEq)]
 #[zeroize(drop)]
 #[serde(transparent)]
 pub struct SensitiveString(pub String);
@@ -3290,12 +3391,118 @@ impl Deref for SensitiveString {
     }
 }
 
-/// User authentication methods.
+impl<'k> Key<'k> for SensitiveString {
+    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+        String::from_ord_bytes(bytes).map(Self)
+    }
+}
+
+impl<'k> KeyEncoding<'k, Self> for SensitiveString {
+    type Error = FromUtf8Error;
+
+    const LENGTH: Option<usize> = None;
+
+    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
+        self.0.as_ord_bytes()
+    }
+}
+
+/// A buffer containing sensitive (private) data. This struct automatically
+/// overwrites its contents with zeroes when dropped.
+#[derive(Clone, Serialize, Deserialize, Zeroize, Eq, PartialEq)]
+#[zeroize(drop)]
+#[serde(transparent)]
+pub struct SensitiveBytes(pub Bytes);
+
+impl std::fmt::Debug for SensitiveBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SensitiveBytes(...)")
+    }
+}
+
+impl Deref for SensitiveBytes {
+    type Target = Bytes;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'k> Key<'k> for SensitiveBytes {
+    fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
+        Bytes::from_ord_bytes(bytes).map(Self)
+    }
+}
+
+impl<'k> KeyEncoding<'k, Self> for SensitiveBytes {
+    type Error = Infallible;
+
+    const LENGTH: Option<usize> = None;
+
+    fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
+        self.0.as_ord_bytes()
+    }
+}
+
+/// Authentication methods.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[must_use]
 pub enum Authentication {
-    /// Authenticate using a password.
+    /// Initialize token-based authentication.
+    #[cfg(feature = "token-authentication")]
+    Token {
+        /// The unique token id.
+        id: u64,
+        /// The current timestamp of the authenticating device. This must be
+        /// within 5 minutes of the server's time for token authentication to
+        /// succeed.
+        now: crate::key::time::TimestampAsNanoseconds,
+        /// The hash of `now`, using the private token as key matter.
+        now_hash: Bytes,
+        /// The token challenge algorithm used to generate `now_hash`.
+        algorithm: TokenChallengeAlgorithm,
+    },
+    /// A response to the server's token authentication challenge.
+    #[cfg(feature = "token-authentication")]
+    TokenChallengeResponse(Bytes),
+    /// Authenticate a user with a password.
     #[cfg(feature = "password-hashing")]
-    Password(crate::connection::SensitiveString),
+    Password {
+        /// The username or the user id to authenticate as.
+        user: NamedReference<'static, u64>,
+        /// The password of the user.
+        password: SensitiveString,
+    },
+}
+
+impl Authentication {
+    /// Returns an authentication instance for this user and password.
+    #[cfg(feature = "password-hashing")]
+    pub fn password<'user, UsernameOrId: Nameable<'user, u64>>(
+        user: UsernameOrId,
+        password: SensitiveString,
+    ) -> Result<Self, crate::Error> {
+        Ok(Self::Password {
+            user: user.name()?.into_owned(),
+            password,
+        })
+    }
+
+    /// Returns a token authentication initialization instance for this token.
+    #[cfg(feature = "token-authentication")]
+    pub fn token(id: u64, token: &SensitiveBytes) -> Result<Self, crate::Error> {
+        let now = crate::key::time::TimestampAsNanoseconds::now();
+        Ok(Self::Token {
+            id,
+            now,
+            now_hash: Bytes::from(
+                crate::admin::AuthenticationToken::compute_request_time_hash_blake3(now, token)
+                    .as_bytes()
+                    .to_vec(),
+            ),
+            algorithm: TokenChallengeAlgorithm::Blake3,
+        })
+    }
 }
 
 #[doc(hidden)]
@@ -3394,9 +3601,83 @@ pub struct Session {
     /// The session's unique ID.
     pub id: Option<SessionId>,
     /// The authenticated identity, if any.
-    pub identity: Option<Arc<Identity>>,
+    pub authentication: SessionAuthentication,
     /// The effective permissions of the session.
     pub permissions: Permissions,
+}
+
+/// The authentication state of a [`Session`].
+#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize, Deserialize)]
+pub enum SessionAuthentication {
+    /// The session is unauthenticated.
+    None,
+    /// The session is authenticated as an identity.
+    Identity(Arc<Identity>),
+    /// The session is pending authentication using a token.
+    #[cfg(feature = "token-authentication")]
+    TokenChallenge {
+        /// The id of the token being authenticated
+        id: u64,
+        /// The algorithm the server has chosen for the token challenge.
+        algorithm: TokenChallengeAlgorithm,
+        /// Random data generated by the server to be hashed during the
+        /// challenge.
+        nonce: [u8; 32],
+        /// The server timestamp that is used for authenticated extra data.
+        server_timestamp: crate::key::time::TimestampAsNanoseconds,
+    },
+}
+
+impl Default for SessionAuthentication {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+/// A token challenge algorith designates with which algorthm to authenticate
+/// tokens.
+#[derive(Hash, Eq, PartialEq, Clone, Copy, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
+#[cfg(feature = "token-authentication")]
+pub enum TokenChallengeAlgorithm {
+    /// Authenticate tokens using [`blake3`](https://crates.io/crates/blake3).
+    ///
+    /// The initial request requires a hash of [`TimestampAsNanoseconds::now()`]
+    /// to be performed using [`blake3::keyed_hash()`]. The key is derived using
+    /// [`blake3::derive_key()`] using a context formatted like this: `bonsaidb
+    /// {now} token-authentication`. The `now` value should be timestamp's
+    /// nanoseconds relative to [`BonsaiEpoch`](crate::key::time::BonsaiEpoch),
+    /// and the hash's contents should be the 8-byte big-endian representation
+    /// of the nanoseconds as an i64.
+    ///
+    /// The storage will verify that the timestamp is within a reasonable delta
+    /// of the server's current time, and it will verify the private token was
+    /// used to generate the hash sent. To prevent replay attacks and add
+    /// additional security, the server will return a new [`Session`] whose
+    /// authentication field is [`SessionAuthentication::TokenChallenge`].
+    ///
+    /// The connector must use the new connection to call `authenticate()` with
+    /// [`Authentication::TokenChallengeResponse`]. It is possible that the
+    /// server will elect a different challenge algorithm than the connector
+    /// chose when initially authenticating.
+    ///
+    /// To generate the challenge response for [`blake3`],
+    /// [`blake3::keyed_hash()`] is used to hash the `nonce`. The key is derived
+    /// using [`blake3::derive_key()`] using a context formatted like this:
+    /// `bonsaidb {server_timestamp} token-challenge`. The `server_timestamp`
+    /// value should be timestamp's nanoseconds relative to
+    /// [`BonsaiEpoch`](crate::key::time::BonsaiEpoch).
+    Blake3,
+}
+
+/// Methods for authentication.
+#[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
+pub enum AuthenticationMethod {
+    /// Authenticate the user or role using an
+    /// [`AuthenticationToken`](crate::admin::AuthenticationToken).
+    Token,
+    /// Authenticate a user using password hashing (Argon2).
+    PasswordHash,
 }
 
 /// A unique session ID.
@@ -3426,19 +3707,29 @@ impl Session {
             .check(resource_name, action)
             .map_err(Error::from)
     }
+
+    /// Returns the identity that this session is authenticated as, if any.
+    #[must_use]
+    pub fn identity(&self) -> Option<&Identity> {
+        if let SessionAuthentication::Identity(identity) = &self.authentication {
+            Some(identity)
+        } else {
+            None
+        }
+    }
 }
 
 impl Eq for Session {}
 
 impl PartialEq for Session {
     fn eq(&self, other: &Self) -> bool {
-        self.identity == other.identity
+        self.authentication == other.authentication
     }
 }
 
 impl std::hash::Hash for Session {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.identity.hash(state);
+        self.authentication.hash(state);
     }
 }
 
@@ -3500,6 +3791,18 @@ pub enum IdentityReference<'name> {
 }
 
 impl<'name> IdentityReference<'name> {
+    /// Returns a reference to a [`User`]. This function accepts either the
+    /// user's unique id or their username.
+    pub fn user<User: Nameable<'name, u64>>(user: User) -> Result<Self, crate::Error> {
+        Ok(Self::User(user.name()?))
+    }
+
+    /// Returns a reference to a [`Role`]. This function accepts either the
+    /// role's unique id or the role's name.
+    pub fn role<Role: Nameable<'name, u64>>(role: Role) -> Result<Self, crate::Error> {
+        Ok(Self::Role(role.name()?))
+    }
+
     /// Converts this reference to an owned reference with a `'static` lifetime.
     #[must_use]
     pub fn into_owned(self) -> IdentityReference<'static> {
@@ -3508,4 +3811,37 @@ impl<'name> IdentityReference<'name> {
             IdentityReference::Role(role) => IdentityReference::Role(role.into_owned()),
         }
     }
+
+    /// Resolves this reference to the unique id.
+    pub fn resolve<C: Connection>(&self, admin: &C) -> Result<Option<IdentityId>, crate::Error> {
+        match self {
+            IdentityReference::User(name) => Ok(name.id::<User, _>(admin)?.map(IdentityId::User)),
+            IdentityReference::Role(name) => Ok(name.id::<Role, _>(admin)?.map(IdentityId::Role)),
+        }
+    }
+
+    /// Resolves this reference to the unique id.
+    pub async fn resolve_async<C: AsyncConnection>(
+        &self,
+        admin: &C,
+    ) -> Result<Option<IdentityId>, crate::Error> {
+        match self {
+            IdentityReference::User(name) => {
+                Ok(name.id_async::<User, _>(admin).await?.map(IdentityId::User))
+            }
+            IdentityReference::Role(name) => {
+                Ok(name.id_async::<Role, _>(admin).await?.map(IdentityId::Role))
+            }
+        }
+    }
+}
+
+/// An identity from the connected BonsaiDb instance.
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum IdentityId {
+    /// A [`User`](crate::admin::User) id.
+    User(u64),
+    /// A [`Role`](crate::admin::Role) id.
+    Role(u64),
 }

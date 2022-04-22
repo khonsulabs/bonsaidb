@@ -18,7 +18,7 @@ use bonsaidb_core::{
         ReduceGrouped, SubscribeTo, UnsubscribeFrom,
     },
     pubsub::{AsyncSubscriber, PubSub, Receiver, Subscriber},
-    schema::{view::map, CollectionName, Schematic, ViewName},
+    schema::{view::map, CollectionName, ViewName},
 };
 use futures::Future;
 use tokio::{
@@ -108,16 +108,13 @@ impl StorageConnection for Client {
         })?)
     }
 
-    #[cfg(feature = "password-hashing")]
-    fn authenticate<'user, U: bonsaidb_core::schema::Nameable<'user, u64> + Send + Sync>(
+    #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
+    fn authenticate(
         &self,
-        user: U,
         authentication: bonsaidb_core::connection::Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
-        let session = self.send_api_request(&bonsaidb_core::networking::Authenticate {
-            user: user.name()?.into_owned(),
-            authentication,
-        })?;
+        let session =
+            self.send_api_request(&bonsaidb_core::networking::Authenticate { authentication })?;
         Ok(Self {
             data: self.data.clone(),
             session: Arc::new(session),
@@ -249,10 +246,6 @@ impl Connection for RemoteDatabase {
 }
 
 impl LowLevelConnection for RemoteDatabase {
-    fn schematic(&self) -> &Schematic {
-        &self.schema
-    }
-
     fn apply_transaction(
         &self,
         transaction: bonsaidb_core::transaction::Transaction,

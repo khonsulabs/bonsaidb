@@ -70,6 +70,13 @@ password-hashing = [
     "bonsaidb-client?/password-hashing",
 ]
 
+token-authentication = [
+    "bonsaidb-core/token-authentication",
+    "bonsaidb-local?/token-authentication",
+    "bonsaidb-server?/token-authentication",
+    "bonsaidb-client?/token-authentication",
+]
+
 compression = ["bonsaidb-local?/compression", "bonsaidb-server?/compression"]
 
 async = ["bonsaidb-local?/async"]

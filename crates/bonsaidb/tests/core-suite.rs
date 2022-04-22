@@ -21,10 +21,7 @@ use bonsaidb::{
         DefaultPermissions, Server, ServerConfiguration,
     },
 };
-use bonsaidb_core::{
-    connection::{Authentication, SensitiveString},
-    permissions::bonsai::AuthenticationMethod,
-};
+use bonsaidb_core::connection::{Authentication, AuthenticationMethod, SensitiveString};
 use once_cell::sync::Lazy;
 use rand::{distributions::Alphanumeric, Rng};
 use tokio::sync::Mutex;
@@ -371,7 +368,7 @@ async fn assume_permissions(
     };
 
     connection
-        .authenticate(&username, Authentication::Password(password))
+        .authenticate(Authentication::password(username, password)?)
         .await
         .unwrap();
 
@@ -421,10 +418,10 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
     }
 
     let authenticated_client = client
-        .authenticate(
+        .authenticate(Authentication::password(
             "ecton",
-            Authentication::Password(SensitiveString(String::from("hunter2"))),
-        )
+            SensitiveString(String::from("hunter2")),
+        )?)
         .await
         .unwrap();
     authenticated_client

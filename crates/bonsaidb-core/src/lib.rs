@@ -59,9 +59,9 @@ pub use transmog;
 pub use transmog_pot;
 
 use crate::{
-    connection::LowLevelConnection,
+    connection::HasSchema,
     document::{DocumentId, Header, InvalidHexadecimal},
-    key::NextValueError,
+    key::{time::TimeError, NextValueError},
     schema::{ApiName, InsertError},
 };
 
@@ -229,15 +229,16 @@ pub enum Error {
     /// A floating point operation yielded Not a Number.
     #[error("floating point operation yielded NaN")]
     NotANumber,
+
+    /// An error while operating with a time
+    #[error("time error: {0}")]
+    Time(#[from] TimeError),
 }
 
 impl Error {
     /// Returns true if this error is a [`Error::UniqueKeyViolation`] from
     /// `View`.
-    pub fn is_unique_key_error<View: schema::View, C: LowLevelConnection>(
-        &self,
-        connection: &C,
-    ) -> bool {
+    pub fn is_unique_key_error<View: schema::View, C: HasSchema>(&self, connection: &C) -> bool {
         if let Self::UniqueKeyViolation { view, .. } = self {
             if let Ok(schema_view) = connection.schematic().view::<View>() {
                 return view == &schema_view.view_name();

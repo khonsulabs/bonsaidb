@@ -3,7 +3,7 @@ use std::{ops::Deref, sync::Arc};
 use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{
-        AccessPolicy, AsyncConnection, AsyncLowLevelConnection, HasSession, Range,
+        AccessPolicy, AsyncConnection, AsyncLowLevelConnection, HasSchema, HasSession, Range,
         SerializedQueryKey, Session, Sort,
     },
     document::{DocumentId, Header, OwnedDocument},
@@ -113,10 +113,6 @@ impl AsyncConnection for RemoteDatabase {
 
 #[async_trait]
 impl AsyncLowLevelConnection for RemoteDatabase {
-    fn schematic(&self) -> &Schematic {
-        &self.schema
-    }
-
     async fn apply_transaction(
         &self,
         transaction: Transaction,
@@ -317,5 +313,11 @@ impl AsyncLowLevelConnection for RemoteDatabase {
                 access_policy,
             })
             .await?)
+    }
+}
+
+impl HasSchema for RemoteDatabase {
+    fn schematic(&self) -> &Schematic {
+        &self.schema
     }
 }

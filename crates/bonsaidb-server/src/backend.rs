@@ -75,7 +75,7 @@ pub trait Backend: Debug + Send + Sync + Sized + 'static {
         log::info!(
             "{:?} client authenticated as user: {:?}",
             client.transport(),
-            session.identity
+            session.authentication
         );
         Ok(())
     }

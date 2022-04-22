@@ -196,7 +196,7 @@ impl<B: Backend> Handler<B, Authenticate> for ServerDispatcher {
     ) -> HandlerResult<Authenticate> {
         let authenticated = session
             .as_client
-            .authenticate(command.user, command.authentication)
+            .authenticate(command.authentication)
             .await?;
         let new_session = authenticated.session().cloned().unwrap();
 

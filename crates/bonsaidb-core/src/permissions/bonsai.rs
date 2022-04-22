@@ -2,6 +2,7 @@ use actionable::{Action, Identifier, ResourceName};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    connection::AuthenticationMethod,
     document::{DocumentId, KeyId},
     schema::{CollectionName, ViewName},
 };
@@ -98,6 +99,14 @@ pub fn role_resource_name<'a>(role_id: u64) -> ResourceName<'a> {
     bonsaidb_resource_name().and("role").and(role_id)
 }
 
+/// Creates a resource name for `token_id`.
+#[must_use]
+pub fn authentication_token_resource_name<'a>(token_id: u64) -> ResourceName<'a> {
+    bonsaidb_resource_name()
+        .and("authentication-token")
+        .and(token_id)
+}
+
 /// Actions that can be permitted within BonsaiDb.
 #[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum BonsaiAction {
@@ -139,13 +148,6 @@ pub enum ServerAction {
     /// Permits .
     /// Permits [`StorageConnection::add_role_to_user`](crate::connection::StorageConnection::add_role_to_user) and [`StorageConnection::remove_role_from_user`](crate::connection::StorageConnection::remove_role_from_user).
     ModifyUserRoles,
-}
-
-/// Methods for user authentication.
-#[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
-pub enum AuthenticationMethod {
-    /// Authenticate the user using password hashing (Argon2).
-    PasswordHash,
 }
 
 /// Actions that operate on a specific database.

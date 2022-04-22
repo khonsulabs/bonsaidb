@@ -3,7 +3,8 @@ use std::ops::Deref;
 use async_trait::async_trait;
 use bonsaidb_core::{
     connection::{
-        AccessPolicy, AsyncLowLevelConnection, HasSession, Range, SerializedQueryKey, Sort,
+        AccessPolicy, AsyncLowLevelConnection, HasSchema, HasSession, Range, SerializedQueryKey,
+        Sort,
     },
     document::{DocumentId, Header, OwnedDocument},
     keyvalue::AsyncKeyValue,
@@ -140,10 +141,6 @@ impl<B: Backend> AsyncKeyValue for ServerDatabase<B> {
 
 #[async_trait]
 impl<B: Backend> AsyncLowLevelConnection for ServerDatabase<B> {
-    fn schematic(&self) -> &Schematic {
-        self.db.schematic()
-    }
-
     async fn get_from_collection(
         &self,
         id: DocumentId,
@@ -259,5 +256,11 @@ impl<B: Backend> AsyncLowLevelConnection for ServerDatabase<B> {
         transaction: Transaction,
     ) -> Result<Vec<OperationResult>, bonsaidb_core::Error> {
         self.db.apply_transaction(transaction).await
+    }
+}
+
+impl<B: Backend> HasSchema for ServerDatabase<B> {
+    fn schematic(&self) -> &Schematic {
+        self.db.schematic()
     }
 }

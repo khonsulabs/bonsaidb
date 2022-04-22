@@ -13,8 +13,6 @@ use std::{
 
 use async_lock::{Mutex, RwLock};
 use async_trait::async_trait;
-#[cfg(feature = "password-hashing")]
-use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
     api,
@@ -875,13 +873,12 @@ impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
         self.storage.set_user_password(user, password).await
     }
 
-    #[cfg(feature = "password-hashing")]
-    async fn authenticate<'user, U: Nameable<'user, u64> + Send + Sync>(
+    #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
+    async fn authenticate(
         &self,
-        user: U,
-        authentication: Authentication,
+        authentication: bonsaidb_core::connection::Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
-        let storage = self.storage.authenticate(user, authentication).await?;
+        let storage = self.storage.authenticate(authentication).await?;
         Ok(Self {
             data: self.data.clone(),
             storage,
