@@ -730,7 +730,7 @@ impl StorageInstance {
             not(feature = "token-authentication"),
             not(feature = "password-hashing")
         ),
-        allow(unused_variables)
+        allow(unused_variables, clippy::needless_pass_by_value)
     )]
     fn authenticate_inner(
         &self,

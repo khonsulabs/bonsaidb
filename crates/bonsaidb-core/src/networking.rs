@@ -147,14 +147,14 @@ impl Api for SetUserPassword {
 }
 
 /// Authenticate the current connection.
-#[cfg(feature = "password-hashing")]
+#[cfg(any(feature = "password-hashing", feature = "token-authentication"))]
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Authenticate {
     /// The method of authentication.
     pub authentication: crate::connection::Authentication,
 }
 
-#[cfg(feature = "password-hashing")]
+#[cfg(any(feature = "password-hashing", feature = "token-authentication"))]
 impl Api for Authenticate {
     type Response = Session;
     type Error = crate::Error;

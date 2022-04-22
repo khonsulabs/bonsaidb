@@ -12,8 +12,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-#[cfg(feature = "password-hashing")]
-use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
     api::{self, Api},
@@ -696,7 +694,7 @@ impl AsyncStorageConnection for Client {
     #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     async fn authenticate(
         &self,
-        authentication: Authentication,
+        authentication: bonsaidb_core::connection::Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         let session = self
             .send_api_request_async(&bonsaidb_core::networking::Authenticate { authentication })

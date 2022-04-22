@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-#[cfg(feature = "password-hashing")]
-use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     connection::{
         self, AccessPolicy, AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection,
@@ -471,7 +469,7 @@ impl AsyncStorageConnection for AsyncStorage {
     #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     async fn authenticate(
         &self,
-        authentication: Authentication,
+        authentication: bonsaidb_core::connection::Authentication,
     ) -> Result<Self, bonsaidb_core::Error> {
         let task_self = self.clone();
         self.runtime

@@ -1,6 +1,4 @@
 use bonsaidb_client::{Client, RemoteDatabase};
-#[cfg(feature = "password-hashing")]
-use bonsaidb_core::connection::Authentication;
 use bonsaidb_core::{
     async_trait::async_trait,
     connection::{
@@ -133,7 +131,7 @@ impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
     #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     async fn authenticate(
         &self,
-        authentication: Authentication,
+        authentication: bonsaidb_core::connection::Authentication,
     ) -> Result<Self::Authenticated, bonsaidb_core::Error> {
         match self {
             Self::Local(server) => server.authenticate(authentication).await.map(Self::Local),
