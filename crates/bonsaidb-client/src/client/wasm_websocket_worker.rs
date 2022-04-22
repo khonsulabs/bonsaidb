@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bonsaidb_core::{networking::Payload, api::ApiName};
+use bonsaidb_core::{api::ApiName, networking::Payload};
 use bonsaidb_utils::fast_async_lock;
 use flume::Receiver;
 use url::Url;

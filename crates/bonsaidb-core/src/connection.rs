@@ -3642,13 +3642,15 @@ impl Default for SessionAuthentication {
 pub enum TokenChallengeAlgorithm {
     /// Authenticate tokens using [`blake3`](https://crates.io/crates/blake3).
     ///
-    /// The initial request requires a hash of [`TimestampAsNanoseconds::now()`]
+    /// The initial request requires a hash of
+    /// [`TimestampAsNanoseconds::now()`](crate::key::time::TimestampAsNanoseconds::now)
     /// to be performed using [`blake3::keyed_hash()`]. The key is derived using
     /// [`blake3::derive_key()`] using a context formatted like this: `bonsaidb
     /// {now} token-authentication`. The `now` value should be timestamp's
-    /// nanoseconds relative to [`BonsaiEpoch`](crate::key::time::BonsaiEpoch),
-    /// and the hash's contents should be the 8-byte big-endian representation
-    /// of the nanoseconds as an i64.
+    /// nanoseconds relative to
+    /// [`BonsaiEpoch`](crate::key::time::limited::BonsaiEpoch), and the hash's
+    /// contents should be the 8-byte big-endian representation of the
+    /// nanoseconds as an i64.
     ///
     /// The storage will verify that the timestamp is within a reasonable delta
     /// of the server's current time, and it will verify the private token was
@@ -3666,7 +3668,7 @@ pub enum TokenChallengeAlgorithm {
     /// using [`blake3::derive_key()`] using a context formatted like this:
     /// `bonsaidb {server_timestamp} token-challenge`. The `server_timestamp`
     /// value should be timestamp's nanoseconds relative to
-    /// [`BonsaiEpoch`](crate::key::time::BonsaiEpoch).
+    /// [`BonsaiEpoch`](crate::key::time::limited::BonsaiEpoch).
     Blake3,
 }
 

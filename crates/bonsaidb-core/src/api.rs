@@ -8,7 +8,41 @@ use serde::{Deserialize, Serialize};
 
 use crate::schema::{Authority, Name, Qualified, QualifiedName};
 
-/// An API request type.
+/// An API request type. This trait is used by BonsaiDb's server to allow a
+/// client to send a request of this type, and the server can respond with a
+/// `Result<`[`Api::Response`]`,`[`Api::Error`]`>`.
+///
+/// # Deriving this trait
+///
+/// This trait can be derived. The only required attribute is `name`:
+///
+/// - `name = "api-name"` or `name = "api-name", authority = "api-authority"`:
+///   Configures the Api's fully qualified name. This name must be unique across
+///   all other Apis installed. When creating an Api that is meant to be reused,
+///   ensure that a unique authority is used to prevent name collisions.
+/// - `response = ResponseType`: Configures the [`Api::Response`] associated
+///   type. This is the type that the handler will return upon success. If not
+///   specified, `()` is used.
+/// - `error = ErrorType`: Configures the [`Api::Error`] associated type. This
+///   is the type that the handler will return upon error. If not specified,
+///   [`Infallible`] is used.
+///
+/// ```rust
+/// use bonsaidb_core::api::Api;
+/// use serde::{Deserialize, Serialize};
+///
+/// #[derive(Api, Debug, Serialize, Deserialize)]
+/// #[api(name = "list-records", response = Vec<Record>)]
+/// # #[api(core = bonsaidb_core)]
+/// struct ListRecords {
+///     starting_id: u64,
+/// }
+///
+/// #[derive(Debug, Serialize, Deserialize, Clone)]
+/// struct Record {
+///     title: String,
+/// }
+/// ```
 pub trait Api: Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug + 'static {
     /// The type that represents an API response. This type will be sent to clients from the server.
     type Response: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug;
