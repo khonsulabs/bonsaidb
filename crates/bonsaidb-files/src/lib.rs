@@ -117,6 +117,52 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
         direct::File::<_, Self>::load(path, database)
     }
 
+    /// Returns the file locate at `path`, or creates an empty file if not
+    /// currently present.
+    ///
+    /// If `expect_present` is true, this function will first check for an
+    /// existing file before attempting to create the file. This parameter is
+    /// purely an optimization, and the function will work regardless of the
+    /// value. Pass true if you expect the file to be present a majority of the
+    /// time this function is invoked. For example, using this function to
+    /// retrieve a file created once and append to the same path in the future,
+    /// passing true will make this function slightly more optimized for the
+    /// most common flow.
+    ///
+    /// Regardless whether `expect_present` is true or false, this function will
+    /// proceed by attempting to create a file at `path`, relying on BonsaiDb's
+    /// ACID-compliance to notify of a conflict if another request succeeds
+    /// before this one. If a conflict occurs, this function will then attempt
+    /// to load the document. If the document has been deleted, the
+    /// [`Error::Deleted`] will be returned.
+    fn load_or_create<Database: Connection + Clone>(
+        path: &str,
+        expect_present: bool,
+        database: Database,
+    ) -> Result<direct::File<direct::Blocking<Database>, Self>, Error> {
+        // First, try loading the file if we expect the file will be present
+        // (ie, a singleton file that is always preseent after the first
+        // launch).
+        if expect_present {
+            if let Some(file) = direct::File::<_, Self>::load(path, database.clone())? {
+                return Ok(file);
+            }
+        }
+
+        // File not found, or we are going to assume the file isn't present.
+        match Self::build(path).create(database.clone()) {
+            Ok(file) => Ok(file),
+            Err(Error::AlreadyExists) => {
+                // Rather than continue to loop, we will just propogate the
+                // previous error in the situation where the file was deleted
+                // between our failed attempt to create and the attempt to
+                // retrieve the conflicted document.
+                direct::File::<_, Self>::load(path, database)?.ok_or(Error::Deleted)
+            }
+            Err(other) => Err(other),
+        }
+    }
+
     /// Returns all files that have a containing path of exactly `path`. It will
     /// only return files that have been created, and will not return "virtual"
     /// directories that are part of a file's path but have never been created.
@@ -161,6 +207,55 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
         database: Database,
     ) -> Result<Option<direct::File<direct::Async<Database>, Self>>, Error> {
         direct::File::<_, Self>::load_async(path, database).await
+    }
+
+    /// Returns the file locate at `path`, or creates an empty file if not
+    /// currently present.
+    ///
+    /// If `expect_present` is true, this function will first check for an
+    /// existing file before attempting to create the file. This parameter is
+    /// purely an optimization, and the function will work regardless of the
+    /// value. Pass true if you expect the file to be present a majority of the
+    /// time this function is invoked. For example, using this function to
+    /// retrieve a file created once and append to the same path in the future,
+    /// passing true will make this function slightly more optimized for the
+    /// most common flow.
+    ///
+    /// Regardless whether `expect_present` is true or false, this function will
+    /// proceed by attempting to create a file at `path`, relying on BonsaiDb's
+    /// ACID-compliance to notify of a conflict if another request succeeds
+    /// before this one. If a conflict occurs, this function will then attempt
+    /// to load the document. If the document has been deleted, the
+    /// [`Error::Deleted`] will be returned.
+    #[cfg(feature = "async")]
+    async fn load_or_create_async<Database: AsyncConnection + Clone>(
+        path: &str,
+        expect_present: bool,
+        database: Database,
+    ) -> Result<direct::File<direct::Async<Database>, Self>, Error> {
+        // First, try loading the file if we expect the file will be present
+        // (ie, a singleton file that is always preseent after the first
+        // launch).
+        if expect_present {
+            if let Some(file) = direct::File::<_, Self>::load_async(path, database.clone()).await? {
+                return Ok(file);
+            }
+        }
+
+        // File not found, or we are going to assume the file isn't present.
+        match Self::build(path).create_async(database.clone()).await {
+            Ok(file) => Ok(file),
+            Err(Error::AlreadyExists) => {
+                // Rather than continue to loop, we will just propogate the
+                // previous error in the situation where the file was deleted
+                // between our failed attempt to create and the attempt to
+                // retrieve the conflicted document.
+                direct::File::<_, Self>::load_async(path, database)
+                    .await?
+                    .ok_or(Error::Deleted)
+            }
+            Err(other) => Err(other),
+        }
     }
 
     /// Returns all files that have a containing path of exactly `path`. It will
@@ -226,7 +321,7 @@ impl<Config: FileConfig> Schema for FilesSchema<Config> {
 pub enum Error {
     /// An underlying database error was returned.
     #[error("database error: {0}")]
-    Database(#[from] bonsaidb_core::Error),
+    Database(bonsaidb_core::Error),
     /// A name contained an invalid character. Currently, the only disallowed
     /// character is `/`.
     #[error("names must not contain '/'")]
@@ -235,11 +330,26 @@ pub enum Error {
     /// leading `/`.
     #[error("all paths must start with a leading '/'")]
     InvalidPath,
+    /// An attempt at creating a file failed because a file already existed.
+    #[error("a file already exists at the path provided")]
+    AlreadyExists,
+    /// The file was deleted during the operation.
+    #[error("the file was deleted during the operation")]
+    Deleted,
 }
 
 impl<T> From<InsertError<T>> for Error {
     fn from(err: InsertError<T>) -> Self {
-        Self::Database(err.error)
+        Self::from(err.error)
+    }
+}
+
+impl From<bonsaidb_core::Error> for Error {
+    fn from(err: bonsaidb_core::Error) -> Self {
+        match err {
+            bonsaidb_core::Error::UniqueKeyViolation { .. } => Self::AlreadyExists,
+            other => Self::Database(other),
+        }
     }
 }
 

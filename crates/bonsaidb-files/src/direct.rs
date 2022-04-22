@@ -32,6 +32,16 @@ pub struct File<Database: Clone, Config: FileConfig = BonsaiFiles> {
     database: Database,
 }
 
+impl<Database, Config> PartialEq for File<Database, Config>
+where
+    Database: Clone,
+    Config: FileConfig,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.doc.header == other.doc.header
+    }
+}
+
 /// A blocking database connection.
 #[derive(Clone)]
 pub struct Blocking<Database: Connection>(Database);

@@ -350,7 +350,7 @@ impl<Config> DefaultSerialization for File<Config> where Config: FileConfig {}
 #[derive(View)]
 #[view(name = "by-path", collection = File<Config>, key = OwnedFileKey, value = TimestampAsNanoseconds)]
 #[view(core = bonsaidb_core)]
-struct ByPath<Config>(PhantomData<Config>)
+pub struct ByPath<Config>(PhantomData<Config>)
 where
     Config: FileConfig;
 
@@ -398,7 +398,7 @@ impl<'a> IntoPrefixRange<'a, OwnedFileKey> for FileKey<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct OwnedFileKey(FileKey<'static>);
+pub struct OwnedFileKey(FileKey<'static>);
 
 impl<'a> Borrow<FileKey<'a>> for OwnedFileKey {
     fn borrow(&self) -> &FileKey<'a> {

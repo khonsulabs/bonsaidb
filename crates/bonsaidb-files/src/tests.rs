@@ -74,6 +74,44 @@ async fn async_simple_file_test() {
 }
 
 #[test]
+fn load_or_create_test() {
+    let directory = TestDirectory::new("load-or-create");
+    let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
+
+    let file = BonsaiFiles::load_or_create("/hello/world.txt", true, database.clone()).unwrap();
+    let reloaded = BonsaiFiles::load_or_create("/hello/world.txt", true, database.clone()).unwrap();
+    assert_eq!(file, reloaded);
+    let reloaded_unoptimal =
+        BonsaiFiles::load_or_create("/hello/world.txt", false, database).unwrap();
+    assert_eq!(file, reloaded_unoptimal);
+
+    file.delete().unwrap();
+}
+
+#[cfg(feature = "async")]
+#[tokio::test]
+async fn async_load_or_create_test() {
+    let directory = TestDirectory::new("load-or-create-async");
+    let database = AsyncDatabase::open::<FilesSchema>(StorageConfiguration::new(&directory))
+        .await
+        .unwrap();
+
+    let file = BonsaiFiles::load_or_create_async("/hello/world.txt", true, database.clone())
+        .await
+        .unwrap();
+    let reloaded = BonsaiFiles::load_or_create_async("/hello/world.txt", true, database.clone())
+        .await
+        .unwrap();
+    assert_eq!(file, reloaded);
+    let reloaded_unoptimal = BonsaiFiles::load_or_create_async("/hello/world.txt", false, database)
+        .await
+        .unwrap();
+    assert_eq!(file, reloaded_unoptimal);
+
+    file.delete().await.unwrap();
+}
+
+#[test]
 fn invalid_name_test() {
     let directory = TestDirectory::new("invalid-name");
     let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
