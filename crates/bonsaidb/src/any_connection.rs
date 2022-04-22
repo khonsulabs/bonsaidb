@@ -130,6 +130,7 @@ impl<B: Backend> AsyncStorageConnection for AnyServerConnection<B> {
         }
     }
 
+    #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     async fn authenticate(
         &self,
         authentication: Authentication,

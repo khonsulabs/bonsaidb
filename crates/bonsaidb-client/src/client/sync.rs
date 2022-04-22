@@ -108,6 +108,7 @@ impl StorageConnection for Client {
         })?)
     }
 
+    #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     fn authenticate(
         &self,
         authentication: bonsaidb_core::connection::Authentication,

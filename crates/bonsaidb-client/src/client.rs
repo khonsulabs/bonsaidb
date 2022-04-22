@@ -693,6 +693,7 @@ impl AsyncStorageConnection for Client {
             .await?)
     }
 
+    #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     async fn authenticate(
         &self,
         authentication: Authentication,

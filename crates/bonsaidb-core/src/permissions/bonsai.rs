@@ -2,6 +2,7 @@ use actionable::{Action, Identifier, ResourceName};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    connection::AuthenticationMethod,
     document::{DocumentId, KeyId},
     schema::{CollectionName, ViewName},
 };
@@ -147,16 +148,6 @@ pub enum ServerAction {
     /// Permits .
     /// Permits [`StorageConnection::add_role_to_user`](crate::connection::StorageConnection::add_role_to_user) and [`StorageConnection::remove_role_from_user`](crate::connection::StorageConnection::remove_role_from_user).
     ModifyUserRoles,
-}
-
-/// Methods for authentication.
-#[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
-pub enum AuthenticationMethod {
-    /// Authenticate the user or role using an
-    /// [`AuthenticationToken`](crate::admin::AuthenticationToken).
-    Token,
-    /// Authenticate a user using password hashing (Argon2).
-    PasswordHash,
 }
 
 /// Actions that operate on a specific database.

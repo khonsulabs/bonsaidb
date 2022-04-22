@@ -6,11 +6,11 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         admin::{PermissionGroup, Role},
-        connection::{AsyncStorageConnection, Authentication, SensitiveString},
+        connection::{
+            AsyncStorageConnection, Authentication, AuthenticationMethod, SensitiveString,
+        },
         permissions::{
-            bonsai::{
-                AuthenticationMethod, BonsaiAction, DatabaseAction, DocumentAction, ServerAction,
-            },
+            bonsai::{BonsaiAction, DatabaseAction, DocumentAction, ServerAction},
             Permissions, Statement,
         },
         schema::{InsertError, SerializedCollection},

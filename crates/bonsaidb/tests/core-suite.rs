@@ -21,10 +21,7 @@ use bonsaidb::{
         DefaultPermissions, Server, ServerConfiguration,
     },
 };
-use bonsaidb_core::{
-    connection::{Authentication, SensitiveString},
-    permissions::bonsai::AuthenticationMethod,
-};
+use bonsaidb_core::connection::{Authentication, AuthenticationMethod, SensitiveString};
 use once_cell::sync::Lazy;
 use rand::{distributions::Alphanumeric, Rng};
 use tokio::sync::Mutex;

@@ -24,6 +24,8 @@ By default, the `full` feature is enabled.
 - `multiuser`: Enables multi-user support.
 - `password-hashing`: Enables the ability to use password authentication using
   Argon2.
+- `token-authentication`: Enables the ability to authenticate using
+  authentication tokens, which are similar to API keys.
 
 ## Open-source Licenses
 

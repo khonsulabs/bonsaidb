@@ -127,6 +127,10 @@ fn all_tests() -> &'static [TestSuite] {
             toolchain: "stable",
         },
         TestSuite {
+            cargo_args: "--package bonsaidb-local --no-default-features --features token-authentication",
+            toolchain: "stable",
+        },
+        TestSuite {
             cargo_args: "--package bonsaidb-local --no-default-features --features encryption,compression",
             toolchain: "stable",
         },
@@ -136,6 +140,10 @@ fn all_tests() -> &'static [TestSuite] {
         },
         TestSuite {
             cargo_args: "--package bonsaidb-server --no-default-features --features password-hashing",
+            toolchain: "stable",
+        },
+        TestSuite {
+            cargo_args: "--package bonsaidb-server --no-default-features --features token-authentication",
             toolchain: "stable",
         },
         TestSuite {
@@ -160,6 +168,10 @@ fn all_tests() -> &'static [TestSuite] {
         },
         TestSuite {
             cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util",
+            toolchain: "stable",
+        },
+        TestSuite {
+            cargo_args: "--package bonsaidb --no-default-features --features server,client,test-util,token-authentication,websockets",
             toolchain: "stable",
         },
         TestSuite {

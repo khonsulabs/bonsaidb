@@ -875,6 +875,7 @@ impl<B: Backend> AsyncStorageConnection for CustomServer<B> {
         self.storage.set_user_password(user, password).await
     }
 
+    #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     async fn authenticate(
         &self,
         authentication: Authentication,

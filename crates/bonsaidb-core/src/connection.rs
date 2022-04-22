@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
 use crate::{
-    admin::{AuthenticationToken, Role, User},
+    admin::{Role, User},
     document::{CollectionDocument, CollectionHeader, Document, HasHeader, Header, OwnedDocument},
-    key::{time::TimestampAsNanoseconds, IntoPrefixRange, Key, KeyEncoding},
+    key::{IntoPrefixRange, Key, KeyEncoding},
     permissions::Permissions,
     schema::{
         self,
@@ -3056,6 +3056,7 @@ pub trait StorageConnection: HasSession + Sized + Send + Sync {
     /// Authenticates using the active session, returning a connection with a
     /// new session upon success. The existing connection will remain usable
     /// with the existing authentication, if any.
+    #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     fn authenticate(
         &self,
         authentication: Authentication,
@@ -3072,6 +3073,7 @@ pub trait StorageConnection: HasSession + Sized + Send + Sync {
     /// [`AuthenticationToken`](crate::admin::AuthenticationToken). If
     ///  successful, the returned instance will have the permissions from
     ///  `identity`.
+    #[cfg(feature = "token-authentication")]
     fn authenticate_with_token(
         &self,
         id: u64,
@@ -3088,7 +3090,7 @@ pub trait StorageConnection: HasSession + Sized + Send + Sync {
                 server_timestamp,
                 ..
             }) => {
-                let response = AuthenticationToken::compute_challenge_response_blake3(
+                let response = crate::admin::AuthenticationToken::compute_challenge_response_blake3(
                     token,
                     nonce,
                     *server_timestamp,
@@ -3247,6 +3249,7 @@ pub trait AsyncStorageConnection: HasSession + Sized + Send + Sync {
     /// [`AuthenticationToken`](crate::admin::AuthenticationToken). If
     ///  successful, the returned instance will have the permissions from
     ///  `identity`.
+    #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     async fn authenticate(
         &self,
         authentication: Authentication,
@@ -3256,6 +3259,7 @@ pub trait AsyncStorageConnection: HasSession + Sized + Send + Sync {
     /// [`AuthenticationToken`](crate::admin::AuthenticationToken). If
     ///  successful, the returned instance will have the permissions from
     ///  `identity`.
+    #[cfg(feature = "token-authentication")]
     async fn authenticate_with_token(
         &self,
         id: u64,
@@ -3272,7 +3276,7 @@ pub trait AsyncStorageConnection: HasSession + Sized + Send + Sync {
                 server_timestamp,
                 ..
             }) => {
-                let response = AuthenticationToken::compute_challenge_response_blake3(
+                let response = crate::admin::AuthenticationToken::compute_challenge_response_blake3(
                     token,
                     nonce,
                     *server_timestamp,
@@ -3445,19 +3449,21 @@ impl<'k> KeyEncoding<'k, Self> for SensitiveBytes {
 #[must_use]
 pub enum Authentication {
     /// Initialize token-based authentication.
+    #[cfg(feature = "token-authentication")]
     Token {
         /// The unique token id.
         id: u64,
         /// The current timestamp of the authenticating device. This must be
         /// within 5 minutes of the server's time for token authentication to
         /// succeed.
-        now: TimestampAsNanoseconds,
+        now: crate::key::time::TimestampAsNanoseconds,
         /// The hash of `now`, using the private token as key matter.
         now_hash: Bytes,
         /// The token challenge algorithm used to generate `now_hash`.
         algorithm: TokenChallengeAlgorithm,
     },
     /// A response to the server's token authentication challenge.
+    #[cfg(feature = "token-authentication")]
     TokenChallengeResponse(Bytes),
     /// Authenticate a user with a password.
     #[cfg(feature = "password-hashing")]
@@ -3483,13 +3489,14 @@ impl Authentication {
     }
 
     /// Returns a token authentication initialization instance for this token.
+    #[cfg(feature = "token-authentication")]
     pub fn token(id: u64, token: &SensitiveBytes) -> Result<Self, crate::Error> {
-        let now = TimestampAsNanoseconds::now();
+        let now = crate::key::time::TimestampAsNanoseconds::now();
         Ok(Self::Token {
             id,
             now,
             now_hash: Bytes::from(
-                AuthenticationToken::compute_request_time_hash_blake3(now, token)
+                crate::admin::AuthenticationToken::compute_request_time_hash_blake3(now, token)
                     .as_bytes()
                     .to_vec(),
             ),
@@ -3607,6 +3614,7 @@ pub enum SessionAuthentication {
     /// The session is authenticated as an identity.
     Identity(Arc<Identity>),
     /// The session is pending authentication using a token.
+    #[cfg(feature = "token-authentication")]
     TokenChallenge {
         /// The id of the token being authenticated
         id: u64,
@@ -3616,7 +3624,7 @@ pub enum SessionAuthentication {
         /// challenge.
         nonce: [u8; 32],
         /// The server timestamp that is used for authenticated extra data.
-        server_timestamp: TimestampAsNanoseconds,
+        server_timestamp: crate::key::time::TimestampAsNanoseconds,
     },
 }
 
@@ -3630,6 +3638,7 @@ impl Default for SessionAuthentication {
 /// tokens.
 #[derive(Hash, Eq, PartialEq, Clone, Copy, Debug, Serialize, Deserialize)]
 #[non_exhaustive]
+#[cfg(feature = "token-authentication")]
 pub enum TokenChallengeAlgorithm {
     /// Authenticate tokens using [`blake3`](https://crates.io/crates/blake3).
     ///
@@ -3659,6 +3668,16 @@ pub enum TokenChallengeAlgorithm {
     /// value should be timestamp's nanoseconds relative to
     /// [`BonsaiEpoch`](crate::key::time::BonsaiEpoch).
     Blake3,
+}
+
+/// Methods for authentication.
+#[derive(Action, Serialize, Deserialize, Clone, Copy, Debug)]
+pub enum AuthenticationMethod {
+    /// Authenticate the user or role using an
+    /// [`AuthenticationToken`](crate::admin::AuthenticationToken).
+    Token,
+    /// Authenticate a user using password hashing (Argon2).
+    PasswordHash,
 }
 
 /// A unique session ID.

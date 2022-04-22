@@ -20,6 +20,7 @@ trusted-dns = ["fabruic/trust-dns"]
 test-util = []
 tracing = ["pot/tracing"]
 password-hashing = ["bonsaidb-core/password-hashing"]
+token-authentication = ["bonsaidb-core/token-authentication"]
 included-from-omnibus = []
 
 [dependencies]

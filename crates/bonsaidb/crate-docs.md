@@ -79,7 +79,7 @@ Shape { sides: 3 }.push_into(&db)?;
 And query data using the Map-Reduce-powered view:
 
 ```rust,ignore
-let triangles = db.view::<ShapesByNumberOfSides>().with_key(3).query()?;
+let triangles = db.view::<ShapesByNumberOfSides>().with_key(&3).query()?;
 println!("Number of triangles: {}", triangles.len());
 ```
 
@@ -113,6 +113,8 @@ bonsaidb = { version = "*", features = "full" }
 - `cli`: Enables the `bonsaidb` executable.
 - `password-hashing`: Enables the ability to use password authentication using
   Argon2 via `AnyConnection`.
+- `token-authentication`: Enables the ability to authenticate using
+  authentication tokens, which are similar to API keys.
 
 All other feature flags, listed below, affect each crate individually, but can
 be safely combined.
@@ -137,6 +139,8 @@ All Cargo features that affect local databases:
 - `instrument`: Enables instrumenting with `tracing`.
 - `password-hashing`: Enables the ability to use password authentication
   using Argon2.
+- `token-authentication`: Enables the ability to authenticate using
+  authentication tokens, which are similar to API keys.
 
 ### BonsaiDb server
 
@@ -160,6 +164,8 @@ All Cargo features that affect networked servers:
 - `websockets`: Enables `WebSocket` support.
 - `password-hashing`: Enables the ability to use password authentication
   using Argon2.
+- `token-authentication`: Enables the ability to authenticate using
+  authentication tokens, which are similar to API keys.
 
 ### Client for accessing a BonsaiDb server
 
@@ -178,6 +184,8 @@ All Cargo features that affect networked clients:
 - `websockets`: Enables `WebSocket` support for `bonsaidb-client`.
 - `password-hashing`: Enables the ability to use password authentication
   using Argon2.
+- `token-authentication`: Enables the ability to authenticate using
+  authentication tokens, which are similar to API keys.
 
 ## Developing BonsaiDb
 

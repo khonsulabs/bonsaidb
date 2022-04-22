@@ -41,6 +41,7 @@ password-hashing = [
     "once_cell",
     "bonsaidb-core/password-hashing",
 ]
+token-authentication = ["bonsaidb-core/token-authentication"]
 included-from-omnibus = []
 async = ["tokio", "async-trait", "futures"]
 

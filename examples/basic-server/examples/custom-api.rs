@@ -10,10 +10,12 @@ use bonsaidb::{
         actionable::Permissions,
         api::{Api, Infallible},
         async_trait::async_trait,
-        connection::{AsyncStorageConnection, Authentication, SensitiveString},
+        connection::{
+            AsyncStorageConnection, Authentication, AuthenticationMethod, SensitiveString,
+        },
         keyvalue::AsyncKeyValue,
         permissions::{
-            bonsai::{AuthenticationMethod, BonsaiAction, ServerAction},
+            bonsai::{BonsaiAction, ServerAction},
             Action, Identifier, Statement,
         },
         schema::{ApiName, Qualified},

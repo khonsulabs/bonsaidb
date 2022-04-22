@@ -20,6 +20,7 @@ actionable-traits = []
 instrument = ["pot/tracing"]
 encryption = []
 password-hashing = []
+token-authentication = ["blake3", "rand"]
 included-from-omnibus = ["bonsaidb-macros/omnibus-path"]
 included-from-server = ["bonsaidb-macros/server-path"]
 included-from-local = ["bonsaidb-macros/local-path"]
@@ -34,7 +35,6 @@ async-trait = "0.1"
 uuid = { version = "0.8", features = ["v4", "serde"], optional = true }
 thiserror = "1"
 sha2 = "0.10"
-blake3 = "1.3.1"
 futures = { version = "0.3" }
 tokio = { version = "1.16.1", features = ["time"], optional = true }
 num-traits = "0.2"
@@ -49,7 +49,8 @@ arc-bytes = { version = "0.3.3", features = ["serde"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 num_cpus = { version = "1.13.1", optional = true }
 tinyvec = { version = "1.5.1", features = ["alloc"] }
-rand = "0.8.5"
+blake3 = { version = "1.3.1", optional = true }
+rand = { version = "0.8.5", optional = true }
 
 [dev-dependencies]
 hex-literal = "0.3"

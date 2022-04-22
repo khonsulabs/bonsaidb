@@ -16,11 +16,15 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use transmog_pot::Pot;
 
+#[cfg(feature = "token-authentication")]
 use crate::{
-    admin::{AuthenticationToken, PermissionGroup, Role, User},
+    admin::AuthenticationToken,
+    connection::{HasSession, Identity, IdentityReference, Session},
+};
+use crate::{
+    admin::{PermissionGroup, Role, User},
     connection::{
-        AccessPolicy, AsyncConnection, AsyncStorageConnection, Connection, HasSession, Identity,
-        IdentityReference, Session, StorageConnection,
+        AccessPolicy, AsyncConnection, AsyncStorageConnection, Connection, StorageConnection,
     },
     document::{
         BorrowedDocument, CollectionDocument, CollectionHeader, DocumentId, Emit, Header, KeyId,
@@ -708,6 +712,7 @@ macro_rules! define_async_connection_test_suite {
             }
 
             #[tokio::test]
+            #[cfg(feature = "token-authentication")]
             async fn token_authentication() -> anyhow::Result<()> {
                 use $crate::connection::AsyncStorageConnection;
                 let harness =
@@ -937,6 +942,7 @@ macro_rules! define_blocking_connection_test_suite {
             }
 
             #[test]
+            #[cfg(feature = "token-authentication")]
             fn token_authentication() -> anyhow::Result<()> {
                 use $crate::connection::StorageConnection;
                 let harness = $harness::new($crate::test_util::HarnessTest::TokenAuthentication)?;
@@ -2701,6 +2707,7 @@ pub fn blocking_user_management_tests<C: Connection, S: StorageConnection>(
     Ok(())
 }
 
+#[cfg(feature = "token-authentication")]
 pub async fn token_authentication_tests<C: AsyncConnection, S: AsyncStorageConnection>(
     admin: &C,
     server: &S,
@@ -2737,6 +2744,7 @@ pub async fn token_authentication_tests<C: AsyncConnection, S: AsyncStorageConne
     Ok(())
 }
 
+#[cfg(feature = "token-authentication")]
 pub fn blocking_token_authentication_tests<C: Connection, S: StorageConnection>(
     admin: &C,
     server: &S,

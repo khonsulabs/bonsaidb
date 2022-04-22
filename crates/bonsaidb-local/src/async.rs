@@ -468,6 +468,7 @@ impl AsyncStorageConnection for AsyncStorage {
             .map_err(Error::from)?
     }
 
+    #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     async fn authenticate(
         &self,
         authentication: Authentication,
