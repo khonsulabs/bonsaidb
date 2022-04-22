@@ -14,7 +14,7 @@ rust-version = "1.60"
 
 [features]
 default = ["full"]
-full = ["websockets", "trusted-dns", "password-hashing"]
+full = ["websockets", "trusted-dns", "token-authentication", "password-hashing"]
 websockets = ["bonsaidb-core/websockets", "tokio-tungstenite", "bincode"]
 trusted-dns = ["fabruic/trust-dns"]
 test-util = []

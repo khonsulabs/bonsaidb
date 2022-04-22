@@ -19,6 +19,7 @@ full = [
     "websockets",
     "acme",
     "encryption",
+    "token-authentication",
     "password-hashing",
     "compression",
 ]

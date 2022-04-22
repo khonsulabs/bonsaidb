@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD024 -->
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -50,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compiler error upon upgrade.
 - `DocumentId` is no longer `Copy`, and now can support up to 64kb of data.
   Previously, the type was limited to 64 total bytes of stack space.
+- `[Async]StorageConnection::schematic()` have been moved to its own trait,
+  `HasSchema`.
+- `[Async]StorageConnection::authenticate()` no longer takes a username or user
+  id directly. This has been moved to the `Authentication` type.
+- `AuthenticationMethod` has moved from `bonsaidb::core::permissions::bonsai` to
+  `bonsaidb::core::connection`
 - `ApiName` has been moved from `bonsaidb::core::schema` to
   `bonsaidb::core::api`.
 
@@ -115,6 +122,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DefaultPermissions` now implements `From<Vec<Statement>>` and
   `From<Statement>`, enabling simpler usage when using `default_permissions()`
   and `authenticated_permissions()`.
+- `[Async]StorageConnection::authenticate_with_password` are new functions
+  providing a simpler interface for authenticating with a username/user id and
+  password.
+- `[Async]StorageConnection::authenticate_with_token` is a new function that
+  allows authenticating with a previously created `AuthenticationToken`.
+
+  Token authentication is an optional feature, enabled with the
+  `token-authentication` feature. This feature is currently powered by
+  [BLAKE3](https://github.com/BLAKE3-team/BLAKE3), but has been written to be
+  able to support multiple algorithms.
+
+  An `AuthenticationToken` is a randomly generated id, a private token, and an
+  identity that are used to perform a cryptographically secure verification
+  during authentication without transferring the private token to the server.
+  Upon successful authentication, the identity is assumed on the newly returned
+  connection. This supports both assuming users and roles.
+- The `Api` trait can now be derived.
 
 ### Changed
 

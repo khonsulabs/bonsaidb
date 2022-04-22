@@ -20,6 +20,7 @@ full = [
     "cli",
     "encryption",
     "instrument",
+    "token-authentication",
     "password-hashing",
     "compression",
     "async",
