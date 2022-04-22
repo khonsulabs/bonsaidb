@@ -59,10 +59,11 @@ pub use transmog;
 pub use transmog_pot;
 
 use crate::{
+    api::ApiName,
     connection::HasSchema,
     document::{DocumentId, Header, InvalidHexadecimal},
     key::{time::TimeError, NextValueError},
-    schema::{ApiName, InsertError},
+    schema::InsertError,
 };
 
 /// an enumeration of errors that this crate can produce

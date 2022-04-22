@@ -8,7 +8,7 @@ use bonsaidb::{
     client::{url::Url, ApiError, Client},
     core::{
         actionable::Permissions,
-        api::{Api, Infallible},
+        api::{Api, ApiName, Infallible},
         async_trait::async_trait,
         connection::{
             AsyncStorageConnection, Authentication, AuthenticationMethod, SensitiveString,
@@ -18,7 +18,7 @@ use bonsaidb::{
             bonsai::{BonsaiAction, ServerAction},
             Action, Identifier, Statement,
         },
-        schema::{ApiName, Qualified},
+        schema::Qualified,
     },
     local::config::Builder,
     server::{

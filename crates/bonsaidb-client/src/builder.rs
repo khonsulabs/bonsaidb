@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bonsaidb_core::{api, networking::CURRENT_PROTOCOL_VERSION, schema::ApiName};
+use bonsaidb_core::{api, api::ApiName, networking::CURRENT_PROTOCOL_VERSION};
 #[cfg(not(target_arch = "wasm32"))]
 use fabruic::Certificate;
 #[cfg(not(target_arch = "wasm32"))]

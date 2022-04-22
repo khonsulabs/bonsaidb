@@ -8,11 +8,11 @@ use std::{
 use async_lock::{Mutex, MutexGuard};
 use bonsaidb_core::{
     api,
+    api::ApiName,
     arc_bytes::serde::Bytes,
     connection::{Session, SessionId},
     networking::MessageReceived,
     pubsub::{Receiver, Subscriber as _},
-    schema::ApiName,
 };
 use bonsaidb_local::Subscriber;
 use bonsaidb_utils::fast_async_lock;

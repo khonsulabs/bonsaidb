@@ -3,7 +3,7 @@ use schema::SchemaName;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::Api,
+    api::{Api, ApiName},
     connection::{
         AccessPolicy, Database, IdentityReference, Range, SerializedQueryKey, Session, SessionId,
         Sort,
@@ -13,7 +13,7 @@ use crate::{
     schema::{
         self,
         view::map::{self, MappedSerializedDocuments},
-        ApiName, CollectionName, NamedReference, Qualified, ViewName,
+        CollectionName, NamedReference, Qualified, ViewName,
     },
     transaction::{Executed, OperationResult, Transaction},
 };

@@ -4,8 +4,9 @@ use std::{collections::HashMap, marker::PhantomData, path::Path, sync::Arc};
 use bonsaidb_core::document::KeyId;
 use bonsaidb_core::{
     api,
+    api::ApiName,
     permissions::{Permissions, Statement},
-    schema::{ApiName, Schema},
+    schema::Schema,
 };
 #[cfg(feature = "compression")]
 use bonsaidb_local::config::Compression;

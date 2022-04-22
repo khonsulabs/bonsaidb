@@ -14,7 +14,7 @@ use std::{
 use async_trait::async_trait;
 use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
-    api::{self, Api},
+    api::{self, Api, ApiName},
     arc_bytes::{serde::Bytes, OwnedBytes},
     connection::{AsyncStorageConnection, Database, HasSession, IdentityReference, Session},
     networking::{
@@ -24,7 +24,7 @@ use bonsaidb_core::{
         CURRENT_PROTOCOL_VERSION,
     },
     permissions::Permissions,
-    schema::{ApiName, Nameable, Schema, SchemaName, Schematic},
+    schema::{Nameable, Schema, SchemaName, Schematic},
 };
 use bonsaidb_utils::fast_async_lock;
 use flume::Sender;

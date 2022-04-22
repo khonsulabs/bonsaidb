@@ -1,9 +1,12 @@
-use std::fmt::Debug;
+use std::{
+    fmt::{Debug, Display},
+    ops::Deref,
+};
 
 pub use bonsaidb_macros::Api;
 use serde::{Deserialize, Serialize};
 
-use crate::schema::ApiName;
+use crate::schema::{Authority, Name, Qualified, QualifiedName};
 
 /// An API request type.
 pub trait Api: Serialize + for<'de> Deserialize<'de> + Send + Sync + Debug + 'static {
@@ -38,3 +41,28 @@ impl<T> ApiError for T where
 
 /// The result of executing a custom API call.
 pub type ApiResult<Api> = Result<<Api as self::Api>::Response, <Api as self::Api>::Error>;
+
+/// The qualified name of an [`Api`](crate::api::Api).
+#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
+#[serde(transparent)]
+pub struct ApiName(QualifiedName);
+
+impl Qualified for ApiName {
+    fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
+        Self(QualifiedName::new(authority, name))
+    }
+}
+
+impl Display for ApiName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl Deref for ApiName {
+    type Target = QualifiedName;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}

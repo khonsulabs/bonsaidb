@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use bonsaidb_core::{
     admin::{Admin, ADMIN_DATABASE_NAME},
     api,
+    api::ApiName,
     arc_bytes::serde::Bytes,
     connection::{
         self, AsyncConnection, AsyncStorageConnection, HasSession, IdentityReference, Session,
@@ -26,7 +27,7 @@ use bonsaidb_core::{
         bonsai::{bonsaidb_resource_name, BonsaiAction, ServerAction},
         Permissions,
     },
-    schema::{self, ApiName, Nameable, NamedCollection, Schema},
+    schema::{self, Nameable, NamedCollection, Schema},
 };
 use bonsaidb_local::{config::Builder, AsyncStorage, Storage, StorageNonBlocking};
 use bonsaidb_utils::{fast_async_lock, fast_async_read, fast_async_write};

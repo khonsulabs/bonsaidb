@@ -709,7 +709,7 @@ pub fn api_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let error = error.unwrap_or_else(|| parse_quote!(#core::api::Infallible));
 
     quote! {
-        # use #core::{api::Api, schema::ApiName};
+        # use #core::api::{Api, ApiName};
 
         impl #impl_generics Api for #ident #ty_generics #where_clause {
             type Response = #response;

@@ -1,8 +1,8 @@
 use core::fmt::Debug;
 
 use bonsaidb::core::{
-    api::Api,
-    schema::{ApiName, Qualified},
+    api::{Api, ApiName},
+    schema::Qualified,
 };
 use serde::{Deserialize, Serialize};
 

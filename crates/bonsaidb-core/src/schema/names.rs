@@ -308,31 +308,6 @@ impl Deref for CollectionName {
     }
 }
 
-/// The qualified name of an [`Api`](crate::api::Api).
-#[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
-#[serde(transparent)]
-pub struct ApiName(QualifiedName);
-
-impl Qualified for ApiName {
-    fn new<A: Into<Authority>, N: Into<Name>>(authority: A, name: N) -> Self {
-        Self(QualifiedName::new(authority, name))
-    }
-}
-
-impl Display for ApiName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, f)
-    }
-}
-
-impl Deref for ApiName {
-    type Target = QualifiedName;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 /// The name of a [`View`](super::View).
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone)]
 pub struct ViewName {

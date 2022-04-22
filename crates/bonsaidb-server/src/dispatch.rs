@@ -1,6 +1,7 @@
 #[cfg(feature = "password-hashing")]
 use bonsaidb_core::networking::{Authenticate, SetUserPassword};
 use bonsaidb_core::{
+    api::ApiName,
     arc_bytes::serde::Bytes,
     async_trait::async_trait,
     connection::{AsyncConnection, AsyncLowLevelConnection, AsyncStorageConnection, HasSession},
@@ -14,7 +15,6 @@ use bonsaidb_core::{
         QueryWithDocs, Reduce, ReduceGrouped, SubscribeTo, UnregisterSubscriber, UnsubscribeFrom,
     },
     pubsub::AsyncPubSub,
-    schema::ApiName,
 };
 
 use crate::{

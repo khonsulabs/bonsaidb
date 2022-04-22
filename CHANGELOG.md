@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compiler error upon upgrade.
 - `DocumentId` is no longer `Copy`, and now can support up to 64kb of data.
   Previously, the type was limited to 64 total bytes of stack space.
+- `ApiName` has been moved from `bonsaidb::core::schema` to
+  `bonsaidb::core::api`.
 
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 

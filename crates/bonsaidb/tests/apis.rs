@@ -10,7 +10,7 @@ use bonsaidb::{
     local::config::Builder,
     server::{api::Handler, Backend, CustomServer, DefaultPermissions, ServerConfiguration},
 };
-use bonsaidb_core::schema::{ApiName, Qualified};
+use bonsaidb_core::{api::ApiName, schema::Qualified};
 use bonsaidb_server::api::{HandlerResult, HandlerSession};
 use serde::{Deserialize, Serialize};
 

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use bonsaidb_core::{networking::Payload, schema::ApiName};
+use bonsaidb_core::{networking::Payload, api::ApiName};
 use bonsaidb_utils::fast_async_lock;
 use fabruic::{self, Certificate, Endpoint};
 use flume::Receiver;

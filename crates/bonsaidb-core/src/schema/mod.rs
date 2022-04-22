@@ -13,7 +13,8 @@ pub use self::{
         NamedCollection, NamedReference, SerializedCollection,
     },
     names::{
-        ApiName, Authority, CollectionName, InvalidNameError, Name, Qualified, SchemaName, ViewName,
+        Authority, CollectionName, InvalidNameError, Name, Qualified, QualifiedName, SchemaName,
+        ViewName,
     },
     schematic::Schematic,
     view::{
