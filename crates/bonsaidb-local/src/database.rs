@@ -365,6 +365,7 @@ impl Database {
         Ok(results)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn invalidate_changed_documents(
         &self,
         roots_transaction: &mut ExecutingTransaction<AnyFile>,
@@ -427,6 +428,18 @@ impl Database {
         }
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            level = "trace",
+            skip(self, operation, transaction, tree_index_map, contents),
+            fields(
+                database = self.name(),
+                collection.name = operation.collection.name.as_ref(),
+                collection.authority = operation.collection.authority.as_ref()
+            )
+        )
+    )]
     fn execute_update(
         &self,
         operation: &Operation,
@@ -528,6 +541,18 @@ impl Database {
         result.expect("nebari should invoke the callback even when the key isn't found")
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            level = "trace",
+            skip(self, operation, transaction, tree_index_map, contents),
+            fields(
+                database = self.name(),
+                collection.name = operation.collection.name.as_ref(),
+                collection.authority = operation.collection.authority.as_ref()
+            )
+        )
+    )]
     fn execute_insert(
         &self,
         operation: &Operation,
@@ -572,6 +597,15 @@ impl Database {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, operation, transaction, tree_index_map),
+        fields(
+            database = self.name(),
+            collection.name = operation.collection.name.as_ref(),
+            collection.authority = operation.collection.authority.as_ref()
+        )
+    ))]
     fn execute_delete(
         &self,
         operation: &Operation,
@@ -611,6 +645,15 @@ impl Database {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, operation, transaction, tree_index_map),
+        fields(
+            database = self.name(),
+            collection.name = operation.collection.name.as_ref(),
+            collection.authority = operation.collection.authority.as_ref()
+        )
+    ))]
     fn update_eager_views(
         &self,
         document_id: &ArcBytes<'static>,
@@ -654,6 +697,14 @@ impl Database {
         Ok(())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(operation, transaction, tree_index_map),
+        fields(
+            collection.name = operation.collection.name.as_ref(),
+            collection.authority = operation.collection.authority.as_ref(),
+        ),
+    ))]
     fn execute_check(
         operation: &Operation,
         transaction: &mut ExecutingTransaction<AnyFile>,
@@ -930,6 +981,13 @@ impl Connection for Database {
         self.storage.clone()
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self),
+        fields(
+            database = self.name(),
+        )
+    ))]
     fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
@@ -986,6 +1044,13 @@ impl Connection for Database {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self),
+        fields(
+            database = self.name(),
+        )
+    ))]
     fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
         self.check_permission(
             database_resource_name(self.name()),
@@ -994,6 +1059,13 @@ impl Connection for Database {
         Ok(self.roots().transactions().current_transaction_id())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self),
+        fields(
+            database = self.name(),
+        )
+    ))]
     fn compact(&self) -> Result<(), bonsaidb_core::Error> {
         self.check_permission(
             database_resource_name(self.name()),
@@ -1006,6 +1078,13 @@ impl Connection for Database {
         Ok(())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self),
+        fields(
+            database = self.name(),
+        )
+    ))]
     fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
         self.check_permission(
             kv_resource_name(self.name()),
@@ -1020,6 +1099,13 @@ impl Connection for Database {
 }
 
 impl LowLevelConnection for Database {
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self,  transaction),
+        fields(
+            database = self.name(),
+        )
+    ))]
     fn apply_transaction(
         &self,
         transaction: Transaction,
@@ -1091,6 +1177,15 @@ impl LowLevelConnection for Database {
             .map_err(bonsaidb_core::Error::from)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, collection),
+        fields(
+            database = self.name(),
+            collection.name = collection.name.as_ref(),
+            collection.authority = collection.authority.as_ref(),
+        )
+    ))]
     fn get_from_collection(
         &self,
         id: DocumentId,
@@ -1113,6 +1208,15 @@ impl LowLevelConnection for Database {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, collection),
+        fields(
+            database = self.name(),
+            collection.name = collection.name.as_ref(),
+            collection.authority = collection.authority.as_ref(),
+        )
+    ))]
     fn list_from_collection(
         &self,
         ids: Range<DocumentId>,
@@ -1167,6 +1271,15 @@ impl LowLevelConnection for Database {
         Ok(found_docs)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, collection),
+        fields(
+            database = self.name(),
+            collection.name = collection.name.as_ref(),
+            collection.authority = collection.authority.as_ref(),
+        )
+    ))]
     fn list_headers_from_collection(
         &self,
         ids: Range<DocumentId>,
@@ -1221,6 +1334,15 @@ impl LowLevelConnection for Database {
         Ok(found_headers)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, collection),
+        fields(
+            database = self.name(),
+            collection.name = collection.name.as_ref(),
+            collection.authority = collection.authority.as_ref(),
+        )
+    ))]
     fn count_from_collection(
         &self,
         ids: Range<DocumentId>,
@@ -1242,6 +1364,15 @@ impl LowLevelConnection for Database {
         Ok(stats.alive_keys)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, collection),
+        fields(
+            database = self.name(),
+            collection.name = collection.name.as_ref(),
+            collection.authority = collection.authority.as_ref(),
+        )
+    ))]
     fn get_multiple_from_collection(
         &self,
         ids: &[DocumentId],
@@ -1275,6 +1406,15 @@ impl LowLevelConnection for Database {
             .map_err(bonsaidb_core::Error::from)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, collection),
+        fields(
+            database = self.name(),
+            collection.name = collection.name.as_ref(),
+            collection.authority = collection.authority.as_ref(),
+        )
+    ))]
     fn compact_collection_by_name(
         &self,
         collection: CollectionName,
@@ -1290,6 +1430,16 @@ impl LowLevelConnection for Database {
         Ok(())
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, view),
+        fields(
+            database = self.name(),
+            view.collection.name = view.collection.name.as_ref(),
+            view.collection.authority = view.collection.authority.as_ref(),
+            view.name = view.name.as_ref(),
+        )
+    ))]
     fn query_by_name(
         &self,
         view: &ViewName,
@@ -1318,6 +1468,16 @@ impl LowLevelConnection for Database {
         Ok(results)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, view),
+        fields(
+            database = self.name(),
+            view.collection.name = view.collection.name.as_ref(),
+            view.collection.authority = view.collection.authority.as_ref(),
+            view.name = view.name.as_ref(),
+        )
+    ))]
     fn query_by_name_with_docs(
         &self,
         view: &ViewName,
@@ -1349,6 +1509,16 @@ impl LowLevelConnection for Database {
         )
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, view_name),
+        fields(
+            database = self.name(),
+            view.collection.name = view_name.collection.name.as_ref(),
+            view.collection.authority = view_name.collection.authority.as_ref(),
+            view.name = view_name.name.as_ref(),
+        )
+    ))]
     fn reduce_by_name(
         &self,
         view_name: &ViewName,
@@ -1374,6 +1544,16 @@ impl LowLevelConnection for Database {
         Ok(result)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, view_name),
+        fields(
+            database = self.name(),
+            view.collection.name = view_name.collection.name.as_ref(),
+            view.collection.authority = view_name.collection.authority.as_ref(),
+            view.name = view_name.name.as_ref(),
+        )
+    ))]
     fn reduce_grouped_by_name(
         &self,
         view_name: &ViewName,
@@ -1397,6 +1577,16 @@ impl LowLevelConnection for Database {
         Ok(mappings)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, view),
+        fields(
+            database = self.name(),
+            view.collection.name = view.collection.name.as_ref(),
+            view.collection.authority = view.collection.authority.as_ref(),
+            view.name = view.name.as_ref(),
+        )
+    ))]
     fn delete_docs_by_name(
         &self,
         view: &ViewName,

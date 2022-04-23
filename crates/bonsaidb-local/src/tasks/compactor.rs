@@ -86,7 +86,7 @@ impl Job for Compactor {
 
     type Error = Error;
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn execute(&mut self) -> Result<Self::Output, Error> {
         self.compaction.target.clone().compact(&self.database)
     }

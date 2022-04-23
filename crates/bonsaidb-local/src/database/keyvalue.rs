@@ -296,6 +296,10 @@ impl KeyValueState {
         result
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, set, now),)
+    )]
     fn execute_set_operation(
         &mut self,
         namespace: Option<&str>,
@@ -349,6 +353,10 @@ impl KeyValueState {
         }
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, tree_key, expiration))
+    )]
     pub fn update_key_expiration<'key>(
         &mut self,
         tree_key: impl Into<Cow<'key, str>>,
@@ -419,6 +427,7 @@ impl KeyValueState {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn execute_get_operation(
         &mut self,
         namespace: Option<&str>,
@@ -435,6 +444,7 @@ impl KeyValueState {
         Ok(Output::Value(entry.map(|e| e.value)))
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn execute_delete_operation(
         &mut self,
         namespace: Option<&str>,
@@ -449,6 +459,10 @@ impl KeyValueState {
         }
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, amount, saturating, now))
+    )]
     fn execute_increment_operation(
         &mut self,
         namespace: Option<&str>,
@@ -460,6 +474,10 @@ impl KeyValueState {
         self.execute_numeric_operation(namespace, key, amount, saturating, now, increment)
     }
 
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip(self, amount, saturating, now))
+    )]
     fn execute_decrement_operation(
         &mut self,
         namespace: Option<&str>,
@@ -502,6 +520,7 @@ impl KeyValueState {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn remove(&mut self, key: String) -> Result<Option<Entry>, nebari::Error> {
         self.update_key_expiration(&key, None);
 
@@ -522,6 +541,7 @@ impl KeyValueState {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn get(&self, key: &str) -> Result<Option<Entry>, nebari::Error> {
         if let Some(entry) = self.dirty_keys.get(key) {
             Ok(entry.clone())
@@ -567,6 +587,7 @@ impl KeyValueState {
         }
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(roots)))]
     fn retrieve_key_from_disk(
         roots: &Roots<AnyFile>,
         key: &str,
@@ -666,6 +687,7 @@ impl KeyValueState {
         self.last_persistence.watch()
     }
 
+    #[cfg_attr(feature = "instrument", tracing::instrument(level = "trace", skip_all))]
     fn persist_keys(
         key_value_state: &Arc<Mutex<KeyValueState>>,
         roots: &Roots<AnyFile>,
@@ -836,7 +858,7 @@ impl Job for ExpirationLoader {
     type Output = ();
     type Error = Error;
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         let database = self.database.clone();
         let launched_at = self.launched_at;

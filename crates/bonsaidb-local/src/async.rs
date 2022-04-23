@@ -598,10 +598,6 @@ impl AsyncConnection for AsyncDatabase {
         }
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip(starting_id, result_limit))
-    )]
     async fn list_executed_transactions(
         &self,
         starting_id: Option<u64>,
@@ -618,7 +614,6 @@ impl AsyncConnection for AsyncDatabase {
             .map_err(Error::from)?
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn last_transaction_id(&self) -> Result<Option<u64>, bonsaidb_core::Error> {
         Ok(self
             .database
@@ -627,7 +622,6 @@ impl AsyncConnection for AsyncDatabase {
             .current_transaction_id())
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn compact(&self) -> Result<(), bonsaidb_core::Error> {
         let task_self = self.clone();
         self.runtime
@@ -636,7 +630,6 @@ impl AsyncConnection for AsyncDatabase {
             .map_err(Error::from)?
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn compact_collection<C: schema::Collection>(&self) -> Result<(), bonsaidb_core::Error> {
         let task_self = self.clone();
         self.runtime
@@ -645,7 +638,6 @@ impl AsyncConnection for AsyncDatabase {
             .map_err(Error::from)?
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
     async fn compact_key_value_store(&self) -> Result<(), bonsaidb_core::Error> {
         let task_self = self.clone();
         self.runtime
@@ -717,7 +709,6 @@ impl HasSchema for AsyncDatabase {
 
 #[async_trait]
 impl AsyncLowLevelConnection for AsyncDatabase {
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(transaction)))]
     async fn apply_transaction(
         &self,
         transaction: Transaction,

@@ -46,7 +46,7 @@ impl Job for Mapper {
     type Output = u64;
     type Error = Error;
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     #[allow(clippy::too_many_lines)]
     fn execute(&mut self) -> Result<Self::Output, Error> {
         let documents =

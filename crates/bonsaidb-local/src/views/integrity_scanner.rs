@@ -42,7 +42,7 @@ impl Job for IntegrityScanner {
     type Output = OptionalViewMapHandle;
     type Error = Error;
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     #[allow(clippy::too_many_lines)]
     fn execute(&mut self) -> Result<Self::Output, Self::Error> {
         let documents =

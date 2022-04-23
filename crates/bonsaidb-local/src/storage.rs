@@ -939,10 +939,14 @@ impl StorageConnection for StorageInstance {
         .unwrap()
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip(name, schema, only_if_needed))
-    )]
+    #[cfg_attr(feature = "tracing", tracing::instrument(
+        level = "trace", 
+        skip(self, schema),
+        fields(
+            schema.authority = schema.authority.as_ref(),
+            schema.name = schema.name.as_ref(),
+        )
+    ))]
     fn create_database_with_schema(
         &self,
         name: &str,
@@ -982,7 +986,7 @@ impl StorageConnection for StorageInstance {
             .map_err(bonsaidb_core::Error::from)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(name)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip(self)))]
     fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
         let admin = self.admin();
         let mut available_databases = self.data.available_databases.write();
@@ -1013,7 +1017,7 @@ impl StorageConnection for StorageInstance {
         }
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
         let available_databases = self.data.available_databases.read();
         Ok(available_databases
@@ -1025,13 +1029,13 @@ impl StorageConnection for StorageInstance {
             .collect())
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
         let available_databases = self.data.available_databases.read();
         Ok(available_databases.values().unique().cloned().collect())
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         let result = self
             .admin()
@@ -1040,7 +1044,7 @@ impl StorageConnection for StorageInstance {
         Ok(result.id)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
@@ -1053,7 +1057,7 @@ impl StorageConnection for StorageInstance {
     }
 
     #[cfg(feature = "password-hashing")]
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
@@ -1065,7 +1069,7 @@ impl StorageConnection for StorageInstance {
         user.update(&admin)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     fn authenticate(
         &self,
@@ -1076,6 +1080,7 @@ impl StorageConnection for StorageInstance {
             .map(Storage::from)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn assume_identity(
         &self,
         identity: IdentityReference<'_>,
@@ -1096,7 +1101,7 @@ impl StorageConnection for StorageInstance {
         }
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn add_permission_group_to_user<
         'user,
         'group,
@@ -1119,7 +1124,7 @@ impl StorageConnection for StorageInstance {
         )
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn remove_permission_group_from_user<
         'user,
         'group,
@@ -1142,7 +1147,7 @@ impl StorageConnection for StorageInstance {
         )
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn add_role_to_user<
         'user,
         'group,
@@ -1158,7 +1163,7 @@ impl StorageConnection for StorageInstance {
         })
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(level = "trace", skip_all))]
     fn remove_role_from_user<
         'user,
         'group,
@@ -1189,10 +1194,6 @@ impl StorageConnection for Storage {
         self.instance.admin()
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip(name, schema, only_if_needed))
-    )]
     fn create_database_with_schema(
         &self,
         name: &str,
@@ -1211,7 +1212,6 @@ impl StorageConnection for Storage {
         self.instance.database::<DB>(name)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(name)))]
     fn delete_database(&self, name: &str) -> Result<(), bonsaidb_core::Error> {
         self.check_permission(
             database_resource_name(name),
@@ -1220,7 +1220,6 @@ impl StorageConnection for Storage {
         self.instance.delete_database(name)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
     fn list_databases(&self) -> Result<Vec<connection::Database>, bonsaidb_core::Error> {
         self.check_permission(
             bonsaidb_resource_name(),
@@ -1229,7 +1228,6 @@ impl StorageConnection for Storage {
         self.instance.list_databases()
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
     fn list_available_schemas(&self) -> Result<Vec<SchemaName>, bonsaidb_core::Error> {
         self.check_permission(
             bonsaidb_resource_name(),
@@ -1238,7 +1236,6 @@ impl StorageConnection for Storage {
         self.instance.list_available_schemas()
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(username)))]
     fn create_user(&self, username: &str) -> Result<u64, bonsaidb_core::Error> {
         self.check_permission(
             bonsaidb_resource_name(),
@@ -1247,7 +1244,6 @@ impl StorageConnection for Storage {
         self.instance.create_user(username)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user)))]
     fn delete_user<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
@@ -1265,7 +1261,6 @@ impl StorageConnection for Storage {
     }
 
     #[cfg(feature = "password-hashing")]
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, password)))]
     fn set_user_password<'user, U: Nameable<'user, u64> + Send + Sync>(
         &self,
         user: U,
@@ -1283,7 +1278,6 @@ impl StorageConnection for Storage {
         self.instance.set_user_password(user, password)
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument)]
     #[cfg(any(feature = "token-authentication", feature = "password-hashing"))]
     #[cfg_attr(not(feature = "token-authentication"), allow(unused_assignments))]
     #[cfg_attr(not(feature = "password-hashing"), allow(unused_mut))]
@@ -1358,7 +1352,6 @@ impl StorageConnection for Storage {
         }
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
     fn add_permission_group_to_user<
         'user,
         'group,
@@ -1386,7 +1379,6 @@ impl StorageConnection for Storage {
             )
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, permission_group)))]
     fn remove_permission_group_from_user<
         'user,
         'group,
@@ -1414,7 +1406,6 @@ impl StorageConnection for Storage {
             )
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
     fn add_role_to_user<
         'user,
         'group,
@@ -1435,7 +1426,6 @@ impl StorageConnection for Storage {
             })
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(user, role)))]
     fn remove_role_from_user<
         'user,
         'group,

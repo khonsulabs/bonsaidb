@@ -185,6 +185,12 @@ impl Display for Authority {
     }
 }
 
+impl AsRef<str> for Authority {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
 /// A namespaced name.
 #[derive(Hash, PartialEq, Eq, Deserialize, Serialize, Debug, Clone, Ord, PartialOrd)]
 pub struct QualifiedName {
