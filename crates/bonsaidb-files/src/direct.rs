@@ -139,7 +139,7 @@ where
     /// file will be renamed as part of the move.
     ///
     /// For example, moving `/a/file.txt` to `/b/` will result in the full path
-    /// being `/b/file.txt`. Moivng `/a/file.txt` to `/b/new-name.txt` will
+    /// being `/b/file.txt`. Moving `/a/file.txt` to `/b/new-name.txt` will
     /// result in the full path being `/b/new-name.txt`.
     pub fn move_to(&mut self, new_path: &str) -> Result<(), Error> {
         if !new_path.as_bytes().starts_with(b"/") {
@@ -198,6 +198,11 @@ where
     /// Truncates the file, removing data from either the start or end of the
     /// file until the file is within
     /// [`Config::BLOCK_SIZE`](FileConfig::BLOCK_SIZE) of `new_length`.
+    /// Truncating currently will not split a block, causing the resulting
+    /// length to not always match the length requested.
+    ///
+    /// If `new_length` is 0 and this call succeeds, the file's length is
+    /// guaranteed to be 0.
     pub fn truncate(&self, new_length: u64, from: Truncate) -> Result<(), bonsaidb_core::Error> {
         schema::file::File::<Config>::truncate(&self.doc, new_length, from, &self.database.0)
     }
@@ -335,7 +340,7 @@ where
     /// file will be renamed as part of the move.
     ///
     /// For example, moving `/a/file.txt` to `/b/` will result in the full path
-    /// being `/b/file.txt`. Moivng `/a/file.txt` to `/b/new-name.txt` will
+    /// being `/b/file.txt`. Moving `/a/file.txt` to `/b/new-name.txt` will
     /// result in the full path being `/b/new-name.txt`.
     pub async fn move_to(&mut self, new_path: &str) -> Result<(), Error> {
         if !new_path.as_bytes().starts_with(b"/") {
@@ -370,13 +375,11 @@ where
         Ok(())
     }
 
-    /// Moves this file to a new location. If `new_path` ends with a `/`, the
-    /// file will be moved to that path with its name preserved. Otherwise, the
-    /// file will be renamed as part of the move.
+    /// Returns the contents of the file, which allows random and buffered
+    /// access to the file stored in the database.
     ///
-    /// For example, moving `/a/file.txt` to `/b/` will result in the full path
-    /// being `/b/file.txt`. Moivng `/a/file.txt` to `/b/new-name.txt` will
-    /// result in the full path being `/b/new-name.txt`.
+    /// The default buffer size is ten times
+    /// [`Config::BLOCK_SIZE`](FileConfig::BLOCK_SIZE).
     pub async fn contents(
         &self,
     ) -> Result<Contents<'_, Async<Database>, Config>, bonsaidb_core::Error> {
@@ -395,7 +398,14 @@ where
         })
     }
 
-    /// Renames this file to the new name.
+    /// Truncates the file, removing data from either the start or end of the
+    /// file until the file is within
+    /// [`Config::BLOCK_SIZE`](FileConfig::BLOCK_SIZE) of `new_length`.
+    /// Truncating currently will not split a block, causing the resulting
+    /// length to not always match the length requested.
+    ///
+    /// If `new_length` is 0 and this call succeeds, the file's length is
+    /// guaranteed to be 0.
     pub async fn truncate(
         &self,
         new_length: u64,
