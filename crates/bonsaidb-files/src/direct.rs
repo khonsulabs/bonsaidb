@@ -643,6 +643,13 @@ impl<'a, Database: Connection + Clone, Config: FileConfig>
         self.clone().into_vec()
     }
 
+    /// Returns the remaining contents as a string. If no bytes have been read,
+    /// this returns the entire contents.
+    pub fn to_string(&self) -> std::io::Result<String> {
+        String::from_utf8(self.to_vec()?)
+            .map_err(|err| std::io::Error::new(ErrorKind::InvalidData, err))
+    }
+
     /// Returns the remaining contents as a `Vec<u8>`. If no bytes have been
     /// read, this returns the entire contents.
     #[allow(clippy::missing_panics_doc)] // Not reachable
@@ -650,6 +657,13 @@ impl<'a, Database: Connection + Clone, Config: FileConfig>
         let mut contents = Vec::with_capacity(usize::try_from(self.len()).unwrap());
         self.read_to_end(&mut contents)?;
         Ok(contents)
+    }
+
+    /// Returns the remaining contents as a string. If no bytes have been read,
+    /// this returns the entire contents.
+    pub fn into_string(self) -> std::io::Result<String> {
+        String::from_utf8(self.into_vec()?)
+            .map_err(|err| std::io::Error::new(ErrorKind::InvalidData, err))
     }
 
     fn load_blocks(&mut self) -> std::io::Result<()> {
@@ -690,6 +704,20 @@ impl<
         let mut contents = vec![0; usize::try_from(self.len()).unwrap()];
         <Self as tokio::io::AsyncReadExt>::read_exact(&mut self, &mut contents).await?;
         Ok(contents)
+    }
+
+    /// Returns the remaining contents as a string. If no bytes have been read,
+    /// this returns the entire contents.
+    pub async fn to_string(&self) -> std::io::Result<String> {
+        String::from_utf8(self.to_vec().await?)
+            .map_err(|err| std::io::Error::new(ErrorKind::InvalidData, err))
+    }
+
+    /// Returns the remaining contents as a string. If no bytes have been read,
+    /// this returns the entire contents.
+    pub async fn into_string(self) -> std::io::Result<String> {
+        String::from_utf8(self.into_vec().await?)
+            .map_err(|err| std::io::Error::new(ErrorKind::InvalidData, err))
     }
 }
 

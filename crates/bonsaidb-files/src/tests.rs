@@ -26,14 +26,18 @@ fn simple_file_test() {
         .unwrap();
     let contents = file.contents().unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
-    let bytes = contents.into_vec().unwrap();
-    assert_eq!(bytes, b"hello, world!");
+    let bytes = contents.into_string().unwrap();
+    assert_eq!(bytes, "hello, world!");
 
     let file = BonsaiFiles::load("/hello/world.txt", database.clone())
         .unwrap()
         .unwrap();
     assert_eq!(file.name(), "world.txt");
     assert_eq!(file.containing_path(), "/hello/");
+    assert_eq!(
+        file.contents().unwrap().to_string().unwrap(),
+        "hello, world!"
+    );
 
     file.delete().unwrap();
     assert!(BonsaiFiles::load("/hello/world.txt", database)
@@ -56,8 +60,8 @@ async fn async_simple_file_test() {
         .unwrap();
     let contents = file.contents().await.unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
-    let bytes = contents.into_vec().await.unwrap();
-    assert_eq!(bytes, b"hello, world!");
+    let bytes = contents.into_string().await.unwrap();
+    assert_eq!(bytes, "hello, world!");
 
     let file = BonsaiFiles::load_async("/hello/world.txt", database.clone())
         .await
@@ -65,6 +69,10 @@ async fn async_simple_file_test() {
         .unwrap();
     assert_eq!(file.name(), "world.txt");
     assert_eq!(file.containing_path(), "/hello/");
+    assert_eq!(
+        file.contents().await.unwrap().to_string().await.unwrap(),
+        "hello, world!"
+    );
 
     file.delete().await.unwrap();
     assert!(BonsaiFiles::load_async("/hello/world.txt", database)
