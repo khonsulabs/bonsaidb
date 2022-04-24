@@ -10,6 +10,7 @@ use bonsaidb_local::{
     config::{Builder, StorageConfiguration},
     Database,
 };
+#[cfg(feature = "async")]
 use futures::StreamExt;
 #[cfg(feature = "async")]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -568,6 +569,7 @@ fn block_iterator_test() {
 }
 
 #[tokio::test]
+#[cfg(feature = "async")]
 async fn block_stream_test() {
     let mut file_contents = Vec::with_capacity(BonsaiFiles::BLOCK_SIZE * 3);
     let word_size = size_of::<usize>();
