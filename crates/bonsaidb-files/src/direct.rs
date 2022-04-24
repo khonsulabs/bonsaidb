@@ -729,6 +729,82 @@ impl<
         String::from_utf8(self.into_vec().await?)
             .map_err(|err| std::io::Error::new(ErrorKind::InvalidData, err))
     }
+
+    fn spawn_block_fetching_task(&mut self) {
+        if self.async_blocks.is_none() {
+            // Spawn the task
+            let (block_sender, block_receiver) = flume::unbounded();
+            let (request_sender, request_receiver) = flume::unbounded();
+
+            let task_database = self.file.database.0.clone();
+            tokio::task::spawn(async move {
+                while let Ok(doc_ids) = request_receiver.recv_async().await {
+                    let blocks =
+                        schema::block::Block::<Config>::load_async(&doc_ids, &task_database)
+                            .await
+                            .map_err(|err| std::io::Error::new(ErrorKind::Other, err));
+                    if block_sender.send(blocks).is_err() {
+                        break;
+                    }
+                }
+            });
+
+            self.async_blocks = Some(AsyncBlockTask {
+                block_receiver: block_receiver.into_recv_async(),
+                request_sender,
+                requested: false,
+            });
+        }
+    }
+
+    fn fetch_blocks(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<bool, std::io::Error>> {
+        if self.async_blocks.as_mut().unwrap().requested {
+            match ready!(self
+                .async_blocks
+                .as_mut()
+                .unwrap()
+                .block_receiver
+                .poll_unpin(cx))
+            {
+                Ok(Ok(blocks)) => {
+                    self.async_blocks.as_mut().unwrap().requested = false;
+                    for (index, (_, contents)) in blocks.into_iter().enumerate() {
+                        let loaded_block = LoadedBlock {
+                            index: self.current_block + index,
+                            contents,
+                        };
+                        self.loaded.push_back(loaded_block);
+                    }
+                    Poll::Ready(Ok(true))
+                }
+                Ok(Err(db_err)) => Poll::Ready(Err(std::io::Error::new(ErrorKind::Other, db_err))),
+                Err(flume_error) => {
+                    Poll::Ready(Err(std::io::Error::new(ErrorKind::BrokenPipe, flume_error)))
+                }
+            }
+        } else {
+            let blocks = self.next_blocks();
+            if blocks.is_empty() {
+                return Poll::Ready(Ok(false));
+            }
+            self.loaded.clear();
+            self.async_blocks.as_mut().unwrap().requested = true;
+            if let Err(err) = self
+                .async_blocks
+                .as_mut()
+                .unwrap()
+                .request_sender
+                .send(blocks)
+            {
+                return Poll::Ready(Err(std::io::Error::new(ErrorKind::BrokenPipe, err)));
+            }
+
+            Poll::Ready(Ok(true))
+        }
+    }
 }
 
 impl<'a, Database: Clone, Config: FileConfig> Contents<'a, Database, Config> {
@@ -782,6 +858,32 @@ impl<'a, Database: Clone, Config: FileConfig> Contents<'a, Database, Config> {
         self.blocks.last().map(|b| b.timestamp)
     }
 
+    fn non_blocking_read_block(&mut self) -> NonBlockingBlockReadResult {
+        let block = self.loaded.pop_front();
+
+        if let Some(mut block) = block {
+            if block.index == self.current_block {
+                self.current_block += 1;
+                if self.offset > 0 {
+                    block.contents.splice(..self.offset, []);
+                    self.offset = 0;
+                }
+                return NonBlockingBlockReadResult::ReadBlock(block.contents);
+            }
+        }
+
+        // We need to load blocks. We need to ensure we aren't in an EOF
+        // position.
+        let is_last_block = self.current_block + 1 == self.blocks.len();
+        if self.current_block < self.blocks.len()
+            || (is_last_block && self.offset < self.blocks.last().unwrap().length)
+        {
+            return NonBlockingBlockReadResult::NeedBlocks;
+        }
+
+        NonBlockingBlockReadResult::Eof
+    }
+
     fn non_blocking_read<F: FnMut(&[u8]) -> usize>(
         &mut self,
         mut read_callback: F,
@@ -811,6 +913,12 @@ impl<'a, Database: Clone, Config: FileConfig> Contents<'a, Database, Config> {
             }
         }
     }
+}
+
+enum NonBlockingBlockReadResult {
+    NeedBlocks,
+    ReadBlock(Vec<u8>),
+    Eof,
 }
 
 enum NonBlockingReadResult {
@@ -887,6 +995,7 @@ impl<'a, Database: Clone, Config: FileConfig> Seek for Contents<'a, Database, Co
         }
     }
 }
+
 #[cfg(feature = "async")]
 impl<
         'a,
@@ -926,96 +1035,74 @@ impl<
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        if self.async_blocks.is_none() {
-            // Spawn the task
-            let (block_sender, block_receiver) = flume::unbounded();
-            let (request_sender, request_receiver) = flume::unbounded();
-
-            let task_database = self.file.database.0.clone();
-            tokio::task::spawn(async move {
-                while let Ok(doc_ids) = request_receiver.recv_async().await {
-                    let blocks =
-                        schema::block::Block::<Config>::load_async(&doc_ids, &task_database)
-                            .await
-                            .map_err(|err| std::io::Error::new(ErrorKind::Other, err));
-                    if block_sender.send(blocks).is_err() {
-                        break;
-                    }
-                }
-            });
-
-            self.async_blocks = Some(AsyncBlockTask {
-                block_receiver: block_receiver.into_recv_async(),
-                request_sender,
-                requested: false,
-            });
-        }
-
+        self.spawn_block_fetching_task();
         loop {
             match self.non_blocking_read(|block| {
                 let bytes_to_read = buf.remaining().min(block.len());
                 buf.put_slice(&block[..bytes_to_read]);
                 bytes_to_read
             }) {
-                NonBlockingReadResult::NeedBlocks => {
-                    if self.async_blocks.as_mut().unwrap().requested {
-                        match ready!(self
-                            .async_blocks
-                            .as_mut()
-                            .unwrap()
-                            .block_receiver
-                            .poll_unpin(cx))
-                        {
-                            Ok(Ok(blocks)) => {
-                                self.async_blocks.as_mut().unwrap().requested = false;
-                                for (index, (_, contents)) in blocks.into_iter().enumerate() {
-                                    let loaded_block = LoadedBlock {
-                                        index: self.current_block + index,
-                                        contents,
-                                    };
-                                    self.loaded.push_back(loaded_block);
-                                }
-                            }
-                            Ok(Err(db_err)) => {
-                                return Poll::Ready(Err(std::io::Error::new(
-                                    ErrorKind::Other,
-                                    db_err,
-                                )))
-                            }
-                            Err(flume_error) => {
-                                return Poll::Ready(Err(std::io::Error::new(
-                                    ErrorKind::BrokenPipe,
-                                    flume_error,
-                                )))
-                            }
-                        }
-                    } else {
-                        let blocks = self.next_blocks();
-                        if blocks.is_empty() {
-                            return Poll::Ready(Ok(()));
-                        }
-                        self.loaded.clear();
-                        self.async_blocks.as_mut().unwrap().requested = true;
-                        if let Err(err) = self
-                            .async_blocks
-                            .as_mut()
-                            .unwrap()
-                            .request_sender
-                            .send(blocks)
-                        {
-                            return Poll::Ready(Err(std::io::Error::new(
-                                ErrorKind::BrokenPipe,
-                                err,
-                            )));
-                        }
-                    }
-                }
+                NonBlockingReadResult::NeedBlocks => match self.fetch_blocks(cx) {
+                    Poll::Ready(Ok(true)) => continue,
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Ok(false)) => return Poll::Ready(Ok(())),
+                    Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
+                },
                 NonBlockingReadResult::ReadBytes(bytes) => {
                     if bytes == 0 || buf.remaining() == 0 {
                         return Poll::Ready(Ok(()));
                     }
                 }
                 NonBlockingReadResult::Eof => return Poll::Ready(Ok(())),
+            }
+        }
+    }
+}
+
+impl<'a, Database: Connection + Clone, Config: FileConfig> Iterator
+    for Contents<'a, Blocking<Database>, Config>
+{
+    type Item = std::io::Result<Vec<u8>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.non_blocking_read_block() {
+                NonBlockingBlockReadResult::ReadBlock(bytes) => return Some(Ok(bytes)),
+                NonBlockingBlockReadResult::Eof => return None,
+                NonBlockingBlockReadResult::NeedBlocks => match self.load_blocks() {
+                    Ok(()) => {}
+                    Err(err) => return Some(Err(err)),
+                },
+            }
+        }
+    }
+}
+#[cfg(feature = "async")]
+impl<
+        'a,
+        Database: bonsaidb_core::connection::AsyncConnection + Clone + 'static,
+        Config: FileConfig,
+    > futures::Stream for Contents<'a, Async<Database>, Config>
+{
+    type Item = std::io::Result<Vec<u8>>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        self.spawn_block_fetching_task();
+        loop {
+            match self.non_blocking_read_block() {
+                NonBlockingBlockReadResult::NeedBlocks => match self.fetch_blocks(cx) {
+                    Poll::Ready(Ok(true)) => continue,
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Ok(false)) => return Poll::Ready(None),
+                    Poll::Ready(Err(err)) => return Poll::Ready(Some(Err(err))),
+                },
+                NonBlockingBlockReadResult::ReadBlock(block) => {
+                    return Poll::Ready(Some(Ok(block)))
+                }
+                NonBlockingBlockReadResult::Eof => return Poll::Ready(None),
             }
         }
     }

@@ -102,6 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `tokio::io::AsyncRead`
   - `tokio::io::AsyncSeek`
   - `tokio::io::AsyncWrite`
+  - `Iterator<Item = std::io::Result<Vec<u8>>>`
+  - `futures::Stream<Item = std::io::Result<Vec<u8>>>`
 - `SerializedCollection::push_all[_async]()` is a new function that accepts an
   iterator of document contents to push into the database using a single
   transaction. It returns the created collection documents if successful. If any

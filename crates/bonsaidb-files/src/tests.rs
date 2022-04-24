@@ -10,6 +10,7 @@ use bonsaidb_local::{
     config::{Builder, StorageConfiguration},
     Database,
 };
+use futures::StreamExt;
 #[cfg(feature = "async")]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -531,6 +532,77 @@ async fn async_seek_read_test() {
     );
     // Verify read returns 0 bytes.
     assert_eq!(contents.read(&mut buffer).await.unwrap(), 0);
+}
+
+#[test]
+fn block_iterator_test() {
+    let mut file_contents = Vec::with_capacity(BonsaiFiles::BLOCK_SIZE * 3);
+    let word_size = size_of::<usize>();
+    while file_contents.len() + word_size < file_contents.capacity() {
+        file_contents.extend(file_contents.len().to_be_bytes());
+    }
+    let directory = TestDirectory::new("block-iterator");
+    let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
+
+    let file = BonsaiFiles::build("hello.bin")
+        .contents(&file_contents)
+        .create(database)
+        .unwrap();
+    let mut compare_against = &file_contents[..];
+    let mut contents = file
+        .contents()
+        .unwrap()
+        .with_buffer_size(BonsaiFiles::BLOCK_SIZE);
+    // read a few bytes to test partial iteration.
+    let mut buffer = [0; 4];
+    contents.read_exact(&mut buffer).unwrap();
+    compare_against = &compare_against[4..];
+    assert_eq!(buffer, &compare_against[..4]);
+
+    for block in contents {
+        let bytes = block.unwrap();
+        assert_eq!(bytes, compare_against[..bytes.len()]);
+        compare_against = &compare_against[bytes.len()..];
+    }
+    assert!(compare_against.is_empty());
+}
+
+#[tokio::test]
+async fn block_stream_test() {
+    let mut file_contents = Vec::with_capacity(BonsaiFiles::BLOCK_SIZE * 3);
+    let word_size = size_of::<usize>();
+    while file_contents.len() + word_size < file_contents.capacity() {
+        file_contents.extend(file_contents.len().to_be_bytes());
+    }
+    let directory = TestDirectory::new("block-stream");
+    let database =
+        AsyncDatabase::open::<FilesSchema<BonsaiFiles>>(StorageConfiguration::new(&directory))
+            .await
+            .unwrap();
+
+    let file = BonsaiFiles::build("hello.bin")
+        .contents(&file_contents)
+        .create_async(database)
+        .await
+        .unwrap();
+    let mut compare_against = &file_contents[..];
+    let mut contents = file
+        .contents()
+        .await
+        .unwrap()
+        .with_buffer_size(BonsaiFiles::BLOCK_SIZE);
+    // read a few bytes to test partial iteration.
+    let mut buffer = [0; 4];
+    contents.read_exact(&mut buffer).await.unwrap();
+    compare_against = &compare_against[4..];
+    assert_eq!(buffer, &compare_against[..4]);
+
+    while let Some(block) = contents.next().await {
+        let bytes = block.unwrap();
+        assert_eq!(bytes, compare_against[..bytes.len()]);
+        compare_against = &compare_against[bytes.len()..];
+    }
+    assert!(compare_against.is_empty());
 }
 
 #[test]
