@@ -178,9 +178,10 @@ use crate::{
 ///
 /// ### Changing the serialization strategy
 ///
-/// BonsaiDb uses [`transmog`](::transmog) to allow customizing serialization
-/// formats. To use one of the formats Transmog already supports, add its crate
-/// to your Cargo.toml and use it like this example using `transmog_bincode`:
+/// BonsaiDb uses [`transmog`](https://github.com/khonsulabs/transmog) to allow
+/// customizing serialization formats. To use one of the formats Transmog
+/// already supports, add its crate to your Cargo.toml and use it like this
+/// example using `transmog_bincode`:
 ///
 /// ```rust
 /// use bonsaidb_core::schema::Collection;
