@@ -178,12 +178,10 @@ where
     ///
     /// The default buffer size is ten times
     /// [`Config::BLOCK_SIZE`](FileConfig::BLOCK_SIZE).
-    pub fn contents(
-        &self,
-    ) -> Result<Contents<'_, Blocking<Database>, Config>, bonsaidb_core::Error> {
+    pub fn contents(&self) -> Result<Contents<Blocking<Database>, Config>, bonsaidb_core::Error> {
         let blocks = schema::block::Block::<Config>::for_file(self.id(), &self.database.0)?;
         Ok(Contents {
-            file: self,
+            database: self.database.clone(),
             blocks,
             loaded: VecDeque::default(),
             current_block: 0,
@@ -382,11 +380,11 @@ where
     /// [`Config::BLOCK_SIZE`](FileConfig::BLOCK_SIZE).
     pub async fn contents(
         &self,
-    ) -> Result<Contents<'_, Async<Database>, Config>, bonsaidb_core::Error> {
+    ) -> Result<Contents<Async<Database>, Config>, bonsaidb_core::Error> {
         let blocks =
             schema::block::Block::<Config>::for_file_async(self.id(), &self.database.0).await?;
         Ok(Contents {
-            file: self,
+            database: self.database.clone(),
             blocks,
             loaded: VecDeque::default(),
             current_block: 0,
@@ -602,8 +600,8 @@ impl<'a, Config: FileConfig> FileBuilder<'a, Config> {
 
 /// Buffered access to the contents of a [`File`].
 #[must_use]
-pub struct Contents<'a, Database: Clone, Config: FileConfig> {
-    file: &'a File<Database, Config>,
+pub struct Contents<Database: Clone, Config: FileConfig> {
+    database: Database,
     blocks: Vec<BlockInfo>,
     loaded: VecDeque<LoadedBlock>,
     current_block: usize,
@@ -622,10 +620,10 @@ struct AsyncBlockTask {
     request_sender: flume::Sender<Vec<DocumentId>>,
 }
 
-impl<'a, Database: Clone, Config: FileConfig> Clone for Contents<'a, Database, Config> {
+impl<Database: Clone, Config: FileConfig> Clone for Contents<Database, Config> {
     fn clone(&self) -> Self {
         Self {
-            file: self.file,
+            database: self.database.clone(),
             blocks: self.blocks.clone(),
             loaded: VecDeque::new(),
             current_block: self.current_block,
@@ -644,9 +642,7 @@ struct LoadedBlock {
     contents: Vec<u8>,
 }
 
-impl<'a, Database: Connection + Clone, Config: FileConfig>
-    Contents<'a, Blocking<Database>, Config>
-{
+impl<Database: Connection + Clone, Config: FileConfig> Contents<Blocking<Database>, Config> {
     /// Returns the remaining contents as a `Vec<u8>`. If no bytes have been
     /// read, this returns the entire contents.
     pub fn to_vec(&self) -> std::io::Result<Vec<u8>> {
@@ -679,7 +675,7 @@ impl<'a, Database: Connection + Clone, Config: FileConfig>
     fn load_blocks(&mut self) -> std::io::Result<()> {
         self.loaded.clear();
         for (index, (_, contents)) in
-            schema::block::Block::<Config>::load(&self.next_blocks(), &self.file.database.0)
+            schema::block::Block::<Config>::load(&self.next_blocks(), &self.database.0)
                 .map_err(|err| std::io::Error::new(ErrorKind::Other, err))?
                 .into_iter()
                 .enumerate()
@@ -696,10 +692,9 @@ impl<'a, Database: Connection + Clone, Config: FileConfig>
 
 #[cfg(feature = "async")]
 impl<
-        'a,
-        Database: bonsaidb_core::connection::AsyncConnection + Clone + 'static,
+        Database: bonsaidb_core::connection::AsyncConnection + Clone + Unpin + 'static,
         Config: FileConfig,
-    > Contents<'a, Async<Database>, Config>
+    > Contents<Async<Database>, Config>
 {
     /// Returns the remaining contents as a `Vec<u8>`. If no bytes have been
     /// read, this returns the entire contents.
@@ -736,7 +731,7 @@ impl<
             let (block_sender, block_receiver) = flume::unbounded();
             let (request_sender, request_receiver) = flume::unbounded();
 
-            let task_database = self.file.database.0.clone();
+            let task_database = self.database.0.clone();
             tokio::task::spawn(async move {
                 while let Ok(doc_ids) = request_receiver.recv_async().await {
                     let blocks =
@@ -807,7 +802,7 @@ impl<
     }
 }
 
-impl<'a, Database: Clone, Config: FileConfig> Contents<'a, Database, Config> {
+impl<Database: Clone, Config: FileConfig> Contents<Database, Config> {
     fn next_blocks(&self) -> Vec<DocumentId> {
         let mut last_block = self.current_block;
         let mut requesting_size = 0;
@@ -927,8 +922,8 @@ enum NonBlockingReadResult {
     Eof,
 }
 
-impl<'a, Database: Connection + Clone, Config: FileConfig> Read
-    for Contents<'a, Blocking<Database>, Config>
+impl<Database: Connection + Clone, Config: FileConfig> Read
+    for Contents<Blocking<Database>, Config>
 {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         loop {
@@ -945,7 +940,7 @@ impl<'a, Database: Connection + Clone, Config: FileConfig> Read
     }
 }
 
-impl<'a, Database: Clone, Config: FileConfig> Seek for Contents<'a, Database, Config> {
+impl<Database: Clone, Config: FileConfig> Seek for Contents<Database, Config> {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
         let seek_to = match pos {
             SeekFrom::Start(offset) => offset,
@@ -998,10 +993,9 @@ impl<'a, Database: Clone, Config: FileConfig> Seek for Contents<'a, Database, Co
 
 #[cfg(feature = "async")]
 impl<
-        'a,
-        Database: bonsaidb_core::connection::AsyncConnection + Clone + 'static,
+        Database: bonsaidb_core::connection::AsyncConnection + Clone + Unpin + 'static,
         Config: FileConfig,
-    > tokio::io::AsyncSeek for Contents<'a, Async<Database>, Config>
+    > tokio::io::AsyncSeek for Contents<Async<Database>, Config>
 {
     fn start_seek(mut self: std::pin::Pin<&mut Self>, position: SeekFrom) -> std::io::Result<()> {
         self.seek(position).map(|_| ())
@@ -1025,10 +1019,9 @@ impl<
 
 #[cfg(feature = "async")]
 impl<
-        'a,
-        Database: bonsaidb_core::connection::AsyncConnection + Clone + 'static,
+        Database: bonsaidb_core::connection::AsyncConnection + Clone + Unpin + 'static,
         Config: FileConfig,
-    > tokio::io::AsyncRead for Contents<'a, Async<Database>, Config>
+    > tokio::io::AsyncRead for Contents<Async<Database>, Config>
 {
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
@@ -1059,8 +1052,8 @@ impl<
     }
 }
 
-impl<'a, Database: Connection + Clone, Config: FileConfig> Iterator
-    for Contents<'a, Blocking<Database>, Config>
+impl<Database: Connection + Clone, Config: FileConfig> Iterator
+    for Contents<Blocking<Database>, Config>
 {
     type Item = std::io::Result<Vec<u8>>;
 
@@ -1079,10 +1072,9 @@ impl<'a, Database: Connection + Clone, Config: FileConfig> Iterator
 }
 #[cfg(feature = "async")]
 impl<
-        'a,
-        Database: bonsaidb_core::connection::AsyncConnection + Clone + 'static,
+        Database: bonsaidb_core::connection::AsyncConnection + Unpin + Clone + 'static,
         Config: FileConfig,
-    > futures::Stream for Contents<'a, Async<Database>, Config>
+    > futures::Stream for Contents<Async<Database>, Config>
 {
     type Item = std::io::Result<Vec<u8>>;
 
