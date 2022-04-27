@@ -399,7 +399,7 @@ async fn authenticated_permissions_test() -> anyhow::Result<()> {
 
     server.create_user("ecton").await?;
     server
-        .set_user_password("ecton", SensitiveString("hunter2".to_string()))
+        .set_user_password("ecton", SensitiveString::from("hunter2"))
         .await?;
     tokio::spawn(async move {
         server.listen_on(6002).await?;

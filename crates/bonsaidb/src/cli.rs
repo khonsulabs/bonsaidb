@@ -4,23 +4,24 @@ use std::{ffi::OsString, fmt::Debug, path::PathBuf};
 
 use bonsaidb_client::{fabruic::Certificate, Client};
 use bonsaidb_core::async_trait::async_trait;
+#[cfg(any(feature = "password-hashing", feature = "token-authentication"))]
+use bonsaidb_core::connection::AsyncStorageConnection;
+use bonsaidb_local::cli::admin;
 use bonsaidb_server::{Backend, CustomServer, NoBackend, ServerConfiguration};
 use clap::{Parser, Subcommand};
 use url::Url;
 
 use crate::AnyServerConnection;
 
-mod admin;
-
 /// All available command line commands.
 #[derive(Subcommand, Debug)]
 pub enum Command<Cli: CommandLine> {
-    /// Executes an admin command.
-    #[clap(subcommand)]
-    Admin(admin::Command),
     /// Execute a BonsaiDb server command.
     #[clap(subcommand)]
     Server(bonsaidb_server::cli::Command<Cli::Backend>),
+    /// Executes an administrative command.
+    #[clap(subcommand)]
+    Admin(admin::Command),
     /// An external command.
     #[clap(flatten)]
     External(Cli::Subcommand),
@@ -36,6 +37,8 @@ where
         self,
         server_url: Option<Url>,
         pinned_certificate: Option<Certificate>,
+        #[cfg(feature = "password-hashing")] username: Option<String>,
+        #[cfg(feature = "token-authentication")] token_id: Option<u64>,
         mut cli: Cli,
     ) -> anyhow::Result<()> {
         match self {
@@ -59,11 +62,30 @@ where
                 } else {
                     AnyServerConnection::Local(cli.open_server().await?)
                 };
+
+                #[cfg(feature = "password-hashing")]
+                let connection = if let Some(username) = username {
+                    let password = bonsaidb_local::cli::read_password_from_stdin(false)?;
+                    connection
+                        .authenticate_with_password(&username, password)
+                        .await?
+                } else {
+                    connection
+                };
+
+                #[cfg(feature = "token-authentication")]
+                let connection = if let Some(token_id) = token_id {
+                    let token = bonsaidb_core::connection::SensitiveString(std::env::var(
+                        "BONSAIDB_TOKEN_SECRET",
+                    )?);
+                    connection.authenticate_with_token(token_id, &token).await?
+                } else {
+                    connection
+                };
+
                 match other {
-                    Command::Admin(admin) => admin.execute(connection).await?,
-                    Command::External(external) => {
-                        cli.execute(external, connection).await?;
-                    }
+                    Command::Admin(admin) => admin.execute_async(&connection).await?,
+                    Command::External(external) => cli.execute(external, connection).await?,
                     Command::Server(_) => unreachable!(),
                 }
             }
@@ -81,6 +103,17 @@ pub struct Args<Cli: CommandLine> {
     /// A pinned certificate to use when connecting to `url`.
     #[clap(short = 'c', long)]
     pub pinned_certificate: Option<PathBuf>,
+    /// A token ID to authenticate as before executing the command. Use
+    /// environment variable `BONSAIDB_TOKEN_SECRET` to provide the
+    #[cfg(feature = "token-authentication")]
+    #[clap(long = "token", short = 't')]
+    pub token_id: Option<u64>,
+    /// A user to authenticate as before executing the command. The password
+    /// will be prompted for over stdin. When writing a script for headless
+    /// automation, token authentication should be preferred.
+    #[cfg(feature = "password-hashing")]
+    #[clap(long = "username", short = 'u')]
+    pub username: Option<String>,
     /// The command to execute on the connection specified.
     #[clap(subcommand)]
     pub command: Command<Cli>,
@@ -96,7 +129,15 @@ impl<Cli: CommandLine> Args<Cli> {
             None
         };
         self.command
-            .execute(self.url, pinned_certificate, cli)
+            .execute(
+                self.url,
+                pinned_certificate,
+                #[cfg(feature = "password-hashing")]
+                self.username,
+                #[cfg(feature = "token-authentication")]
+                self.token_id,
+                cli,
+            )
             .await
     }
 }

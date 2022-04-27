@@ -154,7 +154,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     server
-        .set_user_password("test-user", SensitiveString("hunter2".to_string()))
+        .set_user_password("test-user", SensitiveString::from("hunter2"))
         .await?;
 
     if server.certificate_chain().await.is_err() {

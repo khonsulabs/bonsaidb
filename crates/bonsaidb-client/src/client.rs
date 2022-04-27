@@ -148,8 +148,8 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// # use bonsaidb_client::{Client, fabruic::Certificate, url::Url};
 /// // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_client::core`.
 /// use bonsaidb_core::{
-///     api::{Api, Infallible},
-///     schema::{ApiName, Qualified},
+///     api::{Api, ApiName, Infallible},
+///     schema::Qualified,
 /// };
 /// use serde::{Deserialize, Serialize};
 ///
@@ -183,7 +183,7 @@ pub type WebSocketError = wasm_websocket_worker::WebSocketError;
 /// ```rust
 /// # use bonsaidb_client::{Client, ApiCallback, fabruic::Certificate, url::Url};
 /// # // `bonsaidb_core` is re-exported to `bonsaidb::core` or `bonsaidb_client::core`.
-/// # use bonsaidb_core::{api::{Api, Infallible}, schema::{ApiName, Qualified}};
+/// # use bonsaidb_core::{api::{Api, Infallible, ApiName}, schema::{Qualified}};
 /// # use serde::{Serialize, Deserialize};
 /// # #[derive(Serialize, Deserialize, Debug)]
 /// # pub struct Ping;

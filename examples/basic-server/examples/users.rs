@@ -54,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
         Ok(id) => {
             // Set the user's password.
             server
-                .set_user_password("ecton", SensitiveString("hunter2".to_string()))
+                .set_user_password("ecton", SensitiveString::from("hunter2"))
                 .await?;
 
             id

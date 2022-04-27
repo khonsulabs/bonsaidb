@@ -1,5 +1,9 @@
 use std::{
-    borrow::Borrow, convert::Infallible, marker::PhantomData, ops::Deref, string::FromUtf8Error,
+    borrow::Borrow,
+    convert::Infallible,
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+    string::FromUtf8Error,
     sync::Arc,
 };
 
@@ -3077,7 +3081,7 @@ pub trait StorageConnection: HasSession + Sized + Send + Sync {
     fn authenticate_with_token(
         &self,
         id: u64,
-        token: &SensitiveBytes,
+        token: &SensitiveString,
     ) -> Result<<Self::Authenticated as StorageConnection>::Authenticated, crate::Error> {
         let challenge_session = self.authenticate(Authentication::token(id, token)?)?;
         match challenge_session
@@ -3263,7 +3267,7 @@ pub trait AsyncStorageConnection: HasSession + Sized + Send + Sync {
     async fn authenticate_with_token(
         &self,
         id: u64,
-        token: &SensitiveBytes,
+        token: &SensitiveString,
     ) -> Result<<Self::Authenticated as AsyncStorageConnection>::Authenticated, crate::Error> {
         let challenge_session = self.authenticate(Authentication::token(id, token)?).await?;
         match challenge_session
@@ -3372,7 +3376,7 @@ pub struct Database {
 
 /// A string containing sensitive (private) data. This struct automatically
 /// overwrites its contents with zeroes when dropped.
-#[derive(Clone, Serialize, Deserialize, Zeroize, Eq, PartialEq)]
+#[derive(Clone, Default, Serialize, Deserialize, Zeroize, Eq, PartialEq)]
 #[zeroize(drop)]
 #[serde(transparent)]
 pub struct SensitiveString(pub String);
@@ -3391,6 +3395,12 @@ impl Deref for SensitiveString {
     }
 }
 
+impl DerefMut for SensitiveString {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl<'k> Key<'k> for SensitiveString {
     fn from_ord_bytes(bytes: &'k [u8]) -> Result<Self, Self::Error> {
         String::from_ord_bytes(bytes).map(Self)
@@ -3404,6 +3414,18 @@ impl<'k> KeyEncoding<'k, Self> for SensitiveString {
 
     fn as_ord_bytes(&'k self) -> Result<std::borrow::Cow<'k, [u8]>, Self::Error> {
         self.0.as_ord_bytes()
+    }
+}
+
+impl From<String> for SensitiveString {
+    fn from(sensitive: String) -> Self {
+        Self(sensitive)
+    }
+}
+
+impl<'a> From<&'a str> for SensitiveString {
+    fn from(sensitive: &'a str) -> Self {
+        Self(sensitive.to_owned())
     }
 }
 
@@ -3425,6 +3447,12 @@ impl Deref for SensitiveBytes {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for SensitiveBytes {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -3490,7 +3518,7 @@ impl Authentication {
 
     /// Returns a token authentication initialization instance for this token.
     #[cfg(feature = "token-authentication")]
-    pub fn token(id: u64, token: &SensitiveBytes) -> Result<Self, crate::Error> {
+    pub fn token(id: u64, token: &SensitiveString) -> Result<Self, crate::Error> {
         let now = crate::key::time::TimestampAsNanoseconds::now();
         Ok(Self::Token {
             id,

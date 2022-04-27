@@ -147,6 +147,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `bonsaidb::cli::Command::Server` now calls `CommandLine::open_server()` rather
   than constructing the server directly. This allows CommandLine implementors to
   use `open_server` as a location to launch extra services upon server startup.
+- `bonsaidb::cli::Args` and `bonsaidb::cli::Command::execute` now accept a token
+  id or a username, allowing for commands to be executed with authentication if
+  the features are enabled.
+- `bonsaidb::local::cli::Command` now offers the ability to create a user and
+  set a user's password.
+- `bonsaidb::local::cli::admin` is a newly exposed module that allows some basic
+  user management. This set of commands is also available on
+  `bonsaidb::cli::Command` through the `Admin` variant, allowing for both local
+  and remote administration.
 
 [239]: https://github.com/khonsulabs/bonsaidb/pull/239
 

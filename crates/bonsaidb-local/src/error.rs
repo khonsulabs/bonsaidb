@@ -77,6 +77,11 @@ pub enum Error {
     #[cfg(feature = "password-hashing")]
     #[error("password hash error: {0}")]
     PasswordHash(String),
+
+    /// An error occurred with a password hash.
+    #[cfg(all(feature = "password-hashing", feature = "cli"))]
+    #[error("error reading password: {0}")]
+    CommandLinePassword(#[from] crate::cli::ReadPasswordError),
 }
 
 impl<T> From<InsertError<T>> for Error {

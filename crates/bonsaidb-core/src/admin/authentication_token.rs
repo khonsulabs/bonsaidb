@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    connection::{IdentityId, SensitiveBytes},
-    define_basic_unique_mapped_view,
-    document::{CollectionDocument, Emit},
+    connection::{IdentityId, SensitiveString},
     key::time::TimestampAsNanoseconds,
     schema::Collection,
 };
@@ -12,21 +10,19 @@ use crate::{
 #[collection(name = "authentication-tokens", authority = "bonsaidb", core = crate)]
 pub struct AuthenticationToken {
     pub identity: IdentityId,
-    pub token: SensitiveBytes,
+    pub token: SensitiveString,
     pub created_at: TimestampAsNanoseconds,
 }
 
 #[cfg(feature = "token-authentication")]
 mod implementation {
-    use arc_bytes::serde::Bytes;
-    use rand::{thread_rng, Rng};
+    use rand::{seq::SliceRandom, thread_rng, Rng};
     use zeroize::Zeroize;
 
     use super::AuthenticationToken;
     use crate::{
-        admin::authentication_token,
         connection::{
-            AsyncConnection, Connection, IdentityId, IdentityReference, SensitiveBytes,
+            AsyncConnection, Connection, IdentityId, IdentityReference, SensitiveString,
             TokenChallengeAlgorithm,
         },
         document::CollectionDocument,
@@ -36,9 +32,16 @@ mod implementation {
 
     impl AuthenticationToken {
         fn random(identity: IdentityId) -> (u64, Self) {
+            const ALPHABET: &[u8] =
+                b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.+/#";
             let mut rng = thread_rng();
             let id = rng.gen();
-            let token = SensitiveBytes(Bytes::from(vec![rng.gen(); 32]));
+            let token = SensitiveString(
+                std::iter::repeat_with(|| ALPHABET.choose(&mut rng))
+                    .take(32)
+                    .map(|c| *c.unwrap() as char)
+                    .collect(),
+            );
             (
                 id,
                 Self {
@@ -59,14 +62,7 @@ mod implementation {
             loop {
                 let (id, token) = Self::random(identity_id);
                 match token.insert_into(&id, database) {
-                    Err(err)
-                        if err
-                            .error
-                            .is_unique_key_error::<authentication_token::ByToken, _>(database)
-                            || err.error.conflicting_document::<Self>().is_some() =>
-                    {
-                        continue
-                    }
+                    Err(err) if err.error.conflicting_document::<Self>().is_some() => continue,
                     other => break other.map_err(|err| err.error),
                 }
             }
@@ -83,14 +79,7 @@ mod implementation {
             loop {
                 let (id, token) = Self::random(identity_id);
                 match token.insert_into_async(&id, database).await {
-                    Err(err)
-                        if err
-                            .error
-                            .is_unique_key_error::<authentication_token::ByToken, _>(database)
-                            || err.error.conflicting_document::<Self>().is_some() =>
-                    {
-                        continue
-                    }
+                    Err(err) if err.error.conflicting_document::<Self>().is_some() => continue,
                     other => break other.map_err(|err| err.error),
                 }
             }
@@ -119,12 +108,12 @@ mod implementation {
 
         #[must_use]
         pub fn compute_challenge_response_blake3(
-            token: &SensitiveBytes,
+            token: &SensitiveString,
             nonce: &[u8],
             timestamp: TimestampAsNanoseconds,
         ) -> blake3::Hash {
             let context = format!("bonsaidb {timestamp} token-challenge");
-            let mut key = blake3::derive_key(&context, &token.0);
+            let mut key = blake3::derive_key(&context, token.0.as_bytes());
             let hash = blake3::keyed_hash(&key, nonce);
             key.zeroize();
             hash
@@ -134,7 +123,7 @@ mod implementation {
             request_time: TimestampAsNanoseconds,
             request_time_check: &[u8],
             algorithm: TokenChallengeAlgorithm,
-            token: &SensitiveBytes,
+            token: &SensitiveString,
         ) -> Result<(), crate::Error> {
             match algorithm {
                 TokenChallengeAlgorithm::Blake3 => {
@@ -155,10 +144,10 @@ mod implementation {
 
         pub(crate) fn compute_request_time_hash_blake3(
             request_time: TimestampAsNanoseconds,
-            private_token: &SensitiveBytes,
+            private_token: &SensitiveString,
         ) -> blake3::Hash {
             let context = format!("bonsaidb {request_time} token-authentication");
-            let mut key = blake3::derive_key(&context, &private_token.0);
+            let mut key = blake3::derive_key(&context, private_token.0.as_bytes());
             let hash = blake3::keyed_hash(&key, &request_time.representation().to_be_bytes());
             key.zeroize();
             hash
@@ -167,7 +156,3 @@ mod implementation {
 }
 
 impl AuthenticationToken {}
-
-define_basic_unique_mapped_view! {
-    ByToken, AuthenticationToken, 0, "by-token", SensitiveBytes, |token: CollectionDocument<AuthenticationToken>| token.header.emit_key(token.contents.token)
-}
