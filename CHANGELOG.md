@@ -163,6 +163,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Unique views/eager views now are properly updated when an overwrite operation
   is performed that resulted in a new document being created.
+- Argon2 ram configuration is now correctly applied. Previously, the memory cost
+  was being supplied in bytes, but the underlying API was expecting kilobytes.
 
 ## v0.4.1
 

@@ -118,7 +118,7 @@ impl HashingThread {
             ArgonParams::Timed(config) => {
                 let mut params_builder = ParamsBuilder::new();
                 let params = params_builder
-                    .m_cost(config.ram_per_hasher)?
+                    .m_cost(config.ram_per_hasher / 1_024)?
                     .p_cost(config.lanes)?
                     .data(&0_u64.to_be_bytes())?;
                 let salt = SaltString::generate(rng);
