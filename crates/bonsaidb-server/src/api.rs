@@ -119,6 +119,12 @@ impl<E: ApiError> From<pot::Error> for HandlerError<E> {
     }
 }
 
+impl<E: ApiError> From<std::io::Error> for HandlerError<E> {
+    fn from(err: std::io::Error) -> Self {
+        Self::Server(Error::from(err))
+    }
+}
+
 impl<T, E> From<InsertError<T>> for HandlerError<E>
 where
     E: ApiError,
