@@ -24,14 +24,14 @@ fn simple_file_test() {
 
     let file = BonsaiFiles::build("/hello/world.txt")
         .contents(b"hello, world!")
-        .create(database.clone())
+        .create(&database)
         .unwrap();
     let contents = file.contents().unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
     let bytes = contents.into_string().unwrap();
     assert_eq!(bytes, "hello, world!");
 
-    let file = BonsaiFiles::load("/hello/world.txt", database.clone())
+    let file = BonsaiFiles::load("/hello/world.txt", &database)
         .unwrap()
         .unwrap();
     assert_eq!(file.name(), "world.txt");
@@ -42,7 +42,7 @@ fn simple_file_test() {
     );
 
     file.delete().unwrap();
-    assert!(BonsaiFiles::load("/hello/world.txt", database)
+    assert!(BonsaiFiles::load("/hello/world.txt", &database)
         .unwrap()
         .is_none());
 }
@@ -57,7 +57,7 @@ async fn async_simple_file_test() {
 
     let file = BonsaiFiles::build("/hello/world.txt")
         .contents(b"hello, world!")
-        .create_async(database.clone())
+        .create_async(&database)
         .await
         .unwrap();
     let contents = file.contents().await.unwrap();
@@ -65,7 +65,7 @@ async fn async_simple_file_test() {
     let bytes = contents.into_string().await.unwrap();
     assert_eq!(bytes, "hello, world!");
 
-    let file = BonsaiFiles::load_async("/hello/world.txt", database.clone())
+    let file = BonsaiFiles::load_async("/hello/world.txt", &database)
         .await
         .unwrap()
         .unwrap();
@@ -77,7 +77,7 @@ async fn async_simple_file_test() {
     );
 
     file.delete().await.unwrap();
-    assert!(BonsaiFiles::load_async("/hello/world.txt", database)
+    assert!(BonsaiFiles::load_async("/hello/world.txt", &database)
         .await
         .unwrap()
         .is_none());
@@ -88,11 +88,11 @@ fn load_or_create_test() {
     let directory = TestDirectory::new("load-or-create");
     let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
 
-    let file = BonsaiFiles::load_or_create("/hello/world.txt", true, database.clone()).unwrap();
-    let reloaded = BonsaiFiles::load_or_create("/hello/world.txt", true, database.clone()).unwrap();
+    let file = BonsaiFiles::load_or_create("/hello/world.txt", true, &database).unwrap();
+    let reloaded = BonsaiFiles::load_or_create("/hello/world.txt", true, &database).unwrap();
     assert_eq!(file, reloaded);
     let reloaded_unoptimal =
-        BonsaiFiles::load_or_create("/hello/world.txt", false, database).unwrap();
+        BonsaiFiles::load_or_create("/hello/world.txt", false, &database).unwrap();
     assert_eq!(file, reloaded_unoptimal);
 
     file.delete().unwrap();
@@ -106,16 +106,17 @@ async fn async_load_or_create_test() {
         .await
         .unwrap();
 
-    let file = BonsaiFiles::load_or_create_async("/hello/world.txt", true, database.clone())
+    let file = BonsaiFiles::load_or_create_async("/hello/world.txt", true, &database)
         .await
         .unwrap();
-    let reloaded = BonsaiFiles::load_or_create_async("/hello/world.txt", true, database.clone())
+    let reloaded = BonsaiFiles::load_or_create_async("/hello/world.txt", true, &database)
         .await
         .unwrap();
     assert_eq!(file, reloaded);
-    let reloaded_unoptimal = BonsaiFiles::load_or_create_async("/hello/world.txt", false, database)
-        .await
-        .unwrap();
+    let reloaded_unoptimal =
+        BonsaiFiles::load_or_create_async("/hello/world.txt", false, &database)
+            .await
+            .unwrap();
     assert_eq!(file, reloaded_unoptimal);
 
     file.delete().await.unwrap();
@@ -128,7 +129,7 @@ fn invalid_name_test() {
 
     let err = BonsaiFiles::build("hello/.txt")
         .contents(b"hello, world!")
-        .create(database)
+        .create(&database)
         .unwrap_err();
     assert!(matches!(err, Error::InvalidName));
 }
@@ -143,7 +144,7 @@ async fn async_invalid_name_test() {
 
     let err = BonsaiFiles::build("hello/.txt")
         .contents(b"hello, world!")
-        .create_async(database)
+        .create_async(&database)
         .await
         .unwrap_err();
     assert!(matches!(err, Error::InvalidName));
@@ -157,14 +158,14 @@ fn simple_path_test() {
     let file = BonsaiFiles::build("hello.txt")
         .at_path("/some/containing/path")
         .contents(b"hello, world!")
-        .create(database.clone())
+        .create(&database)
         .unwrap();
     let contents = file.contents().unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
     let bytes = contents.into_vec().unwrap();
     assert_eq!(bytes, b"hello, world!");
 
-    let file = BonsaiFiles::load("/some/containing/path/hello.txt", database.clone())
+    let file = BonsaiFiles::load("/some/containing/path/hello.txt", &database)
         .unwrap()
         .unwrap();
     assert_eq!(file.name(), "hello.txt");
@@ -184,21 +185,19 @@ fn simple_path_test() {
     let mut file = file;
     file.rename(String::from("new-name.txt")).unwrap();
     assert!(
-        BonsaiFiles::load("/some/containing/path/hello.txt", database.clone())
+        BonsaiFiles::load("/some/containing/path/hello.txt", &database)
             .unwrap()
             .is_none()
     );
-    let mut file = BonsaiFiles::load("/some/containing/path/new-name.txt", database.clone())
+    let mut file = BonsaiFiles::load("/some/containing/path/new-name.txt", &database)
         .unwrap()
         .unwrap();
     file.move_to("/new/path/").unwrap();
-    assert!(
-        BonsaiFiles::load("/new/path/new-name.txt", database.clone())
-            .unwrap()
-            .is_some()
-    );
+    assert!(BonsaiFiles::load("/new/path/new-name.txt", &database)
+        .unwrap()
+        .is_some());
     file.move_to("/final/path/and_name.txt").unwrap();
-    let file = BonsaiFiles::load("/final/path/and_name.txt", database)
+    let file = BonsaiFiles::load("/final/path/and_name.txt", &database)
         .unwrap()
         .unwrap();
     let contents = file.contents().unwrap().into_vec().unwrap();
@@ -216,7 +215,7 @@ async fn async_simple_path_test() {
     let file = BonsaiFiles::build("hello.txt")
         .at_path("/some/containing/path")
         .contents(b"hello, world!")
-        .create_async(database.clone())
+        .create_async(&database)
         .await
         .unwrap();
     let contents = file.contents().await.unwrap();
@@ -224,7 +223,7 @@ async fn async_simple_path_test() {
     let bytes = contents.into_vec().await.unwrap();
     assert_eq!(bytes, b"hello, world!");
 
-    let file = BonsaiFiles::load_async("/some/containing/path/hello.txt", database.clone())
+    let file = BonsaiFiles::load_async("/some/containing/path/hello.txt", &database)
         .await
         .unwrap()
         .unwrap();
@@ -249,24 +248,22 @@ async fn async_simple_path_test() {
     let mut file = file;
     file.rename(String::from("new-name.txt")).await.unwrap();
     assert!(
-        BonsaiFiles::load_async("/some/containing/path/hello.txt", database.clone())
+        BonsaiFiles::load_async("/some/containing/path/hello.txt", &database)
             .await
             .unwrap()
             .is_none()
     );
-    let mut file = BonsaiFiles::load_async("/some/containing/path/new-name.txt", database.clone())
+    let mut file = BonsaiFiles::load_async("/some/containing/path/new-name.txt", &database)
         .await
         .unwrap()
         .unwrap();
     file.move_to("/new/path/").await.unwrap();
-    assert!(
-        BonsaiFiles::load_async("/new/path/new-name.txt", database.clone())
-            .await
-            .unwrap()
-            .is_some()
-    );
+    assert!(BonsaiFiles::load_async("/new/path/new-name.txt", &database)
+        .await
+        .unwrap()
+        .is_some());
     file.move_to("/final/path/and_name.txt").await.unwrap();
-    let file = BonsaiFiles::load_async("/final/path/and_name.txt", database.clone())
+    let file = BonsaiFiles::load_async("/final/path/and_name.txt", &database)
         .await
         .unwrap()
         .unwrap();
@@ -305,7 +302,7 @@ fn blocked_file_test() {
     let test_start = TimestampAsNanoseconds::now();
     let mut file = SmallBlocks::build("hello.txt")
         .contents(&big_file)
-        .create(database)
+        .create(&database)
         .unwrap();
     let contents = file.contents().unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
@@ -368,7 +365,7 @@ async fn async_blocked_file_test() {
     let test_start = TimestampAsNanoseconds::now();
     let mut file = SmallBlocks::build("hello.txt")
         .contents(&big_file)
-        .create_async(database)
+        .create_async(&database)
         .await
         .unwrap();
     let contents = file.contents().await.unwrap();
@@ -432,7 +429,7 @@ fn seek_read_test() {
 
     let file = BonsaiFiles::build("hello.bin")
         .contents(&file_contents)
-        .create(database)
+        .create(&database)
         .unwrap();
     let mut contents = file
         .contents()
@@ -490,7 +487,7 @@ async fn async_seek_read_test() {
 
     let file = BonsaiFiles::build("hello.bin")
         .contents(&file_contents)
-        .create_async(database.clone())
+        .create_async(&database)
         .await
         .unwrap();
     let mut contents = file
@@ -547,7 +544,7 @@ fn block_iterator_test() {
 
     let file = BonsaiFiles::build("hello.bin")
         .contents(&file_contents)
-        .create(database)
+        .create(&database)
         .unwrap();
     let mut compare_against = &file_contents[..];
     let mut contents = file
@@ -584,7 +581,7 @@ async fn block_stream_test() {
 
     let file = BonsaiFiles::build("hello.bin")
         .contents(&file_contents)
-        .create_async(database)
+        .create_async(&database)
         .await
         .unwrap();
     let mut compare_against = &file_contents[..];
@@ -616,16 +613,14 @@ fn simple_metadata_test() {
     let file = SmallBlocks::build("/hello/world.txt")
         .contents(b"hello, world!")
         .metadata(42)
-        .create(database.clone())
+        .create(&database)
         .unwrap();
     assert_eq!(file.metadata(), Some(&42));
-    let mut file = SmallBlocks::get(file.id(), database.clone())
-        .unwrap()
-        .unwrap();
+    let mut file = SmallBlocks::get(file.id(), &database).unwrap().unwrap();
     assert_eq!(file.metadata(), Some(&42));
     file.update_metadata(52).unwrap();
 
-    let file = SmallBlocks::get(file.id(), database).unwrap().unwrap();
+    let file = SmallBlocks::get(file.id(), &database).unwrap().unwrap();
     assert_eq!(file.metadata(), Some(&52));
 }
 
@@ -641,18 +636,18 @@ async fn async_metadata_test() {
     let file = SmallBlocks::build("/hello/world.txt")
         .contents(b"hello, world!")
         .metadata(42)
-        .create_async(database.clone())
+        .create_async(&database)
         .await
         .unwrap();
     assert_eq!(file.metadata(), Some(&42));
-    let mut file = SmallBlocks::get_async(file.id(), database.clone())
+    let mut file = SmallBlocks::get_async(file.id(), &database)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(file.metadata(), Some(&42));
     file.update_metadata(52).await.unwrap();
 
-    let file = SmallBlocks::get_async(file.id(), database)
+    let file = SmallBlocks::get_async(file.id(), &database)
         .await
         .unwrap()
         .unwrap();

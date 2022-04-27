@@ -38,7 +38,7 @@ fn main() -> anyhow::Result<()> {
     }
     let mut file = BonsaiFiles::build("some-file")
         .contents(&one_megabyte)
-        .create(database)?;
+        .create(&database)?;
 
     // By default, files will be stored at the root level:
     assert_eq!(file.path(), "/some-file");

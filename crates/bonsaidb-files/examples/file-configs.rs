@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
     let database =
         Database::open::<MultipleConfigs>(StorageConfiguration::new("file-configs.bonsaidb"))?;
 
-    cleanup_old_job(database.clone())?;
+    cleanup_old_job(&database)?;
     // When using two separate configurations where the `CollectionName`s are
     // unique, we can have two unique "filesystems" stored within a single
     // database.
@@ -56,18 +56,18 @@ fn main() -> anyhow::Result<()> {
     // location while storing the processed results in another location.
     BonsaiFiles::build("job1")
         .contents(b"some contents")
-        .create(database.clone())?;
+        .create(&database)?;
 
-    process_file("/job1", database)?;
+    process_file("/job1", &database)?;
 
     Ok(())
 }
 
 fn process_file<Database: Connection + Clone>(
     path: &str,
-    database: Database,
+    database: &Database,
 ) -> anyhow::Result<()> {
-    let input_file = BonsaiFiles::load(path, database.clone())?.expect("Input file not found");
+    let input_file = BonsaiFiles::load(path, database)?.expect("Input file not found");
     let mut output_file = ProcessedFiles::build(path).create(database)?;
 
     if let Err(err) = process_input(input_file.contents()?, output_file.append_buffered()) {
@@ -86,8 +86,8 @@ fn process_input<Reader: Read, Writer: Write>(
     std::io::copy(&mut input, &mut output)
 }
 
-fn cleanup_old_job<Database: Connection + Clone>(database: Database) -> anyhow::Result<()> {
-    if let Some(file) = BonsaiFiles::load("/job1", database.clone())? {
+fn cleanup_old_job<Database: Connection + Clone>(database: &Database) -> anyhow::Result<()> {
+    if let Some(file) = BonsaiFiles::load("/job1", database)? {
         file.delete()?;
     }
 

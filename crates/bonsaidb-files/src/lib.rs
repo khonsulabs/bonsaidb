@@ -20,7 +20,7 @@
 //! ```rust
 #![doc = include_str!("../examples/basic-files.rs")]
 //! ```
-//! 
+//!
 //! # Async Support
 //!
 //! This crate adds implementations of `tokio::io::AsyncRead` and
@@ -102,7 +102,7 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
     /// file.
     fn get<Database: Connection + Clone>(
         id: u32,
-        database: Database,
+        database: &Database,
     ) -> Result<Option<direct::File<direct::Blocking<Database>, Self>>, bonsaidb_core::Error> {
         direct::File::<_, Self>::get(id, database)
     }
@@ -112,7 +112,7 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
     /// file.
     fn load<Database: Connection + Clone>(
         path: &str,
-        database: Database,
+        database: &Database,
     ) -> Result<Option<direct::File<direct::Blocking<Database>, Self>>, Error> {
         direct::File::<_, Self>::load(path, database)
     }
@@ -138,19 +138,19 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
     fn load_or_create<Database: Connection + Clone>(
         path: &str,
         expect_present: bool,
-        database: Database,
+        database: &Database,
     ) -> Result<direct::File<direct::Blocking<Database>, Self>, Error> {
         // First, try loading the file if we expect the file will be present
         // (ie, a singleton file that is always preseent after the first
         // launch).
         if expect_present {
-            if let Some(file) = direct::File::<_, Self>::load(path, database.clone())? {
+            if let Some(file) = direct::File::<_, Self>::load(path, database)? {
                 return Ok(file);
             }
         }
 
         // File not found, or we are going to assume the file isn't present.
-        match Self::build(path).create(database.clone()) {
+        match Self::build(path).create(database) {
             Ok(file) => Ok(file),
             Err(Error::AlreadyExists) => {
                 // Rather than continue to loop, we will just propogate the
@@ -160,6 +160,20 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
                 direct::File::<_, Self>::load(path, database)?.ok_or(Error::Deleted)
             }
             Err(other) => Err(other),
+        }
+    }
+
+    /// Deletes the file at `path`. Returns true if a file was deleted. Does not
+    /// error if the file is not found.
+    fn delete<Database: Connection + Clone>(
+        path: &str,
+        database: &Database,
+    ) -> Result<bool, Error> {
+        if let Some(file) = direct::File::<_, Self>::load(path, database)? {
+            file.delete()?;
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 
@@ -193,7 +207,7 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
     #[cfg(feature = "async")]
     async fn get_async<Database: AsyncConnection + Clone>(
         id: u32,
-        database: Database,
+        database: &Database,
     ) -> Result<Option<direct::File<direct::Async<Database>, Self>>, bonsaidb_core::Error> {
         direct::File::<_, Self>::get_async(id, database).await
     }
@@ -204,7 +218,7 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
     #[cfg(feature = "async")]
     async fn load_async<Database: AsyncConnection + Clone>(
         path: &str,
-        database: Database,
+        database: &Database,
     ) -> Result<Option<direct::File<direct::Async<Database>, Self>>, Error> {
         direct::File::<_, Self>::load_async(path, database).await
     }
@@ -231,19 +245,19 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
     async fn load_or_create_async<Database: AsyncConnection + Clone>(
         path: &str,
         expect_present: bool,
-        database: Database,
+        database: &Database,
     ) -> Result<direct::File<direct::Async<Database>, Self>, Error> {
         // First, try loading the file if we expect the file will be present
         // (ie, a singleton file that is always preseent after the first
         // launch).
         if expect_present {
-            if let Some(file) = direct::File::<_, Self>::load_async(path, database.clone()).await? {
+            if let Some(file) = direct::File::<_, Self>::load_async(path, database).await? {
                 return Ok(file);
             }
         }
 
         // File not found, or we are going to assume the file isn't present.
-        match Self::build(path).create_async(database.clone()).await {
+        match Self::build(path).create_async(database).await {
             Ok(file) => Ok(file),
             Err(Error::AlreadyExists) => {
                 // Rather than continue to loop, we will just propogate the
@@ -282,6 +296,21 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
         database: &Database,
     ) -> Result<Vec<direct::File<direct::Async<Database>, Self>>, bonsaidb_core::Error> {
         direct::File::<_, Self>::list_recursive_async(path, database).await
+    }
+
+    /// Deletes the file at `path`. Returns true if a file was deleted. Does not
+    /// error if the file is not found.
+    #[cfg(feature = "async")]
+    async fn delete_async<Database: AsyncConnection + Clone>(
+        path: &str,
+        database: &Database,
+    ) -> Result<bool, Error> {
+        if let Some(file) = direct::File::<_, Self>::load_async(path, database).await? {
+            file.delete().await?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
 

@@ -69,20 +69,20 @@ where
         })
     }
 
-    pub(crate) fn get(id: u32, database: Database) -> Result<Option<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::get(&id, &database).map(|doc| {
+    pub(crate) fn get(id: u32, database: &Database) -> Result<Option<Self>, bonsaidb_core::Error> {
+        schema::file::File::<Config>::get(&id, database).map(|doc| {
             doc.map(|doc| Self {
                 doc,
-                database: Blocking(database),
+                database: Blocking(database.clone()),
             })
         })
     }
 
-    pub(crate) fn load(path: &str, database: Database) -> Result<Option<Self>, Error> {
-        schema::file::File::<Config>::find(path, &database).map(|opt| {
+    pub(crate) fn load(path: &str, database: &Database) -> Result<Option<Self>, Error> {
+        schema::file::File::<Config>::find(path, database).map(|opt| {
             opt.map(|doc| Self {
                 doc,
-                database: Blocking(database),
+                database: Blocking(database.clone()),
             })
         })
     }
@@ -168,8 +168,8 @@ where
 
     /// Deletes the file.
     pub fn delete(&self) -> Result<(), Error> {
-        self.doc.delete(&self.database.0)?;
         schema::block::Block::<Config>::delete_for_file(self.doc.header.id, &self.database.0)?;
+        self.doc.delete(&self.database.0)?;
         Ok(())
     }
 
@@ -256,25 +256,25 @@ where
 
     pub(crate) async fn get_async(
         id: u32,
-        database: Database,
+        database: &Database,
     ) -> Result<Option<Self>, bonsaidb_core::Error> {
-        schema::file::File::<Config>::get_async(&id, &database)
+        schema::file::File::<Config>::get_async(&id, database)
             .await
             .map(|doc| {
                 doc.map(|doc| Self {
                     doc,
-                    database: Async(database),
+                    database: Async(database.clone()),
                 })
             })
     }
 
-    pub(crate) async fn load_async(path: &str, database: Database) -> Result<Option<Self>, Error> {
-        schema::file::File::<Config>::find_async(path, &database)
+    pub(crate) async fn load_async(path: &str, database: &Database) -> Result<Option<Self>, Error> {
+        schema::file::File::<Config>::find_async(path, database)
             .await
             .map(|opt| {
                 opt.map(|doc| Self {
                     doc,
-                    database: Async(database),
+                    database: Async(database.clone()),
                 })
             })
     }
@@ -367,9 +367,9 @@ where
 
     /// Deletes the file.
     pub async fn delete(&self) -> Result<(), Error> {
-        self.doc.delete_async(&self.database.0).await?;
         schema::block::Block::<Config>::delete_for_file_async(self.doc.header.id, &self.database.0)
             .await?;
+        self.doc.delete_async(&self.database.0).await?;
         Ok(())
     }
 
@@ -583,18 +583,31 @@ impl<'a, Config: FileConfig> FileBuilder<'a, Config> {
     /// Creates the file and returns a handle to the created file.
     pub fn create<Database: Connection + Clone>(
         self,
-        database: Database,
+        database: &Database,
     ) -> Result<File<Blocking<Database>, Config>, Error> {
-        File::new_file(self.path, self.name, self.contents, self.metadata, database)
+        File::new_file(
+            self.path,
+            self.name,
+            self.contents,
+            self.metadata,
+            database.clone(),
+        )
     }
 
     /// Creates the file and returns a handle to the created file.
     #[cfg(feature = "async")]
     pub async fn create_async<Database: bonsaidb_core::connection::AsyncConnection + Clone>(
         self,
-        database: Database,
+        database: &Database,
     ) -> Result<File<Async<Database>, Config>, Error> {
-        File::new_file_async(self.path, self.name, self.contents, self.metadata, database).await
+        File::new_file_async(
+            self.path,
+            self.name,
+            self.contents,
+            self.metadata,
+            database.clone(),
+        )
+        .await
     }
 }
 

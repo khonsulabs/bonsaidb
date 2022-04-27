@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let mut file = BonsaiFiles::build("async-file")
         .contents(&one_megabyte)
-        .create_async(database)
+        .create_async(&database)
         .await?;
 
     // By default, files will be stored at the root level:

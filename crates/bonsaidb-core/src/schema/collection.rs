@@ -1375,7 +1375,6 @@ pub trait NamedCollection: Collection + Unpin {
 
     /// Loads a document from this collection by name, if applicable. Return
     /// `Ok(None)` if unsupported.
-    #[allow(unused_variables)]
     fn load_document<'name, N: Nameable<'name, Self::PrimaryKey> + Send + Sync, C: Connection>(
         name: N,
         connection: &C,
@@ -1399,7 +1398,6 @@ pub trait NamedCollection: Collection + Unpin {
 
     /// Loads a document from this collection by name, if applicable. Return
     /// `Ok(None)` if unsupported.
-    #[allow(unused_variables)]
     async fn load_document_async<
         'name,
         N: Nameable<'name, Self::PrimaryKey> + Send + Sync,
@@ -1424,6 +1422,34 @@ pub trait NamedCollection: Collection + Unpin {
                 .next()
                 .map(|(_, document)| document)),
         }
+    }
+
+    /// Deletes a document by its name. Returns true if a document was deleted.
+    fn delete_by_name<C: Connection>(name: &str, connection: &C) -> Result<bool, Error>
+    where
+        Self: SerializedCollection + Sized,
+    {
+        Ok(connection
+            .view::<Self::ByNameView>()
+            .with_key(name)
+            .delete_docs()?
+            > 0)
+    }
+
+    /// Deletes a document by its name. Returns true if a document was deleted.
+    async fn delete_by_name_async<C: AsyncConnection>(
+        name: &str,
+        connection: &C,
+    ) -> Result<bool, Error>
+    where
+        Self: SerializedCollection + Sized,
+    {
+        Ok(connection
+            .view::<Self::ByNameView>()
+            .with_key(name)
+            .delete_docs()
+            .await?
+            > 0)
     }
 }
 
