@@ -182,6 +182,7 @@ impl<B: Backend> CustomServer<B> {
                 }
                 other => {
                     log::error!("[server] unexpected message: {:?}", other);
+                    break;
                 }
             }
         }
