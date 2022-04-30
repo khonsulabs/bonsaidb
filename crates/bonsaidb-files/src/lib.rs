@@ -20,7 +20,7 @@
 //! ```rust
 #![doc = include_str!("../examples/basic-files.rs")]
 //! ```
-//!
+//! 
 //! # Async Support
 //!
 //! This crate adds implementations of `tokio::io::AsyncRead` and

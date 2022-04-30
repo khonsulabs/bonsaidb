@@ -11,6 +11,7 @@ use crate::key::{CompositeKeyError, Key, KeyEncoding, NextValueError};
 /// still be ordered at the byte level when chained together.
 ///
 /// ```rust
+/// # #![allow(deprecated)]
 /// # use bonsaidb_core::key::{encode_composite_field, decode_composite_field};
 ///
 /// let value1 = String::from("hello");
@@ -45,6 +46,7 @@ pub fn encode_composite_field<'a, K: Key<'a>, T: KeyEncoding<'a, K>, Bytes: Writ
 /// the second element is the remainig byte slice.
 ///
 /// ```rust
+/// # #![allow(deprecated)]
 /// # use bonsaidb_core::key::{encode_composite_field, decode_composite_field};
 ///
 /// let value1 = String::from("hello");
