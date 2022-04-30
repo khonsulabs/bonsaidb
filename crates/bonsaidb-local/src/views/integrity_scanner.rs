@@ -19,6 +19,7 @@ use super::{
 use crate::{
     database::{document_tree_name, Database},
     tasks::{handle::Handle, Job, Keyed, Task},
+    views::{view_document_map_tree_name, view_entries_tree_name},
     Error,
 };
 
@@ -59,11 +60,6 @@ impl Job for IntegrityScanner {
         )?;
         let view_versions = self.database.roots().tree(view_versions_tree.clone())?;
 
-        let invalidated_entries_tree = self.database.collection_tree::<Unversioned, _>(
-            &self.scan.collection,
-            view_invalidated_docs_tree_name(&self.scan.view_name),
-        )?;
-
         let view_name = self.scan.view_name.clone();
         let view_version = self.scan.view_version;
         let roots = self.database.roots().clone();
@@ -80,8 +76,19 @@ impl Job for IntegrityScanner {
         } else {
             // The view isn't the current version, queue up all documents.
             let missing_entries = tree_keys::<Versioned>(&documents)?;
+            // When a version is updated, we can make no guarantees about
+            // existing keys. The best we can do is delete the existing files so
+            // that the view starts fresh.
+            roots.delete_tree(view_invalidated_docs_tree_name(&self.scan.view_name))?;
+            roots.delete_tree(view_entries_tree_name(&self.scan.view_name))?;
+            roots.delete_tree(view_document_map_tree_name(&self.scan.view_name))?;
             // Add all missing entries to the invalidated list. The view
             // mapping job will update them on the next pass.
+            let invalidated_entries_tree = self.database.collection_tree::<Unversioned, _>(
+                &self.scan.collection,
+                view_invalidated_docs_tree_name(&self.scan.view_name),
+            )?;
+
             let transaction = roots.transaction(&[invalidated_entries_tree, view_versions_tree])?;
             {
                 let mut view_versions = transaction.tree::<Unversioned>(1).unwrap();

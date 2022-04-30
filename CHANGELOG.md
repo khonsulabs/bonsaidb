@@ -165,6 +165,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is performed that resulted in a new document being created.
 - Argon2 ram configuration is now correctly applied. Previously, the memory cost
   was being supplied in bytes, but the underlying API was expecting kilobytes.
+- When a View's version has changed, the view is now fully cleaned before
+  reindexing. Previously, BonsaiDb was lazily cleaning up the entries, which led
+  to slower reindexing and disk bloat.
 
 ## v0.4.1
 
