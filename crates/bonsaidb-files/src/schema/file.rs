@@ -6,7 +6,7 @@ use std::{
 #[cfg(feature = "async")]
 use bonsaidb_core::connection::AsyncConnection;
 use bonsaidb_core::{
-    connection::{Bound, BoundRef, Connection, RangeRef},
+    connection::{Bound, BoundRef, Connection, RangeRef, ViewMappings},
     document::{CollectionDocument, Emit},
     key::{
         time::TimestampAsNanoseconds, CompositeKeyDecoder, CompositeKeyEncoder, CompositeKeyError,
@@ -136,14 +136,11 @@ where
                 name: Cow::Borrowed(path),
             }
         };
-        Ok(database
-            .view::<ByPath<Config>>()
-            .with_key(&key)
-            .query_with_collection_docs()?
-            .documents
-            .into_iter()
-            .map(|(_, doc)| doc)
-            .next())
+        Ok(convert_mappings_to_documents(
+            database.view::<ByPath<Config>>().with_key(&key).query()?,
+        )?
+        .into_iter()
+        .next())
     }
 
     #[cfg(feature = "async")]
@@ -173,32 +170,30 @@ where
                 name: Cow::Borrowed(path),
             }
         };
-        Ok(database
-            .view::<ByPath<Config>>()
-            .with_key(&key)
-            .query_with_collection_docs()
-            .await?
-            .documents
-            .into_iter()
-            .map(|(_, doc)| doc)
-            .next())
+        Ok(convert_mappings_to_documents(
+            database
+                .view::<ByPath<Config>>()
+                .with_key(&key)
+                .query()
+                .await?,
+        )?
+        .into_iter()
+        .next())
     }
 
     pub fn list_path_contents<Database: Connection>(
         path: &str,
         database: &Database,
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
-        Ok(database
-            .view::<ByPath<Config>>()
-            .with_key_prefix(&FileKey::ExactPath {
-                start: Box::new(FileKey::ExactPathPart { path, start: true }),
-                end: Box::new(FileKey::ExactPathPart { path, start: false }),
-            })
-            .query_with_collection_docs()?
-            .documents
-            .into_iter()
-            .map(|(_, doc)| doc)
-            .collect())
+        convert_mappings_to_documents(
+            database
+                .view::<ByPath<Config>>()
+                .with_key_prefix(&FileKey::ExactPath {
+                    start: Box::new(FileKey::ExactPathPart { path, start: true }),
+                    end: Box::new(FileKey::ExactPathPart { path, start: false }),
+                })
+                .query()?,
+        )
     }
 
     #[cfg(feature = "async")]
@@ -206,35 +201,31 @@ where
         path: &str,
         database: &Database,
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
-        Ok(database
-            .view::<ByPath<Config>>()
-            .with_key_prefix(&FileKey::ExactPath {
-                start: Box::new(FileKey::ExactPathPart { path, start: true }),
-                end: Box::new(FileKey::ExactPathPart { path, start: false }),
-            })
-            .query_with_collection_docs()
-            .await?
-            .documents
-            .into_iter()
-            .map(|(_, doc)| doc)
-            .collect())
+        convert_mappings_to_documents(
+            database
+                .view::<ByPath<Config>>()
+                .with_key_prefix(&FileKey::ExactPath {
+                    start: Box::new(FileKey::ExactPathPart { path, start: true }),
+                    end: Box::new(FileKey::ExactPathPart { path, start: false }),
+                })
+                .query()
+                .await?,
+        )
     }
 
     pub fn list_recursive_path_contents<Database: Connection>(
         path: &str,
         database: &Database,
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
-        Ok(database
-            .view::<ByPath<Config>>()
-            .with_key_prefix(&FileKey::RecursivePath {
-                start: Box::new(FileKey::RecursivePathPart { path, start: true }),
-                end: Box::new(FileKey::RecursivePathPart { path, start: false }),
-            })
-            .query_with_collection_docs()?
-            .documents
-            .into_iter()
-            .map(|(_, doc)| doc)
-            .collect())
+        convert_mappings_to_documents(
+            database
+                .view::<ByPath<Config>>()
+                .with_key_prefix(&FileKey::RecursivePath {
+                    start: Box::new(FileKey::RecursivePathPart { path, start: true }),
+                    end: Box::new(FileKey::RecursivePathPart { path, start: false }),
+                })
+                .query()?,
+        )
     }
 
     #[cfg(feature = "async")]
@@ -242,18 +233,16 @@ where
         path: &str,
         database: &Database,
     ) -> Result<Vec<CollectionDocument<Self>>, bonsaidb_core::Error> {
-        Ok(database
-            .view::<ByPath<Config>>()
-            .with_key_prefix(&FileKey::RecursivePath {
-                start: Box::new(FileKey::RecursivePathPart { path, start: true }),
-                end: Box::new(FileKey::RecursivePathPart { path, start: false }),
-            })
-            .query_with_collection_docs()
-            .await?
-            .documents
-            .into_iter()
-            .map(|(_, doc)| doc)
-            .collect())
+        convert_mappings_to_documents(
+            database
+                .view::<ByPath<Config>>()
+                .with_key_prefix(&FileKey::RecursivePath {
+                    start: Box::new(FileKey::RecursivePathPart { path, start: true }),
+                    end: Box::new(FileKey::RecursivePathPart { path, start: false }),
+                })
+                .query()
+                .await?,
+        )
     }
 
     pub fn truncate<Database: Connection>(
@@ -348,7 +337,7 @@ impl<Config> DefaultSerialization for File<Config> where Config: FileConfig {}
 
 #[derive_where(Clone, Debug, Default)]
 #[derive(View)]
-#[view(name = "by-path", collection = File<Config>, key = OwnedFileKey, value = TimestampAsNanoseconds)]
+#[view(name = "by-path", collection = File<Config>, key = OwnedFileKey, value = (TimestampAsNanoseconds, Option<Config::Metadata>))]
 #[view(core = bonsaidb_core)]
 pub struct ByPath<Config>(PhantomData<Config>)
 where
@@ -360,6 +349,10 @@ where
 {
     type View = Self;
 
+    fn version(&self) -> u64 {
+        2
+    }
+
     fn unique(&self) -> bool {
         true
     }
@@ -370,7 +363,7 @@ where
                 path: Cow::Owned(doc.contents.path.unwrap_or_else(|| String::from("/"))),
                 name: Cow::Owned(doc.contents.name),
             }),
-            doc.contents.created_at,
+            (doc.contents.created_at, doc.contents.metadata),
         )
     }
 }
@@ -395,6 +388,31 @@ impl<'a> IntoPrefixRange<'a, OwnedFileKey> for FileKey<'a> {
             }
         }
     }
+}
+
+fn convert_mappings_to_documents<Config: FileConfig>(
+    mappings: ViewMappings<ByPath<Config>>,
+) -> Result<Vec<CollectionDocument<File<Config>>>, bonsaidb_core::Error> {
+    let mut docs = Vec::with_capacity(mappings.len());
+    for mapping in mappings {
+        if let OwnedFileKey(FileKey::Full { path, name }) = mapping.key {
+            docs.push(CollectionDocument {
+                header: mapping.source.try_into()?,
+                contents: File {
+                    path: match path.into_owned() {
+                        path if path == "/" => None,
+                        other => Some(other),
+                    },
+                    name: name.into_owned(),
+                    created_at: mapping.value.0,
+                    metadata: mapping.value.1,
+                    _name: PhantomData,
+                },
+            });
+        }
+    }
+
+    Ok(docs)
 }
 
 #[derive(Debug, Clone, PartialEq)]
