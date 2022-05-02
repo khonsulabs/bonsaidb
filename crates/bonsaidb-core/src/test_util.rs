@@ -1997,18 +1997,20 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
     );
 
     // Test updating the record and the view being updated appropriately
+    let b = collection.push(&Basic::new("B")).await?;
     let mut doc = db.collection::<Basic>().get(&a_child.id).await?.unwrap();
     let mut basic = Basic::document_contents(&doc)?;
-    basic.parent_id = None;
+    basic.parent_id = Some(b.id);
     Basic::set_document_contents(&mut doc, basic)?;
     db.update::<Basic, _>(&mut doc).await?;
 
-    let a_children = db
+    let b_children = db
         .view::<BasicByParentId>()
-        .with_key(&Some(a.id))
+        .with_key(&Some(b.id))
         .query()
         .await?;
-    assert_eq!(a_children.len(), 0);
+    assert_eq!(b_children.len(), 1);
+    assert_eq!(b_children[0].source, doc.header);
     assert_eq!(
         db.view::<BasicByParentId>()
             .with_key(&Some(a.id))
@@ -2016,18 +2018,32 @@ pub async fn view_update_tests<C: AsyncConnection>(db: &C) -> anyhow::Result<()>
             .await?,
         0
     );
-    assert_eq!(db.view::<BasicByParentId>().reduce().await?, 2);
+    assert_eq!(db.view::<BasicByParentId>().reduce().await?, 3);
+
+    // Update the record, but don't change its mapping. Ensure the source's
+    // header is updated.
+    let mut basic = Basic::document_contents(&doc)?;
+    basic.value = String::from("new value");
+    Basic::set_document_contents(&mut doc, basic)?;
+    db.update::<Basic, _>(&mut doc).await?;
+    let b_children = db
+        .view::<BasicByParentId>()
+        .with_key(&Some(b.id))
+        .query()
+        .await?;
+    assert_eq!(b_children.len(), 1);
+    assert_eq!(b_children[0].source, doc.header);
 
     // Test deleting a record and ensuring it goes away
     db.collection::<Basic>().delete(&doc).await?;
 
     let all_entries = db.view::<BasicByParentId>().query().await?;
-    assert_eq!(all_entries.len(), 1);
+    assert_eq!(all_entries.len(), 2);
 
     // Verify reduce_grouped matches our expectations.
     assert_eq!(
         db.view::<BasicByParentId>().reduce_grouped().await?,
-        vec![MappedValue::new(None, 1,),]
+        vec![MappedValue::new(None, 2,),]
     );
 
     // Remove the final document, which has a parent id of None. We'll add a new
@@ -2094,32 +2110,44 @@ pub fn blocking_view_update_tests<C: Connection>(db: &C) -> anyhow::Result<()> {
     );
 
     // Test updating the record and the view being updated appropriately
+    let b = collection.push(&Basic::new("B"))?;
     let mut doc = db.collection::<Basic>().get(&a_child.id)?.unwrap();
     let mut basic = Basic::document_contents(&doc)?;
-    basic.parent_id = None;
+    basic.parent_id = Some(b.id);
     Basic::set_document_contents(&mut doc, basic)?;
     db.update::<Basic, _>(&mut doc)?;
 
-    let a_children = db.view::<BasicByParentId>().with_key(&Some(a.id)).query()?;
-    assert_eq!(a_children.len(), 0);
+    let b_children = db.view::<BasicByParentId>().with_key(&Some(b.id)).query()?;
+    assert_eq!(b_children.len(), 1);
+    assert_eq!(b_children[0].source, doc.header);
     assert_eq!(
         db.view::<BasicByParentId>()
             .with_key(&Some(a.id))
             .reduce()?,
         0
     );
-    assert_eq!(db.view::<BasicByParentId>().reduce()?, 2);
+    assert_eq!(db.view::<BasicByParentId>().reduce()?, 3);
+
+    // Update the record, but don't change its mapping. Ensure the source's
+    // header is updated.
+    let mut basic = Basic::document_contents(&doc)?;
+    basic.value = String::from("new value");
+    Basic::set_document_contents(&mut doc, basic)?;
+    db.update::<Basic, _>(&mut doc)?;
+    let b_children = db.view::<BasicByParentId>().with_key(&Some(b.id)).query()?;
+    assert_eq!(b_children.len(), 1);
+    assert_eq!(b_children[0].source, doc.header);
 
     // Test deleting a record and ensuring it goes away
     db.collection::<Basic>().delete(&doc)?;
 
     let all_entries = db.view::<BasicByParentId>().query()?;
-    assert_eq!(all_entries.len(), 1);
+    assert_eq!(all_entries.len(), 2);
 
     // Verify reduce_grouped matches our expectations.
     assert_eq!(
         db.view::<BasicByParentId>().reduce_grouped()?,
-        vec![MappedValue::new(None, 1,),]
+        vec![MappedValue::new(None, 2,),]
     );
 
     // Remove the final document, which has a parent id of None. We'll add a new

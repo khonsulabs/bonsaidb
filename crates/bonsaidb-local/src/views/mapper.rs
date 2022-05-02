@@ -493,6 +493,7 @@ impl<'a> ViewEntryUpdater<'a> {
                 for mapping in &mut view_entry.mappings {
                     if mapping.source.id == entry_mapping.source.id {
                         found = true;
+                        mapping.source.revision = entry_mapping.source.revision;
                         mapping.value = entry_mapping.value.clone();
                         break;
                     }

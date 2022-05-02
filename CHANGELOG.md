@@ -168,6 +168,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - When a View's version has changed, the view is now fully cleaned before
   reindexing. Previously, BonsaiDb was lazily cleaning up the entries, which led
   to slower reindexing and disk bloat.
+- Fixed the `source` field of mappings returned from a View query when a
+  document was updated but emitted the same key. Previously the value was
+  correctly updated, but the source's revision was not updated.
 
 ## v0.4.1
 
