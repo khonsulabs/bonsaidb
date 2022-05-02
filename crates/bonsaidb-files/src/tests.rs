@@ -22,24 +22,27 @@ fn simple_file_test() {
     let directory = TestDirectory::new("simple-file");
     let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
 
-    let file = BonsaiFiles::build("/hello/world.txt")
-        .contents(b"hello, world!")
+    let data = "hello, world!";
+    let mut file = BonsaiFiles::build("/hello/world.txt")
+        .contents(data.as_bytes())
         .create(&database)
         .unwrap();
+    assert_eq!(file.len().unwrap(), u64::try_from(data.len()).unwrap());
+
+    println!("Created file: {file:?}, length: {}", file.len().unwrap());
+
     let contents = file.contents().unwrap();
-    println!("Created file: {file:?}, length: {}", contents.len());
+    assert_eq!(contents.len(), u64::try_from(data.len()).unwrap());
+
     let bytes = contents.into_string().unwrap();
-    assert_eq!(bytes, "hello, world!");
+    assert_eq!(bytes, data);
 
     let file = BonsaiFiles::load("/hello/world.txt", &database)
         .unwrap()
         .unwrap();
     assert_eq!(file.name(), "world.txt");
     assert_eq!(file.containing_path(), "/hello/");
-    assert_eq!(
-        file.contents().unwrap().to_string().unwrap(),
-        "hello, world!"
-    );
+    assert_eq!(file.contents().unwrap().to_string().unwrap(), data);
 
     file.delete().unwrap();
     assert!(BonsaiFiles::load("/hello/world.txt", &database)
@@ -55,15 +58,27 @@ async fn async_simple_file_test() {
         .await
         .unwrap();
 
-    let file = BonsaiFiles::build("/hello/world.txt")
-        .contents(b"hello, world!")
+    let data = "hello, world!";
+    let mut file = BonsaiFiles::build("/hello/world.txt")
+        .contents(data.as_bytes())
         .create_async(&database)
         .await
         .unwrap();
+    assert_eq!(
+        file.len().await.unwrap(),
+        u64::try_from(data.len()).unwrap()
+    );
+
+    println!(
+        "Created file: {file:?}, length: {}",
+        file.len().await.unwrap()
+    );
+
     let contents = file.contents().await.unwrap();
-    println!("Created file: {file:?}, length: {}", contents.len());
+    assert_eq!(contents.len(), u64::try_from(data.len()).unwrap());
+
     let bytes = contents.into_string().await.unwrap();
-    assert_eq!(bytes, "hello, world!");
+    assert_eq!(bytes, data);
 
     let file = BonsaiFiles::load_async("/hello/world.txt", &database)
         .await
@@ -73,7 +88,7 @@ async fn async_simple_file_test() {
     assert_eq!(file.containing_path(), "/hello/");
     assert_eq!(
         file.contents().await.unwrap().to_string().await.unwrap(),
-        "hello, world!"
+        data
     );
 
     file.delete().await.unwrap();
@@ -306,6 +321,7 @@ fn blocked_file_test() {
         .unwrap();
     let contents = file.contents().unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
+    assert!(file.last_appended_at().unwrap().unwrap() > test_start);
     assert!(contents.last_appended_at().unwrap() > test_start);
     let bytes = contents.into_vec().unwrap();
     assert_eq!(bytes, big_file);
@@ -314,6 +330,7 @@ fn blocked_file_test() {
     let new_length = u64::try_from(SmallBlocks::BLOCK_SIZE * 3).unwrap();
     big_file.splice(..big_file.len() - SmallBlocks::BLOCK_SIZE * 3, []);
     file.truncate(new_length, Truncate::RemovingStart).unwrap();
+    assert_eq!(file.len().unwrap(), new_length);
 
     let contents = file.contents().unwrap();
     assert_eq!(contents.len(), new_length);
@@ -330,6 +347,8 @@ fn blocked_file_test() {
 
     // Clear the file.
     file.truncate(0, Truncate::RemovingEnd).unwrap();
+    assert_eq!(file.len().unwrap(), 0);
+    assert!(file.last_appended_at().unwrap().is_none());
     assert!(file.contents().unwrap().last_appended_at().is_none());
 
     let mut writer = file.append_buffered();
@@ -370,6 +389,7 @@ async fn async_blocked_file_test() {
         .unwrap();
     let contents = file.contents().await.unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
+    assert!(file.last_appended_at().await.unwrap().unwrap() > test_start);
     let initial_write_timestamp = contents.last_appended_at().unwrap();
     assert!(initial_write_timestamp > test_start);
     let bytes = contents.into_vec().await.unwrap();
@@ -380,6 +400,7 @@ async fn async_blocked_file_test() {
     file.truncate(new_length, Truncate::RemovingStart)
         .await
         .unwrap();
+    assert_eq!(file.len().await.unwrap(), new_length);
 
     let contents = file.contents().await.unwrap();
     assert_eq!(contents.len(), new_length);
@@ -398,6 +419,8 @@ async fn async_blocked_file_test() {
 
     // Clear the file.
     file.truncate(0, Truncate::RemovingEnd).await.unwrap();
+    assert_eq!(file.len().await.unwrap(), 0);
+    assert!(file.last_appended_at().await.unwrap().is_none());
     assert!(file.contents().await.unwrap().last_appended_at().is_none());
 
     let mut writer = file.append_buffered();

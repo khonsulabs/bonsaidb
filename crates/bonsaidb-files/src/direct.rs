@@ -22,7 +22,10 @@ use futures::{future::BoxFuture, ready, FutureExt};
 #[cfg(feature = "async")]
 use tokio::io::AsyncWriteExt;
 
-use crate::{schema, BonsaiFiles, Error, FileConfig, Truncate};
+use crate::{
+    schema::{self, block::BlockAppendInfo},
+    BonsaiFiles, Error, FileConfig, Truncate,
+};
 
 /// A handle to a file stored in a database.
 #[derive_where(Debug, Clone)]
@@ -171,6 +174,38 @@ where
         schema::block::Block::<Config>::delete_for_file(self.doc.header.id, &self.database.0)?;
         self.doc.delete(&self.database.0)?;
         Ok(())
+    }
+
+    fn map_block_metadata<F: FnOnce(BlockAppendInfo) -> T, T>(
+        &mut self,
+        callback: F,
+    ) -> Result<T, bonsaidb_core::Error> {
+        let metadata =
+            schema::block::Block::<Config>::summary_for_file(self.doc.header.id, &self.database.0)?;
+
+        Ok(callback(metadata))
+    }
+
+    /// Returns the length of the file.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn len(&mut self) -> Result<u64, bonsaidb_core::Error> {
+        self.map_block_metadata(|metadata| metadata.length)
+    }
+
+    /// Returns true if this file contains no data.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn is_empty(&mut self) -> Result<bool, bonsaidb_core::Error> {
+        Ok(self.len()? == 0)
+    }
+
+    /// Returns the timestamp of the last append to the file. This function
+    /// returns 0 when the file is empty, even if the file was previously
+    /// written to.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn last_appended_at(
+        &mut self,
+    ) -> Result<Option<TimestampAsNanoseconds>, bonsaidb_core::Error> {
+        self.map_block_metadata(|metadata| metadata.timestamp)
     }
 
     /// Returns the contents of the file, which allows random and buffered
@@ -371,6 +406,41 @@ where
             .await?;
         self.doc.delete_async(&self.database.0).await?;
         Ok(())
+    }
+
+    async fn map_block_metadata<F: FnOnce(BlockAppendInfo) -> T, T>(
+        &mut self,
+        callback: F,
+    ) -> Result<T, bonsaidb_core::Error> {
+        let metadata = schema::block::Block::<Config>::summary_for_file_async(
+            self.doc.header.id,
+            &self.database.0,
+        )
+        .await?;
+
+        Ok(callback(metadata))
+    }
+
+    /// Returns the length of the file.
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn len(&mut self) -> Result<u64, bonsaidb_core::Error> {
+        self.map_block_metadata(|metadata| metadata.length).await
+    }
+
+    /// Returns true if this file contains no data.
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn is_empty(&mut self) -> Result<bool, bonsaidb_core::Error> {
+        Ok(self.len().await? == 0)
+    }
+
+    /// Returns the timestamp of the last append to the file. This function
+    /// returns 0 when the file is empty, even if the file was previously
+    /// written to.
+    #[allow(clippy::missing_panics_doc)]
+    pub async fn last_appended_at(
+        &mut self,
+    ) -> Result<Option<TimestampAsNanoseconds>, bonsaidb_core::Error> {
+        self.map_block_metadata(|metadata| metadata.timestamp).await
     }
 
     /// Returns the contents of the file, which allows random and buffered

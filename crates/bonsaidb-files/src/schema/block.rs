@@ -6,7 +6,7 @@ use bonsaidb_core::{
     connection::Connection,
     document::{BorrowedDocument, Emit},
     key::{time::TimestampAsNanoseconds, KeyEncoding},
-    schema::{Collection, CollectionName, View, ViewMapResult, ViewSchema},
+    schema::{Collection, CollectionName, View, ViewMapResult, ViewMappedValue, ViewSchema},
     transaction::{Operation, Transaction},
 };
 use derive_where::derive_where;
@@ -138,7 +138,7 @@ where
             .map(|mapping| BlockInfo {
                 header: mapping.source,
                 length: usize::try_from(mapping.value.length).unwrap(),
-                timestamp: mapping.value.timestamp,
+                timestamp: mapping.value.timestamp.unwrap(),
                 offset: 0,
             })
             .collect::<Vec<_>>();
@@ -149,6 +149,28 @@ where
             offset += u64::try_from(block.length).unwrap();
         }
         Ok(blocks)
+    }
+
+    pub(crate) fn summary_for_file<Database: Connection>(
+        file_id: u32,
+        database: &Database,
+    ) -> Result<BlockAppendInfo, bonsaidb_core::Error> {
+        database
+            .view::<ByFile<Config>>()
+            .with_key(&file_id)
+            .reduce()
+    }
+
+    #[cfg(feature = "async")]
+    pub(crate) async fn summary_for_file_async<Database: AsyncConnection>(
+        file_id: u32,
+        database: &Database,
+    ) -> Result<BlockAppendInfo, bonsaidb_core::Error> {
+        database
+            .view::<ByFile<Config>>()
+            .with_key(&file_id)
+            .reduce()
+            .await
     }
 
     #[cfg(feature = "async")]
@@ -165,7 +187,7 @@ where
             .map(|mapping| BlockInfo {
                 header: mapping.source,
                 length: usize::try_from(mapping.value.length).unwrap(),
-                timestamp: mapping.value.timestamp,
+                timestamp: mapping.value.timestamp.unwrap(),
                 offset: 0,
             })
             .collect::<Vec<_>>();
@@ -236,6 +258,10 @@ where
 {
     type View = Self;
 
+    fn version(&self) -> u64 {
+        2
+    }
+
     fn map(&self, doc: &BorrowedDocument<'_>) -> ViewMapResult<Self::View> {
         let timestamp_offset = doc.contents.len() - size_of::<i64>();
         let file_id_offset = timestamp_offset - size_of::<u32>();
@@ -248,15 +274,34 @@ where
         timestamp.copy_from_slice(&doc.contents[timestamp_offset..]);
         let timestamp = TimestampAsNanoseconds::from_representation(i64::from_be_bytes(timestamp));
 
-        let length = u32::try_from(file_id_offset).unwrap();
+        let length = u64::try_from(file_id_offset).unwrap();
 
-        doc.header
-            .emit_key_and_value(file_id, BlockAppendInfo { length, timestamp })
+        doc.header.emit_key_and_value(
+            file_id,
+            BlockAppendInfo {
+                length,
+                timestamp: Some(timestamp),
+            },
+        )
+    }
+
+    fn reduce(
+        &self,
+        mappings: &[ViewMappedValue<Self::View>],
+        _rereduce: bool,
+    ) -> Result<<Self::View as View>::Value, bonsaidb_core::Error> {
+        Ok(BlockAppendInfo {
+            length: mappings.iter().map(|info| info.value.length).sum(),
+            timestamp: mappings
+                .iter()
+                .filter_map(|info| info.value.timestamp)
+                .max(),
+        })
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BlockAppendInfo {
-    length: u32,
-    timestamp: TimestampAsNanoseconds,
+    pub length: u64,
+    pub timestamp: Option<TimestampAsNanoseconds>,
 }
