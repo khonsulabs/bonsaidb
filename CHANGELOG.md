@@ -141,6 +141,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Upon successful authentication, the identity is assumed on the newly returned
   connection. This supports both assuming users and roles.
 - The `Api` trait can now be derived.
+- `SerializedView` has two new methods: `entries` and `entries_async`, which
+  enable a "Type-first" query pattern. These two statements produce the same
+  results:
+
+  ```rust
+  let mappings = MyView::entries(&db).query()?;
+  let mappings = db.view::<MyView>().query()?;
+  ```
+
+  These new APIs are provided purely for style preference considerations.
 
 ### Changed
 

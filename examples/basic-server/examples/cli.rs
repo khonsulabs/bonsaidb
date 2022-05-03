@@ -6,8 +6,8 @@ use bonsaidb::{
     cli::CommandLine,
     core::{
         actionable::async_trait,
-        connection::{AsyncConnection, AsyncStorageConnection},
-        schema::SerializedCollection,
+        connection::AsyncStorageConnection,
+        schema::{SerializedCollection, SerializedView},
     },
     local::config::Builder,
     server::{Backend, BackendError, CustomServer, DefaultPermissions, ServerConfiguration},
@@ -71,14 +71,15 @@ impl CommandLine for CliBackend {
             }
             Cli::Count { sides } => {
                 if let Some(sides) = sides {
-                    let count = database
-                        .view::<ShapesByNumberOfSides>()
+                    let count = ShapesByNumberOfSides::entries_async(&database)
                         .with_key(&sides)
                         .reduce()
                         .await?;
                     println!("Found {} shapes with {} sides", count, sides);
                 } else {
-                    let count = database.view::<ShapesByNumberOfSides>().reduce().await?;
+                    let count = ShapesByNumberOfSides::entries_async(&database)
+                        .reduce()
+                        .await?;
                     println!("Found {} shapes with any number of sides", count);
                 }
             }
@@ -171,7 +172,12 @@ async fn test() -> anyhow::Result<()> {
     {
         let server = CliBackend.open_server().await?;
         let database = server.database::<Shape>("shapes").await?;
-        assert_eq!(database.view::<ShapesByNumberOfSides>().reduce().await?, 2);
+        assert_eq!(
+            ShapesByNumberOfSides::entries_async(&database)
+                .reduce()
+                .await?,
+            2
+        );
     }
     tokio::fs::remove_dir_all("cli-backup").await?;
 

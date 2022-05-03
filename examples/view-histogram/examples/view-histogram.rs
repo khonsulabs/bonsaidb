@@ -17,7 +17,6 @@ use std::ops::Deref;
 
 use bonsaidb::{
     core::{
-        connection::AsyncConnection,
         document::{CollectionDocument, Emit},
         schema::{
             view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection,
@@ -27,7 +26,7 @@ use bonsaidb::{
     },
     local::{
         config::{Builder, StorageConfiguration},
-        AsyncDatabase,
+        Database,
     },
 };
 use hdrhistogram::{
@@ -37,10 +36,8 @@ use hdrhistogram::{
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
-#[tokio::main]
-async fn main() -> Result<(), bonsaidb::local::Error> {
-    let db = AsyncDatabase::open::<Samples>(StorageConfiguration::new("view-histogram.bonsaidb"))
-        .await?;
+fn main() -> Result<(), bonsaidb::local::Error> {
+    let db = Database::open::<Samples>(StorageConfiguration::new("view-histogram.bonsaidb"))?;
 
     println!("inserting 100 new sets of samples");
     let mut rng = StdRng::from_entropy();
@@ -53,13 +50,12 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
                 .map(|_| rng.gen_range(50 + timestamp / 2..115 + timestamp))
                 .collect(),
         }
-        .push_into_async(&db)
-        .await?;
+        .push_into(&db)?;
     }
     println!("done inserting new samples");
 
     // We can ask for a histogram of all the data:
-    let total_histogram = db.view::<AsHistogram>().reduce().await?;
+    let total_histogram = AsHistogram::entries(&db).reduce()?;
     println!(
         "99th Percentile overall: {} ({} samples)",
         total_histogram.value_at_quantile(0.99),
@@ -67,21 +63,13 @@ async fn main() -> Result<(), bonsaidb::local::Error> {
     );
 
     // Or we can request just a specific range:
-    let range_histogram = db
-        .view::<AsHistogram>()
-        .with_key_range(10..20)
-        .reduce()
-        .await?;
+    let range_histogram = AsHistogram::entries(&db).with_key_range(10..20).reduce()?;
     println!(
         "99th Percentile from 10..20: {} ({} samples)",
         range_histogram.value_at_quantile(0.99),
         range_histogram.len()
     );
-    let range_histogram = db
-        .view::<AsHistogram>()
-        .with_key_range(80..100)
-        .reduce()
-        .await?;
+    let range_histogram = AsHistogram::entries(&db).with_key_range(80..100).reduce()?;
     println!(
         "99th Percentile from 80..100: {} ({} samples)",
         range_histogram.value_at_quantile(0.99),

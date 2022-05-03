@@ -264,9 +264,11 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     /// Queries for view entries matching [`View`](schema::View).
     ///
     /// This is a lower-level API. For better ergonomics, consider querying the
-    /// view using [`self.view::<View>().query()`](super::View::query) instead. The
+    /// view using [`View::entries(self).query()`](super::View::query) instead. The
     /// parameters for the query can be customized on the builder returned from
-    /// [`Connection::view()`](super::Connection::view).
+    /// [`SerializedView::entries()`](schema::SerializedView::entries),
+    /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
+    /// or [`Connection::view()`](super::Connection::view).
     fn query<V: schema::SerializedView, Key>(
         &self,
         key: Option<QueryKey<'_, V::Key, Key>>,
@@ -300,12 +302,17 @@ pub trait LowLevelConnection: HasSchema + HasSession {
             .collect::<Result<Vec<_>, Error>>()
     }
 
-    /// Queries for view entries matching [`View`](schema::View) with their source documents.
+    /// Queries for view entries matching [`View`](schema::View) with their
+    /// source documents.
     ///
-    /// This is a lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query_with_docs()`](super::View::query_with_docs) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Connection::view()`](super::Connection::view).
+    /// This is a lower-level API. For better ergonomics, consider querying the
+    /// view using
+    /// [`View::entries(self).query_with_docs()`](super::View::query_with_docs)
+    /// instead. The parameters for the query can be customized on the builder
+    /// returned from
+    /// [`SerializedView::entries()`](schema::SerializedView::entries),
+    /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
+    /// or [`Connection::view()`](super::Connection::view).
     fn query_with_docs<V: schema::SerializedView, Key>(
         &self,
         key: Option<QueryKey<'_, V::Key, Key>>,
@@ -333,12 +340,17 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         })
     }
 
-    /// Queries for view entries matching [`View`](schema::View) with their source documents, deserialized.
+    /// Queries for view entries matching [`View`](schema::View) with their
+    /// source documents, deserialized.
     ///
-    /// This is a lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query_with_collection_docs()`](super::View::query_with_collection_docs) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Connection::view()`](super::Connection::view).
+    /// This is a lower-level API. For better ergonomics, consider querying the
+    /// view using
+    /// [`View::entries(self).query_with_collection_docs()`](super::View::query_with_collection_docs)
+    /// instead. The parameters for the query can be customized on the builder
+    /// returned from
+    /// [`SerializedView::entries()`](schema::SerializedView::entries),
+    /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
+    /// or [`Connection::view()`](super::Connection::view).
     fn query_with_collection_docs<V, Key>(
         &self,
         key: Option<QueryKey<'_, V::Key, Key>>,
@@ -366,10 +378,13 @@ pub trait LowLevelConnection: HasSchema + HasSession {
 
     /// Reduces the view entries matching [`View`](schema::View).
     ///
-    /// This is a lower-level API. For better ergonomics, consider reducing
-    /// the view using [`self.view::<View>().reduce()`](super::View::reduce) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Connection::view()`](super::Connection::view).
+    /// This is a lower-level API. For better ergonomics, consider reducing the
+    /// view using [`View::entries(self).reduce()`](super::View::reduce)
+    /// instead. The parameters for the query can be customized on the builder
+    /// returned from
+    /// [`SerializedView::entries()`](schema::SerializedView::entries),
+    /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
+    /// or [`Connection::view()`](super::Connection::view).
     fn reduce<V: schema::SerializedView, Key>(
         &self,
         key: Option<QueryKey<'_, V::Key, Key>>,
@@ -388,14 +403,17 @@ pub trait LowLevelConnection: HasSchema + HasSession {
         .and_then(|value| V::deserialize(&value))
     }
 
-    /// Reduces the view entries matching [`View`](schema::View), reducing the values by each
-    /// unique key.
+    /// Reduces the view entries matching [`View`](schema::View), reducing the
+    /// values by each unique key.
     ///
-    /// This is a lower-level API. For better ergonomics, consider reducing
-    /// the view using
-    /// [`self.view::<View>().reduce_grouped()`](super::View::reduce_grouped) instead.
-    /// The parameters for the query can be customized on the builder returned
-    /// from [`Connection::view()`](super::Connection::view).
+    /// This is a lower-level API. For better ergonomics, consider reducing the
+    /// view using
+    /// [`View::entries(self).reduce_grouped()`](super::View::reduce_grouped)
+    /// instead. The parameters for the query can be customized on the builder
+    /// returned from
+    /// [`SerializedView::entries()`](schema::SerializedView::entries),
+    /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
+    /// or [`Connection::view()`](super::Connection::view).
     fn reduce_grouped<V: schema::SerializedView, Key>(
         &self,
         key: Option<QueryKey<'_, V::Key, Key>>,
@@ -425,9 +443,12 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     ///
     /// This is a lower-level API. For better ergonomics, consider querying the
     /// view using
-    /// [`self.view::<View>().delete_docs()`](super::View::delete_docs())
+    /// [`View::entries(self).delete_docs()`](super::View::delete_docs())
     /// instead. The parameters for the query can be customized on the builder
-    /// returned from [`Connection::view()`](super::Connection::view).
+    /// returned from
+    /// [`SerializedView::entries()`](schema::SerializedView::entries),
+    /// [`SerializedView::entries_async()`](schema::SerializedView::entries_async),
+    /// or [`Connection::view()`](super::Connection::view).
     fn delete_docs<V: schema::SerializedView, Key>(
         &self,
         key: Option<QueryKey<'_, V::Key, Key>>,
@@ -542,7 +563,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     /// Queries for view entries from the named `view`.
     ///
     /// This is a lower-level API. For better ergonomics, consider querying the
-    /// view using [`self.view::<View>().query()`](super::View::query) instead. The
+    /// view using [`View::entries(self).query()`](super::View::query) instead. The
     /// parameters for the query can be customized on the builder returned from
     /// [`Connection::view()`](super::Connection::view).
     fn query_by_name(
@@ -559,7 +580,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     ///
     /// This is a lower-level API. For better ergonomics, consider querying the
     /// view using
-    /// [`self.view::<View>().query_with_docs()`](super::View::query_with_docs)
+    /// [`View::entries(self).query_with_docs()`](super::View::query_with_docs)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`Connection::view()`](super::Connection::view).
     fn query_by_name_with_docs(
@@ -574,7 +595,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     /// Reduces the view entries from the named `view`.
     ///
     /// This is a lower-level API. For better ergonomics, consider reducing the
-    /// view using [`self.view::<View>().reduce()`](super::View::reduce)
+    /// view using [`View::entries(self).reduce()`](super::View::reduce)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`Connection::view()`](super::Connection::view).
     fn reduce_by_name(
@@ -589,7 +610,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     ///
     /// This is a lower-level API. For better ergonomics, consider reducing
     /// the view using
-    /// [`self.view::<View>().reduce_grouped()`](super::View::reduce_grouped) instead.
+    /// [`View::entries(self).reduce_grouped()`](super::View::reduce_grouped) instead.
     /// The parameters for the query can be customized on the builder returned
     /// from [`Connection::view()`](super::Connection::view).
     fn reduce_grouped_by_name(
@@ -604,7 +625,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     ///
     /// This is a lower-level API. For better ergonomics, consider querying the
     /// view using
-    /// [`self.view::<View>().delete_docs()`](super::View::delete_docs())
+    /// [`View::entries(self).delete_docs()`](super::View::delete_docs())
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`Connection::view()`](super::Connection::view).
     fn delete_docs_by_name(
@@ -869,7 +890,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// Queries for view entries matching [`View`](schema::View)(super::AsyncView).
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query()`](super::AsyncView::query)
+    /// the view using [`View::entries(self).query()`](super::AsyncView::query)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn query<V: schema::SerializedView, Key>(
@@ -910,7 +931,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// Queries for view entries matching [`View`](schema::View) with their source documents.
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query_with_docs()`](super::AsyncView::query_with_docs) instead.
+    /// the view using [`View::entries(self).query_with_docs()`](super::AsyncView::query_with_docs) instead.
     /// The parameters for the query can be customized on the builder returned
     /// from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
@@ -949,7 +970,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
     /// the view using
-    /// [`self.view::<View>().query_with_collection_docs()`](super::AsyncView::query_with_collection_docs)
+    /// [`View::entries(self).query_with_collection_docs()`](super::AsyncView::query_with_collection_docs)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
@@ -984,7 +1005,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
     /// the view using
-    /// [`self.view::<View>().reduce()`](super::AsyncView::reduce)
+    /// [`View::entries(self).reduce()`](super::AsyncView::reduce)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
@@ -1012,7 +1033,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
     /// the view using
-    /// [`self.view::<View>().reduce_grouped()`](super::AsyncView::reduce_grouped)
+    /// [`View::entries(self).reduce_grouped()`](super::AsyncView::reduce_grouped)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
@@ -1046,7 +1067,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
     /// the view using
-    /// [`self.view::<View>().delete_docs()`](super::AsyncView::delete_docs)
+    /// [`View::entries(self).delete_docs()`](super::AsyncView::delete_docs)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     #[must_use]
@@ -1167,7 +1188,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// Queries for view entries from the named `view`.
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query()`](super::AsyncView::query)
+    /// the view using [`View::entries(self).query()`](super::AsyncView::query)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn query_by_name(
@@ -1183,7 +1204,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// documents.
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
-    /// the view using [`self.view::<View>().query_with_docs()`](super::AsyncView::query_with_docs) instead.
+    /// the view using [`View::entries(self).query_with_docs()`](super::AsyncView::query_with_docs) instead.
     /// The parameters for the query can be customized on the builder returned
     /// from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn query_by_name_with_docs(
@@ -1199,7 +1220,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
     /// the view using
-    /// [`self.view::<View>().reduce()`](super::AsyncView::reduce)
+    /// [`View::entries(self).reduce()`](super::AsyncView::reduce)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn reduce_by_name(
@@ -1214,7 +1235,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
     /// the view using
-    /// [`self.view::<View>().reduce_grouped()`](super::AsyncView::reduce_grouped)
+    /// [`View::entries(self).reduce_grouped()`](super::AsyncView::reduce_grouped)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn reduce_grouped_by_name(
@@ -1229,7 +1250,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     ///
     /// This is the lower-level API. For better ergonomics, consider querying
     /// the view using
-    /// [`self.view::<View>().delete_docs()`](super::AsyncView::delete_docs)
+    /// [`View::entries(self).delete_docs()`](super::AsyncView::delete_docs)
     /// instead. The parameters for the query can be customized on the builder
     /// returned from [`AsyncConnection::view()`](super::AsyncConnection::view).
     async fn delete_docs_by_name(

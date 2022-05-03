@@ -5,6 +5,7 @@ use transmog::{Format, OwnedDeserializer};
 use transmog_pot::Pot;
 
 use crate::{
+    connection::{self, AsyncConnection, Connection},
     document::{BorrowedDocument, CollectionDocument},
     key::Key,
     schema::{
@@ -64,7 +65,7 @@ pub type ReduceResult<V> = Result<<V as View>::Value, crate::Error>;
 /// guide](https://dev.bonsaidb.io/main/guide/about/concepts/view.html).
 #[doc = "\n"]
 #[doc = include_str!("./view-overview.md")]
-pub trait View: Send + Sync + Debug + 'static {
+pub trait View: Sized + Send + Sync + Debug + 'static {
     /// The collection this view belongs to
     type Collection: Collection;
     /// The key for this view.
@@ -159,6 +160,20 @@ pub trait SerializedView: View {
         Self::format()
             .serialize(item)
             .map_err(|err| crate::Error::Serialization(err.to_string()))
+    }
+
+    /// Returns a builder for a view query or view reduce.
+    fn entries<Database: Connection>(
+        database: &Database,
+    ) -> connection::View<'_, Database, Self, Self::Key> {
+        database.view::<Self>()
+    }
+
+    /// Returns a builder for a view query or view reduce.
+    fn entries_async<Database: AsyncConnection>(
+        database: &Database,
+    ) -> connection::AsyncView<'_, Database, Self, Self::Key> {
+        database.view::<Self>()
     }
 }
 

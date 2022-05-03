@@ -7,8 +7,8 @@ use bonsaidb::{
         document::{CollectionDocument, Emit},
         keyvalue::Timestamp,
         schema::{
-            Collection, CollectionViewSchema, ReduceResult, Schema, SerializedCollection, View,
-            ViewMapResult, ViewMappedValue,
+            Collection, CollectionViewSchema, ReduceResult, Schema, SerializedCollection,
+            SerializedView, View, ViewMapResult, ViewMappedValue,
         },
         transaction::{Operation, Transaction},
     },
@@ -71,8 +71,7 @@ impl LibraryEntity for Author {
         if let Some(bio) = &self.bio {
             println!("Biography:\n{}", bio.value())
         }
-        let works = database
-            .view::<WorksByAuthor>()
+        let works = WorksByAuthor::entries_async(database)
             .with_key(&self.key)
             .query_with_collection_docs()
             .await?;
@@ -291,8 +290,7 @@ impl LibraryEntity for Work {
         if let Some(subtitle) = &self.subtitle {
             println!("Subtitle: {}", subtitle);
         }
-        let editions = database
-            .view::<EditionsByWork>()
+        let editions = EditionsByWork::entries_async(database)
             .with_key(&self.key)
             .query_with_collection_docs()
             .await?;

@@ -14,9 +14,11 @@ use std::{str::Chars, time::SystemTime};
 
 use bonsaidb::{
     core::{
-        connection::Connection,
         document::{CollectionDocument, Emit},
-        schema::{Collection, CollectionViewSchema, SerializedCollection, View, ViewMapResult},
+        schema::{
+            Collection, CollectionViewSchema, SerializedCollection, SerializedView, View,
+            ViewMapResult,
+        },
     },
     local::{
         config::{Builder, StorageConfiguration},
@@ -73,8 +75,7 @@ fn main() -> Result<(), bonsaidb::core::Error> {
     Message::new("Re: Groceries", "2% milk? How are our eggs?").push_into(&db)?;
     Message::new("Re: Groceries", "Yes. We could use another dozen eggs.").push_into(&db)?;
 
-    for result in &db
-        .view::<MessagesByWords>()
+    for result in &MessagesByWords::entries(&db)
         .with_key("eggs")
         .query_with_collection_docs()?
     {
@@ -84,8 +85,7 @@ fn main() -> Result<(), bonsaidb::core::Error> {
         );
     }
 
-    for message in db
-        .view::<MessagesByWords>()
+    for message in MessagesByWords::entries(&db)
         .with_key_prefix("doz")
         .query_with_collection_docs()?
         .documents

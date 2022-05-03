@@ -53,7 +53,7 @@ pub trait Connection: LowLevelConnection + Sized + Send + Sync {
     }
 
     /// Accesses a [`schema::View`] from this connection.
-    fn view<V: schema::SerializedView>(&'_ self) -> View<'_, 'static, Self, V, V::Key> {
+    fn view<V: schema::SerializedView>(&'_ self) -> View<'_, Self, V, V::Key> {
         View::new(self)
     }
 
@@ -651,7 +651,7 @@ where
 /// }
 /// ```
 #[must_use]
-pub struct View<'a, 'k, Cn, V: schema::SerializedView, Key>
+pub struct View<'a, Cn, V: schema::SerializedView, Key>
 where
     V::Key: Borrow<Key> + PartialEq<Key>,
     Key: PartialEq + ?Sized,
@@ -659,7 +659,7 @@ where
     connection: &'a Cn,
 
     /// Key filtering criteria.
-    pub key: Option<QueryKey<'k, V::Key, Key>>,
+    pub key: Option<QueryKey<'a, V::Key, Key>>,
 
     /// The view's data access policy. The default value is [`AccessPolicy::UpdateBefore`].
     pub access_policy: AccessPolicy,
@@ -673,7 +673,7 @@ where
     _view: PhantomData<V>,
 }
 
-impl<'a, 'key, Cn, V, Key> View<'a, 'key, Cn, V, Key>
+impl<'a, Cn, V, Key> View<'a, Cn, V, Key>
 where
     V::Key: Borrow<Key> + PartialEq<Key>,
     V: schema::SerializedView,
@@ -698,17 +698,14 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().with_key(&42).query()? {
+    /// for mapping in ScoresByRank::entries(&db).with_key(&42).query()? {
     ///     assert_eq!(mapping.key, 42);
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key<'newkey, K: for<'k> KeyEncoding<'k, V::Key>>(
-        self,
-        key: &'newkey K,
-    ) -> View<'a, 'newkey, Cn, V, K>
+    pub fn with_key<K: for<'k> KeyEncoding<'k, V::Key>>(self, key: &'a K) -> View<'a, Cn, V, K>
     where
         K: PartialEq + ?Sized,
         V::Key: Borrow<K> + PartialEq<K>,
@@ -730,19 +727,19 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().with_keys(&[42, 43]).query()? {
+    /// for mapping in ScoresByRank::entries(&db).with_keys(&[42, 43]).query()? {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_keys<'newkey, K, IntoIter: IntoIterator<Item = &'newkey K>>(
+    pub fn with_keys<K, IntoIter: IntoIterator<Item = &'a K>>(
         self,
         keys: IntoIter,
-    ) -> View<'a, 'newkey, Cn, V, K>
+    ) -> View<'a, Cn, V, K>
     where
         V::Key: Borrow<K> + PartialEq<K>,
-        K: PartialEq,
+        K: PartialEq + ?Sized,
     {
         View {
             connection: self.connection,
@@ -763,16 +760,16 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().with_key_range(42..).query()? {
+    /// for mapping in ScoresByRank::entries(&db).with_key_range(42..).query()? {
     ///     assert!(mapping.key >= 42);
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key_range<'newkey, K, R>(self, range: R) -> View<'a, 'newkey, Cn, V, K>
+    pub fn with_key_range<K, R>(self, range: R) -> View<'a, Cn, V, K>
     where
-        R: Into<RangeRef<'newkey, V::Key, K>>,
+        R: Into<RangeRef<'a, V::Key, K>>,
         K: PartialEq,
         V::Key: Borrow<K> + PartialEq<K>,
     {
@@ -798,19 +795,19 @@ where
     /// struct ByName;
     ///
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ByName>().with_key_prefix("a").query()? {
+    /// for mapping in ByName::entries(&db).with_key_prefix("a").query()? {
     ///     assert!(mapping.key.starts_with("a"));
     ///     println!("{} in document {:?}", mapping.key, mapping.source);
     /// }
     /// # Ok(())
     /// # }
     /// ```
-    pub fn with_key_prefix<'newkey, K: for<'k> KeyEncoding<'k, V::Key> + ?Sized>(
+    pub fn with_key_prefix<K: for<'k> KeyEncoding<'k, V::Key> + ?Sized>(
         self,
-        prefix: &'newkey K,
-    ) -> View<'a, 'newkey, Cn, V, K>
+        prefix: &'a K,
+    ) -> View<'a, Cn, V, K>
     where
-        K: IntoPrefixRange<'newkey, V::Key> + PartialEq,
+        K: IntoPrefixRange<'a, V::Key> + PartialEq,
         V::Key: Borrow<K> + PartialEq<K>,
     {
         View {
@@ -830,8 +827,7 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// for mapping in db
-    ///     .view::<ScoresByRank>()
+    /// for mapping in ScoresByRank::entries(&db)
     ///     .with_access_policy(AccessPolicy::UpdateAfter)
     ///     .query()?
     /// {
@@ -858,7 +854,7 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().ascending().query()? {
+    /// for mapping in ScoresByRank::entries(&db).ascending().query()? {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
@@ -881,7 +877,7 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().descending().query()? {
+    /// for mapping in ScoresByRank::entries(&db).descending().query()? {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
@@ -899,7 +895,7 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// let mappings = db.view::<ScoresByRank>().limit(10).query()?;
+    /// let mappings = ScoresByRank::entries(&db).limit(10).query()?;
     /// assert!(mappings.len() <= 10);
     /// # Ok(())
     /// # }
@@ -916,7 +912,7 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().query()? {
+    /// for mapping in ScoresByRank::entries(&db).query()? {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
@@ -933,8 +929,7 @@ where
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// for mapping in &db
-    ///     .view::<ScoresByRank>()
+    /// for mapping in &ScoresByRank::entries(&db)
     ///     .with_key_range(42..=44)
     ///     .query_with_docs()?
     /// {
@@ -961,8 +956,7 @@ where
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// for mapping in &db
-    ///     .view::<ScoresByRank>()
+    /// for mapping in &ScoresByRank::entries(&db)
     ///     .with_key_range(42..=44)
     ///     .query_with_collection_docs()?
     /// {
@@ -996,7 +990,7 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// let score = db.view::<ScoresByRank>().reduce()?;
+    /// let score = ScoresByRank::entries(&db).reduce()?;
     /// println!("Average score: {:3}", score);
     /// # Ok(())
     /// # }
@@ -1013,7 +1007,7 @@ where
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().reduce_grouped()? {
+    /// for mapping in ScoresByRank::entries(&db).reduce_grouped()? {
     ///     println!(
     ///         "Rank {} has an average score of {:3}",
     ///         mapping.key, mapping.value
@@ -1033,7 +1027,7 @@ where
     /// # bonsaidb_core::__doctest_prelude!();
     /// # use bonsaidb_core::connection::Connection;
     /// # fn test_fn<C: Connection>(db: C) -> Result<(), Error> {
-    /// db.view::<ScoresByRank>().delete_docs()?;
+    /// ScoresByRank::entries(&db).delete_docs()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -1073,7 +1067,7 @@ pub trait AsyncConnection: AsyncLowLevelConnection + Sized + Send + Sync {
         AsyncCollection::new(self)
     }
 
-    /// Initializes [`View`] for [`schema::View`] `V`.
+    /// Accesses a [`schema::View`] from this connection.
     fn view<V: schema::SerializedView>(&'_ self) -> AsyncView<'_, Self, V, V::Key> {
         AsyncView::new(self)
     }
@@ -1891,7 +1885,11 @@ where
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().with_key(&42).query().await? {
+    /// for mapping in ScoresByRank::entries_async(&db)
+    ///     .with_key(&42)
+    ///     .query()
+    ///     .await?
+    /// {
     ///     assert_eq!(mapping.key, 42);
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
@@ -1922,8 +1920,7 @@ where
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db
-    ///     .view::<ScoresByRank>()
+    /// for mapping in ScoresByRank::entries_async(&db)
     ///     .with_keys(&[42, 43])
     ///     .query()
     ///     .await?
@@ -1939,7 +1936,7 @@ where
         keys: IntoIter,
     ) -> AsyncView<'a, Cn, V, K>
     where
-        K: PartialEq,
+        K: PartialEq + ?Sized,
         V::Key: Borrow<K> + PartialEq<K>,
     {
         AsyncView {
@@ -1962,8 +1959,7 @@ where
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db
-    ///     .view::<ScoresByRank>()
+    /// for mapping in ScoresByRank::entries_async(&db)
     ///     .with_key_range(42..)
     ///     .query()
     ///     .await?
@@ -2006,7 +2002,11 @@ where
     /// struct ByName;
     ///
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ByName>().with_key_prefix("a").query().await? {
+    /// for mapping in ByName::entries_async(&db)
+    ///     .with_key_prefix("a")
+    ///     .query()
+    ///     .await?
+    /// {
     ///     assert!(mapping.key.starts_with("a"));
     ///     println!("{} in document {:?}", mapping.key, mapping.source);
     /// }
@@ -2040,8 +2040,7 @@ where
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db
-    ///     .view::<ScoresByRank>()
+    /// for mapping in ScoresByRank::entries_async(&db)
     ///     .with_access_policy(AccessPolicy::UpdateAfter)
     ///     .query()
     ///     .await?
@@ -2071,7 +2070,7 @@ where
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().ascending().query().await? {
+    /// for mapping in ScoresByRank::entries_async(&db).ascending().query().await? {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
@@ -2096,7 +2095,11 @@ where
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().descending().query().await? {
+    /// for mapping in ScoresByRank::entries_async(&db)
+    ///     .descending()
+    ///     .query()
+    ///     .await?
+    /// {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
@@ -2116,7 +2119,7 @@ where
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// let mappings = db.view::<ScoresByRank>().limit(10).query().await?;
+    /// let mappings = ScoresByRank::entries_async(&db).limit(10).query().await?;
     /// assert!(mappings.len() <= 10);
     /// # Ok(())
     /// # })
@@ -2135,7 +2138,7 @@ where
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().query().await? {
+    /// for mapping in ScoresByRank::entries_async(&db).query().await? {
     ///     println!("Rank {} has a score of {:3}", mapping.key, mapping.value);
     /// }
     /// # Ok(())
@@ -2155,8 +2158,7 @@ where
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for mapping in &db
-    ///     .view::<ScoresByRank>()
+    /// for mapping in &ScoresByRank::entries_async(&db)
     ///     .with_key_range(42..=44)
     ///     .query_with_docs()
     ///     .await?
@@ -2183,8 +2185,7 @@ where
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// for mapping in &db
-    ///     .view::<ScoresByRank>()
+    /// for mapping in &ScoresByRank::entries_async(&db)
     ///     .with_key_range(42..=44)
     ///     .query_with_collection_docs()
     ///     .await?
@@ -2218,7 +2219,7 @@ where
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// let score = db.view::<ScoresByRank>().reduce().await?;
+    /// let score = ScoresByRank::entries_async(&db).reduce().await?;
     /// println!("Average score: {:3}", score);
     /// # Ok(())
     /// # })
@@ -2238,7 +2239,7 @@ where
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
     /// // score is an f32 in this example
-    /// for mapping in db.view::<ScoresByRank>().reduce_grouped().await? {
+    /// for mapping in ScoresByRank::entries_async(&db).reduce_grouped().await? {
     ///     println!(
     ///         "Rank {} has an average score of {:3}",
     ///         mapping.key, mapping.value
@@ -2261,7 +2262,7 @@ where
     /// # use bonsaidb_core::connection::AsyncConnection;
     /// # fn test_fn<C: AsyncConnection>(db: C) -> Result<(), Error> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(async {
-    /// db.view::<ScoresByRank>().delete_docs().await?;
+    /// ScoresByRank::entries_async(&db).delete_docs().await?;
     /// # Ok(())
     /// # })
     /// # }
@@ -3544,7 +3545,7 @@ macro_rules! __doctest_prelude {
             schema::{
                 Collection, CollectionName, CollectionViewSchema, DefaultSerialization,
                 DefaultViewSerialization, Name, NamedCollection, ReduceResult, Schema, SchemaName,
-                Schematic, SerializedCollection, View, ViewMapResult, ViewMappedValue,
+                Schematic, SerializedCollection, View, ViewMapResult, ViewMappedValue, SerializedView,
             },
             Error,
         };

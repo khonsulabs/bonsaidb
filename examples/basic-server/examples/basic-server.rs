@@ -6,7 +6,7 @@ use bonsaidb::{
     client::{url::Url, Client},
     core::{
         connection::{AsyncConnection, AsyncStorageConnection},
-        schema::SerializedCollection,
+        schema::{SerializedCollection, SerializedView},
     },
     local::config::Builder,
     server::{DefaultPermissions, Server, ServerConfiguration},
@@ -108,8 +108,7 @@ async fn do_some_database_work<'a, C: AsyncConnection>(
     log::info!("Client {} finished", client_name);
 
     // Print a summary of all the shapes
-    for result in database
-        .view::<ShapesByNumberOfSides>()
+    for result in ShapesByNumberOfSides::entries_async(&database)
         .reduce_grouped()
         .await?
     {

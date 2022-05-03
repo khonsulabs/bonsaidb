@@ -1,10 +1,9 @@
 use bonsaidb::{
     core::{
-        connection::AsyncConnection,
         document::{CollectionDocument, Emit},
         schema::{
-            view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection, View,
-            ViewMapResult, ViewMappedValue,
+            view::CollectionViewSchema, Collection, ReduceResult, SerializedCollection,
+            SerializedView, View, ViewMapResult, ViewMappedValue,
         },
     },
     local::{
@@ -69,8 +68,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
 
     // At this point, our database should have 3 triangles:
     // begin rustme snippet: snippet-c
-    let triangles = db
-        .view::<ShapesByNumberOfSides>()
+    let triangles = ShapesByNumberOfSides::entries_async(&db)
         .with_key(&3)
         .query()
         .await?;
@@ -82,8 +80,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     println!("Triangles: {:#?}", triangles);
 
     // If you want the associated documents, use query_with_collection_docs:
-    for entry in &db
-        .view::<ShapesByNumberOfSides>()
+    for entry in &ShapesByNumberOfSides::entries_async(&db)
         .with_key(&3)
         .query_with_collection_docs()
         .await?
@@ -103,7 +100,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     // So, here we're using reduce() to count the number of shapes with 4 sides.
     println!(
         "Number of quads: {} (expected 2)",
-        db.view::<ShapesByNumberOfSides>()
+        ShapesByNumberOfSides::entries_async(&db)
             .with_key(&4)
             .reduce()
             .await?
@@ -112,7 +109,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     // Or, 5 shapes that are triangles or quads
     println!(
         "Number of quads and triangles: {} (expected 5)",
-        db.view::<ShapesByNumberOfSides>()
+        ShapesByNumberOfSides::entries_async(&db)
             .with_keys(&[3, 4])
             .reduce()
             .await?
@@ -121,7 +118,7 @@ async fn main() -> Result<(), bonsaidb::core::Error> {
     // And, 10 shapes that have more than 10 sides
     println!(
         "Number of shapes with more than 10 sides: {} (expected 10)",
-        db.view::<ShapesByNumberOfSides>()
+        ShapesByNumberOfSides::entries_async(&db)
             .with_key_range(11..)
             .reduce()
             .await?
