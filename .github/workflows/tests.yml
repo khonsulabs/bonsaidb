@@ -70,6 +70,7 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
           RUST_TOOLCHAIN: ${{ matrix.options.toolchain  }}
+          RUST_BACKTRACE: 1
 
   check-wasm:
     runs-on: ubuntu-latest

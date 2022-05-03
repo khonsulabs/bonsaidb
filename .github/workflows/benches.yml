@@ -40,6 +40,7 @@ jobs:
           cargo bench --bench suite --features sqlite,redis,compression
         env:
           COMMERCE_POSTGRESQL_URL: postgres://postgres:postgres@localhost/postgres
+          RUST_BACKTRACE: 1
 
       - uses: actions/upload-artifact@v2
         with:
@@ -83,6 +84,7 @@ jobs:
           cargo bench --bench commerce --features postgresql,compression -- --suite -n1000
         env:
           COMMERCE_POSTGRESQL_URL: postgres://postgres:postgres@localhost/postgres
+          RUST_BACKTRACE: 1
 
       - uses: actions/upload-artifact@v2
         with:
