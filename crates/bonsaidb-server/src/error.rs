@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 
 use bonsaidb_core::{permissions::PermissionDenied, schema, schema::InsertError, AnyError};
 use schema::InvalidNameError;
@@ -6,10 +6,6 @@ use schema::InvalidNameError;
 /// An error occurred while interacting with a [`Server`](crate::Server).
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// An error occurred from the QUIC transport layer.
-    #[error("a networking error occurred: '{0}'")]
-    Transport(String),
-
     #[cfg(feature = "websockets")]
     /// An error occurred from the Websocket transport layer.
     #[error("a websocket error occurred: '{0}'")]
@@ -59,17 +55,22 @@ pub enum Error {
     TlsSigningError,
 }
 
+impl Error {
+    pub(crate) fn other(origin: impl Display, error: impl Display) -> Self {
+        Self::Core(bonsaidb_core::Error::other(origin, error))
+    }
+}
+
 impl From<Error> for bonsaidb_core::Error {
     fn from(other: Error) -> Self {
         // without it, there's no way to get this to_string() easily.
         match other {
             Error::Core(core) | Error::Database(bonsaidb_local::Error::Core(core)) => core,
-            Error::Database(storage) => Self::Database(storage.to_string()),
-            Error::Io(io) => Self::Io(io.to_string()),
-            Error::Transport(networking) => Self::Transport(networking),
+            Error::Database(storage) => Self::from(storage),
+            Error::Io(io) => Self::other("io", io),
             #[cfg(feature = "websockets")]
-            Error::WebSocket(err) => Self::Websocket(err.to_string()),
-            err => Self::Server(err.to_string()),
+            Error::WebSocket(err) => Self::other("bonsaidb-server websockets", err),
+            err => Self::other("bonsaidb-server", err),
         }
     }
 }
@@ -145,10 +146,7 @@ impl From<pot::Error> for Error {
 #[cfg(feature = "websockets")]
 impl From<bincode::Error> for Error {
     fn from(other: bincode::Error) -> Self {
-        Self::Core(bonsaidb_core::Error::Websocket(format!(
-            "error deserializing message: {:?}",
-            other
-        )))
+        Self::Core(bonsaidb_core::Error::other("bincode", other))
     }
 }
 
@@ -156,7 +154,7 @@ macro_rules! impl_from_fabruic {
     ($error:ty) => {
         impl From<$error> for Error {
             fn from(other: $error) -> Self {
-                Self::Core(bonsaidb_core::Error::Transport(other.to_string()))
+                Self::Core(bonsaidb_core::Error::other("bonsaidb-server quic", other))
             }
         }
     };
@@ -171,3 +169,4 @@ impl_from_fabruic!(fabruic::error::Connection);
 impl_from_fabruic!(fabruic::error::Incoming);
 impl_from_fabruic!(fabruic::error::AlreadyClosed);
 impl_from_fabruic!(fabruic::error::Config);
+impl_from_fabruic!(fabruic::error::Builder);

@@ -48,9 +48,10 @@ where
         match self.query()? {
             Some(value) => value.as_u64().map_or_else(
                 || {
-                    Err(Error::Database(String::from(
+                    Err(Error::other(
+                        "key-value",
                         "value not an u64 or would lose precision when converted to an u64",
-                    )))
+                    ))
                 },
                 |value| Ok(Some(value)),
             ),
@@ -66,9 +67,10 @@ where
         match self.query()? {
             Some(value) => value.as_i64().map_or_else(
                 || {
-                    Err(Error::Database(String::from(
+                    Err(Error::other(
+                        "key-value",
                         "value not an i64 or would lose precision when converted to an i64",
-                    )))
+                    ))
                 },
                 |value| Ok(Some(value)),
             ),
@@ -84,9 +86,10 @@ where
         match self.query()? {
             Some(value) => value.as_f64().map_or_else(
                 || {
-                    Err(Error::Database(String::from(
+                    Err(Error::other(
+                        "key-value",
                         "value not an f64 or would lose precision when converted to an f64",
-                    )))
+                    ))
                 },
                 |value| Ok(Some(value)),
             ),
@@ -101,7 +104,7 @@ where
     pub fn into_u64_lossy(self, saturating: bool) -> Result<Option<u64>, Error> {
         match self.query()? {
             Some(value) => value.as_u64_lossy(saturating).map_or_else(
-                || Err(Error::Database(String::from("value not numeric"))),
+                || Err(Error::other("key-value", "value not numeric")),
                 |value| Ok(Some(value)),
             ),
             None => Ok(None),
@@ -115,7 +118,7 @@ where
     pub fn into_i64_lossy(self, saturating: bool) -> Result<Option<i64>, Error> {
         match self.query()? {
             Some(value) => value.as_i64_lossy(saturating).map_or_else(
-                || Err(Error::Database(String::from("value not numeric"))),
+                || Err(Error::other("key-value", "value not numeric")),
                 |value| Ok(Some(value)),
             ),
             None => Ok(None),
@@ -128,7 +131,7 @@ where
     pub fn into_f64_lossy(self) -> Result<Option<f64>, Error> {
         match self.query()? {
             Some(value) => value.as_f64_lossy().map_or_else(
-                || Err(Error::Database(String::from("value not numeric"))),
+                || Err(Error::other("key-value", "value not numeric")),
                 |value| Ok(Some(value)),
             ),
             None => Ok(None),
@@ -213,9 +216,10 @@ where
         match self.await? {
             Some(value) => value.as_u64().map_or_else(
                 || {
-                    Err(Error::Database(String::from(
+                    Err(Error::other(
+                        "key-value",
                         "value not an u64 or would lose precision when converted to an u64",
-                    )))
+                    ))
                 },
                 |value| Ok(Some(value)),
             ),
@@ -231,9 +235,10 @@ where
         match self.await? {
             Some(value) => value.as_i64().map_or_else(
                 || {
-                    Err(Error::Database(String::from(
+                    Err(Error::other(
+                        "key-value",
                         "value not an i64 or would lose precision when converted to an i64",
-                    )))
+                    ))
                 },
                 |value| Ok(Some(value)),
             ),
@@ -249,9 +254,10 @@ where
         match self.await? {
             Some(value) => value.as_f64().map_or_else(
                 || {
-                    Err(Error::Database(String::from(
+                    Err(Error::other(
+                        "key-value",
                         "value not an f64 or would lose precision when converted to an f64",
-                    )))
+                    ))
                 },
                 |value| Ok(Some(value)),
             ),
@@ -266,7 +272,7 @@ where
     pub async fn into_u64_lossy(self, saturating: bool) -> Result<Option<u64>, Error> {
         match self.await? {
             Some(value) => value.as_u64_lossy(saturating).map_or_else(
-                || Err(Error::Database(String::from("value not numeric"))),
+                || Err(Error::other("key-value", "value not numeric")),
                 |value| Ok(Some(value)),
             ),
             None => Ok(None),
@@ -280,7 +286,7 @@ where
     pub async fn into_i64_lossy(self, saturating: bool) -> Result<Option<i64>, Error> {
         match self.await? {
             Some(value) => value.as_i64_lossy(saturating).map_or_else(
-                || Err(Error::Database(String::from("value not numeric"))),
+                || Err(Error::other("key-value", "value not numeric")),
                 |value| Ok(Some(value)),
             ),
             None => Ok(None),
@@ -293,7 +299,7 @@ where
     pub async fn into_f64_lossy(self) -> Result<Option<f64>, Error> {
         match self.await? {
             Some(value) => value.as_f64_lossy().map_or_else(
-                || Err(Error::Database(String::from("value not numeric"))),
+                || Err(Error::other("key-value", "value not numeric")),
                 |value| Ok(Some(value)),
             ),
             None => Ok(None),

@@ -259,10 +259,10 @@ fn encryption() -> anyhow::Result<()> {
     let db = Database::open::<BasicSchema>(StorageConfiguration::new(&path))?;
 
     // Try retrieving the document, but expect an error decrypting.
-    if let Err(bonsaidb_core::Error::Database(err)) =
+    if let Err(bonsaidb_core::Error::Other { error, .. }) =
         db.collection::<EncryptedBasic>().get(&document_header.id)
     {
-        assert!(err.contains("vault"));
+        assert!(error.contains("vault"));
     } else {
         panic!("successfully retrieved encrypted document without keys");
     }

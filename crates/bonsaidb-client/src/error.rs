@@ -55,7 +55,7 @@ impl From<Error> for bonsaidb_core::Error {
     fn from(other: Error) -> Self {
         match other {
             Error::Core(err) => err,
-            other => Self::Client(other.to_string()),
+            other => Self::other("bonsaidb-client", other),
         }
     }
 }
@@ -63,10 +63,7 @@ impl From<Error> for bonsaidb_core::Error {
 #[cfg(feature = "websockets")]
 impl From<bincode::Error> for Error {
     fn from(other: bincode::Error) -> Self {
-        Self::Core(bonsaidb_core::Error::Websocket(format!(
-            "error decoding websocket message: {:?}",
-            other
-        )))
+        Self::Core(bonsaidb_core::Error::other("bincode", other))
     }
 }
 
@@ -76,7 +73,7 @@ mod fabruic_impls {
         ($error:ty) => {
             impl From<$error> for $crate::Error {
                 fn from(other: $error) -> Self {
-                    Self::Core(bonsaidb_core::Error::Transport(other.to_string()))
+                    Self::Core(bonsaidb_core::Error::other("quic", other))
                 }
             }
         };

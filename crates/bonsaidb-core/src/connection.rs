@@ -20,9 +20,8 @@ use crate::{
     key::{IntoPrefixRange, Key, KeyEncoding},
     permissions::Permissions,
     schema::{
-        self,
-        view::{self, map::MappedDocuments},
-        Map, MappedValue, Nameable, NamedReference, Schema, SchemaName, SerializedCollection,
+        self, view::map::MappedDocuments, Map, MappedValue, Nameable, NamedReference, Schema,
+        SchemaName, SerializedCollection,
     },
     transaction, Error,
 };
@@ -2311,20 +2310,20 @@ where
         match self {
             Self::Matches(key) => key
                 .as_ord_bytes()
-                .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
+                .map_err(|err| Error::other("key serialization", err))
                 .map(|v| SerializedQueryKey::Matches(Bytes::from(v.to_vec()))),
-            Self::Range(range) => Ok(SerializedQueryKey::Range(range.as_ord_bytes().map_err(
-                |err| Error::Database(view::Error::key_serialization(err).to_string()),
-            )?)),
+            Self::Range(range) => Ok(SerializedQueryKey::Range(
+                range
+                    .as_ord_bytes()
+                    .map_err(|err| Error::other("key serialization", err))?,
+            )),
             Self::Multiple(keys) => {
                 let keys = keys
                     .iter()
                     .map(|key| {
                         key.as_ord_bytes()
                             .map(|key| Bytes::from(key.to_vec()))
-                            .map_err(|err| {
-                                Error::Database(view::Error::key_serialization(err).to_string())
-                            })
+                            .map_err(|err| Error::other("key serialization", err))
                     })
                     .collect::<Result<Vec<_>, Error>>()?;
 
@@ -2355,12 +2354,12 @@ impl SerializedQueryKey {
     ) -> Result<QueryKey<'static, K>, Error> {
         match self {
             Self::Matches(key) => K::from_ord_bytes(key.as_ref())
-                .map_err(|err| Error::Database(view::Error::key_serialization(err).to_string()))
+                .map_err(|err| Error::other("key serialization", err))
                 .map(|key| QueryKey::Matches(MaybeOwned::Owned(key))),
             Self::Range(range) => Ok(QueryKey::Range(RangeRef::owned(
-                range.deserialize().map_err(|err| {
-                    Error::Database(view::Error::key_serialization(err).to_string())
-                })?,
+                range
+                    .deserialize()
+                    .map_err(|err| Error::other("key serialization", err))?,
             ))),
             Self::Multiple(keys) => {
                 let keys = keys
@@ -2368,9 +2367,7 @@ impl SerializedQueryKey {
                     .map(|key| {
                         K::from_ord_bytes(key.as_ref())
                             .map(MaybeOwned::Owned)
-                            .map_err(|err| {
-                                Error::Database(view::Error::key_serialization(err).to_string())
-                            })
+                            .map_err(|err| Error::other("key serialization", err))
                     })
                     .collect::<Result<Vec<_>, Error>>()?;
 

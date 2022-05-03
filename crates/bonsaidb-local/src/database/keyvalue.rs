@@ -514,9 +514,10 @@ impl KeyValueState {
                 self.set(full_key, entry);
                 Ok(Output::Value(Some(value)))
             }
-            Value::Bytes(_) => Err(bonsaidb_core::Error::Database(String::from(
+            Value::Bytes(_) => Err(bonsaidb_core::Error::other(
+                "bonsaidb-local",
                 "type of stored `Value` is not `Numeric`",
-            ))),
+            )),
         }
     }
 

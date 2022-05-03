@@ -1,4 +1,4 @@
-use std::{convert::Infallible, str::Utf8Error, string::FromUtf8Error, sync::Arc};
+use std::{convert::Infallible, fmt::Display, str::Utf8Error, string::FromUtf8Error, sync::Arc};
 
 use bonsaidb_core::{
     permissions::PermissionDenied,
@@ -16,10 +16,6 @@ pub enum Error {
     /// An error occurred interacting with the storage layer, `nebari`.
     #[error("error from storage: {0}")]
     Nebari(#[from] nebari::Error),
-
-    /// An error occurred serializing the underlying database structures.
-    #[error("error while serializing internal structures: {0}")]
-    InternalSerialization(String),
 
     /// An error occurred serializing the contents of a `Document` or results of a `View`.
     #[error("error while serializing: {0}")]
@@ -74,14 +70,15 @@ pub enum Error {
     Backup(Box<dyn AnyError>),
 
     /// An error occurred with a password hash.
-    #[cfg(feature = "password-hashing")]
-    #[error("password hash error: {0}")]
-    PasswordHash(String),
-
-    /// An error occurred with a password hash.
     #[cfg(all(feature = "password-hashing", feature = "cli"))]
     #[error("error reading password: {0}")]
     CommandLinePassword(#[from] crate::cli::ReadPasswordError),
+}
+
+impl Error {
+    pub(crate) fn other(origin: impl Display, error: impl Display) -> Self {
+        Self::Core(bonsaidb_core::Error::other(origin, error))
+    }
 }
 
 impl<T> From<InsertError<T>> for Error {
@@ -110,27 +107,27 @@ impl From<Disconnected> for Error {
 
 impl From<bincode::Error> for Error {
     fn from(err: bincode::Error) -> Self {
-        Self::InternalSerialization(err.to_string())
+        Self::other("bincode", err)
     }
 }
 
 impl<T> From<UnknownVersion<T>> for Error {
     fn from(err: UnknownVersion<T>) -> Self {
-        Self::InternalSerialization(err.to_string())
+        Self::other("unknown versiion", err)
     }
 }
 
 #[cfg(feature = "password-hashing")]
 impl From<argon2::Error> for Error {
     fn from(err: argon2::Error) -> Self {
-        Self::PasswordHash(err.to_string())
+        Self::other("argon2", err)
     }
 }
 
 #[cfg(feature = "password-hashing")]
 impl From<argon2::password_hash::Error> for Error {
     fn from(err: argon2::password_hash::Error) -> Self {
-        Self::PasswordHash(err.to_string())
+        Self::other("argon2", err)
     }
 }
 
@@ -152,7 +149,7 @@ impl From<Error> for bonsaidb_core::Error {
     fn from(err: Error) -> Self {
         match err {
             Error::View(view::Error::Core(core)) | Error::Core(core) => core,
-            other => Self::Database(other.to_string()),
+            other => Self::other("bonsaidb-local", other),
         }
     }
 }
@@ -213,8 +210,8 @@ fn test_converting_error() {
     use serde::ser::Error as _;
     let err: bonsaidb_core::Error = Error::Serialization(pot::Error::custom("mymessage")).into();
     match err {
-        bonsaidb_core::Error::Database(storage_error) => {
-            assert!(storage_error.contains("mymessage"));
+        bonsaidb_core::Error::Other { error, .. } => {
+            assert!(error.contains("mymessage"));
         }
         _ => unreachable!(),
     }

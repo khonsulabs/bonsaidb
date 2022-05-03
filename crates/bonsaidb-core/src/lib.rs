@@ -45,7 +45,7 @@ pub mod networking;
 /// Types for Publish/Subscribe (`PubSub`) messaging.
 pub mod pubsub;
 
-use std::string::FromUtf8Error;
+use std::{fmt::Display, string::FromUtf8Error};
 
 pub use actionable;
 pub use arc_bytes;
@@ -123,42 +123,9 @@ pub enum Error {
     #[error("a database with name '{0}' already exists")]
     DatabaseNameAlreadyTaken(String),
 
-    /// An error from interacting with local storage.
-    #[error("error from storage: {0}")]
-    Database(String),
-
-    /// An error serializing data.
-    #[error("error serializing: {0}")]
-    Serialization(String),
-
-    /// An error from interacting with a server.
-    #[error("error from server: {0}")]
-    Server(String),
-
-    /// An error occurred from the QUIC transport layer.
-    #[error("a transport error occurred: '{0}'")]
-    Transport(String),
-
-    /// An error occurred from the websocket transport layer.
-    #[cfg(feature = "websockets")]
-    #[error("a websocket error occurred: '{0}'")]
-    Websocket(String),
-
     /// An error occurred from networking.
     #[error("a networking error occurred: '{0}'")]
     Networking(networking::Error),
-
-    /// An error occurred from IO.
-    #[error("an io error occurred: '{0}'")]
-    Io(String),
-
-    /// An error occurred with the provided configuration options.
-    #[error("a configuration error occurred: '{0}'")]
-    Configuration(String),
-
-    /// An error occurred inside of the client.
-    #[error("an io error in the client: '{0}'")]
-    Client(String),
 
     /// A `Collection` being added already exists. This can be caused by a collection name not being unique.
     #[error("attempted to define a collection that already has been defined")]
@@ -234,9 +201,26 @@ pub enum Error {
     /// An error while operating with a time
     #[error("time error: {0}")]
     Time(#[from] TimeError),
+
+    /// An error from another crate.
+    #[error("error from {origin}: {error}")]
+    Other {
+        /// The origin of the error.
+        origin: String,
+        /// The error message.
+        error: String,
+    },
 }
 
 impl Error {
+    /// Returns an instance of [`Self::Other`] with the given parameters.
+    pub fn other(origin: impl Display, error: impl Display) -> Self {
+        Self::Other {
+            origin: origin.to_string(),
+            error: error.to_string(),
+        }
+    }
+
     /// Returns true if this error is a [`Error::UniqueKeyViolation`] from
     /// `View`.
     pub fn is_unique_key_error<View: schema::View, C: HasSchema>(&self, connection: &C) -> bool {
@@ -266,7 +250,7 @@ impl Error {
 
 impl From<pot::Error> for Error {
     fn from(err: pot::Error) -> Self {
-        Self::Serialization(err.to_string())
+        Self::other("pot", err)
     }
 }
 
@@ -278,7 +262,7 @@ impl<T> From<InsertError<T>> for Error {
 
 impl From<view::Error> for Error {
     fn from(err: view::Error) -> Self {
-        Self::Database(err.to_string())
+        Self::other("view", err)
     }
 }
 
@@ -290,7 +274,7 @@ impl From<FromUtf8Error> for Error {
 
 impl From<InvalidHexadecimal> for Error {
     fn from(err: InvalidHexadecimal) -> Self {
-        Self::Serialization(err.to_string())
+        Self::other("invalid hexadecimal", err)
     }
 }
 

@@ -277,7 +277,7 @@ pub trait SerializedCollection: Collection {
     fn deserialize(data: &[u8]) -> Result<Self::Contents, Error> {
         Self::format()
             .deserialize_owned(data)
-            .map_err(|err| crate::Error::Serialization(err.to_string()))
+            .map_err(|err| crate::Error::other("serialization", err))
     }
 
     /// Returns the deserialized contents of `doc`.
@@ -303,7 +303,7 @@ pub trait SerializedCollection: Collection {
     fn serialize(item: &Self::Contents) -> Result<Vec<u8>, Error> {
         Self::format()
             .serialize(item)
-            .map_err(|err| crate::Error::Serialization(err.to_string()))
+            .map_err(|err| crate::Error::other("serialization", err))
     }
 
     /// Gets a [`CollectionDocument`] with `id` from `connection`.

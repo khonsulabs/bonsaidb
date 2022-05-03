@@ -59,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bonsaidb::core::connection`
 - `ApiName` has been moved from `bonsaidb::core::schema` to
   `bonsaidb::core::api`.
+- Various error variants that were simply `String` representations have been
+  consoldiated into `bonsaidb::core::Error::Other`.
 
 [#240]: https://github.com/khonsulabs/bonsaidb/issues/240
 

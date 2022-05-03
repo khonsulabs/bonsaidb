@@ -231,7 +231,7 @@ impl DocumentId {
     ) -> Result<Self, crate::Error> {
         let bytes = value
             .as_ord_bytes()
-            .map_err(|err| crate::Error::Serialization(err.to_string()))?;
+            .map_err(|err| crate::Error::other("key serialization", err))?;
         Self::try_from(&bytes[..])
     }
 
@@ -256,7 +256,7 @@ impl DocumentId {
     /// Returns the contained value, deserialized back to its original type.
     pub fn deserialize<'a, PrimaryKey: Key<'a>>(&'a self) -> Result<PrimaryKey, crate::Error> {
         PrimaryKey::from_ord_bytes(self.as_ref())
-            .map_err(|err| crate::Error::Serialization(err.to_string()))
+            .map_err(|err| crate::Error::other("key serialization", err))
     }
 }
 

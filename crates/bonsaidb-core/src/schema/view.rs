@@ -152,14 +152,14 @@ pub trait SerializedView: View {
     fn deserialize(data: &[u8]) -> Result<Self::Value, crate::Error> {
         Self::format()
             .deserialize_owned(data)
-            .map_err(|err| crate::Error::Serialization(err.to_string()))
+            .map_err(|err| crate::Error::other("serialization", err))
     }
 
     /// Serialize `item` using this views's format.
     fn serialize(item: &Self::Value) -> Result<Vec<u8>, crate::Error> {
         Self::format()
             .serialize(item)
-            .map_err(|err| crate::Error::Serialization(err.to_string()))
+            .map_err(|err| crate::Error::other("serialization", err.to_string()))
     }
 
     /// Returns a builder for a view query or view reduce.

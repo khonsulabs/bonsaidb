@@ -151,11 +151,11 @@ async fn connect(
     let mut endpoint = Endpoint::builder();
     endpoint
         .set_max_idle_timeout(None)
-        .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
+        .map_err(|err| Error::Core(bonsaidb_core::Error::other("quic", err)))?;
     endpoint.set_protocols([protocol_version.as_bytes().to_vec()]);
     let endpoint = endpoint
         .build()
-        .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
+        .map_err(|err| Error::Core(bonsaidb_core::Error::other("quic", err)))?;
     let connecting = if let Some(certificate) = certificate {
         endpoint.connect_pinned(url, certificate, None).await?
     } else {

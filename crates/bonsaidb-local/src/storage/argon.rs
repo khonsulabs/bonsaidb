@@ -216,7 +216,7 @@ impl HashingThread {
         let mut params =
             match builder_template.get_or_init(|| self.initialize_builder_template(rng)) {
                 Ok(template) => template.clone(),
-                Err(error) => return Err(Error::PasswordHash(error.to_string())),
+                Err(error) => return Err(Error::other("argon2", error)),
             };
 
         params.data(&request.id.to_be_bytes())?;

@@ -181,10 +181,13 @@ impl<B: Backend> ConnectedClient<B> {
                 subscriber.subscribe_to_bytes(topic.0)?;
                 Ok(())
             } else {
-                Err(Error::Transport(String::from("invalid subscriber id")))
+                Err(Error::other(
+                    "bonsaidb-server pubsub",
+                    "invalid subscriber id",
+                ))
             }
         } else {
-            Err(Error::Transport(String::from("invalid session id")))
+            Err(Error::other("bonsaidb-server auth", "invalid session id"))
         }
     }
 
@@ -200,10 +203,13 @@ impl<B: Backend> ConnectedClient<B> {
                 subscriber.unsubscribe_from_bytes(topic)?;
                 Ok(())
             } else {
-                Err(Error::Transport(String::from("invalid subscriber id")))
+                Err(Error::other(
+                    "bonsaidb-server pubsub",
+                    "invalid subscriber id",
+                ))
             }
         } else {
-            Err(Error::Transport(String::from("invalid session id")))
+            Err(Error::other("bonsaidb-server auth", "invalid session id"))
         }
     }
 
@@ -217,10 +223,13 @@ impl<B: Backend> ConnectedClient<B> {
             if client_session.subscribers.remove(&subscriber_id).is_some() {
                 Ok(())
             } else {
-                Err(Error::Transport(String::from("invalid subscriber id")))
+                Err(Error::other(
+                    "bonsaidb-server pubsub",
+                    "invalid subscriber id",
+                ))
             }
         } else {
-            Err(Error::Transport(String::from("invalid session id")))
+            Err(Error::other("bonsaidb-server auth", "invalid session id"))
         }
     }
 }

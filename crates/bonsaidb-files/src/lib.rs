@@ -382,6 +382,15 @@ impl From<bonsaidb_core::Error> for Error {
     }
 }
 
+impl From<Error> for bonsaidb_core::Error {
+    fn from(err: Error) -> Self {
+        match err {
+            Error::Database(err) => err,
+            other => Self::other("bonsaidb-files", other),
+        }
+    }
+}
+
 /// Controls which location of a file to remove data from during a truncation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Truncate {

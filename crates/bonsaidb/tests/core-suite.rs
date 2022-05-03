@@ -298,11 +298,11 @@ async fn check_incompatible_client(client: Client) -> anyhow::Result<()> {
         .set_numeric_key("a", 1_u64)
         .await
     {
-        Err(bonsaidb_core::Error::Client(err)) => {
+        Err(bonsaidb_core::Error::Other { error, .. }) => {
             assert!(
-                err.contains("protocol version"),
+                error.contains("protocol version"),
                 "unexpected error: {:?}",
-                err
+                error
             );
         }
         other => unreachable!(

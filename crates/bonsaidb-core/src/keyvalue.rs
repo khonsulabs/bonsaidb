@@ -457,9 +457,10 @@ impl Value {
     pub fn deserialize<V: for<'de> Deserialize<'de>>(&self) -> Result<V, Error> {
         match self {
             Self::Bytes(bytes) => Ok(pot::from_slice(bytes)?),
-            Self::Numeric(_) => Err(Error::Database(String::from(
+            Self::Numeric(_) => Err(Error::other(
+                "key-value",
                 "key contains numeric value, not serialized data",
-            ))),
+            )),
         }
     }
 

@@ -242,7 +242,7 @@ impl<B: Backend> CustomServer<B> {
         let keypair = KeyPair::new_self_signed(&self.data.primary_domain);
 
         if self.certificate_chain().await.is_ok() && !overwrite {
-            return Err(Error::Core(bonsaidb_core::Error::Configuration(String::from("Certificate already installed. Enable overwrite if you wish to replace the existing certificate."))));
+            return Err(Error::Core(bonsaidb_core::Error::other("bonsaidb-server config", "Certificate already installed. Enable overwrite if you wish to replace the existing certificate.")));
         }
 
         self.install_certificate(keypair.certificate_chain(), keypair.private_key())
@@ -341,10 +341,10 @@ impl<B: Backend> CustomServer<B> {
             .into_iter()
             .next()
             .ok_or_else(|| {
-                Error::Core(bonsaidb_core::Error::Configuration(format!(
-                    "no certificate found for {}",
-                    self.data.primary_domain
-                )))
+                Error::Core(bonsaidb_core::Error::other(
+                    "bonsaidb-server config",
+                    format!("no certificate found for {}", self.data.primary_domain),
+                ))
             })?;
         Ok(certificate.contents)
     }
@@ -362,10 +362,10 @@ impl<B: Backend> CustomServer<B> {
         {
             Ok(mapping.value)
         } else {
-            Err(Error::Core(bonsaidb_core::Error::Configuration(format!(
-                "no certificate found for {}",
-                self.data.primary_domain
-            ))))
+            Err(Error::Core(bonsaidb_core::Error::other(
+                "bonsaidb-server config",
+                format!("no certificate found for {}", self.data.primary_domain),
+            )))
         }
     }
 
@@ -378,13 +378,9 @@ impl<B: Backend> CustomServer<B> {
         let mut builder = Endpoint::builder();
         builder.set_protocols([CURRENT_PROTOCOL_VERSION.as_bytes().to_vec()]);
         builder.set_address(([0; 8], port).into());
-        builder
-            .set_max_idle_timeout(None)
-            .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
+        builder.set_max_idle_timeout(None)?;
         builder.set_server_key_pair(Some(keypair));
-        let mut server = builder
-            .build()
-            .map_err(|err| Error::Core(bonsaidb_core::Error::Transport(err.to_string())))?;
+        let mut server = builder.build()?;
         {
             let mut endpoint = fast_async_write!(self.data.endpoint);
             *endpoint = Some(server.clone());
