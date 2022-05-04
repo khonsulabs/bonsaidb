@@ -81,7 +81,7 @@ Shape { sides: 3 }.push_into(&db)?;
 And query data using the Map-Reduce-powered view:
 
 ```rust,ignore
-let triangles = db.view::<ShapesByNumberOfSides>().with_key(&3).query()?;
+let triangles = ShapesByNumberOfSides::entries(&db).with_key(&3).query()?;
 println!("Number of triangles: {}", triangles.len());
 ```
 
@@ -111,8 +111,9 @@ feature:
 bonsaidb = { version = "*", features = "full" }
 ```
 
-- `full`: Enables `local-full`, `server-full`, and `client-full`.
+- `full`: Enables the features below and `local-full`, `server-full`, and `client-full`.
 - `cli`: Enables the `bonsaidb` executable.
+- `files`: Enables file storage support with `bonsaidb-files`
 - `password-hashing`: Enables the ability to use password authentication using
   Argon2 via `AnyConnection`.
 - `token-authentication`: Enables the ability to authenticate using

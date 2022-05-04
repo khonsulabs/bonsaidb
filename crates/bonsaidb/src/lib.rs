@@ -20,6 +20,9 @@
 pub use bonsaidb_client as client;
 #[doc(inline)]
 pub use bonsaidb_core as core;
+#[cfg(feature = "files")]
+#[doc(inline)]
+pub use bonsaidb_files as files;
 #[cfg(feature = "local")]
 #[doc(inline)]
 pub use bonsaidb_local as local;

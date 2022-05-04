@@ -79,8 +79,9 @@ feature:
 bonsaidb = { version = "*", features = "full" }
 ```
 
-- `full`: Enables `local-full`, `server-full`, and `client-full`.
+- `full`: Enables the features below and `local-full`, `server-full`, and `client-full`.
 - `cli`: Enables the `bonsaidb` executable.
+- `files`: Enables file storage support with `bonsaidb-files`
 - `password-hashing`: Enables the ability to use password authentication using
   Argon2 via `AnyConnection`.
 - `token-authentication`: Enables the ability to authenticate using

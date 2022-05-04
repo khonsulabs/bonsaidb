@@ -31,14 +31,15 @@ required-features = ["server", "client"]
 
 [features]
 default = []
-full = ["local-full", "server-full", "client-full"]
+full = ["local-full", "server-full", "client-full", "files"]
 local-full = ["local", "bonsaidb-local?/full"]
 local = ["dep:bonsaidb-local"]
 server-full = ["server", "bonsaidb-server?/full"]
-server = ["dep:bonsaidb-server", "local"]
+server = ["dep:bonsaidb-server", "local", "async"]
 client-full = ["client", "bonsaidb-client?/full"]
 client = ["dep:bonsaidb-client"]
 test-util = ["bonsaidb-client?/test-util", "bonsaidb-server?/test-util"]
+files = ["bonsaidb-files"]
 
 keystorage-s3 = ["bonsaidb-keystorage-s3"]
 
@@ -79,7 +80,7 @@ token-authentication = [
 
 compression = ["bonsaidb-local?/compression", "bonsaidb-server?/compression"]
 
-async = ["bonsaidb-local?/async"]
+async = ["bonsaidb-local?/async", "bonsaidb-files?/async"]
 
 [dependencies]
 bonsaidb-core = { path = "../bonsaidb-core", version = "=0.4.0", default-features = false, features = [
@@ -95,6 +96,7 @@ bonsaidb-server = { path = "../bonsaidb-server", version = "=0.4.0", default-fea
     "included-from-omnibus",
 ], optional = true }
 bonsaidb-keystorage-s3 = { path = "../bonsaidb-keystorage-s3", version = "0.4.0", default-features = false, optional = true }
+bonsaidb-files = { path = "../bonsaidb-files", version = "0.1.0", optional = true }
 
 tokio = { version = "1.16.1", features = ["full"], optional = true }
 clap = { version = "3", optional = true, features = ["derive"] }

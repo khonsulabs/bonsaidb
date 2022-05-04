@@ -80,7 +80,7 @@ pub trait Connection: LowLevelConnection + Sized + Send + Sync {
     ///
     /// ## Errors
     ///
-    /// * [`Error::Io`]: an error occurred while compacting the database.
+    /// * [`Error::Other`]: an error occurred while compacting the database.
     fn compact(&self) -> Result<(), crate::Error>;
 
     /// Compacts the collection to reclaim unused disk space.
@@ -93,7 +93,7 @@ pub trait Connection: LowLevelConnection + Sized + Send + Sync {
     /// ## Errors
     ///
     /// * [`Error::CollectionNotFound`]: database `name` does not exist.
-    /// * [`Error::Io`]: an error occurred while compacting the database.
+    /// * [`Error::Other`]: an error occurred while compacting the database.
     fn compact_collection<C: schema::Collection>(&self) -> Result<(), crate::Error> {
         self.compact_collection_by_name(C::collection_name())
     }
@@ -107,7 +107,7 @@ pub trait Connection: LowLevelConnection + Sized + Send + Sync {
     ///
     /// ## Errors
     ///
-    /// * [`Error::Io`]: an error occurred while compacting the database.
+    /// * [`Error::Other`]: an error occurred while compacting the database.
     fn compact_key_value_store(&self) -> Result<(), crate::Error>;
 }
 
@@ -1094,7 +1094,7 @@ pub trait AsyncConnection: AsyncLowLevelConnection + Sized + Send + Sync {
     ///
     /// ## Errors
     ///
-    /// * [`Error::Io`]: an error occurred while compacting the database.
+    /// * [`Error::Other`]: an error occurred while compacting the database.
     async fn compact(&self) -> Result<(), crate::Error>;
 
     /// Compacts the collection to reclaim unused disk space.
@@ -1107,7 +1107,7 @@ pub trait AsyncConnection: AsyncLowLevelConnection + Sized + Send + Sync {
     /// ## Errors
     ///
     /// * [`Error::CollectionNotFound`]: database `name` does not exist.
-    /// * [`Error::Io`]: an error occurred while compacting the database.
+    /// * [`Error::Other`]: an error occurred while compacting the database.
     async fn compact_collection<C: schema::Collection>(&self) -> Result<(), crate::Error> {
         self.compact_collection_by_name(C::collection_name()).await
     }
@@ -1121,7 +1121,7 @@ pub trait AsyncConnection: AsyncLowLevelConnection + Sized + Send + Sync {
     ///
     /// ## Errors
     ///
-    /// * [`Error::Io`]: an error occurred while compacting the database.
+    /// * [`Error::Other`]: an error occurred while compacting the database.
     async fn compact_key_value_store(&self) -> Result<(), crate::Error>;
 }
 
@@ -3029,7 +3029,7 @@ pub trait StorageConnection: HasSession + Sized + Send + Sync {
     /// ## Errors
     ///
     /// * [`Error::DatabaseNotFound`]: database `name` does not exist.
-    /// * [`Error::Io`]: an error occurred while deleting files.
+    /// * [`Error::Other`]: an error occurred while deleting files.
     fn delete_database(&self, name: &str) -> Result<(), crate::Error>;
 
     /// Lists the databases in this storage.
@@ -3221,7 +3221,7 @@ pub trait AsyncStorageConnection: HasSession + Sized + Send + Sync {
     /// ## Errors
     ///
     /// * [`Error::DatabaseNotFound`]: database `name` does not exist.
-    /// * [`Error::Io`]: an error occurred while deleting files.
+    /// * [`Error::Other`]: an error occurred while deleting files.
     async fn delete_database(&self, name: &str) -> Result<(), crate::Error>;
 
     /// Lists the databases in this storage.

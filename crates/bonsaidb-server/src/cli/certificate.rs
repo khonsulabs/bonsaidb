@@ -11,9 +11,7 @@ pub enum Command {
     /// Installs a self-signed certificate into the server. The server can only
     /// have one global self-signed certificate. If `overwrite` is true, any
     /// existing certificate will be overwritten. If `overwrite` is false and a
-    /// certificate already exists,
-    /// [`Error::Configuration`](bonsaidb_core::Error::Configuration) is
-    /// returned.
+    /// certificate already exists, an error is returned.
     InstallSelfSigned {
         /// If an existing certificate exists, an error will be returned unless
         /// `overwrite` is true.

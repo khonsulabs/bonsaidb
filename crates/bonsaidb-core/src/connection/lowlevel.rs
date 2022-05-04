@@ -557,7 +557,7 @@ pub trait LowLevelConnection: HasSchema + HasSession {
     /// ## Errors
     ///
     /// * [`Error::CollectionNotFound`]: database `name` does not exist.
-    /// * [`Error::Io`]: an error occurred while compacting the database.
+    /// * [`Error::Other`]: an error occurred while compacting the database.
     fn compact_collection_by_name(&self, collection: CollectionName) -> Result<(), Error>;
 
     /// Queries for view entries from the named `view`.
@@ -1182,7 +1182,7 @@ pub trait AsyncLowLevelConnection: HasSchema + HasSession + Send + Sync {
     /// ## Errors
     ///
     /// * [`Error::CollectionNotFound`]: database `name` does not exist.
-    /// * [`Error::Io`]: an error occurred while compacting the database.
+    /// * [`Error::Other`]: an error occurred while compacting the database.
     async fn compact_collection_by_name(&self, collection: CollectionName) -> Result<(), Error>;
 
     /// Queries for view entries from the named `view`.
