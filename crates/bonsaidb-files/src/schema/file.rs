@@ -22,7 +22,9 @@ use bonsaidb_utils::next_string_sequence;
 use derive_where::derive_where;
 use serde::{Deserialize, Serialize};
 
-use crate::{direct::BlockInfo, schema::block::Block, BonsaiFiles, Error, FileConfig, Truncate};
+use crate::{
+    direct::BlockInfo, schema::block::Block, BonsaiFiles, Error, FileConfig, Statistics, Truncate,
+};
 
 #[derive_where(Debug, Clone)]
 #[derive(Serialize, Deserialize)]
@@ -243,6 +245,52 @@ where
                 .query()
                 .await?,
         )
+    }
+
+    pub fn summarize_recursive_path_contents<Database: Connection>(
+        path: &str,
+        database: &Database,
+    ) -> Result<Statistics, bonsaidb_core::Error> {
+        let ids = database
+            .view::<ByPath<Config>>()
+            .with_key_prefix(&FileKey::RecursivePath {
+                start: Box::new(FileKey::RecursivePathPart { path, start: true }),
+                end: Box::new(FileKey::RecursivePathPart { path, start: false }),
+            })
+            .query()?
+            .iter()
+            .map(|mapping| mapping.source.id.deserialize())
+            .collect::<Result<Vec<u32>, _>>()?;
+        let append_info = Block::<Config>::summary_for_ids(&ids, database)?;
+        Ok(Statistics {
+            total_bytes: append_info.length,
+            last_appended_at: append_info.timestamp,
+            file_count: ids.len(),
+        })
+    }
+
+    #[cfg(feature = "async")]
+    pub async fn summarize_recursive_path_contents_async<Database: AsyncConnection>(
+        path: &str,
+        database: &Database,
+    ) -> Result<Statistics, bonsaidb_core::Error> {
+        let ids = database
+            .view::<ByPath<Config>>()
+            .with_key_prefix(&FileKey::RecursivePath {
+                start: Box::new(FileKey::RecursivePathPart { path, start: true }),
+                end: Box::new(FileKey::RecursivePathPart { path, start: false }),
+            })
+            .query()
+            .await?
+            .iter()
+            .map(|mapping| mapping.source.id.deserialize())
+            .collect::<Result<Vec<u32>, _>>()?;
+        let append_info = Block::<Config>::summary_for_ids_async(&ids, database).await?;
+        Ok(Statistics {
+            total_bytes: append_info.length,
+            last_appended_at: append_info.timestamp,
+            file_count: ids.len(),
+        })
     }
 
     pub fn truncate<Database: Connection>(

@@ -24,7 +24,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     schema::{self, block::BlockAppendInfo},
-    BonsaiFiles, Error, FileConfig, Truncate,
+    BonsaiFiles, Error, FileConfig, Statistics, Truncate,
 };
 
 /// A handle to a file stored in a database.
@@ -113,6 +113,13 @@ where
                 })
                 .collect()
         })
+    }
+
+    pub(crate) fn stats_for_path(
+        path: &str,
+        database: &Database,
+    ) -> Result<Statistics, bonsaidb_core::Error> {
+        schema::file::File::<Config>::summarize_recursive_path_contents(path, database)
     }
 
     /// Return all direct descendents of this file. For example, consider this
@@ -344,6 +351,13 @@ where
                     })
                     .collect()
             })
+    }
+
+    pub(crate) async fn stats_for_path_async(
+        path: &str,
+        database: &Database,
+    ) -> Result<Statistics, bonsaidb_core::Error> {
+        schema::file::File::<Config>::summarize_recursive_path_contents_async(path, database).await
     }
 
     /// Return all direct descendents of this file. For example, consider this

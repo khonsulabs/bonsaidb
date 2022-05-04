@@ -170,15 +170,16 @@ fn simple_path_test() {
     let directory = TestDirectory::new("simple-path");
     let database = Database::open::<FilesSchema>(StorageConfiguration::new(&directory)).unwrap();
 
+    let data = b"hello";
     let file = BonsaiFiles::build("hello.txt")
         .at_path("/some/containing/path")
-        .contents(b"hello, world!")
+        .contents(data)
         .create(&database)
         .unwrap();
     let contents = file.contents().unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
     let bytes = contents.into_vec().unwrap();
-    assert_eq!(bytes, b"hello, world!");
+    assert_eq!(bytes, data);
 
     let file = BonsaiFiles::load("/some/containing/path/hello.txt", &database)
         .unwrap()
@@ -186,15 +187,60 @@ fn simple_path_test() {
     assert_eq!(file.name(), "hello.txt");
     assert_eq!(file.containing_path(), "/some/containing/path/");
 
-    // One query intentionally ends with a / and one doesn't.
-    let some_contents = BonsaiFiles::list("/some/", &database).unwrap();
+    let data2 = b"world!";
+    let file2 = BonsaiFiles::build("world.txt")
+        .at_path("/some/")
+        .contents(data2)
+        .create(&database)
+        .unwrap();
+    let contents = file2.contents().unwrap();
+    let bytes = contents.into_vec().unwrap();
+    assert_eq!(bytes, data2);
+
+    let some_contents = BonsaiFiles::list("/", &database).unwrap();
     assert_eq!(some_contents.len(), 0);
+    // First query intentionally has no trailing slash. The rest have trailing slashes.
     let path_contents = BonsaiFiles::list("/some/containing/path", &database).unwrap();
     assert_eq!(path_contents.len(), 1);
     assert_eq!(path_contents[0].name(), "hello.txt");
+    let path_contents = BonsaiFiles::list("/some/", &database).unwrap();
+    assert_eq!(path_contents.len(), 1);
+    let path_contents = BonsaiFiles::list("/some/containing/", &database).unwrap();
+    assert_eq!(path_contents.len(), 0);
 
     let all_contents = BonsaiFiles::list_recursive("/", &database).unwrap();
+    assert_eq!(all_contents.len(), 2);
+    let all_contents = BonsaiFiles::list_recursive("/some", &database).unwrap();
+    assert_eq!(all_contents.len(), 2);
+    let all_contents = BonsaiFiles::list_recursive("/some/containing/", &database).unwrap();
     assert_eq!(all_contents.len(), 1);
+    let all_contents = BonsaiFiles::list_recursive("/some/containing/path/", &database).unwrap();
+    assert_eq!(all_contents.len(), 1);
+
+    let stats = BonsaiFiles::stats(&database).unwrap();
+    assert_eq!(
+        stats.total_bytes,
+        u64::try_from(data.len() + data2.len()).unwrap()
+    );
+    assert_eq!(stats.file_count, 2);
+    assert_eq!(
+        BonsaiFiles::stats_for_path("/some", &database)
+            .unwrap()
+            .total_bytes,
+        u64::try_from(data.len() + data2.len()).unwrap()
+    );
+    assert_eq!(
+        BonsaiFiles::stats_for_path("/some/containing", &database)
+            .unwrap()
+            .total_bytes,
+        u64::try_from(data.len()).unwrap()
+    );
+    assert_eq!(
+        BonsaiFiles::stats_for_path("/nonexistant", &database)
+            .unwrap()
+            .total_bytes,
+        0
+    );
 
     // Test renaming and moving
     let mut file = file;
@@ -216,27 +262,36 @@ fn simple_path_test() {
         .unwrap()
         .unwrap();
     let contents = file.contents().unwrap().into_vec().unwrap();
-    assert_eq!(contents, b"hello, world!");
+    assert_eq!(contents, data);
+
+    assert_eq!(
+        BonsaiFiles::stats_for_path("/some", &database)
+            .unwrap()
+            .total_bytes,
+        u64::try_from(data2.len()).unwrap()
+    );
 }
 
 #[cfg(feature = "async")]
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn async_simple_path_test() {
     let directory = TestDirectory::new("simple-path-async");
     let database = AsyncDatabase::open::<FilesSchema>(StorageConfiguration::new(&directory))
         .await
         .unwrap();
 
+    let data = b"hello";
     let file = BonsaiFiles::build("hello.txt")
         .at_path("/some/containing/path")
-        .contents(b"hello, world!")
+        .contents(data)
         .create_async(&database)
         .await
         .unwrap();
     let contents = file.contents().await.unwrap();
     println!("Created file: {file:?}, length: {}", contents.len());
     let bytes = contents.into_vec().await.unwrap();
-    assert_eq!(bytes, b"hello, world!");
+    assert_eq!(bytes, data);
 
     let file = BonsaiFiles::load_async("/some/containing/path/hello.txt", &database)
         .await
@@ -245,19 +300,76 @@ async fn async_simple_path_test() {
     assert_eq!(file.name(), "hello.txt");
     assert_eq!(file.containing_path(), "/some/containing/path/");
 
-    // One query intentionally ends with a / and one doesn't.
-    let some_contents = BonsaiFiles::list_async("/some/", &database).await.unwrap();
+    let data2 = b"world!";
+    let file2 = BonsaiFiles::build("world.txt")
+        .at_path("/some/")
+        .contents(data2)
+        .create_async(&database)
+        .await
+        .unwrap();
+    let contents = file2.contents().await.unwrap();
+    let bytes = contents.into_vec().await.unwrap();
+    assert_eq!(bytes, data2);
+
+    let some_contents = BonsaiFiles::list_async("/", &database).await.unwrap();
     assert_eq!(some_contents.len(), 0);
+    // First query intentionally has no trailing slash. The rest have trailing slashes.
     let path_contents = BonsaiFiles::list_async("/some/containing/path", &database)
         .await
         .unwrap();
     assert_eq!(path_contents.len(), 1);
     assert_eq!(path_contents[0].name(), "hello.txt");
+    let path_contents = BonsaiFiles::list_async("/some/", &database).await.unwrap();
+    assert_eq!(path_contents.len(), 1);
+    let path_contents = BonsaiFiles::list_async("/some/containing/", &database)
+        .await
+        .unwrap();
+    assert_eq!(path_contents.len(), 0);
 
     let all_contents = BonsaiFiles::list_recursive_async("/", &database)
         .await
         .unwrap();
+    assert_eq!(all_contents.len(), 2);
+    let all_contents = BonsaiFiles::list_recursive_async("/some", &database)
+        .await
+        .unwrap();
+    assert_eq!(all_contents.len(), 2);
+    let all_contents = BonsaiFiles::list_recursive_async("/some/containing/", &database)
+        .await
+        .unwrap();
     assert_eq!(all_contents.len(), 1);
+    let all_contents = BonsaiFiles::list_recursive_async("/some/containing/path/", &database)
+        .await
+        .unwrap();
+    assert_eq!(all_contents.len(), 1);
+
+    let stats = BonsaiFiles::stats_async(&database).await.unwrap();
+    assert_eq!(
+        stats.total_bytes,
+        u64::try_from(data.len() + data2.len()).unwrap()
+    );
+    assert_eq!(stats.file_count, 2);
+    assert_eq!(
+        BonsaiFiles::stats_for_path_async("/some", &database)
+            .await
+            .unwrap()
+            .total_bytes,
+        u64::try_from(data.len() + data2.len()).unwrap()
+    );
+    assert_eq!(
+        BonsaiFiles::stats_for_path_async("/some/containing", &database)
+            .await
+            .unwrap()
+            .total_bytes,
+        u64::try_from(data.len()).unwrap()
+    );
+    assert_eq!(
+        BonsaiFiles::stats_for_path_async("/nonexistant", &database)
+            .await
+            .unwrap()
+            .total_bytes,
+        0
+    );
 
     // Test renaming and moving
     let mut file = file;
@@ -283,7 +395,15 @@ async fn async_simple_path_test() {
         .unwrap()
         .unwrap();
     let contents = file.contents().await.unwrap().into_vec().await.unwrap();
-    assert_eq!(contents, b"hello, world!");
+    assert_eq!(contents, data);
+
+    assert_eq!(
+        BonsaiFiles::stats_for_path_async("/some", &database)
+            .await
+            .unwrap()
+            .total_bytes,
+        u64::try_from(data2.len()).unwrap()
+    );
 }
 
 enum SmallBlocks {}

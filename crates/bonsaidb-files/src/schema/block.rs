@@ -173,6 +173,32 @@ where
             .await
     }
 
+    pub(crate) fn summary_for_ids<'a, Database: Connection, Iter: IntoIterator<Item = &'a u32>>(
+        file_ids: Iter,
+        database: &'a Database,
+    ) -> Result<BlockAppendInfo, bonsaidb_core::Error> {
+        database
+            .view::<ByFile<Config>>()
+            .with_keys(file_ids)
+            .reduce()
+    }
+
+    #[cfg(feature = "async")]
+    pub(crate) async fn summary_for_ids_async<
+        'a,
+        Database: AsyncConnection,
+        Iter: IntoIterator<Item = &'a u32>,
+    >(
+        file_ids: Iter,
+        database: &'a Database,
+    ) -> Result<BlockAppendInfo, bonsaidb_core::Error> {
+        database
+            .view::<ByFile<Config>>()
+            .with_keys(file_ids)
+            .reduce()
+            .await
+    }
+
     #[cfg(feature = "async")]
     pub(crate) async fn for_file_async<Database: AsyncConnection>(
         file_id: u32,
