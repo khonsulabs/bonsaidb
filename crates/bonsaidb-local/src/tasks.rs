@@ -61,6 +61,7 @@ impl TaskManager {
         &self,
         view: &dyn view::Serialized,
         database: &Database,
+        block_until_updated: bool,
     ) -> Result<(), crate::Error> {
         let view_name = view.view_name();
         if let Some(job) = self.spawn_integrity_check(view, database) {
@@ -96,6 +97,11 @@ impl TaskManager {
                             view_name: view_name.clone(),
                         },
                     });
+
+                    if !block_until_updated {
+                        break;
+                    }
+
                     let id = job.receive()??;
                     if wait_for_transaction <= id {
                         break;

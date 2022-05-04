@@ -186,6 +186,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed the `source` field of mappings returned from a View query when a
   document was updated but emitted the same key. Previously the value was
   correctly updated, but the source's revision was not updated.
+- When querying a View with `AccessPolicy::NoUpdate`, the integrity scanner is
+  now checked and waited upon before allowing access to the view.
+- When querying a View with `AccessPolicy::UpdateAfter`, the update task is no
+  longer blocked until complete.
 
 ## v0.4.1
 

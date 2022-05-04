@@ -219,7 +219,17 @@ impl Database {
             self.storage
                 .instance
                 .tasks()
-                .update_view_if_needed(view, self)?;
+                .update_view_if_needed(view, self, true)?;
+        } else if let Some(integrity_check) = self
+            .storage
+            .instance
+            .tasks()
+            .spawn_integrity_check(view, self)
+        {
+            integrity_check
+                .receive()
+                .map_err(Error::from)?
+                .map_err(Error::from)?;
         }
 
         let view_entries = self
@@ -247,7 +257,7 @@ impl Database {
             db.storage
                 .instance
                 .tasks()
-                .update_view_if_needed(view, &db)?;
+                .update_view_if_needed(view, &db, false)?;
         }
 
         Ok(())
