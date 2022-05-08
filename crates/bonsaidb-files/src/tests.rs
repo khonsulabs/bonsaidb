@@ -758,13 +758,14 @@ fn simple_metadata_test() {
         .metadata(42)
         .create(&database)
         .unwrap();
-    assert_eq!(file.metadata(), Some(&42));
+    assert_eq!(file.metadata(), &42);
     let mut file = SmallBlocks::get(file.id(), &database).unwrap().unwrap();
-    assert_eq!(file.metadata(), Some(&42));
-    file.update_metadata(52).unwrap();
+    assert_eq!(file.metadata(), &42);
+    *file.metadata_mut() = 52;
+    file.update_metadata().unwrap();
 
     let file = SmallBlocks::get(file.id(), &database).unwrap().unwrap();
-    assert_eq!(file.metadata(), Some(&52));
+    assert_eq!(file.metadata(), &52);
 }
 
 #[cfg(feature = "async")]
@@ -782,17 +783,18 @@ async fn async_metadata_test() {
         .create_async(&database)
         .await
         .unwrap();
-    assert_eq!(file.metadata(), Some(&42));
+    assert_eq!(file.metadata(), &42);
     let mut file = SmallBlocks::get_async(file.id(), &database)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(file.metadata(), Some(&42));
-    file.update_metadata(52).await.unwrap();
+    assert_eq!(file.metadata(), &42);
+    *file.metadata_mut() = 52;
+    file.update_metadata().await.unwrap();
 
     let file = SmallBlocks::get_async(file.id(), &database)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(file.metadata(), Some(&52));
+    assert_eq!(file.metadata(), &52);
 }

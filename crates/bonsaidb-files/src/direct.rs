@@ -63,7 +63,7 @@ where
         path: Option<String>,
         name: String,
         contents: &[u8],
-        metadata: Option<Config::Metadata>,
+        metadata: Config::Metadata,
         database: Database,
     ) -> Result<Self, Error> {
         Ok(Self {
@@ -263,16 +263,9 @@ where
         }
     }
 
-    /// Updates the metadata for this file.
-    pub fn update_metadata(
-        &mut self,
-        metadata: impl Into<Option<Config::Metadata>>,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let mut doc = self.doc.clone();
-        doc.contents.metadata = metadata.into();
-        doc.update(&self.database.0)?;
-        self.doc = doc;
-        Ok(())
+    /// Stores changes to the metadata of this document.
+    pub fn update_metadata(&mut self) -> Result<(), bonsaidb_core::Error> {
+        self.doc.update(&self.database.0)
     }
 }
 
@@ -286,7 +279,7 @@ where
         path: Option<String>,
         name: String,
         contents: &[u8],
-        metadata: Option<Config::Metadata>,
+        metadata: Config::Metadata,
         database: Database,
     ) -> Result<Self, Error> {
         Ok(Self {
@@ -515,16 +508,9 @@ where
         }
     }
 
-    /// Updates the metadata for this file.
-    pub async fn update_metadata(
-        &mut self,
-        metadata: impl Into<Option<Config::Metadata>>,
-    ) -> Result<(), bonsaidb_core::Error> {
-        let mut doc = self.doc.clone();
-        doc.contents.metadata = metadata.into();
-        doc.update_async(&self.database.0).await?;
-        self.doc = doc;
-        Ok(())
+    /// Stores changes to the metadata of this document.
+    pub async fn update_metadata(&mut self) -> Result<(), bonsaidb_core::Error> {
+        self.doc.update_async(&self.database.0).await
     }
 }
 
@@ -572,9 +558,16 @@ where
         self.doc.contents.created_at
     }
 
-    /// Returns the metadata for this file, if any was set.
-    pub fn metadata(&self) -> Option<&Config::Metadata> {
-        self.doc.contents.metadata.as_ref()
+    /// Returns the metadata for this file.
+    pub fn metadata(&self) -> &Config::Metadata {
+        &self.doc.contents.metadata
+    }
+
+    /// Returns mutable access metadata for this file. Modifying the metadata
+    /// will not update it in the database. Be sure to call `update_metadata()`
+    /// or another operation that persists the file.
+    pub fn metadata_mut(&mut self) -> &mut Config::Metadata {
+        &mut self.doc.contents.metadata
     }
 
     fn update_document_for_move(
@@ -615,12 +608,15 @@ where
     path: Option<String>,
     name: String,
     contents: &'a [u8],
-    metadata: Option<Config::Metadata>,
+    metadata: Config::Metadata,
     _config: PhantomData<Config>,
 }
 
 impl<'a, Config: FileConfig> FileBuilder<'a, Config> {
-    pub(crate) fn new<NameOrPath: AsRef<str>>(name_or_path: NameOrPath) -> Self {
+    pub(crate) fn new<NameOrPath: AsRef<str>>(
+        name_or_path: NameOrPath,
+        metadata: Config::Metadata,
+    ) -> Self {
         let mut name_or_path = name_or_path.as_ref();
         let (path, name) = if name_or_path.starts_with('/') {
             // Trim the trailing / if there is one.
@@ -640,7 +636,7 @@ impl<'a, Config: FileConfig> FileBuilder<'a, Config> {
             path,
             name,
             contents: b"",
-            metadata: None,
+            metadata,
             _config: PhantomData,
         }
     }
@@ -660,7 +656,7 @@ impl<'a, Config: FileConfig> FileBuilder<'a, Config> {
 
     /// Sets the file's initial metadata.
     pub fn metadata(mut self, metadata: Config::Metadata) -> Self {
-        self.metadata = Some(metadata);
+        self.metadata = metadata;
         self
     }
 

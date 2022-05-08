@@ -35,9 +35,7 @@ where
     pub path: Option<String>,
     pub name: String,
     pub created_at: TimestampAsNanoseconds,
-
-    #[serde(default)]
-    pub metadata: Option<Config::Metadata>,
+    pub metadata: Config::Metadata,
 
     #[serde(skip)]
     #[derive_where(skip)]
@@ -52,7 +50,7 @@ where
         mut path: Option<String>,
         name: String,
         contents: &[u8],
-        metadata: Option<Config::Metadata>,
+        metadata: Config::Metadata,
         database: &Database,
     ) -> Result<CollectionDocument<Self>, Error> {
         if name.contains('/') || name.is_empty() {
@@ -84,7 +82,7 @@ where
         mut path: Option<String>,
         name: String,
         contents: &[u8],
-        metadata: Option<Config::Metadata>,
+        metadata: Config::Metadata,
         database: &Database,
     ) -> Result<CollectionDocument<Self>, Error> {
         if name.contains('/') || name.is_empty() {
@@ -385,7 +383,7 @@ impl<Config> DefaultSerialization for File<Config> where Config: FileConfig {}
 
 #[derive_where(Clone, Debug, Default)]
 #[derive(View)]
-#[view(name = "by-path", collection = File<Config>, key = OwnedFileKey, value = (TimestampAsNanoseconds, Option<Config::Metadata>))]
+#[view(name = "by-path", collection = File<Config>, key = OwnedFileKey, value = (TimestampAsNanoseconds, Config::Metadata))]
 #[view(core = bonsaidb_core)]
 pub struct ByPath<Config>(PhantomData<Config>)
 where
@@ -398,7 +396,7 @@ where
     type View = Self;
 
     fn version(&self) -> u64 {
-        2
+        3
     }
 
     fn unique(&self) -> bool {

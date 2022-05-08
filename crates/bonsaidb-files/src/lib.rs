@@ -92,10 +92,22 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
     /// Builds a new file. If `name_or_path` starts with a `/`, the argument is
     /// treated as a full path to the file being built. Otherwise, the argument
     /// is treated as the file's name.
-    fn build<NameOrPath: AsRef<str>>(
+    fn build<NameOrPath: AsRef<str>>(name_or_path: NameOrPath) -> direct::FileBuilder<'static, Self>
+    where
+        Self::Metadata: Default,
+    {
+        direct::FileBuilder::new(name_or_path, <Self::Metadata as Default>::default())
+    }
+
+    /// Builds a new file. If `name_or_path` starts with a `/`, the argument is
+    /// treated as a full path to the file being built. Otherwise, the argument
+    /// is treated as the file's name. The file's metadata will be `metadata`
+    /// upon creation. The file's metadata will be `metadata` upon creation.
+    fn build_with_metadata<NameOrPath: AsRef<str>>(
         name_or_path: NameOrPath,
+        metadata: Self::Metadata,
     ) -> direct::FileBuilder<'static, Self> {
-        direct::FileBuilder::new(name_or_path)
+        direct::FileBuilder::new(name_or_path, metadata)
     }
 
     /// Returns the file with the unique `id` given, if found. This function
@@ -140,6 +152,41 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
         path: &str,
         expect_present: bool,
         database: &Database,
+    ) -> Result<direct::File<direct::Blocking<Database>, Self>, Error>
+    where
+        Self::Metadata: Default,
+    {
+        Self::load_or_create_with_metadata(
+            path,
+            <Self::Metadata as Default>::default(),
+            expect_present,
+            database,
+        )
+    }
+
+    /// Returns the file locate at `path`, or creates an empty file if not
+    /// currently present.
+    ///
+    /// If `expect_present` is true, this function will first check for an
+    /// existing file before attempting to create the file. This parameter is
+    /// purely an optimization, and the function will work regardless of the
+    /// value. Pass true if you expect the file to be present a majority of the
+    /// time this function is invoked. For example, using this function to
+    /// retrieve a file created once and append to the same path in the future,
+    /// passing true will make this function slightly more optimized for the
+    /// most common flow.
+    ///
+    /// Regardless whether `expect_present` is true or false, this function will
+    /// proceed by attempting to create a file at `path`, relying on BonsaiDb's
+    /// ACID-compliance to notify of a conflict if another request succeeds
+    /// before this one. If a conflict occurs, this function will then attempt
+    /// to load the document. If the document has been deleted, the
+    /// [`Error::Deleted`] will be returned.
+    fn load_or_create_with_metadata<Database: Connection + Clone>(
+        path: &str,
+        metadata: Self::Metadata,
+        expect_present: bool,
+        database: &Database,
     ) -> Result<direct::File<direct::Blocking<Database>, Self>, Error> {
         // First, try loading the file if we expect the file will be present
         // (ie, a singleton file that is always preseent after the first
@@ -151,7 +198,7 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
         }
 
         // File not found, or we are going to assume the file isn't present.
-        match Self::build(path).create(database) {
+        match Self::build_with_metadata(path, metadata).create(database) {
             Ok(file) => Ok(file),
             Err(Error::AlreadyExists) => {
                 // Rather than continue to loop, we will just propogate the
@@ -264,6 +311,43 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
         path: &str,
         expect_present: bool,
         database: &Database,
+    ) -> Result<direct::File<direct::Async<Database>, Self>, Error>
+    where
+        Self::Metadata: Default,
+    {
+        Self::load_or_create_with_metadata_async(
+            path,
+            <Self::Metadata as Default>::default(),
+            expect_present,
+            database,
+        )
+        .await
+    }
+
+    /// Returns the file locate at `path`, or creates an empty file if not
+    /// currently present.
+    ///
+    /// If `expect_present` is true, this function will first check for an
+    /// existing file before attempting to create the file. This parameter is
+    /// purely an optimization, and the function will work regardless of the
+    /// value. Pass true if you expect the file to be present a majority of the
+    /// time this function is invoked. For example, using this function to
+    /// retrieve a file created once and append to the same path in the future,
+    /// passing true will make this function slightly more optimized for the
+    /// most common flow.
+    ///
+    /// Regardless whether `expect_present` is true or false, this function will
+    /// proceed by attempting to create a file at `path`, relying on BonsaiDb's
+    /// ACID-compliance to notify of a conflict if another request succeeds
+    /// before this one. If a conflict occurs, this function will then attempt
+    /// to load the document. If the document has been deleted, the
+    /// [`Error::Deleted`] will be returned.
+    #[cfg(feature = "async")]
+    async fn load_or_create_with_metadata_async<Database: AsyncConnection + Clone>(
+        path: &str,
+        metadata: Self::Metadata,
+        expect_present: bool,
+        database: &Database,
     ) -> Result<direct::File<direct::Async<Database>, Self>, Error> {
         // First, try loading the file if we expect the file will be present
         // (ie, a singleton file that is always preseent after the first
@@ -275,7 +359,10 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
         }
 
         // File not found, or we are going to assume the file isn't present.
-        match Self::build(path).create_async(database).await {
+        match Self::build_with_metadata(path, metadata)
+            .create_async(database)
+            .await
+        {
             Ok(file) => Ok(file),
             Err(Error::AlreadyExists) => {
                 // Rather than continue to loop, we will just propogate the
@@ -356,7 +443,7 @@ pub trait FileConfig: Sized + Send + Sync + Unpin + 'static {
 pub struct BonsaiFiles;
 
 impl FileConfig for BonsaiFiles {
-    type Metadata = ();
+    type Metadata = Option<()>;
     const BLOCK_SIZE: usize = 65_536;
 
     fn files_name() -> CollectionName {
