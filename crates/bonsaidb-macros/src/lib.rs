@@ -799,28 +799,37 @@ pub fn file_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     // TODO error if only authority is given
+    // let (files_name, blocks_name) = if let (Some (authority) = authority {
+    //     let files_name = files_name.unwrap_or_else(|| abort_call_site!("if `authority` is given, `files_name` and `blocks_name need to be provided as well"));
+    //     (,())
+    // }
 
-    let files_name = files_name.map_or_else(
-        || quote!(#files::BonsaiFiles::files_name()),
-        |files_name| {
-            authority.as_ref().map_or_else(
-                || quote!(#core::schema::Qualified::private(#files_name)),
-                |authority| quote!(#core::schema::Qualified::new(#authority, #files_name)),
-            )
-        },
-    );
+    let (files_name, blocks_name) = match (authority, files_name, blocks_name) {
+        (None, None, None) => (
+            quote!(#files::BonsaiFiles::files_name()),
+            quote!(#files::BonsaiFiles::blocks_name()),
+        ),
+        (Some(authority), Some(files_name), Some(blocks_name)) => (
+            quote!(#core::schema::Qualified::new(#authority, #files_name)),
+            quote!(#core::schema::Qualified::new(#authority, #blocks_name)),
+        ),
+        (None, Some(files_name), Some(blocks_name)) => (
+            quote!(#core::schema::Qualified::private(#files_name)),
+            quote!(#core::schema::Qualified::private(#blocks_name)),
+        ),
+        (Some(_), ..) => abort_call_site!(
+            "if `authority` is specified, `files_name` and `blocks_name need to be provided as well"
+        ),
+        (_, Some(_), _) => abort_call_site!(
+            "if `files_name` is specified, `blocks_name` needs to be provided as well"
+        ),
+        (_,_, Some(_)) => abort_call_site!(
+            "if `blocks_name` is specified, `files_name` needs to be provided as well"
+        ),
+    };
 
-    let blocks_name = blocks_name.map_or_else(
-        || quote!(#files::BonsaiFiles::blocks_name()),
-        |blocks_name| {
-            authority.map_or_else(
-                || quote!(#core::schema::Qualified::private(#blocks_name)),
-                |authority| quote!(#core::schema::Qualified::new(#authority, #blocks_name)),
-            )
-        },
-    );
-
-    let metadata = metadata.unwrap_or_else(|| parse_quote!(<#files::BonsaiFiles as #files::FileConfig>::Metadata));
+    let metadata = metadata
+        .unwrap_or_else(|| parse_quote!(<#files::BonsaiFiles as #files::FileConfig>::Metadata));
     let block_size = block_size.map_or_else(
         || quote!(<#files::BonsaiFiles as #files::FileConfig>::BLOCK_SIZE),
         |block_size| quote!(#block_size),
