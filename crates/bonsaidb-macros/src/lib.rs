@@ -798,12 +798,6 @@ pub fn file_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
     let files = files.unwrap_or_else(files_path);
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-    // TODO error if only authority is given
-    // let (files_name, blocks_name) = if let (Some (authority) = authority {
-    //     let files_name = files_name.unwrap_or_else(|| abort_call_site!("if `authority` is given, `files_name` and `blocks_name need to be provided as well"));
-    //     (,())
-    // }
-
     let (files_name, blocks_name) = match (authority, files_name, blocks_name) {
         (None, None, None) => (
             quote!(#files::BonsaiFiles::files_name()),
