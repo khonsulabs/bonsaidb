@@ -88,7 +88,6 @@ impl Job for Mapper {
 
         let storage = self.database.clone();
         let map_request = self.map.clone();
-
         map_view(
             &invalidated_entries,
             &document_map,

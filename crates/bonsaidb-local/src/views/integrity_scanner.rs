@@ -74,8 +74,6 @@ impl Job for IntegrityScanner {
         let task = if version.is_current(view_version) {
             None
         } else {
-            // The view isn't the current version, queue up all documents.
-            let missing_entries = tree_keys::<Versioned>(&documents)?;
             // When a version is updated, we can make no guarantees about
             // existing keys. The best we can do is delete the existing files so
             // that the view starts fresh.
@@ -96,6 +94,8 @@ impl Job for IntegrityScanner {
                     view_name.to_string().as_bytes().to_vec(),
                     ViewVersion::current_for(view_version).to_vec()?,
                 )?;
+                // The view isn't the current version, queue up all documents.
+                let missing_entries = tree_keys::<Versioned>(&documents)?;
                 let mut invalidated_entries = transaction.tree::<Unversioned>(0).unwrap();
                 let mut missing_entries = missing_entries
                     .into_iter()

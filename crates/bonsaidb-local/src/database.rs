@@ -39,6 +39,7 @@ use bonsaidb_core::{
 use itertools::Itertools;
 use nebari::{
     io::any::AnyFile,
+    transaction::TransactionId,
     tree::{
         AnyTreeRoot, BorrowByteRange, BorrowedRange, CompareSwap, Root, ScanEvaluation, TreeRoot,
         Unversioned, Versioned,
@@ -839,11 +840,14 @@ impl Database {
         )
     )]
     #[allow(clippy::unnecessary_wraps)]
-    pub(crate) fn collection_tree<R: Root, S: Into<Cow<'static, str>>>(
+    pub(crate) fn collection_tree<R: Root + Default, S: Into<Cow<'static, str>>>(
         &self,
         collection: &CollectionName,
         name: S,
-    ) -> Result<TreeRoot<R, AnyFile>, Error> {
+    ) -> Result<TreeRoot<R, AnyFile>, Error>
+    where
+        R::Reducer: Default,
+    {
         let mut tree = R::tree(name);
 
         #[cfg(any(feature = "encryption", feature = "compression"))]
@@ -1015,7 +1019,7 @@ impl Connection for Database {
         .unwrap();
         if result_limit > 0 {
             let range = if let Some(starting_id) = starting_id {
-                Range::from(starting_id..)
+                Range::from(TransactionId(starting_id)..)
             } else {
                 Range::from(..)
             };
@@ -1037,7 +1041,7 @@ impl Connection for Database {
                     if let Some(data) = entry.data() {
                         let changes = compat::deserialize_executed_transaction_changes(data)?;
                         Ok(Some(transaction::Executed {
-                            id: entry.id,
+                            id: entry.id.0,
                             changes,
                         }))
                     } else {
@@ -1066,7 +1070,11 @@ impl Connection for Database {
             database_resource_name(self.name()),
             &BonsaiAction::Database(DatabaseAction::Transaction(TransactionAction::GetLastId)),
         )?;
-        Ok(self.roots().transactions().current_transaction_id())
+        Ok(self
+            .roots()
+            .transactions()
+            .current_transaction_id()
+            .map(|id| id.0))
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(
@@ -1146,7 +1154,7 @@ impl LowLevelConnection for Database {
             self.check_permission(&resource, &action)?;
         }
 
-        let mut eager_view_tasks = Vec::new();
+        let mut view_tasks = Vec::new();
         for collection_name in transaction
             .operations
             .iter()
@@ -1155,24 +1163,25 @@ impl LowLevelConnection for Database {
         {
             if let Some(views) = self.data.schema.views_in_collection(collection_name) {
                 for view in views {
-                    if view.eager() {
-                        if let Some(task) = self
-                            .storage
-                            .instance
-                            .tasks()
-                            .spawn_integrity_check(view, self)
-                        {
-                            eager_view_tasks.push(task);
-                        }
+                    if let Some(task) = self
+                        .storage
+                        .instance
+                        .tasks()
+                        .spawn_integrity_check(view, self)
+                    {
+                        view_tasks.push((view.eager(), task));
                     }
                 }
             }
         }
 
         let mut eager_view_mapping_tasks = Vec::new();
-        for task in eager_view_tasks {
+        for (eager, task) in view_tasks {
             if let Some(spawned_task) = task.receive().map_err(Error::from)?.map_err(Error::from)? {
-                eager_view_mapping_tasks.push(spawned_task);
+                // Eager views need to be fully updated.
+                if eager {
+                    eager_view_mapping_tasks.push(spawned_task);
+                }
             }
         }
 
@@ -1371,7 +1380,7 @@ impl LowLevelConnection for Database {
         let ids = DocumentIdRange(ids);
         let stats = tree.reduce(&ids.borrow_as_bytes()).map_err(Error::from)?;
 
-        Ok(stats.alive_keys)
+        Ok(stats.map_or(0, |stats| stats.alive_keys))
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(

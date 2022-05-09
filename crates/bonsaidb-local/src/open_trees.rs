@@ -26,7 +26,9 @@ impl OpenTrees {
         &mut self,
         name: &str,
         #[cfg(any(feature = "encryption", feature = "compression"))] vault: Option<TreeVault>,
-    ) {
+    ) where
+        R::Reducer: Default,
+    {
         if !self.trees_index_by_name.contains_key(name) {
             self.trees_index_by_name
                 .insert(name.to_string(), self.trees.len());

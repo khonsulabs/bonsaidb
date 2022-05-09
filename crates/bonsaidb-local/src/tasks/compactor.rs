@@ -140,7 +140,10 @@ fn compact_trees(database: &Database, targets: Vec<Target>) -> Result<(), Error>
 fn compact_tree<R: Root, S: Into<Cow<'static, str>>>(
     database: &Database,
     name: S,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    R::Reducer: Default,
+{
     let documents = database.roots().tree(R::tree(name))?;
     documents.compact()?;
     Ok(())
