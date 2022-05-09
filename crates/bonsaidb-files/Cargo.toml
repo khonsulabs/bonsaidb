@@ -19,6 +19,7 @@ name = "basic-files-async"
 required-features = ["async"]
 
 [dependencies]
+bonsaidb-macros = { path = "../bonsaidb-macros", version = "=0.4.0" }
 bonsaidb-core = { version = "0.4.0", path = "../bonsaidb-core" }
 bonsaidb-utils = { version = "0.4.0", path = "../bonsaidb-utils" }
 derive-where = "=1.0.0-rc.2"
